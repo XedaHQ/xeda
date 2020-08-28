@@ -1,5 +1,5 @@
 
-# © 2020 [Kamyar Mohajerani](malto:kamyar@ieee.org)
+# © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
 # These settings are set by SASSYN
 set design_name         {{design.name}}

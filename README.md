@@ -12,4 +12,4 @@ Simplified Automation for Simulation and SYnthesis
 - Dependencies
 
 
-© 2020 [Kamyar Mohajerani](malto:kamyar@ieee.org)
+© 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
