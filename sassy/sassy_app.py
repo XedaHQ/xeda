@@ -14,28 +14,15 @@ class SassyApp:
     def __init__(self):
         self.registered_suites = dict()
         self.parser = argparse.ArgumentParser()
-        self.opts = None
-
-        # Create a logger object.
+        self.args = None
         self.logger = logging.getLogger(__package__)
-
-        # By default the install() function installs a handler on the root logger,
-        # this means that log messages from your code and log messages from the
-        # libraries that you use will all show up on the terminal.
-        # coloredlogs.install(level='DEBUG')
-
-        # If you don't want to see log messages from libraries, you can pass a
-        # specific logger object to the install() function. In this case only log
-        # messages originating from that logger will show up on the terminal.
-        
-
 
     def register_suites(self, *flow_classes):
         for cls in flow_classes:
             self.registered_suites[cls.name] = cls
 
     def main(self):
-        args = self.parse_args()
+        args = self.args = self.parse_args()
 
         coloredlogs.install(level='DEBUG' if args.debug else 'INFO',
                             fmt='%(asctime)s %(levelname)s %(message)s', logger=self.logger)
@@ -56,24 +43,24 @@ class SassyApp:
         except IsADirectoryError as e:
             sys.exit(f' The specified design json file is a directory.\n {e}')
 
-        if args.command == 'run':
+        def get_suite_flow(flow_name=None):
             splitted_flow_name = args.flow.split(':')
             suite_name = splitted_flow_name[0]
-            flow_name = None
+            if suite_name not in self.registered_suites:
+                sys.exit(f"Suite `{suite_name}` is not currently supported. ")
             if len(splitted_flow_name) > 1:
                 flow_name = splitted_flow_name[1]
-            flow = self.registered_suites[suite_name](settings, args, self.logger)
-            flow.run(flow_name)
+            suite = self.registered_suites[suite_name](settings, args, self.logger)
+            return suite, flow_name
+
+        if args.command == 'run':
+            suite, flow_name = get_suite_flow(flow_name=None)
+            suite.run(flow_name)
 
         if args.command == 'fmax':
-            splitted_flow_name = args.flow.split(':')
-            suite_name = splitted_flow_name[0]
-            flow_name = None
-            if len(splitted_flow_name) > 1:
-                flow_name = splitted_flow_name[1]
+            suite, flow_name = get_suite_flow(flow_name='synth')
             assert flow_name == 'synth', f"Unsupported flow {flow_name}\n `fmax` command only supports `synth` flow supports "
-            flow = self.registered_suites[suite_name](settings, args, self.logger)
-            flow.find_fmax()
+            suite.find_fmax()
 
     def parse_args(self):
         parser = self.parser
@@ -98,6 +85,7 @@ class SassyApp:
         )
         subparsers = parser.add_subparsers(required=True, dest='command', help='Commands Help')
 
+        ## TODO FIXME add as validator!
         registered_flows = []
         for suite in self.registered_suites.values():
             for flow in suite.supported_flows:
@@ -105,15 +93,15 @@ class SassyApp:
         registered_flows = ', '.join(registered_flows)
         ############################
         run_parser = subparsers.add_parser('run', help='Run a flow')
-        run_parser.add_argument('flow', metavar='FLOW_NAME',
+        run_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
                                 help=f'Flow name. Suuported flows are: {registered_flows}')
         ############################
         fmax_parser = subparsers.add_parser(
             'fmax', help='Run `synth` flow of a suite several times, sweeping over clock_period constraint to find the maximum frequency of the design for the current settings')
-        fmax_parser.add_argument('flow', metavar='FLOW_NAME',
-                                 help=f'Flow name. Suuported flows are: {registered_flows}')
-        fmax_parser.add_argument('--max-failed-runs', type=int, default=20,
-                                help=f'Maximum number of faild runs. Stop afterwards')
+        fmax_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
+                                 help=f'Name of the suite to execute. Suuported flows are: {registered_flows}')
+        fmax_parser.add_argument('--max-failed-runs', type=int, default=40,
+                                 help=f'Maximum number of consecutive runs that did not improve F_max. Search stops afterwards')
 
         return parser.parse_args()
 

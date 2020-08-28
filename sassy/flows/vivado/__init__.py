@@ -1,22 +1,35 @@
 # © 2020 [Kamyar Mohajerani](malto:kamyar@ieee.org)
- 
+
 from ..suite import Suite
 
 
-class Diamond(Suite):
-    name = 'diamond'
-    executable = 'diamondc'
-    supported_flows = ['synth']
+class Vivado(Suite):
+    name = 'vivado'
+    executable = 'vivado'
+    supported_flows = ['synth', 'sim', 'post_synth_sim']
 
     def __init__(self, settings, args, logger):
-        super().__init__(settings, args, logger, impl_folder='diamond_impl', impl_name='Implementation0')
+        super().__init__(settings, args, logger,
+                         clock_period=10,
+                         fpga_part='xc7a12tcsg325-3',
+                         strategy='Timing', 
+                         optimize_power=False,
+                         generics_options=""
+                         )
         # Note: self.reports_dir will be set after run
 
-    ## run steps of tools and finally set self.reports_dir
+    # run steps of tools and finally set self.reports_dir
     def __runflow_impl__(self, subflow):
-        script_path = self.copy_from_template(f'{subflow}.tcl')
-        self.run_process(self.executable, [str(script_path)])
-        self.reports_dir = self.run_dir / self.settings.flow['impl_folder']
+        script_path = self.copy_from_template(f'{subflow}.tcl',
+                                              run_synth_flow=True,
+                                              run_postsynth_sim=False,
+                                              )
+        debug = self.args.debug
+        vivado_args = ['-nojournal', '-mode', 'tcl' if debug else 'batch', '-source', str(script_path)]
+        if not debug:
+            vivado_args.append('-notrace')
+        self.run_process(self.executable, vivado_args)
+        self.reports_dir = self.run_dir / 'reports'
 
     def parse_reports(self):
         self.results = dict()
@@ -72,10 +85,8 @@ class Diamond(Suite):
             if (self.results[res] != 0):
                 self.logger.critical(f'Map report shows {self.results[res]} use(s) of forbidden resource {res}.')
                 failed = True
-        
+
         failed = failed or (self.results['wns'] < 0) or (self.results['wnhs'] < 0) or (
             self.results['_num_unrouted'] != 0) or (self.results['_status'].lower() != 'completed') or (self.results['_timing_errors'] != 0)
 
         self.results['success'] = not failed
-
-

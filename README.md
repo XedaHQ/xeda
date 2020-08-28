@@ -1,4 +1,4 @@
-# SASS
+# SASSY
 Simplified Automation for Simulation and SYnthesis
 
 
