@@ -33,6 +33,9 @@ class Suite:
         self.settings = Settings()
         self.settings.flow['clock_period'] = None
         self.settings.flow['run_dir'] = None
+        # default for optional design settings
+        self.settings.design['generics'] = {}
+        self.settings.design['tb_generics'] = {}
         # specific flow defaults
         self.settings.flow.update(**flow_defaults)
 
@@ -50,6 +53,8 @@ class Suite:
         )
 
         self.reports_dir = None
+
+        self.run_dir = self.get_run_dir(override=self.args.run_dir)
 
     def get_run_dir(self, override=None, subdir=None):
 
@@ -112,6 +117,10 @@ class Suite:
             f.write(rendered_content)
         return resource_name
 
+    def conv_to_relative_path(self, src):
+        path = Path(src).resolve()
+        return os.path.relpath(path, self.run_dir)
+
     def run(self, flow):
         if not flow:
             flow = self.supported_flows[0]  # first is the default flow
@@ -119,13 +128,10 @@ class Suite:
             if not (flow in self.supported_flows):
                 sys.exit(f"Flow {flow} is not supported by {self.name}.")
 
-        self.run_dir = self.get_run_dir(override=self.args.run_dir)
-
         def make_rel_paths(section):
             sources = []
             for src in self.settings.design[section]:
-                path = Path(src).resolve()
-                src_path = os.path.relpath(path, self.run_dir)
+                src_path = self.conv_to_relative_path(src)
                 sources.append(src_path)
             self.settings.design[section] = sources
 
@@ -159,7 +165,7 @@ class Suite:
         unicode = True
         verbose = self.args.verbose
         stdout_logfile = self.run_dir / 'stdout.log'
-        start_step_hint = re.compile(r'={10}=*\( (?P<step>[\w\s]+) \)={10}=*')
+        start_step_hint = re.compile(r'={12}=*\(\s*(?P<step>[\w\s]+)\s*\)={12}=*')
         with open(stdout_logfile, 'w') as log_file:
             try:
                 self.logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
@@ -271,7 +277,7 @@ class Suite:
     #     return process
 
     def find_fmax(self):
-        wns_threshold = 0.006
+        wns_threshold = 0.002
         improvement_threshold = 0.002
         failed_runs = 0
         best_period = None
@@ -290,14 +296,14 @@ class Suite:
             success = self.results['success'] and wns >= 0
             period = self.results['clock_period']
 
-            next_period = set_period - wns - improvement_threshold/2
+            next_period = set_period - wns - improvement_threshold/4
 
             if success:
                 if best_period:
-                    if wns < wns_threshold:
-                        self.logger.warning(
-                            f'[FMAX] Stopping attempts as wns={wns} is lower than the flow\'s improvement threashold: {wns_threshold}')
-                        break
+                    # if wns < wns_threshold:
+                    #     self.logger.warning(
+                    #         f'[FMAX] Stopping attempts as wns={wns} is lower than the flow\'s improvement threashold: {wns_threshold}')
+                    #     break
                     max_failed = self.args.max_failed_runs
                     if failed_runs >= max_failed:
                         self.logger.warning(
@@ -330,6 +336,8 @@ class Suite:
 
     def parse_report(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
         self.logger.debug(f"Parsing report file: {reportfile_path}")
+        # TODO fix debug and verbosity levels!
+        high_debug = self.args.verbose
         if not reportfile_path.exists():
             self.logger.critical(
                 f'Report file: {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check `{self.run_dir / "stdout.log"}` and other log files in {self.run_dir} to find out what errors occured.'
@@ -355,14 +363,17 @@ class Suite:
             for pat in [re_pattern, *other_re_patterns]:
                 matched = False
                 if isinstance(pat, list):
-                    self.logger.debug(f"Matching any of: {pat}")
+                    if high_debug:
+                        self.logger.debug(f"Matching any of: {pat}")
                     for subpat in pat:
                         matched = match_pattern(subpat)
                         if matched:
-                            self.logger.debug("subpat matched!")
+                            if high_debug:
+                                self.logger.debug("subpat matched!")
                             break
                 else:
-                    self.logger.debug(f"Matching: {pat}")
+                    if high_debug:
+                        self.logger.debug(f"Matching: {pat}")
                     matched = match_pattern(pat)
 
                 if not matched:
@@ -374,11 +385,11 @@ class Suite:
         for k, v in results.items():
             if not k.startswith('_'):
                 if isinstance(v, float):
-                    print(f'{k:20}{v:8.3f}')
+                    print(f'{k:32}{v:12.3f}')
                 elif isinstance(v, int):
-                    print(f'{k:20}{v:>8}')
+                    print(f'{k:32}{v:>12}')
                 else:
-                    print(f'{k:20}{v:>8s}')
+                    print(f'{k:32}{v:>12s}')
 
     def dump_results(self, flow):
         # write only if not exists

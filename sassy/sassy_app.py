@@ -26,14 +26,24 @@ class SassyApp:
 
         coloredlogs.install(level='DEBUG' if args.debug else 'INFO',
                             fmt='%(asctime)s %(levelname)s %(message)s', logger=self.logger)
+        
+        # TODO
+        def check_settings(settings):
+            if "design" in settings:
+                ds = settings["design"]
+                assert "generics" not in ds or isinstance(ds["generics"], dict), "design.generics must be a dict"
+                assert "tbgenerics" not in ds or isinstance(ds["tb_generics"], dict), "design.tb_generics must be a dict"
 
         settings = self.get_default_settings()
+        check_settings(settings)
+
 
         json_path = args.design_json if args.design_json else Path.cwd() / 'design.json'
 
         try:
             with open(json_path) as f:
                 design_settings = json.load(f)
+                check_settings(settings)
                 settings.update(design_settings)
         except FileNotFoundError as e:
             if args.design_json:
@@ -42,6 +52,8 @@ class SassyApp:
                 sys.exit(f' Cannot open default design settings (design.json) in the current directory.\n {e}')
         except IsADirectoryError as e:
             sys.exit(f' The specified design json file is a directory.\n {e}')
+
+        check_settings(settings)
 
         def get_suite_flow(flow_name=None):
             splitted_flow_name = args.flow.split(':')
@@ -118,14 +130,22 @@ class SassyApp:
         if not default_settings_file.exists():
             default_settings = {
                 'design': {
-                    'top': 'LWC', 'tb_top': 'LWC_TB'
+                    'top': 'LWC', 
+                    'tb_top': 'LWC_TB', 
+                    'vhdl_std': '93',
+                    "clock_port": "clk",
                 },
                 'flows': {
                     'diamond': {
                         'fpga_part': 'LFE5U-25F-6BG381C',
                         'clock_period': 10.0,
                         'synthesis_engine': 'synplify',
-                        'base_strategy': "Timing",
+                        'strategy': "Timing",
+                    }, 
+                    'vivado': {
+                        'clock_period': 5.0,
+                        'fpga_part': 'xc7a12tcsg325-3',
+                        "strategy": "Timing"
                     }
                 }
             }

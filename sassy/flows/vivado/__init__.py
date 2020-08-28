@@ -1,5 +1,7 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
+import re
+import sys
 from ..suite import Suite
 
 
@@ -9,20 +11,50 @@ class Vivado(Suite):
     supported_flows = ['synth', 'sim', 'post_synth_sim']
 
     def __init__(self, settings, args, logger):
+        def supported_vivado_generic(k, v, sim):
+            if sim:
+                return True
+            if isinstance(v, int):
+                return True            
+            if isinstance(v, bool):
+                return True
+            v = str(v)
+            return (v.isnumeric() or (v.strip().lower() in {'true', 'false'}))
+
+        def vivado_gen_convert(k, x, sim):
+            if sim:
+                if isinstance(x, dict) and "path" in x:
+                    p = x["path"]
+                    assert isinstance(p, str), "value of path should be a path string"
+                    x = self.conv_to_relative_path(p.strip())
+                    self.logger.info(f'Converting generic `{k}` marked as `path`: {p} -> {x}')
+            xl = str(x).strip().lower()
+            if xl == 'false':
+                return "1\\'b0"
+            if xl == 'true':
+                return "1\\'b1"
+            return x
+
+        def vivado_generics(kvdict, sim):
+            return ' '.join([f"-generic {k}={vivado_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_vivado_generic(k, v, sim)])
+
         super().__init__(settings, args, logger,
                          clock_period=10,
                          fpga_part='xc7a12tcsg325-3',
-                         strategy='Timing', 
+                         strategy='Timing',
                          optimize_power=False,
-                         generics_options=""
+                         fail_critical_warning=args.command != "fmax",
+                         fail_timing=False,
                          )
-        # Note: self.reports_dir will be set after run
+
+        self.settings.flow['generics_options'] = vivado_generics(self.settings.design["generics"], sim=False)
+        self.settings.flow['tb_generics_options'] = vivado_generics(self.settings.design["tb_generics"], sim=True)
 
     # run steps of tools and finally set self.reports_dir
     def __runflow_impl__(self, subflow):
         script_path = self.copy_from_template(f'{subflow}.tcl',
-                                              run_synth_flow=True,
-                                              run_postsynth_sim=False,
+                                              run_synth_flow=False if subflow == 'sim' else True,
+                                              run_postsynth_sim=True if subflow == 'post_synth_sim' else False,
                                               )
         debug = self.args.debug
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug else 'batch', '-source', str(script_path)]
@@ -35,58 +67,61 @@ class Vivado(Suite):
         self.results = dict()
         reports_dir = self.reports_dir
         self.results["_reports_path"] = str(reports_dir)
-        design_name = self.settings.design['name']
-        impl_name = self.settings.flow['impl_name']
 
-        period_pat = r'''^\s*Preference:\s+PERIOD\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_period>\d+\.\d+)\s+ns.*HIGH\s+\d+\.\d+\s+ns\s*;\s*
-\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors'''
-        freq_pat = r'''^\s*Preference:\s+FREQUENCY\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_frequency>\d+\.\d+)\s+MHz\s*;\s*
-\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors'''
-        self.parse_report(reports_dir / f'{design_name}_{impl_name}.twr', [period_pat, freq_pat])
+        # TODO
+        report_stage = 'post_route'
+        reports_dir = reports_dir / report_stage
 
-        if 'clock_frequency' in self.results:
-            frequency = self.results['clock_frequency']
-            period = 1000.0/frequency
-            self.results['clock_period'] = period
+        fields = {'lut': 'Slice LUTs', 'ff': 'Register as Flip Flop', 'latch': 'Register as Latch'}
+        hrule_pat = r'^\s*(?:\+\-+)+\+\s*$'
+        slice_logic_pat = r'^\S*\d+\.\s*Slice Logic\s*\-+\s*' + hrule_pat + r'.*' + hrule_pat + r'.*'
+        for fname, fregex in fields.items():
+            slice_logic_pat += r'^\s*\|\s*' + fregex + r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
 
-        else:
-            period = self.results['clock_period']
-            frequency = 1000.0/period
-            self.results['clock_frequency'] = frequency
+        slice_logic_pat += hrule_pat + r".*" + r'^\S*\d+\.\s*Slice\s+Logic\s+Distribution\s*\-+\s*' + hrule_pat + r'.*' + hrule_pat + r'.*'
 
-        slice_pat = r'^Device\s+utilization\s+summary:\s*.*^\s+SLICE\s+(?P<slices>\d+)\/(?P<total_slices>\d+).*^Number\s+of\s+Signals'
-        time_pat = r'''Level/\s+Number\s+Worst\s+Timing\s+Worst\s+Timing\s+Run\s+NCD\s*
-\s*Cost\s+\[ncd\]\s+Unrouted\s+Slack\s+Score\s+Slack\(hold\)\s+Score\(hold\)\s+Time\s+Status\s*
-(\s*\-+){8}\s*
-\s*(?P<_lvl_cost>\S+)\s+(?P<_ncd>\S+)\s+(?P<_num_unrouted>\d+)\s+(?P<wns>\-?\d+\.\d+)\s+(?P<_setup_score>\d+)\s+(?P<wnhs>\-?\d+\.\d+)\s+(?P<_hold_score>\d+)\s+(?P<_runtime>\d+(?:\:\d*)?)\s+(?P<_status>\w+)\s*$'''
-        self.parse_report(reports_dir / f'{design_name}_{impl_name}.par', slice_pat, time_pat)
+        fields = {'slices': 'Slices?', 'lut_logic': 'LUT as Logic ', 'lut_mem': 'LUT as Memory'}
+        for fname, fregex in fields.items():
+            slice_logic_pat += r'^\s*\|\s*' + fregex + r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
 
-        #   1. Total number of LUT4s = (Number of logic LUT4s) + 2*(Number of distributed RAMs) + 2*(Number of ripple logic)
-        #   2. Number of logic LUT4s does not include count of distributed RAM and ripple logic.
-        mrp_pattern = r'''Design Summary\s*\-+\s*Number\s+of\s+registers:\s*(?P<ff>\d+)\s+out\s+of\s*(?P<total_ff>\d+).*
-\s*Number\s+of\s+SLICEs:\s*(?P<map_slices>\d+)\s*out\s+of\s*(?P<total_slices>\d+).*
-\s+SLICEs\s+as\s+RAM:\s*(?P<slices_ram>\d+)\s*out\s+of\s*(?P<total_slices_ram>\d+).*
-\s+SLICEs\s+as\s+Carry:\s*(?P<slices_carry>\d+)\s+out\s+of\s+(?P<total_slices_carry>\d+).*
-\s*Number\s+of\s+LUT4s:\s*(?P<lut>\d+)\s+out of\s+(?P<total_lut>\d+).*
-\s+Number\s+used\s+as\s+logic\s+LUTs:\s*(?P<lut_logic>\d+)\s*
-\s+Number\s+used\s+as\s+distributed\s+RAM:\s*(?P<lut_dram>\d+)\s*
-\s+Number\s+used\s+as\s+ripple\s+logic:\s*(?P<lut_ripple>\d+)\s*
-\s+Number\s+used\s+as\s+shift\s+registers:\s*(?P<lut_shift>\d+)\s*.*
-\s*Number\s+of\s+block\s+RAMs:\s*(?P<bram>\d+)\s+out\s+of\s+(?P<total_bram>\d+).*
-\s*Number\s+Of\s+Mapped\s+DSP\s+Components:\s*\-+\s*
-\s+MULT18X18D\s+(?P<dsp_MULT18X18D>\d+)\s*.*
-\s+MULT9X9D\s+(?P<dsp_MULT9X9D>\d+)\s*.*'''
+        slice_logic_pat += hrule_pat + r".*" + r'^\S*\d+\.\s*Memory\s*\-+\s*' + hrule_pat + r'.*' + hrule_pat + r'.*'
+        fields = {'bram_tile': 'Block RAM Tile', 'bram_RAMB36': 'RAMB36[^\|]+', 'bram_RAMB18': 'RAMB18'}
+        for fname, fregex in fields.items():
+            slice_logic_pat += r'^\s*\|\s*' + fregex + r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
+        slice_logic_pat += hrule_pat + r".*" + r'^\S*\d+\.\s*DSP\s*\-+\s*' + hrule_pat + r'.*' + hrule_pat + r'.*'
 
-        self.parse_report(reports_dir / f'{design_name}_{impl_name}.mrp', mrp_pattern)
+        fname, fregex = ('dsp', 'DSPs')
+        slice_logic_pat += r'^\s*\|\s*' + fregex + r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
+        self.parse_report(reports_dir / 'utilization.rpt', slice_logic_pat)
+
+        self.parse_report(reports_dir / 'timing_summary.rpt',
+                          r'Design\s+Timing\s+Summary[\s\|\-]+WNS\(ns\)\s+TNS\(ns\)\s+TNS Failing Endpoints\s+TNS Total Endpoints\s+WHS\(ns\)\s+THS\(ns\)\s+THS Failing Endpoints\s+THS Total Endpoints\s+WPWS\(ns\)\s+TPWS\(ns\)\s+TPWS Failing Endpoints\s+TPWS Total Endpoints\s*' +
+                          r'\s*(?:\-+\s+)+' +
+                          r'(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<tns>\-?\d+(?:\.\d+)?)\s+(?P<_failing_endpoints>\-?\d+(?:\.\d+)?)\s+(?P<tns_total_endpoints>\-?\d+(?:\.\d+)?)\s+'
+                          r'(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<ths>\-?\d+(?:\.\d+)?)\s+(?P<ths_failing_endpoints>\-?\d+(?:\.\d+)?)\s+(?P<ths_total_endpoints>\-?\d+(?:\.\d+)?)\s+',
+                          r'Clock Summary[\s\|\-]+^\s*Clock\s+.*$[^\w]+(\w*)\s+(\{.*\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<frequency>\d+(?:\.\d+)?)'
+                          )
+
+        self.parse_report(reports_dir / 'power.rpt',
+                          r'^\s*\|\s*Total\s+On-Chip\s+Power\s+\(W\)\s*\|\s*(?P<power_total>[\-\.\w]+)\s*\|.*' +
+                          r'^\s*\|\s*Dynamic\s*\(W\)\s*\|\s*(?P<power_dynamic> [\-\.\w]+)\s*\|.*' +
+                          r'^\s*\|\s*Device\s+Static\s+\(W\)\s*\|\s*(?P<power_static>[\-\.\w]+)\s*\|.*' +
+                          r'^\s*\|\s*Confidence\s+Level\s*\|\s*(?P<power_confidence_level>[\-\.\w]+)\s*\|.*' +
+                          r'^\s*\|\s*Design\s+Nets\s+Matched\s*\|\s*(?P<power_nets_matched>[\-\.\w]+)\s*\|.*' +
+                          r'^\s*\|\s*Clocks\s*\|\s*(?P<power_clocks>[\-\.\w]+)\s*\|.*' +
+                          r'^\s*\|\s*I\/O\s*\|\s*(?P<power_io>[\-\.\w]+)\s*\|.*'
+                          )
 
         failed = False
-        forbidden_resources = ['dsp_MULT18X18D', 'dsp_MULT9X9D', 'bram']
+        forbidden_resources = ['latch', 'dsp', 'bram_tile']
         for res in forbidden_resources:
             if (self.results[res] != 0):
-                self.logger.critical(f'Map report shows {self.results[res]} use(s) of forbidden resource {res}.')
+                self.logger.critical(
+                    f'{report_stage} reports show {self.results[res]} use(s) of forbidden resource {res}.')
                 failed = True
 
-        failed = failed or (self.results['wns'] < 0) or (self.results['wnhs'] < 0) or (
-            self.results['_num_unrouted'] != 0) or (self.results['_status'].lower() != 'completed') or (self.results['_timing_errors'] != 0)
+        # TODO better fail analysis for vivado
+        failed = failed or (self.results['wns'] < 0) or (self.results['whs'] < 0) or (
+            self.results['_failing_endpoints'] != 0)
 
         self.results['success'] = not failed

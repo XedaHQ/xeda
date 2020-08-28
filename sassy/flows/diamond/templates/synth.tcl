@@ -12,7 +12,7 @@ set clock_port          {{design.clock_port}}
 set top                 {{design.top}}
 
 # Area/Balanced/Timing
-set base_strategy       {{flow.strategy}}
+set strategy            {{flow.strategy}}
 set synth_engine        {{flow.synthesis_engine}}
 set clock_period        {{flow.clock_period}}
 set fpga_part           "{{flow.fpga_part}}"
@@ -26,7 +26,7 @@ set sdc_file             "${top}.sdc"
 set ldc_file             "${top}.ldc"
 
 
-
+# Workaround for TCL NSF bug
 # file delete -force {*}[glob -nocomplain ${impl_dir}/*]
 while {[catch {file delete -force -- ${impl_dir} }] != 0} {
   after 1000 puts "delete failed. retrying..."
@@ -60,7 +60,7 @@ eval prj_src add ${sdc_file}
 eval prj_src add ${ldc_file}
 
 ##strategy
-prj_strgy copy -from ${base_strategy} -name custom_strategy -file diamond_strategy.sty
+prj_strgy copy -from ${strategy} -name custom_strategy -file diamond_strategy.sty
 
 if {${vhdl_std} == "08"} {
   prj_strgy set_value -strategy custom_strategy syn_vhdl2008=True
@@ -73,11 +73,11 @@ if {${vhdl_std} == "08"} {
 prj_strgy set_value -strategy custom_strategy syn_area=True
 prj_strgy set_value -strategy custom_strategy syn_frequency= 
 
-if {${base_strategy} == "Timing"} {
+if {${strategy} == "Timing"} {
   prj_strgy set_value -strategy custom_strategy {syn_pipelining_retiming=Pipelining and Retiming}
 }
 
-if {${base_strategy} == "Area"} {
+if {${strategy} == "Area"} {
   prj_strgy set_value -strategy custom_strategy syn_area=True
 }
 #syn_use_clk_for_uncons_io=True
