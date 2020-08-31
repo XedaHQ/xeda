@@ -1,4 +1,4 @@
-# SASH: Simulate and Synthesize HDL!
+# XEDA: Simplified X-target X-tool X-HDL Simulation and Synthesis Framework
 
 A simuplified automation for simulation and synthesis of hardware designs. Simplifying use of commercial and open-source EDA tools, targeting FPGA devices and ASIC fabrication.
 
@@ -25,7 +25,7 @@ Supported Tools:
 ## Configurations
 
 Settings override in the following order:
-- System-wide `default.json` in `$HOME/.sash`
+- System-wide `default.json` in `<DATA_DIR>/config/xeda/defaults.json`
 - Design-specific `desgin.json`
 - Command-line options
 

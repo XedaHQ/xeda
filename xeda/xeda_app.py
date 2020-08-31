@@ -18,10 +18,10 @@ except pkg_resources.DistributionNotFound:
     __version__ = '(N/A - Local package)'
 
 
-class SashApp:
+class XedaApp:
     def __init__(self):
         self.registered_suites = dict()
-        self.parser = argparse.ArgumentParser(description=f'SASH: Simulate And Synthesize Hardware! Version {__version__}')
+        self.parser = argparse.ArgumentParser(description=f'{__package__}: Simulate And Synthesize Hardware! Version {__version__}')
         self.args = None
         self.logger = logging.getLogger(__package__)
         self.settings = None

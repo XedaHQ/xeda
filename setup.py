@@ -1,17 +1,16 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='sash',
+    name='xeda',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.0.1',
+    # version='0.0.1',
 
     version_config={
         "version_style": {
-            "style": "pep440",
-            "metadata": True,
+            "style": "semver",
             "dirty": True,
         },
     },
@@ -20,7 +19,7 @@ setup(
     long_description='Simplified automation of simulation and synthesis flows targeting FPGA and ASIC, utilizing both commercial and open-source EDA tools.',
 
     # The project's main homepage.
-    url='https://github.com/kammoh/sash',
+    url='https://github.com/kammoh/xeda',
 
 
     # Author details
@@ -65,7 +64,7 @@ setup(
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
-    py_modules=['sash'],
+    py_modules=['xeda'],
 
     python_requires='>=3.6',
 
@@ -88,7 +87,7 @@ setup(
     # },
 
     package_data={"": ['*.tcl', '*.ys', '*.mk']},
-    data_files=[('config/sash',['sash/defaults.json'])],
+    data_files=[('config/xeda',['xeda/defaults.json'])],
     include_package_data=True,
 
     # To provide executable scripts, use entry points in preference to the
@@ -96,7 +95,7 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'sash=sash:cli.run_sash',
+            'xeda=xeda:cli.run_xeda',
         ],
     }
 )

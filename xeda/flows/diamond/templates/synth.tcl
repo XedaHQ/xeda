@@ -1,7 +1,7 @@
 
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-# These settings are set by SASSYN
+# These settings are set by XEDA
 set design_name         {{design.name}}
 set vhdl_std            {{design.vhdl_std}}
 set clock_port          {{design.clock_port}}

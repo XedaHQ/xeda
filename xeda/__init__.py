@@ -2,9 +2,9 @@ from pkg_resources import get_distribution, DistributionNotFound
 
 from . import cli
 
-__project__ = 'sash'
+__project__ = 'xeda'
 __author__ = 'Kamyar Mohajerani'
-__package__ = 'sash'
+__package__ = 'xeda'
 
 try:
     __version__ = get_distribution(__project__).version
