@@ -1,4 +1,4 @@
-# XEDA: Simplified X-target X-tool X-HDL Simulation and Synthesis Framework
+# XEDA: X-target X-tool X-HDL Electronic Design Automation
 
 A simuplified automation for simulation and synthesis of hardware designs. Simplifying use of commercial and open-source EDA tools, targeting FPGA devices and ASIC fabrication.
 
@@ -10,10 +10,6 @@ A simuplified automation for simulation and synthesis of hardware designs. Simpl
 - Suite
 - Flow
 - Dependencies
-
-Supported Tools:
-- Xilinx Vivado
-- Lattice Diamond Suite
 
 ## Installation
 
@@ -135,6 +131,13 @@ Sample `design.json`:
 ```
 
 ### Supported Flows
+
+- Xilinx Vivado Suite
+    - synth flow: Full synthesis and implementation flow
+    - sim: functional simulation of RTL design
+    - post-synth-sim: Post-implementation functional and timing simulation and power analysis.
+- Lattice Diamond Suite
+    - synth
 
 ### Adding new Flows
 
