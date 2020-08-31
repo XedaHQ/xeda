@@ -1,10 +1,6 @@
 # These settings are set by SASSYN
 set design_name           {{design.name}}
 set vhdl_std              {{design.vhdl_std}}
-set vhdl_files            "{{design.vhdl_sources|join(' ')}}"
-set verilog_files         "{{design.verilog_sources|join(' ')}}"
-set sim_vhdl_files        "{{design.vhdl_tb_sources|join(' ')}}"
-set sim_verilog_files     "{{design.verilog_tb_sources|join(' ')}}"
 set clock_port            {{design.clock_port}}
 set top                   {{design.top}}
 set tb_top                {{design.tb_top}}
@@ -28,11 +24,10 @@ set results_dir           ${vivado_dir}/output
 set checkpoints_dir       ${vivado_dir}/checkpoints
 
 
+set vhdl_funcsim          ${results_dir}/${top}_impl_funcsim.vhd
+set verilog_funcsim       ${results_dir}/${top}_impl_funcsim.v
+set verilog_timesim       ${results_dir}/${top}_impl_timesim.v
+set sdf_file              "[file rootname ${verilog_timesim}].sdf"
+
 # sim
-set timing_sim            false
-set funcsim_use_vhdl      true
-set gen_saif              false
-set gen_vcd               false
-set uut_scope             /LWC_TB/uut
-set max_run               "100us"
-set initialize_zeros      false
+

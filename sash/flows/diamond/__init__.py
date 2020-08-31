@@ -21,7 +21,11 @@ class Diamond(Suite):
         self.run_process(self.executable, [str(script_path)])
         self.reports_dir = self.run_dir / self.settings.flow['impl_folder']
 
-    def parse_reports(self):
+    def parse_reports(self, flow):
+        if flow == 'synth':
+            self.parse_reports_synth()
+
+    def parse_reports_synth(self):
         self.results = dict()
         reports_dir = self.reports_dir
         self.results["_reports_path"] = str(reports_dir)

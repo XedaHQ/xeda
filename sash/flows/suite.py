@@ -5,17 +5,16 @@ import os
 import sys
 import re
 from pathlib import Path
-import random
 import subprocess
 from datetime import datetime
 from jinja2 import Environment, PackageLoader
-import psutil
+import multiprocessing
 # import asyncio
 
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
 
-from . import Settings, try_convert
+from . import Settings, semantic_hash, try_convert, DesignSource
 
 
 class Suite:
@@ -32,7 +31,6 @@ class Suite:
         # base flow defaults
         self.settings = Settings()
         self.settings.flow['clock_period'] = None
-        self.settings.flow['run_dir'] = None
         # default for optional design settings
         self.settings.design['generics'] = {}
         self.settings.design['tb_generics'] = {}
@@ -53,39 +51,42 @@ class Suite:
         )
 
         self.reports_dir = None
+        self.timestamp = None
+        self.run_hash = semantic_hash(self.settings)
 
-        self.run_dir = self.get_run_dir(override=self.args.run_dir)
+        self.run_dir = self.get_run_dir(all_runs_dir=self.args.all_runs_dir,
+                                        prefix='FMAX_' if self.args.command == 'fmax' else None, override=self.args.force_run_dir)
 
-    def get_run_dir(self, override=None, subdir=None):
+        if not isinstance(self.settings.design['sources'], list):
+            sys.exit('`sources` section of the settings needs to be a list')
+        for i, src in enumerate(self.settings.design['sources']):
+            if not DesignSource.is_design_source(src):
+                sys.exit(f'Entry `{src}` in `sources` needs to be a DesignSource JSON dictionay')
+            self.settings.design['sources'][i] = DesignSource(**src)
+            self.settings.design['sources'][i].file = self.conv_to_relative_path(
+                self.settings.design['sources'][i].file)
 
-        prefix = ""
-
-        # TODO move higher!
-        if self.args.command == 'fmax':
-            prefix = "FMAX_"
+    def get_run_dir(self, all_runs_dir=None, prefix=None, override=None):
+        if not all_runs_dir:
+            all_runs_dir = Path.cwd() / f'{self.name}_run'
 
         if override:
-            self.settings.flow['run_dir'] = Path(override).resolve()
-
-        # TODO cleanup and simplify
-        fresh_subdir = False
-
-        if self.settings.flow['run_dir']:
-            run_dir = Path(self.settings.flow['run_dir'])
+            run_dir = Path(override).resolve()
         else:
-            if subdir is None:
-                subdir = prefix + datetime.now().strftime("%Y-%m-%d-%H%M%S") + f'-{random.randrange(0,2**16):04x}'
-                fresh_subdir = True
 
-            run_dir = Path.cwd() / f'{self.name}_run' / subdir
+            subdir = self.run_hash
+            if prefix:
+                subdir = prefix + subdir
 
-        self.settings.flow['run_dir'] = run_dir
+            run_dir = all_runs_dir / subdir
 
-        if fresh_subdir:
-            assert not run_dir.exists(), f"Path {run_dir} already exists!"
         if not run_dir.exists():
             run_dir.mkdir(parents=True)
-        assert run_dir.exists() and run_dir.is_dir()
+        else:
+            self.logger.warning(f'Using existing run directory: {run_dir}')
+
+        assert run_dir.is_dir()
+
         return run_dir
 
     def __runflow_impl__(self, flow):
@@ -93,16 +94,15 @@ class Suite:
         if self:
             raise NotImplementedError
 
-    def parse_reports(self):
-        pass
-
-    def dump_data(self):
-        with open('synth_results.json', 'w') as outfile:
-            json.dump(self.results, outfile, indent=4)
+    def parse_reports(self, flow):
+        # extraneous `if` needed for Pylace
+        if self:
+            raise NotImplementedError
 
     def dump_settings(self):
-        with open(self.settings_file, 'w') as outfile:
-            json.dump(self.settings, outfile, indent=4)
+        effective_settings_json = self.run_dir / f'settings.json'
+        self.logger.info(f'dumping effective settings to {effective_settings_json}')
+        self.dump_json(self.settings, effective_settings_json)
 
     def copy_from_template(self, resource_name, **attr):
         template = self.jinja_env.get_template(resource_name)
@@ -110,7 +110,7 @@ class Suite:
         self.logger.debug(f'generating {script_path.resolve()} from template.')
         rendered_content = template.render(flow=self.settings.flow,
                                            design=self.settings.design,
-                                           nthreads=psutil.cpu_count(),
+                                           nthreads=multiprocessing.cpu_count(),
                                            debug=self.args.debug,
                                            **attr)
         with open(script_path, 'w') as f:
@@ -128,33 +128,14 @@ class Suite:
             if not (flow in self.supported_flows):
                 sys.exit(f"Flow {flow} is not supported by {self.name}.")
 
-        def make_rel_paths(section):
-            sources = []
-            for src in self.settings.design[section]:
-                src_path = self.conv_to_relative_path(src)
-                sources.append(src_path)
-            self.settings.design[section] = sources
+        self.dump_settings()
 
-        source_categories = ['sources', 'tb_sources']
-        # TODO improve logic
-        if not self.source_paths_fixed:
-            self.logger.debug("changing source path relative to run path")
-            for cat in source_categories:
-                make_rel_paths(cat)
-            self.source_paths_fixed = True
-
-        hdl_types = {'vhdl': ['vhd', 'vhdl'], 'verilog': ['v', 'sv']}
-        for cat in source_categories:
-            for h in hdl_types.keys():
-                self.settings.design[h + '_' + cat] = []
-            for s in self.settings.design[cat]:
-                for h, suffixes in hdl_types.items():
-                    if Path(s).suffix[1:] in suffixes:
-                        self.settings.design[h + '_' + cat].append(s)
-                        break
-
+        self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         self.__runflow_impl__(flow)
-        self.parse_reports()
+        # clear results in case anything lingering
+        self.results = dict()
+        self.parse_reports(flow)
+        self.results['timestamp'] = self.timestamp
         if self.results:  # non empty
             self.print_results()
             self.dump_results(flow)
@@ -164,8 +145,11 @@ class Suite:
         spinner = None
         unicode = True
         verbose = self.args.verbose
+        echo_instructed = False
         stdout_logfile = self.run_dir / 'stdout.log'
-        start_step_hint = re.compile(r'={12}=*\(\s*(?P<step>[\w\s]+)\s*\)={12}=*')
+        start_step_re = re.compile(r'^={12}=*\(\s*(?P<step>[^\)]+)\s*\)={12}=*')
+        enable_echo_re = re.compile(r'^={12}=*\( \*ENABLE ECHO\* \)={12}=*')
+        disable_echo_re = re.compile(r'^={12}=*\( \*DISABLE ECHO\* \)={12}=*')
         with open(stdout_logfile, 'w') as log_file:
             try:
                 self.logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
@@ -191,17 +175,24 @@ class Suite:
                             break
                         log_file.write(line)
                         log_file.flush()
-                        if verbose:
-                            print(line, end='')
-                        else:
-                            match = start_step_hint.match(line)
-                            if match:
-                                end_step()
-                                step = match.group('step')
-                                spinner = Spinner('⏳' + step if unicode else step)
+                        if verbose or echo_instructed:
+                            if echo_instructed and disable_echo_re.match(line):
+                                echo_instructed = False
                             else:
-                                if spinner:
-                                    spinner.next()
+                                print(line, end='')
+                        else:
+                            if enable_echo_re.match(line):
+                                echo_instructed = True
+                                end_step()
+                            else:
+                                match = start_step_re.match(line)
+                                if match:
+                                    end_step()
+                                    step = match.group('step')
+                                    spinner = Spinner('⏳' + step if unicode else step)
+                                else:
+                                    if spinner:
+                                        spinner.next()
             except KeyboardInterrupt:
                 print(SHOW_CURSOR)
                 self.logger.critical("Received a keyboard interrupt!")
@@ -276,64 +267,6 @@ class Suite:
 
     #     return process
 
-    def find_fmax(self):
-        wns_threshold = 0.002
-        improvement_threshold = 0.002
-        failed_runs = 0
-        best_period = None
-        best_results = None
-        best_rundir = None
-        tried_rundirs = set()
-
-        while True:
-            set_period = self.settings.flow['clock_period']
-            self.logger.info(f'[FMAX] Trying clock_period = {set_period:0.3f}ns')
-            # fresh directory for each run
-            self.settings.flow['run_dir'] = None
-            self.run('synth')
-            tried_rundirs.add(self.run_dir)
-            wns = self.results['wns']
-            success = self.results['success'] and wns >= 0
-            period = self.results['clock_period']
-
-            next_period = set_period - wns - improvement_threshold/4
-
-            if success:
-                if best_period:
-                    # if wns < wns_threshold:
-                    #     self.logger.warning(
-                    #         f'[FMAX] Stopping attempts as wns={wns} is lower than the flow\'s improvement threashold: {wns_threshold}')
-                    #     break
-                    max_failed = self.args.max_failed_runs
-                    if failed_runs >= max_failed:
-                        self.logger.warning(
-                            f'[FMAX] Stopping attempts as number of FAILED runs has reached maximum allowed value of {max_failed}.'
-                        )
-                        break
-                if not best_period or period < best_period:
-                    best_period = period
-                    best_rundir = self.run_dir
-                    best_results = {**self.results}
-            else:
-                if best_period:
-                    failed_runs += 1
-                    next_period = (best_period + set_period) / 2 - improvement_threshold/2
-
-            # worse or not worth it
-            if best_period and (best_period - next_period) < improvement_threshold:
-                self.logger.warning(
-                    f'[FMAX] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
-                )
-                break
-            self.settings.flow['clock_period'] = next_period
-
-        self.logger.info(f'[FMAX] best_period = {best_period}')
-        self.logger.info(f'[FMAX] best_rundir = {best_rundir}')
-        print(f'---- Best results: ----')
-        self.print_results(best_results)
-
-        self.logger.info(f'Run directories: {" ".join([str(os.path.relpath(d, Path.cwd())) for d in tried_rundirs])}')
-
     def parse_report(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
         self.logger.debug(f"Parsing report file: {reportfile_path}")
         # TODO fix debug and verbosity levels!
@@ -391,11 +324,18 @@ class Suite:
                 else:
                     print(f'{k:32}{v:>12s}')
 
+    def dump_json(self, data, path, overwrite=True):
+        if path.exists():
+            if overwrite:
+                self.logger.warning(f"Overwriting existing file: {path}!")
+            else:
+                self.logger.critical(f"{path} already exists! Not overwriting!")
+                sys.exit("Exiting due to error!")
+        with open(path, 'w') as outfile:
+            json.dump(data, outfile, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else x.__str__, indent=4)
+
     def dump_results(self, flow):
         # write only if not exists
-        results_json = self.run_dir / f'{flow}_results.json'
-        if results_json.exists():
-            self.logger.warning(f"Overwriting existing results json file!")
-        with open(results_json, 'w') as outfile:
-            json.dump(self.results, outfile, indent=4)
-        self.logger.info(f"Results written to {results_json}")
+        path = self.run_dir / f'{flow}_results.json'
+        self.dump_json(self.results, path)
+        self.logger.info(f"Results written to {path}")

@@ -4,10 +4,6 @@
 # These settings are set by SASSYN
 set design_name         {{design.name}}
 set vhdl_std            {{design.vhdl_std}}
-set vhdl_files          "{{design.vhdl_sources|join(' ')}}"
-set verilog_files       "{{design.verilog_sources|join(' ')}}"
-set sim_vhdl_files      "{{design.vhdl_tb_sources|join(' ')}}"
-set sim_verilog_files   "{{design.verilog_tb_sources|join(' ')}}"
 set clock_port          {{design.clock_port}}
 set top                 {{design.top}}
 
@@ -34,19 +30,10 @@ while {[catch {file delete -force -- ${impl_dir} }] != 0} {
 
 eval prj_project new -name ${design_name} -dev ${fpga_part} -impl ${implementation_name} -impl_dir ${impl_dir}
 
-if {${vhdl_files} != ""} {
-  eval prj_src add -format VHDL ${vhdl_files}
-}
-if {${sim_vhdl_files} != ""} {
-  eval prj_src add -format VHDL ${sim_vhdl_files} -simulate_only
-}
-if {${verilog_files} != ""} {
-  eval prj_src add -format Verilog ${verilog_files}
-}
-if {${sim_verilog_files} != ""} {
-  eval prj_src add -format Verilog ${sim_verilog_files} -simulate_only
-}
 
+{% for src in design.sources %}
+    eval prj_src add {% if src.type == "vhdl" -%} -format VHDL {%- elif src.type == "verilog" -%} -format Verilog {%- endif %} {{src.file}} {% if src.sim_only -%} -simulate_only {%- endif %}
+{% endfor %}
 
 
 set file [open ${sdc_file} w]

@@ -43,6 +43,7 @@ proc showWarningsAndErrors {} {
   }
 
   if {$num_crit_warns > 0} {
+    puts "\n===========================( *ENABLE ECHO* )==========================="
     puts "** Number of Critical Warnings:  $num_crit_warns"
 
 
@@ -50,6 +51,7 @@ proc showWarningsAndErrors {} {
       puts "Exiting due to $num_crit_warns critical warning(s)!"
       exit 1
     }
+    puts "\n===========================( *DISABLE ECHO* )==========================="
   }
 
   if {$num_warns > 0} {
@@ -60,6 +62,7 @@ proc showWarningsAndErrors {} {
 }
 
 proc errorExit {errorString} {
-    puts "Error: $errorString"
-    exit 1
+  puts "\n===========================( *ENABLE ECHO* )==========================="
+  puts "Error: $errorString"
+  exit 1
 }

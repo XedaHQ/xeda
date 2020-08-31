@@ -23,11 +23,11 @@ class Vivado(Suite):
 
         def vivado_gen_convert(k, x, sim):
             if sim:
-                if isinstance(x, dict) and "path" in x:
-                    p = x["path"]
-                    assert isinstance(p, str), "value of path should be a path string"
+                if isinstance(x, dict) and "file" in x:
+                    p = x["file"]
+                    assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
                     x = self.conv_to_relative_path(p.strip())
-                    self.logger.info(f'Converting generic `{k}` marked as `path`: {p} -> {x}')
+                    self.logger.info(f'Converting generic `{k}` marked as `file`: {p} -> {x}')
             xl = str(x).strip().lower()
             if xl == 'false':
                 return "1\\'b0"
@@ -39,22 +39,20 @@ class Vivado(Suite):
             return ' '.join([f"-generic {k}={vivado_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_vivado_generic(k, v, sim)])
 
         super().__init__(settings, args, logger,
-                         clock_period=10,
-                         fpga_part='xc7a12tcsg325-3',
-                         strategy='Timing',
-                         optimize_power=False,
                          fail_critical_warning=args.command != "fmax",
-                         fail_timing=False,
+                         fail_timing=False
                          )
 
         self.settings.flow['generics_options'] = vivado_generics(self.settings.design["generics"], sim=False)
         self.settings.flow['tb_generics_options'] = vivado_generics(self.settings.design["tb_generics"], sim=True)
 
+
+
     # run steps of tools and finally set self.reports_dir
-    def __runflow_impl__(self, subflow):
-        script_path = self.copy_from_template(f'{subflow}.tcl',
-                                              run_synth_flow=False if subflow == 'sim' else True,
-                                              run_postsynth_sim=True if subflow == 'post_synth_sim' else False,
+    def __runflow_impl__(self, flow):
+        script_path = self.copy_from_template(f'{flow}.tcl',
+                                              run_synth_flow=False if flow == 'sim' else True,
+                                              run_postsynth_sim=True if flow == 'post_synth_sim' else False,
                                               )
         debug = self.args.debug
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug else 'batch', '-source', str(script_path)]
@@ -63,10 +61,17 @@ class Vivado(Suite):
         self.run_process(self.executable, vivado_args)
         self.reports_dir = self.run_dir / 'reports'
 
-    def parse_reports(self):
-        self.results = dict()
+    def parse_reports(self, flow):
+        if flow == 'synth':
+            self.parse_synth_reports()
+        if flow == 'sim':
+            self.parse_sim_reports()
+
+    def parse_sim_reports(self):
+        pass
+
+    def parse_synth_reports(self):
         reports_dir = self.reports_dir
-        self.results["_reports_path"] = str(reports_dir)
 
         # TODO
         report_stage = 'post_route'
@@ -80,7 +85,7 @@ class Vivado(Suite):
 
         slice_logic_pat += hrule_pat + r".*" + r'^\S*\d+\.\s*Slice\s+Logic\s+Distribution\s*\-+\s*' + hrule_pat + r'.*' + hrule_pat + r'.*'
 
-        fields = {'slices': 'Slices?', 'lut_logic': 'LUT as Logic ', 'lut_mem': 'LUT as Memory'}
+        fields = {'slice': 'Slices?', 'lut_logic': 'LUT as Logic ', 'lut_mem': 'LUT as Memory'}
         for fname, fregex in fields.items():
             slice_logic_pat += r'^\s*\|\s*' + fregex + r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
 

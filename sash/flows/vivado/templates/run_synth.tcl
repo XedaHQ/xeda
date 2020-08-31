@@ -54,12 +54,6 @@ exit 1
 
 set_param general.maxThreads ${nthreads}
 
-
-set vhdl_funcsim     ${results_dir}/${top}_impl_funcsim.vhd
-set verilog_funcsim  ${results_dir}/${top}_impl_funcsim.v
-set verilog_timesim  ${results_dir}/${top}_impl_timesim.v
-set sdf_file         "[file rootname ${verilog_timesim}].sdf"
-
 set stamp_filename "${vivado_dir}/synth.stamp"
 #Trying to delete a non-existent file is not considered an error.
 file delete -force ${stamp_filename}
@@ -98,20 +92,32 @@ if {[lsearch -exact $parts ${fpga_part}] < 0} {
 
 puts "Targeting device: ${fpga_part}"
 
-foreach path ${verilog_files} {
-    puts "Reading Verilog/SystemVerilog file ${path}"
-    if { [catch {eval read_verilog -sv ${path} } myError]} {
-        errorExit $myError
-    }
-}
+# DO NOT use per file vhdl version as not supported universally (even though our data structures support it)
+set vhdl_std_opt [expr {$vhdl_std == "08" ?  "-vhdl2008": ""}];
 
-foreach path ${vhdl_files} {
-    set vhdl_std_opt [expr {$vhdl_std == "08" ?  "-vhdl2008": ""}];
-    puts "Reading VHDL file ${path} ${vhdl_std_opt}"
-    if { [catch {eval read_vhdl ${vhdl_std_opt} ${path} } myError]} {
+{% for src in design.sources if not src.sim_only %}
+    {% if src.type == 'verilog' %}
+
+        {% if src.variant == 'systemverilog' %}
+        puts "Reading SystemVerilog file {{src.file}}"
+        if { [catch {eval read_verilog -sv {{src.file}} } myError]} {
+            errorExit $myError
+        }
+        {% else %}
+        puts "Reading Verilog file {{src.file}}"
+        if { [catch {eval read_verilog {{src.file}} } myError]} {
+            errorExit $myError
+        }
+        {% endif %}
+
+    {% endif %}
+    {% if src.type == 'vhdl' %}
+    puts "Reading VHDL file {{src.file}} ${vhdl_std_opt}"
+    if { [catch {eval read_vhdl ${vhdl_std_opt} {{src.file}} } myError]} {
         errorExit $myError
     }
-}
+    {% endif %}
+{% endfor %}
 
 
 # TODOs
@@ -228,10 +234,12 @@ set timing_slack [get_property SLACK [get_timing_paths]]
 puts "Final timing slack: $timing_slack ns"
 
 if {$timing_slack < 0} {
-    puts "ERROR: Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt]"
+    puts "\n===========================( *ENABLE ECHO* )==========================="
+    puts "ERROR: Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
     if {$fail_timing} {
         exit 1
     }
+    puts "\n===========================( *DISABLE ECHO* )==========================="
 }
 
 set stamp [open ${stamp_filename} w]

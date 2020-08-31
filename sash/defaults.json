@@ -1,0 +1,24 @@
+{
+    "design": {
+        "top": "LWC",
+        "tb_top": "LWC_TB",
+        "tb_uut": "uut",
+        "vhdl_std": "93",
+        "clock_port": "clk"
+    },
+    "flows": {
+        "diamond": {
+            "fpga_part": "LFE5U-25F-6BG381C",
+            "clock_period": 10.0,
+            "synthesis_engine": "synplify",
+            "strategy": "Timing"
+        },
+        "vivado": {
+            "clock_period": 5.0,
+            "fpga_part": "xc7a12tcsg325-3",
+            "strategy": "Timing",
+            "optimize_power": "False",
+            "sim_run": "all"
+        }
+    }
+}
