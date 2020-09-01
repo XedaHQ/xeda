@@ -27,6 +27,7 @@ class Suite:
     def __init__(self, settings, args, logger, **flow_defaults):
         self.args = args
         self.logger = logger
+        self.nthreads = multiprocessing.cpu_count()
         # this is the actual run directory set (and possibily created) by run(), could be different from what's in the settings/args
         self.run_dir = None
         # base flow defaults
@@ -122,7 +123,7 @@ class Suite:
         self.logger.debug(f'generating {script_path.resolve()} from template.')
         rendered_content = template.render(flow=self.settings.flow,
                                            design=self.settings.design,
-                                           nthreads=multiprocessing.cpu_count(),
+                                           nthreads=self.nthreads,
                                            debug=self.args.debug,
                                            **attr)
         with open(script_path, 'w') as f:
@@ -164,7 +165,7 @@ class Suite:
             self.print_results()
             self.dump_results(flow)
 
-    def run_process(self, prog, prog_args, check=True, stdout_logfile=None):
+    def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None):
         if not stdout_logfile:
             stdout_logfile = f'{prog}_stdout.log'
         proc = None
@@ -194,6 +195,8 @@ class Suite:
                             if unicode:
                                 print('\r✅', end='')
                             spinner.finish()
+                    if initial_step:
+                        spinner = Spinner('⏳' + initial_step if unicode else initial_step)
                     while True:
                         line = proc.stdout.readline()
                         if not line:

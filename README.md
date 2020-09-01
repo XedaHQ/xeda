@@ -1,3 +1,5 @@
+[![Documentation Status](https://readthedocs.org/projects/xeda/badge/?version=latest)](https://xeda.readthedocs.io/en/latest/?badge=latest)
+
 # XEDA: X-target X-tool X-HDL Electronic Design Automation
 
 A simuplified automation for simulation and synthesis of hardware designs. Simplifying use of commercial and open-source EDA tools, targeting FPGA devices and ASIC fabrication.
