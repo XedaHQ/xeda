@@ -39,7 +39,7 @@ class Vivado(Suite):
             return ' '.join([f"-generic {k}={vivado_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_vivado_generic(k, v, sim)])
 
         super().__init__(settings, args, logger,
-                         fail_critical_warning=args.command != "fmax",
+                         fail_critical_warning=False,
                          fail_timing=False
                          )
 

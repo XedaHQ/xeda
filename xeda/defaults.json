@@ -19,6 +19,10 @@
             "strategy": "Timing",
             "optimize_power": "False",
             "sim_run": "all"
+        },
+        "quartus": {
+            "clock_period": 5.921,
+            "fpga_part": "10CL016YU256C6G"
         }
     }
 }

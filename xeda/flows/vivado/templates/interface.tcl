@@ -1,12 +1,12 @@
 # These settings are set by XEDA
 set design_name           {{design.name}}
 set vhdl_std              {{design.vhdl_std}}
+set fpga_part             "{{flow.fpga_part}}"
 set clock_port            {{design.clock_port}}
+set clock_period          {{flow.clock_period}}
 set top                   {{design.top}}
 set tb_top                {{design.tb_top}}
 set strategy              {{flow.strategy}}
-set clock_period          {{flow.clock_period}}
-set fpga_part             "{{flow.fpga_part}}"
 
 set debug                 {{debug}}
 set nthreads              {{nthreads}}

@@ -78,9 +78,9 @@ class XedaApp:
             suite, flow_name = self.get_suite_flow(flow_name=None)
             suite.run(flow_name)
 
-        if args.command == 'fmax':
+        if args.command == 'dse':
 
-            # assert flow_name == 'synth', f"Unsupported flow {flow_name}\n `fmax` command only supports `synth` flow supports "
+            # assert flow_name == 'synth', f"Unsupported flow {flow_name}\n `dse` command only supports `synth` flow supports "
             self.find_fmax()
 
     def parse_args(self):
@@ -124,7 +124,7 @@ class XedaApp:
                                 help=f'Flow name. Suuported flows are: {registered_flows}')
         ############################
         fmax_parser = subparsers.add_parser(
-            'fmax', help='Run `synth` flow of a suite several times, sweeping over clock_period constraint to find the maximum frequency of the design for the current settings')
+            'dse', help='Design Space Exploration: Run `synth` flow of a suite several times, sweeping over clock_period constraint to find the maximum frequency of the design for the current settings')
         fmax_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
                                  help=f'Name of the suite to execute. Suuported flows are: {registered_flows}')
         fmax_parser.add_argument('--max-failed-runs', type=int, default=40,
@@ -149,7 +149,7 @@ class XedaApp:
         while True:
 
             set_period = suite.settings.flow['clock_period']
-            self.logger.info(f'[FMAX] Trying clock_period = {set_period:0.3f}ns')
+            self.logger.info(f'[DSE] Trying clock_period = {set_period:0.3f}ns')
             # fresh directory for each run
             suite.run('synth')
             rundirs.add(suite.run_dir)
@@ -163,12 +163,12 @@ class XedaApp:
                 if best_period:
                     # if wns < wns_threshold:
                     #     self.logger.warning(
-                    #         f'[FMAX] Stopping attempts as wns={wns} is lower than the flow\'s improvement threashold: {wns_threshold}')
+                    #         f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threashold: {wns_threshold}')
                     #     break
                     max_failed = self.args.max_failed_runs
                     if failed_runs >= max_failed:
                         self.logger.warning(
-                            f'[FMAX] Stopping attempts as number of FAILED runs has reached maximum allowed value of {max_failed}.'
+                            f'[DSE] Stopping attempts as number of FAILED runs has reached maximum allowed value of {max_failed}.'
                         )
                         break
                 if not best_period or period < best_period:
@@ -183,13 +183,13 @@ class XedaApp:
             # worse or not worth it
             if best_period and (best_period - next_period) < improvement_threshold:
                 self.logger.warning(
-                    f'[FMAX] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
+                    f'[DSE] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
                 )
                 break
             suite.settings.flow['clock_period'] = next_period
 
-        self.logger.info(f'[FMAX] best_period = {best_period}')
-        self.logger.info(f'[FMAX] best_rundir = {best_rundir}')
+        self.logger.info(f'[DSE] best_period = {best_period}')
+        self.logger.info(f'[DSE] best_rundir = {best_rundir}')
         print(f'---- Results with optimal frequency: ----')
         suite.print_results(best_results)
 

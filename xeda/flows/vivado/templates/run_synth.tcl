@@ -159,6 +159,7 @@ puts "==== Synthesis and Mapping Steps Complemeted ====\n"
 write_checkpoint -force ${checkpoints_dir}/post_synth
 report_timing_summary -file ${reports_dir}/post_synth/timing_summary.rpt
 report_utilization -file ${reports_dir}/post_synth/utilization.rpt
+report_utilization -file ${reports_dir}/post_synth/utilization.xml -format xml
 reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
 report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 # report_power -file ${reports_dir}/post_synth/power.rpt
@@ -202,9 +203,11 @@ report_timing_summary -max_paths 10                             -file ${reports_
 if {$strategy != "Debug"} {
     report_timing  -sort_by group -max_paths 100 -path_type summary -file ${reports_dir}/post_route/timing.rpt
     reportCriticalPaths ${reports_dir}/post_route/critpath_report.csv
-    report_clock_utilization                                        -file ${reports_dir}/post_route/clock_utilization.rpt
-    report_utilization                                              -file ${reports_dir}/post_route/utilization.rpt
-    report_utilization -hierarchical                                -file ${reports_dir}/post_route/hierarchical_utilization.rpt
+    report_clock_utilization                                        -force -file ${reports_dir}/post_route/clock_utilization.rpt
+    report_utilization                                              -force -file ${reports_dir}/post_route/utilization.rpt
+    report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
+    report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.rpt
+    report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
     report_power                                                    -file ${reports_dir}/post_route/power.rpt
     report_drc                                                      -file ${reports_dir}/post_route/drc.rpt
     report_ram_utilization                                          -file ${reports_dir}/post_route/ram_utilization.rpt -append -detail

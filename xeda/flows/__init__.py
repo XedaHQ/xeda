@@ -4,6 +4,7 @@ from pathlib import Path
 
 from typing import Union, Dict, List
 import hashlib
+import csv
 
 JsonType = Union[str, int, float, bool, List['JsonType'], 'JsonTree']
 JsonTree = Dict[str, JsonType]
@@ -13,12 +14,15 @@ StrTree = Dict[str, StrTreeType]
 
 fake_fields = {'author', 'url', 'comment', 'description', 'license'}
 
-def semantic_hash(data: JsonTree, hash_files=True, hasher=hashlib.sha256) -> str:
+
+def semantic_hash(data: JsonTree, hash_files=True, hasher=hashlib.sha1) -> str:
     def get_digest(b: bytes):
-        return hasher(b).hexdigest()
+        return hasher(b).hexdigest()[:32]
+
     def file_digest(filename: str):
         with open(filename, 'rb') as f:
             return get_digest(f.read())
+
     def sorted_dict_str(data: JsonType) -> StrTreeType:
         if type(data) == dict:
             return {k: sorted_dict_str(file_digest(data[k]) if hash_files and (k == 'file') else data[k]) for k in sorted(data.keys()) if not k in fake_fields}
@@ -43,7 +47,7 @@ class DesignSource:
     @classmethod
     def is_design_source(cls, src):
         return isinstance(src, dict) and 'file' in src
-    
+
     def __init__(self, file: str, type: str = None, sim_only: bool = False, standard: str = None, variant: str = None, comment: str = None) -> None:
         def type_from_suffix(file: Path) -> str:
             type_variants_map = {
@@ -80,3 +84,16 @@ def try_convert(s):
             if s.lower in ['false', 'no']:
                 return False
             return s
+
+
+def parse_csv(path, id_field, field_parser=(lambda x: x), id_parser=(lambda x: x), interesting_fields=None):
+    data = {}
+
+    with open(path, newline='') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            if not interesting_fields:
+                interesting_fields = row.keys()
+            id = id_parser(row[id_field])
+            data[id] = {k: field_parser(row[k]) for k in interesting_fields}
+        return data

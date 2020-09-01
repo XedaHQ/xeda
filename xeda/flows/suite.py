@@ -22,6 +22,7 @@ class Suite:
     name = None
     executable = None
     supported_flows = []
+    required_settings = {'synth': {'clock_period': float}}
 
     def __init__(self, settings, args, logger, **flow_defaults):
         self.args = args
@@ -30,7 +31,6 @@ class Suite:
         self.run_dir = None
         # base flow defaults
         self.settings = Settings()
-        self.settings.flow['clock_period'] = None
         # default for optional design settings
         self.settings.design['generics'] = {}
         self.settings.design['tb_generics'] = {}
@@ -55,7 +55,7 @@ class Suite:
         self.run_hash = semantic_hash(self.settings)
 
         self.run_dir = self.get_run_dir(all_runs_dir=self.args.all_runs_dir,
-                                        prefix='FMAX_' if self.args.command == 'fmax' else None, override=self.args.force_run_dir)
+                                        prefix='DSE_' if self.args.command == 'dse' else None, override=self.args.force_run_dir)
 
         if not isinstance(self.settings.design['sources'], list):
             sys.exit('`sources` section of the settings needs to be a list')
@@ -65,6 +65,18 @@ class Suite:
             self.settings.design['sources'][i] = DesignSource(**src)
             self.settings.design['sources'][i].file = self.conv_to_relative_path(
                 self.settings.design['sources'][i].file)
+
+    def check_settings(self, flow):
+        if flow in self.required_settings:
+            for req_key, req_type in self.required_settings[flow].items():
+                if req_key not in self.settings.flow:
+                    self.logger.critical(f'{req_key} is required to be set for {self.name}:{flow}')
+                    sys.exit(1)
+                elif type(self.settings.flow[req_key]) != req_type:
+                    self.logger.critical(f'{req_key} should have type `{req_type.__name__}` for {self.name}:{flow}')
+                    sys.exit(1)
+        else:
+            self.logger.warn(f"{self.name} does not specify any required_settings for {flow}")
 
     def get_run_dir(self, all_runs_dir=None, prefix=None, override=None):
         if not all_runs_dir:
@@ -121,6 +133,10 @@ class Suite:
         path = Path(src).resolve()
         return os.path.relpath(path, self.run_dir)
 
+    def fatal(self, msg):
+        self.logger.critical(msg)
+        sys.exit(1)
+
     def run(self, flow):
         if not flow:
             flow = self.supported_flows[0]  # first is the default flow
@@ -128,11 +144,19 @@ class Suite:
             if not (flow in self.supported_flows):
                 sys.exit(f"Flow {flow} is not supported by {self.name}.")
 
+        self.check_settings(flow)
+
         self.dump_settings()
 
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         self.__runflow_impl__(flow)
         # clear results in case anything lingering
+        if not self.reports_dir :
+            self.fatal("self.reports_dir was not set by flow run! Most likely, the execution of the flow has failed.")
+
+        if not self.reports_dir.exists():
+            self.fatal(f"{self.reports_dir} does not exist! Most likely, the execution of the flow has failed.")
+
         self.results = dict()
         self.parse_reports(flow)
         self.results['timestamp'] = self.timestamp
@@ -140,13 +164,15 @@ class Suite:
             self.print_results()
             self.dump_results(flow)
 
-    def run_process(self, prog, prog_args, check=True):
+    def run_process(self, prog, prog_args, check=True, stdout_logfile=None):
+        if not stdout_logfile:
+            stdout_logfile = f'{prog}_stdout.log'
         proc = None
         spinner = None
         unicode = True
         verbose = self.args.verbose
         echo_instructed = False
-        stdout_logfile = self.run_dir / 'stdout.log'
+        stdout_logfile = self.run_dir / stdout_logfile
         start_step_re = re.compile(r'^={12}=*\(\s*(?P<step>[^\)]+)\s*\)={12}=*')
         enable_echo_re = re.compile(r'^={12}=*\( \*ENABLE ECHO\* \)={12}=*')
         disable_echo_re = re.compile(r'^={12}=*\( \*DISABLE ECHO\* \)={12}=*')
@@ -318,11 +344,15 @@ class Suite:
         for k, v in results.items():
             if not k.startswith('_'):
                 if isinstance(v, float):
-                    print(f'{k:32}{v:12.3f}')
+                    print(f'{k:32}{v:22.3f}')
+                elif isinstance(v, bool):
+                    print(f'{k:32}{u"✅ " if v else u"❌ ":>22}')
                 elif isinstance(v, int):
-                    print(f'{k:32}{v:>12}')
+                    print(f'{k:32}{v:>22}')
+                elif isinstance(v, list):
+                    print(f'{k:32}{" ".join(v):>22}')
                 else:
-                    print(f'{k:32}{v:>12s}')
+                    print(f'{k:32}{str(v):>22s}')
 
     def dump_json(self, data, path, overwrite=True):
         if path.exists():
