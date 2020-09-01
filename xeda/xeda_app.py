@@ -134,7 +134,11 @@ class XedaApp:
 
     def get_default_settings(self):
         defaults_data = pkg_resources.resource_string(__name__, "defaults.json")
-        return json.loads(defaults_data)
+        try:
+            return json.loads(defaults_data)
+        except json.decoder.JSONDecodeError as e:
+            self.logger.critical(f"Failed to parse defaults settings file (defaults.json): {' '.join(e.args)}")
+            sys.exit(1)
 
     def find_fmax(self):
         wns_threshold = 0.002

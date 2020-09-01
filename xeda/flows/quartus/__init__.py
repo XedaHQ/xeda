@@ -51,8 +51,83 @@ class Quartus(Suite):
 
     # run steps of tools and finally sets self.reports_dir
     def __runflow_impl__(self, flow):
+        project_settings = None
+        if 'project_settings' in self.settings.flow:
+            project_settings = self.settings.flow['project_settings']
+        # TODO manage settings
+        if not project_settings:
+            project_settings = {
+                # see https://www.intel.com/content/www/us/en/programmable/documentation/zpr1513988353912.html
+                # https://www.intel.com/content/www/us/en/programmable/quartushelp/current/index.htm
+                # BALANCED "HIGH PERFORMANCE EFFORT" AGGRESSIVE PERFORMANCE
+                # "High Performance with Maximum Placement Effort"
+                # "Superior Performance"
+                # "Superior Performance with Maximum Placement Effort"
+                # "Aggressive Area"
+                # "High Placement Routability Effort"
+                # "High Packing Routability Effort"
+                # "Optimize Netlist for Routability
+                # "High Power Effort"
+                "OPTIMIZATION_MODE": "HIGH PERFORMANCE EFFORT",
+                "REMOVE_REDUNDANT_LOGIC_CELLS": "ON",
+                "AUTO_RESOURCE_SHARING": "ON",
+                "ALLOW_REGISTER_RETIMING": "ON",
+
+                "SYNTH_GATED_CLOCK_CONVERSION": "ON",
+
+
+                # faster: AUTO FIT, fastest: FAST_FIT
+                "FITTER_EFFORT": "STANDARD FIT",
+
+                # AREA, SPEED, BALANCED
+                "STRATIX_OPTIMIZATION_TECHNIQUE": "SPEED",
+                "CYCLONE_OPTIMIZATION_TECHNIQUE": "SPEED",
+
+                # see https://www.intel.com/content/www/us/en/programmable/documentation/rbb1513988527943.html
+                # The Router Effort Multiplier controls how quickly the router tries to find a valid solution. The default value is 1.0 and legal values must be greater than 0.
+                # Numbers higher than 1 help designs that are difficult to route by increasing the routing effort.
+                # Numbers closer to 0 (for example, 0.1) can reduce router runtime, but usually reduce routing quality slightly.
+                # Experimental evidence shows that a multiplier of 3.0 reduces overall wire usage by approximately 2%. Using a Router Effort Multiplier higher than the default value can benefit designs with complex datapaths with more than five levels of logic. However, congestion in a design is primarily due to placement, and increasing the Router Effort Multiplier does not necessarily reduce congestion.
+                # Note: Any Router Effort Multiplier value greater than 4 only increases by 10% for every additional 1. For example, a value of 10 is actually 4.6.
+                "PLACEMENT_EFFORT_MULTIPLIER": 3.0,
+                "ROUTER_EFFORT_MULTIPLIER": 3.0,
+
+                # NORMAL, MINIMUM,MAXIMUM
+                "ROUTER_TIMING_OPTIMIZATION_LEVEL": "MAXIMUM",
+
+                # ALWAYS, AUTOMATICALLY, NEVER
+                "FINAL_PLACEMENT_OPTIMIZATION": "ALWAYS",
+
+
+                # "PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA": "ON",
+
+                # ?
+                # "ADV_NETLIST_OPT_SYNTH_GATE_RETIME": "ON",
+                # ?
+                # "ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP": "ON",
+
+                "AUTO_PACKED_REGISTERS_STRATIX": "OFF",
+                "AUTO_PACKED_REGISTERS_CYCLONE": "OFF",
+                "PHYSICAL_SYNTHESIS_COMBO_LOGIC": "ON",
+                "PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION": "ON",
+                "PHYSICAL_SYNTHESIS_REGISTER_RETIMING": "ON",
+                "PHYSICAL_SYNTHESIS_EFFORT": "EXTRA",
+                "AUTO_DSP_RECOGNITION": "OFF",
+
+                #NORMAL, OFF, EXTRA_EFFORT
+                # "OPTIMIZE_POWER_DURING_SYNTHESIS": "NORMAL",
+
+                # Used during placement. Use of a higher value increases compilation time, but may increase the quality of placement.
+                "INNER_NUM": 8,
+            }
+
         reports_dir = 'reports'
-        script_path = self.copy_from_template(f'create_project.tcl')
+        clock_sdc_path = self.copy_from_template(f'clock.sdc')
+        script_path = self.copy_from_template(
+            f'create_project.tcl',
+            sdc_files=[clock_sdc_path],
+            project_settings=project_settings
+        )
         self.run_process('quartus_sh', ['-t', str(script_path)], stdout_logfile='create_project_stdout.log')
 
         # self.run_process('quartus_sh',
@@ -65,22 +140,19 @@ class Quartus(Suite):
             self.reports_dir.mkdir(parents=True)
 
         if flow == 'dse':
-            # TODO handle settings. Problem: rationalize/resolve correspondance of settings hash vs desgin settings
-            dse = {
-                'num_concurrent': 8,  # FIXME
-                'nproc': self.nthreads,
-                'num_seeds': 8,
-                # Exploration flow to use, if not specified in --config
-                # configuration file. Valid flows: timing_aggressive,
-                # all_optimization_modes, timing_high_effort, seed,
-                # area_aggressive, power_high_effort, power_aggressive
-                'explore': 'all_optimization_modes',
-                #  'full_compile', 'fit_sta' and 'fit_sta_asm'.
-                'compile_flow': 'full_compile',
-                'stop_on_success': True,
-                # Limit the amount of time a compute node is allowed to run. Format: hh:mm:ss
-                'timeout': '01:00:00',
-            }
+            # TODO Check correspondance of settings hash vs desgin settings
+            # 'explore': Exploration flow to use, if not specified in --config
+            #   configuration file. Valid flows: timing_aggressive,
+            #   all_optimization_modes, timing_high_effort, seed,
+            #   area_aggressive, power_high_effort, power_aggressive
+            # 'compile_flow':  'full_compile', 'fit_sta' and 'fit_sta_asm'.
+            # 'timeout': Limit the amount of time a compute node is allowed to run. Format: hh:mm:ss
+            if 'dse' not in self.settings.flow:
+                self.fatal('`flows.quartus.dse` settings are missing!')
+
+            dse = self.settings.flow['dse']
+            if 'nproc' not in dse or not dse['nproc']:
+                dse['nproc'] = self.nthreads
 
             script_path = self.copy_from_template(f'settings.dse',
                                                   reports_dir=reports_dir,
@@ -92,7 +164,11 @@ class Quartus(Suite):
                              initial_step="Running Quartus DSE",
                              )
         elif flow == 'synth':
-            script_path = self.copy_from_template(f'compile.tcl', reports_dir=reports_dir)
+
+            script_path = self.copy_from_template(
+                f'compile.tcl',
+                reports_dir=reports_dir
+            )
             self.run_process('quartus_sh',
                              ['-t', str(script_path)],
                              stdout_logfile='compile_stdout.log'

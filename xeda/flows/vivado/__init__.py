@@ -50,16 +50,19 @@ class Vivado(Suite):
 
     # run steps of tools and finally set self.reports_dir
     def __runflow_impl__(self, flow):
+        reports_dir = 'reports'
+        clock_xdc_path = self.copy_from_template(f'clock.xdc')
         script_path = self.copy_from_template(f'{flow}.tcl',
                                               run_synth_flow=False if flow == 'sim' else True,
                                               run_postsynth_sim=True if flow == 'post_synth_sim' else False,
+                                              xdc_files=[clock_xdc_path]
                                               )
         debug = self.args.debug
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug else 'batch', '-source', str(script_path)]
         if not debug:
             vivado_args.append('-notrace')
         self.run_process(self.executable, vivado_args)
-        self.reports_dir = self.run_dir / 'reports'
+        self.reports_dir = self.run_dir / reports_dir
 
     def parse_reports(self, flow):
         if flow == 'synth':

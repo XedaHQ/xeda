@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 import subprocess
 from datetime import datetime
-from jinja2 import Environment, PackageLoader
+from jinja2 import Environment, PackageLoader, StrictUndefined
 import multiprocessing
 # import asyncio
 
@@ -48,7 +48,8 @@ class Suite:
         self.results = dict()
         self.jinja_env = Environment(
             loader=PackageLoader(__package__ + f'.{self.name}', 'templates'),
-            autoescape=False
+            autoescape=False,
+            undefined=StrictUndefined
         )
 
         self.reports_dir = None

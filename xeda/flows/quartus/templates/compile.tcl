@@ -3,12 +3,7 @@ set clock_port            {{design.clock_port}}
 set clock_period          {{flow.clock_period}}
 set top                   {{design.top}}
 set tb_top                {{design.tb_top}}
-# set strategy              {{flow.strategy}}
-
 set debug                 {{debug}}
-# set run_synth_flow        {{run_synth_flow}}
-# set run_postsynth_sim     {{run_postsynth_sim}}
-# set optimize_power        {{flow.optimize_power}}
 
 package require ::quartus::project
 package require ::quartus::flow

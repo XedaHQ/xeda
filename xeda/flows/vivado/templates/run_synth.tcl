@@ -120,15 +120,11 @@ set vhdl_std_opt [expr {$vhdl_std == "08" ?  "-vhdl2008": ""}];
 {% endfor %}
 
 
-# TODOs
-# Skip saving some artifects in case timing not met or synthesis failed for any reason
+# TODO: Skip saving some artifects in case timing not met or synthesis failed for any reason
 
-# create_clock does not work from here!
-set xdc_filename "${vivado_dir}/clock.xdc"
-set xdc_file [open ${xdc_filename} w]
-puts $xdc_file "create_clock -period ${clock_period} -name clock \[get_ports ${clock_port}\]"
-close $xdc_file
-read_xdc ${xdc_filename}
+{% for xdc_file in xdc_files %}
+read_xdc {{xdc_file}}
+{% endfor %}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="
 

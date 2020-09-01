@@ -4,6 +4,7 @@
         "tb_top": "LWC_TB",
         "tb_uut": "uut",
         "vhdl_std": "93",
+        "vhdl_synopsys": false,
         "clock_port": "clk"
     },
     "flows": {
@@ -22,7 +23,38 @@
         },
         "quartus": {
             "clock_period": 5.921,
-            "fpga_part": "10CL016YU256C6G"
+            "fpga_part": "10CL016YU256C6G",
+            "dse":{
+                "num_concurrent": 8,
+                "nproc": null,
+                "num_seeds": 8,
+                "explore": "timing_high_effort",
+                "compile_flow": "fit_sta",
+                "stop_on_success": true,
+                "timeout": "01:00:00"
+            },
+            "project_settings": {
+                "OPTIMIZATION_MODE": "HIGH PERFORMANCE EFFORT",
+                "REMOVE_REDUNDANT_LOGIC_CELLS": "ON",
+                "AUTO_RESOURCE_SHARING": "ON",
+                "ALLOW_REGISTER_RETIMING": "ON",
+                "SYNTH_GATED_CLOCK_CONVERSION": "ON",
+                "FITTER_EFFORT": "STANDARD FIT",
+                "STRATIX_OPTIMIZATION_TECHNIQUE": "SPEED",
+                "CYCLONE_OPTIMIZATION_TECHNIQUE": "SPEED",
+                "PLACEMENT_EFFORT_MULTIPLIER": 3.0,
+                "ROUTER_EFFORT_MULTIPLIER": 3.0,
+                "ROUTER_TIMING_OPTIMIZATION_LEVEL": "MAXIMUM",
+                "FINAL_PLACEMENT_OPTIMIZATION": "ALWAYS",
+                "AUTO_PACKED_REGISTERS_STRATIX": "OFF",
+                "AUTO_PACKED_REGISTERS_CYCLONE": "OFF",
+                "PHYSICAL_SYNTHESIS_COMBO_LOGIC": "ON",
+                "PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION": "ON",
+                "PHYSICAL_SYNTHESIS_REGISTER_RETIMING": "ON",
+                "PHYSICAL_SYNTHESIS_EFFORT": "EXTRA",
+                "AUTO_DSP_RECOGNITION": "OFF",
+                "INNER_NUM": 8
+            }
         }
     }
 }

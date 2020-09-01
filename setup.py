@@ -72,13 +72,15 @@ setup(
     #     'dev': [],
     # },
 
-    package_data={"": 
-        [
-            'xeda/flows/*/templates/*.tcl', 
-            'xeda/flows/*/templates/*.dse',
-            '*.ys', '*.mk'
-        ]
-    },
+    package_data={"":
+                  [
+                      'xeda/flows/*/templates/*.tcl',
+                      'xeda/flows/*/templates/*.sdc',
+                      'xeda/flows/vivado/templates/*.xdc',
+                      'xeda/flows/quartus/templates/*.dse',
+                      '*.ys', '*.mk'
+                  ]
+                  },
     data_files=[('config/xeda', ['xeda/defaults.json'])],
     include_package_data=True,
 
@@ -91,4 +93,3 @@ setup(
         ],
     }
 )
-

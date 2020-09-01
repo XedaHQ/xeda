@@ -1,21 +1,42 @@
 [![Documentation Status](https://readthedocs.org/projects/xeda/badge/?version=latest)](https://xeda.readthedocs.io/en/latest/?badge=latest)
 
-# XEDA: X-target X-tool X-HDL Electronic Design Automation
-
-A simuplified automation for simulation and synthesis of hardware designs. Simplifying use of commercial and open-source EDA tools, targeting FPGA devices and ASIC fabrication.
-
+# Xeda
 
 ## Description
+**Xeda** `/ˈziːdə/` is a cross-platform, cross-EDA, cross-target automated synthesis and simulation platform.
+It helps hardware developers to verify, evaluate, and deploy their RTL designs using multiple commercial and open-source electronic design automation flows.
+
+For further details, visit the [documentations](http://xeda.rtfd.io/) (Work In Progress).
+
 
 ## Definitions
-- Tool
-- Suite
-- Flow
-- Dependencies
+- Tool: Single executable that performs an EDA action.
+- Suite: A collection of Tools.
+- Flow: Execution of chain of tools from one or several suites. 
+- Flow dependencies:
+    Dependencies are managed by the use of design-flow hash (DFH). DFH is a combined cryptographic hash of the content of dependency files (e.g. HDL sources) as well as design and flow settings. The directory where the flow is run and the results are created is based on this design design-flow hash.
+
+## Dependencies
+- Python 3.6.9+ (tested on cpython)
 
 ## Installation
+- Install from GitHub's master branch (recommended during alpha development):
+```
+python3 -m pip install -U git+https://github.com/kammoh/xeda.git
+```
 
-### Dependencies
+- Install the latest published version from [pypi](https://pypi.org/project/xeda):
+```
+python3 -m pip install -U xeda
+```
+
+- Install from local git clone (with symlinks):
+```
+git clone --recursive https://github.com/kammoh/xeda.git
+cd xeda
+python3 -m pip install -U -e .
+```
+
 
 
 ## Usage
@@ -32,85 +53,33 @@ Sample `design.json`:
 ```json
 {
     "design": {
-        "name": "xoodyak",
-        "description": "Xoodyak NIST LWC Candidate Hardware Implementation",
-        "author":[ "Xoodyak Team", "[Silvia Mella](mailto:silvia.mella@st.com)"],
+        "name": "mydesign",
+        "description": "This really cool design",
+        "author":["Dr. Seuss", "[Xena](https://en.wikipedia.org/wiki/Xena)", "[Kamyar Mohajerani](mailto:kammoh@gmail.com)"],
         "url": "https://github.com/KeccakTeam/Xoodoo.git",
         "sources": [
             {
-                "file": "src_rtl/design_pkg.vhd"
+                "file": "src_rtl/s1.vhd"
             },
             {
-                "file": "src_rtl/LWC/NIST_LWAPI_pkg.vhd"
+                "file": "src_rtl/s2.vhd"
             },
             {
-                "file": "src_rtl/xoodoo_globals.vhd"
-            },
-            {
-                "file": "src_rtl/xoodoo_rc.vhd"
-            },
-            {
-                "file": "src_rtl/xoodoo_register.vhd"
-            },
-            {
-                "file": "src_rtl/xoodoo_round.vhd"
-            },
-            {
-                "file": "src_rtl/xoodoo_1rnd.vhd"
-            },
-            {
-                "file": "src_rtl/xoodoo_n_rounds.vhd"
-            },
-            {
-                "file": "src_rtl/CryptoCore.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/StepDownCountLd.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/data_sipo.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/key_piso.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/data_piso.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/fwft_fifo.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/PreProcessor.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/PostProcessor.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/LWC.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/std_logic_1164_additions.vhd",
-                "sim_only": true
-            },
-            {
-                "file": "src_tb/LWC_TB.vhd",
+                "file": "src_rtl/LWC/tb_s.vhd",
                 "sim_only": true
             }
         ],
         "vhdl_std": "02",
-        "top": "LWC",
+        "vhdl_synopsys": true,
+        "top": "TOP",
         "clock_port": "clk",
-        "tb_top": "LWC_TB",
+        "tb_top": "TB_TOP",
         "tb_generics": {
-            "G_FNAME_PDI": {
-                "file": "KAT/v1/pdi.txt"
+            "STRING_GENERIC": "hello",
+            "FILENAME_STRING_GENERIC": {
+                "file": "../data.txt"
             },
-            "G_FNAME_SDI": {
-                "file": "KAT/v1/sdi.txt"
-            },
-            "G_FNAME_DO": {
-                "file": "KAT/v1/do.txt"
-            }
+            "INT_GENERIC": 123
         },
         "generics": {}
     },
@@ -132,15 +101,18 @@ Sample `design.json`:
 }
 ```
 
-### Supported Flows
+## Supported Flows
 
-- Xilinx Vivado Suite
-    - synth flow: Full synthesis and implementation flow
+- Xilinx® Vivado® Design Suite
+    - synth: Full synthesis and implementation flow
     - sim: functional simulation of RTL design
     - post-synth-sim: Post-implementation functional and timing simulation and power analysis.
-- Lattice Diamond Suite
-    - synth
+- Lattice® Diamond®
+    - synth: Full synthesis and implementation flow
+- Intel® Quartus® Prime Lite/Pro:
+    - synth: Full synthesis and implementation flow
+    - dse: Design Space Exploration
 
-### Adding new Flows
+<!-- ## Adding new Flows -->
 
 © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
