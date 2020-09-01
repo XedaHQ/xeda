@@ -10,8 +10,7 @@ import csv
 
 class Quartus(Suite):
     name = 'quartus'
-    executable = 'quartus_sh'
-    supported_flows = ['synth']
+    supported_flows = ['synth', 'dse']
     required_settings = {'synth': {'clock_period': float, 'fpga_part': str}}
 
     def __init__(self, settings, args, logger):
@@ -50,31 +49,67 @@ class Quartus(Suite):
         # self.settings.flow['generics_options'] = quartus_generics(self.settings.design["generics"], sim=False)
         # self.settings.flow['tb_generics_options'] = quartus_generics(self.settings.design["tb_generics"], sim=True)
 
-        if self.run_dir.exists():
-            self.logger.warn(f"Using existing run directory: {self.run_dir}")
-
     # run steps of tools and finally sets self.reports_dir
     def __runflow_impl__(self, flow):
         reports_dir = 'reports'
         script_path = self.copy_from_template(f'create_project.tcl')
-        self.run_process(self.executable, ['-t', str(script_path)], stdout_logfile='create_project_stdout.log')
-        # self.run_process(self.executable,
+        self.run_process('quartus_sh', ['-t', str(script_path)], stdout_logfile='create_project_stdout.log')
+
+        # self.run_process('quartus_sh',
         #                  ['--dse', '-project', self.settings.design['name'], '-nogui', '-concurrent-compiles', '8', '-exploration-space',
         #                   "Extra Effort Space", '-optimization-goal', "Optimize for Speed", '-report-all-resource-usage', '-ignore-failed-base'],
         #                  stdout_logfile='dse_stdout.log'
         #                  )
-        script_path = self.copy_from_template(f'compile.tcl',reports_dir=reports_dir)
-        self.run_process(self.executable, ['-t', str(script_path)], stdout_logfile='compile_stdout.log')
-
         self.reports_dir = self.run_dir / reports_dir
+        if not self.reports_dir.exists():
+            self.reports_dir.mkdir(parents=True)
+
+        if flow == 'dse':
+            # TODO handle settings. Problem: rationalize/resolve correspondance of settings hash vs desgin settings
+            dse = {
+                'num_concurrent': 8,  # FIXME
+                'nproc': self.nthreads,
+                'num_seeds': 8,
+                # Exploration flow to use, if not specified in --config
+                # configuration file. Valid flows: timing_aggressive,
+                # all_optimization_modes, timing_high_effort, seed,
+                # area_aggressive, power_high_effort, power_aggressive
+                'explore': 'all_optimization_modes',
+                #  'full_compile', 'fit_sta' and 'fit_sta_asm'.
+                'compile_flow': 'full_compile',
+                'stop_on_success': True,
+                # Limit the amount of time a compute node is allowed to run. Format: hh:mm:ss
+                'timeout': '01:00:00',
+            }
+
+            script_path = self.copy_from_template(f'settings.dse',
+                                                  reports_dir=reports_dir,
+                                                  dse=dse
+                                                  )
+            self.run_process('quartus_dse',
+                             ['--use-dse-file', script_path, self.settings.design['name']],
+                             stdout_logfile='dse_stdout.log',
+                             initial_step="Running Quartus DSE",
+                             )
+        elif flow == 'synth':
+            script_path = self.copy_from_template(f'compile.tcl', reports_dir=reports_dir)
+            self.run_process('quartus_sh',
+                             ['-t', str(script_path)],
+                             stdout_logfile='compile_stdout.log'
+                             )
+        else:
+            sys.exit('unsupported flow')
 
     def parse_reports(self, flow):
         if flow == 'synth':
             self.parse_synth_reports()
-        if flow == 'sim':
-            self.parse_sim_reports()
+        if flow == 'dse':
+            self.parse_dse_reports()
+        # if flow == 'sim':
+        #     self.parse_sim_reports()
 
-    def parse_sim_reports(self):
+    def parse_dse_reports(self):
+        'quartus_dse_report.json'
         pass
 
     def parse_synth_reports(self):

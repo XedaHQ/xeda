@@ -86,7 +86,7 @@ setup(
     #     'dev': [],
     # },
 
-    package_data={"": ['*.tcl', '*.ys', '*.mk']},
+    package_data={"": ['*.tcl', '*.dse', '*.ys', '*.mk']},
     data_files=[('config/xeda',['xeda/defaults.json'])],
     include_package_data=True,
 
