@@ -23,11 +23,7 @@ class Vivado(Suite):
 
         def vivado_gen_convert(k, x, sim):
             if sim:
-                if isinstance(x, dict) and "file" in x:
-                    p = x["file"]
-                    assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
-                    x = self.conv_to_relative_path(p.strip())
-                    self.logger.info(f'Converting generic `{k}` marked as `file`: {p} -> {x}')
+                x
             xl = str(x).strip().lower()
             if xl == 'false':
                 return "1\\'b0"
@@ -61,7 +57,7 @@ class Vivado(Suite):
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug else 'batch', '-source', str(script_path)]
         if not debug:
             vivado_args.append('-notrace')
-        self.run_process(self.executable, vivado_args)
+        self.run_process(self.executable, vivado_args, initial_step='Starting vivado', stdout_logfile=f'vivado_{flow}.log')
         self.reports_dir = self.run_dir / reports_dir
 
     def parse_reports(self, flow):

@@ -101,6 +101,9 @@ Sample `design.json`:
 }
 ```
 
+### Design parameters
+- "vhdl_std": Can be "93" (VHDL-1993), "02" (VHDL-2002 or default language version of the tool), "08" (VHDL-2008). 
+
 ## Supported Flows
 
 - Xilinx® Vivado® Design Suite

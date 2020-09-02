@@ -78,7 +78,7 @@ setup(
                       'xeda/flows/*/templates/*.sdc',
                       'xeda/flows/vivado/templates/*.xdc',
                       'xeda/flows/quartus/templates/*.dse',
-                      '*.ys', '*.mk'
+                      '*.ys', '*.mk', '*.xdc', '*.sdf', '*.tcl'
                   ]
                   },
     data_files=[('config/xeda', ['xeda/defaults.json'])],

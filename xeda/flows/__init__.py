@@ -70,6 +70,9 @@ class DesignSource:
         self.standard = standard
         self.comment = comment
 
+    def __str__(self):
+        return str(self.file)
+
 
 def try_convert(s):
     try:

@@ -68,6 +68,15 @@ class Suite:
             self.settings.design['sources'][i].file = self.conv_to_relative_path(
                 self.settings.design['sources'][i].file)
 
+        for gen_type in ['generics', 'tb_generics']:
+            for gen_key, gen_val in self.settings.design[gen_type].items():
+                if isinstance(gen_val, dict) and "file" in gen_val:
+                    p = gen_val["file"]
+                    assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
+                    gen_val = self.conv_to_relative_path(p.strip())
+                    self.logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
+                    self.settings.design[gen_type][gen_key] = gen_val
+
     def check_settings(self, flow):
         if flow in self.required_settings:
             for req_key, req_type in self.required_settings[flow].items():
@@ -104,14 +113,14 @@ class Suite:
         return run_dir
 
     def __runflow_impl__(self, flow):
+        # Must be implemented
         # extraneous `if` needed for Pylace
         if self:
             raise NotImplementedError
 
     def parse_reports(self, flow):
-        # extraneous `if` needed for Pylace
-        if self:
-            raise NotImplementedError
+        # Do nothing if not implemented
+        pass
 
     def dump_settings(self):
         effective_settings_json = self.run_dir / f'settings.json'
@@ -166,23 +175,26 @@ class Suite:
             self.print_results()
             self.dump_results(flow)
 
-    def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None):
+    def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):
         if not stdout_logfile:
             stdout_logfile = f'{prog}_stdout.log'
         proc = None
         spinner = None
         unicode = True
-        verbose = self.args.verbose
+        verbose = self.args.verbose or force_echo
         echo_instructed = False
         stdout_logfile = self.run_dir / stdout_logfile
         start_step_re = re.compile(r'^={12}=*\(\s*(?P<step>[^\)]+)\s*\)={12}=*')
         enable_echo_re = re.compile(r'^={12}=*\( \*ENABLE ECHO\* \)={12}=*')
         disable_echo_re = re.compile(r'^={12}=*\( \*DISABLE ECHO\* \)={12}=*')
+        error_msg_re = re.compile(r'^\s*error:?\s+', re.IGNORECASE)
+        warn_msg_re = re.compile(r'^\s*warning:?\s+', re.IGNORECASE)
+        critwarn_msg_re = re.compile(r'^\s*critical\s+warning:?\s+', re.IGNORECASE)
+        
         with open(stdout_logfile, 'w') as log_file:
             try:
                 self.logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
-                if not verbose:
-                    self.logger.info(f'Standard output from the tools will be saved to {stdout_logfile}')
+                self.logger.info(f'Standard output from the tool will be saved to {stdout_logfile}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.run_dir,
                                       stdout=subprocess.PIPE,
@@ -211,7 +223,11 @@ class Suite:
                             else:
                                 print(line, end='')
                         else:
-                            if enable_echo_re.match(line):
+                            if error_msg_re.match(line) or critwarn_msg_re.match(line):
+                                self.logger.error(line)
+                            elif warn_msg_re.match(line):
+                                self.logger.warning(line)
+                            elif enable_echo_re.match(line):
                                 echo_instructed = True
                                 end_step()
                             else:

@@ -18,10 +18,25 @@ except pkg_resources.DistributionNotFound:
     __version__ = '(N/A - Local package)'
 
 
+def dict_merge(base_dct, merge_dct, add_keys=True):
+    rtn_dct = base_dct.copy()
+    if add_keys is False:
+        merge_dct = {key: merge_dct[key] for key in set(rtn_dct).intersection(set(merge_dct))}
+
+    rtn_dct.update({
+        key: dict_merge(rtn_dct[key], merge_dct[key], add_keys=add_keys)
+        if isinstance(rtn_dct.get(key), dict) and isinstance(merge_dct[key], dict)
+        else merge_dct[key]
+        for key in merge_dct.keys()
+    })
+    return rtn_dct
+
+
 class XedaApp:
     def __init__(self):
         self.registered_suites = dict()
-        self.parser = argparse.ArgumentParser(description=f'{__package__}: Simulate And Synthesize Hardware! Version {__version__}')
+        self.parser = argparse.ArgumentParser(
+            description=f'{__package__}: Simulate And Synthesize Hardware! Version {__version__}')
         self.args = None
         self.logger = logging.getLogger(__package__)
         self.settings = None
@@ -63,7 +78,7 @@ class XedaApp:
             with open(json_path) as f:
                 design_settings = json.load(f)
                 self.check_settings()
-                self.settings.update(design_settings)
+                self.settings = dict_merge(self.settings, design_settings)
         except FileNotFoundError as e:
             if args.design_json:
                 sys.exit(f' Cannot open the specified design settings: {args.design_json}\n {e}')
