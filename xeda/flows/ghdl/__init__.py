@@ -1,9 +1,10 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-from ..suite import Suite
+import re
+from ..suite import Suite, HasSimFlow
 
 
-class Ghdl(Suite):
+class Ghdl(Suite, HasSimFlow):
     name = 'ghdl'
     supported_flows = ['sim']
 
@@ -69,21 +70,23 @@ class Ghdl(Suite):
         #                  stdout_logfile='ghdl_elaborate.log',
         #                  check=True
         #                  )
+
+        
         self.run_process('ghdl', ['-i'] + analysis_options + warns + sources,
                          initial_step='Analyzing VHDL files',
-                         stdout_logfile='ghdl_analyze.log',
+                         stdout_logfile='ghdl_analyze_stdout.log',
                          check=True
                          )
 
-        self.run_process('ghdl', ['-m', '-f'] + elab_options + warns + [self.settings.design['tb_top']],
+        self.run_process('ghdl', ['-m', '-f'] + elab_options + optimize + warns + [self.settings.design['tb_top']],
                          initial_step='Elaborating design',
-                         stdout_logfile='ghdl_elaborate.log',
+                         stdout_logfile='ghdl_elaborate_stdout.log',
                          check=True
                          )
 
         self.run_process('ghdl', ['-r', vhdl_std_opt, self.settings.design['tb_top']] + run_options + tb_generics_opts,
                          initial_step='Running simulation',
-                         stdout_logfile='ghdl_run.log',
+                         stdout_logfile=self.flow_stdout_log,
                          force_echo=True
                          )
 
@@ -91,3 +94,8 @@ class Ghdl(Suite):
 
         if not self.reports_dir.exists():
             self.reports_dir.mkdir(parents=True)
+
+    # TODO LWC_TB for now, TODO: generic python function/regexp?
+    def parse_reports(self, flow):
+        if flow == 'sim':
+            self.simrun_match_regexp(r'PASS\s*\(0\):\s*SIMULATION\s*FINISHED')

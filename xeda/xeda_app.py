@@ -108,7 +108,12 @@ class XedaApp:
         parser.add_argument(
             '--verbose',
             action='store_true',
-            help='print everything to stdout'
+            help='Be verbose. Print everything to stdout'
+        )
+        parser.add_argument(
+            '--quiet',
+            action='store_true',
+            help="Be as quiet as possible. Never print out output from command executions"
         )
         parser.add_argument(
             '--force-run-dir',
@@ -122,7 +127,7 @@ class XedaApp:
         )
         parser.add_argument(
             '--design-json',
-            help='print everything to stdout'
+            help='Path to design JSON file.'
         )
         subparsers = parser.add_subparsers(dest='command', help='Commands Help')
         subparsers.required = True

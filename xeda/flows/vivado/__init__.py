@@ -2,10 +2,10 @@
 
 import re
 import sys
-from ..suite import Suite
+from ..suite import HasSimFlow, Suite
 
 
-class Vivado(Suite):
+class Vivado(Suite, HasSimFlow):
     name = 'vivado'
     executable = 'vivado'
     supported_flows = ['synth', 'sim', 'post_synth_sim']
@@ -15,7 +15,7 @@ class Vivado(Suite):
             if sim:
                 return True
             if isinstance(v, int):
-                return True            
+                return True
             if isinstance(v, bool):
                 return True
             v = str(v)
@@ -42,9 +42,8 @@ class Vivado(Suite):
         self.settings.flow['generics_options'] = vivado_generics(self.settings.design["generics"], sim=False)
         self.settings.flow['tb_generics_options'] = vivado_generics(self.settings.design["tb_generics"], sim=True)
 
-
-
     # run steps of tools and finally set self.reports_dir
+
     def __runflow_impl__(self, flow):
         reports_dir = 'reports'
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
@@ -57,8 +56,11 @@ class Vivado(Suite):
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug else 'batch', '-source', str(script_path)]
         if not debug:
             vivado_args.append('-notrace')
-        self.run_process(self.executable, vivado_args, initial_step='Starting vivado', stdout_logfile=f'vivado_{flow}.log')
+        self.run_process(self.executable, vivado_args, initial_step='Starting vivado',
+                         stdout_logfile=self.flow_stdout_log)
         self.reports_dir = self.run_dir / reports_dir
+        if not self.reports_dir.exists():
+            self.reports_dir.mkdir(parents=True)
 
     def parse_reports(self, flow):
         if flow == 'synth':
@@ -66,8 +68,9 @@ class Vivado(Suite):
         if flow == 'sim':
             self.parse_sim_reports()
 
+    # TODO FIXME LWC_TB for now
     def parse_sim_reports(self):
-        pass
+        self.simrun_match_regexp(r'PASS\s*\(0\):\s*SIMULATION\s*FINISHED')
 
     def parse_synth_reports(self):
         reports_dir = self.reports_dir

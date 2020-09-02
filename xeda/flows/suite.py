@@ -160,6 +160,9 @@ class Suite:
         self.dump_settings()
 
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+
+        self.flow_stdout_log = f'{self.name}_{flow}_stdout.log'
+        
         self.__runflow_impl__(flow)
         # clear results in case anything lingering
         if not self.reports_dir :
@@ -181,7 +184,7 @@ class Suite:
         proc = None
         spinner = None
         unicode = True
-        verbose = self.args.verbose or force_echo
+        verbose = not self.args.quiet and (self.args.verbose or force_echo)
         echo_instructed = False
         stdout_logfile = self.run_dir / stdout_logfile
         start_step_re = re.compile(r'^={12}=*\(\s*(?P<step>[^\)]+)\s*\)={12}=*')
@@ -228,7 +231,8 @@ class Suite:
                             elif warn_msg_re.match(line):
                                 self.logger.warning(line)
                             elif enable_echo_re.match(line):
-                                echo_instructed = True
+                                if not self.args.quiet:
+                                    echo_instructed = True
                                 end_step()
                             else:
                                 match = start_step_re.match(line)
@@ -389,3 +393,12 @@ class Suite:
         path = self.run_dir / f'{flow}_results.json'
         self.dump_json(self.results, path)
         self.logger.info(f"Results written to {path}")
+
+
+class HasSimFlow():
+    def simrun_match_regexp(self, regexp):
+        success = False
+        with open(self.run_dir / self.flow_stdout_log) as logf:
+            if re.search(regexp, logf.read()):
+                success = True
+        self.results['success'] = success

@@ -78,10 +78,10 @@ setup(
                       'xeda/flows/*/templates/*.sdc',
                       'xeda/flows/vivado/templates/*.xdc',
                       'xeda/flows/quartus/templates/*.dse',
-                      '*.ys', '*.mk', '*.xdc', '*.sdf', '*.tcl'
+                      'xeda/defaults.json',
+                      '*.ys', '*.mk', '*.xdc', '*.sdf', '*.tcl', '*.json'
                   ]
                   },
-    data_files=[('config/xeda', ['xeda/defaults.json'])],
     include_package_data=True,
 
     # To provide executable scripts, use entry points in preference to the
