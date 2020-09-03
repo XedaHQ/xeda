@@ -75,6 +75,8 @@ class XedaApp:
 
         json_path = args.design_json if args.design_json else Path.cwd() / 'design.json'
 
+        self.logger.info(f"Using design settings from {json_path}")
+
         try:
             with open(json_path) as f:
                 design_settings = json.load(f)

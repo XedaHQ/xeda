@@ -184,6 +184,7 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
         # Bla, Blm, Blc, and Blh: the number of bytes in the incomplete block of associated data, plaintext, ciphertext, and hash message, respectively
         variable_names = ['Na', 'Nm', 'Nc', 'Nh', 'Ina', 'Inm', 'Inc', 'Inh', 'Bla', 'Blm', 'Blc', 'Blh']
 
+        # TODO use G_FNAME_TIMING_CSV
         timing_csv_path = run_dir / "timing.csv"
         shutil.copy(timing_csv_path, run_dir / f"timing_{variant_id}.csv")
 
