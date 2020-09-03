@@ -57,8 +57,8 @@ if {${vhdl_std} == "08"} {
 
 # Synplify options
 ##Prioritize area over timing 
-prj_strgy set_value -strategy custom_strategy syn_area=True
-prj_strgy set_value -strategy custom_strategy syn_frequency= 
+# prj_strgy set_value -strategy custom_strategy syn_area=True
+# prj_strgy set_value -strategy custom_strategy syn_frequency= 
 
 if {${strategy} == "Timing"} {
   prj_strgy set_value -strategy custom_strategy {syn_pipelining_retiming=Pipelining and Retiming}

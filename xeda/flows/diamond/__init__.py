@@ -7,7 +7,7 @@ class Diamond(Suite):
     name = 'diamond'
     executable = 'diamondc'
     supported_flows = ['synth']
-    reports_subdir_name = ['impl_folder']
+    reports_subdir_name = 'impl_folder'
 
     def __init__(self, settings, args, logger):
         super().__init__(settings, args, logger,

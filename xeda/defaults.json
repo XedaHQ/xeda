@@ -11,7 +11,7 @@
         "diamond": {
             "fpga_part": "LFE5U-25F-6BG381C",
             "clock_period": 10.0,
-            "synthesis_engine": "synplify",
+            "synthesis_engine": "lse",
             "strategy": "Timing"
         },
         "vivado": {
