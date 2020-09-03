@@ -1,5 +1,6 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
+import copy
 import json
 import os
 import sys
@@ -7,7 +8,8 @@ import re
 from pathlib import Path
 import subprocess
 from datetime import datetime
-from xeda.plugins.lwc import LwcSimTiming
+from xeda.plugins import Plugin, PostResultsPlugin, PostRunPlugin, ReplicatorPlugin
+from xeda.plugins.lwc import LwcSim
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import multiprocessing
 # import asyncio
@@ -26,7 +28,7 @@ class Suite:
     required_settings = {'synth': {'clock_period': float}}
     reports_subdir_name = 'reports'
 
-    def __init__(self, settings, args, logger, **flow_defaults):
+    def __init__(self, settings, args, logger, plugin_clss=[LwcSim], **flow_defaults):
         self.args = args
         self.logger = logger
         self.nthreads = multiprocessing.cpu_count()
@@ -39,6 +41,7 @@ class Suite:
         self.settings.flow.update(**flow_defaults)
 
         self.settings.design.update(settings['design'])
+        # override entire section if available in settings
         if self.name in settings['flows']:
             self.settings.flow.update(settings['flows'][self.name])
 
@@ -54,32 +57,29 @@ class Suite:
 
         self.reports_dir = None
         self.timestamp = None
-        self.run_hash = semantic_hash(self.settings)
 
-        self.run_dir = self.get_run_dir(all_runs_dir=self.args.all_runs_dir,
-                                        prefix='DSE_' if self.args.command == 'dse' else None, override=self.args.force_run_dir)
+        self.post_run_hooks = []
+        self.post_results_hooks = []
+        self.replicator_hooks = []
 
-        # TODO implement plugins registration system, probably at a higher level
-        self.plugins = []
-        self.plugins.append(LwcSimTiming(self.run_dir, self.logger))
 
-        if not isinstance(self.settings.design['sources'], list):
-            sys.exit('`sources` section of the settings needs to be a list')
-        for i, src in enumerate(self.settings.design['sources']):
-            if not DesignSource.is_design_source(src):
-                sys.exit(f'Entry `{src}` in `sources` needs to be a DesignSource JSON dictionary')
-            self.settings.design['sources'][i] = DesignSource(**src)
-            self.settings.design['sources'][i].file = self.conv_to_relative_path(
-                self.settings.design['sources'][i].file)
 
-        for gen_type in ['generics', 'tb_generics']:
-            for gen_key, gen_val in self.settings.design[gen_type].items():
-                if isinstance(gen_val, dict) and "file" in gen_val:
-                    p = gen_val["file"]
-                    assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
-                    gen_val = self.conv_to_relative_path(p.strip())
-                    self.logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
-                    self.settings.design[gen_type][gen_key] = gen_val
+        for pcls in plugin_clss:
+            assert issubclass(pcls, Plugin)
+            # create plugin instances
+            plugin = pcls(self.logger)
+            if isinstance(plugin, ReplicatorPlugin):
+                self.replicator_hooks.append(plugin.replicate_settings_hook)
+            if isinstance(plugin, PostRunPlugin):
+                self.post_run_hooks.append(plugin.post_run_hook)
+            if isinstance(plugin, PostResultsPlugin):
+                self.post_results_hooks.append(plugin.post_results_hook)
+
+        replicated_settings = []
+        for repl in self.replicator_hooks:
+            self.logger.info(f'replicating settings using {repl.__name__}')
+            replicated_settings.append(repl(self.settings))
+
 
     def check_settings(self, flow):
         if flow in self.required_settings:
@@ -146,7 +146,7 @@ class Suite:
         return resource_name
 
     def conv_to_relative_path(self, src):
-        path = Path(src).resolve()
+        path = Path(src).resolve(strict=True)
         return os.path.relpath(path, self.run_dir)
 
     def fatal(self, msg):
@@ -160,32 +160,62 @@ class Suite:
             if not (flow in self.supported_flows):
                 sys.exit(f"Flow {flow} is not supported by {self.name}.")
 
-        self.check_settings(flow)
+        # TODO simplify logic
+        orig_settings = copy.deepcopy(self.settings)
 
-        self.dump_settings()
+        for active_settings in self.replicated_settings:
+            self.settings = active_settings
 
-        self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+            self.run_hash = semantic_hash(self.settings)
+            self.run_dir = self.get_run_dir(all_runs_dir=self.args.all_runs_dir,
+                                            prefix='DSE_' if self.args.command == 'dse' else None, override=self.args.force_run_dir)
 
-        self.flow_stdout_log = f'{self.name}_{flow}_stdout.log'
+            if not isinstance(self.settings.design['sources'], list):
+                sys.exit('`sources` section of the settings needs to be a list')
 
-        self.__runflow_impl__(flow)
-        
-        for plugin in self.plugins:
-            plugin.post_run_hook()
+            for i, src in enumerate(self.settings.design['sources']):
+                if isinstance(src, str):
+                    src = {"file": src}
+                if not DesignSource.is_design_source(src):
+                    sys.exit(f'Entry `{src}` in `sources` needs to be a string or a DesignSource JSON dictionary')
+                self.settings.design['sources'][i] = DesignSource(**src).mk_relative(self.run_dir)
 
-        self.reports_dir = self.run_dir / self.reports_subdir_name
-        if not self.reports_dir.exists():
-            self.reports_dir.mkdir(parents=True)
+            for gen_type in ['generics', 'tb_generics']:
+                for gen_key, gen_val in self.settings.design[gen_type].items():
+                    if isinstance(gen_val, dict) and "file" in gen_val:
+                        p = gen_val["file"]
+                        assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
+                        gen_val = self.conv_to_relative_path(p.strip())
+                        self.logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
+                        self.settings.design[gen_type][gen_key] = gen_val
 
-        self.results = dict()
-        self.parse_reports(flow)
-        self.results['timestamp'] = self.timestamp
-        if self.results:  # non empty
-            self.print_results()
-            self.dump_results(flow)
 
-        for plugin in self.plugins:
-            plugin.post_results_hook()
+            self.check_settings(flow)
+
+            self.dump_settings()
+
+            self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+
+            self.flow_stdout_log = f'{self.name}_{flow}_stdout.log'
+
+            self.__runflow_impl__(flow)
+            
+            for plugin in self.plugins:
+                plugin.post_run_hook()
+
+            self.reports_dir = self.run_dir / self.reports_subdir_name
+            if not self.reports_dir.exists():
+                self.reports_dir.mkdir(parents=True)
+
+            self.results = dict()
+            self.parse_reports(flow)
+            self.results['timestamp'] = self.timestamp
+            if self.results:  # non empty
+                self.print_results()
+                self.dump_results(flow)
+
+            for plugin in self.plugins:
+                plugin.post_results_hook()
 
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):
         if not stdout_logfile:
