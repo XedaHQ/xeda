@@ -59,7 +59,7 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-        "jinja2>=2.11.2", "color", "progress>=1.5", "coloredlogs"
+        "jinja2>=2.11.2", "colored", "progress>=1.5", "coloredlogs"
     ],
 
     setup_requires=['setuptools-vcs-version'],

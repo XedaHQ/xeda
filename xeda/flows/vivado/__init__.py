@@ -9,6 +9,7 @@ class Vivado(Suite, HasSimFlow):
     name = 'vivado'
     executable = 'vivado'
     supported_flows = ['synth', 'sim', 'post_synth_sim']
+    reports_subdir_name = 'reports'
 
     def __init__(self, settings, args, logger):
         def supported_vivado_generic(k, v, sim):
@@ -45,7 +46,6 @@ class Vivado(Suite, HasSimFlow):
     # run steps of tools and finally set self.reports_dir
 
     def __runflow_impl__(self, flow):
-        reports_dir = 'reports'
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
         script_path = self.copy_from_template(f'{flow}.tcl',
                                               run_synth_flow=False if flow == 'sim' else True,
@@ -58,9 +58,7 @@ class Vivado(Suite, HasSimFlow):
             vivado_args.append('-notrace')
         self.run_process(self.executable, vivado_args, initial_step='Starting vivado',
                          stdout_logfile=self.flow_stdout_log)
-        self.reports_dir = self.run_dir / reports_dir
-        if not self.reports_dir.exists():
-            self.reports_dir.mkdir(parents=True)
+
 
     def parse_reports(self, flow):
         if flow == 'synth':

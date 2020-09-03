@@ -7,19 +7,18 @@ class Diamond(Suite):
     name = 'diamond'
     executable = 'diamondc'
     supported_flows = ['synth']
+    reports_subdir_name = ['impl_folder']
 
     def __init__(self, settings, args, logger):
         super().__init__(settings, args, logger,
                          impl_folder='diamond_impl',
                          impl_name='Implementation0'
                          )
-        # Note: self.reports_dir will be set after run
 
     # run steps of tools and finally set self.reports_dir
     def __runflow_impl__(self, subflow):
         script_path = self.copy_from_template(f'{subflow}.tcl')
         self.run_process(self.executable, [str(script_path)])
-        self.reports_dir = self.run_dir / self.settings.flow['impl_folder']
 
     def parse_reports(self, flow):
         if flow == 'synth':

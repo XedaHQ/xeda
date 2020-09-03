@@ -14,7 +14,6 @@ class Ghdl(Suite, HasSimFlow):
 
     def __runflow_impl__(self, flow):
         # TODO synthesis, lint
-        reports_dir = 'reports'
 
         warns = ['-Wbinding', '-Wreserved', '-Wlibrary', '-Wvital-generic',
                  '-Wdelayed-checks', '-Wbody', '-Wspecs', '-Wunused', '--warn-no-runtime-error']
@@ -30,11 +29,15 @@ class Ghdl(Suite, HasSimFlow):
         if vhdl_synopsys:
             analysis_options += ['--ieee=synopsys', '-fsynopsys']
 
-        elab_options = [vhdl_std_opt]
+        elab_options = [vhdl_std_opt, '--syn-binding']
         if vhdl_synopsys:
             elab_options += ['-fsynopsys']
 
         run_options = ['--ieee-asserts=disable-at-0']  # TODO
+
+        if self.args.verbose:
+            analysis_options.append('-v')
+            elab_options.append('-v')
 
         stop_time = self.settings.flow.get('stop_time')
         if stop_time:
@@ -89,11 +92,6 @@ class Ghdl(Suite, HasSimFlow):
                          stdout_logfile=self.flow_stdout_log,
                          force_echo=True
                          )
-
-        self.reports_dir = self.run_dir / reports_dir
-
-        if not self.reports_dir.exists():
-            self.reports_dir.mkdir(parents=True)
 
     # TODO LWC_TB for now, TODO: generic python function/regexp?
     def parse_reports(self, flow):

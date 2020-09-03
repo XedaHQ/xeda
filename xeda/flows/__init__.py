@@ -75,6 +75,8 @@ class DesignSource:
 
 
 def try_convert(s):
+    if s is None:
+        return 'None'
     try:
         return int(s)
     except ValueError:

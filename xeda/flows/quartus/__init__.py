@@ -49,7 +49,6 @@ class Quartus(Suite):
         # self.settings.flow['generics_options'] = quartus_generics(self.settings.design["generics"], sim=False)
         # self.settings.flow['tb_generics_options'] = quartus_generics(self.settings.design["tb_generics"], sim=True)
 
-    # run steps of tools and finally sets self.reports_dir
     def __runflow_impl__(self, flow):
         project_settings = None
         if 'project_settings' in self.settings.flow:
@@ -121,7 +120,6 @@ class Quartus(Suite):
                 "INNER_NUM": 8,
             }
 
-        reports_dir = 'reports'
         clock_sdc_path = self.copy_from_template(f'clock.sdc')
         script_path = self.copy_from_template(
             f'create_project.tcl',
@@ -135,9 +133,6 @@ class Quartus(Suite):
         #                   "Extra Effort Space", '-optimization-goal', "Optimize for Speed", '-report-all-resource-usage', '-ignore-failed-base'],
         #                  stdout_logfile='dse_stdout.log'
         #                  )
-        self.reports_dir = self.run_dir / reports_dir
-        if not self.reports_dir.exists():
-            self.reports_dir.mkdir(parents=True)
 
         if flow == 'dse':
             # TODO Check correspondance of settings hash vs desgin settings
@@ -155,7 +150,6 @@ class Quartus(Suite):
                 dse['nproc'] = self.nthreads
 
             script_path = self.copy_from_template(f'settings.dse',
-                                                  reports_dir=reports_dir,
                                                   dse=dse
                                                   )
             self.run_process('quartus_dse',
@@ -167,7 +161,6 @@ class Quartus(Suite):
 
             script_path = self.copy_from_template(
                 f'compile.tcl',
-                reports_dir=reports_dir
             )
             self.run_process('quartus_sh',
                              ['-t', str(script_path)],

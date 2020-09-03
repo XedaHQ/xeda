@@ -7,12 +7,13 @@ import re
 from pathlib import Path
 import subprocess
 from datetime import datetime
+from xeda.plugins.lwc import LwcSimTiming
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import multiprocessing
 # import asyncio
-
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
+import colored
 
 from . import Settings, semantic_hash, try_convert, DesignSource
 
@@ -23,13 +24,12 @@ class Suite:
     executable = None
     supported_flows = []
     required_settings = {'synth': {'clock_period': float}}
+    reports_subdir_name = 'reports'
 
     def __init__(self, settings, args, logger, **flow_defaults):
         self.args = args
         self.logger = logger
         self.nthreads = multiprocessing.cpu_count()
-        # this is the actual run directory set (and possibily created) by run(), could be different from what's in the settings/args
-        self.run_dir = None
         # base flow defaults
         self.settings = Settings()
         # default for optional design settings
@@ -58,6 +58,10 @@ class Suite:
 
         self.run_dir = self.get_run_dir(all_runs_dir=self.args.all_runs_dir,
                                         prefix='DSE_' if self.args.command == 'dse' else None, override=self.args.force_run_dir)
+
+        # TODO implement plugins registration system, probabily at a higher level
+        self.plugins = []
+        self.plugins.append(LwcSimTiming(self.run_dir, self.logger))
 
         if not isinstance(self.settings.design['sources'], list):
             sys.exit('`sources` section of the settings needs to be a list')
@@ -135,6 +139,7 @@ class Suite:
                                            design=self.settings.design,
                                            nthreads=self.nthreads,
                                            debug=self.args.debug,
+                                           reports_dir=self.reports_subdir_name,
                                            **attr)
         with open(script_path, 'w') as f:
             f.write(rendered_content)
@@ -162,14 +167,15 @@ class Suite:
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
         self.flow_stdout_log = f'{self.name}_{flow}_stdout.log'
-        
-        self.__runflow_impl__(flow)
-        # clear results in case anything lingering
-        if not self.reports_dir :
-            self.fatal("self.reports_dir was not set by flow run! Most likely, the execution of the flow has failed.")
 
+        self.__runflow_impl__(flow)
+        
+        for plugin in self.plugins:
+            plugin.post_run_hook()
+
+        self.reports_dir = self.run_dir / self.reports_subdir_name
         if not self.reports_dir.exists():
-            self.fatal(f"{self.reports_dir} does not exist! Most likely, the execution of the flow has failed.")
+            self.reports_dir.mkdir(parents=True)
 
         self.results = dict()
         self.parse_reports(flow)
@@ -177,6 +183,9 @@ class Suite:
         if self.results:  # non empty
             self.print_results()
             self.dump_results(flow)
+
+        for plugin in self.plugins:
+            plugin.post_results_hook()
 
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):
         if not stdout_logfile:
@@ -193,7 +202,7 @@ class Suite:
         error_msg_re = re.compile(r'^\s*error:?\s+', re.IGNORECASE)
         warn_msg_re = re.compile(r'^\s*warning:?\s+', re.IGNORECASE)
         critwarn_msg_re = re.compile(r'^\s*critical\s+warning:?\s+', re.IGNORECASE)
-        
+
         with open(stdout_logfile, 'w') as log_file:
             try:
                 self.logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
@@ -365,18 +374,26 @@ class Suite:
     def print_results(self, results=None):
         if not results:
             results = self.results
+        data_width = 32
+        name_width = 80 - data_width
+        hline = "-"*(name_width + data_width)
+        print("\n" + hline)
+        print(f"{'Results':^{name_width + data_width}s}")
+        print(hline)
         for k, v in results.items():
             if not k.startswith('_'):
                 if isinstance(v, float):
-                    print(f'{k:32}{v:22.3f}')
+                    print(f'{k:{name_width}}{v:{data_width}.3f}')
                 elif isinstance(v, bool):
-                    print(f'{k:32}{u"✅ " if v else u"❌ ":>22}')
+                    bdisp = (colored.fg("green") + "✓" if v else colored.fg("red") + "✗") + colored.attr("reset")
+                    print(f'{k:{name_width}}{bdisp:>{data_width}}')
                 elif isinstance(v, int):
-                    print(f'{k:32}{v:>22}')
+                    print(f'{k:{name_width}}{v:>{data_width}}')
                 elif isinstance(v, list):
-                    print(f'{k:32}{" ".join(v):>22}')
+                    print(f'{k:{name_width}}{" ".join(v):<{data_width}}')
                 else:
-                    print(f'{k:32}{str(v):>22s}')
+                    print(f'{k:{name_width}}{str(v):>{data_width}s}')
+        print(hline + "\n")
 
     def dump_json(self, data, path, overwrite=True):
         if path.exists():
