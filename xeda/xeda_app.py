@@ -36,6 +36,7 @@ class XedaApp:
     def __init__(self):
         self.registered_suites = dict()
         self.parser = argparse.ArgumentParser(
+            prog=__package__,
             description=f'{__package__}: Simulate And Synthesize Hardware! Version {__version__}')
         self.args = None
         self.logger = logging.getLogger(__package__)
@@ -98,7 +99,7 @@ class XedaApp:
             # assert flow_name == 'synth', f"Unsupported flow {flow_name}\n `dse` command only supports `synth` flow supports "
             self.find_fmax()
 
-    def parse_args(self):
+    def parse_args(self, args=None):
         parser = self.parser
         parser.add_argument(
             '--debug',
@@ -150,7 +151,7 @@ class XedaApp:
         fmax_parser.add_argument('--max-failed-runs', type=int, default=40,
                                  help=f'Maximum number of consecutive runs that did not improve F_max. Search stops afterwards')
 
-        return parser.parse_args()
+        return parser.parse_args(args)
 
     def get_default_settings(self):
         defaults_data = pkg_resources.resource_string(__name__, "defaults.json")
