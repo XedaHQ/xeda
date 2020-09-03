@@ -66,11 +66,11 @@ class Suite:
         if not isinstance(self.settings.design['sources'], list):
             sys.exit('`sources` section of the settings needs to be a list')
         for i, src in enumerate(self.settings.design['sources']):
+            if isinstance(src, str):
+                src = {"file": src}
             if not DesignSource.is_design_source(src):
-                sys.exit(f'Entry `{src}` in `sources` needs to be a DesignSource JSON dictionary')
-            self.settings.design['sources'][i] = DesignSource(**src)
-            self.settings.design['sources'][i].file = self.conv_to_relative_path(
-                self.settings.design['sources'][i].file)
+                sys.exit(f'Entry `{src}` in `sources` needs to be a string or a DesignSource JSON dictionary')
+            self.settings.design['sources'][i] = DesignSource(**src).mk_relative(self.run_dir)
 
         for gen_type in ['generics', 'tb_generics']:
             for gen_key, gen_val in self.settings.design[gen_type].items():
@@ -146,7 +146,7 @@ class Suite:
         return resource_name
 
     def conv_to_relative_path(self, src):
-        path = Path(src).resolve()
+        path = Path(src).resolve(strict=True)
         return os.path.relpath(path, self.run_dir)
 
     def fatal(self, msg):
@@ -169,7 +169,7 @@ class Suite:
         self.flow_stdout_log = f'{self.name}_{flow}_stdout.log'
 
         self.__runflow_impl__(flow)
-        
+
         for plugin in self.plugins:
             plugin.post_run_hook()
 
