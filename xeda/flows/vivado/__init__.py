@@ -12,6 +12,16 @@ class Vivado(Suite, HasSimFlow):
     reports_subdir_name = 'reports'
 
     def __init__(self, settings, args, logger):
+
+
+        super().__init__(settings, args, logger,
+                         fail_critical_warning=False,
+                         fail_timing=False
+                         )
+
+    # run steps of tools and finally set self.reports_dir
+
+    def __runflow_impl__(self, flow):
         def supported_vivado_generic(k, v, sim):
             if sim:
                 return True
@@ -24,7 +34,8 @@ class Vivado(Suite, HasSimFlow):
 
         def vivado_gen_convert(k, x, sim):
             if sim:
-                x
+                if isinstance(x, dict) and "file" in x:
+                    return self.conv_to_relative_path(x["file"])
             xl = str(x).strip().lower()
             if xl == 'false':
                 return "1\\'b0"
@@ -35,17 +46,12 @@ class Vivado(Suite, HasSimFlow):
         def vivado_generics(kvdict, sim):
             return ' '.join([f"-generic {k}={vivado_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_vivado_generic(k, v, sim)])
 
-        super().__init__(settings, args, logger,
-                         fail_critical_warning=False,
-                         fail_timing=False
-                         )
-
         self.settings.flow['generics_options'] = vivado_generics(self.settings.design["generics"], sim=False)
         self.settings.flow['tb_generics_options'] = vivado_generics(self.settings.design["tb_generics"], sim=True)
 
-    # run steps of tools and finally set self.reports_dir
 
-    def __runflow_impl__(self, flow):
+
+
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
         script_path = self.copy_from_template(f'{flow}.tcl',
                                               run_synth_flow=False if flow == 'sim' else True,
