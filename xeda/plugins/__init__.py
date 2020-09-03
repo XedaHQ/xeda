@@ -4,11 +4,12 @@ from typing import Set
 from xeda.flows import Settings
 from typing import List
 
+from pathlib import Path
+
 class Plugin():
     name = None
     def __init__(self, logger) -> None:
         self.logger = logger
-        self.register_hooks()
 
 
 class ReplicatorPlugin(Plugin):
@@ -17,10 +18,12 @@ class ReplicatorPlugin(Plugin):
 
 
 class PostRunPlugin(Plugin):
-    def post_run_hook(self, run_dir):
-        pass
+    def post_run_hook(self, run_dir: Path, settings: Settings) -> None:
+        if self:
+            raise NotImplementedError
 
 
 class PostResultsPlugin(Plugin):
-    def post_results_hook(self, run_dir):
-        pass
+    def post_results_hook(self, run_dir: Path, settings: Settings) -> None:
+        if self:
+            raise NotImplementedError

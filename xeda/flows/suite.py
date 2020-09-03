@@ -75,10 +75,10 @@ class Suite:
             if isinstance(plugin, PostResultsPlugin):
                 self.post_results_hooks.append(plugin.post_results_hook)
 
-        replicated_settings = []
+        self.replicated_settings = []
         for repl in self.replicator_hooks:
             self.logger.info(f'replicating settings using {repl.__name__}')
-            replicated_settings.append(repl(self.settings))
+            self.replicated_settings.extend(repl(self.settings))
 
 
     def check_settings(self, flow):
@@ -200,8 +200,9 @@ class Suite:
 
             self.__runflow_impl__(flow)
             
-            for plugin in self.plugins:
-                plugin.post_run_hook()
+            # Run post-run hooks
+            for hook in self.post_run_hooks:
+                hook(self.run_dir, self.settings)
 
             self.reports_dir = self.run_dir / self.reports_subdir_name
             if not self.reports_dir.exists():
@@ -214,8 +215,9 @@ class Suite:
                 self.print_results()
                 self.dump_results(flow)
 
-            for plugin in self.plugins:
-                plugin.post_results_hook()
+            # Run post-results hooks
+            for hook in self.post_results_hooks:
+                hook(self.run_dir, self.settings)
 
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):
         if not stdout_logfile:
