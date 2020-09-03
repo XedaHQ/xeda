@@ -45,7 +45,7 @@ setup(
         'Programming Language :: Python :: 3.8',
     ],
 
-    keywords='EDA Synthesis Simuation Hardware Verilog VHDL FPGA ASIC',
+    keywords='EDA Synthesis Simulation Hardware Verilog VHDL FPGA ASIC',
     packages=find_packages(),
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment

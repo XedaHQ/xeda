@@ -142,12 +142,12 @@ class XedaApp:
         ############################
         run_parser = subparsers.add_parser('run', help='Run a flow')
         run_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
-                                help=f'Flow name. Suuported flows are: {registered_flows}')
+                                help=f'Flow name. Supported flows are: {registered_flows}')
         ############################
         fmax_parser = subparsers.add_parser(
             'dse', help='Design Space Exploration: Run `synth` flow of a suite several times, sweeping over clock_period constraint to find the maximum frequency of the design for the current settings')
         fmax_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
-                                 help=f'Name of the suite to execute. Suuported flows are: {registered_flows}')
+                                 help=f'Name of the suite to execute. Supported flows are: {registered_flows}')
         fmax_parser.add_argument('--max-failed-runs', type=int, default=40,
                                  help=f'Maximum number of consecutive runs that did not improve F_max. Search stops afterwards')
 
@@ -188,7 +188,7 @@ class XedaApp:
                 if best_period:
                     # if wns < wns_threshold:
                     #     self.logger.warning(
-                    #         f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threashold: {wns_threshold}')
+                    #         f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threshold: {wns_threshold}')
                     #     break
                     max_failed = self.args.max_failed_runs
                     if failed_runs >= max_failed:
