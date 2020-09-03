@@ -59,7 +59,7 @@ class Suite:
         self.run_dir = self.get_run_dir(all_runs_dir=self.args.all_runs_dir,
                                         prefix='DSE_' if self.args.command == 'dse' else None, override=self.args.force_run_dir)
 
-        # TODO implement plugins registration system, probabily at a higher level
+        # TODO implement plugins registration system, probably at a higher level
         self.plugins = []
         self.plugins.append(LwcSimTiming(self.run_dir, self.logger))
 
@@ -67,7 +67,7 @@ class Suite:
             sys.exit('`sources` section of the settings needs to be a list')
         for i, src in enumerate(self.settings.design['sources']):
             if not DesignSource.is_design_source(src):
-                sys.exit(f'Entry `{src}` in `sources` needs to be a DesignSource JSON dictionay')
+                sys.exit(f'Entry `{src}` in `sources` needs to be a DesignSource JSON dictionary')
             self.settings.design['sources'][i] = DesignSource(**src)
             self.settings.design['sources'][i].file = self.conv_to_relative_path(
                 self.settings.design['sources'][i].file)
@@ -332,7 +332,7 @@ class Suite:
         high_debug = self.args.verbose
         if not reportfile_path.exists():
             self.logger.critical(
-                f'Report file: {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check `{self.run_dir / "stdout.log"}` and other log files in {self.run_dir} to find out what errors occured.'
+                f'Report file: {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check `{self.run_dir / "stdout.log"}` and other log files in {self.run_dir} to find out what errors occurred.'
             )
             sys.exit(1)
         with open(reportfile_path) as rpt_file:
