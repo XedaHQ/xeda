@@ -3,10 +3,10 @@
 # Xeda
 
 ## Description
-**Xeda** `/ˈziːdə/` is a cross-platform, cross-EDA, cross-target automated synthesis and simulation platform.
-It helps hardware developers to verify, evaluate, and deploy their RTL designs using multiple commercial and open-source electronic design automation flows.
+**Xeda** `/ˈziːdə/` is a cross-platform, cross-EDA, cross-target simulation and synthesis automation platform.
+It assists hardware developers in verification, evaluation, and deployment of RTL designs. Xeda supports flows from multiple commercial and open-source electronic design automation suites.
 
-For further details, visit the [documentations](http://xeda.rtfd.io/) (Work In Progress).
+For further details, visit the [Xeda's documentations](http://xeda.rtfd.io/) (Work In Progress).
 
 
 ## Definitions

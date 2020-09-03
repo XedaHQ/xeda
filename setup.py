@@ -15,8 +15,9 @@ setup(
         },
     },
 
-    description='XEDA: A Cross-platform, cross-tool, cross-target, cross-HDL Electronic Design Automation',
-    long_description='''Simulate and synthesize RTL designs using a range of different EDA flows and tools.''',
+    description='XEDA: Cross-platform, cross-tool, cross-target, cross-HDL Electronic Design Automation',
+    long_description='''Xeda `/ˈziːdə/` is a cross-platform, cross-EDA, cross-target simulation and synthesis automation platform.
+Xeda can assists hardware developers during verification, evaluation, and deployment of RTL designs. Xeda supports flows from multiple commercial and open-source electronic design automation suites.''',
 
     # The project's main homepage.
     url='https://github.com/kammoh/xeda',
