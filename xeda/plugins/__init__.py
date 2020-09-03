@@ -1,13 +1,26 @@
 
 
+from typing import Set
+from xeda.flows import Settings
+from typing import List
+
 class Plugin():
     name = None
-    def __init__(self, run_dir, logger) -> None:
-        self.run_dir = run_dir
+    def __init__(self, logger) -> None:
         self.logger = logger
-    
-    def post_results_hook(self):
-        pass 
-       
-    def post_run_hook(self):
+        self.register_hooks()
+
+
+class ReplicatorPlugin(Plugin):
+    def replicate_settings_hook(self, settings: Settings) -> List[Settings]:
+        return [settings]
+
+
+class PostRunPlugin(Plugin):
+    def post_run_hook(self, run_dir):
+        pass
+
+
+class PostResultsPlugin(Plugin):
+    def post_results_hook(self, run_dir):
         pass

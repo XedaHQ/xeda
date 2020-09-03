@@ -5,10 +5,10 @@ import sys
 import csv
 from pathlib import Path
 from ..flows import try_convert
-from . import Plugin
+from . import Plugin, ReplicatorPlugin
 
 
-class LwcSimTiming(Plugin):
+class LwcSim(ReplicatorPlugin):
     name = 'LwcSimTiming'
 
     def extract_formulas(self):

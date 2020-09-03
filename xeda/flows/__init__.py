@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Union, Dict, List
 import hashlib
 import csv
+import os
 
 JsonType = Union[str, int, float, bool, List['JsonType'], 'JsonTree']
 JsonTree = Dict[str, JsonType]
@@ -72,6 +73,11 @@ class DesignSource:
 
     def __str__(self):
         return str(self.file)
+
+    def mk_relative(self, base):
+        path = Path(self.file).resolve(strict=True)
+        self.file = os.path.relpath(path, base)
+        return self
 
 
 def try_convert(s):
