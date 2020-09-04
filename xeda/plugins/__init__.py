@@ -7,7 +7,6 @@ from typing import List
 from pathlib import Path
 
 class Plugin():
-    name = None
     def __init__(self, logger) -> None:
         self.logger = logger
 

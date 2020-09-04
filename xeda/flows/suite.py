@@ -76,9 +76,10 @@ class Suite:
                 self.post_results_hooks.append(plugin.post_results_hook)
 
         self.replicated_settings = []
-        for repl in self.replicator_hooks:
-            self.logger.info(f'replicating settings using {repl.__name__}')
-            self.replicated_settings.extend(repl(self.settings))
+        for hook in self.replicator_hooks:
+            repl_settings = hook(self.settings)
+            self.logger.info(f'Generated {len(repl_settings)} setting(s) from {hook.__self__.__class__.__name__}')
+            self.replicated_settings.extend(repl_settings)
 
 
     def check_settings(self, flow):
@@ -198,12 +199,16 @@ class Suite:
 
             self.flow_stdout_log = f'{self.name}_{flow}_stdout.log'
 
-            self.settings.acitve_flow = 'flow'
+            self.settings.active_flow = flow
 
             self.__runflow_impl__(flow)
             
+            self.logger.info("beep")
+            print("beepbeep")
+
             # Run post-run hooks
             for hook in self.post_run_hooks:
+                self.logger.info(f"Running post-run hook from from {hook.__self__.__class__.__name__}")
                 hook(self.run_dir, self.settings)
 
             self.reports_dir = self.run_dir / self.reports_subdir_name
@@ -219,6 +224,7 @@ class Suite:
 
             # Run post-results hooks
             for hook in self.post_results_hooks:
+                self.logger.info(f"Running post-results hook from {hook.__self__.__class__.__name__}")
                 hook(self.run_dir, self.settings)
 
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):

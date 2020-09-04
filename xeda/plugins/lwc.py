@@ -12,8 +12,6 @@ from . import Plugin, PostResultsPlugin, ReplicatorPlugin
 
 
 class LwcSim(PostResultsPlugin, ReplicatorPlugin):
-    name = 'LwcSimTiming'
-
     def replicate_settings_hook(self, settings: Settings) -> List[Settings]:
         #FIXME WOOOOOOPS so this doesn't actually work, will revert/fix ASAP
 
@@ -163,7 +161,10 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
     def post_results_hook(self, run_dir, settings):
         """ Check timing vs formula for the variant """
 
-        if settings.acitve_flow != 'sim':
+        logger = self.logger
+
+        if settings.active_flow != 'sim':
+            logger.info(f"LwcSim hooks only work on 'sim' flows but active flow was {settings.active_flow}")
             return
 
         variant_id = settings.variant_id

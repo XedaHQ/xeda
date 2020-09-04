@@ -42,7 +42,7 @@ class Settings:
         self.flow = dict()
         self.design = dict()
         self.run = dict()
-        self.acitve_flow = None
+        self.active_flow = None
 
 
 class DesignSource:
