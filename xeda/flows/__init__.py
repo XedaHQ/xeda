@@ -42,6 +42,7 @@ class Settings:
         self.flow = dict()
         self.design = dict()
         self.run = dict()
+        self.acitve_flow = None
 
 
 class DesignSource:
@@ -76,7 +77,7 @@ class DesignSource:
 
     def mk_relative(self, base):
         path = Path(self.file).resolve(strict=True)
-        self.file = os.path.relpath(path, base)
+        self.file = path #os.path.relpath(path, base)
         return self
 
 

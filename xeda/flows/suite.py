@@ -198,6 +198,8 @@ class Suite:
 
             self.flow_stdout_log = f'{self.name}_{flow}_stdout.log'
 
+            self.settings.acitve_flow = 'flow'
+
             self.__runflow_impl__(flow)
             
             # Run post-run hooks

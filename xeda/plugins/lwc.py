@@ -163,6 +163,9 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
     def post_results_hook(self, run_dir, settings):
         """ Check timing vs formula for the variant """
 
+        if settings.acitve_flow != 'sim':
+            return
+
         variant_id = settings.variant_id
 
 
