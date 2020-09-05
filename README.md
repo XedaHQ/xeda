@@ -118,6 +118,9 @@ entries in `design.sources` ar either DesignSource JSON dictionary or a string w
     - synth: Full synthesis and implementation flow
     - dse: Design Space Exploration
 
+- GHDL
+    - sim: VHDL simulation
+
 <!-- ## Adding new Flows -->
 
 © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)

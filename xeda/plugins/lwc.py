@@ -189,10 +189,19 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
         variable_names = ['Na', 'Nm', 'Nc', 'Nh', 'Ina', 'Inm', 'Inc', 'Inh', 'Bla', 'Blm', 'Blc', 'Blh']
 
         # TODO use G_FNAME_TIMING_CSV
-        timing_csv_path = run_dir / "timing.csv"
-        shutil.copy(timing_csv_path, run_dir / f"timing_{variant_id}.csv")
+        timing_csv_path_orig = run_dir / "timing.csv"
+        
+        timing_csv_path = run_dir /  f"timing_{variant_id}.csv"
+        
+        shutil.copy(timing_csv_path_orig, timing_csv_path)
 
-        with open(timing_csv_path, newline="") as in_csv, open(run_dir / f"timing_vs_formula_{variant_id}.csv", "w") as out_csv:
+        self.logger.info(f"Copying simulation timing.csv to {timing_csv_path}")
+
+        out_csv_path = run_dir / f"timing_vs_formula_{variant_id}.csv"
+
+        self.logger.info(f"Saving timing comparison to {out_csv_path}")
+
+        with open(timing_csv_path, newline="") as in_csv, open(out_csv_path, "w") as out_csv:
             reader = csv.DictReader(in_csv)
             t_formula_header = "Theoretical Execution Time"
             diff_header = "Absolute Difference"
