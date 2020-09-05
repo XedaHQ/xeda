@@ -166,8 +166,12 @@ class Suite:
 
         for active_settings in self.replicated_settings:
             self.settings = active_settings
+            
+            try:
+                self.run_hash = semantic_hash(self.settings)
+            except FileNotFoundError as e:
+                self.fatal(f"File not found: {e} ")
 
-            self.run_hash = semantic_hash(self.settings)
             self.run_dir = self.get_run_dir(all_runs_dir=self.args.all_runs_dir,
                                             prefix='DSE_' if self.args.command == 'dse' else None, override=self.args.force_run_dir)
 

@@ -21,8 +21,11 @@ def semantic_hash(data: JsonTree, hash_files=True, hasher=hashlib.sha1) -> str:
         return hasher(b).hexdigest()[:32]
 
     def file_digest(filename: str):
-        with open(filename, 'rb') as f:
-            return get_digest(f.read())
+        try:
+            with open(filename, 'rb') as f:
+                return get_digest(f.read())
+        except FileNotFoundError as e:
+            raise e # TODO add logging here?
 
     def sorted_dict_str(data: JsonType) -> StrTreeType:
         if type(data) == dict:
