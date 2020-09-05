@@ -54,7 +54,8 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
         #     s.variant_id = variant_id
         #     replicated.append(s)
 
-        settings.variant_id = settings.design['variant_id']
+        if 'variant_id' in settings.design:
+            settings.variant_id = settings.design['variant_id']
 
         # return replicated
         return [settings]
@@ -165,6 +166,10 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
 
         if settings.active_flow != 'sim':
             logger.info(f"LwcSim hooks only work on 'sim' flows but active flow was {settings.active_flow}")
+            return
+
+        if not settings.variant_id:
+            self.logger.warning(f"`variant_id` was not set. Timing verification is skipped.")
             return
 
         variant_id = settings.variant_id

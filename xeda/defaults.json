@@ -23,7 +23,7 @@
         },
         "quartus": {
             "clock_period": 5.921,
-            "fpga_part": "10CL016YU256C6G",
+            "fpga_part": "10CL016YF256C6G",
             "dse":{
                 "num_concurrent": 8,
                 "nproc": null,
