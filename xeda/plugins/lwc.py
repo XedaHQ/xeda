@@ -176,11 +176,11 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
 
 
         self.logger.info(f"using formulas for variant {variant_id}")
-        vari = self.all_variants_formulas.get(variant_id)
-        if not vari:
+        operation_formulas = self.all_variants_formulas.get(variant_id)
+        if not operation_formulas:
             self.logger.critical(f"Could not find variant data for variant ID: {variant_id}")
             return
-        operation_formulas = vari['formulas']
+
 
         self.logger.info(operation_formulas)
 
@@ -208,10 +208,12 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
 
         with open(timing_csv_path, newline="") as in_csv, open(out_csv_path, "w") as out_csv:
             reader = csv.DictReader(in_csv)
-            t_formula_header = "Theoretical Execution Time"
-            diff_header = "Absolute Difference"
+            t_exec_header = "Expected Execution Time"
+            t_latency_header = "Expected Latency Time"
+            exec_diff_header = "Absolute Execution Time Difference"
+            latency_diff_header = "Absolute Latency Time Difference"
             writer = csv.DictWriter(out_csv, fieldnames=reader.fieldnames +
-                                    [t_formula_header, diff_header])
+                                    [t_exec_header, t_latency_header, exec_diff_header, latency_diff_header])
             writer.writeheader()
             max_diff = 0
             max_diff_percent = 0
@@ -224,13 +226,16 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
                     sys.exit(f'No formula found for operation: {operation}')
                 # row['Na'] = ad_size/
                 variables = dict((k, try_convert(row.get(k))) for k in variable_names)
-                t_formula = eval(operation_formulas[operation], allowed_funcs, variables)
-                t_sim = int(row['Execution Time'])
-                diff = abs(t_formula - t_sim)
-                if diff > max_diff:
-                    max_diff = diff
-                    max_diff_percent = diff * 100 / t_sim
-                writer.writerow({**row, t_formula_header: t_formula, diff_header: diff})
+                t_exec_formula = eval(operation_formulas[operation]["Execution_Formula"], allowed_funcs, variables)
+                t_exec_sim = int(row['Actual Execution Time'])
+                t_exec_diff = abs(t_exec_formula - t_exec_sim)
+                t_latency_sim = int(row['Actual Latency'])
+                t_latency_formula = eval(operation_formulas[operation]["Latency_Formula"], allowed_funcs, variables)
+                t_latency_diff = abs(t_latency_formula - t_latency_sim)
+                if t_exec_diff > max_diff:
+                    max_diff = t_exec_diff
+                    max_diff_percent = t_exec_diff * 100 / t_exec_sim
+                writer.writerow({**row, t_exec_header: t_exec_formula, t_latency_header: t_latency_formula, exec_diff_header: t_exec_diff, latency_diff_header: t_latency_diff})
 
             if max_diff > 0:
                 self.logger.warning(
