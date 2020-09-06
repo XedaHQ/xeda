@@ -15,22 +15,23 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
     def replicate_settings_hook(self, settings: Settings) -> List[Settings]:
         #FIXME WOOOOOOPS so this doesn't actually work, will revert/fix ASAP
 
-        vf_file = Path('variants_formulas.json')
+        vf_file = Path('variants.json')
         if vf_file.exists():
             with open(vf_file) as f:
                 all_variants_formulas = json.load(f)
         else:
-            all_variants_formulas = self.extract_formulas()
-            if all_variants_formulas:
-                with open(vf_file, 'w') as f:
-                    json.dump(all_variants_formulas, f, indent=4)
+            # all_variants_formulas = self.extract_formulas()
+            # if all_variants_formulas:
+            #     with open(vf_file, 'w') as f:
+            #         json.dump(all_variants_formulas, f, indent=4)
+            sys.exit(f'{vf_file} not found!')
 
         if not all_variants_formulas:
             self.logger.critical(
                 f'Failed to read `variants_formulas.json` or parse `variants.txt`. Please make sure `variants_formulas.json` exists and is in correct format.')
             return
         
-        self.all_variants_formulas = all_variants_formulas
+        self.variants = all_variants_formulas
 
         # #TODO FIXME!!!
 
@@ -60,112 +61,118 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
         # return replicated
         return [settings]
 
-    def extract_formulas(self):
-        print("begin")
-        variants_txt = Path.cwd() / 'docs' / 'variants.txt'
-        if not variants_txt.exists():
-            self.logger.critical(
-                f'Variants file {variants_txt} does not exist! Try specifying formulas manually in `variants_formulas.json` file')
-            return None
+    # def extract_formulas(self):
+    #     print("begin")
+    #     variants_txt = Path.cwd() / 'docs' / 'variants.txt'
+    #     if not variants_txt.exists():
+    #         self.logger.critical(
+    #             f'Variants file {variants_txt} does not exist! Try specifying formulas manually in `variants_formulas.json` file')
+    #         return None
 
-        # TODO both sections f and g must exist with these titles?
-        formulas_section_re = re.compile(
-            r'''f\.\s+Execution\s+times\s*(Execution\s+time\s+of.*)\s*g. Latencies''', re.MULTILINE | re.IGNORECASE | re.DOTALL)
+    #     # TODO both sections f and g must exist with these titles?
+    #     formulas_section_re = re.compile(
+    #         r'''f\.\s+Execution\s+times\s*(Execution\s+time\s+of.*)\s*g. Latencies''', re.MULTILINE | re.IGNORECASE | re.DOTALL)
 
-        formulas_re = re.compile(
-            r'''(\s*Execution\s+time\s+of\s+(?P<name>[^:]*):\s*^\s*(?P<formula>.+))\s*''', re.MULTILINE | re.IGNORECASE)
+    #     formulas_re = re.compile(
+    #         r'''(\s*Execution\s+time\s+of\s+(?P<name>[^:]*):\s*^\s*(?P<formula>.+))\s*''', re.MULTILINE | re.IGNORECASE)
 
-        ae_re = re.compile(r'authenticated\s*encryption', re.IGNORECASE)
-        ad_re = re.compile(r'authenticated\s*decryption', re.IGNORECASE)
-        hash_re = re.compile(r'hashing', re.IGNORECASE)
+    #     ae_re = re.compile(r'authenticated\s*encryption', re.IGNORECASE)
+    #     ad_re = re.compile(r'authenticated\s*decryption', re.IGNORECASE)
+    #     hash_re = re.compile(r'hashing', re.IGNORECASE)
 
-        sizes_re = re.compile(r'''AD block size=(?P<ad_block_size>\d+)\s+Msg/Cph block size=(?P<msg_block_size>\d+)\s+Hash block size=(?P<hash_block_size>\d+)''', re.IGNORECASE | re.MULTILINE)
-
-
-        operation_formulas = {}
-
-        self.logger.info(f'Extracting formulas from {variants_txt}')
-
-        def parse_all_variants():
-            variants = []
-            variant_id = None
-            variant_desc = None
-            variant_body = []
-            variant_begin_re = re.compile(r'^\s*(?P<id>v\d+):?\s+(?P<desc>.*)', re.IGNORECASE)
-
-            def add_variant():
-                if variant_id:
-                    variants.append({'id': variant_id, 'desc': variant_desc, 'body': ''.join(variant_body)})
-            with open(variants_txt) as f:
-                for line in f.readlines():
-                    match = variant_begin_re.match(line)
-                    if match:
-                        add_variant()
-                        variant_id = match.group('id')
-                        variant_desc = match.group('desc')
-                        variant_body = []
-                    elif variant_id:
-                        variant_body.append(line)
-            add_variant()
-            self.logger.info(f'Found {len(variants)} variants!')
-            return variants
-
-        all_variants = parse_all_variants()
-        if not all_variants:
-            return None
-
-        all_variants_formulas = {}
+    #     sizes_re = re.compile(r'''AD block size=(?P<ad_block_size>\d+)\s+Msg/Cph block size=(?P<msg_block_size>\d+)\s+Hash block size=(?P<hash_block_size>\d+)''', re.IGNORECASE | re.MULTILINE)
 
 
-        for variant in all_variants:
-            content = variant['body']
+    #     operation_formulas = {}
 
-            variant_json = {}
+    #     self.logger.info(f'Extracting formulas from {variants_txt}')
 
-            match = sizes_re.search(content)
-            if match:
-                for sz in ['ad_block_size', 'msg_block_size', 'hash_block_size']:
-                    variant_json[sz] = match.group(sz)
-                self.logger.warning(
-                    f'Could parse sizes from variants.txt')
+    #     def parse_all_variants():
+    #         variants = []
+    #         variant_id = None
+    #         variant_desc = None
+    #         variant_body = []
+    #         variant_begin_re = re.compile(r'^\s*(?P<id>v\d+):?\s+(?P<desc>.*)', re.IGNORECASE)
 
-            match = formulas_section_re.search(content)
-            if match:
-                content = match.group(1)
-            # else:
-            #     self.logger.warning(
-            #         f'Could not parse "Execution times" section in variant description. Trying whole content.')
+    #         def add_variant():
+    #             if variant_id:
+    #                 variants.append({'id': variant_id, 'desc': variant_desc, 'body': ''.join(variant_body)})
+    #         with open(variants_txt) as f:
+    #             for line in f.readlines():
+    #                 match = variant_begin_re.match(line)
+    #                 if match:
+    #                     add_variant()
+    #                     variant_id = match.group('id')
+    #                     variant_desc = match.group('desc')
+    #                     variant_body = []
+    #                 elif variant_id:
+    #                     variant_body.append(line)
+    #         add_variant()
+    #         self.logger.info(f'Found {len(variants)} variants!')
+    #         return variants
 
-            match = [m.groupdict() for m in formulas_re.finditer(content)]
+    #     all_variants = parse_all_variants()
+    #     if not all_variants:
+    #         return None
 
-            if not match:
-                self.logger.critical(f'Could not parse execution times formulas in variant description')
-                return None
+    #     all_variants_formulas = {}
 
-            for operation in match:
-                formula = operation['formula']
-                name = operation['name']
-                operation = 'AE' if ae_re.match(name) else 'AD' if ad_re.match(
-                    name) else 'HASH' if hash_re.match(name) else name
-                self.logger.debug(f'Formula for {name} ({operation}): {formula}')
-                operation_formulas[operation] = formula
+
+    #     for variant in all_variants:
+    #         content = variant['body']
+
+    #         variant_json = {}
+
+    #         match = sizes_re.search(content)
+    #         if match:
+    #             for sz in ['ad_block_size', 'msg_block_size', 'hash_block_size']:
+    #                 variant_json[sz] = match.group(sz)
+    #             self.logger.warning(
+    #                 f'Could parse sizes from variants.txt')
+
+    #         match = formulas_section_re.search(content)
+    #         if match:
+    #             content = match.group(1)
+    #         # else:
+    #         #     self.logger.warning(
+    #         #         f'Could not parse "Execution times" section in variant description. Trying whole content.')
+
+    #         match = [m.groupdict() for m in formulas_re.finditer(content)]
+
+    #         if not match:
+    #             self.logger.critical(f'Could not parse execution times formulas in variant description')
+    #             return None
+
+    #         for operation in match:
+    #             formula = operation['formula']
+    #             name = operation['name']
+    #             operation = 'AE' if ae_re.match(name) else 'AD' if ad_re.match(
+    #                 name) else 'HASH' if hash_re.match(name) else name
+    #             self.logger.debug(f'Formula for {name} ({operation}): {formula}')
+    #             operation_formulas[operation] = formula
             
-            print(variant_json)
-            variant_json.update({'desc': variant['desc'], 'formulas': operation_formulas})
-            print(variant_json)
+    #         print(variant_json)
+    #         variant_json.update({'desc': variant['desc'], 'formulas': operation_formulas})
+    #         print(variant_json)
 
-            all_variants_formulas[variant['id']] = variant_json
+    #         all_variants_formulas[variant['id']] = variant_json
 
-        return all_variants_formulas
+    #     return all_variants_formulas
 
     # PostResults Hook
-    def post_results_hook(self, run_dir, settings):
+    def post_results_hook(self, run_dir, settings, results):
         """ Check timing vs formula for the variant """
+
+
 
         logger = self.logger
 
         if settings.active_flow != 'sim':
             logger.info(f"LwcSim hooks only work on 'sim' flows but active flow was {settings.active_flow}")
+            return
+
+        if not results["success"]:
+            logger.critical("Not running post_results_hook as results marked a failure.")
             return
 
         if not settings.variant_id:
@@ -176,13 +183,17 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
 
 
         self.logger.info(f"using formulas for variant {variant_id}")
-        operation_formulas = self.all_variants_formulas.get(variant_id)
-        if not operation_formulas:
+        variant = self.variants.get(variant_id)
+        if not variant:
             self.logger.critical(f"Could not find variant data for variant ID: {variant_id}")
             return
 
+        self.logger.debug(f'Variant {variant_id}: {variant}')
 
-        self.logger.info(operation_formulas)
+        operations = variant.get('operations')
+        if not operations:
+            self.logger.critical(f"variants.json: missing operations for variant {variant_id}")
+            return
 
         allowed_funcs = {
             k: v for k, v in math.__dict__.items() if not k.startswith("__")
@@ -218,19 +229,20 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
             max_diff = 0
             max_diff_percent = 0
             for row in reader:
-                operation = row['Operation']
+                op_id = row['Operation']
                 msg_size = int(row['Msg Size'])
                 ad_size = int(row['AD Size'])
                 new_key = bool(int(row['New Key']))
-                if operation not in operation_formulas:
-                    sys.exit(f'No formula found for operation: {operation}')
+                if op_id not in operations:
+                    sys.exit(f'Operation {op_id} not specified for {variant_id}')
+                operation = operations[op_id]
                 # row['Na'] = ad_size/
                 variables = dict((k, try_convert(row.get(k))) for k in variable_names)
-                t_exec_formula = eval(operation_formulas[operation]["Execution_Formula"], allowed_funcs, variables)
+                t_exec_formula = eval(operation["execution_formula"], allowed_funcs, variables)
                 t_exec_sim = int(row['Actual Execution Time'])
                 t_exec_diff = abs(t_exec_formula - t_exec_sim)
                 t_latency_sim = int(row['Actual Latency'])
-                t_latency_formula = eval(operation_formulas[operation]["Latency_Formula"], allowed_funcs, variables)
+                t_latency_formula = eval(operation["latency_formula"], allowed_funcs, variables)
                 t_latency_diff = abs(t_latency_formula - t_latency_sim)
                 if t_exec_diff > max_diff:
                     max_diff = t_exec_diff

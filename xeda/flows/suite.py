@@ -229,7 +229,7 @@ class Suite:
             # Run post-results hooks
             for hook in self.post_results_hooks:
                 self.logger.info(f"Running post-results hook from {hook.__self__.__class__.__name__}")
-                hook(self.run_dir, self.settings)
+                hook(self.run_dir, self.settings, self.results)
 
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):
         if not stdout_logfile:
@@ -442,7 +442,7 @@ class Suite:
     def dump_json(self, data, path, overwrite=True):
         if path.exists():
             if overwrite:
-                self.logger.warning(f"Overwriting existing file: {path}!")
+                self.logger.warning(f"Overwriting existing file: {path}")
             else:
                 self.logger.critical(f"{path} already exists! Not overwriting!")
                 sys.exit("Exiting due to error!")
