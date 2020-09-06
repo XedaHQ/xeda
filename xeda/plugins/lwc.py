@@ -221,8 +221,8 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
             reader = csv.DictReader(in_csv)
             t_exec_header = "Expected Execution Time"
             t_latency_header = "Expected Latency Time"
-            exec_diff_header = "Absolute Execution Time Difference"
-            latency_diff_header = "Absolute Latency Time Difference"
+            exec_diff_header = "Actual-Expected Execution Time"
+            latency_diff_header = "Actual-Expected Latency Time"
             writer = csv.DictWriter(out_csv, fieldnames=reader.fieldnames +
                                     [t_exec_header, t_latency_header, exec_diff_header, latency_diff_header])
             writer.writeheader()
@@ -240,10 +240,10 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
                 variables = dict((k, try_convert(row.get(k))) for k in variable_names)
                 t_exec_formula = eval(operation["execution_formula"], allowed_funcs, variables)
                 t_exec_sim = int(row['Actual Execution Time'])
-                t_exec_diff = abs(t_exec_formula - t_exec_sim)
+                t_exec_diff = t_exec_sim - t_exec_formula
                 t_latency_sim = int(row['Actual Latency'])
                 t_latency_formula = eval(operation["latency_formula"], allowed_funcs, variables)
-                t_latency_diff = abs(t_latency_formula - t_latency_sim)
+                t_latency_diff = t_latency_sim - t_latency_formula
                 if t_exec_diff > max_diff:
                     max_diff = t_exec_diff
                     max_diff_percent = t_exec_diff * 100 / t_exec_sim
