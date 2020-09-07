@@ -114,23 +114,28 @@ class DefaultFlowRunner(FlowRunner):
 
             flow.run()
 
-                # # Run post-run hooks
-                # for hook in flow.post_run_hooks:
-                #     flow.logger.info(f"Running post-run hook from from {hook.__self__.__class__.__name__}")
-                #     hook(flow.run_dir, flow.settings)
+            self.post_run_hooks = []
+            self.post_results_hooks = []
+            self.replicator_hooks = []
 
-                # flow.reports_dir = flow.run_dir / flow.reports_subdir_name
-                # if not flow.reports_dir.exists():
-                #     flow.reports_dir.mkdir(parents=True)
+            # Run post-run hooks
+            for hook in self.post_run_hooks:
+                self.logger.info(f"Running post-run hook from from {hook.__self__.__class__.__name__}")
+                hook(flow.run_dir, flow.settings)
 
-                # flow.results = dict()
-                # flow.parse_reports()
-                # flow.results['timestamp'] = flow.timestamp
-                # if flow.results:  # non empty
-                #     flow.print_results()
-                #     flow.dump_results()
+            flow.reports_dir = flow.run_dir / flow.reports_subdir_name
+            if not flow.reports_dir.exists():
+                flow.reports_dir.mkdir(parents=True)
 
-                # # Run post-results hooks
-                # for hook in flow.post_results_hooks:
-                #     flow.logger.info(f"Running post-results hook from {hook.__self__.__class__.__name__}")
-                #     hook(flow.run_dir, flow.settings, flow.results)
+            flow.results = dict() # ???
+            flow.parse_reports()
+            flow.results['timestamp'] = flow.timestamp
+
+            if flow.results:  # always non empty?
+                flow.print_results()
+                flow.dump_results()
+
+            # Run post-results hooks
+            for hook in self.post_results_hooks:
+                self.logger.info(f"Running post-results hook from {hook.__self__.__class__.__name__}")
+                hook(flow.run_dir, flow.settings, flow.results)

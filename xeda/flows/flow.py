@@ -8,8 +8,6 @@ import re
 from pathlib import Path
 import subprocess
 from .settings import Settings
-from ..plugins import Plugin, PostResultsPlugin, PostRunPlugin, ReplicatorPlugin
-from ..plugins.lwc import LwcSim
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import multiprocessing
 from progress import SHOW_CURSOR
@@ -64,10 +62,6 @@ class Flow():
 
         self.reports_dir = None
         self.timestamp = None
-
-        self.post_run_hooks = []
-        self.post_results_hooks = []
-        self.replicator_hooks = []
 
         try:
             self.run_hash = semantic_hash(self.settings)
@@ -329,9 +323,9 @@ class Flow():
         with open(path, 'w') as outfile:
             json.dump(data, outfile, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else x.__str__, indent=4)
 
-    def dump_results(self, flow):
+    def dump_results(self):
         # write only if not exists
-        path = self.run_dir / f'{flow}_results.json'
+        path = self.run_dir / f'{self.name}_results.json'
         self.dump_json(self.results, path)
         self.logger.info(f"Results written to {path}")
 
