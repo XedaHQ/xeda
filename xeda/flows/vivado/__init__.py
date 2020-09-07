@@ -1,7 +1,6 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-import sys
-from ..flow import SimFlow, Flow, SynthFlow
 
+from ..flow import SimFlow, Flow, SynthFlow
 
 def supported_vivado_generic(k, v, sim):
     if sim:
