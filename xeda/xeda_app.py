@@ -75,8 +75,10 @@ class XedaApp:
 
         json_path = args.design_json if args.design_json else Path.cwd() / 'design.json'
 
-        self.logger.info(f"Using design settings from {json_path}")
+        if args.command == 'init':
+            self.generate_design_json()
 
+        self.logger.info(f"Using design settings from {json_path}")
         try:
             with open(json_path) as f:
                 design_settings = json.load(f)
@@ -84,13 +86,14 @@ class XedaApp:
                 self.settings = dict_merge(self.settings, design_settings)
         except FileNotFoundError as e:
             if args.design_json:
-                sys.exit(f' Cannot open the specified design settings: {args.design_json}\n {e}')
+                sys.exit(f' Cannot open the specified design settings: {args.design_json}\n {e}. Please run xeda init')
             else:
                 sys.exit(f' Cannot open default design settings (design.json) in the current directory.\n {e}')
         except IsADirectoryError as e:
             sys.exit(f' The specified design json file is a directory.\n {e}')
 
         self.check_settings()
+        
 
         if args.command == 'run':
             suite, flow_name = self.get_suite_flow(flow_name=None)
@@ -142,6 +145,8 @@ class XedaApp:
                 registered_flows.append(f'{suite.name}:{flow}')
         registered_flows = ', '.join(registered_flows)
         ############################
+        init_parser = subparsers.add_parser('init', help='Generate a design.json for running xeda flows') 
+        ############################
         run_parser = subparsers.add_parser('run', help='Run a flow')
         run_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
                                 help=f'Flow name. Supported flows are: {registered_flows}')
@@ -162,6 +167,47 @@ class XedaApp:
         except json.decoder.JSONDecodeError as e:
             self.logger.critical(f"Failed to parse defaults settings file (defaults.json): {' '.join(e.args)}")
             sys.exit(1)
+
+
+    def generate_design_json(self):
+        default_json = {"design" : {}}
+        default_json["design"]["name"] = input("Enter a name for the design: ")
+        default_json["design"]["description"] = input("(Optional) Enter the design description: ")
+        default_json["design"]["author"] = [x.strip() for x in input("Enter the names of the primary author(s), separated by commas: ").split(",")]
+        default_json["design"]["url"] = input("(Optional) Enter the URL for the design: ")
+        default_json["design"]["sources"] = []
+        sources_path = input("Enter the relative path of the directory with the sources_list.txt file: ")
+
+        if sources_path[-1] != '/':
+            sources_path = sources_path + '/'
+        # Consider adding recursive source file search instead of source_list.txt
+        try:
+            with open(sources_path+'source_list.txt', 'r') as s:
+                for line in s:
+                    if not sources_path in line:
+                        default_json["design"]["sources"].append((sources_path+line).strip())
+                    else:
+                        default_json["design"]["sources"].append(line.strip())
+        except FileNotFoundError as e:
+            sys.exit(f' Cannot find source_list.txt in {sources_path}. Please make sure it exists! \n {e}.')
+
+
+        default_json["design"]["vhdl_std"] = "02"
+        default_json["design"]["vhdl_synopsys"] = True
+        default_json["design"]["clock_port"] = "clk"
+        default_json["design"]["tb_top"] = "LWC_TB"
+        default_json["design"]["tb_generics"] = {}
+        default_json["design"]["generics"] = {}
+        default_json["design"]["variant_id"] = "v1"
+        default_json["design"]["flows"] = {}
+
+        self.logger.info("Creating design.json with provided and default values. Please review them before running a design flow!")
+
+        with open('design.json', 'w') as outfile:
+            json.dump(default_json, outfile, indent=2)
+
+
+
 
     def find_fmax(self):
         wns_threshold = 0.002
