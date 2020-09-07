@@ -205,8 +205,10 @@ class Flow():
                                 print(line, end='')
                         else:
                             if error_msg_re.match(line) or critwarn_msg_re.match(line):
+                                print()
                                 self.logger.error(line)
                             elif warn_msg_re.match(line):
+                                print()
                                 self.logger.warning(line)
                             elif enable_echo_re.match(line):
                                 if not self.args.quiet:

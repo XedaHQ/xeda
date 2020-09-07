@@ -13,7 +13,7 @@
         },
         "diamond_synth": {
             "fpga_part": "LFE5U-25F-6BG381C",
-            "clock_period": 10.0,
+            "clock_period": 15.0,
             "synthesis_engine": "lse",
             "strategy": "Timing"
         },
@@ -24,8 +24,8 @@
             "optimize_power": "False"
         },
         "quartus_synth": {
-            "clock_period": 5.921,
-            "fpga_part": "10CL016YF256C6G",
+            "clock_period": 8.0,
+            "fpga_part": "10CL016YU256C6G",
             "dse":{
                 "num_concurrent": 8,
                 "nproc": null,
