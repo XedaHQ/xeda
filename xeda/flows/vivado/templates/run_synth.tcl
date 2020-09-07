@@ -54,7 +54,7 @@ exit 1
 
 set_param general.maxThreads ${nthreads}
 
-set stamp_filename "${vivado_dir}/synth.stamp"
+set stamp_filename "synth.stamp"
 #Trying to delete a non-existent file is not considered an error.
 file delete -force ${stamp_filename}
 

@@ -1,82 +1,58 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-
-import re
 import sys
-from ..suite import HasSimFlow, Suite
+from ..flow import SimFlow, Flow, SynthFlow
 
 
-class Vivado(Suite, HasSimFlow):
-    name = 'vivado'
-    executable = 'vivado'
-    supported_flows = ['synth', 'sim', 'post_synth_sim']
+def supported_vivado_generic(k, v, sim):
+    if sim:
+        return True
+    if isinstance(v, int):
+        return True
+    if isinstance(v, bool):
+        return True
+    v = str(v)
+    return (v.isnumeric() or (v.strip().lower() in {'true', 'false'}))
+
+def vivado_gen_convert(k, x, sim):
+    if sim:
+        return x
+    xl = str(x).strip().lower()
+    if xl == 'false':
+        return "1\\'b0"
+    if xl == 'true':
+        return "1\\'b1"
+    return x
+
+def vivado_generics(kvdict, sim):
+    return ' '.join([f"-generic {k}={vivado_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_vivado_generic(k, v, sim)])
+
+
+class Vivado(Flow):
     reports_subdir_name = 'reports'
 
     def __init__(self, settings, args, logger):
-
-
         super().__init__(settings, args, logger,
                          fail_critical_warning=False,
                          fail_timing=False
                          )
 
-    # run steps of tools and finally set self.reports_dir
-
-    def __runflow_impl__(self, flow):
-        def supported_vivado_generic(k, v, sim):
-            if sim:
-                return True
-            if isinstance(v, int):
-                return True
-            if isinstance(v, bool):
-                return True
-            v = str(v)
-            return (v.isnumeric() or (v.strip().lower() in {'true', 'false'}))
-
-        def vivado_gen_convert(k, x, sim):
-            if sim:
-                if isinstance(x, dict) and "file" in x:
-                    return self.conv_to_relative_path(x["file"])
-            xl = str(x).strip().lower()
-            if xl == 'false':
-                return "1\\'b0"
-            if xl == 'true':
-                return "1\\'b1"
-            return x
-
-        def vivado_generics(kvdict, sim):
-            return ' '.join([f"-generic {k}={vivado_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_vivado_generic(k, v, sim)])
-
-        self.settings.flow['generics_options'] = vivado_generics(self.settings.design["generics"], sim=False)
-        self.settings.flow['tb_generics_options'] = vivado_generics(self.settings.design["tb_generics"], sim=True)
-
-
-
-
-        clock_xdc_path = self.copy_from_template(f'clock.xdc')
-        script_path = self.copy_from_template(f'{flow}.tcl',
-                                              run_synth_flow=False if flow == 'sim' else True,
-                                              run_postsynth_sim=True if flow == 'post_synth_sim' else False,
-                                              xdc_files=[clock_xdc_path]
-                                              )
+    def run_vivado(self, script_path):        
         debug = self.args.debug
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug else 'batch', '-source', str(script_path)]
         if not debug:
             vivado_args.append('-notrace')
-        self.run_process(self.executable, vivado_args, initial_step='Starting vivado',
+        return self.run_process('vivado', vivado_args, initial_step='Starting vivado',
                          stdout_logfile=self.flow_stdout_log)
 
 
-    def parse_reports(self, flow):
-        if flow == 'synth':
-            self.parse_synth_reports()
-        if flow == 'sim':
-            self.parse_sim_reports()
+class VivadoSynth(Vivado, SynthFlow):
+    def run(self):
+        self.settings.flow['generics_options'] = vivado_generics(self.settings.design["generics"], sim=False)
+        clock_xdc_path = self.copy_from_template(f'clock.xdc')
+        script_path = self.copy_from_template(f'{self.name}.tcl', xdc_files=[clock_xdc_path])
+        return self.run_vivado(script_path)
 
-    # TODO FIXME LWC_TB for now
-    def parse_sim_reports(self):
-        self.simrun_match_regexp(r'PASS\s*\(0\):\s*SIMULATION\s*FINISHED')
-
-    def parse_synth_reports(self):
+    def parse_reports(self):
         reports_dir = self.reports_dir
 
         # TODO
@@ -136,3 +112,14 @@ class Vivado(Suite, HasSimFlow):
             self.results['_failing_endpoints'] != 0)
 
         self.results['success'] = not failed
+
+
+class VivadoSim(Vivado, SimFlow):
+    def run(self):
+        self.settings.flow['generics_options'] = vivado_generics(self.settings.design["tb_generics"], sim=True)
+        script_path = self.copy_from_template(f'vivado_sim.tcl')
+        return self.run_vivado(script_path)
+
+    # TODO FIXME LWC_TB for now
+    def parse_sim_reports(self):
+        self.simrun_match_regexp(r'PASS\s*\(0\):\s*SIMULATION\s*FINISHED')

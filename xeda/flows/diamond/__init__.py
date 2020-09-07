@@ -1,33 +1,26 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-from ..suite import Suite
+from ..flow import Flow, SynthFlow
 
 
-class Diamond(Suite):
-    name = 'diamond'
-    executable = 'diamondc'
-    supported_flows = ['synth']
+class Diamond(Flow):
     reports_subdir_name = 'diamond_impl'
-
     def __init__(self, settings, args, logger):
         super().__init__(settings, args, logger,
                          impl_folder='diamond_impl',
                          impl_name='Implementation0'
                          )
 
-    # run steps of tools and finally set self.reports_dir
-    def __runflow_impl__(self, subflow):
-        script_path = self.copy_from_template(f'{subflow}.tcl')
-        self.run_process(self.executable, [str(script_path)])
 
-    def parse_reports(self, flow):
-        if flow == 'synth':
-            self.parse_reports_synth()
+class DiamondSynth(Diamond, SynthFlow):
+    def run(self):
+        script_path = self.copy_from_template(f'synth.tcl')
+        self.run_process('diamondc', [str(script_path)])
 
-    def parse_reports_synth(self):
+
+    def parse_reports(self):
         self.results = dict()
         reports_dir = self.reports_dir
-        self.results["_reports_path"] = str(reports_dir)
         design_name = self.settings.design['name']
         impl_name = self.settings.flow['impl_name']
 
@@ -73,6 +66,8 @@ class Diamond(Suite):
         self.parse_report(reports_dir / f'{design_name}_{impl_name}.mrp', mrp_pattern)
 
         failed = False
+
+        # TODO FIXME move to LwcSynth
         forbidden_resources = ['dsp_MULT18X18D', 'dsp_MULT9X9D', 'bram']
         for res in forbidden_resources:
             if (self.results[res] != 0):

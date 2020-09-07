@@ -8,20 +8,22 @@
         "clock_port": "clk"
     },
     "flows": {
-        "diamond": {
+        "sim_flow": {
+            "stop_time": null
+        },
+        "diamond_synth": {
             "fpga_part": "LFE5U-25F-6BG381C",
             "clock_period": 10.0,
             "synthesis_engine": "lse",
             "strategy": "Timing"
         },
-        "vivado": {
+        "vivado_synth": {
             "clock_period": 5.0,
             "fpga_part": "xc7a12tcsg325-3",
             "strategy": "Timing",
-            "optimize_power": "False",
-            "sim_run": "all"
+            "optimize_power": "False"
         },
-        "quartus": {
+        "quartus_synth": {
             "clock_period": 5.921,
             "fpga_part": "10CL016YF256C6G",
             "dse":{

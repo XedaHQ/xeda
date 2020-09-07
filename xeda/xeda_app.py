@@ -5,6 +5,9 @@ import os
 import argparse
 import json
 from pathlib import Path
+from xeda.flow_runner import DefaultFlowRunner
+
+from .utils import load_class
 
 import coloredlogs
 import logging
@@ -18,33 +21,14 @@ except pkg_resources.DistributionNotFound:
     __version__ = '(N/A - Local package)'
 
 
-def dict_merge(base_dct, merge_dct, add_keys=True):
-    rtn_dct = base_dct.copy()
-    if add_keys is False:
-        merge_dct = {key: merge_dct[key] for key in set(rtn_dct).intersection(set(merge_dct))}
-
-    rtn_dct.update({
-        key: dict_merge(rtn_dct[key], merge_dct[key], add_keys=add_keys)
-        if isinstance(rtn_dct.get(key), dict) and isinstance(merge_dct[key], dict)
-        else merge_dct[key]
-        for key in merge_dct.keys()
-    })
-    return rtn_dct
-
 
 class XedaApp:
     def __init__(self):
-        self.registered_suites = dict()
         self.parser = argparse.ArgumentParser(
             prog=__package__,
             description=f'{__package__}: Simulate And Synthesize Hardware! Version {__version__}')
         self.args = None
         self.logger = logging.getLogger(__package__)
-        self.settings = None
-
-    def register_suites(self, *flow_classes):
-        for cls in flow_classes:
-            self.registered_suites[cls.name] = cls
 
     # TODO
     def check_settings(self):
@@ -54,52 +38,16 @@ class XedaApp:
             assert "tbgenerics" not in ds or isinstance(
                 ds["tb_generics"], dict), "design.tb_generics must be a dict"
 
-    def get_suite_flow(self, flow_name=None):
-        splitted_flow_name = self.args.flow.split(':')
-        suite_name = splitted_flow_name[0]
-        if suite_name not in self.registered_suites:
-            sys.exit(f"Suite `{suite_name}` is not currently supported. ")
-        if len(splitted_flow_name) > 1:
-            flow_name = splitted_flow_name[1]
-        suite = self.registered_suites[suite_name](self.settings, self.args, self.logger)
-        return suite, flow_name
-
     def main(self):
         args = self.args = self.parse_args()
 
         coloredlogs.install(level='DEBUG' if args.debug else 'INFO',
                             fmt='%(asctime)s %(levelname)s %(message)s', logger=self.logger)
 
-        self.settings = self.get_default_settings()
-        self.check_settings()
+        runner = DefaultFlowRunner(self.logger, self.args)
 
-        json_path = args.design_json if args.design_json else Path.cwd() / 'design.json'
-
-        self.logger.info(f"Using design settings from {json_path}")
-
-        try:
-            with open(json_path) as f:
-                design_settings = json.load(f)
-                self.check_settings()
-                self.settings = dict_merge(self.settings, design_settings)
-        except FileNotFoundError as e:
-            if args.design_json:
-                sys.exit(f' Cannot open the specified design settings: {args.design_json}\n {e}')
-            else:
-                sys.exit(f' Cannot open default design settings (design.json) in the current directory.\n {e}')
-        except IsADirectoryError as e:
-            sys.exit(f' The specified design json file is a directory.\n {e}')
-
-        self.check_settings()
-
-        if args.command == 'run':
-            suite, flow_name = self.get_suite_flow(flow_name=None)
-            suite.run(flow_name)
-
-        if args.command == 'dse':
-
-            # assert flow_name == 'synth', f"Unsupported flow {flow_name}\n `dse` command only supports `synth` flow supports "
-            self.find_fmax()
+        runner.run_flow()
+        
 
     def parse_args(self, args=None):
         parser = self.parser
@@ -137,10 +85,9 @@ class XedaApp:
 
         # TODO FIXME add as validator!
         registered_flows = []
-        for suite in self.registered_suites.values():
-            for flow in suite.supported_flows:
-                registered_flows.append(f'{suite.name}:{flow}')
-        registered_flows = ', '.join(registered_flows)
+        ### FIXME FIXME FIXME 
+
+
         ############################
         run_parser = subparsers.add_parser('run', help='Run a flow')
         run_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
@@ -154,14 +101,6 @@ class XedaApp:
                                  help=f'Maximum number of consecutive runs that did not improve F_max. Search stops afterwards')
 
         return parser.parse_args(args)
-
-    def get_default_settings(self):
-        defaults_data = pkg_resources.resource_string(__name__, "defaults.json")
-        try:
-            return json.loads(defaults_data)
-        except json.decoder.JSONDecodeError as e:
-            self.logger.critical(f"Failed to parse defaults settings file (defaults.json): {' '.join(e.args)}")
-            sys.exit(1)
 
     def find_fmax(self):
         wns_threshold = 0.002

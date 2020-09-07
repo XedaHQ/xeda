@@ -7,13 +7,16 @@ import sys
 import csv
 from pathlib import Path
 from typing import List
-from ..flows import Settings, try_convert
-from . import Plugin, PostResultsPlugin, ReplicatorPlugin
+from ..utils import try_convert
+from ..flows.settings import Settings
+from . import PostResultsPlugin, ReplicatorPlugin
 
 
 class LwcSim(PostResultsPlugin, ReplicatorPlugin):
     def replicate_settings_hook(self, settings: Settings) -> List[Settings]:
-        #FIXME WOOOOOOPS so this doesn't actually work, will revert/fix ASAP
+        #TODO FIXME WIP
+        return [settings]
+
 
         vf_file = Path('variants.json')
         if vf_file.exists():
@@ -163,7 +166,8 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
     def post_results_hook(self, run_dir, settings, results):
         """ Check timing vs formula for the variant """
 
-
+        #FIXME WIP
+        return
 
         logger = self.logger
 

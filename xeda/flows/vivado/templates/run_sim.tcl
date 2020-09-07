@@ -1,9 +1,19 @@
+set design_name           {{design.name}}
+set vhdl_std              {{design.vhdl_std}}
+set debug                 {{debug}}
+set nthreads              {{nthreads}}
+set tb_generics_options   "{{flow.generics_options}}"
+set tb_top                {{design.tb_top}}
+set results_dir           results
+# set vhdl_funcsim          ${results_dir}/${top}_impl_funcsim.vhd
+# set verilog_funcsim       ${results_dir}/${top}_impl_funcsim.v
+# set verilog_timesim       ${results_dir}/${top}_impl_timesim.v
+# set sdf_file              "[file rootname ${verilog_timesim}].sdf"
 set timing_sim            false
 set funcsim_use_vhdl      true
 set gen_saif              false
 set gen_vcd               false
 set uut_scope             /${tb_top}/{{design.tb_uut}}
-set max_run               {{flow.sim_run}}
 set initialize_zeros      false
 
 
@@ -126,7 +136,7 @@ if {${initialize_zeros}} {
 
 puts "\n===========================( Running simulation )==========================="
 puts "\n===========================( *ENABLE ECHO* )==========================="
-run "${max_run}"
+run {% if 'stop_time' in flow %} {{flow.stop_time}} {% else %} all {% endif %}
 puts "\n===========================( *DISABLE ECHO* )==========================="
 
 
