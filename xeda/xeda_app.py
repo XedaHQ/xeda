@@ -5,7 +5,7 @@ import os
 import argparse
 import json
 from pathlib import Path
-from xeda.flow_runner import DefaultFlowRunner
+from xeda.flow_runner import DefaultFlowRunner, LwcVariantsRunner
 
 from .utils import load_class
 
@@ -44,9 +44,25 @@ class XedaApp:
         coloredlogs.install(level='DEBUG' if args.debug else 'INFO',
                             fmt='%(asctime)s %(levelname)s %(message)s', logger=self.logger)
 
-        runner = DefaultFlowRunner(self.logger, self.args)
+        if args.command == 'run':
+            runner = DefaultFlowRunner(self.logger, self.args)
+        elif args.command == 'run_variants':
+            runner = LwcVariantsRunner(self.logger, self.args)
+        else:
+            sys.exit(f"Ruuner for {args.command} is not implemented")
 
         runner.run_flow()
+
+
+    #TODO FIXME
+    def register_plugin_parsers(self):
+        plug_parser = self.subparsers.add_parser('run_variants', help='Run All LWC variants in variants.json')
+        plug_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]', help=f'Flow name.')
+        plug_parser.add_argument(
+            '--variants-json',
+            default='variants.json',
+            help='Path to LWC variants JSON file.'
+        )
         
 
     def parse_args(self, args=None):
@@ -68,30 +84,34 @@ class XedaApp:
         )
         parser.add_argument(
             '--force-run-dir',
-            help='Force set run directory where the tools are run.',
+            # help='Force set run directory where the tools are run.',
             # default=None
         )
         parser.add_argument(
             '--all-runs-dir',
-            help='Change top directory where the all the runs of a flow is run from `flow/suite_run` ',
+            # help='Change top directory where the all the runs of a flow is run from `flow/suite_run` ',
             # default=None
         )
-        parser.add_argument(
-            '--design-json',
-            help='Path to design JSON file.'
-        )
+
         subparsers = parser.add_subparsers(dest='command', help='Commands Help')
         subparsers.required = True
+        self.subparsers = subparsers
 
         # TODO FIXME add as validator!
         registered_flows = []
-        ### FIXME FIXME FIXME 
+        ### FIXME FIXME FIXME
+
+        self.register_plugin_parsers()
 
 
         ############################
         run_parser = subparsers.add_parser('run', help='Run a flow')
         run_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
                                 help=f'Flow name. Supported flows are: {registered_flows}')
+        run_parser.add_argument(
+            '--design-json',
+            help='Path to design JSON file.'
+        )
         ############################
         fmax_parser = subparsers.add_parser(
             'dse', help='Design Space Exploration: Run `synth` flow of a suite several times, sweeping over clock_period constraint to find the maximum frequency of the design for the current settings')
