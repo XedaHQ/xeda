@@ -49,9 +49,7 @@ class DefaultFlowRunner(FlowRunner):
         except IsADirectoryError as e:
             sys.exit(f' The specified design json is not a regular file.\n {e}')
 
-        # self.check_settings()
-
-        print(settings)
+        self.check_settings()
 
         if args.command == 'run':
             flow_cls = load_class(args.flow, ".flows")
