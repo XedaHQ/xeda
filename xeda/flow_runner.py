@@ -42,7 +42,10 @@ class FlowRunner():
 
     def setup_flow(self, settings, args, flow_name):
 
-        flow_cls = load_class(flow_name, ".flows")
+        try:
+            flow_cls = load_class(flow_name, ".flows")
+        except AttributeError as e:
+            sys.exit(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.")
 
         flow: Flow = flow_cls(settings, args, self.logger)
 
