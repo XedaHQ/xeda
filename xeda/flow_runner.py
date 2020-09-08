@@ -1,17 +1,24 @@
+import multiprocessing
 import os
 import pkg_resources
-from datetime import datetime
-from copy import copy
 from pathlib import Path
 import json
 import sys
-from .flows.flow import DesignSource, Flow, semantic_hash
-from .utils import load_class, dict_merge, camelcase_to_snakecase, snakecase_to_camelcase
+import multiprocessing as mp
 
+from .flows.flow import DesignSource, Flow
+from .utils import load_class, dict_merge
+
+
+def run_func(f: Flow):
+    f.run()
+    
 class FlowRunner():
     def __init__(self, logger, args) -> None:
         self.logger = logger
         self.args = args
+        #TODO
+        self.parallel_run = True
 
     
     def get_default_settings(self):
@@ -46,7 +53,6 @@ class FlowRunner():
             flow_cls = load_class(flow_name, ".flows")
         except AttributeError as e:
             sys.exit(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.")
-
         flow: Flow = flow_cls(settings, args, self.logger)
 
         # for pcls in plugin_clss:
@@ -86,7 +92,7 @@ class FlowRunner():
                     p = gen_val["file"]
                     assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
                     gen_val = flow.conv_to_relative_path(p.strip())
-                    flow.logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
+                    # flow.logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
                     flow.settings.design[gen_type][gen_key] = gen_val
 
         # flow.check_settings()
@@ -149,6 +155,8 @@ class LwcVariantsRunner(DefaultFlowRunner):
         with open(variants_json) as vjf:
             variants = json.load(vjf)
 
+        flows_to_run = []
+
         for variant_id, variant_data in variants.items():
             self.logger.info(f"LwcVariantsRunner: running variant {variant_id}")
             # path is relative to variants_json
@@ -156,9 +164,25 @@ class LwcVariantsRunner(DefaultFlowRunner):
             design_json_path = Path(variants_json_dir) / variant_data["design"]  # TODO also support inline design
             settings = self.get_design_settings(design_json_path)
 
-            flow = self.setup_flow(settings, args, args.flow)
-            flow.run()
+            if self.parallel_run:
+                args.quiet = True
 
+            flow = self.setup_flow(settings, args, args.flow)
+            flow.set_parallel_run()
+
+            flows_to_run.append(flow)
+        
+
+        if self.parallel_run:
+            nproc = max(1, multiprocessing.cpu_count() // 4)
+
+            with mp.Pool(processes=nproc) as p:
+                p.map(run_func, flows_to_run)
+        else:
+            for flow in flows_to_run:
+                flow.run()
+
+        for flow in flows_to_run:
             self.post_run_hooks = []
             self.post_results_hooks = []
             self.replicator_hooks = []

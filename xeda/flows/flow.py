@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import json
+from logging import NullHandler
 import os
 import sys
 import re
@@ -10,6 +11,7 @@ import subprocess
 from .settings import Settings
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import multiprocessing
+import logging
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
 import colored
@@ -20,8 +22,20 @@ from pathlib import Path
 
 from typing import Union, Dict, List
 import hashlib
-import csv
 
+
+class DockLogger():
+    def info(self, *args):
+        pass
+
+    def warning(self, *args):
+        pass
+
+    def error(self, *args):
+        pass
+
+    def debug(self, *args):
+        pass
 
 
 class Flow():
@@ -29,11 +43,10 @@ class Flow():
     required_settings = {}
     reports_subdir_name = 'reports'
 
-
     def __init__(self, settings, args, logger, **flow_defaults):
         self.args = args
+        self.nthreads = max(1, multiprocessing.cpu_count() // 2)
         self.logger = logger
-        self.nthreads = multiprocessing.cpu_count()
         # base flow defaults
         self.settings = Settings()
         # default for optional design settings
@@ -46,7 +59,7 @@ class Flow():
         # override entire section if available in settings
         if self.name in settings['flows']:
             self.settings.flow.update(settings['flows'][self.name])
-            self.logger.debug(f"Using {self.name} settings")
+            self.logger.info(f"Using {self.name} settings")
         else:
             self.logger.warning(f"No settings found for {self.name}")
 
@@ -75,6 +88,28 @@ class Flow():
 
         self.flow_stdout_log = f'{self.name}_stdout.log'
 
+        self.no_console = False
+
+    def set_parallel_run(self, nthreads_limit=None):
+        if nthreads_limit:
+            self.nthreads = min(self.nthreads, nthreads_limit)
+        self.no_console = True
+        self.logger.handlers = []
+        logger = multiprocessing.get_logger()
+        logger.setLevel(logging.INFO)
+        formatter = logging.Formatter(
+            '[%(asctime)s| %(levelname)s| %(processName)s] %(message)s')
+        # handler = logging.FileHandler(self.run_dir / f'{self.name}_logger.log')
+        # handler.setFormatter(formatter)
+        handler = NullHandler()
+
+        # this bit will make sure you won't have
+        # duplicated messages in the output
+        # if not len(logger.handlers):
+        logger.handlers = []
+        logger.addHandler(handler)
+        self.logger = logger
+
     @property
     def name(self):
         return camelcase_to_snakecase(self.__class__.__name__)
@@ -82,7 +117,6 @@ class Flow():
     @property
     def flow_module_path(self):
         return self.__module__
-
 
     def check_settings(self, flow):
         if flow in self.required_settings:
@@ -172,25 +206,29 @@ class Flow():
         warn_msg_re = re.compile(r'^\s*warning:?\s+', re.IGNORECASE)
         critwarn_msg_re = re.compile(r'^\s*critical\s+warning:?\s+', re.IGNORECASE)
 
+        def make_spinner(step):
+            if self.no_console:
+                return None
+            return Spinner('⏳' + step if unicode else step)
         with open(stdout_logfile, 'w') as log_file:
             try:
                 self.logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
                 self.logger.info(f'Standard output from the tool will be saved to {stdout_logfile}')
                 with subprocess.Popen([prog, *prog_args],
-                                    cwd=self.run_dir,
-                                    stdout=subprocess.PIPE,
-                                    bufsize=1,
-                                    universal_newlines=True,
-                                    encoding='utf-8',
-                                    errors='replace'
-                                    ) as proc:
+                                      cwd=self.run_dir,
+                                      stdout=subprocess.PIPE,
+                                      bufsize=1,
+                                      universal_newlines=True,
+                                      encoding='utf-8',
+                                      errors='replace'
+                                      ) as proc:
                     def end_step():
                         if spinner:
                             if unicode:
                                 print('\r✅', end='')
                             spinner.finish()
                     if initial_step:
-                        spinner = Spinner('⏳' + initial_step if unicode else initial_step)
+                        spinner = make_spinner(initial_step)
                     while True:
                         line = proc.stdout.readline()
                         if not line:
@@ -199,16 +237,18 @@ class Flow():
                         log_file.write(line)
                         log_file.flush()
                         if verbose or echo_instructed:
-                            if echo_instructed and disable_echo_re.match(line):
+                            if disable_echo_re.match(line):
                                 echo_instructed = False
                             else:
                                 print(line, end='')
                         else:
                             if error_msg_re.match(line) or critwarn_msg_re.match(line):
-                                print()
+                                if spinner:
+                                    print()
                                 self.logger.error(line)
                             elif warn_msg_re.match(line):
-                                print()
+                                if spinner:
+                                    print()
                                 self.logger.warning(line)
                             elif enable_echo_re.match(line):
                                 if not self.args.quiet:
@@ -219,14 +259,15 @@ class Flow():
                                 if match:
                                     end_step()
                                     step = match.group('step')
-                                    spinner = Spinner('⏳' + step if unicode else step)
+                                    spinner = make_spinner(step)
                                 else:
                                     if spinner:
                                         spinner.next()
             except FileNotFoundError as e:
                 self.fatal(f"Cannot execute `{prog}`. Make sure it's properly instaulled and the executable is in PATH")
             except KeyboardInterrupt:
-                print(SHOW_CURSOR)
+                if spinner:
+                    print(SHOW_CURSOR)
                 self.logger.critical("Received a keyboard interrupt!")
                 if proc:
                     self.logger.critical(f"Terminating {proc.args[0]}[{proc.pid}]")
@@ -235,13 +276,14 @@ class Flow():
                     proc.wait()
                 sys.exit(1)
 
-        print(SHOW_CURSOR)
+        if spinner:
+            print(SHOW_CURSOR)
 
         if proc.returncode != 0:
             self.logger.critical(
                 f'`{proc.args[0]}` exited with returncode {proc.returncode}. Please check `{stdout_logfile}` for error messages!')
             if check:
-                sys.exit('Exiting due to errors.')
+                sys.exit('Exiting because of non-zero return code.')
         else:
             self.logger.info(f'Process completed with returncode {proc.returncode}')
         return proc
@@ -337,6 +379,7 @@ class Flow():
                 return True
         return False
 
+
 class SimFlow(Flow):
     # TODO FIXME move to plugin
     def parse_reports(self):
@@ -346,14 +389,12 @@ class SimFlow(Flow):
 
 class SynthFlow(Flow):
     required_settings = {'clock_period': float}
-
-    # def __init__(self, settings, args, logger, **flow_defaults):
-    #     super().__init__(settings, args, logger, **flow_defaults)
     pass
 
 
 class DseFlow(Flow):
     pass
+
 
 JsonType = Union[str, int, float, bool, List['JsonType'], 'JsonTree']
 JsonTree = Dict[str, JsonType]
