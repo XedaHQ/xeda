@@ -2,7 +2,6 @@
 
 from ..flow import Flow, SynthFlow
 
-
 class Diamond(Flow):
     reports_subdir_name = 'diamond_impl'
     def __init__(self, settings, args, logger):
@@ -47,6 +46,8 @@ class DiamondSynth(Diamond, SynthFlow):
 \s*(?P<_lvl_cost>\S+)\s+(?P<_ncd>\S+)\s+(?P<_num_unrouted>\d+)\s+(?P<wns>\-?\d+\.\d+)\s+(?P<_setup_score>\d+)\s+(?P<whs>\-?\d+\.\d+)\s+(?P<_hold_score>\d+)\s+(?P<_runtime>\d+(?:\:\d*)?)\s+(?P<_status>\w+)\s*$'''
         self.parse_report(reports_dir / f'{design_name}_{impl_name}.par', slice_pat, time_pat)
 
+        # NOTE there can be "page breaks" anywhere in the mrp file (others? TODO)
+        # NOTE therefore only match lines
         #   1. Total number of LUT4s = (Number of logic LUT4s) + 2*(Number of distributed RAMs) + 2*(Number of ripple logic)
         #   2. Number of logic LUT4s does not include count of distributed RAM and ripple logic.
         mrp_pattern = r'''Design Summary\s*\-+\s*Number\s+of\s+registers:\s*(?P<ff>\d+)\s+out\s+of\s*(?P<total_ff>\d+).*
@@ -59,7 +60,7 @@ class DiamondSynth(Diamond, SynthFlow):
 \s+Number\s+used\s+as\s+ripple\s+logic:\s*(?P<lut_ripple>\d+)\s*
 \s+Number\s+used\s+as\s+shift\s+registers:\s*(?P<lut_shift>\d+)\s*.*
 \s*Number\s+of\s+block\s+RAMs:\s*(?P<bram>\d+)\s+out\s+of\s+(?P<bram_total>\d+).*
-\s*Number\s+Of\s+Mapped\s+DSP\s+Components:\s*\-+\s*
+\s*Number\s+Of\s+Mapped\s+DSP\s+Components:\s*\-+\s*.*
 \s+MULT18X18D\s+(?P<dsp_MULT18X18D>\d+)\s*.*
 \s+MULT9X9D\s+(?P<dsp_MULT9X9D>\d+)\s*.*'''
 
@@ -70,7 +71,7 @@ class DiamondSynth(Diamond, SynthFlow):
         # TODO FIXME move to LwcSynth
         forbidden_resources = ['dsp_MULT18X18D', 'dsp_MULT9X9D', 'bram']
         for res in forbidden_resources:
-            if (self.results[res] != 0):
+            if (res in self.results and self.results[res] != 0):
                 self.logger.critical(f'Map report shows {self.results[res]} use(s) of forbidden resource {res}.')
                 failed = True
 

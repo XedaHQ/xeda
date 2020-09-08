@@ -3,7 +3,7 @@
         "top": "LWC",
         "tb_top": "LWC_TB",
         "tb_uut": "uut",
-        "vhdl_std": "93",
+        "vhdl_std": "02",
         "vhdl_synopsys": false,
         "clock_port": "clk"
     },
@@ -14,7 +14,7 @@
         "diamond_synth": {
             "fpga_part": "LFE5U-25F-6BG381C",
             "clock_period": 15.0,
-            "synthesis_engine": "lse",
+            "synthesis_engine": "synplify",
             "strategy": "Timing"
         },
         "vivado_synth": {

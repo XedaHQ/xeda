@@ -1,8 +1,8 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
+import copy
 from datetime import datetime
 import json
-from logging import NullHandler
 from logging.handlers import QueueHandler
 import os
 import sys
@@ -32,6 +32,7 @@ class Flow():
     reports_subdir_name = 'reports'
 
     def __init__(self, settings, args, logger, **flow_defaults):
+        settings = copy.deepcopy(settings)
         self.args = args
         self.nthreads = max(1, multiprocessing.cpu_count() // 2)
         self.logger = logger
@@ -428,7 +429,7 @@ def semantic_hash(data: JsonTree, hash_files=True, hasher=hashlib.sha1) -> str:
 class DesignSource:
     @classmethod
     def is_design_source(cls, src):
-        return isinstance(src, dict) and 'file' in src
+        return isinstance(src, cls) or (isinstance(src, dict) and 'file' in src)
 
     def __init__(self, file: str, type: str = None, sim_only: bool = False, standard: str = None, variant: str = None, comment: str = None) -> None:
         def type_from_suffix(file: Path) -> str:

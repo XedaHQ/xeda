@@ -76,7 +76,7 @@ prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0
 #lse_ram_style=Distributed
 
 
-# prj_strgy set_value -strategy custom_strategy {par_cmdline_args=-exp nbrMaxRunTime=100}
+prj_strgy set_value -strategy custom_strategy {par_cmdline_args=-exp nbrMaxRunTime=20}
 
 
 prj_strgy set custom_strategy

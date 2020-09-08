@@ -1,11 +1,8 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
 import sys
-import os
 import argparse
-import json
-from pathlib import Path
-from xeda.flow_runner import DefaultFlowRunner, LwcVariantsRunner
+from xeda.flow_runner import DefaultFlowRunner, LwcFmaxRunner, LwcVariantsRunner
 
 from .utils import load_class
 
@@ -44,25 +41,26 @@ class XedaApp:
         coloredlogs.install(level='DEBUG' if args.debug else 'INFO',
                             fmt='%(asctime)s %(levelname)s %(message)s', logger=self.logger)
 
-        if args.command == 'run':
-            runner = DefaultFlowRunner(self.logger, self.args)
-        elif args.command == 'run_variants':
-            runner = LwcVariantsRunner(self.logger, self.args)
+        # FIXME this should be dynamically setup during runner registeration
+        registered_runner_cmds = {
+            'run': DefaultFlowRunner,
+            'run_variants': LwcVariantsRunner,
+            'run_fmax': LwcFmaxRunner
+        }
+        runner_cls = registered_runner_cmds.get(args.command)
+        if runner_cls:
+            runner = runner_cls(self.args)
         else:
             sys.exit(f"Ruuner for {args.command} is not implemented")
 
-        runner.run_flow()
+        runner.launch()
 
 
     #TODO FIXME
     def register_plugin_parsers(self):
-        plug_parser = self.subparsers.add_parser('run_variants', help='Run All LWC variants in variants.json')
-        plug_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]', help=f'Flow name.')
-        plug_parser.add_argument(
-            '--variants-json',
-            default='variants.json',
-            help='Path to LWC variants JSON file.'
-        )
+        #TODO FIXME
+        for runner_plugin in [LwcVariantsRunner, LwcFmaxRunner]:
+            runner_plugin.register_subparser(self.subparsers)
         
 
     def parse_args(self, args=None):
@@ -89,7 +87,7 @@ class XedaApp:
         )
         parser.add_argument(
             '--all-runs-dir',
-            # help='Change top directory where the all the runs of a flow is run from `flow/suite_run` ',
+            # help='Change top directory where the all the runs of a flow is run from `<FLOW_NAME>_run` ',
             # default=None
         )
 
@@ -101,82 +99,16 @@ class XedaApp:
         registered_flows = []
         ### FIXME FIXME FIXME
 
-        self.register_plugin_parsers()
-
 
         ############################
         run_parser = subparsers.add_parser('run', help='Run a flow')
-        run_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
+        run_parser.add_argument('flow', metavar='FLOW_NAME',
                                 help=f'Flow name. Supported flows are: {registered_flows}')
         run_parser.add_argument(
             '--design-json',
             help='Path to design JSON file.'
         )
-        ############################
-        fmax_parser = subparsers.add_parser(
-            'dse', help='Design Space Exploration: Run `synth` flow of a suite several times, sweeping over clock_period constraint to find the maximum frequency of the design for the current settings')
-        fmax_parser.add_argument('flow', metavar='SUITE_NAME[:FLOW_NAME]',
-                                 help=f'Name of the suite to execute. Supported flows are: {registered_flows}')
-        fmax_parser.add_argument('--max-failed-runs', type=int, default=40,
-                                 help=f'Maximum number of consecutive runs that did not improve F_max. Search stops afterwards')
 
+        self.register_plugin_parsers()
+        
         return parser.parse_args(args)
-
-    def find_fmax(self):
-        wns_threshold = 0.002
-        improvement_threshold = 0.002
-        failed_runs = 0
-        best_period = None
-        best_results = None
-        best_rundir = None
-        rundirs = set()
-
-        suite, flow_name = self.get_suite_flow(flow_name='synth')
-        while True:
-
-            set_period = suite.settings.flow['clock_period']
-            self.logger.info(f'[DSE] Trying clock_period = {set_period:0.3f}ns')
-            # fresh directory for each run
-            suite.run('synth')
-            rundirs.add(suite.run_dir)
-            wns = suite.results['wns']
-            success = suite.results['success'] and wns >= 0
-            period = suite.results['clock_period']
-
-            next_period = set_period - wns - improvement_threshold/4
-
-            if success:
-                if best_period:
-                    # if wns < wns_threshold:
-                    #     self.logger.warning(
-                    #         f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threshold: {wns_threshold}')
-                    #     break
-                    max_failed = self.args.max_failed_runs
-                    if failed_runs >= max_failed:
-                        self.logger.warning(
-                            f'[DSE] Stopping attempts as number of FAILED runs has reached maximum allowed value of {max_failed}.'
-                        )
-                        break
-                if not best_period or period < best_period:
-                    best_period = period
-                    best_rundir = suite.run_dir
-                    best_results = {**suite.results}
-            else:
-                if best_period:
-                    failed_runs += 1
-                    next_period = (best_period + set_period) / 2 - improvement_threshold/2
-
-            # worse or not worth it
-            if best_period and (best_period - next_period) < improvement_threshold:
-                self.logger.warning(
-                    f'[DSE] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
-                )
-                break
-            suite.settings.flow['clock_period'] = next_period
-
-        self.logger.info(f'[DSE] best_period = {best_period}')
-        self.logger.info(f'[DSE] best_rundir = {best_rundir}')
-        print(f'---- Results with optimal frequency: ----')
-        suite.print_results(best_results)
-
-        self.logger.info(f'Run directories: {" ".join([str(os.path.relpath(d, Path.cwd())) for d in rundirs])}')
