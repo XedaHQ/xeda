@@ -10,10 +10,6 @@ class Ghdl(Flow):
 
 class GhdlSim(Ghdl, SimFlow):
 
-    def __init__(self, settings, args, logger):
-
-        super().__init__(settings, args, logger)
-
     def run(self):
         # TODO synthesis, lint
 
@@ -99,6 +95,4 @@ class GhdlSim(Ghdl, SimFlow):
                          force_echo=True
                          )
 
-    # TODO LWC_TB for now, TODO: generic python function/regexp?
-    def parse_reports(self):
-        self.simrun_match_regexp(r'PASS\s*\(0\):\s*SIMULATION\s*FINISHED')
+            

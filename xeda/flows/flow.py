@@ -331,14 +331,17 @@ class Flow():
         self.dump_json(self.results, path)
         self.logger.info(f"Results written to {path}")
 
-
-class SimFlow(Flow):
-    def simrun_match_regexp(self, regexp):
-        success = False
+    def stdout_search_re(self, regexp):
         with open(self.run_dir / self.flow_stdout_log) as logf:
             if re.search(regexp, logf.read()):
-                success = True
-        self.results['success'] = success
+                return True
+        return False
+
+class SimFlow(Flow):
+    # TODO FIXME move to plugin
+    def parse_reports(self):
+        fail = self.stdout_search_re(r'FAIL\s*\(\d+\):\s*SIMULATION\s*FINISHED')
+        self.results['success'] = not fail
 
 
 class SynthFlow(Flow):

@@ -119,6 +119,3 @@ class VivadoSim(Vivado, SimFlow):
         script_path = self.copy_from_template(f'vivado_sim.tcl')
         return self.run_vivado(script_path)
 
-    # TODO FIXME LWC_TB for now
-    def parse_sim_reports(self):
-        self.simrun_match_regexp(r'PASS\s*\(0\):\s*SIMULATION\s*FINISHED')

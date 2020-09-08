@@ -18,8 +18,7 @@ set initialize_zeros      false
 
 
 set verbose [expr {$debug ? "-verbose 2" : ""}]
-set vhdl_std_opt [expr {$vhdl_std == "08" ?  "-2008": ""}];
-set vhdl_std_opt [expr {$vhdl_std == "93" ?  "-93_mode": ""}];
+set vhdl_std_opt [expr {$vhdl_std == "08" ? "-2008": $vhdl_std == "93" ?  "-93_mode": ""}];
 set xelab_vhdl_std_opt [expr {$vhdl_std == "93" ?  "-93_mode": ""}];
 set saif_file "${results_dir}/xsim_${tb_top}_dump.saif"
 set vcd_file "${results_dir}/xsim_${tb_top}_dump.vcd"
