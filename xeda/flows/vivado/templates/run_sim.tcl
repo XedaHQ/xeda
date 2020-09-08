@@ -1,6 +1,5 @@
 set design_name           {{design.name}}
 set vhdl_std              {{design.vhdl_std}}
-set debug                 {{debug}}
 set nthreads              {{nthreads}}
 set tb_generics_options   "{{flow.generics_options}}"
 set tb_top                {{design.tb_top}}
@@ -12,19 +11,25 @@ set results_dir           results
 set timing_sim            false
 set funcsim_use_vhdl      true
 set gen_saif              false
-set gen_vcd               false
+
 set uut_scope             /${tb_top}/{{design.tb_uut}}
 set initialize_zeros      false
 
 
-set verbose [expr {$debug ? "-verbose 2" : ""}]
+
+
 set vhdl_std_opt [expr {$vhdl_std == "08" ? "-2008": $vhdl_std == "93" ?  "-93_mode": ""}];
 set xelab_vhdl_std_opt [expr {$vhdl_std == "93" ?  "-93_mode": ""}];
 set saif_file "${results_dir}/xsim_${tb_top}_dump.saif"
 set vcd_file "${results_dir}/xsim_${tb_top}_dump.vcd"
 set wdb_file "${results_dir}/xsim_${tb_top}_dump"
-set wdb_option "-wdb ${wdb_file}"
-set xsim_verbose [expr {$debug ? "-verbose ${wdb_option}" : "" }]
+
+{% if flow.vcd %}
+set gen_vcd  true
+{% else %}
+set gen_vcd false
+set vcd_file {{flow.vcd}}
+{% endif %}
 
 #FIXME broken
 set xsim_lib_name work
@@ -37,22 +42,20 @@ set snapshot_name "${tb_top}"
 append xelab_flags " -incr -relax -s ${snapshot_name} ${tb_generics_options} "
 append xelab_flags " -mt ${nthreads} -log elaborate.log -L ${xsim_lib_name} "
 append xelab_flags " -L simprims_ver "
-if {$debug} {
+{% if debug %}
     append xelab_flags " -O0 "
-} else {
+{% else %}
     append xelab_flags " -O3 "
-}
+{% endif %}
 
-if {$debug || $gen_saif || $gen_vcd } {
+if { {{debug}} || $gen_saif || $gen_vcd } {
     append xelab_flags " -debug typical "
 }
-
-set experiment_0 false
 
 file delete -force xsim.dir
 
 
-set analyze_flags " -incr -relax -work ${xsim_lib_name} ${verbose}"
+set analyze_flags " -incr -relax -work ${xsim_lib_name} {%- if debug %} -verbose 2 {%- endif %}"
 
 set designs "${xsim_lib_name}.${tb_top}"
 
@@ -93,14 +96,13 @@ puts "\n===========================( Analyzing HDL Sources )====================
 
 
 puts "\n===========================( Elaborating design: ${tb_top} )==========================="
-eval exec xelab ${xelab_flags} ${xelab_vhdl_std_opt} ${designs}
-# eval exec xelab ${xelab_vhdl_std_opt} -relax -log elaborate.log ${tb_top} 
+eval exec xelab ${xelab_flags} ${xelab_vhdl_std_opt} ${designs} 
 
 # eval exec xelab -incr -debug typical -relax -mt 8 -maxdelay -L xil_defaultlib -L simprims_ver -L secureip -s ${snapshot_name} -transport_int_delays -pulse_r 0 -pulse_int_r 0 -pulse_e 0 -pulse_int_e 0 ${xsim_lib_name}.LWC_TB -generic "G_PERIOD=${clock_period}ns" ${xsim_lib_name}.glbl -log elaborate.log
 
 
 puts "\n===========================( Loading Simulation )==========================="
-eval xsim ${snapshot_name} ${xsim_verbose}
+eval xsim ${snapshot_name} {% if debug %} -verbose -wdb ${wdb_file} {% endif %}
 
 file delete ${saif_file}
 if {${gen_saif}} {

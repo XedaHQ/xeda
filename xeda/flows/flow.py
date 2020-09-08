@@ -3,6 +3,7 @@
 from datetime import datetime
 import json
 from logging import NullHandler
+from logging.handlers import QueueHandler
 import os
 import sys
 import re
@@ -23,19 +24,6 @@ from pathlib import Path
 from typing import Union, Dict, List
 import hashlib
 
-
-class DockLogger():
-    def info(self, *args):
-        pass
-
-    def warning(self, *args):
-        pass
-
-    def error(self, *args):
-        pass
-
-    def debug(self, *args):
-        pass
 
 
 class Flow():
@@ -90,23 +78,25 @@ class Flow():
 
         self.no_console = False
 
-    def set_parallel_run(self, nthreads_limit=None):
+    def set_parallel_run(self, queue, nthreads_limit=None):
         if nthreads_limit:
-            self.nthreads = min(self.nthreads, nthreads_limit)
+            self.nthreads = max(1, min(self.nthreads, nthreads_limit))
         self.no_console = True
-        self.logger.handlers = []
+        # while self.logger.hasHandlers():
+        #     self.logger.removeHandler(self.logger.handlers[0])
         logger = multiprocessing.get_logger()
-        logger.setLevel(logging.INFO)
-        formatter = logging.Formatter(
-            '[%(asctime)s| %(levelname)s| %(processName)s] %(message)s')
+
+        logger.setLevel(logging.DEBUG)
+        # formatter = logging.Formatter(
+        #     '[%(asctime)s| %(levelname)s| %(processName)s] %(message)s')
         # handler = logging.FileHandler(self.run_dir / f'{self.name}_logger.log')
+        # handler = NullHandler()
         # handler.setFormatter(formatter)
-        handler = NullHandler()
+        handler = QueueHandler(queue)
 
         # this bit will make sure you won't have
         # duplicated messages in the output
         # if not len(logger.handlers):
-        logger.handlers = []
         logger.addHandler(handler)
         self.logger = logger
 
@@ -381,6 +371,12 @@ class Flow():
 
 
 class SimFlow(Flow):
+    required_settings = {'vcd': str}
+    def __init__(self, settings, args, logger, **flow_defaults):
+        if not 'vcd' in flow_defaults:
+            flow_defaults['vcd'] = None
+        super().__init__(settings, args, logger, **flow_defaults)
+
     # TODO FIXME move to plugin
     def parse_reports(self):
         fail = self.stdout_search_re(r'FAIL\s*\(\d+\):\s*SIMULATION\s*FINISHED')

@@ -157,6 +157,10 @@ class LwcVariantsRunner(DefaultFlowRunner):
 
         flows_to_run = []
 
+        nproc = max(1, multiprocessing.cpu_count() // 4)
+
+        queue = multiprocessing.Queue(-1)
+
         for variant_id, variant_data in variants.items():
             self.logger.info(f"LwcVariantsRunner: running variant {variant_id}")
             # path is relative to variants_json
@@ -168,13 +172,12 @@ class LwcVariantsRunner(DefaultFlowRunner):
                 args.quiet = True
 
             flow = self.setup_flow(settings, args, args.flow)
-            flow.set_parallel_run()
+            flow.set_parallel_run(queue, nthreads_limit=multiprocessing.cpu_count() // nproc)
 
             flows_to_run.append(flow)
         
 
         if self.parallel_run:
-            nproc = max(1, multiprocessing.cpu_count() // 4)
 
             with mp.Pool(processes=nproc) as p:
                 p.map(run_func, flows_to_run)
