@@ -29,6 +29,9 @@ JsonTree = Dict[str, JsonType]
 StrTreeType = Union[str, List['StrTreeType'], 'StrTree']
 StrTree = Dict[str, StrTreeType]
 
+class FlowFatalException(Exception):
+    """Fatal error"""
+    pass
 
 class Flow():
     """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
@@ -194,7 +197,7 @@ class Flow():
 
     def fatal(self, msg):
         self.logger.critical(msg)
-        sys.exit(1)
+        raise FlowFatalException(msg)
 
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):
         if not stdout_logfile:
@@ -337,7 +340,7 @@ class Flow():
                     matched = match_pattern(pat)
 
                 if not matched:
-                    sys.exit(f"Error parsing report file: {rpt_file.name}\n Pattern not matched: {pat}\n")
+                    self.fatal(f"Error parsing report file: {rpt_file.name}\n Pattern not matched: {pat}\n")
 
     def print_results(self, results=None):
         if not results:

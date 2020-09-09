@@ -71,7 +71,7 @@ class XedaApp:
         if runner_cls:
             runner = runner_cls(self.args)
         else:
-            sys.exit(f"Ruuner for {args.command} is not implemented")
+            sys.exit(f"Runner for {args.command} is not implemented")
 
         runner.launch()
 

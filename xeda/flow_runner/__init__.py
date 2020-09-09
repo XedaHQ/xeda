@@ -24,8 +24,8 @@ class FlowRunner():
 
     def __init__(self, args) -> None:
         self.args = args
-        #TODO
-        self.parallel_run = True
+        self.parallel_run = args.parallel_run
+        logger.info(f"parallel_run={self.parallel_run}")
 
     
     def get_default_settings(self):
@@ -186,6 +186,12 @@ class LwcVariantsRunner(DefaultFlowRunner):
             default='variants.json',
             help='Path to LWC variants JSON file.'
         )
+        # TODO optionally get nproc from user
+        plug_parser.add_argument(
+            '--parallel-run',
+            action='store_true',
+            help='Use multiprocessing to run in parallel'
+        )
 
     def launch(self):
         args = self.args
@@ -193,7 +199,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
         total = 0
         num_success = 0
 
-        variants_json = args.variants_json
+        variants_json = Path(args.variants_json).resolve()
         variants_json_dir = os.path.dirname(variants_json)
 
         with open(variants_json) as vjf:
@@ -217,7 +223,9 @@ class LwcVariantsRunner(DefaultFlowRunner):
                 args.quiet = True
 
             flow = self.setup_flow(settings, args, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
-            flow.set_parallel_run(logger_queue)
+            
+            if self.parallel_run:
+                flow.set_parallel_run(logger_queue)
 
             flows_to_run.append(flow)
         

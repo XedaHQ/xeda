@@ -28,9 +28,8 @@ class DiamondSynth(Diamond, SynthFlow):
         impl_name = self.settings.flow['impl_name']
 
         period_pat = r'''^\s*Preference:\s+PERIOD\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_period>\d+\.\d+)\s+ns.*HIGH\s+\d+\.\d+\s+ns\s*;\s*
-\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors'''
-        freq_pat = r'''^\s*Preference:\s+FREQUENCY\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_frequency>\d+\.\d+)\s+MHz\s*;\s*
-\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors'''
+\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors?'''
+        freq_pat = r'^\s*Preference:\s+FREQUENCY\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_frequency>\d+\.\d+)\s+MHz\s*;\s*\n\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors?'
         self.parse_report(reports_dir / f'{design_name}_{impl_name}.twr', [period_pat, freq_pat])
 
         if 'clock_frequency' in self.results:
@@ -69,10 +68,9 @@ class DiamondSynth(Diamond, SynthFlow):
 \s+MULT9X9D\s+(?P<_dsp_MULT9X9D>\d+)\s*.*'''
 
         self.parse_report(reports_dir / f'{design_name}_{impl_name}.mrp', slice_pattern, dsp_pattern)
-        
+
         # FIXME add other types of available ALUs and DSPs
         self.results['dsp'] = self.results['_dsp_MULT18X18D'] + self.results['_dsp_MULT9X9D']
-
 
         failed = False
 
@@ -84,6 +82,7 @@ class DiamondSynth(Diamond, SynthFlow):
                 failed = True
 
         failed = failed or (self.results['wns'] < 0) or (self.results['whs'] < 0) or (
-            self.results['_num_unrouted'] != 0) or (self.results['_status'].lower() != 'completed') or (self.results['_timing_errors'] != 0)
+            self.results['_num_unrouted'] != 0) or (self.results['_status'].lower() != 'completed') or (
+                self.results['_timing_errors'] != 0)
 
         self.results['success'] = not failed
