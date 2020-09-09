@@ -18,16 +18,15 @@ xeda_run_dir.mkdir(exist_ok=True, parents=True)
 
 logger = logging.getLogger()
 
-logger.setLevel(logging.DEBUG) #?
+logger.setLevel(logging.INFO)
 
 timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
 
 logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
-rootLogger = logging.getLogger()
 
 fileHandler = logging.FileHandler(xeda_run_dir / f"xeda_{timestamp}.log")
 fileHandler.setFormatter(logFormatter)
-rootLogger.addHandler(fileHandler)
+logger.addHandler(fileHandler)
 
 
 coloredlogs.install('INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
@@ -58,10 +57,9 @@ class XedaApp:
 
     def main(self):
         args = self.args = self.parse_args()
-
-
         
-
+        if args.debug:
+            logger.setLevel(logging.DEBUG)
 
         # FIXME this should be dynamically setup during runner registeration
         registered_runner_cmds = {

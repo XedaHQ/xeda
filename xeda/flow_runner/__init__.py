@@ -12,8 +12,7 @@ from ..flows.settings import Settings
 from ..flows.flow import DesignSource, Flow
 from ..utils import load_class, dict_merge
 
-logger = logging.getLogger('flow_runner')
-coloredlogs.install(level='DEBUG', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
+logger = logging.getLogger()
 
 def run_func(f: Flow):
     f.run()
@@ -257,10 +256,15 @@ class LwcFmaxRunner(FlowRunner):
         )
 
     def launch(self):
+        small_improvement_threshold = 0.1
+        # max successful runs after first success where improvements is < small_improvement
+        max_small_improvements = 20
         wns_threshold = 0.002
         improvement_threshold = 0.002
         error_margin = 0.001
+        ####
         failed_runs = 0
+        num_small_improvements = 0
         best_period = None
         best_results = None
         best_rundir = None
@@ -313,6 +317,18 @@ class LwcFmaxRunner(FlowRunner):
                     best_rundir = flow.run_dir
                     # deep copy
                     best_results = {**flow.results}
+                    if best_period:
+                        improvement = best_period - period
+                        if improvement < small_improvement_threshold:
+                            num_small_improvements += 1
+                            if num_small_improvements > max_small_improvements:
+                                logger.warning(
+                                    f'[DSE] Number of improvements less than {small_improvement_threshold} reached {max_small_improvements}')
+
+                                break
+                        else:
+                            # reset to 0?
+                            num_small_improvements = max(0, num_small_improvements - 2)
             else:
                 if best_period:
                     failed_runs += 1

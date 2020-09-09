@@ -54,7 +54,7 @@ class DiamondSynth(Diamond, SynthFlow):
         # NOTE therefore only match lines
         #   1. Total number of LUT4s = (Number of logic LUT4s) + 2*(Number of distributed RAMs) + 2*(Number of ripple logic)
         #   2. Number of logic LUT4s does not include count of distributed RAM and ripple logic.
-        mrp_pattern_0 = r'''\s*Number\s+of\s+registers:\s*(?P<ff>\d+)\s+out\s+of\s*(?P<_ff_avail>\d+).*
+        slice_pattern = r'''\s*Number\s+of\s+registers:\s*(?P<ff>\d+)\s+out\s+of\s*(?P<_ff_avail>\d+).*
 \s*Number\s+of\s+SLICEs:\s*(?P<_slice_map>\d+)\s*out\s+of\s*(?P<_slice_avail>\d+).*
 \s+SLICEs\s+as\s+RAM:\s*(?P<_slice_ram>\d+)\s*out\s+of\s*(?P<_slice_ram_avail>\d+).*
 \s+SLICEs\s+as\s+Carry:\s*(?P<_slice_carry>\d+)\s+out\s+of\s+(?P<_slice_carry_avail>\d+).*
@@ -65,13 +65,14 @@ class DiamondSynth(Diamond, SynthFlow):
 \s+Number\s+used\s+as\s+shift\s+registers:\s*(?P<_lut_shift>\d+)\s*.*
 \s*Number\s+of\s+block\s+RAMs:\s*(?P<bram>\d+)\s+out\s+of\s+(?P<_bram_avail>\d+).*'''
 
-        mrp_pattern_1 = r'''\s+MULT18X18D\s+(?P<_dsp_MULT18X18D>\d+)\s*.*
+        dsp_pattern = r'''\s+MULT18X18D\s+(?P<_dsp_MULT18X18D>\d+)\s*.*
 \s+MULT9X9D\s+(?P<_dsp_MULT9X9D>\d+)\s*.*'''
 
+        self.parse_report(reports_dir / f'{design_name}_{impl_name}.mrp', slice_pattern, dsp_pattern)
+        
         # FIXME add other types of available ALUs and DSPs
         self.results['dsp'] = self.results['_dsp_MULT18X18D'] + self.results['_dsp_MULT9X9D']
 
-        self.parse_report(reports_dir / f'{design_name}_{impl_name}.mrp', mrp_pattern_0, mrp_pattern_1)
 
         failed = False
 
