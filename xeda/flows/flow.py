@@ -24,36 +24,28 @@ from pathlib import Path
 from typing import Union, Dict, List
 import hashlib
 
+JsonType = Union[str, int, float, bool, List['JsonType'], 'JsonTree']
+JsonTree = Dict[str, JsonType]
+StrTreeType = Union[str, List['StrTreeType'], 'StrTree']
+StrTree = Dict[str, StrTreeType]
 
 
 class Flow():
-    """ A flow may run one or more tools and is associated with a single set of settings and a single design, after completion contains data """
+    """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
     required_settings = {}
+    default_settings = {}
     reports_subdir_name = 'reports'
 
-    def __init__(self, settings, args, logger, **flow_defaults):
-        settings = copy.deepcopy(settings)
-        self.args = args
-        self.nthreads = max(1, multiprocessing.cpu_count() // 2)
+    def __init__(self, settings: Settings, args, logger):
+        #FIXME Python logger
         self.logger = logger
-        # base flow defaults
-        self.settings = Settings()
-        # default for optional design settings
-        self.settings.design['generics'] = {}
-        self.settings.design['tb_generics'] = {}
-        # specific flow defaults
-        self.settings.flow.update(**flow_defaults)
+        
+        self.args = args
+        self.settings = settings
 
-        self.settings.design.update(settings['design'])
-        # override entire section if available in settings
-        if self.name in settings['flows']:
-            self.settings.flow.update(settings['flows'][self.name])
-            self.logger.info(f"Using {self.name} settings")
-        else:
-            self.logger.warning(f"No settings found for {self.name}")
-
-        # TODO FIXME improve path change logic
-        self.source_paths_fixed = False
+        # all design flow-critical settings are fixed from this point onwards
+        self.set_run_dir(all_runs_dir=self.args.all_runs_dir,
+                                        prefix=None, override=self.args.force_run_dir)
 
         self.results = dict()
         self.jinja_env = Environment(
@@ -62,26 +54,46 @@ class Flow():
             undefined=StrictUndefined
         )
 
+        self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         self.reports_dir = None
-        self.timestamp = None
+
+        self.flow_stdout_log = f'{self.name}_stdout.log'
+
+        self.no_console = False
+
+
+    def set_hash(self):
+        skip_fields = {'author', 'url', 'comment', 'description', 'license'}
+
+        def semantic_hash(data: JsonTree, hash_files=True, hasher=hashlib.sha1) -> str:
+            def get_digest(b: bytes):
+                return hasher(b).hexdigest()[:32]
+
+            def file_digest(filename: str):
+                try:
+                    with open(filename, 'rb') as f:
+                        return get_digest(f.read())
+                except FileNotFoundError as e:
+                    raise e  # TODO add logging here?
+
+            def sorted_dict_str(data: JsonType) -> StrTreeType:
+                if type(data) == dict:
+                    return {k: sorted_dict_str(file_digest(data[k]) if hash_files and (k == 'file') else data[k]) for k in sorted(data.keys()) if not k in skip_fields}
+                elif type(data) == list:
+                    return [sorted_dict_str(val) for val in data]
+                elif hasattr(data, '__dict__'):
+                    return sorted_dict_str(data.__dict__)
+                else:
+                    return str(data)
+
+            return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
 
         try:
             self.run_hash = semantic_hash(self.settings)
         except FileNotFoundError as e:
             self.fatal(f"Semantic hash failed: {e} ")
 
-        self.run_dir = self.get_run_dir(all_runs_dir=self.args.all_runs_dir,
-                                        prefix=None, override=self.args.force_run_dir)
-
-        self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-
-        self.flow_stdout_log = f'{self.name}_stdout.log'
-
-        self.no_console = False
-
-    def set_parallel_run(self, queue, nthreads_limit=None):
-        if nthreads_limit:
-            self.nthreads = max(1, min(self.nthreads, nthreads_limit))
+    def set_parallel_run(self, queue):
         self.no_console = True
         # while self.logger.hasHandlers():
         #     self.logger.removeHandler(self.logger.handlers[0])
@@ -121,9 +133,12 @@ class Flow():
         else:
             self.logger.warn(f"{self.name} does not specify any required_settings for {flow}")
 
-    def get_run_dir(self, all_runs_dir=None, prefix=None, override=None):
+    def set_run_dir(self, all_runs_dir=None, prefix=None, override=None):
+        # all design flow-critical settings are fixed from this point onwards
+        self.set_hash()
+
         if not all_runs_dir:
-            all_runs_dir = Path.cwd() / f'{self.name}_run'
+            all_runs_dir = Path.cwd() / 'xeda_run' / self.name
 
         if override:
             run_dir = Path(override).resolve()
@@ -142,7 +157,7 @@ class Flow():
 
         assert run_dir.is_dir()
 
-        return run_dir
+        self.run_dir = run_dir
 
     def run(self):
         # Must be implemented
@@ -165,7 +180,7 @@ class Flow():
         self.logger.debug(f'generating {script_path.resolve()} from template.')
         rendered_content = template.render(flow=self.settings.flow,
                                            design=self.settings.design,
-                                           nthreads=self.nthreads,
+                                           nthreads=self.settings.nthreads,
                                            debug=self.args.debug,
                                            reports_dir=self.reports_subdir_name,
                                            **attr)
@@ -373,10 +388,6 @@ class Flow():
 
 class SimFlow(Flow):
     required_settings = {'vcd': str}
-    def __init__(self, settings, args, logger, **flow_defaults):
-        if not 'vcd' in flow_defaults:
-            flow_defaults['vcd'] = None
-        super().__init__(settings, args, logger, **flow_defaults)
 
     # TODO FIXME move to plugin
     def parse_reports(self):
@@ -386,44 +397,14 @@ class SimFlow(Flow):
 
 class SynthFlow(Flow):
     required_settings = {'clock_period': float}
+
+    # TODO FIXME set in plugin or elsewhere!!!
+    default_settings = {'use_dsp': False, 'use_bram': False}
     pass
 
 
 class DseFlow(Flow):
     pass
-
-
-JsonType = Union[str, int, float, bool, List['JsonType'], 'JsonTree']
-JsonTree = Dict[str, JsonType]
-StrTreeType = Union[str, List['StrTreeType'], 'StrTree']
-StrTree = Dict[str, StrTreeType]
-
-
-fake_fields = {'author', 'url', 'comment', 'description', 'license'}
-
-
-def semantic_hash(data: JsonTree, hash_files=True, hasher=hashlib.sha1) -> str:
-    def get_digest(b: bytes):
-        return hasher(b).hexdigest()[:32]
-
-    def file_digest(filename: str):
-        try:
-            with open(filename, 'rb') as f:
-                return get_digest(f.read())
-        except FileNotFoundError as e:
-            raise e  # TODO add logging here?
-
-    def sorted_dict_str(data: JsonType) -> StrTreeType:
-        if type(data) == dict:
-            return {k: sorted_dict_str(file_digest(data[k]) if hash_files and (k == 'file') else data[k]) for k in sorted(data.keys()) if not k in fake_fields}
-        elif type(data) == list:
-            return [sorted_dict_str(val) for val in data]
-        elif hasattr(data, '__dict__'):
-            return sorted_dict_str(data.__dict__)
-        else:
-            return str(data)
-
-    return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
 
 
 class DesignSource:

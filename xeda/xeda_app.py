@@ -1,15 +1,36 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
+from datetime import datetime
+from genericpath import exists
+from pathlib import Path
 import sys
 import argparse
 from xeda.flow_runner import DefaultFlowRunner, LwcFmaxRunner, LwcVariantsRunner
-
-from .utils import load_class
 
 import coloredlogs
 import logging
 
 import pkg_resources
+
+xeda_run_dir = Path('xeda_run')
+
+xeda_run_dir.mkdir(exist_ok=True, parents=True)
+
+logger = logging.getLogger()
+
+logger.setLevel(logging.DEBUG) #?
+
+timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
+
+logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+rootLogger = logging.getLogger()
+
+fileHandler = logging.FileHandler(xeda_run_dir / f"xeda_{timestamp}.log")
+fileHandler.setFormatter(logFormatter)
+rootLogger.addHandler(fileHandler)
+
+
+coloredlogs.install('INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
 
 
 try:
@@ -25,7 +46,7 @@ class XedaApp:
             prog=__package__,
             description=f'{__package__}: Simulate And Synthesize Hardware! Version {__version__}')
         self.args = None
-        self.logger = logging.getLogger(__package__)
+        self.logger = logger
 
     # TODO
     def check_settings(self):
@@ -38,8 +59,9 @@ class XedaApp:
     def main(self):
         args = self.args = self.parse_args()
 
-        coloredlogs.install(level='DEBUG' if args.debug else 'INFO',
-                            fmt='%(asctime)s %(levelname)s %(message)s', logger=self.logger)
+
+        
+
 
         # FIXME this should be dynamically setup during runner registeration
         registered_runner_cmds = {

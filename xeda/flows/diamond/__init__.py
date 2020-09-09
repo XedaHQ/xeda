@@ -2,20 +2,24 @@
 
 from ..flow import Flow, SynthFlow
 
+
 class Diamond(Flow):
     reports_subdir_name = 'diamond_impl'
-    def __init__(self, settings, args, logger):
-        super().__init__(settings, args, logger,
-                         impl_folder='diamond_impl',
-                         impl_name='Implementation0'
-                         )
 
 
 class DiamondSynth(Diamond, SynthFlow):
+    default_settings = {**SynthFlow.default_settings,
+                        'impl_folder': 'diamond_impl',
+                        'impl_name': 'Implementation0',
+                        'syn_cmdline_args': None}
+
     def run(self):
+        constraint_exts = ['ldc'] if self.settings.flow["synthesis_engine"] == "lse" else ['sdc', 'fdc']
+        constraints = [f'constraints.{ext}' for ext in constraint_exts]
+        for constraint in constraints:
+            self.copy_from_template(constraint)
         script_path = self.copy_from_template(f'synth.tcl')
         self.run_process('diamondc', [str(script_path)])
-
 
     def parse_reports(self):
         self.results = dict()
@@ -39,8 +43,8 @@ class DiamondSynth(Diamond, SynthFlow):
             frequency = 1000.0/period
             self.results['clock_frequency'] = frequency
 
-        slice_pat = r'^Device\s+utilization\s+summary:\s*.*^\s+SLICE\s+(?P<slice>\d+)\/(?P<slice_total>\d+).*^Number\s+of\s+Signals'
-        time_pat = r'''Level/\s+Number\s+Worst\s+Timing\s+Worst\s+Timing\s+Run\s+NCD\s*
+        slice_pat = r'^Device\s+utilization\s+summary:\s*.*^\s+SLICE\s+(?P<slice>\d+)\/(?P<_slice_avail>\d+).*^Number\s+of\s+Signals'
+        time_pat = r'''Level\s*/\s+Number\s+Worst\s+Timing\s+Worst\s+Timing\s+Run\s+NCD\s*
 \s*Cost\s+\[ncd\]\s+Unrouted\s+Slack\s+Score\s+Slack\(hold\)\s+Score\(hold\)\s+Time\s+Status\s*
 (\s*\-+){8}\s*
 \s*(?P<_lvl_cost>\S+)\s+(?P<_ncd>\S+)\s+(?P<_num_unrouted>\d+)\s+(?P<wns>\-?\d+\.\d+)\s+(?P<_setup_score>\d+)\s+(?P<whs>\-?\d+\.\d+)\s+(?P<_hold_score>\d+)\s+(?P<_runtime>\d+(?:\:\d+)*)\s+(?P<_status>\w+)\s*$'''
@@ -50,26 +54,29 @@ class DiamondSynth(Diamond, SynthFlow):
         # NOTE therefore only match lines
         #   1. Total number of LUT4s = (Number of logic LUT4s) + 2*(Number of distributed RAMs) + 2*(Number of ripple logic)
         #   2. Number of logic LUT4s does not include count of distributed RAM and ripple logic.
-        mrp_pattern_0 = r'''\s*Number\s+of\s+registers:\s*(?P<ff>\d+)\s+out\s+of\s*(?P<total_ff>\d+).*
-\s*Number\s+of\s+SLICEs:\s*(?P<slice_map>\d+)\s*out\s+of\s*(?P<slice_total>\d+).*
-\s+SLICEs\s+as\s+RAM:\s*(?P<slice_ram>\d+)\s*out\s+of\s*(?P<slice_ram_total>\d+).*
-\s+SLICEs\s+as\s+Carry:\s*(?P<slice_carry>\d+)\s+out\s+of\s+(?P<slice_carry_total>\d+).*
-\s*Number\s+of\s+LUT4s:\s*(?P<lut>\d+)\s+out of\s+(?P<lut_total>\d+).*
-\s+Number\s+used\s+as\s+logic\s+LUTs:\s*(?P<lut_logic>\d+)\s*
-\s+Number\s+used\s+as\s+distributed\s+RAM:\s*(?P<lut_dram>\d+)\s*
-\s+Number\s+used\s+as\s+ripple\s+logic:\s*(?P<lut_ripple>\d+)\s*
-\s+Number\s+used\s+as\s+shift\s+registers:\s*(?P<lut_shift>\d+)\s*.*
-\s*Number\s+of\s+block\s+RAMs:\s*(?P<bram>\d+)\s+out\s+of\s+(?P<bram_total>\d+).*'''
+        mrp_pattern_0 = r'''\s*Number\s+of\s+registers:\s*(?P<ff>\d+)\s+out\s+of\s*(?P<_ff_avail>\d+).*
+\s*Number\s+of\s+SLICEs:\s*(?P<_slice_map>\d+)\s*out\s+of\s*(?P<_slice_avail>\d+).*
+\s+SLICEs\s+as\s+RAM:\s*(?P<_slice_ram>\d+)\s*out\s+of\s*(?P<_slice_ram_avail>\d+).*
+\s+SLICEs\s+as\s+Carry:\s*(?P<_slice_carry>\d+)\s+out\s+of\s+(?P<_slice_carry_avail>\d+).*
+\s*Number\s+of\s+LUT4s:\s*(?P<lut>\d+)\s+out of\s+(?P<_lut_avail>\d+).*
+\s+Number\s+used\s+as\s+logic\s+LUTs:\s*(?P<_lut_logic>\d+)\s*
+\s+Number\s+used\s+as\s+distributed\s+RAM:\s*(?P<_lut_dram>\d+)\s*
+\s+Number\s+used\s+as\s+ripple\s+logic:\s*(?P<_lut_ripple>\d+)\s*
+\s+Number\s+used\s+as\s+shift\s+registers:\s*(?P<_lut_shift>\d+)\s*.*
+\s*Number\s+of\s+block\s+RAMs:\s*(?P<bram>\d+)\s+out\s+of\s+(?P<_bram_avail>\d+).*'''
 
-        mrp_pattern_1 = r'''\s+MULT18X18D\s+(?P<dsp_MULT18X18D>\d+)\s*.*
-\s+MULT9X9D\s+(?P<dsp_MULT9X9D>\d+)\s*.*'''
+        mrp_pattern_1 = r'''\s+MULT18X18D\s+(?P<_dsp_MULT18X18D>\d+)\s*.*
+\s+MULT9X9D\s+(?P<_dsp_MULT9X9D>\d+)\s*.*'''
+
+        # FIXME add other types of available ALUs and DSPs
+        self.results['dsp'] = self.results['_dsp_MULT18X18D'] + self.results['_dsp_MULT9X9D']
 
         self.parse_report(reports_dir / f'{design_name}_{impl_name}.mrp', mrp_pattern_0, mrp_pattern_1)
 
         failed = False
 
         # TODO FIXME move to LwcSynth
-        forbidden_resources = ['dsp_MULT18X18D', 'dsp_MULT9X9D', 'bram']
+        forbidden_resources = ['dsp', 'bram']
         for res in forbidden_resources:
             if (res in self.results and self.results[res] != 0):
                 self.logger.critical(f'Map report shows {self.results[res]} use(s) of forbidden resource {res}.')

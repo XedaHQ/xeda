@@ -1,13 +1,14 @@
+import copy
 import multiprocessing
 import os
 import logging
 import pkg_resources
 from pathlib import Path
 import json
-import sys
 import multiprocessing as mp
 import coloredlogs
 
+from ..flows.settings import Settings
 from ..flows.flow import DesignSource, Flow
 from ..utils import load_class, dict_merge
 
@@ -33,23 +34,24 @@ class FlowRunner():
         try:
             return json.loads(defaults_data)
         except json.decoder.JSONDecodeError as e:
-            logger.critical(f"Failed to parse defaults settings file (defaults.json): {' '.join(e.args)}")
-            sys.exit(1)
+            self.fatal(f"Failed to parse defaults settings file (defaults.json): {' '.join(e.args)}")
+
+    def fatal(self, msg):
+        raise Exception(msg)
 
     def get_design_settings(self, json_path):
 
         settings = self.get_default_settings()
 
-        logger.info(f"Using design settings from {json_path}")
-
         try:
             with open(json_path) as f:
                 design_settings = json.load(f)
                 settings = dict_merge(settings, design_settings)
+                logger.info(f"Using design settings from {json_path}")
         except FileNotFoundError as e:
-            sys.exit(f'Cannot open design settings: {json_path}\n {e}')
+            self.fatal(f'Cannot open design settings: {json_path}\n {e}')
         except IsADirectoryError as e:
-            sys.exit(f'The specified design json is not a regular file.\n {e}')
+            self.fatal(f'The specified design json is not a regular file.\n {e}')
 
         return settings
 
@@ -82,12 +84,38 @@ class FlowRunner():
             hook(flow.run_dir, flow.settings, flow.results)
 
 
-    def setup_flow(self, settings, args, flow_name):
+    def setup_flow(self, settings, args, flow_name, max_threads=None):
+        if not max_threads:
+            max_threads = multiprocessing.cpu_count()
+        # settings is a ref to dict and it's data can change, take a snapshot
+        settings = copy.deepcopy(settings)
+
         try:
             flow_cls = load_class(flow_name, ".flows")
         except AttributeError as e:
-            sys.exit(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.")
-        flow: Flow = flow_cls(settings, args, logger)
+            self.fatal(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.")
+        
+        flow_settings = Settings()
+        # default for optional design settings
+        flow_settings.design['generics'] = {}
+        flow_settings.design['tb_generics'] = {}
+
+        # specific flow defaults
+        flow_settings.flow.update(**flow_cls.default_settings)
+
+        # override sections
+        flow_settings.design.update(settings['design'])
+
+        # override entire section if available in settings
+        if flow_name in settings['flows']:
+            flow_settings.flow.update(settings['flows'][flow_name])
+            logger.info(f"Using {flow_name} settings")
+        else:
+            logger.warning(f"No settings found for {flow_name}")
+
+        flow_settings.nthreads = max(1, max_threads)
+
+        flow: Flow = flow_cls(flow_settings, args, logger)
 
         # for pcls in plugin_clss:
         #     assert issubclass(pcls, Plugin)
@@ -111,7 +139,7 @@ class FlowRunner():
         #     flow.settings = active_settings
 
         if not isinstance(flow.settings.design['sources'], list):
-            sys.exit('`sources` section of the settings needs to be a list')
+            self.fatal('`sources` section of the settings needs to be a list')
 
         for i, src in enumerate(flow.settings.design['sources']):
             if isinstance(src, str):
@@ -126,7 +154,7 @@ class FlowRunner():
                     p = gen_val["file"]
                     assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
                     gen_val = flow.conv_to_relative_path(p.strip())
-                    # flow.logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
+                    logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
                     flow.settings.design[gen_type][gen_key] = gen_val
 
         # flow.check_settings()
@@ -177,7 +205,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
         nproc = max(1, multiprocessing.cpu_count() // 4)
 
         # TODO read logs from queue?
-        queue = multiprocessing.Queue(-1)
+        logger_queue = multiprocessing.Queue(-1)
 
         for variant_id, variant_data in variants.items():
             logger.info(f"LwcVariantsRunner: running variant {variant_id}")
@@ -189,8 +217,8 @@ class LwcVariantsRunner(DefaultFlowRunner):
             if self.parallel_run:
                 args.quiet = True
 
-            flow = self.setup_flow(settings, args, args.flow)
-            flow.set_parallel_run(queue, nthreads_limit=multiprocessing.cpu_count() // nproc)
+            flow = self.setup_flow(settings, args, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
+            flow.set_parallel_run(logger_queue)
 
             flows_to_run.append(flow)
         
@@ -231,6 +259,7 @@ class LwcFmaxRunner(FlowRunner):
     def launch(self):
         wns_threshold = 0.002
         improvement_threshold = 0.002
+        error_margin = 0.001
         failed_runs = 0
         best_period = None
         best_results = None
@@ -245,13 +274,19 @@ class LwcFmaxRunner(FlowRunner):
 
         next_period = None
 
+        flow_name = args.flow
+
+
         while True:
-            flow = self.setup_flow(settings, args, args.flow)
-            
-            
+
             if next_period:
                 assert next_period > 0.001
-                flow.settings.flow['clock_period'] = next_period
+                if best_period:
+                    assert next_period < best_period
+                settings['flows'][flow_name]['clock_period'] = next_period
+
+            flow = self.setup_flow(settings, args, flow_name)
+            
             set_period = flow.settings.flow['clock_period']
             logger.info(f'[DSE] Trying clock_period = {set_period:0.3f}ns')
             # fresh directory for each run
@@ -263,7 +298,7 @@ class LwcFmaxRunner(FlowRunner):
             success = flow.results['success'] and wns >= 0
             period = flow.results['clock_period']
 
-            next_period = set_period - wns - improvement_threshold/4
+            next_period = set_period - wns - error_margin
 
             if success:
                 failed_runs = 0
@@ -276,11 +311,12 @@ class LwcFmaxRunner(FlowRunner):
                 if not best_period or period < best_period:
                     best_period = period
                     best_rundir = flow.run_dir
+                    # deep copy
                     best_results = {**flow.results}
             else:
                 if best_period:
                     failed_runs += 1
-                    next_period = (best_period + set_period) / 2 - improvement_threshold/2
+                    next_period = (best_period + set_period) / 2 - improvement_threshold
 
                     max_failed = self.args.max_failed_runs
                     if failed_runs >= max_failed:

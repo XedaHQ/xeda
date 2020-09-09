@@ -29,12 +29,6 @@ def vivado_generics(kvdict, sim):
 class Vivado(Flow):
     reports_subdir_name = 'reports'
 
-    def __init__(self, settings, args, logger):
-        super().__init__(settings, args, logger,
-                         fail_critical_warning=False,
-                         fail_timing=False
-                         )
-
     def run_vivado(self, script_path):        
         debug = self.args.debug
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug else 'batch', '-source', str(script_path)]
@@ -45,6 +39,8 @@ class Vivado(Flow):
 
 
 class VivadoSynth(Vivado, SynthFlow):
+    default_settings = {**SynthFlow.default_settings, 'fail_critical_warning': False, 'fail_timing': False}
+
     def run(self):
         self.settings.flow['generics_options'] = vivado_generics(self.settings.design["generics"], sim=False)
         clock_xdc_path = self.copy_from_template(f'clock.xdc')

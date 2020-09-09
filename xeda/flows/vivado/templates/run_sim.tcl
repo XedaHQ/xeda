@@ -21,14 +21,13 @@ set initialize_zeros      false
 set vhdl_std_opt [expr {$vhdl_std == "08" ? "-2008": $vhdl_std == "93" ?  "-93_mode": ""}];
 set xelab_vhdl_std_opt [expr {$vhdl_std == "93" ?  "-93_mode": ""}];
 set saif_file "${results_dir}/xsim_${tb_top}_dump.saif"
-set vcd_file "${results_dir}/xsim_${tb_top}_dump.vcd"
 set wdb_file "${results_dir}/xsim_${tb_top}_dump"
 
-{% if flow.vcd %}
+{% if 'vcd' in flow and flow.vcd %}
 set gen_vcd  true
+set vcd_file {{flow.vcd}}
 {% else %}
 set gen_vcd false
-set vcd_file {{flow.vcd}}
 {% endif %}
 
 #FIXME broken

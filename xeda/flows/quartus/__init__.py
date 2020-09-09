@@ -69,7 +69,6 @@ class Quartus(Flow):
                 "PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION": "ON",
                 "PHYSICAL_SYNTHESIS_REGISTER_RETIMING": "ON",
                 "PHYSICAL_SYNTHESIS_EFFORT": "EXTRA",
-                "AUTO_DSP_RECOGNITION": "OFF",
 
                 #NORMAL, OFF, EXTRA_EFFORT
                 # "OPTIMIZE_POWER_DURING_SYNTHESIS": "NORMAL",
@@ -77,6 +76,16 @@ class Quartus(Flow):
                 # Used during placement. Use of a higher value increases compilation time, but may increase the quality of placement.
                 "INNER_NUM": 8,
             }
+
+            # SYNTH_CRITICAL_CLOCK: ON, OFF : Speed Optimization Technique for Clock Domains
+
+        if not self.settings.flow['use_dsp']:
+            project_settings["AUTO_DSP_RECOGNITION"] = "OFF"
+
+        ## ???? TODO don't think this is right, maybe apply ramstyle on all hierarchy using TCL?
+        if not self.settings.flow['use_bram']:
+            project_settings["AUTO_RAM_RECOGNITION"] = "OFF"
+            project_settings["AUTO_ROM_RECOGNITION"] = "OFF"
 
         clock_sdc_path = self.copy_from_template(f'clock.sdc')
         script_path = self.copy_from_template(
@@ -91,8 +100,6 @@ class Quartus(Flow):
         #                   "Extra Effort Space", '-optimization-goal', "Optimize for Speed", '-report-all-resource-usage', '-ignore-failed-base'],
         #                  stdout_logfile='dse_stdout.log'
         #                  )
-
-
 
     # def __init__(self, settings, args, logger):
     #     # def supported_quartus_generic(k, v, sim):
@@ -142,7 +149,7 @@ class QuartusSynth(Quartus, SynthFlow):
         failed = False
 
         resources = parse_csv(
-            self.reports_dir / 'Fitter.Resource_Section.Fitter_Resource_Utilization_by_Entity.csv',
+            self.reports_dir / 'Fitter' / 'Resource_Section' / 'Fitter_Resource_Utilization_by_Entity.csv',
             id_field='Compilation Hierarchy Node',
             field_parser=lambda s: int(s.split()[0]),
             id_parser=lambda s: s.strip()[1:],
@@ -159,7 +166,7 @@ class QuartusSynth(Quartus, SynthFlow):
 
         # TODO is this the most reliable timing report?
         slacks = parse_csv(
-            self.reports_dir / 'Timing_Analyzer.Multicorner_Timing_Analysis_Summary.csv',
+            self.reports_dir / 'Timing_Analyzer' / 'Multicorner_Timing_Analysis_Summary.csv',
             id_field='Clock',
             field_parser=lambda s: float(s.strip()),
             id_parser=lambda s: s.strip(),
@@ -175,8 +182,7 @@ class QuartusSynth(Quartus, SynthFlow):
 
         for temp in ['85C', '0C']:
             fmax = parse_csv(
-                self.reports_dir /
-                f'Timing_Analyzer.Slow_1200mV_{temp}_Model.Slow_1200mV_{temp}_Model_Fmax_Summary.csv',
+                self.reports_dir / 'Timing_Analyzer' / f'Slow_1200mV_{temp}_Model' / f'Slow_1200mV_{temp}_Model_Fmax_Summary.csv',
                 id_field='Clock Name',
                 field_parser=lambda s: s.strip().split(),
                 id_parser=lambda s: s.strip(),
@@ -185,6 +191,7 @@ class QuartusSynth(Quartus, SynthFlow):
             self.results[f'fmax_{temp}'] = fmax['clock']['Fmax']
 
         self.results['success'] = not failed
+
 
 class QuartusDse(QuartusSynth, DseFlow):
     def run(self):
@@ -204,18 +211,17 @@ class QuartusDse(QuartusSynth, DseFlow):
             dse['nproc'] = self.nthreads
 
         script_path = self.copy_from_template(f'settings.dse',
-                                                dse=dse
-                                                )
+                                              dse=dse
+                                              )
         self.run_process('quartus_dse',
-                            ['--use-dse-file', script_path, self.settings.design['name']],
-                            stdout_logfile='dse_stdout.log',
-                            initial_step="Running Quartus DSE",
-                             )
+                         ['--use-dse-file', script_path, self.settings.design['name']],
+                         stdout_logfile='dse_stdout.log',
+                         initial_step="Running Quartus DSE",
+                         )
 
     def parse_reports(self):
         'quartus_dse_report.json'
         pass
-
 
 
 # DES:
