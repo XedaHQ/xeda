@@ -43,14 +43,14 @@ class DiamondSynth(Diamond, SynthFlow):
         time_pat = r'''Level/\s+Number\s+Worst\s+Timing\s+Worst\s+Timing\s+Run\s+NCD\s*
 \s*Cost\s+\[ncd\]\s+Unrouted\s+Slack\s+Score\s+Slack\(hold\)\s+Score\(hold\)\s+Time\s+Status\s*
 (\s*\-+){8}\s*
-\s*(?P<_lvl_cost>\S+)\s+(?P<_ncd>\S+)\s+(?P<_num_unrouted>\d+)\s+(?P<wns>\-?\d+\.\d+)\s+(?P<_setup_score>\d+)\s+(?P<whs>\-?\d+\.\d+)\s+(?P<_hold_score>\d+)\s+(?P<_runtime>\d+(?:\:\d*)?)\s+(?P<_status>\w+)\s*$'''
+\s*(?P<_lvl_cost>\S+)\s+(?P<_ncd>\S+)\s+(?P<_num_unrouted>\d+)\s+(?P<wns>\-?\d+\.\d+)\s+(?P<_setup_score>\d+)\s+(?P<whs>\-?\d+\.\d+)\s+(?P<_hold_score>\d+)\s+(?P<_runtime>\d+(?:\:\d+)*)\s+(?P<_status>\w+)\s*$'''
         self.parse_report(reports_dir / f'{design_name}_{impl_name}.par', slice_pat, time_pat)
 
         # NOTE there can be "page breaks" anywhere in the mrp file (others? TODO)
         # NOTE therefore only match lines
         #   1. Total number of LUT4s = (Number of logic LUT4s) + 2*(Number of distributed RAMs) + 2*(Number of ripple logic)
         #   2. Number of logic LUT4s does not include count of distributed RAM and ripple logic.
-        mrp_pattern = r'''Design Summary\s*\-+\s*Number\s+of\s+registers:\s*(?P<ff>\d+)\s+out\s+of\s*(?P<total_ff>\d+).*
+        mrp_pattern_0 = r'''\s*Number\s+of\s+registers:\s*(?P<ff>\d+)\s+out\s+of\s*(?P<total_ff>\d+).*
 \s*Number\s+of\s+SLICEs:\s*(?P<slice_map>\d+)\s*out\s+of\s*(?P<slice_total>\d+).*
 \s+SLICEs\s+as\s+RAM:\s*(?P<slice_ram>\d+)\s*out\s+of\s*(?P<slice_ram_total>\d+).*
 \s+SLICEs\s+as\s+Carry:\s*(?P<slice_carry>\d+)\s+out\s+of\s+(?P<slice_carry_total>\d+).*
@@ -59,12 +59,12 @@ class DiamondSynth(Diamond, SynthFlow):
 \s+Number\s+used\s+as\s+distributed\s+RAM:\s*(?P<lut_dram>\d+)\s*
 \s+Number\s+used\s+as\s+ripple\s+logic:\s*(?P<lut_ripple>\d+)\s*
 \s+Number\s+used\s+as\s+shift\s+registers:\s*(?P<lut_shift>\d+)\s*.*
-\s*Number\s+of\s+block\s+RAMs:\s*(?P<bram>\d+)\s+out\s+of\s+(?P<bram_total>\d+).*
-\s*Number\s+Of\s+Mapped\s+DSP\s+Components:\s*\-+\s*.*
-\s+MULT18X18D\s+(?P<dsp_MULT18X18D>\d+)\s*.*
+\s*Number\s+of\s+block\s+RAMs:\s*(?P<bram>\d+)\s+out\s+of\s+(?P<bram_total>\d+).*'''
+
+        mrp_pattern_1 = r'''\s+MULT18X18D\s+(?P<dsp_MULT18X18D>\d+)\s*.*
 \s+MULT9X9D\s+(?P<dsp_MULT9X9D>\d+)\s*.*'''
 
-        self.parse_report(reports_dir / f'{design_name}_{impl_name}.mrp', mrp_pattern)
+        self.parse_report(reports_dir / f'{design_name}_{impl_name}.mrp', mrp_pattern_0, mrp_pattern_1)
 
         failed = False
 
