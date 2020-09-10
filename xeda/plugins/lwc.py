@@ -164,7 +164,7 @@ class LwcCheckTimingHook():
                 ad_loc = 0
                 pt_loc = 1
                 ad_msg_sizes = {"16":0, "64":1, "1536":2}
-                output_rows = [[],[],[],[]]
+                output_rows = [[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]]
                 block_sizes = {"4":3, "5":4}
                 for row in reader:
                     ad_size = int(row['AD Size'])
