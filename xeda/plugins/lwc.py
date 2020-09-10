@@ -194,9 +194,10 @@ class LwcCheckTimingHook():
                             output_rows[2][block_sizes[size]] = row["Actual Execution Time"]
                    
             with open(run_dir / f"AEAD_Timing.csv","w") as out_csv:
+                print(output_rows)
                 for r in output_rows:
                     output_str = ', '.join(str(i) for i in r)
-                    output_str += output_str + '\n'
+                    output_str = output_str + '\n'
                     out_csv.write(output_str)
                    
         with open(timing_csv_path, newline="") as in_csv, open(out_csv_path, "w") as out_csv:
