@@ -150,6 +150,8 @@ class Flow():
 
         if not all_runs_dir:
             all_runs_dir = Path.cwd() / 'xeda_run' / self.name
+        elif isinstance(all_runs_dir, str):
+            all_runs_dir = Path(all_runs_dir)
 
         if override:
             run_dir = Path(override).resolve()
