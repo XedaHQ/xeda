@@ -177,7 +177,7 @@ class LwcCheckTimingHook():
                         elif ad_size == int(size) and msg_size == int(size):
                             output_rows[2][ad_msg_sizes[size]] = row["Actual Execution Time"]
 
-            with open(timing_csv_path, newline="") as in_csv
+            with open(timing_csv_path, newline="") as in_csv:
                 reader = csv.DictReader(in_csv)
                 for row in reader:
                     na = int(row['Na'])
