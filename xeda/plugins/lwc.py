@@ -175,7 +175,7 @@ class LwcCheckTimingHook():
                             output_rows[0][ad_msg_sizes[size]] = row["Actual Execution Time"]
                         elif ad_size == 0 and msg_size == int(size):
                             output_rows[1][ad_msg_sizes[size]] = row["Actual Execution Time"]
-                            output_rows[4][ad_msg_sizes[size]] = row["Actual Latency Time"]
+                            output_rows[4][ad_msg_sizes[size]] = row["Actual Latency"]
                         elif ad_size == int(size) and msg_size == int(size):
                             output_rows[2][ad_msg_sizes[size]] = row["Actual Execution Time"]
 
