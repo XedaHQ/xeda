@@ -172,15 +172,30 @@ class LwcCheckTimingHook():
                 ad_size = int(row['AD Size'])
                 new_key = bool(int(row['New Key']))
                 if op_id not in operations:
-                    sys.exit(f'Operation {op_id} not specified for {variant_id}')
+                    logger.error(f'Operation {op_id} not specified for {variant_id}')
+                    return
                 operation = operations[op_id]
                 # row['Na'] = ad_size/
                 variables = dict((k, try_convert(row.get(k))) for k in variable_names)
-                t_exec_formula = eval(operation["execution_formula"], allowed_funcs, variables)
                 t_exec_sim = int(row['Actual Execution Time'])
-                t_exec_diff = t_exec_sim - t_exec_formula
                 t_latency_sim = int(row['Actual Latency'])
-                t_latency_formula = eval(operation["latency_formula"], allowed_funcs, variables)
+                # TODO refactor & cleanup 
+                try:
+                    formula = operation["execution_formula"].strip()
+                    if not formula:
+                        logger.error("execution_formula is empty")
+                        return
+                    t_exec_formula = eval(formula, allowed_funcs, variables)
+                    formula = operation["latency_formula"].strip()
+                    if not formula:
+                        logger.error("latency_formula is empty")
+                        return
+                    t_latency_formula = eval(formula, allowed_funcs, variables)
+                except Exception as e:
+                    logger.error("error evaluating the formulas")
+                    raise e 
+
+                t_exec_diff = t_exec_sim - t_exec_formula
                 t_latency_diff = t_latency_sim - t_latency_formula
                 if t_exec_diff > max_diff:
                     max_diff = t_exec_diff
