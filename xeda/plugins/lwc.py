@@ -195,7 +195,9 @@ class LwcCheckTimingHook():
                    
             with open(run_dir / f"AEAD_Timing.csv","w") as out_csv:
                 for r in output_rows:
-                    out_csv.write(', '.join(str(i) for i in r))
+                    output_str = ', '.join(str(i) for i in r)
+                    output_str += output_str + '\n'
+                    out_csv.write(output_str)
                    
         with open(timing_csv_path, newline="") as in_csv, open(out_csv_path, "w") as out_csv:
             reader = csv.DictReader(in_csv)
