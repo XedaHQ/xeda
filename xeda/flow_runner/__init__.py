@@ -2,14 +2,14 @@ import copy
 import multiprocessing
 import os
 import logging
+import time
 import pkg_resources
 from pathlib import Path
 import json
 import multiprocessing as mp
-import coloredlogs
 
 from ..flows.settings import Settings
-from ..flows.flow import DesignSource, Flow
+from ..flows.flow import DesignSource, Flow, my_print
 from ..utils import load_class, dict_merge
 
 logger = logging.getLogger()
@@ -194,7 +194,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
     def launch(self):
         self.parallel_run = args.parallel_run
         logger.info(f"parallel_run={self.parallel_run}")
-        
+
         args = self.args
 
         total = 0
@@ -291,47 +291,51 @@ class LwcFmaxRunner(FlowRunner):
 
         total_runs = 0
         improvement = None
+
+        state_time = time.monotonic()
         
-        while True:
+        try:
+            while True:
 
-            if next_period:
-                assert next_period > 0.001
-                if best_period:
-                    assert next_period < best_period
-                settings['flows'][flow_name]['clock_period'] = next_period
-
-            flow = self.setup_flow(settings, args, flow_name)
-            
-            set_period = flow.settings.flow['clock_period']
-            logger.info(f'[DSE] Trying clock_period = {set_period:0.3f}ns')
-            # fresh directory for each run
-            flow.run()
-            total_runs += 1
-            self.post_run(flow)
-
-            rundirs.add(flow.run_dir)
-            wns = flow.results['wns']
-            success = flow.results['success'] and wns >= 0
-            period = flow.results['clock_period']
-
-            next_period = set_period - wns - error_margin
-
-            if success:
-                failed_runs = 0
-                if best_period:
-                    if wns <= wns_threshold:
-                        logger.warning(
-                            f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threshold: {wns_threshold}')
-                        break
-
-                if not best_period or period < best_period:
-                    best_period = period
-                    best_rundir = flow.run_dir
-                    # deep copy
-                    best_results = {**flow.results}
+                if next_period:
+                    assert next_period > 0.001
                     if best_period:
-                        improvement = best_period - period
-                        if improvement < small_improvement_threshold:
+                        assert next_period < best_period
+                    settings['flows'][flow_name]['clock_period'] = next_period
+
+                flow = self.setup_flow(settings, args, flow_name)
+                
+                set_period = flow.settings.flow['clock_period']
+                logger.info(f'[DSE] Trying clock_period = {set_period:0.3f}ns')
+                # fresh directory for each run
+                flow.run()
+                total_runs += 1
+                self.post_run(flow)
+
+                rundirs.add(flow.run_dir)
+                wns = flow.results['wns']
+                success = flow.results['success'] and wns >= 0
+                period = flow.results['clock_period']
+
+                next_period = set_period - wns - error_margin
+
+                if success:
+                    failed_runs = 0
+                    if best_period:
+                        if wns <= wns_threshold:
+                            logger.warning(
+                                f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threshold: {wns_threshold}')
+                            break
+
+                    if not best_period or period < best_period:
+                        if best_period:
+                            improvement = best_period - period
+                        best_period = period
+                        best_rundir = flow.run_dir
+                        # deep copy
+                        best_results = {**flow.results}
+
+                        if improvement and improvement < small_improvement_threshold:
                             num_small_improvements += 1
                             if num_small_improvements > max_small_improvements:
                                 logger.warning(
@@ -341,34 +345,36 @@ class LwcFmaxRunner(FlowRunner):
                         else:
                             # reset to 0?
                             num_small_improvements = max(0, num_small_improvements - 2)
-            else:
-                if best_period:
-                    failed_runs += 1
-                    next_period = (best_period + set_period) / 2 - improvement_threshold
+                else:
+                    if best_period:
+                        failed_runs += 1
+                        next_period = (best_period + set_period) / 2
 
-                    max_failed = self.args.max_failed_runs
-                    if failed_runs >= max_failed:
-                        logger.warning(
-                            f'[DSE] Stopping attempts as number of FAILED runs has reached maximum allowed value of {max_failed}.'
-                        )
-                        break
+                        max_failed = self.args.max_failed_runs
+                        if failed_runs >= max_failed:
+                            logger.warning(
+                                f'[DSE] Stopping attempts as number of FAILED runs has reached maximum allowed value of {max_failed}.'
+                            )
+                            break
 
-            # worse or not worth it
-            if best_period and (best_period - next_period) < improvement_threshold:
-                logger.warning(
-                    f'[DSE] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
-                )
-                break
-
-
-            logger.info(f'[DSE] best_period: {best_period}ns run_dir: {best_rundir}')
-            logger.info(
-                f'[DSE] total_runs={total_runs} failed_runs={failed_runs} num_small_improvements={num_small_improvements} improvement={improvement}')
+                # worse or not worth it
+                if best_period and (best_period - next_period) < improvement_threshold:
+                    logger.warning(
+                        f'[DSE] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
+                    )
+                    break
 
 
-        logger.info(f'[DSE] best_period = {best_period}')
-        logger.info(f'[DSE] best_rundir = {best_rundir}')
-        print(f'---- Results with optimal frequency: ----')
-        flow.print_results(best_results)
+                logger.info(f'[DSE] best_period: {best_period}ns run_dir: {best_rundir}')
+                logger.info(
+                    f'[DSE] total_runs={total_runs} failed_runs={failed_runs} num_small_improvements={num_small_improvements} improvement={improvement} total time={time.monotonic() - state_time}')
+        finally:
 
-        logger.info(f'Run directories: {" ".join([str(os.path.relpath(d, Path.cwd())) for d in rundirs])}')
+            logger.info(f'[DSE] best_period = {best_period}')
+            logger.info(f'[DSE] best_rundir = {best_rundir}')
+            logger.info(f'[DSE] total time = {int(time.monotonic() - state_time) // 60} minutes')
+            logger.info(f'[DSE] total runs = {total_runs}')
+            my_print(f'---- Results with optimal frequency: ----')
+            flow.print_results(best_results)
+
+            logger.info(f'Run directories: {" ".join([str(os.path.relpath(d, Path.cwd())) for d in rundirs])}')

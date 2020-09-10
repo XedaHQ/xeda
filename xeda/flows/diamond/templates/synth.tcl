@@ -98,7 +98,7 @@ prj_strgy set_value -strategy custom_strategy par_route_delay_reduction_pass=1
 
 
 # 1-5 default:5
-prj_strgy set_value -strategy custom_strategy par_place_effort_level=3
+prj_strgy set_value -strategy custom_strategy par_place_effort_level=4
 
 
 

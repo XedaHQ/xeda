@@ -9,6 +9,7 @@ import sys
 import re
 from pathlib import Path
 import subprocess
+import time
 from .settings import Settings
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import multiprocessing
@@ -34,6 +35,9 @@ class FlowFatalException(Exception):
     pass
 
 logger = logging.getLogger()
+
+def my_print(*args, **kwargs):
+    print(*args, **kwargs)
 
 class Flow():
     """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
@@ -64,6 +68,8 @@ class Flow():
         self.flow_stdout_log = f'{self.name}_stdout.log'
 
         self.no_console = False
+
+        self.init_time = time.monotonic()
 
 
     def set_hash(self):
@@ -273,7 +279,7 @@ class Flow():
                                         spinner.next()
             except FileNotFoundError as e:
                 self.fatal(f"Cannot execute `{prog}`. Make sure it's properly instaulled and the executable is in PATH")
-            except KeyboardInterrupt:
+            except KeyboardInterrupt as e:
                 if spinner:
                     print(SHOW_CURSOR)
                 logger.critical("Received a keyboard interrupt!")
@@ -282,7 +288,7 @@ class Flow():
                     proc.terminate()
                     proc.kill()
                     proc.wait()
-                self.fatal("Keyboard Interrupt")
+                raise e
 
         if spinner:
             print(SHOW_CURSOR)
@@ -291,7 +297,7 @@ class Flow():
             logger.critical(
                 f'`{proc.args[0]}` exited with returncode {proc.returncode}. Please check `{stdout_logfile}` for error messages!')
             if check:
-                self.fatal('Exiting because of non-zero return code.')
+                self.fatal('Non-zero exit code')
         else:
             logger.info(f'Process completed with returncode {proc.returncode}')
         return proc
@@ -343,34 +349,36 @@ class Flow():
     def print_results(self, results=None):
         if not results:
             results = self.results
+            #init to print_results time:
+            results['runtime_minutes'] = (time.monotonic() - self.init_time) / 60
         data_width = 32
         name_width = 80 - data_width
         hline = "-"*(name_width + data_width)
-        print("\n" + hline)
-        print(f"{'Results':^{name_width + data_width}s}")
-        print(hline)
+
+        my_print("\n" + hline)
+        my_print(f"{'Results':^{name_width + data_width}s}")
+        my_print(hline)
         for k, v in results.items():
             if not k.startswith('_'):
                 if isinstance(v, float):
-                    print(f'{k:{name_width}}{v:{data_width}.3f}')
+                    my_print(f'{k:{name_width}}{v:{data_width}.3f}')
                 elif isinstance(v, bool):
                     bdisp = (colored.fg("green") + "✓" if v else colored.fg("red") + "✗") + colored.attr("reset")
-                    print(f'{k:{name_width}}{bdisp:>{data_width}}')
+                    my_print(f'{k:{name_width}}{bdisp:>{data_width}}')
                 elif isinstance(v, int):
-                    print(f'{k:{name_width}}{v:>{data_width}}')
+                    my_print(f'{k:{name_width}}{v:>{data_width}}')
                 elif isinstance(v, list):
-                    print(f'{k:{name_width}}{" ".join(v):<{data_width}}')
+                    my_print(f'{k:{name_width}}{" ".join(v):<{data_width}}')
                 else:
-                    print(f'{k:{name_width}}{str(v):>{data_width}s}')
-        print(hline + "\n")
+                    my_print(f'{k:{name_width}}{str(v):>{data_width}s}')
+        my_print(hline + "\n")
 
     def dump_json(self, data, path, overwrite=True):
         if path.exists():
             if overwrite:
                 logger.warning(f"Overwriting existing file: {path}")
             else:
-                logger.critical(f"{path} already exists! Not overwriting!")
-                self.fatal("Exiting due to error!")
+                self.fatal(f"{path} already exists! Not overwriting!")
         with open(path, 'w') as outfile:
             json.dump(data, outfile, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else x.__str__, indent=4)
 
