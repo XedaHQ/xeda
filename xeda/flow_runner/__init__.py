@@ -192,10 +192,10 @@ class LwcVariantsRunner(DefaultFlowRunner):
         )
 
     def launch(self):
+        args = self.args
         self.parallel_run = args.parallel_run
         logger.info(f"parallel_run={self.parallel_run}")
 
-        args = self.args
 
         total = 0
         num_success = 0
