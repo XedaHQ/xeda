@@ -2,7 +2,9 @@ import copy
 import multiprocessing
 import os
 import logging
+import random
 import time
+from xeda.plugins.lwc import LwcCheckTimingHook
 import pkg_resources
 from pathlib import Path
 import json
@@ -52,16 +54,26 @@ class FlowRunner():
 
         return settings
 
+    # should not override
     def post_run(self, flow):
 
-        self.post_run_hooks = []
-        self.post_results_hooks = []
-        self.replicator_hooks = []
+
+
+        # plugin_clss = [LwcSim]
+        
+        # for pcls in plugin_clss:
+        #     assert issubclass(pcls, Plugin)
+        #     # create plugin instances
+        #     plugin = pcls(logger)
+        #     if isinstance(plugin, PostRunPlugin):
+        #         self.post_run_hooks.append(plugin.post_run_hook)
+        #     if isinstance(plugin, PostResultsPlugin):
+        #         self.post_results_hooks.append(plugin.post_results_hook)
 
         # Run post-run hooks
-        for hook in self.post_run_hooks:
+        for hook in flow.post_run_hooks:
             logger.info(f"Running post-run hook from from {hook.__self__.__class__.__name__}")
-            hook(flow.run_dir, flow.settings)
+            hook(flow)
 
         flow.reports_dir = flow.run_dir / flow.reports_subdir_name
         if not flow.reports_dir.exists():
@@ -76,9 +88,9 @@ class FlowRunner():
             flow.dump_results()
 
         # Run post-results hooks
-        for hook in self.post_results_hooks:
-            logger.info(f"Running post-results hook from {hook.__self__.__class__.__name__}")
-            hook(flow.run_dir, flow.settings, flow.results)
+        for hook in flow.post_results_hooks:
+            logger.info(f"Running post-results hook from {hook}")
+            hook(flow)
 
 
     def setup_flow(self, settings, args, flow_name, max_threads=None):
@@ -114,16 +126,6 @@ class FlowRunner():
 
         flow: Flow = flow_cls(flow_settings, args)
 
-        # for pcls in plugin_clss:
-        #     assert issubclass(pcls, Plugin)
-        #     # create plugin instances
-        #     plugin = pcls(logger)
-        #     if isinstance(plugin, ReplicatorPlugin):
-        #         self.replicator_hooks.append(plugin.replicate_settings_hook)
-        #     if isinstance(plugin, PostRunPlugin):
-        #         self.post_run_hooks.append(plugin.post_run_hook)
-        #     if isinstance(plugin, PostResultsPlugin):
-        #         self.post_results_hooks.append(plugin.post_results_hook)
 
         # self.replicated_settings = []
         # for hook in self.replicator_hooks:
@@ -190,6 +192,11 @@ class LwcVariantsRunner(DefaultFlowRunner):
             action='store_true',
             help='Use multiprocessing to run in parallel'
         )
+        #TODO implement
+        # plug_parser.add_argument(
+        #     '--variants_subset',
+        #     help='Subset of variants to run'
+        # )
 
     def launch(self):
         args = self.args
@@ -210,9 +217,6 @@ class LwcVariantsRunner(DefaultFlowRunner):
 
         nproc = max(1, multiprocessing.cpu_count() // 4)
 
-        # TODO read logs from queue?
-        logger_queue = multiprocessing.Queue(-1)
-
         for variant_id, variant_data in variants.items():
             logger.info(f"LwcVariantsRunner: running variant {variant_id}")
             # path is relative to variants_json
@@ -223,17 +227,26 @@ class LwcVariantsRunner(DefaultFlowRunner):
             if self.parallel_run:
                 args.quiet = True
 
+            settings['design']['tb_generics']['G_TEST_MODE'] = 4
+            settings['design']['tb_generics']['G_FNAME_TIMING'] = f"timing_{variant_id}.txt"
+            settings['design']['tb_generics']['G_FNAME_TIMING_CSV'] = f"timing_{variant_id}.csv"
+            settings['design']['tb_generics']['G_FNAME_RESULT'] = f"result_{variant_id}.txt"
+            settings['design']['tb_generics']['G_FNAME_FAILED_TVS'] = f"failed_test_vectors_{variant_id}.txt"
+            settings['design']['tb_generics']['G_FNAME_LOG'] = f"lwctb_{variant_id}.log"
+
             flow = self.setup_flow(settings, args, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
             
             if self.parallel_run:
-                flow.set_parallel_run(logger_queue)
+                flow.set_parallel_run(None)
+
+            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data))
 
             flows_to_run.append(flow)
         
 
         if self.parallel_run:
 
-            with mp.Pool(processes=nproc) as p:
+            with mp.Pool(processes=min(nproc, len(flows_to_run))) as p:
                 p.map(run_func, flows_to_run)
         else:
             for flow in flows_to_run:
@@ -263,6 +276,11 @@ class LwcFmaxRunner(FlowRunner):
             default=10, type=int,
             help='Maximum consequetive failed runs allowed. Give up afterwards.'
         )
+        plug_parser.add_argument(
+            '--start-period',
+            default=None, type=float,
+            help='Starting clock period.'
+        )
 
     def launch(self):
         small_improvement_threshold = 0.1
@@ -277,7 +295,7 @@ class LwcFmaxRunner(FlowRunner):
         best_period = None
         best_results = None
         best_rundir = None
-        rundirs = set()
+        rundirs = []
 
         args = self.args
 
@@ -293,6 +311,12 @@ class LwcFmaxRunner(FlowRunner):
         improvement = None
 
         state_time = time.monotonic()
+
+        tried_periods = []
+        same_period = 0
+
+        if args.start_period:
+            next_period = args.start_period
         
         try:
             while True:
@@ -303,21 +327,32 @@ class LwcFmaxRunner(FlowRunner):
                         assert next_period < best_period
                     settings['flows'][flow_name]['clock_period'] = next_period
 
+
                 flow = self.setup_flow(settings, args, flow_name)
                 
                 set_period = flow.settings.flow['clock_period']
+
+                if set_period in tried_periods:
+                    same_period += 1
+                    if same_period > 5:
+                        logger.warning(
+                            f'[DSE] had already tried period={set_period} previously {same_period} times!')
+                        break
+                else:
+                    tried_periods.append(set_period)
+
                 logger.info(f'[DSE] Trying clock_period = {set_period:0.3f}ns')
                 # fresh directory for each run
                 flow.run()
                 total_runs += 1
                 self.post_run(flow)
 
-                rundirs.add(flow.run_dir)
+                rundirs.append(flow.run_dir)
                 wns = flow.results['wns']
                 success = flow.results['success'] and wns >= 0
                 period = flow.results['clock_period']
 
-                next_period = set_period - wns - error_margin
+                next_period = set_period - wns - error_margin -min(0.006, abs(wns) / 3 * random.random() )
 
                 if success:
                     failed_runs = 0
@@ -378,3 +413,4 @@ class LwcFmaxRunner(FlowRunner):
             flow.print_results(best_results)
 
             logger.info(f'Run directories: {" ".join([str(os.path.relpath(d, Path.cwd())) for d in rundirs])}')
+            logger.info(f'Tried periods: {tried_periods}')

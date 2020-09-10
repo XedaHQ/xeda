@@ -71,6 +71,9 @@ class Flow():
 
         self.init_time = time.monotonic()
 
+        self.post_run_hooks = []
+        self.post_results_hooks = []
+
 
     def set_hash(self):
         skip_fields = {'author', 'url', 'comment', 'description', 'license'}
@@ -380,7 +383,7 @@ class Flow():
             else:
                 self.fatal(f"{path} already exists! Not overwriting!")
         with open(path, 'w') as outfile:
-            json.dump(data, outfile, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else x.__str__, indent=4)
+            json.dump(data, outfile, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
 
     def dump_results(self):
         # write only if not exists

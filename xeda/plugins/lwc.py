@@ -1,69 +1,12 @@
-from copy import deepcopy
-import json
+import logging
 import math
-import re
-import shutil
 import sys
 import csv
-from pathlib import Path
-from typing import List
 from ..utils import try_convert
-from ..flows.settings import Settings
-from . import PostResultsPlugin, ReplicatorPlugin
+from ..flows.flow import Flow, SimFlow
 
 
-class LwcSim(PostResultsPlugin, ReplicatorPlugin):
-    def replicate_settings_hook(self, settings: Settings) -> List[Settings]:
-        #TODO FIXME WIP
-        return [settings]
-
-
-        vf_file = Path('variants.json')
-        if vf_file.exists():
-            with open(vf_file) as f:
-                all_variants_formulas = json.load(f)
-        else:
-            # all_variants_formulas = self.extract_formulas()
-            # if all_variants_formulas:
-            #     with open(vf_file, 'w') as f:
-            #         json.dump(all_variants_formulas, f, indent=4)
-            sys.exit(f'{vf_file} not found!')
-
-        if not all_variants_formulas:
-            self.logger.critical(
-                f'Failed to read `variants_formulas.json` or parse `variants.txt`. Please make sure `variants_formulas.json` exists and is in correct format.')
-            return
-        
-        self.variants = all_variants_formulas
-
-        # #TODO FIXME!!!
-
-        # replicated = []
-        # for variant_id in ["V3"]: 
-        #     s = deepcopy(settings)
-
-        #     s.design['tb_generics'] = {
-        #         "G_FNAME_PDI": {
-        #             "file": f"KAT/{variant_id}/pdi.txt"
-        #         },
-        #         "G_FNAME_SDI": {
-        #             "file": f"KAT/{variant_id}/sdi.txt"
-        #         },
-        #         "G_FNAME_DO": {
-        #             "file": f"KAT/{variant_id}/do.txt"
-        #         },
-        #         "G_TEST_MODE": 4
-        #     }
-
-        #     s.variant_id = variant_id
-        #     replicated.append(s)
-
-        if 'variant_id' in settings.design:
-            settings.variant_id = settings.design['variant_id']
-
-        # return replicated
-        return [settings]
-
+# class LwcSim(PostResultsPlugin):
     # def extract_formulas(self):
     #     print("begin")
     #     variants_txt = Path.cwd() / 'docs' / 'variants.txt'
@@ -163,40 +106,38 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
     #     return all_variants_formulas
 
     # PostResults Hook
-    def post_results_hook(self, run_dir, settings, results):
-        """ Check timing vs formula for the variant """
+    # def post_results_hook(self, run_dir, settings, results):
+    #     pass
 
-        #FIXME WIP
-        return
 
-        logger = self.logger
 
-        if settings.active_flow != 'sim':
-            logger.info(f"LwcSim hooks only work on 'sim' flows but active flow was {settings.active_flow}")
+# must be replicated and unique for every Flow instance
+class LwcCheckTimingHook():
+    """ Check timing vs formula for the variant """
+
+    def __init__(self, variant_id, variant_data) -> None:
+        self.variant_id = variant_id
+        self.variant_data = variant_data
+
+    def __call__(self, flow: Flow):
+        logger = logging.getLogger()
+        results = flow.results
+        run_dir = flow.run_dir
+
+        if not isinstance(flow, SimFlow):
+            logger.info(f"LwcCheckTimingHook only operates on simulation flows.")
             return
 
         if not results["success"]:
-            logger.critical("Not running post_results_hook as results marked a failure.")
+            logger.critical("Not running post_results_hook because results are marked as failure.")
             return
 
-        if not settings.variant_id:
-            self.logger.warning(f"`variant_id` was not set. Timing verification is skipped.")
-            return
-
-        variant_id = settings.variant_id
-
-
-        self.logger.info(f"using formulas for variant {variant_id}")
-        variant = self.variants.get(variant_id)
-        if not variant:
-            self.logger.critical(f"Could not find variant data for variant ID: {variant_id}")
-            return
-
-        self.logger.debug(f'Variant {variant_id}: {variant}')
+        variant_id = self.variant_id
+        variant = self.variant_data
 
         operations = variant.get('operations')
         if not operations:
-            self.logger.critical(f"variants.json: missing operations for variant {variant_id}")
+            logger.critical(f"variants.json: missing operations for variant {variant_id}")
             return
 
         allowed_funcs = {
@@ -208,18 +149,11 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
         # Bla, Blm, Blc, and Blh: the number of bytes in the incomplete block of associated data, plaintext, ciphertext, and hash message, respectively
         variable_names = ['Na', 'Nm', 'Nc', 'Nh', 'Ina', 'Inm', 'Inc', 'Inh', 'Bla', 'Blm', 'Blc', 'Blh']
 
-        # TODO use G_FNAME_TIMING_CSV
-        timing_csv_path_orig = run_dir / "timing.csv"
-        
-        timing_csv_path = run_dir /  f"timing_{variant_id}.csv"
-        
-        shutil.copy(timing_csv_path_orig, timing_csv_path)
-
-        self.logger.info(f"Copying simulation timing.csv to {timing_csv_path}")
+        timing_csv_path = run_dir / flow.settings.design['tb_generics']['G_FNAME_TIMING_CSV']
 
         out_csv_path = run_dir / f"timing_vs_formula_{variant_id}.csv"
 
-        self.logger.info(f"Saving timing comparison to {out_csv_path}")
+        logger.info(f"Saving timing comparison to {out_csv_path}")
 
         with open(timing_csv_path, newline="") as in_csv, open(out_csv_path, "w") as out_csv:
             reader = csv.DictReader(in_csv)
@@ -254,6 +188,6 @@ class LwcSim(PostResultsPlugin, ReplicatorPlugin):
                 writer.writerow({**row, t_exec_header: t_exec_formula, t_latency_header: t_latency_formula, exec_diff_header: t_exec_diff, latency_diff_header: t_latency_diff})
 
             if max_diff > 0:
-                self.logger.warning(
+                logger.warning(
                     f'Maximum discrepancy between formula and simulation time was {max_diff} cycles ({max_diff_percent:.1f}%).')
 
