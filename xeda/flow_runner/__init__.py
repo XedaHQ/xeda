@@ -114,7 +114,7 @@ class FlowRunner():
 
         flow_settings.nthreads = max(1, max_threads)
 
-        flow: Flow = flow_cls(flow_settings, args, logger)
+        flow: Flow = flow_cls(flow_settings, args)
 
         # for pcls in plugin_clss:
         #     assert issubclass(pcls, Plugin)

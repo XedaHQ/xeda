@@ -33,15 +33,16 @@ class FlowFatalException(Exception):
     """Fatal error"""
     pass
 
+logger = logging.getLogger()
+
 class Flow():
     """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
     required_settings = {}
     default_settings = {}
     reports_subdir_name = 'reports'
 
-    def __init__(self, settings: Settings, args, logger):
-        #FIXME Python logger
-        self.logger = logger
+    def __init__(self, settings: Settings, args):
+
         
         self.args = args
         self.settings = settings
@@ -98,23 +99,23 @@ class Flow():
 
     def set_parallel_run(self, queue):
         self.no_console = True
-        # while self.logger.hasHandlers():
-        #     self.logger.removeHandler(self.logger.handlers[0])
-        logger = multiprocessing.get_logger()
+        # while logger.hasHandlers():
+        #     logger.removeHandler(logger.handlers[0])
+        # logger = multiprocessing.get_logger()
 
-        logger.setLevel(logging.DEBUG)
+        # logger.setLevel(logging.DEBUG)
         # formatter = logging.Formatter(
         #     '[%(asctime)s| %(levelname)s| %(processName)s] %(message)s')
         # handler = logging.FileHandler(self.run_dir / f'{self.name}_logger.log')
         # handler = NullHandler()
         # handler.setFormatter(formatter)
-        handler = QueueHandler(queue)
+        # handler = QueueHandler(queue)
 
         # this bit will make sure you won't have
         # duplicated messages in the output
         # if not len(logger.handlers):
-        logger.addHandler(handler)
-        self.logger = logger
+        # logger.addHandler(handler)
+        # logger = logger
 
     @property
     def name(self):
@@ -128,13 +129,11 @@ class Flow():
         if flow in self.required_settings:
             for req_key, req_type in self.required_settings[flow].items():
                 if req_key not in self.settings.flow:
-                    self.logger.critical(f'{req_key} is required to be set for {self.name}:{flow}')
-                    sys.exit(1)
+                    self.fatal(f'{req_key} is required to be set for {self.name}:{flow}')
                 elif type(self.settings.flow[req_key]) != req_type:
-                    self.logger.critical(f'{req_key} should have type `{req_type.__name__}` for {self.name}:{flow}')
-                    sys.exit(1)
+                    self.fatal(f'{req_key} should have type `{req_type.__name__}` for {self.name}:{flow}')
         else:
-            self.logger.warn(f"{self.name} does not specify any required_settings for {flow}")
+            logger.warn(f"{self.name} does not specify any required_settings for {flow}")
 
     def set_run_dir(self, all_runs_dir=None, prefix=None, override=None):
         # all design flow-critical settings are fixed from this point onwards
@@ -156,7 +155,7 @@ class Flow():
         if not run_dir.exists():
             run_dir.mkdir(parents=True)
         else:
-            self.logger.warning(f'Using existing run directory: {run_dir}')
+            logger.warning(f'Using existing run directory: {run_dir}')
 
         assert run_dir.is_dir()
 
@@ -174,13 +173,13 @@ class Flow():
 
     def dump_settings(self):
         effective_settings_json = self.run_dir / f'settings.json'
-        self.logger.info(f'dumping effective settings to {effective_settings_json}')
+        logger.info(f'dumping effective settings to {effective_settings_json}')
         self.dump_json(self.settings, effective_settings_json)
 
     def copy_from_template(self, resource_name, **attr):
         template = self.jinja_env.get_template(resource_name)
         script_path = self.run_dir / resource_name
-        self.logger.debug(f'generating {script_path.resolve()} from template.')
+        logger.debug(f'generating {script_path.resolve()} from template.')
         rendered_content = template.render(flow=self.settings.flow,
                                            design=self.settings.design,
                                            nthreads=self.settings.nthreads,
@@ -196,7 +195,7 @@ class Flow():
         return os.path.relpath(path, self.run_dir)
 
     def fatal(self, msg):
-        self.logger.critical(msg)
+        logger.critical(msg)
         raise FlowFatalException(msg)
 
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):
@@ -221,8 +220,8 @@ class Flow():
             return Spinner('⏳' + step if unicode else step)
         with open(stdout_logfile, 'w') as log_file:
             try:
-                self.logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
-                self.logger.info(f'Standard output from the tool will be saved to {stdout_logfile}')
+                logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
+                logger.info(f'Standard output from the tool will be saved to {stdout_logfile}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.run_dir,
                                       stdout=subprocess.PIPE,
@@ -254,11 +253,11 @@ class Flow():
                             if error_msg_re.match(line) or critwarn_msg_re.match(line):
                                 if spinner:
                                     print()
-                                self.logger.error(line)
+                                logger.error(line)
                             elif warn_msg_re.match(line):
                                 if spinner:
                                     print()
-                                self.logger.warning(line)
+                                logger.warning(line)
                             elif enable_echo_re.match(line):
                                 if not self.args.quiet:
                                     echo_instructed = True
@@ -277,35 +276,34 @@ class Flow():
             except KeyboardInterrupt:
                 if spinner:
                     print(SHOW_CURSOR)
-                self.logger.critical("Received a keyboard interrupt!")
+                logger.critical("Received a keyboard interrupt!")
                 if proc:
-                    self.logger.critical(f"Terminating {proc.args[0]}[{proc.pid}]")
+                    logger.critical(f"Terminating {proc.args[0]}[{proc.pid}]")
                     proc.terminate()
                     proc.kill()
                     proc.wait()
-                sys.exit(1)
+                self.fatal("Keyboard Interrupt")
 
         if spinner:
             print(SHOW_CURSOR)
 
         if proc.returncode != 0:
-            self.logger.critical(
+            logger.critical(
                 f'`{proc.args[0]}` exited with returncode {proc.returncode}. Please check `{stdout_logfile}` for error messages!')
             if check:
-                sys.exit('Exiting because of non-zero return code.')
+                self.fatal('Exiting because of non-zero return code.')
         else:
-            self.logger.info(f'Process completed with returncode {proc.returncode}')
+            logger.info(f'Process completed with returncode {proc.returncode}')
         return proc
 
     def parse_report(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
-        self.logger.debug(f"Parsing report file: {reportfile_path}")
+        logger.debug(f"Parsing report file: {reportfile_path}")
         # TODO fix debug and verbosity levels!
         high_debug = self.args.verbose
         if not reportfile_path.exists():
-            self.logger.critical(
+            self.fatal(
                 f'Report file: {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check `{self.run_dir / "stdout.log"}` and other log files in {self.run_dir} to find out what errors occurred.'
             )
-            sys.exit(1)
         with open(reportfile_path) as rpt_file:
             content = rpt_file.read()
 
@@ -320,23 +318,23 @@ class Flow():
                 match_dict = match.groupdict()
                 for k, v in match_dict.items():
                     self.results[k] = try_convert(v)
-                    self.logger.debug(f'{k}: {self.results[k]}')
+                    logger.debug(f'{k}: {self.results[k]}')
                 return True
 
             for pat in [re_pattern, *other_re_patterns]:
                 matched = False
                 if isinstance(pat, list):
                     if high_debug:
-                        self.logger.debug(f"Matching any of: {pat}")
+                        logger.debug(f"Matching any of: {pat}")
                     for subpat in pat:
                         matched = match_pattern(subpat)
                         if matched:
                             if high_debug:
-                                self.logger.debug("subpat matched!")
+                                logger.debug("subpat matched!")
                             break
                 else:
                     if high_debug:
-                        self.logger.debug(f"Matching: {pat}")
+                        logger.debug(f"Matching: {pat}")
                     matched = match_pattern(pat)
 
                 if not matched:
@@ -369,10 +367,10 @@ class Flow():
     def dump_json(self, data, path, overwrite=True):
         if path.exists():
             if overwrite:
-                self.logger.warning(f"Overwriting existing file: {path}")
+                logger.warning(f"Overwriting existing file: {path}")
             else:
-                self.logger.critical(f"{path} already exists! Not overwriting!")
-                sys.exit("Exiting due to error!")
+                logger.critical(f"{path} already exists! Not overwriting!")
+                self.fatal("Exiting due to error!")
         with open(path, 'w') as outfile:
             json.dump(data, outfile, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else x.__str__, indent=4)
 
@@ -380,7 +378,7 @@ class Flow():
         # write only if not exists
         path = self.run_dir / f'{self.name}_results.json'
         self.dump_json(self.results, path)
-        self.logger.info(f"Results written to {path}")
+        logger.info(f"Results written to {path}")
 
     def stdout_search_re(self, regexp):
         with open(self.run_dir / self.flow_stdout_log) as logf:
