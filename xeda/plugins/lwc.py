@@ -158,14 +158,12 @@ class LwcCheckTimingHook():
 
         logger.info(f"Saving timing comparison to {out_csv_path}")
         if self.gen_aead_timing:
-
-            with open(timing_csv_path, newline="") as in_csv, open(run_dir / f"AEAD_Timing.csv","w") as out_csv:
-                reader = csv.DictReader(in_csv)
-                ad_loc = 0
-                pt_loc = 1
                 ad_msg_sizes = {"16":0, "64":1, "1536":2}
                 output_rows = [[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]]
                 block_sizes = {"4":3, "5":4}
+            with open(timing_csv_path, newline="") as in_csv:
+                reader = csv.DictReader(in_csv)
+
                 for row in reader:
                     ad_size = int(row['AD Size'])
                     msg_size = int(row['Msg Size'])
@@ -179,7 +177,8 @@ class LwcCheckTimingHook():
                         elif ad_size == int(size) and msg_size == int(size):
                             output_rows[2][ad_msg_sizes[size]] = row["Actual Execution Time"]
 
-                in_csv.seek(0)
+            with open(timing_csv_path, newline="") as in_csv
+                reader = csv.DictReader(in_csv)
                 for row in reader:
                     na = int(row['Na'])
                     nm = int(row['Nm'])
@@ -194,7 +193,7 @@ class LwcCheckTimingHook():
                         elif na == int(size) and (nm == int(size) or nc == int(size) or nh == int(size)):
                             output_rows[2][block_sizes[size]] = row["Actual Execution Time"]
                    
-
+            with open(run_dir / f"AEAD_Timing.csv","w") as out_csv:
                 for r in output_rows:
                     out_csv.write(''.join(str(i) for i in r))
                    
