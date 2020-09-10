@@ -159,7 +159,7 @@ class LwcCheckTimingHook():
         logger.info(f"Saving timing comparison to {out_csv_path}")
         if self.gen_aead_timing:
 
-            with open(timing_csv_path, newline="") as in_csv, open(gen_aead_timing_path, "w") as out_csv:
+            with open(timing_csv_path, newline="") as in_csv, open(run_dir / f"AEAD_Timing.csv","w") as out_csv:
                 reader = csv.DictReader(in_csv)
                 ad_loc = 0
                 pt_loc = 1
