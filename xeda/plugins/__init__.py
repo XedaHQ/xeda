@@ -1,7 +1,7 @@
 
 
 from typing import Set
-from xeda.flows import Settings
+from ..flows.settings import Settings
 from typing import List
 
 from pathlib import Path

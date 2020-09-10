@@ -3,27 +3,29 @@
         "top": "LWC",
         "tb_top": "LWC_TB",
         "tb_uut": "uut",
-        "vhdl_std": "93",
+        "vhdl_std": "02",
         "vhdl_synopsys": false,
         "clock_port": "clk"
     },
     "flows": {
-        "diamond": {
+        "sim_flow": {
+            "stop_time": null
+        },
+        "diamond_synth": {
             "fpga_part": "LFE5U-25F-6BG381C",
-            "clock_period": 10.0,
-            "synthesis_engine": "lse",
+            "clock_period": 15.0,
+            "synthesis_engine": "synplify",
             "strategy": "Timing"
         },
-        "vivado": {
+        "vivado_synth": {
             "clock_period": 5.0,
             "fpga_part": "xc7a12tcsg325-3",
             "strategy": "Timing",
-            "optimize_power": "False",
-            "sim_run": "all"
+            "optimize_power": "False"
         },
-        "quartus": {
-            "clock_period": 5.921,
-            "fpga_part": "10CL016YF256C6G",
+        "quartus_synth": {
+            "clock_period": 8.0,
+            "fpga_part": "10CL016YU256C6G",
             "dse":{
                 "num_concurrent": 8,
                 "nproc": null,

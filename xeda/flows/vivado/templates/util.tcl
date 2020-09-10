@@ -37,8 +37,7 @@ proc showWarningsAndErrors {} {
   set num_warns      [get_msg_config -severity {WARNING} -count]
 
   if {$num_errors > 0} {
-    puts "** Number of Errors:             $num_errors"
-    puts "Exiting due to errors!"
+    puts "Exiting Vivado due to $num_errors error(s)!"
     exit 1
   }
 

@@ -1,55 +1,13 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-import re
-import sys
-from xeda import design
-from ..suite import Suite
-from .. import parse_csv
-import csv
+from ..flow import DseFlow, Flow, SynthFlow
+from ...utils import parse_csv
 
 
-class Quartus(Suite):
-    name = 'quartus'
-    supported_flows = ['synth', 'dse']
-    required_settings = {'synth': {'clock_period': float, 'fpga_part': str}}
+class Quartus(Flow):
+    required_settings = {'clock_period': float, 'fpga_part': str}
 
-    def __init__(self, settings, args, logger):
-        # def supported_quartus_generic(k, v, sim):
-        #     if sim:
-        #         return True
-        #     if isinstance(v, int):
-        #         return True
-        #     if isinstance(v, bool):
-        #         return True
-        #     v = str(v)
-        #     return (v.isnumeric() or (v.strip().lower() in {'true', 'false'}))
-
-        # def quartus_gen_convert(k, x, sim):
-        #     if sim:
-        #         if isinstance(x, dict) and "file" in x:
-        #             p = x["file"]
-        #             assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
-        #             x = self.conv_to_relative_path(p.strip())
-        #             self.logger.info(f'Converting generic `{k}` marked as `file`: {p} -> {x}')
-        #     xl = str(x).strip().lower()
-        #     if xl == 'false':
-        #         return "1\\'b0"
-        #     if xl == 'true':
-        #         return "1\\'b1"
-        #     return x
-
-        # def quartus_generics(kvdict, sim):
-        #     return ' '.join([f"-generic {k}={quartus_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_quartus_generic(k, v, sim)])
-
-        super().__init__(settings, args, logger,
-                         fail_critical_warning=args.command != "fmax",
-                         fail_timing=False
-                         )
-
-        # self.settings.flow['generics_options'] = quartus_generics(self.settings.design["generics"], sim=False)
-        # self.settings.flow['tb_generics_options'] = quartus_generics(self.settings.design["tb_generics"], sim=True)
-
-    def __runflow_impl__(self, flow):
+    def create_project(self):
         project_settings = None
         if 'project_settings' in self.settings.flow:
             project_settings = self.settings.flow['project_settings']
@@ -111,7 +69,6 @@ class Quartus(Suite):
                 "PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION": "ON",
                 "PHYSICAL_SYNTHESIS_REGISTER_RETIMING": "ON",
                 "PHYSICAL_SYNTHESIS_EFFORT": "EXTRA",
-                "AUTO_DSP_RECOGNITION": "OFF",
 
                 #NORMAL, OFF, EXTRA_EFFORT
                 # "OPTIMIZE_POWER_DURING_SYNTHESIS": "NORMAL",
@@ -119,6 +76,16 @@ class Quartus(Suite):
                 # Used during placement. Use of a higher value increases compilation time, but may increase the quality of placement.
                 "INNER_NUM": 8,
             }
+
+            # SYNTH_CRITICAL_CLOCK: ON, OFF : Speed Optimization Technique for Clock Domains
+
+        if not self.settings.flow['use_dsp']:
+            project_settings["AUTO_DSP_RECOGNITION"] = "OFF"
+
+        ## ???? TODO don't think this is right, maybe apply ramstyle on all hierarchy using TCL?
+        if not self.settings.flow['use_bram']:
+            project_settings["AUTO_RAM_RECOGNITION"] = "OFF"
+            project_settings["AUTO_ROM_RECOGNITION"] = "OFF"
 
         clock_sdc_path = self.copy_from_template(f'clock.sdc')
         script_path = self.copy_from_template(
@@ -134,58 +101,55 @@ class Quartus(Suite):
         #                  stdout_logfile='dse_stdout.log'
         #                  )
 
-        if flow == 'dse':
-            # TODO Check correspondance of settings hash vs desgin settings
-            # 'explore': Exploration flow to use, if not specified in --config
-            #   configuration file. Valid flows: timing_aggressive,
-            #   all_optimization_modes, timing_high_effort, seed,
-            #   area_aggressive, power_high_effort, power_aggressive
-            # 'compile_flow':  'full_compile', 'fit_sta' and 'fit_sta_asm'.
-            # 'timeout': Limit the amount of time a compute node is allowed to run. Format: hh:mm:ss
-            if 'dse' not in self.settings.flow:
-                self.fatal('`flows.quartus.dse` settings are missing!')
+    # def __init__(self, settings, args, logger):
+    #     # def supported_quartus_generic(k, v, sim):
+    #     #     if sim:
+    #     #         return True
+    #     #     if isinstance(v, int):
+    #     #         return True
+    #     #     if isinstance(v, bool):
+    #     #         return True
+    #     #     v = str(v)
+    #     #     return (v.isnumeric() or (v.strip().lower() in {'true', 'false'}))
 
-            dse = self.settings.flow['dse']
-            if 'nproc' not in dse or not dse['nproc']:
-                dse['nproc'] = self.nthreads
+    #     # def quartus_gen_convert(k, x, sim):
+    #     #     if sim:
+    #     #         if isinstance(x, dict) and "file" in x:
+    #     #             p = x["file"]
+    #     #             assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
+    #     #             x = self.conv_to_relative_path(p.strip())
+    #     #             self.logger.info(f'Converting generic `{k}` marked as `file`: {p} -> {x}')
+    #     #     xl = str(x).strip().lower()
+    #     #     if xl == 'false':
+    #     #         return "1\\'b0"
+    #     #     if xl == 'true':
+    #     #         return "1\\'b1"
+    #     #     return x
 
-            script_path = self.copy_from_template(f'settings.dse',
-                                                  dse=dse
-                                                  )
-            self.run_process('quartus_dse',
-                             ['--use-dse-file', script_path, self.settings.design['name']],
-                             stdout_logfile='dse_stdout.log',
-                             initial_step="Running Quartus DSE",
-                             )
-        elif flow == 'synth':
+    #     # def quartus_generics(kvdict, sim):
+    #     #     return ' '.join([f"-generic {k}={quartus_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_quartus_generic(k, v, sim)])
 
-            script_path = self.copy_from_template(
-                f'compile.tcl',
-            )
-            self.run_process('quartus_sh',
-                             ['-t', str(script_path)],
-                             stdout_logfile='compile_stdout.log'
-                             )
-        else:
-            sys.exit('unsupported flow')
+    #     super().__init__(settings, args, logger)
 
-    def parse_reports(self, flow):
-        if flow == 'synth':
-            self.parse_synth_reports()
-        if flow == 'dse':
-            self.parse_dse_reports()
-        # if flow == 'sim':
-        #     self.parse_sim_reports()
+    #     # self.settings.flow['generics_options'] = quartus_generics(self.settings.design["generics"], sim=False)
+    #     # self.settings.flow['tb_generics_options'] = quartus_generics(self.settings.design["tb_generics"], sim=True)
 
-    def parse_dse_reports(self):
-        'quartus_dse_report.json'
-        pass
 
-    def parse_synth_reports(self):
+class QuartusSynth(Quartus, SynthFlow):
+
+    def run(self):
+        self.create_project()
+        script_path = self.copy_from_template(f'compile.tcl')
+        self.run_process('quartus_sh',
+                         ['-t', str(script_path)],
+                         stdout_logfile='compile_stdout.log'
+                         )
+
+    def parse_reports(self):
         failed = False
 
         resources = parse_csv(
-            self.reports_dir / 'Fitter.Resource_Section.Fitter_Resource_Utilization_by_Entity.csv',
+            self.reports_dir / 'Fitter' / 'Resource_Section' / 'Fitter_Resource_Utilization_by_Entity.csv',
             id_field='Compilation Hierarchy Node',
             field_parser=lambda s: int(s.split()[0]),
             id_parser=lambda s: s.strip()[1:],
@@ -202,7 +166,7 @@ class Quartus(Suite):
 
         # TODO is this the most reliable timing report?
         slacks = parse_csv(
-            self.reports_dir / 'Timing_Analyzer.Multicorner_Timing_Analysis_Summary.csv',
+            self.reports_dir / 'Timing_Analyzer' / 'Multicorner_Timing_Analysis_Summary.csv',
             id_field='Clock',
             field_parser=lambda s: float(s.strip()),
             id_parser=lambda s: s.strip(),
@@ -218,8 +182,7 @@ class Quartus(Suite):
 
         for temp in ['85C', '0C']:
             fmax = parse_csv(
-                self.reports_dir /
-                f'Timing_Analyzer.Slow_1200mV_{temp}_Model.Slow_1200mV_{temp}_Model_Fmax_Summary.csv',
+                self.reports_dir / 'Timing_Analyzer' / f'Slow_1200mV_{temp}_Model' / f'Slow_1200mV_{temp}_Model_Fmax_Summary.csv',
                 id_field='Clock Name',
                 field_parser=lambda s: s.strip().split(),
                 id_parser=lambda s: s.strip(),
@@ -228,6 +191,37 @@ class Quartus(Suite):
             self.results[f'fmax_{temp}'] = fmax['clock']['Fmax']
 
         self.results['success'] = not failed
+
+
+class QuartusDse(QuartusSynth, DseFlow):
+    def run(self):
+        self.create_project()
+        # TODO Check correspondance of settings hash vs desgin settings
+        # 'explore': Exploration flow to use, if not specified in --config
+        #   configuration file. Valid flows: timing_aggressive,
+        #   all_optimization_modes, timing_high_effort, seed,
+        #   area_aggressive, power_high_effort, power_aggressive
+        # 'compile_flow':  'full_compile', 'fit_sta' and 'fit_sta_asm'.
+        # 'timeout': Limit the amount of time a compute node is allowed to run. Format: hh:mm:ss
+        if 'dse' not in self.settings.flow:
+            self.fatal('`flows.quartus.dse` settings are missing!')
+
+        dse = self.settings.flow['dse']
+        if 'nproc' not in dse or not dse['nproc']:
+            dse['nproc'] = self.nthreads
+
+        script_path = self.copy_from_template(f'settings.dse',
+                                              dse=dse
+                                              )
+        self.run_process('quartus_dse',
+                         ['--use-dse-file', script_path, self.settings.design['name']],
+                         stdout_logfile='dse_stdout.log',
+                         initial_step="Running Quartus DSE",
+                         )
+
+    def parse_reports(self):
+        'quartus_dse_report.json'
+        pass
 
 
 # DES:

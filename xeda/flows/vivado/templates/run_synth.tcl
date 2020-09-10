@@ -2,7 +2,7 @@
 puts "Using \"$strategy\" synthesis strategy"
 
 if {$strategy == "Debug"} {
-	set synth_options "-flatten_hierarchy none -keep_equivalent_registers -no_lc -fsm_extraction off -assert -directive RuntimeOptimized"
+	set synth_options "-assert -flatten_hierarchy none -keep_equivalent_registers -no_lc -fsm_extraction off -directive RuntimeOptimized"
 	set opt_options "-directive RuntimeOptimized"
 	set place_options "-directive RuntimeOptimized"
 	set route_options "-directive RuntimeOptimized"
@@ -10,7 +10,7 @@ if {$strategy == "Debug"} {
 } else {
 
 if {$strategy == "Runtime"} {
-	set synth_options "-assert -directive RuntimeOptimized"
+	set synth_options "-directive RuntimeOptimized"
 	set opt_options "-directive RuntimeOptimized"
 	set place_options "-directive RuntimeOptimized"
 	set route_options "-directive RuntimeOptimized"
@@ -18,7 +18,7 @@ if {$strategy == "Runtime"} {
 } else {
 
 if {$strategy == "Default"} {
-	set synth_options "-assert -flatten_hierarchy rebuilt -retiming -directive Default"
+	set synth_options "-flatten_hierarchy rebuilt -retiming -directive Default"
 	set opt_options "-directive ExploreWithRemap"
 	set place_options "-directive Default"
 	set route_options "-directive Default"
@@ -27,7 +27,7 @@ if {$strategy == "Default"} {
 
 if {$strategy == "Timing"} {
   puts "Timing optimized goal!"
-  set synth_options "-assert -flatten_hierarchy full -retiming -directive PerformanceOptimized"
+  set synth_options "-flatten_hierarchy full -retiming -directive PerformanceOptimized"
   set opt_options "-directive ExploreWithRemap"
   # or ExtraTimingOpt, ExtraPostPlacementOpt, Explore
   set place_options "-directive ExtraTimingOpt"
@@ -39,7 +39,7 @@ if {$strategy == "Timing"} {
 } else {
 
 if {$strategy == "Area"} {
-  set synth_options "-assert -flatten_hierarchy full -directive AreaOptimized_high"
+  set synth_options "-flatten_hierarchy full -directive AreaOptimized_high"
   # if no directive: -resynth_seq_area 
   set opt_options "-directive ExploreArea"
   set place_options "-directive Explore"
@@ -54,7 +54,7 @@ exit 1
 
 set_param general.maxThreads ${nthreads}
 
-set stamp_filename "${vivado_dir}/synth.stamp"
+set stamp_filename "synth.stamp"
 #Trying to delete a non-existent file is not considered an error.
 file delete -force ${stamp_filename}
 
@@ -128,7 +128,7 @@ read_xdc {{xdc_file}}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="
 
-set synth_options "${synth_options} -max_bram 0 -max_dsp 0"
+set synth_options "${synth_options} {% if not flow.use_bram -%} -max_bram 0 {%- endif %} {% if not flow.use_dsp -%} -max_dsp 0 {%- endif %}"
 
 if {$strategy == "Debug"} {
     eval synth_design -rtl -rtl_skip_ip -top ${top} ${synth_options} ${generics_options}

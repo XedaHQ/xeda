@@ -1,18 +1,16 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
 import re
-from ..suite import Suite, HasSimFlow
+from ..flow import SimFlow, Flow
 
 
-class Ghdl(Suite, HasSimFlow):
-    name = 'ghdl'
-    supported_flows = ['sim']
+class Ghdl(Flow):
+    pass
 
-    def __init__(self, settings, args, logger):
 
-        super().__init__(settings, args, logger)
+class GhdlSim(Ghdl, SimFlow):
 
-    def __runflow_impl__(self, flow):
+    def run(self):
         # TODO synthesis, lint
 
         warns = ['-Wbinding', '-Wreserved', '-Wlibrary', '-Wvital-generic',
@@ -34,6 +32,10 @@ class Ghdl(Suite, HasSimFlow):
             elab_options += ['-fsynopsys']
 
         run_options = ['--ieee-asserts=disable-at-0']  # TODO
+
+        stop_time = self.settings.flow.get('stop_time')
+        if stop_time:
+            run_options.append(f'--stop-time={stop_time}')
 
         if self.args.verbose:
             analysis_options.append('-v')
@@ -93,7 +95,4 @@ class Ghdl(Suite, HasSimFlow):
                          force_echo=True
                          )
 
-    # TODO LWC_TB for now, TODO: generic python function/regexp?
-    def parse_reports(self, flow):
-        if flow == 'sim':
-            self.simrun_match_regexp(r'PASS\s*\(0\):\s*SIMULATION\s*FINISHED')
+            

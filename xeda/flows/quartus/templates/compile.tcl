@@ -39,8 +39,8 @@ foreach panel_name $panel_names {
     set csv_file [string trim $panel_name]
 
     set csv_file [regsub -all {_*\s+_*} $csv_file _ ]
-    set csv_file [regsub -all {_*\|+_*} $csv_file . ]
     set csv_file [regsub -all {_*/+_*} $csv_file {} ]
+    set csv_file [regsub -all {_*\|+_*} $csv_file / ]
     set csv_file [regsub -all "_*\\+_*" $csv_file _ ]
     set csv_file [regsub -all {_*&+_*} $csv_file _ ]
     set csv_file [regsub -all {_*\-+_*} $csv_file {} ]
@@ -49,6 +49,10 @@ foreach panel_name $panel_names {
     set csv_file [regsub -all {_*"+_*} $csv_file {} ]
 
     set csv_file $reports_dir/$csv_file.csv
+
+    set csv_file_dir [file dirname ${csv_file}]
+
+    file mkdir $csv_file_dir
 
     puts "Saving $panel_name to $csv_file"
 
