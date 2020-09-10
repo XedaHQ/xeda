@@ -158,9 +158,9 @@ class LwcCheckTimingHook():
 
         logger.info(f"Saving timing comparison to {out_csv_path}")
         if self.gen_aead_timing:
-                ad_msg_sizes = {"16":0, "64":1, "1536":2}
-                output_rows = [[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]]
-                block_sizes = {"4":3, "5":4}
+            ad_msg_sizes = {"16":0, "64":1, "1536":2}
+            output_rows = [[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]]
+            block_sizes = {"4":3, "5":4}
             with open(timing_csv_path, newline="") as in_csv:
                 reader = csv.DictReader(in_csv)
 
