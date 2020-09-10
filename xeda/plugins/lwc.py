@@ -158,47 +158,22 @@ class LwcCheckTimingHook():
 
         logger.info(f"Saving timing comparison to {out_csv_path}")
         if self.gen_aead_timing:
-            ad_msg_sizes = {"16":0, "64":1, "1536":2}
-            output_rows = [[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]]
-            block_sizes = {"4":3, "5":4}
-            with open(timing_csv_path, newline="") as in_csv:
+
+            exectime_str = ""
+            latency_str = ""
+            with open(timing_csv_path, newline="") as in_csv, open(run_dir / f"AEAD_Timing.csv", 'w') as out_csv:
                 reader = csv.DictReader(in_csv)
+                next(reader)
 
-                for row in reader:
-                    ad_size = int(row['AD Size'])
-                    msg_size = int(row['Msg Size'])
+                for i in range(0,6):
+                    csv_slice = itertools.islice(reader, 5)
+                    exectime_str = [','.join(row['Actual Execution Time'] for row in csv_slice)]
+                    if i == 1 or i == 4:
+                        latency_str = [','.join(row['Actual Latency'] for row in csv_slice)]
+                    out_csv.write(exectime_str+'\n')
+                    if i == 2:
+                        out_csv.write(latency_str+'\n')
 
-                    for size in ad_msg_sizes.keys():
-                        if ad_size == int(size) and msg_size == 0:
-                            output_rows[0][ad_msg_sizes[size]] = row["Actual Execution Time"]
-                        elif ad_size == 0 and msg_size == int(size):
-                            output_rows[1][ad_msg_sizes[size]] = row["Actual Execution Time"]
-                            output_rows[3][ad_msg_sizes[size]] = row["Actual Latency"]
-                        elif ad_size == int(size) and msg_size == int(size):
-                            output_rows[2][ad_msg_sizes[size]] = row["Actual Execution Time"]
-
-            with open(timing_csv_path, newline="") as in_csv:
-                reader = csv.DictReader(in_csv)
-                for row in reader:
-                    na = int(row['Na'])
-                    nm = int(row['Nm'])
-                    nc = int(row['Nc'])
-                    nh = int(row['Nh'])
-
-                    for size in block_sizes.keys():
-                        if na == int(size) and (nm == 0 and nc == 0 and nh == 0):
-                            output_rows[0][block_sizes[size]] = row["Actual Execution Time"]
-                        elif na == 0 and (nm == int(size) or nc == int(size) or nh == int(size)):
-                            output_rows[1][block_sizes[size]] = row["Actual Execution Time"]
-                        elif na == int(size) and (nm == int(size) or nc == int(size) or nh == int(size)):
-                            output_rows[2][block_sizes[size]] = row["Actual Execution Time"]
-                   
-            with open(run_dir / f"AEAD_Timing.csv","w") as out_csv:
-                print(output_rows)
-                for r in output_rows:
-                    output_str = ', '.join(str(i) for i in r)
-                    output_str = output_str + '\n'
-                    out_csv.write(output_str)
                    
         with open(timing_csv_path, newline="") as in_csv, open(out_csv_path, "w") as out_csv:
             reader = csv.DictReader(in_csv)
