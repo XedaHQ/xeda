@@ -115,9 +115,11 @@ from ..flows.flow import Flow, SimFlow
 class LwcCheckTimingHook():
     """ Check timing vs formula for the variant """
 
-    def __init__(self, variant_id, variant_data) -> None:
+    def __init__(self, variant_id, variant_data, gen_aead_timing, gen_aead_timing_path) -> None:
         self.variant_id = variant_id
         self.variant_data = variant_data
+        self.gen_aead_timing = gen_aead_timing
+        self.gen_aead_timing_path = gen_aead_timing_path
 
     def __call__(self, flow: Flow):
         logger = logging.getLogger()
@@ -153,8 +155,49 @@ class LwcCheckTimingHook():
 
         out_csv_path = run_dir / f"timing_vs_formula_{variant_id}.csv"
 
-        logger.info(f"Saving timing comparison to {out_csv_path}")
 
+        logger.info(f"Saving timing comparison to {out_csv_path}")
+        if self.gen_aead_timing:
+
+            with open(timing_csv_path, newline="") as in_csv, open(gen_aead_timing_path, "w") as out_csv:
+                reader = csv.DictReader(in_csv)
+                ad_loc = 0
+                pt_loc = 1
+                ad_msg_sizes = {"16":0, "64":1, "1536":2}
+                output_rows = [[],[],[],[]]
+                block_sizes = {"4":3, "5":4}
+                for row in reader:
+                    ad_size = int(row['AD Size'])
+                    msg_size = int(row['Msg Size'])
+
+                    for size in ad_msg_sizes.keys():
+                        if ad_size == int(size) and msg_size == 0:
+                            output_rows[0][ad_msg_sizes[size]] = row["Actual Execution Time"]
+                        elif ad_size == 0 and msg_size == int(size):
+                            output_rows[1][ad_msg_sizes[size]] = row["Actual Execution Time"]
+                            output_rows[4][ad_msg_sizes[size]] = row["Actual Latency Time"]
+                        elif ad_size == int(size) and msg_size == int(size):
+                            output_rows[2][ad_msg_sizes[size]] = row["Actual Execution Time"]
+
+                in_csv.seek(0)
+                for row in reader:
+                    na = int(row['Na'])
+                    nm = int(row['Nm'])
+                    nc = int(row['Nc'])
+                    nh = int(row['Nh'])
+
+                    for size in block_sizes.keys():
+                        if na == int(size) and (nm == 0 and nc == 0 and nh == 0):
+                            output_rows[0][block_sizes[size]] = row["Actual Execution Time"]
+                        elif na == 0 and (nm == int(size) or nc == int(size) or nh == int(size)):
+                            output_rows[1][block_sizes[size]] = row["Actual Execution Time"]
+                        elif na == int(size) and (nm == int(size) or nc == int(size) or nh == int(size)):
+                            output_rows[2][block_sizes[size]] = row["Actual Execution Time"]
+                   
+
+                for r in output_rows:
+                    out_csv.write(''.join(str(i) for i in r))
+                   
         with open(timing_csv_path, newline="") as in_csv, open(out_csv_path, "w") as out_csv:
             reader = csv.DictReader(in_csv)
             t_exec_header = "Expected Execution Time"

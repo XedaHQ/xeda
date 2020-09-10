@@ -192,6 +192,16 @@ class LwcVariantsRunner(DefaultFlowRunner):
             action='store_true',
             help='Use multiprocessing to run in parallel'
         )
+        # TODO rename
+        plug_parser.add_argument(
+            '--gen-aead-timing',
+            action='store_true',
+            help='Generate AEAD timing results'
+        )
+        plug_parser.add_argument(
+            '--gen-aead-timing-path',
+            help='Path for AEAD timing output'
+        )
         #TODO implement
         # plug_parser.add_argument(
         #     '--variants_subset',
@@ -201,8 +211,9 @@ class LwcVariantsRunner(DefaultFlowRunner):
     def launch(self):
         args = self.args
         self.parallel_run = args.parallel_run
+        self.gen_aead_timing = args.gen_aead_timing
+        self.gen_aead_timing_path = args.gen_aead_timing_path
         logger.info(f"parallel_run={self.parallel_run}")
-
 
         total = 0
         num_success = 0
@@ -239,7 +250,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
             if self.parallel_run:
                 flow.set_parallel_run(None)
 
-            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data))
+            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data, self.gen_aead_timing, self.gen_aead_timing_path))
 
             flows_to_run.append(flow)
         
