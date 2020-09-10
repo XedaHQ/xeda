@@ -24,8 +24,6 @@ class FlowRunner():
 
     def __init__(self, args) -> None:
         self.args = args
-        self.parallel_run = args.parallel_run
-        logger.info(f"parallel_run={self.parallel_run}")
 
     
     def get_default_settings(self):
@@ -194,6 +192,9 @@ class LwcVariantsRunner(DefaultFlowRunner):
         )
 
     def launch(self):
+        self.parallel_run = args.parallel_run
+        logger.info(f"parallel_run={self.parallel_run}")
+        
         args = self.args
 
         total = 0
@@ -288,7 +289,9 @@ class LwcFmaxRunner(FlowRunner):
 
         flow_name = args.flow
 
-
+        total_runs = 0
+        improvement = None
+        
         while True:
 
             if next_period:
@@ -303,6 +306,7 @@ class LwcFmaxRunner(FlowRunner):
             logger.info(f'[DSE] Trying clock_period = {set_period:0.3f}ns')
             # fresh directory for each run
             flow.run()
+            total_runs += 1
             self.post_run(flow)
 
             rundirs.add(flow.run_dir)
@@ -355,6 +359,12 @@ class LwcFmaxRunner(FlowRunner):
                     f'[DSE] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
                 )
                 break
+
+
+            logger.info(f'[DSE] best_period: {best_period}ns run_dir: {best_rundir}')
+            logger.info(
+                f'[DSE] total_runs={total_runs} failed_runs={failed_runs} num_small_improvements={num_small_improvements} improvement={improvement}')
+
 
         logger.info(f'[DSE] best_period = {best_period}')
         logger.info(f'[DSE] best_rundir = {best_rundir}')
