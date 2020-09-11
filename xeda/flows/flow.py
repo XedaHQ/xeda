@@ -49,6 +49,7 @@ class Flow():
 
         
         self.args = args
+        self.run_hash = None
         self.settings = settings
 
         # all design flow-critical settings are fixed from this point onwards
