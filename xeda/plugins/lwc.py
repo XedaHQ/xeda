@@ -2,6 +2,8 @@ import logging
 import math
 import sys
 import csv
+import itertools
+import json
 from ..utils import try_convert
 from ..flows.flow import Flow, SimFlow
 
@@ -115,11 +117,11 @@ from ..flows.flow import Flow, SimFlow
 class LwcCheckTimingHook():
     """ Check timing vs formula for the variant """
 
-    def __init__(self, variant_id, variant_data, gen_aead_timing, gen_aead_timing_path) -> None:
+    def __init__(self, variant_id, variant_data, gen_aead_timing, gen_hash_timing) -> None:
         self.variant_id = variant_id
         self.variant_data = variant_data
         self.gen_aead_timing = gen_aead_timing
-        self.gen_aead_timing_path = gen_aead_timing_path
+        self.gen_hash_timing = gen_hash_timing
 
     def __call__(self, flow: Flow):
         logger = logging.getLogger()
@@ -155,32 +157,52 @@ class LwcCheckTimingHook():
 
         out_csv_path = run_dir / f"timing_vs_formula_{variant_id}.csv"
 
+        vivado_results = {}
+        with open(run_dir / "vivado_sim_results.json", 'r') as resultsjson:
+            vivado_results = json.load(resultsjson)
 
+        vivado_results["variant"] = self.variant_id
+        vivado_results["timing_csv"] = str(run_dir / f"timing_vs_formula_{variant_id}.csv")
+        vivado_results["failed_vectors"] = str(run_dir / f"failed_test_vectors_{variant_id}.txt")
         logger.info(f"Saving timing comparison to {out_csv_path}")
         if self.gen_aead_timing:
-
             exectime_str = ""
             latency_str = ""
+            vivado_results["short_timing_aead"] = str(run_dir / "AEAD_Timing.csv")
             with open(timing_csv_path, newline="") as in_csv, open(run_dir / f"AEAD_Timing.csv", 'w') as out_csv:
                 reader = csv.DictReader(in_csv)
                 next(reader)
+                exectime = [] 
+                latency = []
+                for row in reader:
+                    exectime.append(row["Actual Execution Time"]) 
+                    latency.append(row["Actual Latency"])
+                out_csv.write("AE\n")
+                out_csv.write(','.join(exectime[0:5][::-1]) + '\n' + ','.join(exectime[5:10][::-1])  + '\n' + ','.join(exectime[10:15][::-1]) + '\n' + ','.join(latency[5:8][::-1]))
+                out_csv.write("\nAD\n")
+                out_csv.write(','.join(exectime[15:20][::-1]) + '\n' + ','.join(exectime[20:25][::-1])  + '\n' + ','.join(exectime[25:30][::-1]) + '\n' + ','.join(latency[20:23][::-1]))
+        elif self.gen_hash_timing:
+            exectime_str = ""
+            vivado_results["short_timing_hash"] = str(run_dir / "HASH_Timing.csv")
+            with open(timing_csv_path, newline="") as in_csv, open(run_dir / f"HASH_Timing.csv", 'w') as out_csv:
+                reader = csv.DictReader(in_csv)
+                next(reader)
+                exectime = [] 
+                for row in reader:
+                    exectime.append(row["Actual Execution Time"]) 
+                out_csv.write("HASH\n")
+                out_csv.write(','.join(exectime[0:5][::-1]))
+        
+        outjsonpath = str(run_dir / "vivado_sim_results.json")
+        with open(outjsonpath, 'w') as jsonfile:
+            json.dump(vivado_results, jsonfile,indent=4)
 
-                for i in range(0,6):
-                    csv_slice = itertools.islice(reader, 5)
-                    exectime_str = [','.join(row['Actual Execution Time'] for row in csv_slice)]
-                    if i == 1 or i == 4:
-                        latency_str = [','.join(row['Actual Latency'] for row in csv_slice)]
-                    out_csv.write(exectime_str+'\n')
-                    if i == 2:
-                        out_csv.write(latency_str+'\n')
-
-                   
         with open(timing_csv_path, newline="") as in_csv, open(out_csv_path, "w") as out_csv:
             reader = csv.DictReader(in_csv)
             t_exec_header = "Expected Execution Time"
-            t_latency_header = "Expected Latency Time"
+            t_latency_header = "Expected Latency"
             exec_diff_header = "Actual-Expected Execution Time"
-            latency_diff_header = "Actual-Expected Latency Time"
+            latency_diff_header = "Actual-Expected Latency"
             writer = csv.DictWriter(out_csv, fieldnames=reader.fieldnames +
                                     [t_exec_header, t_latency_header, exec_diff_header, latency_diff_header])
             writer.writeheader()

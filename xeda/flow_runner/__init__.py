@@ -199,6 +199,11 @@ class LwcVariantsRunner(DefaultFlowRunner):
             help='Generate AEAD timing results'
         )
         plug_parser.add_argument(
+            '--gen-hash-timing',
+            action='store_true',
+            help='Generate HASH timing results'
+        )
+        plug_parser.add_argument(
             '--gen-aead-timing-path',
             help='Path for AEAD timing output'
         )
@@ -212,6 +217,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
         args = self.args
         self.parallel_run = args.parallel_run
         self.gen_aead_timing = args.gen_aead_timing
+        self.gen_hash_timing = args.gen_hash_timing
         self.gen_aead_timing_path = args.gen_aead_timing_path
         logger.info(f"parallel_run={self.parallel_run}")
 
@@ -245,12 +251,13 @@ class LwcVariantsRunner(DefaultFlowRunner):
             settings['design']['tb_generics']['G_FNAME_FAILED_TVS'] = f"failed_test_vectors_{variant_id}.txt"
             settings['design']['tb_generics']['G_FNAME_LOG'] = f"lwctb_{variant_id}.log"
 
+            settings['design']['variant'] = variant_id 
             flow = self.setup_flow(settings, args, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
             
             if self.parallel_run:
                 flow.set_parallel_run(None)
 
-            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data, self.gen_aead_timing, self.gen_aead_timing_path))
+            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data, self.gen_aead_timing, self.gen_hash_timing))
 
             flows_to_run.append(flow)
         
