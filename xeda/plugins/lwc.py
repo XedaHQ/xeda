@@ -117,12 +117,11 @@ from ..flows.flow import Flow, SimFlow
 class LwcCheckTimingHook():
     """ Check timing vs formula for the variant """
 
-    def __init__(self, variant_id, variant_data, gen_aead_timing, gen_hash_timing, pyjamask) -> None:
+    def __init__(self, variant_id, variant_data, gen_aead_timing, gen_hash_timing) -> None:
         self.variant_id = variant_id
         self.variant_data = variant_data
         self.gen_aead_timing = gen_aead_timing
         self.gen_hash_timing = gen_hash_timing
-        self.pyjamask = pyjamask
 
     def __call__(self, flow: Flow):
         logger = logging.getLogger()
@@ -145,22 +144,12 @@ class LwcCheckTimingHook():
             k: v for k, v in math.__dict__.items() if not k.startswith("__")
         }
 
-        timing_csv_path = run_dir / flow.settings.design['tb_generics']['G_FNAME_TIMING_CSV']
-        npub_list = []
-        if self.pyjamask:
-            with open(self.pyjamask, 'r') as pdi:
-                for line in pdi:
-                    if '=' in line:
-                        opcode = line.split('=')
-                        if opcode[0].strip() == "HDR" and opcode[1].strip()[0] == 'D':
-                            npub = pdi.readline()
-                            npub_list.append(int(npub.split('=')[1],16) % 64)
         # Na, Nm, Nc, Nh: the number of complete blocks of associated data, plaintext, ciphertext, and hash message, respectively
         # Ina, Inm, Inc, Inh: binary variables equal to 1 if the last block of the respective data type is incomplete, and 0 otherwise
         # Bla, Blm, Blc, and Blh: the number of bytes in the incomplete block of associated data, plaintext, ciphertext, and hash message, respectively
-        print("NPUB COMPLETE")
-        variable_names = ['Na', 'Nm', 'Nc', 'Nh', 'Ina', 'Inm', 'Inc', 'Inh', 'Bla', 'Blm', 'Blc', 'Blh', 'NPUB']
+        variable_names = ['Na', 'Nm', 'Nc', 'Nh', 'Ina', 'Inm', 'Inc', 'Inh', 'Bla', 'Blm', 'Blc', 'Blh']
 
+        timing_csv_path = run_dir / flow.settings.design['tb_generics']['G_FNAME_TIMING_CSV']
 
         out_csv_path = run_dir / f"timing_vs_formula_{variant_id}.csv"
 
@@ -210,7 +199,7 @@ class LwcCheckTimingHook():
             t_latency_header = "Expected Latency"
             exec_diff_header = "Actual-Expected Execution Time"
             latency_diff_header = "Actual-Expected Latency"
-            writer = csv.DictWriter(out_csv, fieldnames=['Msg ID', 'New Key', 'Operation', 'NPUB[5..0]','AD Size', 'Msg Size', 'Na', 'Nm', 'Nc', 'Nh', 'Bla', 'Blm', 'Blc', 'Blh', 'Ina', 'Inm', 'Inc', 'Inh', 'Actual Execution Time', 'Actual Latency'] +
+            writer = csv.DictWriter(out_csv, fieldnames=reader.fieldnames +
                                     [t_exec_header, t_latency_header, exec_diff_header, latency_diff_header])
             writer.writeheader()
             max_diff = 0
@@ -225,7 +214,6 @@ class LwcCheckTimingHook():
                 operation = operations[op_id]
                 # row['Na'] = ad_size/
                 variables = dict((k, try_convert(row.get(k))) for k in variable_names)
-                variables['NPUB'] = npub_list.pop()
                 t_exec_formula = eval(operation["execution_formula"], allowed_funcs, variables)
                 t_exec_sim = int(row['Actual Execution Time'])
                 t_exec_diff = t_exec_sim - t_exec_formula
@@ -235,8 +223,7 @@ class LwcCheckTimingHook():
                 if t_exec_diff > max_diff:
                     max_diff = t_exec_diff
                     max_diff_percent = t_exec_diff * 100 / t_exec_sim
-
-                writer.writerow({**row, "NPUB[5..0]":variables['NPUB'],t_exec_header: t_exec_formula, t_latency_header: t_latency_formula, exec_diff_header: t_exec_diff, latency_diff_header: t_latency_diff})
+                writer.writerow({**row, t_exec_header: t_exec_formula, t_latency_header: t_latency_formula, exec_diff_header: t_exec_diff, latency_diff_header: t_latency_diff})
 
             if max_diff > 0:
                 logger.warning(

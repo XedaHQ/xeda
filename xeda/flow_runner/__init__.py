@@ -257,7 +257,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
             if self.parallel_run:
                 flow.set_parallel_run(None)
 
-            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data, self.gen_aead_timing, self.gen_hash_timing, self.pyjamask))
+            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data, self.gen_aead_timing, self.gen_hash_timing))
 
             flows_to_run.append(flow)
         
