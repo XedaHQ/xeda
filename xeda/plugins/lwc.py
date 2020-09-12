@@ -211,8 +211,10 @@ class LwcCheckTimingHook():
             exec_diff_header = "Actual-Expected Execution Time"
             latency_diff_header = "Actual-Expected Latency"
             out_csv_fields = reader.fieldnames
+            print(reader.fieldnames)
             if self.pyjamask:
                 out_csv_fields = reader.fieldnames.insert(5, "NPUB[5..0]")
+            print(out_csv_fields)
             writer = csv.DictWriter(out_csv, fieldnames=out_csv_fields +
                                     [t_exec_header, t_latency_header, exec_diff_header, latency_diff_header])
             writer.writeheader()
