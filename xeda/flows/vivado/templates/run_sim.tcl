@@ -54,7 +54,7 @@ if { {{debug}} || $gen_saif || $gen_vcd } {
 file delete -force xsim.dir
 
 
-set analyze_flags " -incr -relax -work ${xsim_lib_name} {%- if debug %} -verbose 2 {%- endif %}"
+set analyze_flags " -incr -work ${xsim_lib_name} {%- if debug %} -verbose 2 {%- endif %}"
 
 set designs "${xsim_lib_name}.${tb_top}"
 
