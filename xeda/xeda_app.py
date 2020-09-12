@@ -5,16 +5,15 @@ from genericpath import exists
 from pathlib import Path
 import sys
 import argparse
-from xeda.flow_runner import DefaultFlowRunner, LwcFmaxRunner, LwcVariantsRunner
+from .debug import DebugLevel
+from .flow_runner import DefaultFlowRunner, LwcFmaxRunner, LwcVariantsRunner
 
 import coloredlogs
 import logging
 
 import pkg_resources
 
-
 logger = logging.getLogger()
-
 logger.setLevel(logging.INFO)
 
 
@@ -90,9 +89,9 @@ class XedaApp:
             '--debug',
             nargs='?',
             type=int,
-            default=0,
-            const=1,
-            help='Set debug level.'
+            default=DebugLevel.NONE,
+            const=DebugLevel.LOW,
+            help=f'Set debug level. {list(DebugLevel)}'
         )
         parser.add_argument(
             '--verbose',

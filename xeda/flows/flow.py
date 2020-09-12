@@ -19,6 +19,7 @@ from progress.spinner import Spinner as Spinner
 import colored
 
 from ..utils import camelcase_to_snakecase, try_convert
+from ..debug import DebugLevel
 
 from pathlib import Path
 
@@ -67,7 +68,7 @@ class Flow():
 
         self.flow_stdout_log = f'{self.name}_stdout.log'
 
-        self.no_console = args.debug
+        self.no_console = args.debug >= DebugLevel.LOW
 
         self.init_time = time.monotonic()
 
@@ -226,14 +227,16 @@ class Flow():
             if self.no_console:
                 return None
             return Spinner('⏳' + step if unicode else step)
+        
+        redirect_std = self.args.debug < DebugLevel.HIGH
         with open(stdout_logfile, 'w') as log_file:
             try:
                 logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
-                if not self.args.debug:
+                if not redirect_std:
                     logger.info(f'Standard output from the tool will be saved to {stdout_logfile}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.run_dir,
-                                      stdout=None if self.args.debug else subprocess.PIPE,
+                                      stdout=subprocess.PIPE if redirect_std else None,
                                       bufsize=1,
                                       universal_newlines=True,
                                       encoding='utf-8',
@@ -244,7 +247,7 @@ class Flow():
                             if unicode:
                                 print('\r✅', end='')
                             spinner.finish()
-                    if not self.args.debug:
+                    if redirect_std:
                         if initial_step:
                             spinner = make_spinner(initial_step)
                         while True:
@@ -407,6 +410,13 @@ class SimFlow(Flow):
         failed = self.stdout_search_re(r'FAIL \(1\): SIMULATION FINISHED')
         passed = self.stdout_search_re(r'PASS \(0\): SIMULATION FINISHED')
         self.results['success'] = passed and not failed
+
+    @property
+    def vcd(self):
+        vcd = self.settings.flow.get('vcd')
+        if not vcd and self.args.debug >= DebugLevel.LOW:
+            vcd = 'debug_dump.vcd'
+        return vcd
 
 
 class SynthFlow(Flow):
