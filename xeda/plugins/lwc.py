@@ -158,6 +158,7 @@ class LwcCheckTimingHook():
         # Na, Nm, Nc, Nh: the number of complete blocks of associated data, plaintext, ciphertext, and hash message, respectively
         # Ina, Inm, Inc, Inh: binary variables equal to 1 if the last block of the respective data type is incomplete, and 0 otherwise
         # Bla, Blm, Blc, and Blh: the number of bytes in the incomplete block of associated data, plaintext, ciphertext, and hash message, respectively
+        print("NPUB COMPLETE")
         variable_names = ['Na', 'Nm', 'Nc', 'Nh', 'Ina', 'Inm', 'Inc', 'Inh', 'Bla', 'Blm', 'Blc', 'Blh', 'NPUB']
 
 
@@ -210,7 +211,7 @@ class LwcCheckTimingHook():
             exec_diff_header = "Actual-Expected Execution Time"
             latency_diff_header = "Actual-Expected Latency"
             out_csv_fields = reader.fieldnames
-            if pyjamask:
+            if self.pyjamask:
                 out_csv_fields = reader.fieldnames.insert(5, "NPUB[5..0]")
             writer = csv.DictWriter(out_csv, fieldnames=out_csv_fields +
                                     [t_exec_header, t_latency_header, exec_diff_header, latency_diff_header])
