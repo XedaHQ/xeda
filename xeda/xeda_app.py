@@ -86,17 +86,15 @@ class XedaApp:
     def parse_args(self, args=None):
         parser = self.parser
         parser.add_argument(
-            '--debug',
-            nargs='?',
+            '--debug-level',
             type=int,
             default=DebugLevel.NONE,
-            const=DebugLevel.LOW,
-            help=f'Set debug level. {list(DebugLevel)}'
+            help=f'Set debug level. Values of DEBUG_LEVEL correspond to: {list(DebugLevel)}'
         )
         parser.add_argument(
             '--verbose',
             action='store_true',
-            help='Be verbose. Print everything to stdout'
+            help='Be verbose. Print everything to stdout.'
         )
         parser.add_argument(
             '--quiet',
