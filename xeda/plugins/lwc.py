@@ -147,8 +147,8 @@ class LwcCheckTimingHook():
 
         timing_csv_path = run_dir / flow.settings.design['tb_generics']['G_FNAME_TIMING_CSV']
         npub_list = []
-        if pyjamask:
-            with open(pyjamask, 'r') as pdi:
+        if self.pyjamask:
+            with open(self.pyjamask, 'r') as pdi:
                 for line in pdi:
                     if '=' in line:
                         opcode = line.split('=')
