@@ -38,13 +38,13 @@ set xsim_lib_name work
 
 set snapshot_name "${tb_top}"
 
-append xelab_flags " -incr -k -s ${snapshot_name} ${tb_generics_options} "
+append xelab_flags " -incr -rangecheck -s ${snapshot_name} ${tb_generics_options} "
 append xelab_flags " -mt ${nthreads} -log elaborate.log -L ${xsim_lib_name} "
 append xelab_flags " -L simprims_ver "
 {% if debug %}
     append xelab_flags " -O0 "
 {% else %}
-    append xelab_flags " -O3 "
+    append xelab_flags " -O0 "
 {% endif %}
 
 if { {{debug}} || $gen_saif || $gen_vcd } {
@@ -54,7 +54,7 @@ if { {{debug}} || $gen_saif || $gen_vcd } {
 file delete -force xsim.dir
 
 
-set analyze_flags " -incr -relax -work ${xsim_lib_name} {%- if debug %} -verbose 2 {%- endif %}"
+set analyze_flags " -incr -rangecheck -work ${xsim_lib_name} {%- if debug %} -verbose 2 {%- endif %}"
 
 set designs "${xsim_lib_name}.${tb_top}"
 
