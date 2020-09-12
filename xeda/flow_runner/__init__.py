@@ -205,7 +205,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
         )
         plug_parser.add_argument(
             '--gen-aead-timing-path',
-            help='Path for AEAD timing output'
+            help='Path for AEAD timing output cc'
         )
         #TODO implement
         # plug_parser.add_argument(

@@ -38,7 +38,7 @@ set xsim_lib_name work
 
 set snapshot_name "${tb_top}"
 
-append xelab_flags " -incr -relax -s ${snapshot_name} ${tb_generics_options} "
+append xelab_flags " -incr -k -s ${snapshot_name} ${tb_generics_options} "
 append xelab_flags " -mt ${nthreads} -log elaborate.log -L ${xsim_lib_name} "
 append xelab_flags " -L simprims_ver "
 {% if debug %}
@@ -79,6 +79,7 @@ puts "\n===========================( Analyzing HDL Sources )====================
         }
         {% else %}
         puts "Analyzing Verilog file {{src.file}}"
+	puts "xvlog ${analyze_flags}"
         if { [catch {eval exec xvlog ${analyze_flags} {{src.file}} } myError]} {
             errorExit $myError
         }
@@ -93,8 +94,9 @@ puts "\n===========================( Analyzing HDL Sources )====================
     {% endif %}
 {% endfor %}
 
-
+puts "helo\n"
 puts "\n===========================( Elaborating design: ${tb_top} )==========================="
+puts "xelab ${xelab_flags} ${xelab_vhdl_std_opt} ${designs}"
 eval exec xelab ${xelab_flags} ${xelab_vhdl_std_opt} ${designs} 
 
 # eval exec xelab -incr -debug typical -relax -mt 8 -maxdelay -L xil_defaultlib -L simprims_ver -L secureip -s ${snapshot_name} -transport_int_delays -pulse_r 0 -pulse_int_r 0 -pulse_e 0 -pulse_int_e 0 ${xsim_lib_name}.LWC_TB -generic "G_PERIOD=${clock_period}ns" ${xsim_lib_name}.glbl -log elaborate.log
