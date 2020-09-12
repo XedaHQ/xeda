@@ -132,10 +132,6 @@ class LwcCheckTimingHook():
             logger.info(f"LwcCheckTimingHook only operates on simulation flows.")
             return
 
-        if not results["success"]:
-            logger.critical("Not running post_results_hook because results are marked as failure.")
-            return
-
         variant_id = self.variant_id
         variant = self.variant_data
 
