@@ -210,7 +210,7 @@ class LwcCheckTimingHook():
             t_latency_header = "Expected Latency"
             exec_diff_header = "Actual-Expected Execution Time"
             latency_diff_header = "Actual-Expected Latency"
-            writer = csv.DictWriter(out_csv, fieldnames=['Msg ID', 'New Key', 'Operation', 'NPUB','AD Size', 'Msg Size', 'Na', 'Nm', 'Nc', 'Nh', 'Bla', 'Blm', 'Blc', 'Blh', 'Ina', 'Inm', 'Inc', 'Inh', 'Actual Execution Time', 'Actual Latency'] +
+            writer = csv.DictWriter(out_csv, fieldnames=['Msg ID', 'New Key', 'Operation', 'NPUB[5..0]','AD Size', 'Msg Size', 'Na', 'Nm', 'Nc', 'Nh', 'Bla', 'Blm', 'Blc', 'Blh', 'Ina', 'Inm', 'Inc', 'Inh', 'Actual Execution Time', 'Actual Latency'] +
                                     [t_exec_header, t_latency_header, exec_diff_header, latency_diff_header])
             writer.writeheader()
             max_diff = 0
