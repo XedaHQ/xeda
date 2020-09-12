@@ -404,8 +404,8 @@ class SimFlow(Flow):
 
     # TODO FIXME move to plugin
     def parse_reports(self):
-        failed = self.stdout_search_re('FAIL (1): SIMULATION FINISHED')
-        passed = self.stdout_search_re('PASS (0): SIMULATION FINISHED')
+        failed = self.stdout_search_re(r'FAIL \(1\): SIMULATION FINISHED')
+        passed = self.stdout_search_re(r'PASS \(0\): SIMULATION FINISHED')
         self.results['success'] = passed and not failed
 
 
