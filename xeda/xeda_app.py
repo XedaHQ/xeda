@@ -12,24 +12,11 @@ import logging
 
 import pkg_resources
 
-xeda_run_dir = Path('xeda_run')
-
-xeda_run_dir.mkdir(exist_ok=True, parents=True)
 
 logger = logging.getLogger()
 
 logger.setLevel(logging.INFO)
 
-timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-
-logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
-
-fileHandler = logging.FileHandler(xeda_run_dir / f"xeda_{timestamp}.log")
-fileHandler.setFormatter(logFormatter)
-logger.addHandler(fileHandler)
-
-
-coloredlogs.install('INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
 
 
 try:
@@ -45,7 +32,6 @@ class XedaApp:
             prog=__package__,
             description=f'{__package__}: Simulate And Synthesize Hardware! Version {__version__}')
         self.args = None
-        self.logger = logger
 
     # TODO
     def check_settings(self):
@@ -69,6 +55,21 @@ class XedaApp:
         }
         runner_cls = registered_runner_cmds.get(args.command)
         if runner_cls:
+            xeda_run_dir = Path(args.xeda_run_dir)
+
+            xeda_run_dir.mkdir(exist_ok=True, parents=True)
+
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
+
+            logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+
+            fileHandler = logging.FileHandler(xeda_run_dir / f"xeda_{timestamp}.log")
+            fileHandler.setFormatter(logFormatter)
+            logger.addHandler(fileHandler)
+
+
+            coloredlogs.install('INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
+
             runner = runner_cls(self.args)
         else:
             sys.exit(f"Runner for {args.command} is not implemented")
@@ -87,8 +88,11 @@ class XedaApp:
         parser = self.parser
         parser.add_argument(
             '--debug',
-            action='store_true',
-            help='Print debug info'
+            nargs='?',
+            type=int,
+            default=0,
+            const=1,
+            help='Set debug level.'
         )
         parser.add_argument(
             '--verbose',
@@ -102,13 +106,13 @@ class XedaApp:
         )
         parser.add_argument(
             '--force-run-dir',
-            # help='Force set run directory where the tools are run.',
+            help='USE ONLY FOR DEBUG PURPOSES.',
             # default=None
         )
         parser.add_argument(
-            '--all-runs-dir',
-            # help='Change top directory where the all the runs of a flow is run from `<FLOW_NAME>_run` ',
-            # default=None
+            '--xeda-run-dir',
+            help='Directory where the flows are executed and intermediate and result files reside.',
+            default='xeda_run'
         )
 
         subparsers = parser.add_subparsers(dest='command', help='Commands Help')

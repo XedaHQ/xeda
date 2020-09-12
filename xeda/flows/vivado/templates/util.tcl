@@ -60,8 +60,3 @@ proc showWarningsAndErrors {} {
   puts "\n\n"
 }
 
-proc errorExit {errorString} {
-  puts "\n===========================( *ENABLE ECHO* )==========================="
-  puts "Error: $errorString"
-  exit 1
-}

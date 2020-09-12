@@ -2,6 +2,10 @@
 
 from ..flow import SimFlow, Flow, SynthFlow
 
+# FIXME move
+DEBUG_TRACE_LEVEL = 3
+
+
 def supported_vivado_generic(k, v, sim):
     if sim:
         return True
@@ -11,6 +15,7 @@ def supported_vivado_generic(k, v, sim):
         return True
     v = str(v)
     return (v.isnumeric() or (v.strip().lower() in {'true', 'false'}))
+
 
 def vivado_gen_convert(k, x, sim):
     if sim:
@@ -22,6 +27,7 @@ def vivado_gen_convert(k, x, sim):
         return "1\\'b1"
     return x
 
+
 def vivado_generics(kvdict, sim):
     return ' '.join([f"-generic {k}={vivado_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_vivado_generic(k, v, sim)])
 
@@ -29,13 +35,13 @@ def vivado_generics(kvdict, sim):
 class Vivado(Flow):
     reports_subdir_name = 'reports'
 
-    def run_vivado(self, script_path):        
+    def run_vivado(self, script_path):
         debug = self.args.debug
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug else 'batch', '-source', str(script_path)]
         if not debug:
             vivado_args.append('-notrace')
         return self.run_process('vivado', vivado_args, initial_step='Starting vivado',
-                         stdout_logfile=self.flow_stdout_log)
+                                stdout_logfile=self.flow_stdout_log)
 
 
 class VivadoSynth(Vivado, SynthFlow):
@@ -111,7 +117,16 @@ class VivadoSynth(Vivado, SynthFlow):
 
 class VivadoSim(Vivado, SimFlow):
     def run(self):
-        self.settings.flow['generics_options'] = vivado_generics(self.settings.design["tb_generics"], sim=True)
-        script_path = self.copy_from_template(f'vivado_sim.tcl')
+        generics_options = vivado_generics(self.settings.design["tb_generics"], sim=True)
+        script_path = self.copy_from_template(f'vivado_sim.tcl',
+                                              generics_options=generics_options,
+                                              analyze_flags='-relax',
+                                              elab_flags=f'-relax -O3 -mt {self.settings.nthreads}',
+                                              sim_flags='',  # '-maxdeltaid 100000 -verbose'
+                                              initialize_zeros=False,
+                                              vcd=None,
+                                              saif=None,
+                                              debug_traces=self.args.debug >= DEBUG_TRACE_LEVEL or self.settings.flow.get(
+                                                  'debug_traces')
+                                              )
         return self.run_vivado(script_path)
-
