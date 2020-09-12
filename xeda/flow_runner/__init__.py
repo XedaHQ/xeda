@@ -204,7 +204,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
             help='Generate HASH timing results'
         )
         plug_parser.add_argument(
-            '--gen-aead-timing-path',
+            '--pyjamask',
             help='Path for AEAD timing output cc'
         )
         #TODO implement
@@ -218,7 +218,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
         self.parallel_run = args.parallel_run
         self.gen_aead_timing = args.gen_aead_timing
         self.gen_hash_timing = args.gen_hash_timing
-        self.gen_aead_timing_path = args.gen_aead_timing_path
+        self.pyjamask = args.pyjamask
         logger.info(f"parallel_run={self.parallel_run}")
 
         total = 0
@@ -257,7 +257,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
             if self.parallel_run:
                 flow.set_parallel_run(None)
 
-            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data, self.gen_aead_timing, self.gen_hash_timing))
+            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data, self.gen_aead_timing, self.gen_hash_timing, self.pyjamask))
 
             flows_to_run.append(flow)
         
