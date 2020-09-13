@@ -55,20 +55,7 @@ class FlowRunner():
         return settings
 
     # should not override
-    def post_run(self, flow):
-
-
-
-        # plugin_clss = [LwcSim]
-        
-        # for pcls in plugin_clss:
-        #     assert issubclass(pcls, Plugin)
-        #     # create plugin instances
-        #     plugin = pcls(logger)
-        #     if isinstance(plugin, PostRunPlugin):
-        #         self.post_run_hooks.append(plugin.post_run_hook)
-        #     if isinstance(plugin, PostResultsPlugin):
-        #         self.post_results_hooks.append(plugin.post_results_hook)
+    def post_run(self, flow: Flow):
 
         # Run post-run hooks
         for hook in flow.post_run_hooks:
@@ -79,13 +66,13 @@ class FlowRunner():
         if not flow.reports_dir.exists():
             flow.reports_dir.mkdir(parents=True)
 
-        flow.results = dict()  # ???
         flow.parse_reports()
         flow.results['timestamp'] = flow.timestamp
-
-        if flow.results:  # always non empty?
-            flow.print_results()
-            flow.dump_results()
+        flow.results['design.name'] = flow.settings.design['name']
+        flow.results['flow.name'] = flow.name
+        flow.results['flow.run_hash'] = flow.run_hash
+        flow.print_results()
+        flow.dump_results()
 
         # Run post-results hooks
         for hook in flow.post_results_hooks:
@@ -96,7 +83,7 @@ class FlowRunner():
     def setup_flow(self, settings, args, flow_name, max_threads=None):
         if not max_threads:
             max_threads = multiprocessing.cpu_count()
-        # settings is a ref to dict and it's data can change, take a snapshot
+        # settings is a ref to a dict and its data can change, take a snapshot
         settings = copy.deepcopy(settings)
 
         try:
@@ -300,19 +287,26 @@ class LwcFmaxRunner(FlowRunner):
             help='Starting clock period.'
         )
 
+
     def launch(self):
+        merit_period = True
+
         small_improvement_threshold = 0.1
         # max successful runs after first success where improvements is < small_improvement
         max_small_improvements = 20
-        wns_threshold = 0.002
+        wns_threshold = 0.001
         improvement_threshold = 0.002
         error_margin = 0.001
         ####
         failed_runs = 0
         num_small_improvements = 0
-        best_period = None
-        best_results = None
-        best_rundir = None
+        class Best:
+            def __init__(self, period=None, results=None, rundir=None, wns=None):
+                self.period = period
+                self.wns = wns
+                self.results = results
+                self.rundir = rundir
+        best  = Best()
         rundirs = []
 
         args = self.args
@@ -333,6 +327,9 @@ class LwcFmaxRunner(FlowRunner):
         tried_periods = []
         same_period = 0
 
+        success = None
+        wns = None
+
         if args.start_period:
             next_period = args.start_period
         
@@ -341,8 +338,8 @@ class LwcFmaxRunner(FlowRunner):
 
                 if next_period:
                     assert next_period > 0.001
-                    if best_period:
-                        assert next_period < best_period
+                    if best.period:
+                        assert next_period < best.period
                     settings['flows'][flow_name]['clock_period'] = next_period
 
 
@@ -354,8 +351,13 @@ class LwcFmaxRunner(FlowRunner):
                     same_period += 1
                     if same_period > 5:
                         logger.warning(
-                            f'[DSE] had already tried period={set_period} previously {same_period} times!')
+                            f'[DSE] repeating periods for {same_period} times!')
                         break
+                    if success: # previous was success
+                        next_period -= wns / 2 * random.random() - error_margin
+                    else:
+                        next_period += abs(wns) / 2 * random.random() - error_margin
+                    continue
                 else:
                     tried_periods.append(set_period)
 
@@ -374,19 +376,20 @@ class LwcFmaxRunner(FlowRunner):
 
                 if success:
                     failed_runs = 0
-                    if best_period:
-                        if wns <= wns_threshold:
-                            logger.warning(
-                                f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threshold: {wns_threshold}')
-                            break
-
-                    if not best_period or period < best_period:
-                        if best_period:
-                            improvement = best_period - period
-                        best_period = period
-                        best_rundir = flow.run_dir
-                        # deep copy
-                        best_results = {**flow.results}
+                    def merit():
+                        if merit_period:
+                            return best.period > period
+                        else:
+                            return best.period - best.wns > period - wns
+                    has_merit = merit()
+                    if not best.period or has_merit:
+                        if best.period:
+                            improvement = best.period - period
+                            if wns <= wns_threshold:
+                                logger.warning(
+                                    f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threshold: {wns_threshold}')
+                                break
+                        best = Best(period, {**flow.results}, flow.run_dir, wns)
 
                         if improvement and improvement < small_improvement_threshold:
                             num_small_improvements += 1
@@ -398,10 +401,12 @@ class LwcFmaxRunner(FlowRunner):
                         else:
                             # reset to 0?
                             num_small_improvements = max(0, num_small_improvements - 2)
+
+
                 else:
-                    if best_period:
+                    if best.period:
                         failed_runs += 1
-                        next_period = (best_period + set_period) / 2
+                        next_period = (best.period + set_period) / 2
 
                         max_failed = self.args.max_failed_runs
                         if failed_runs >= max_failed:
@@ -411,24 +416,24 @@ class LwcFmaxRunner(FlowRunner):
                             break
 
                 # worse or not worth it
-                if best_period and (best_period - next_period) < improvement_threshold:
+                if best.period and (best.period - next_period) < improvement_threshold:
                     logger.warning(
                         f'[DSE] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
                     )
                     break
 
 
-                logger.info(f'[DSE] best_period: {best_period}ns run_dir: {best_rundir}')
+                logger.info(f'[DSE] best.period: {best.period}ns run_dir: {best.rundir}')
                 logger.info(
                     f'[DSE] total_runs={total_runs} failed_runs={failed_runs} num_small_improvements={num_small_improvements} improvement={improvement} total time={time.monotonic() - state_time}')
         finally:
 
-            logger.info(f'[DSE] best_period = {best_period}')
-            logger.info(f'[DSE] best_rundir = {best_rundir}')
+            logger.info(f'[DSE] best.period = {best.period}')
+            logger.info(f'[DSE] best.rundir = {best.rundir}')
             logger.info(f'[DSE] total time = {int(time.monotonic() - state_time) // 60} minutes')
             logger.info(f'[DSE] total runs = {total_runs}')
             my_print(f'---- Results with optimal frequency: ----')
-            flow.print_results(best_results)
+            flow.print_results(best.results)
 
             logger.info(f'Run directories: {" ".join([str(os.path.relpath(d, Path.cwd())) for d in rundirs])}')
             logger.info(f'Tried periods: {tried_periods}')

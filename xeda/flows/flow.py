@@ -19,6 +19,7 @@ from progress.spinner import Spinner as Spinner
 import colored
 
 from ..utils import camelcase_to_snakecase, try_convert
+from ..debug import DebugLevel
 
 from pathlib import Path
 
@@ -49,11 +50,11 @@ class Flow():
 
         
         self.args = args
+        self.run_hash = None
         self.settings = settings
 
         # all design flow-critical settings are fixed from this point onwards
-        self.set_run_dir(all_runs_dir=self.args.all_runs_dir,
-                                        prefix=None, override=self.args.force_run_dir)
+        self.set_run_dir(prefix=None, override=self.args.force_run_dir)
 
         self.results = dict()
         self.jinja_env = Environment(
@@ -67,7 +68,7 @@ class Flow():
 
         self.flow_stdout_log = f'{self.name}_stdout.log'
 
-        self.no_console = False
+        self.no_console = args.debug >= DebugLevel.LOW
 
         self.init_time = time.monotonic()
 
@@ -144,14 +145,11 @@ class Flow():
         else:
             logger.warn(f"{self.name} does not specify any required_settings for {flow}")
 
-    def set_run_dir(self, all_runs_dir=None, prefix=None, override=None):
+    def set_run_dir(self, prefix=None, override=None):
         # all design flow-critical settings are fixed from this point onwards
         self.set_hash()
 
-        if not all_runs_dir:
-            all_runs_dir = Path.cwd() / 'xeda_run' / self.name
-        elif isinstance(all_runs_dir, str):
-            all_runs_dir = Path(all_runs_dir)
+        all_runs_dir = Path(self.args.xeda_run_dir) / self.name
 
         if override:
             run_dir = Path(override).resolve()
@@ -229,13 +227,16 @@ class Flow():
             if self.no_console:
                 return None
             return Spinner('⏳' + step if unicode else step)
+        
+        redirect_std = self.args.debug < DebugLevel.HIGH
         with open(stdout_logfile, 'w') as log_file:
             try:
                 logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
-                logger.info(f'Standard output from the tool will be saved to {stdout_logfile}')
+                if not redirect_std:
+                    logger.info(f'Standard output from the tool will be saved to {stdout_logfile}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.run_dir,
-                                      stdout=subprocess.PIPE,
+                                      stdout=subprocess.PIPE if redirect_std else None,
                                       bufsize=1,
                                       universal_newlines=True,
                                       encoding='utf-8',
@@ -246,42 +247,43 @@ class Flow():
                             if unicode:
                                 print('\r✅', end='')
                             spinner.finish()
-                    if initial_step:
-                        spinner = make_spinner(initial_step)
-                    while True:
-                        line = proc.stdout.readline()
-                        if not line:
-                            end_step()
-                            break
-                        log_file.write(line)
-                        log_file.flush()
-                        if verbose or echo_instructed:
-                            if disable_echo_re.match(line):
-                                echo_instructed = False
-                            else:
-                                print(line, end='')
-                        else:
-                            if error_msg_re.match(line) or critwarn_msg_re.match(line):
-                                if spinner:
-                                    print()
-                                logger.error(line)
-                            elif warn_msg_re.match(line):
-                                if spinner:
-                                    print()
-                                logger.warning(line)
-                            elif enable_echo_re.match(line):
-                                if not self.args.quiet:
-                                    echo_instructed = True
+                    if redirect_std:
+                        if initial_step:
+                            spinner = make_spinner(initial_step)
+                        while True:
+                            line = proc.stdout.readline()
+                            if not line:
                                 end_step()
-                            else:
-                                match = start_step_re.match(line)
-                                if match:
-                                    end_step()
-                                    step = match.group('step')
-                                    spinner = make_spinner(step)
+                                break
+                            log_file.write(line)
+                            log_file.flush()
+                            if verbose or echo_instructed:
+                                if disable_echo_re.match(line):
+                                    echo_instructed = False
                                 else:
+                                    print(line, end='')
+                            else:
+                                if error_msg_re.match(line) or critwarn_msg_re.match(line):
                                     if spinner:
-                                        spinner.next()
+                                        print()
+                                    logger.error(line)
+                                elif warn_msg_re.match(line):
+                                    if spinner:
+                                        print()
+                                    logger.warning(line)
+                                elif enable_echo_re.match(line):
+                                    if not self.args.quiet:
+                                        echo_instructed = True
+                                    end_step()
+                                else:
+                                    match = start_step_re.match(line)
+                                    if match:
+                                        end_step()
+                                        step = match.group('step')
+                                        spinner = make_spinner(step)
+                                    else:
+                                        if spinner:
+                                            spinner.next()
             except FileNotFoundError as e:
                 self.fatal(f"Cannot execute `{prog}`. Make sure it's properly instaulled and the executable is in PATH")
             except KeyboardInterrupt as e:
@@ -405,8 +407,16 @@ class SimFlow(Flow):
 
     # TODO FIXME move to plugin
     def parse_reports(self):
-        fail = self.stdout_search_re(r'FAIL\s*\(\d+\):\s*SIMULATION\s*FINISHED')
-        self.results['success'] = not fail
+        failed = self.stdout_search_re(r'FAIL \(1\): SIMULATION FINISHED')
+        passed = self.stdout_search_re(r'PASS \(0\): SIMULATION FINISHED')
+        self.results['success'] = passed and not failed
+
+    @property
+    def vcd(self):
+        vcd = self.settings.flow.get('vcd')
+        if not vcd and self.args.debug >= DebugLevel.LOW:
+            vcd = 'debug_dump.vcd'
+        return vcd
 
 
 class SynthFlow(Flow):

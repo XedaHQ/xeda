@@ -55,9 +55,8 @@ class GhdlSim(Ghdl, SimFlow):
             for s in vital_sdf:
                 run_options.append(f'--sdf={s["delay"]}={s["inst_path"]}={s["file"]}')
 
-        vcd = self.settings.flow.get('vcd')
-        if vcd:
-            run_options.append(f'--vcd={vcd}')
+        if self.vcd:
+            run_options.append(f'--vcd={self.vcd}')
 
         tb_generics_opts = [f"-g{k}={v}" for k, v in self.settings.design["tb_generics"].items()]
         rtl_generics_opts = [f"-g{k}={v}" for k, v in self.settings.design["generics"].items()]
