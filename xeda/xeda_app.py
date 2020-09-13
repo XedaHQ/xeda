@@ -86,7 +86,7 @@ class XedaApp:
     def parse_args(self, args=None):
         parser = self.parser
         parser.add_argument(
-            '--debug-level',
+            '--debug',
             type=int,
             default=DebugLevel.NONE,
             help=f'Set debug level. Values of DEBUG_LEVEL correspond to: {list(DebugLevel)}'
