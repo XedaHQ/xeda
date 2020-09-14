@@ -5,20 +5,32 @@ import os
 import logging
 import random
 import time
-from xeda.plugins.lwc import LwcCheckTimingHook
 import pkg_resources
 from pathlib import Path
 import json
 import multiprocessing as mp
+import traceback
 
+from ..plugins.lwc import LwcCheckTimingHook
 from ..flows.settings import Settings
-from ..flows.flow import DesignSource, Flow, my_print
+from ..flows.flow import DesignSource, Flow, FlowFatalException, my_print
 from ..utils import load_class, dict_merge
 
 logger = logging.getLogger()
 
+
+
+
 def run_func(f: Flow):
-    f.run()
+    try:
+        f.run()
+    except FlowFatalException as e:
+        logger.critical(f'Fatal exception during flow run in {f.run_dir}: {e}')
+        traceback.print_exc()
+    except KeyboardInterrupt as e:
+        logger.critical(f'KeyboardInterrupt recieved during flow run in {f.run_dir}: {e}')
+        traceback.print_exc()
+
     
 class FlowRunner():
     @classmethod
@@ -199,6 +211,11 @@ class LwcVariantsRunner(DefaultFlowRunner):
             action='store_true',
             help='Do not inlucde reuse-key testvectors'
         )
+        plug_parser.add_argument(
+            '--variants-subset',
+            nargs='+',
+            help='The list of variant IDs to run from all available variants loaded from variants.json.'
+        )
         #TODO implement
         # plug_parser.add_argument(
         #     '--variants_subset',
@@ -220,6 +237,9 @@ class LwcVariantsRunner(DefaultFlowRunner):
         logger.info(f'LwcVariantsRunner: loading variants data from {variants_json}')
         with open(variants_json) as vjf:
             variants = json.load(vjf)
+
+        if args.variants_subset:
+            variants = {vid: vdat for vid, vdat in variants.items() if vid in args.variants_subset}
 
         flows_to_run = []
 
@@ -269,6 +289,8 @@ class LwcVariantsRunner(DefaultFlowRunner):
             else:
                 add_flow(settings, variant_id, variant_data)
 
+        if not flows_to_run:
+            self.fatal("flows_to_run is empty!")
 
         if self.parallel_run:
             with mp.Pool(processes=min(nproc, len(flows_to_run))) as p:
