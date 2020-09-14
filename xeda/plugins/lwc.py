@@ -130,7 +130,9 @@ class LwcCheckTimingHook():
             logger.info(f"LwcCheckTimingHook only operates on simulation flows.")
             return
 
-        if not results["success"]:
+        run_on_fail = True # TODO?
+
+        if not results["success"] and not run_on_fail:
             logger.critical("Not running post_results_hook because results are marked as failure.")
             return
 
@@ -153,8 +155,8 @@ class LwcCheckTimingHook():
             if formula:
                 formula = formula.strip()
             if not formula:
-                logger.error(f"{formula_name} is empty")
-                return
+                logger.error(f"{formula_name} is empty. Not performing timing vs. formula evaluation.")
+                return None
             if force_int_division:
                 formula = int_div_re.sub(r'\1//\2', formula)
 
@@ -171,14 +173,14 @@ class LwcCheckTimingHook():
 
         timing_csv_path = run_dir / flow.settings.design['tb_generics']['G_FNAME_TIMING_CSV']
 
-        out_csv_path = run_dir / f"timing_vs_formula_{variant_id}.csv"
+        timing_vs_formula_path = run_dir / f"timing_vs_formula_{variant_id}.csv"
 
-        logger.info(f"Saving timing comparison to {out_csv_path}")
+        logger.info(f"Saving timing comparison to {timing_vs_formula_path}")
 
         aead_short_timing_path = run_dir / f"AEAD_Timing.csv"
         hash_short_timing_path = run_dir / f"HASH_Timing.csv"
 
-        
+
 
         def write_aead_csv(exectime: List[int], latency: List[int]):
             exectime = list(map(lambda i: str(i), exectime[1:]))
@@ -202,7 +204,7 @@ class LwcCheckTimingHook():
         exec_times = []
         latencies = []
 
-        with open(timing_csv_path, newline="") as in_csv, open(out_csv_path, "w") as hash_csv:
+        with open(timing_csv_path, newline="") as in_csv, open(timing_vs_formula_path, "w") as hash_csv:
             reader = csv.DictReader(in_csv)
             t_exec_header = "Expected Execution Time"
             t_latency_header = "Expected Latency Time"
@@ -213,6 +215,8 @@ class LwcCheckTimingHook():
             writer.writeheader()
             max_diff = 0
             max_diff_percent = 0
+
+            no_formula = False
 
             for row in reader:
                 op_id = row['Operation']
@@ -232,20 +236,24 @@ class LwcCheckTimingHook():
                 exec_times.append(t_exec_sim)
                 latencies.append(t_latency_sim)
                 # TODO refactor & cleanup
-                try:
-                    t_exec_formula = evaluate_formula(operation, "execution_formula", variables)
-                    t_latency_formula = evaluate_formula(operation, "latency_formula", variables)
-                except Exception as e:
-                    logger.error("error evaluating the formulas")
-                    raise e
+                if not no_formula:
+                    try:
+                        t_exec_formula = evaluate_formula(operation, "execution_formula", variables)
+                        t_latency_formula = evaluate_formula(operation, "latency_formula", variables)
+                    except Exception as e:
+                        logger.error("error evaluating the formulas")
+                        raise e
+                    if t_exec_formula is None or t_latency_formula is None:
+                        no_formula = True
+                        continue
 
-                t_exec_diff = t_exec_sim - t_exec_formula
-                t_latency_diff = t_latency_sim - t_latency_formula
-                if t_exec_diff > max_diff:
-                    max_diff = t_exec_diff
-                    max_diff_percent = t_exec_diff * 100 / t_exec_sim
-                writer.writerow({**row, t_exec_header: t_exec_formula, t_latency_header: t_latency_formula,
-                                 exec_diff_header: t_exec_diff, latency_diff_header: t_latency_diff})
+                    t_exec_diff = t_exec_sim - t_exec_formula
+                    t_latency_diff = t_latency_sim - t_latency_formula
+                    if t_exec_diff > max_diff:
+                        max_diff = t_exec_diff
+                        max_diff_percent = t_exec_diff * 100 / t_exec_sim
+                    writer.writerow({**row, t_exec_header: t_exec_formula, t_latency_header: t_latency_formula,
+                                    exec_diff_header: t_exec_diff, latency_diff_header: t_latency_diff})
 
             if max_diff > 0:
                 logger.warning(
@@ -263,7 +271,8 @@ class LwcCheckTimingHook():
             logger.info(f"GMU_KATs post-results hook: kat={kat} variant={variant_id} run_dir={flow.run_dir}")
             dst_path = Path('KAT_GMU') / variant_id / kat
             failed_tv_path = run_dir / flow.settings.design['tb_generics']['G_FNAME_FAILED_TVS']
-            copy_file(timing_csv_path, dst_path / 'timing_vs_formula.csv')
+            copy_file(timing_csv_path, dst_path / 'timing_formula.csv')
+            copy_file(timing_vs_formula_path, dst_path / 'timing_vs_formula.csv')
             copy_file(failed_tv_path, dst_path / 'failed_test_vectors.txt')
 
             if kat.startswith('generic_aead_sizes_'):

@@ -1,18 +1,14 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-import copy
 from datetime import datetime
 import json
-from logging.handlers import QueueHandler
 import os
-import sys
 import re
 from pathlib import Path
 import subprocess
 import time
 from .settings import Settings
 from jinja2 import Environment, PackageLoader, StrictUndefined
-import multiprocessing
 import logging
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
@@ -89,8 +85,9 @@ class Flow():
                         return get_digest(f.read())
                 except FileNotFoundError as e:
                     raise e  # TODO add logging here?
-
-            def sorted_dict_str(data: JsonType) -> StrTreeType:
+            
+            # data: JsonType, not adding type as Pylance does not seem to like recursive types :/
+            def sorted_dict_str(data) -> StrTreeType:
                 if type(data) == dict:
                     return {k: sorted_dict_str(file_digest(data[k]) if hash_files and (k == 'file') else data[k]) for k in sorted(data.keys()) if not k in skip_fields}
                 elif type(data) == list:
@@ -234,7 +231,7 @@ class Flow():
         with open(stdout_logfile, 'w') as log_file:
             try:
                 logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
-                if not redirect_std:
+                if redirect_std:
                     logger.info(f'Standard output from the tool will be saved to {stdout_logfile}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.run_dir,
