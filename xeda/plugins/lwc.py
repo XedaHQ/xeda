@@ -201,6 +201,40 @@ class LwcCheckTimingHook():
 
                 
 
+        def generate_variables(operation, ad_size, msg_size):
+            ad_blk_size = variant["block_size_ad"]
+            msg_blk_size = variant["block_size"]
+            if operation == "HASH":
+                try:
+                    hash_blk_size = variant["block_size_msg_digest"]
+                except KeyError:
+                    logger.critical("Missing block_size_msg_digest definition in variants.json, please set this variable for candiates that support the HASH operation!")
+                    return
+            # initialize variables 
+            varvals = {}
+            for v in variable_names:
+                varvals[v] = 0
+            # set vals
+            if operation == "AE":
+                varvals["Na"] = ad_size // ad_blk_size
+                varvals["Bla"] = ad_size % ad_blk_size
+                varvals["Nm"] = msg_size // msg_blk_size
+                varvals["Blm"] = msg_size % msg_blk_size
+                varvals["Inm"] = (1 if varvals["Blm"] > 0 else 0)
+                varvals["Ina"] = (1 if varvals["Bla"] > 0 else 0)
+            elif operation == "AD":
+                varvals["Na"] = ad_size // ad_blk_size
+                varvals["Bla"] = ad_size % ad_blk_size
+                varvals["Nc"] = msg_size // msg_blk_size
+                varvals["Blc"] = msg_size % msg_blk_size
+                varvals["Inc"] = (1 if varvals["Blc"] > 0 else 0)
+                varvals["Ina"] = (1 if varvals["Bla"] > 0 else 0)
+            elif operation == "HASH":
+                varvals["Nh"] = msg_size // hash_blk_size
+                varvals["Blh"] = msg_size % msg_blk_size
+                varvals["Inh"] = (1 if varvals["Blh"] > 0 else 0)
+            return varvals
+
         exec_times = []
         latencies = []
 
@@ -229,7 +263,8 @@ class LwcCheckTimingHook():
                 operation = operations[op_id]
 
                 # row['Na'] = ad_size/
-                variables = dict((k, try_convert(row.get(k))) for k in variable_names)
+                variables = generate_variables(operation, ad_size, msg_size)
+             #   variables = dict((k, try_convert(varvals.get(k))) for k in variable_names)
                 t_exec_sim = int(row['Actual Execution Time'])
                 t_latency_sim = int(row['Actual Latency'])
 
