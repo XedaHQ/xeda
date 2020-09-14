@@ -271,7 +271,7 @@ class LwcCheckTimingHook():
             logger.info(f"GMU_KATs post-results hook: kat={kat} variant={variant_id} run_dir={flow.run_dir}")
             dst_path = Path('KAT_GMU') / variant_id / kat
             failed_tv_path = run_dir / flow.settings.design['tb_generics']['G_FNAME_FAILED_TVS']
-            copy_file(timing_csv_path, dst_path / 'timing_formula.csv')
+            copy_file(timing_csv_path, dst_path / 'timing.csv')
             copy_file(timing_vs_formula_path, dst_path / 'timing_vs_formula.csv')
             copy_file(failed_tv_path, dst_path / 'failed_test_vectors.txt')
 
