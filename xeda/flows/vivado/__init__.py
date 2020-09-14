@@ -116,10 +116,11 @@ class VivadoSim(Vivado, SimFlow):
     def run(self):
         generics_options = vivado_generics(self.settings.design["tb_generics"], sim=True)
         saif = self.settings.flow.get('saif')
+        elab_flags = f'-relax'
         script_path = self.copy_from_template(f'vivado_sim.tcl',
                                               generics_options=generics_options,
                                               analyze_flags='-relax',
-                                              elab_flags=f'-relax -O3 -mt {self.settings.nthreads}',
+                                              elab_flags=elab_flags,
                                               sim_flags='',  # '-maxdeltaid 100000 -verbose'
                                               initialize_zeros=False,
                                               vcd=self.vcd,

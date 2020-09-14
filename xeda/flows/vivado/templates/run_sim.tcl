@@ -5,7 +5,6 @@ proc errorExit {errorString} {
 }
 
 set design_name           {{design.name}}
-set nthreads              {{nthreads}}
 set tb_top                {{design.tb_top}}
 set results_dir           results
 # set vhdl_funcsim          ${results_dir}/${top}_impl_funcsim.vhd
@@ -14,7 +13,6 @@ set results_dir           results
 # set sdf_file              "[file rootname ${verilog_timesim}].sdf"
 set timing_sim            false
 set funcsim_use_vhdl      true
-set gen_saif              false
 
 set uut_scope             /${tb_top}/{{design.tb_uut}}
 
@@ -36,6 +34,12 @@ set xelab_flags "{{elab_flags}} -incr -s ${snapshot_name} -L ${xsim_lib_name} -l
 
 {%if debug or saif or vcd %}
 append xelab_flags " -debug typical "
+{% endif %}
+
+{% if debug %}
+append xelab_flags " -O0 "
+{% else %}
+append xelab_flags " -O3 -mt {{nthreads}} "
 {% endif %}
 
 if { [catch {file delete -force xsim.dir} myError]} {
@@ -143,9 +147,9 @@ flush_vcd
 close_vcd
 {% endif %}
 
-if {${gen_saif}} {
-    puts "\n===========================( Saving SAIF to ${vcd_file} )==========================="
-    close_saif
-}
+{% if saif %}
+puts "\n===========================( Saving SAIF file )==========================="
+close_saif
+{% endif %}
 
 

@@ -156,6 +156,8 @@ class Flow():
         else:
 
             subdir = self.run_hash
+            if self.args.debug >= DebugLevel.HIGH:
+                subdir = 'debug'
             if prefix:
                 subdir = prefix + subdir
 
