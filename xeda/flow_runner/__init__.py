@@ -194,6 +194,11 @@ class LwcVariantsRunner(DefaultFlowRunner):
             action='store_true',
             help='In gmu-kats mode, automatically copy files. Existing files will be silently REPLACED, so use with caution!'
         )
+        plug_parser.add_argument(
+            '--no-reuse-key',
+            action='store_true',
+            help='Do not inlucde reuse-key testvectors'
+        )
         #TODO implement
         # plug_parser.add_argument(
         #     '--variants_subset',
@@ -220,7 +225,9 @@ class LwcVariantsRunner(DefaultFlowRunner):
 
         nproc = max(1, multiprocessing.cpu_count() // 4)
 
-        common_kats = ['kats_for_verification', 'generic_aead_sizes_new_key', 'generic_aead_sizes_reuse_key']
+        common_kats = ['kats_for_verification', 'generic_aead_sizes_new_key']
+        if not args.no_reuse_key:
+            common_kats += ['generic_aead_sizes_reuse_key']
 
         hash_kats = ['basic_hash_sizes', 'blanket_hash_test']
 

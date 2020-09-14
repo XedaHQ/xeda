@@ -232,7 +232,7 @@ class Flow():
             try:
                 logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
                 if redirect_std:
-                    logger.info(f'Standard output from the tool will be saved to {stdout_logfile}')
+                    logger.info(f'STDOUT from {prog} will be saved to {stdout_logfile}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.run_dir,
                                       stdout=subprocess.PIPE if redirect_std else None,
