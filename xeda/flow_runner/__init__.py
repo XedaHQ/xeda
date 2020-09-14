@@ -1,4 +1,5 @@
 import copy
+from logging import log
 import multiprocessing
 import os
 import logging
@@ -26,6 +27,7 @@ class FlowRunner():
 
     def __init__(self, args) -> None:
         self.args = args
+        self.parallel_run = None
 
     
     def get_default_settings(self):
@@ -146,6 +148,9 @@ class FlowRunner():
         # flow.check_settings()
         flow.dump_settings()
 
+        if self.parallel_run:
+            flow.set_parallel_run(None)
+
         return flow
 
 class DefaultFlowRunner(FlowRunner):
@@ -179,6 +184,16 @@ class LwcVariantsRunner(DefaultFlowRunner):
             action='store_true',
             help='Use multiprocessing to run in parallel'
         )
+        plug_parser.add_argument(
+            '--gmu-kats',
+            action='store_true',
+            help='Run simulation with different GMU KAT files'
+        )
+        plug_parser.add_argument(
+            '--auto-copy',
+            action='store_true',
+            help='In gmu-kats mode, automatically copy files. Existing files will be silently REPLACED, so use with caution!'
+        )
         #TODO implement
         # plug_parser.add_argument(
         #     '--variants_subset',
@@ -197,12 +212,22 @@ class LwcVariantsRunner(DefaultFlowRunner):
         variants_json = Path(args.variants_json).resolve()
         variants_json_dir = os.path.dirname(variants_json)
 
+        logger.info(f'LwcVariantsRunner: loading variants data from {variants_json}')
         with open(variants_json) as vjf:
             variants = json.load(vjf)
 
         flows_to_run = []
 
         nproc = max(1, multiprocessing.cpu_count() // 4)
+
+        common_kats = ['kats_for_verification', 'generic_aead_sizes_new_key', 'generic_aead_sizes_reuse_key']
+
+        hash_kats = ['basic_hash_sizes', 'blanket_hash_test']
+
+        def add_flow(settings, variant_id, variant_data):
+            flow = self.setup_flow(settings, args, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
+            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data))
+            flows_to_run.append(flow)
 
         for variant_id, variant_data in variants.items():
             logger.info(f"LwcVariantsRunner: running variant {variant_id}")
@@ -221,31 +246,44 @@ class LwcVariantsRunner(DefaultFlowRunner):
             settings['design']['tb_generics']['G_FNAME_FAILED_TVS'] = f"failed_test_vectors_{variant_id}.txt"
             settings['design']['tb_generics']['G_FNAME_LOG'] = f"lwctb_{variant_id}.log"
 
-            flow = self.setup_flow(settings, args, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
-            
-            if self.parallel_run:
-                flow.set_parallel_run(None)
 
-            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data))
+            if args.gmu_kats:
+                kats = common_kats
+                if "HASH" in variant_data["operations"]:
+                    kats += hash_kats
+                for kat in kats:
+                    settings["design"]["tb_generics"]["G_FNAME_DO"] = {"file": f"KAT_GMU/{variant_id}/{kat}/do.txt"}
+                    settings["design"]["tb_generics"]["G_FNAME_SDI"] = {"file": f"KAT_GMU/{variant_id}/{kat}/sdi.txt"}
+                    settings["design"]["tb_generics"]["G_FNAME_PDI"] = {"file": f"KAT_GMU/{variant_id}/{kat}/pdi.txt"}
+                    
+                    this_variant_data = copy.deepcopy(variant_data)
+                    this_variant_data["kat"] = kat
+                    add_flow(settings, variant_id, this_variant_data)
+            else:
+                add_flow(settings, variant_id, variant_data)
 
-            flows_to_run.append(flow)
-        
 
         if self.parallel_run:
-
             with mp.Pool(processes=min(nproc, len(flows_to_run))) as p:
                 p.map(run_func, flows_to_run)
         else:
             for flow in flows_to_run:
                 flow.run()
 
-        for flow in flows_to_run:
-            self.post_run(flow)
+        try:
+            for flow in flows_to_run:
+                self.post_run(flow)
+                total += 1
+                if flow.results.get('success'):
+                    num_success += 1
+        except Exception as e:
+            logger.critical("Exception during post_run")
+            raise e
+        finally:
+            for flow in flows_to_run:
+                logger.info(f"Run: {flow.run_dir} {'[PASS]' if flow.results.get('success') else '[FAIL]'}")
+            logger.info(f'{num_success} out of {total} runs succeeded.')
 
-            total += 1
-            num_success += flow.results['success']
-
-        logger.info(f'{num_success} out of {total} runs succeeded.')
 
 
 class LwcFmaxRunner(FlowRunner):

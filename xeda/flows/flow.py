@@ -308,7 +308,7 @@ class Flow():
             if check:
                 self.fatal('Non-zero exit code')
         else:
-            logger.info(f'Process completed with returncode {proc.returncode}')
+            logger.info(f'Execution of {prog} in {self.run_dir} completed with returncode {proc.returncode}')
         return proc
 
     def parse_report(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
