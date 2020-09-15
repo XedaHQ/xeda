@@ -44,6 +44,8 @@ def dict_merge(base_dct, merge_dct, add_keys=True):
 def try_convert(s):
     if s is None:
         return 'None'
+    if isinstance(s, str) and (s.startswith('"') or s.startswith('\'')):
+        return s.strip('"\'')
     try:
         return int(s)
     except ValueError:

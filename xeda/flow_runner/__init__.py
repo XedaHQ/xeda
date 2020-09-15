@@ -15,7 +15,7 @@ import traceback
 from ..plugins.lwc import LwcCheckTimingHook
 from ..flows.settings import Settings
 from ..flows.flow import DesignSource, Flow, FlowFatalException, my_print
-from ..utils import load_class, dict_merge
+from ..utils import load_class, dict_merge, try_convert
 
 logger = logging.getLogger()
 
@@ -45,7 +45,7 @@ class FlowRunner():
         try:
             return json.loads(defaults_data)
         except json.decoder.JSONDecodeError as e:
-            self.fatal(f"Failed to parse defaults settings file (defaults.json): {' '.join(e.args)}")
+            self.fatal(f"Failed to parse defaults settings file (defaults.json): {' '.join(e.args)}", e)
 
     def fatal(self, msg, exception=None):
         logger.critical(msg)
@@ -53,6 +53,17 @@ class FlowRunner():
             raise exception
         else:
             raise Exception(msg)
+
+    def validate_settings(self, settings):
+        assert 'design' in settings
+        design = settings['design']
+        assert 'sources' in design
+        assert 'vhdl_std' in design
+        if design['vhdl_std'] == 8:
+            design['vhdl_std'] = "08"
+
+        return settings
+
 
     def get_design_settings(self, json_path):
 
@@ -78,10 +89,11 @@ class FlowRunner():
                     new_dict = dict()
                     current_dict[field] = new_dict
                     current_dict = new_dict
-                current_dict[hier[-1]] = val
+                print(f'val={val}')
+                current_dict[hier[-1]] = try_convert(val)
                 settings = dict_merge(settings, patch, True)
 
-        return settings
+        return self.validate_settings(settings)
 
     # should not override
     def post_run(self, flow: Flow):
@@ -117,7 +129,7 @@ class FlowRunner():
         try:
             flow_cls = load_class(flow_name, ".flows")
         except AttributeError as e:
-            self.fatal(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.")
+            self.fatal(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.", e)
 
         flow_settings = Settings()
         # default for optional design settings
@@ -183,8 +195,8 @@ class FlowRunner():
         # TODO add list of supported flows in help
         parser.add_argument('flow', metavar='FLOW_NAME', help=f'Flow name.')
         parser.add_argument('--override-settings', nargs='+',
-                            help='Override certain setting value. Requires debug >= 2. '
-                            'example: --override-settings flows.vivado_run.stop_time=100us ')
+                            help='Override certain setting value. Use <hierarchy>.key=value format'
+                            'example: --override-settings flows.vivado_run.stop_time=100us')
 
 
 class DefaultFlowRunner(FlowRunner):
