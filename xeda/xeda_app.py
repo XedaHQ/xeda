@@ -32,6 +32,13 @@ class XedaApp:
             description=f'{__package__}: Simulate And Synthesize Hardware! Version {__version__}')
         self.args = None
 
+        # TODO this should be dynamically setup during runner registeration
+        self.registered_runner_cmds = {
+            'run': DefaultFlowRunner,
+            'run_variants': LwcVariantsRunner,
+            'run_fmax': LwcFmaxRunner
+        }
+
     # TODO
     def check_settings(self):
         if "design" in self.settings:
@@ -46,13 +53,8 @@ class XedaApp:
         if args.debug:
             logger.setLevel(logging.DEBUG)
 
-        # FIXME this should be dynamically setup during runner registeration
-        registered_runner_cmds = {
-            'run': DefaultFlowRunner,
-            'run_variants': LwcVariantsRunner,
-            'run_fmax': LwcFmaxRunner
-        }
-        runner_cls = registered_runner_cmds.get(args.command)
+
+        runner_cls = self.registered_runner_cmds.get(args.command)
         if runner_cls:
             xeda_run_dir = Path(args.xeda_run_dir)
 
@@ -79,7 +81,7 @@ class XedaApp:
     #TODO FIXME
     def register_plugin_parsers(self):
         #TODO FIXME
-        for runner_plugin in [LwcVariantsRunner, LwcFmaxRunner]:
+        for runner_plugin in self.registered_runner_cmds.values():
             runner_plugin.register_subparser(self.subparsers)
         
 
@@ -116,19 +118,7 @@ class XedaApp:
         subparsers.required = True
         self.subparsers = subparsers
 
-        # TODO FIXME add as validator!
-        registered_flows = []
-        ### FIXME FIXME FIXME
-
-
-        ############################
-        run_parser = subparsers.add_parser('run', help='Run a flow')
-        run_parser.add_argument('flow', metavar='FLOW_NAME',
-                                help=f'Flow name. Supported flows are: {registered_flows}')
-        run_parser.add_argument(
-            '--design-json',
-            help='Path to design JSON file.'
-        )
+        # TODO add validators for valid flow names and add back to help!
 
         self.register_plugin_parsers()
         

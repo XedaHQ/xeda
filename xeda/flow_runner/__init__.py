@@ -5,6 +5,7 @@ import os
 import logging
 import random
 import time
+from xeda.debug import DebugLevel
 import pkg_resources
 from pathlib import Path
 import json
@@ -19,8 +20,6 @@ from ..utils import load_class, dict_merge
 logger = logging.getLogger()
 
 
-
-
 def run_func(f: Flow):
     try:
         f.run()
@@ -31,7 +30,7 @@ def run_func(f: Flow):
         logger.critical(f'KeyboardInterrupt recieved during flow run in {f.run_dir}: {e}')
         traceback.print_exc()
 
-    
+
 class FlowRunner():
     @classmethod
     def register_subparser(cls, subparsers):
@@ -41,7 +40,6 @@ class FlowRunner():
         self.args = args
         self.parallel_run = None
 
-    
     def get_default_settings(self):
         defaults_data = pkg_resources.resource_string('xeda', "defaults.json")
         try:
@@ -49,8 +47,12 @@ class FlowRunner():
         except json.decoder.JSONDecodeError as e:
             self.fatal(f"Failed to parse defaults settings file (defaults.json): {' '.join(e.args)}")
 
-    def fatal(self, msg):
-        raise Exception(msg)
+    def fatal(self, msg, exception=None):
+        logger.critical(msg)
+        if exception:
+            raise exception
+        else:
+            raise Exception(msg)
 
     def get_design_settings(self, json_path):
 
@@ -62,9 +64,22 @@ class FlowRunner():
                 settings = dict_merge(settings, design_settings)
                 logger.info(f"Using design settings from {json_path}")
         except FileNotFoundError as e:
-            self.fatal(f'Cannot open design settings: {json_path}\n {e}')
+            self.fatal(f'Cannot open default design settings path: {json_path}. Please specify correct path using --design-json', e)
         except IsADirectoryError as e:
-            self.fatal(f'The specified design json is not a regular file.\n {e}')
+            self.fatal(f'The specified design json is not a regular file.', e)
+
+        if self.args.override_settings:
+            for override in self.args.override_settings:
+                key, val = override.split('=')
+                hier = key.split('.')
+                patch = dict()
+                current_dict = patch
+                for field in hier[:-1]:
+                    new_dict = dict()
+                    current_dict[field] = new_dict
+                    current_dict = new_dict
+                current_dict[hier[-1]] = val
+                settings = dict_merge(settings, patch, True)
 
         return settings
 
@@ -93,7 +108,6 @@ class FlowRunner():
             logger.info(f"Running post-results hook from {hook}")
             hook(flow)
 
-
     def setup_flow(self, settings, args, flow_name, max_threads=None):
         if not max_threads:
             max_threads = multiprocessing.cpu_count()
@@ -104,7 +118,7 @@ class FlowRunner():
             flow_cls = load_class(flow_name, ".flows")
         except AttributeError as e:
             self.fatal(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.")
-        
+
         flow_settings = Settings()
         # default for optional design settings
         flow_settings.design['generics'] = {}
@@ -127,7 +141,6 @@ class FlowRunner():
 
         flow: Flow = flow_cls(flow_settings, args)
 
-
         # self.replicated_settings = []
         # for hook in self.replicator_hooks:
         #     repl_settings = hook(self.settings)
@@ -145,7 +158,8 @@ class FlowRunner():
             if isinstance(src, str):
                 src = {"file": src}
             if not DesignSource.is_design_source(src):
-                raise Exception(f'Entry `{src}` in `sources` needs to be a string or a DesignSource JSON dictionary but is {type(src)}')
+                raise Exception(
+                    f'Entry `{src}` in `sources` needs to be a string or a DesignSource JSON dictionary but is {type(src)}')
             flow.settings.design['sources'][i] = DesignSource(**src).mk_relative(flow.run_dir)
 
         for gen_type in ['generics', 'tb_generics']:
@@ -165,7 +179,24 @@ class FlowRunner():
 
         return flow
 
+    def add_common_args(parser):
+        # TODO add list of supported flows in help
+        parser.add_argument('flow', metavar='FLOW_NAME', help=f'Flow name.')
+        parser.add_argument('--override-settings', nargs='+',
+                            help='Override certain setting value. Requires debug >= 2. '
+                            'example: --override-settings flows.vivado_run.stop_time=100us ')
+
+
 class DefaultFlowRunner(FlowRunner):
+    @classmethod
+    def register_subparser(cls, subparsers):
+        run_parser = subparsers.add_parser('run', help='Run a flow')
+        super().add_common_args(run_parser)
+        run_parser.add_argument(
+            '--design-json',
+            help='Path to design JSON file.'
+        )
+
     def launch(self):
         args = self.args
 
@@ -216,7 +247,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
             nargs='+',
             help='The list of variant IDs to run from all available variants loaded from variants.json.'
         )
-        #TODO implement
+        # TODO implement
         # plug_parser.add_argument(
         #     '--variants_subset',
         #     help='Subset of variants to run'
@@ -225,8 +256,12 @@ class LwcVariantsRunner(DefaultFlowRunner):
     def launch(self):
         args = self.args
         self.parallel_run = args.parallel_run
-        logger.info(f"parallel_run={self.parallel_run}")
 
+        if args.debug >= DebugLevel.MEDIUM:
+            args.parallel_run = False
+            logger.info("parallel_run disable due to the debug level")
+        else:
+            logger.info(f"parallel_run={self.parallel_run}")
 
         total = 0
         num_success = 0
@@ -273,7 +308,6 @@ class LwcVariantsRunner(DefaultFlowRunner):
             settings['design']['tb_generics']['G_FNAME_FAILED_TVS'] = f"failed_test_vectors_{variant_id}.txt"
             settings['design']['tb_generics']['G_FNAME_LOG'] = f"lwctb_{variant_id}.log"
 
-
             if args.gmu_kats:
                 kats = common_kats
                 if "HASH" in variant_data["operations"]:
@@ -282,7 +316,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
                     settings["design"]["tb_generics"]["G_FNAME_DO"] = {"file": f"KAT_GMU/{variant_id}/{kat}/do.txt"}
                     settings["design"]["tb_generics"]["G_FNAME_SDI"] = {"file": f"KAT_GMU/{variant_id}/{kat}/sdi.txt"}
                     settings["design"]["tb_generics"]["G_FNAME_PDI"] = {"file": f"KAT_GMU/{variant_id}/{kat}/pdi.txt"}
-                    
+
                     this_variant_data = copy.deepcopy(variant_data)
                     this_variant_data["kat"] = kat
                     add_flow(settings, variant_id, this_variant_data)
@@ -292,9 +326,16 @@ class LwcVariantsRunner(DefaultFlowRunner):
         if not flows_to_run:
             self.fatal("flows_to_run is empty!")
 
+        proc_timeout_seconds = 3600
+
         if self.parallel_run:
-            with mp.Pool(processes=min(nproc, len(flows_to_run))) as p:
-                p.map(run_func, flows_to_run)
+            try:
+                with mp.Pool(processes=min(nproc, len(flows_to_run))) as p:
+                    p.map_async(run_func, flows_to_run).get(proc_timeout_seconds)
+            except KeyboardInterrupt as e:
+                logger.critical(f'KeyboardInterrupt recieved parallel execution of runs: {e}')
+                traceback.print_exc()
+                logger.warning("trying to recover completed flow results...")
         else:
             for flow in flows_to_run:
                 flow.run()
@@ -312,7 +353,6 @@ class LwcVariantsRunner(DefaultFlowRunner):
             for flow in flows_to_run:
                 logger.info(f"Run: {flow.run_dir} {'[PASS]' if flow.results.get('success') else '[FAIL]'}")
             logger.info(f'{num_success} out of {total} runs succeeded.')
-
 
 
 class LwcFmaxRunner(FlowRunner):
@@ -336,7 +376,6 @@ class LwcFmaxRunner(FlowRunner):
             help='Starting clock period.'
         )
 
-
     def launch(self):
         merit_period = True
 
@@ -349,13 +388,14 @@ class LwcFmaxRunner(FlowRunner):
         ####
         failed_runs = 0
         num_small_improvements = 0
+
         class Best:
             def __init__(self, period=None, results=None, rundir=None, wns=None):
                 self.period = period
                 self.wns = wns
                 self.results = results
                 self.rundir = rundir
-        best  = Best()
+        best = Best()
         rundirs = []
 
         args = self.args
@@ -381,7 +421,7 @@ class LwcFmaxRunner(FlowRunner):
 
         if args.start_period:
             next_period = args.start_period
-        
+
         try:
             while True:
 
@@ -391,9 +431,8 @@ class LwcFmaxRunner(FlowRunner):
                         assert next_period < best.period
                     settings['flows'][flow_name]['clock_period'] = next_period
 
-
                 flow = self.setup_flow(settings, args, flow_name)
-                
+
                 set_period = flow.settings.flow['clock_period']
 
                 if set_period in tried_periods:
@@ -402,7 +441,7 @@ class LwcFmaxRunner(FlowRunner):
                         logger.warning(
                             f'[DSE] repeating periods for {same_period} times!')
                         break
-                    if success: # previous was success
+                    if success:  # previous was success
                         next_period -= wns / 2 * random.random() - error_margin
                     else:
                         next_period += abs(wns) / 2 * random.random() - error_margin
@@ -421,10 +460,11 @@ class LwcFmaxRunner(FlowRunner):
                 success = flow.results['success'] and wns >= 0
                 period = flow.results['clock_period']
 
-                next_period = set_period - wns - error_margin -min(0.006, abs(wns) / 3 * random.random() )
+                next_period = set_period - wns - error_margin - min(0.006, abs(wns) / 3 * random.random())
 
                 if success:
                     failed_runs = 0
+
                     def merit():
                         if merit_period:
                             return best.period > period
@@ -451,7 +491,6 @@ class LwcFmaxRunner(FlowRunner):
                             # reset to 0?
                             num_small_improvements = max(0, num_small_improvements - 2)
 
-
                 else:
                     if best.period:
                         failed_runs += 1
@@ -470,7 +509,6 @@ class LwcFmaxRunner(FlowRunner):
                         f'[DSE] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
                     )
                     break
-
 
                 logger.info(f'[DSE] best.period: {best.period}ns run_dir: {best.rundir}')
                 logger.info(
