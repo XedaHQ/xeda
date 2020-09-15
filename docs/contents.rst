@@ -12,6 +12,7 @@ It helps hardware developers to verify, evaluate, and deploy their RTL designs u
    tutorial/index.rst
 
    about.rst
+   quickstart.rst
    flows.rst
    bugs.rst
    copyright.rst
