@@ -1,28 +1,25 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
 from datetime import datetime
-from genericpath import exists
 from pathlib import Path
 import sys
 import argparse
+import coloredlogs
+import logging
+import pkg_resources
+
 from .debug import DebugLevel
 from .flow_runner import DefaultFlowRunner, LwcFmaxRunner, LwcVariantsRunner
 
-import coloredlogs
-import logging
-
-import pkg_resources
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
 
 
 try:
     __version__ = pkg_resources.get_distribution(__package__).version
 except pkg_resources.DistributionNotFound:
     __version__ = '(N/A - Local package)'
-
 
 
 class XedaApp:
@@ -49,10 +46,9 @@ class XedaApp:
 
     def main(self):
         args = self.args = self.parse_args()
-        
+
         if args.debug:
             logger.setLevel(logging.DEBUG)
-
 
         runner_cls = self.registered_runner_cmds.get(args.command)
         if runner_cls:
@@ -68,7 +64,6 @@ class XedaApp:
             fileHandler.setFormatter(logFormatter)
             logger.addHandler(fileHandler)
 
-
             coloredlogs.install('INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
 
             runner = runner_cls(self.args)
@@ -77,13 +72,12 @@ class XedaApp:
 
         runner.launch()
 
+    # TODO FIXME
 
-    #TODO FIXME
     def register_plugin_parsers(self):
-        #TODO FIXME
+        # TODO FIXME
         for runner_plugin in self.registered_runner_cmds.values():
             runner_plugin.register_subparser(self.subparsers)
-        
 
     def parse_args(self, args=None):
         parser = self.parser
@@ -121,5 +115,5 @@ class XedaApp:
         # TODO add validators for valid flow names and add back to help!
 
         self.register_plugin_parsers()
-        
+
         return parser.parse_args(args)
