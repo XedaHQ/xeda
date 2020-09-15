@@ -461,6 +461,10 @@ class DesignSource:
         return str(self.file)
 
     def mk_relative(self, base):
-        path = Path(self.file).resolve(strict=True)
-        self.file = path  # os.path.relpath(path, base)
+        try:
+            path = Path(self.file).resolve(strict=True)
+            self.file = path  # os.path.relpath(path, base)
+        except Exception as e:
+            logger.critical(f"Design source file '{self.file}' does not exist!")
+            raise e
         return self
