@@ -229,7 +229,6 @@ class LwcVariantsRunner(DefaultFlowRunner):
     def register_subparser(cls, subparsers):
         plug_parser = subparsers.add_parser('run_variants', help='Run All LWC variants in variants.json')
         super().add_common_args(plug_parser)
-        plug_parser.add_argument('flow', metavar='FLOW_NAME', help=f'Flow name.')
         plug_parser.add_argument(
             '--variants-json',
             default='variants.json',
@@ -375,7 +374,6 @@ class LwcFmaxRunner(FlowRunner):
         # command should be set automatically from top and using class help, etc
         plug_parser = subparsers.add_parser('run_fmax', help='find fmax')
         super().add_common_args(plug_parser)
-        plug_parser.add_argument('flow', metavar='FLOW_NAME', help=f'Flow name.')
         plug_parser.add_argument(
             '--design-json',
             help='Path to design JSON file.'
