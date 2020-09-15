@@ -29,7 +29,7 @@ class XedaApp:
     def __init__(self):
         self.parser = argparse.ArgumentParser(
             prog=__package__,
-            description=f'{__package__}: Simulate And Synthesize Hardware! Version {__version__}')
+            description=f'{__package__}: Cross-EDA abstraction and automation. Version: {__version__}')
         self.args = None
 
         # TODO this should be dynamically setup during runner registeration

@@ -46,7 +46,7 @@ Xeda can assists hardware developers during verification, evaluation, and deploy
         'Programming Language :: Python :: 3.8',
     ],
 
-    keywords='EDA Synthesis Simulation Hardware Verilog VHDL FPGA ASIC',
+    keywords='EDA Electronic Design Automation Tool Synthesis Simulation Hardware Verilog VHDL FPGA ASIC',
     packages=find_packages(),
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
@@ -60,7 +60,7 @@ Xeda can assists hardware developers during verification, evaluation, and deploy
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-        "jinja2>=2.11.2", "colored", "progress>=1.5", "coloredlogs"
+        "jinja2>=2.11.2", "colored", "progress>=1.5", "coloredlogs>=14", "pebble>=4", "numpy>=1"
     ],
 
     setup_requires=['setuptools-vcs-version'],
