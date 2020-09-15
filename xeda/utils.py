@@ -41,13 +41,13 @@ def dict_merge(base_dct, merge_dct, add_keys=True):
     return rtn_dct
 
 
-def try_convert(s):
+def try_convert(s, convert_lists=False):
     if s is None:
         return 'None'
     if isinstance(s, str): # always?
         if s.startswith('"') or s.startswith('\''):
             return s.strip('"\'')
-        if s.startswith('[') and s.endswith(']'):
+        if convert_lists and s.startswith('[') and s.endswith(']'):
             s = re.sub(r'\s+', '', s)
             return [try_convert(e) for e in s.strip('][').split(',')]
         # Should NOT convert dict, set, etc!

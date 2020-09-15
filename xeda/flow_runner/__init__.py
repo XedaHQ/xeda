@@ -1,17 +1,20 @@
 import copy
-from logging import log
 import multiprocessing
+from multiprocessing import cpu_count
+from pebble.pool.process import ProcessPool
 import os
 import logging
 import random
 import time
-from xeda.debug import DebugLevel
 import pkg_resources
 from pathlib import Path
 import json
 import multiprocessing as mp
 import traceback
+# heavy, but will probably become handy down the road
+import numpy
 
+from ..debug import DebugLevel
 from ..plugins.lwc import LwcCheckTimingHook
 from ..flows.settings import Settings
 from ..flows.flow import DesignSource, Flow, FlowFatalException, my_print
@@ -20,7 +23,7 @@ from ..utils import load_class, dict_merge, try_convert
 logger = logging.getLogger()
 
 
-def run_func(f: Flow):
+def run_flow(f: Flow):
     try:
         f.run()
     except FlowFatalException as e:
@@ -29,6 +32,7 @@ def run_func(f: Flow):
     except KeyboardInterrupt as e:
         logger.critical(f'KeyboardInterrupt recieved during flow run in {f.run_dir}: {e}')
         traceback.print_exc()
+        # raise e?
 
 
 class FlowRunner():
@@ -38,7 +42,9 @@ class FlowRunner():
 
     def __init__(self, args) -> None:
         self.args = args
-        self.args.override_settings = None  # in case super().add_common_args(plug_parser) was not called in a subclass
+        # in case super().add_common_args(plug_parser) was not called in a subclass
+        if not hasattr(args, 'override_settings'):
+            self.args.override_settings = None  
         self.parallel_run = None
 
     def get_default_settings(self):
@@ -62,11 +68,14 @@ class FlowRunner():
         assert 'vhdl_std' in design
         if design['vhdl_std'] == 8:
             design['vhdl_std'] = "08"
+        elif design['vhdl_std'] == 2:
+            design['vhdl_std'] = "02"
 
         return settings
 
-
-    def get_design_settings(self, json_path):
+    def get_design_settings(self, json_path=None):
+        if not json_path:
+            json_path = self.args.design_json if self.args.design_json else Path.cwd() / 'design.json'
 
         settings = self.get_default_settings()
 
@@ -76,7 +85,8 @@ class FlowRunner():
                 settings = dict_merge(settings, design_settings)
                 logger.info(f"Using design settings from {json_path}")
         except FileNotFoundError as e:
-            self.fatal(f'Cannot open default design settings path: {json_path}. Please specify correct path using --design-json', e)
+            self.fatal(
+                f'Cannot open default design settings path: {json_path}. Please specify correct path using --design-json', e)
         except IsADirectoryError as e:
             self.fatal(f'The specified design json is not a regular file.', e)
 
@@ -91,7 +101,7 @@ class FlowRunner():
                     current_dict[field] = new_dict
                     current_dict = new_dict
                 print(f'val={val}')
-                current_dict[hier[-1]] = try_convert(val)
+                current_dict[hier[-1]] = try_convert(val, convert_lists=True)
                 settings = dict_merge(settings, patch, True)
 
         return self.validate_settings(settings)
@@ -121,16 +131,22 @@ class FlowRunner():
             logger.info(f"Running post-results hook from {hook}")
             hook(flow)
 
-    def setup_flow(self, settings, args, flow_name, max_threads=None):
+    def load_flow_class(self, flow_name):
+        try:
+            return load_class(flow_name, ".flows")
+        except AttributeError as e:
+            self.fatal(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.", e)
+
+    def setup_flow(self, settings, args, flow_name_or_class, max_threads=None):
         if not max_threads:
             max_threads = multiprocessing.cpu_count()
         # settings is a ref to a dict and its data can change, take a snapshot
         settings = copy.deepcopy(settings)
 
-        try:
-            flow_cls = load_class(flow_name, ".flows")
-        except AttributeError as e:
-            self.fatal(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.", e)
+        if isinstance(flow_name_or_class, Flow):
+            flow_cls = flow_name_or_class
+        else:
+            flow_cls = self.load_flow_class(flow_name_or_class)
 
         flow_settings = Settings()
         # default for optional design settings
@@ -144,11 +160,11 @@ class FlowRunner():
         flow_settings.design.update(settings['design'])
 
         # override entire section if available in settings
-        if flow_name in settings['flows']:
-            flow_settings.flow.update(settings['flows'][flow_name])
-            logger.info(f"Using {flow_name} settings")
+        if flow_name_or_class in settings['flows']:
+            flow_settings.flow.update(settings['flows'][flow_name_or_class])
+            logger.info(f"Using {flow_name_or_class} settings")
         else:
-            logger.warning(f"No settings found for {flow_name}")
+            logger.warning(f"No settings found for {flow_name_or_class}")
 
         flow_settings.nthreads = max(1, max_threads)
 
@@ -212,11 +228,7 @@ class DefaultFlowRunner(FlowRunner):
 
     def launch(self):
         args = self.args
-
-        json_path = args.design_json if args.design_json else Path.cwd() / 'design.json'
-
-        settings = self.get_design_settings(json_path)
-
+        settings = self.get_design_settings()
         flow = self.setup_flow(settings, args, args.flow)
         flow.run()
         self.post_run(flow)
@@ -224,7 +236,6 @@ class DefaultFlowRunner(FlowRunner):
 
 # TODO as a plugin
 class LwcVariantsRunner(DefaultFlowRunner):
-
     @classmethod
     def register_subparser(cls, subparsers):
         plug_parser = subparsers.add_parser('run_variants', help='Run All LWC variants in variants.json')
@@ -260,11 +271,6 @@ class LwcVariantsRunner(DefaultFlowRunner):
             nargs='+',
             help='The list of variant IDs to run from all available variants loaded from variants.json.'
         )
-        # TODO implement
-        # plug_parser.add_argument(
-        #     '--variants_subset',
-        #     help='Subset of variants to run'
-        # )
 
     def launch(self):
         args = self.args
@@ -344,7 +350,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
         if self.parallel_run:
             try:
                 with mp.Pool(processes=min(nproc, len(flows_to_run))) as p:
-                    p.map_async(run_func, flows_to_run).get(proc_timeout_seconds)
+                    p.map_async(run_flow, flows_to_run).get(proc_timeout_seconds)
             except KeyboardInterrupt as e:
                 logger.critical(f'KeyboardInterrupt recieved parallel execution of runs: {e}')
                 traceback.print_exc()
@@ -366,6 +372,14 @@ class LwcVariantsRunner(DefaultFlowRunner):
             for flow in flows_to_run:
                 logger.info(f"Run: {flow.run_dir} {'[PASS]' if flow.results.get('success') else '[FAIL]'}")
             logger.info(f'{num_success} out of {total} runs succeeded.')
+
+
+class Best:
+    def __init__(self, period=None, results=None, rundir=None, wns=None):
+        self.period = period
+        self.wns = wns
+        self.results = results
+        self.rundir = rundir
 
 
 class LwcFmaxRunner(FlowRunner):
