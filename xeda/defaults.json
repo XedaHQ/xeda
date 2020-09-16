@@ -16,7 +16,10 @@
             "clock_period": 15.0,
             "synthesis_engine": "synplify",
             "strategy": "Timing",
-            "timeout": 1200
+            "timeout": 1000,
+            "minimum_frequency_mhz": 8.0,
+            "fmax_hi_freq": 100.0,
+            "nthreads": 4
         },
         "vivado_synth": {
             "clock_period": 5.0,

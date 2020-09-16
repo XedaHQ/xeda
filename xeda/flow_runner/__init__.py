@@ -6,7 +6,7 @@ from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import os
 import logging
-from concurrent.futures import TimeoutError
+from concurrent.futures import CancelledError, TimeoutError
 import time
 import pkg_resources
 from pathlib import Path
@@ -425,18 +425,27 @@ class LwcFmaxRunner(FlowRunner):
         flow_settings = settings['flows'].get(flow_name)
 
         # won't try lower
-        lo_freq = 4.0
+        lo_freq = flow_settings.get('minimum_frequency_mhz')
+        if not lo_freq:
+            lo_freq = 1.0
+        lo_freq = float(lo_freq)
         # can go higher
-        hi_freq = flow_settings.get('hi_freq')
+        hi_freq = flow_settings.get('fmax_hi_freq')
         if not hi_freq:
-            hi_freq = 200.0
+            hi_freq = 500.0
+        hi_freq = float(hi_freq)
         accuracy = 0.1
-        delta_increment = 0.05
+        delta_increment = 0.049
 
         Mega = 1000.0
-        # TODO get from settings/args
-        nthreads = 4
+
+        nthreads = flow_settings.get('nthreads')
+        if not nthreads:
+            nthreads = 4
+        nthreads = int(nthreads)
+
         num_workers = max(2, args.max_cpus // nthreads)
+        logger.info(f'nthreads={nthreads} num_workers={num_workers}')
         self.parallel_run = True
         args.quiet = True
 
@@ -469,28 +478,33 @@ class LwcFmaxRunner(FlowRunner):
                     future = pool.map(run_flow_fmax, enumerate(flows_to_run), timeout=proc_timeout_seconds)
                     num_iterations += 1
 
-                    iterator = future.result()
                     improved_idx = None
-                    while True:
-                        try:
-                            idx = next(iterator)
-                            flow = flows_to_run[idx]
-                            freq = frequencies_to_try[idx]
-                            self.post_run(flow, print_failed=False)
-                            results = flow.results
-                            rundirs.append(flow.run_dir)
-                            if results['success'] and (not best or freq > best.freq):
-                                all_results.append(results)
-                                best = Best(freq, results)
-                                improved_idx = idx
-                        except StopIteration:
-                            break
-                        except TimeoutError as e:
-                            logger.critical(
-                                f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks.")
-                            future.cancel()
-                        except ProcessExpired as e:
-                            logger.critical(f"{e}. Exit code: {e.exitcode}")
+
+                    try:
+                        iterator = future.result()
+                        while True:
+                            try:
+                                idx = next(iterator)
+                                flow = flows_to_run[idx]
+                                freq = frequencies_to_try[idx]
+                                self.post_run(flow, print_failed=False)
+                                results = flow.results
+                                rundirs.append(flow.run_dir)
+                                if results['success'] and (not best or freq > best.freq):
+                                    all_results.append(results)
+                                    best = Best(freq, results)
+                                    improved_idx = idx
+                            except StopIteration:
+                                break
+                            except TimeoutError as e:
+                                logger.critical(
+                                    f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks.")
+                                future.cancel()
+                            except ProcessExpired as e:
+                                logger.critical(f"{e}. Exit code: {e.exitcode}")
+                    except CancelledError:
+                        logger.warning("CancelledError")
+
                     if not best or improved_idx is None:
                         break
                     if freq_step < accuracy:
@@ -503,7 +517,7 @@ class LwcFmaxRunner(FlowRunner):
                     else:
                         hi_freq = frequencies_to_try[improved_idx + 1] + accuracy
 
-                    logger.info(f'[DSE] Execution Time: {int(time.monotonic() - start_time) // 60} minutes')
+                    logger.info(f'[DSE] Execution Time: {int(time.monotonic() - start_time) // 60} minute(s)')
                     logger.info(f'[DSE] Number of Iterations: {num_iterations}')
 
         except KeyboardInterrupt:
@@ -515,7 +529,7 @@ class LwcFmaxRunner(FlowRunner):
             raise
         finally:
             logger.info(f'[DSE] best = {best}')
-            logger.info(f'[DSE] Total Execution Time: {int(time.monotonic() - start_time) // 60} minutes')
+            logger.info(f'[DSE] Total Execution Time: {int(time.monotonic() - start_time) // 60} minute(s)')
             logger.info(f'[DSE] Total Iterations: {num_iterations}')
 
             best_json_path = Path(args.xeda_run_dir) / \
