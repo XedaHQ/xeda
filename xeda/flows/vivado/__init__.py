@@ -92,9 +92,7 @@ class VivadoSynth(Vivado, SynthFlow):
                           r'^\s*\|\s*Dynamic\s*\(W\)\s*\|\s*(?P<power_dynamic> [\-\.\w]+)\s*\|.*' +
                           r'^\s*\|\s*Device\s+Static\s+\(W\)\s*\|\s*(?P<power_static>[\-\.\w]+)\s*\|.*' +
                           r'^\s*\|\s*Confidence\s+Level\s*\|\s*(?P<power_confidence_level>[\-\.\w]+)\s*\|.*' +
-                          r'^\s*\|\s*Design\s+Nets\s+Matched\s*\|\s*(?P<power_nets_matched>[\-\.\w]+)\s*\|.*' +
-                          r'^\s*\|\s*Clocks\s*\|\s*(?P<power_clocks>[\-\.\w]+)\s*\|.*' +
-                          r'^\s*\|\s*I\/O\s*\|\s*(?P<power_io>[\-\.\w]+)\s*\|.*'
+                          r'^\s*\|\s*Design\s+Nets\s+Matched\s*\|\s*(?P<power_nets_matched>[\-\.\w]+)\s*\|.*'
                           )
 
         failed = False

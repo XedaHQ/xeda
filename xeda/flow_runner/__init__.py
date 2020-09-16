@@ -1,10 +1,12 @@
 import copy
 import multiprocessing
 from multiprocessing import cpu_count
+from typing import List
+from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import os
 import logging
-import random
+from concurrent.futures import TimeoutError
 import time
 import pkg_resources
 from pathlib import Path
@@ -26,13 +28,26 @@ logger = logging.getLogger()
 def run_flow(f: Flow):
     try:
         f.run()
+        return f.results
     except FlowFatalException as e:
         logger.critical(f'Fatal exception during flow run in {f.run_dir}: {e}')
         traceback.print_exc()
     except KeyboardInterrupt as e:
         logger.critical(f'KeyboardInterrupt recieved during flow run in {f.run_dir}: {e}')
         traceback.print_exc()
-        # raise e?
+
+
+def run_flow_fmax(arg):
+    idx, f = arg
+    try:
+        f.run()
+        return idx
+    except FlowFatalException as e:
+        logger.critical(f'Fatal exception during flow run in {f.run_dir}: {e}')
+        traceback.print_exc()
+    except KeyboardInterrupt as e:
+        logger.critical(f'KeyboardInterrupt recieved during flow run in {f.run_dir}: {e}')
+        traceback.print_exc()
 
 
 class FlowRunner():
@@ -40,11 +55,13 @@ class FlowRunner():
     def register_subparser(cls, subparsers):
         raise NotImplementedError
 
-    def __init__(self, args) -> None:
+    def __init__(self, args, timestamp) -> None:
         self.args = args
+        self.timestamp = timestamp
         # in case super().add_common_args(plug_parser) was not called in a subclass
         if not hasattr(args, 'override_settings'):
-            self.args.override_settings = None  
+            self.args.override_settings = None
+
         self.parallel_run = None
 
     def get_default_settings(self):
@@ -107,8 +124,7 @@ class FlowRunner():
         return self.validate_settings(settings)
 
     # should not override
-    def post_run(self, flow: Flow):
-
+    def post_run(self, flow: Flow, print_failed=True):
         # Run post-run hooks
         for hook in flow.post_run_hooks:
             logger.info(f"Running post-run hook from from {hook.__self__.__class__.__name__}")
@@ -123,7 +139,9 @@ class FlowRunner():
         flow.results['design.name'] = flow.settings.design['name']
         flow.results['flow.name'] = flow.name
         flow.results['flow.run_hash'] = flow.run_hash
-        flow.print_results()
+
+        if print_failed or flow.results.get('success'):
+            flow.print_results()
         flow.dump_results()
 
         # Run post-results hooks
@@ -137,16 +155,19 @@ class FlowRunner():
         except AttributeError as e:
             self.fatal(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.", e)
 
-    def setup_flow(self, settings, args, flow_name_or_class, max_threads=None):
+    def setup_flow(self, settings, args, flow_name, max_threads=None):
         if not max_threads:
             max_threads = multiprocessing.cpu_count()
         # settings is a ref to a dict and its data can change, take a snapshot
         settings = copy.deepcopy(settings)
 
-        if isinstance(flow_name_or_class, Flow):
-            flow_cls = flow_name_or_class
-        else:
-            flow_cls = self.load_flow_class(flow_name_or_class)
+        # def is_flow_class(cls):
+        #     try:
+        #         return issubclass(flow_name, Flow)
+        #     except:
+        #         return False
+
+        flow_cls = self.load_flow_class(flow_name)
 
         flow_settings = Settings()
         # default for optional design settings
@@ -160,25 +181,15 @@ class FlowRunner():
         flow_settings.design.update(settings['design'])
 
         # override entire section if available in settings
-        if flow_name_or_class in settings['flows']:
-            flow_settings.flow.update(settings['flows'][flow_name_or_class])
-            logger.info(f"Using {flow_name_or_class} settings")
+        if flow_name in settings['flows']:
+            flow_settings.flow.update(settings['flows'][flow_name])
+            logger.info(f"Using {flow_name} settings")
         else:
-            logger.warning(f"No settings found for {flow_name_or_class}")
+            logger.warning(f"No settings found for {flow_name}")
 
         flow_settings.nthreads = max(1, max_threads)
 
         flow: Flow = flow_cls(flow_settings, args)
-
-        # self.replicated_settings = []
-        # for hook in self.replicator_hooks:
-        #     repl_settings = hook(self.settings)
-        #     logger.info(f'Generated {len(repl_settings)} setting(s) from {hook.__self__.__class__.__name__}')
-        #     self.replicated_settings.extend(repl_settings)
-
-        # for active_settings in flow.replicated_settings:
-        #     print(2)
-        #     flow.settings = active_settings
 
         if not isinstance(flow.settings.design['sources'], list):
             self.fatal('`sources` section of the settings needs to be a list')
@@ -204,7 +215,7 @@ class FlowRunner():
         flow.dump_settings()
 
         if self.parallel_run:
-            flow.set_parallel_run(None)
+            flow.set_parallel_run()
 
         return flow
 
@@ -235,7 +246,7 @@ class DefaultFlowRunner(FlowRunner):
 
 
 # TODO as a plugin
-class LwcVariantsRunner(DefaultFlowRunner):
+class LwcVariantsRunner(FlowRunner):
     @classmethod
     def register_subparser(cls, subparsers):
         plug_parser = subparsers.add_parser('run_variants', help='Run All LWC variants in variants.json')
@@ -249,7 +260,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
         plug_parser.add_argument(
             '--parallel-run',
             action='store_true',
-            help='Use multiprocessing to run in parallel'
+            help='Use multiprocessing to run multiple flows in parallel'
         )
         plug_parser.add_argument(
             '--gmu-kats',
@@ -280,12 +291,9 @@ class LwcVariantsRunner(DefaultFlowRunner):
     def launch(self):
         args = self.args
         self.parallel_run = args.parallel_run
-
-        if args.debug >= DebugLevel.MEDIUM:
-            args.parallel_run = False
-            logger.info("parallel_run disable due to the debug level")
-        else:
-            logger.info(f"parallel_run={self.parallel_run}")
+        if args.parallel_run and args.debug >= DebugLevel.MEDIUM:
+            self.parallel_run = False
+            logger.warning("parallel_run disabled due to the debug level")
 
         total = 0
         num_success = 0
@@ -300,7 +308,7 @@ class LwcVariantsRunner(DefaultFlowRunner):
         if args.variants_subset:
             variants = {vid: vdat for vid, vdat in variants.items() if vid in args.variants_subset}
 
-        flows_to_run = []
+        flows_to_run: List[Flow] = []
 
         nproc = max(1, multiprocessing.cpu_count() // 4)
 
@@ -352,7 +360,9 @@ class LwcVariantsRunner(DefaultFlowRunner):
         if not flows_to_run:
             self.fatal("flows_to_run is empty!")
 
-        proc_timeout_seconds = 3600
+        proc_timeout_seconds = flows_to_run[0].settings.flow.get('timeout')
+        if not proc_timeout_seconds:
+            proc_timeout_seconds = flows_to_run[0].timeout
 
         if self.parallel_run:
             try:
@@ -382,11 +392,9 @@ class LwcVariantsRunner(DefaultFlowRunner):
 
 
 class Best:
-    def __init__(self, period=None, results=None, rundir=None, wns=None):
-        self.period = period
-        self.wns = wns
+    def __init__(self, freq, results):
+        self.freq = freq
         self.results = results
-        self.rundir = rundir
 
 
 class LwcFmaxRunner(FlowRunner):
@@ -405,156 +413,122 @@ class LwcFmaxRunner(FlowRunner):
             help='Maximum consequetive failed runs allowed. Give up afterwards.'
         )
         plug_parser.add_argument(
-            '--start-period',
-            default=None, type=float,
-            help='Starting clock period.'
+            '--start-max-freq',
+            default=600, type=float,
+        )
+        plug_parser.add_argument(
+            '--max-cpus',
+            default=max(1, cpu_count()), type=int,
         )
 
     def launch(self):
-        merit_period = True
-
-        small_improvement_threshold = 0.1
-        # max successful runs after first success where improvements is < small_improvement
-        max_small_improvements = 20
-        wns_threshold = 0.001
-        improvement_threshold = 0.002
-        error_margin = 0.001
-        ####
-        failed_runs = 0
-        num_small_improvements = 0
-
-        class Best:
-            def __init__(self, period=None, results=None, rundir=None, wns=None):
-                self.period = period
-                self.wns = wns
-                self.results = results
-                self.rundir = rundir
-        best = Best()
-        rundirs = []
+        start_time = time.monotonic()
 
         args = self.args
-
-        json_path = args.design_json if args.design_json else Path.cwd() / 'design.json'
-
-        settings = self.get_design_settings(json_path)
-
-        next_period = None
+        settings = self.get_design_settings()
 
         flow_name = args.flow
 
-        total_runs = 0
-        improvement = None
+        flow_settings = settings['flows'].get(flow_name)
 
-        state_time = time.monotonic()
+        # won't try lower
+        lo_freq = 4.0
+        # can go higher
+        hi_freq = flow_settings.get('hi_freq')
+        if not hi_freq:
+            hi_freq = 200.0
+        accuracy = 0.1
+        delta_increment = 0.05
 
-        tried_periods = []
-        same_period = 0
+        Mega = 1000.0
+        # TODO get from settings/args
+        nthreads = 4
+        num_workers = max(2, args.max_cpus // nthreads)
+        self.parallel_run = True
+        args.quiet = True
 
-        success = None
-        wns = None
-
-        if args.start_period:
-            next_period = args.start_period
-
+        best = None
+        rundirs = []
+        all_results = []
+        future = None
+        num_iterations = 0
         try:
-            while True:
+            with ProcessPool(max_workers=num_workers) as pool:
+                while hi_freq - lo_freq >= accuracy:
+                    frequencies_to_try, freq_step = numpy.linspace(
+                        lo_freq, hi_freq, num=num_workers, dtype=float, retstep=True)
 
-                if next_period:
-                    assert next_period > 0.001
-                    if best.period:
-                        assert next_period < best.period
-                    settings['flows'][flow_name]['clock_period'] = next_period
+                    logger.info(f"trying frequencies: {frequencies_to_try} MHz")
 
-                flow = self.setup_flow(settings, args, flow_name)
+                    flows_to_run = []
+                    for freq in frequencies_to_try:
+                        flow_settings['clock_period'] = Mega / freq
+                        flow = self.setup_flow(settings, args, flow_name, max_threads=nthreads)
+                        flow.set_parallel_run()
+                        flows_to_run.append(flow)
 
-                set_period = flow.settings.flow['clock_period']
+                    proc_timeout_seconds = flow_settings.get('timeout')
+                    if not proc_timeout_seconds:
+                        proc_timeout_seconds = flows_to_run[0].timeout
 
-                if set_period in tried_periods:
-                    same_period += 1
-                    if same_period > 5:
-                        logger.warning(
-                            f'[DSE] repeating periods for {same_period} times!')
-                        break
-                    if success:  # previous was success
-                        next_period -= wns / 2 * random.random() - error_margin
-                    else:
-                        next_period += abs(wns) / 2 * random.random() - error_margin
-                    continue
-                else:
-                    tried_periods.append(set_period)
+                    logger.info(f'Timeout set to: {proc_timeout_seconds} seconds.')
 
-                logger.info(f'[DSE] Trying clock_period = {set_period:0.3f}ns')
-                # fresh directory for each run
-                flow.run()
-                total_runs += 1
-                self.post_run(flow)
+                    future = pool.map(run_flow_fmax, enumerate(flows_to_run), timeout=proc_timeout_seconds)
+                    num_iterations += 1
 
-                rundirs.append(flow.run_dir)
-                wns = flow.results['wns']
-                success = flow.results['success'] and wns >= 0
-                period = flow.results['clock_period']
-
-                next_period = set_period - wns - error_margin - min(0.006, abs(wns) / 3 * random.random())
-
-                if success:
-                    failed_runs = 0
-
-                    def merit():
-                        if merit_period:
-                            return best.period > period
-                        else:
-                            return best.period - best.wns > period - wns
-                    has_merit = merit()
-                    if not best.period or has_merit:
-                        if best.period:
-                            improvement = best.period - period
-                            if wns <= wns_threshold:
-                                logger.warning(
-                                    f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threshold: {wns_threshold}')
-                                break
-                        best = Best(period, {**flow.results}, flow.run_dir, wns)
-
-                        if improvement and improvement < small_improvement_threshold:
-                            num_small_improvements += 1
-                            if num_small_improvements > max_small_improvements:
-                                logger.warning(
-                                    f'[DSE] Number of improvements less than {small_improvement_threshold} reached {max_small_improvements}')
-
-                                break
-                        else:
-                            # reset to 0?
-                            num_small_improvements = max(0, num_small_improvements - 2)
-
-                else:
-                    if best.period:
-                        failed_runs += 1
-                        next_period = (best.period + set_period) / 2
-
-                        max_failed = self.args.max_failed_runs
-                        if failed_runs >= max_failed:
-                            logger.warning(
-                                f'[DSE] Stopping attempts as number of FAILED runs has reached maximum allowed value of {max_failed}.'
-                            )
+                    iterator = future.result()
+                    improved_idx = None
+                    while True:
+                        try:
+                            idx = next(iterator)
+                            flow = flows_to_run[idx]
+                            freq = frequencies_to_try[idx]
+                            self.post_run(flow, print_failed=False)
+                            results = flow.results
+                            rundirs.append(flow.run_dir)
+                            if results['success'] and (not best or freq > best.freq):
+                                all_results.append(results)
+                                best = Best(freq, results)
+                                improved_idx = idx
+                        except StopIteration:
                             break
+                        except TimeoutError as e:
+                            logger.critical(
+                                f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks.")
+                            future.cancel()
+                        except ProcessExpired as e:
+                            logger.critical(f"{e}. Exit code: {e.exitcode}")
+                    if not best or improved_idx is None:
+                        break
+                    if freq_step < accuracy:
+                        break
+                    lo_freq = best.freq + delta_increment
+                    # last or one before last
+                    if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
+                        min_plausible_period = (Mega / best.freq) - best.results['wns']
+                        hi_freq = max(frequencies_to_try[-1] + freq_step,  Mega / min_plausible_period) + accuracy / 2
+                    else:
+                        hi_freq = frequencies_to_try[improved_idx + 1] + accuracy
 
-                # worse or not worth it
-                if best.period and (best.period - next_period) < improvement_threshold:
-                    logger.warning(
-                        f'[DSE] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
-                    )
-                    break
+                    logger.info(f'[DSE] Execution Time: {int(time.monotonic() - start_time) // 60} minutes')
+                    logger.info(f'[DSE] Number of Iterations: {num_iterations}')
 
-                logger.info(f'[DSE] best.period: {best.period}ns run_dir: {best.rundir}')
-                logger.info(
-                    f'[DSE] total_runs={total_runs} failed_runs={failed_runs} num_small_improvements={num_small_improvements} improvement={improvement} total time={time.monotonic() - state_time}')
+        except KeyboardInterrupt:
+            logger.exception('Received Keyboard Interrupt')
+            if future and not future.cancelled():
+                future.cancel()
+        except:
+            logger.exception('Received exception')
+            raise
         finally:
+            logger.info(f'[DSE] best = {best}')
+            logger.info(f'[DSE] Total Execution Time: {int(time.monotonic() - start_time) // 60} minutes')
+            logger.info(f'[DSE] Total Iterations: {num_iterations}')
 
-            logger.info(f'[DSE] best.period = {best.period}')
-            logger.info(f'[DSE] best.rundir = {best.rundir}')
-            logger.info(f'[DSE] total time = {int(time.monotonic() - state_time) // 60} minutes')
-            logger.info(f'[DSE] total runs = {total_runs}')
-            my_print(f'---- Results with optimal frequency: ----')
-            flow.print_results(best.results)
-
-            logger.info(f'Run directories: {" ".join([str(os.path.relpath(d, Path.cwd())) for d in rundirs])}')
-            logger.info(f'Tried periods: {tried_periods}')
+            best_json_path = Path(args.xeda_run_dir) / \
+                f'fmax_{settings["design"]["name"]}_{flow_name}_{self.timestamp}.json'
+            logger.info(f"Writing best result to {best_json_path}")
+            with open(best_json_path, 'w') as f:
+                json.dump(best, f, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
+            if future and not future.cancelled():
+                future.cancel()
