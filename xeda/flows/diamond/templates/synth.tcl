@@ -82,15 +82,6 @@ if {${strategy} == "Area"} {
 }
 
 
-# RTL:
-# syn_multstyle = logic , syn_ramstyle = distributed or registers
-# Verilog: input net0 /* synthesis syn_multstyle = logic */;
-# VHDL: attribute syn_multstyle of net0 : signal is dsp;
-#
-# FDC:
-# define_global_attribute syn_multstyle logic
-# define_global_attribute syn_ramstyle distributed
-
 # 0-1000 default:0
 # setting to 1 seems to help timing
 prj_strgy set_value -strategy custom_strategy par_route_delay_reduction_pass=1
@@ -102,7 +93,6 @@ prj_strgy set_value -strategy custom_strategy par_place_effort_level=5
 
 
 # LSE options
-## LWC specific (only LSE supports them)
 # lse_disable_distram=False ?
 {% if not flow.use_bram %}
 prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0 lse_ebr_util=0 lse_rom_style=Logic
@@ -113,11 +103,9 @@ prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0
 eval prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0
 {% endif %}
 
-prj_strgy set_value -strategy custom_strategy {par_cmdline_args=-exp nbrMaxRunTime=20}
-
+prj_strgy set_value -strategy custom_strategy {par_cmdline_args=-exp nbrMaxRunTime=100}
 
 prj_strgy set custom_strategy
-###########
 
 
 

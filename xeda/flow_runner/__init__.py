@@ -6,7 +6,7 @@ from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import os
 import logging
-import random
+from concurrent.futures import TimeoutError
 import time
 import pkg_resources
 from pathlib import Path
@@ -63,7 +63,6 @@ class FlowRunner():
             self.args.override_settings = None
 
         self.parallel_run = None
-
 
     def get_default_settings(self):
         defaults_data = pkg_resources.resource_string('xeda', "defaults.json")
@@ -422,22 +421,24 @@ class LwcFmaxRunner(FlowRunner):
         flow_name = args.flow
         flow_cls = self.load_flow_class(flow_name)
 
-        # flow_settings = settings['flows'].get(flow_name)
-        # if not flow_settings:
-        #     flow_settings = dict()
-        #     settings['flows'] = flow_settings
+        flow_settings = settings['flows'].get(flow_name)
+        if not flow_settings:
+            flow_settings = dict()
+            settings['flows'] = flow_settings
 
-        # override_timout = flow_settings.get('timeout')
-        # if override_timout:
-        #     flow_cls.timeout = override_timout
+        override_timeout = flow_settings.get('timeout')
+        if override_timeout:
+            flow_cls.timeout = override_timeout
 
         # won't try lower
         lo_freq = 4.0
         # can go higher
-        hi_freq = 400.0
+        hi_freq = flow_settings.get('hi_freq')
+        if not hi_freq:
+            hi_freq = 200.0
         accuracy = 0.1
         delta_increment = 0.05
-        timeout = min(flow_cls.timeout, 1000)
+        timeout = flow_cls.timeout
 
         Mega = 1000.0
         # TODO get from settings/args
@@ -491,156 +492,22 @@ class LwcFmaxRunner(FlowRunner):
                     if not best or improved_idx is None:
                         break
                     lo_freq = best.freq + delta_increment
-                    if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:  # last or one before last
+                    # last or one before last
+                    if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
                         min_plausible_period = (Mega / best.freq) - best.results['wns']
                         hi_freq = max(frequencies_to_try[-1] + freq_step,  Mega / min_plausible_period) + accuracy
                     else:
                         hi_freq = frequencies_to_try[improved_idx + 1] + accuracy
-
+        except:
+            logger.exception('Received exception')
+            raise
         finally:
             logger.info(f'[DSE] best = {best}')
             logger.info(f'[DSE] total time = {int(time.monotonic() - start_time) // 60} minutes')
             logger.info(f'[DSE] total runs = {total_runs}')
-            with open(Path(args.xeda_run_dir) / f'fmax_{settings["design"]["name"]}_{flow_name}_{self.timestamp}.json', 'w') as f:
-                json.dump({"best": best, "all": all_results}, f,
-                          default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
 
-            # logger.info(f'Run directories: {" ".join([str(os.path.relpath(d, Path.cwd())) for d in rundirs])}')
-            # logger.info(f'Tried periods: {tried_periods}'):tad
-
-    # def launch_1(self):
-    #     merit_period = True
-
-    #     small_improvement_threshold = 0.1
-    #     # max successful runs after first success where improvements is < small_improvement
-    #     max_small_improvements = 20
-    #     wns_threshold = 0.001
-    #     improvement_threshold = 0.002
-    #     error_margin = 0.001
-    #     ####
-    #     failed_runs = 0
-    #     num_small_improvements = 0
-
-    #     args = self.args
-    #     settings = self.get_design_settings()
-    #     flow_name = args.flow
-
-    #     rundirs = []
-    #     next_period = None
-    #     total_runs = 0
-    #     improvement = None
-
-    #     state_time = time.monotonic()
-
-    #     tried_periods = []
-    #     same_period = 0
-
-    #     success = None
-    #     wns = None
-    #     best = Best()
-
-    #     if args.start_period:
-    #         next_period = args.start_period
-
-    #     try:
-    #         while True:
-
-    #             if next_period:
-    #                 assert next_period > 0.001
-    #                 if best.period:
-    #                     assert next_period < best.period
-    #                 settings['flows'][flow_name]['clock_period'] = next_period
-
-    #             flow = self.setup_flow(settings, args, flow_name)
-
-    #             set_period = flow.settings.flow['clock_period']
-
-    #             if set_period in tried_periods:
-    #                 same_period += 1
-    #                 if same_period > 5:
-    #                     logger.warning(
-    #                         f'[DSE] repeating periods for {same_period} times!')
-    #                     break
-    #                 if success:  # previous was success
-    #                     next_period -= wns / 2 * random.random() - error_margin
-    #                 else:
-    #                     next_period += abs(wns) / 2 * random.random() - error_margin
-    #                 continue
-    #             else:
-    #                 tried_periods.append(set_period)
-
-    #             logger.info(f'[DSE] Trying clock_period = {set_period:0.3f}ns')
-    #             # fresh directory for each run
-    #             flow.run()
-    #             total_runs += 1
-    #             self.post_run(flow)
-
-    #             rundirs.append(flow.run_dir)
-    #             wns = flow.results['wns']
-    #             success = flow.results['success'] and wns >= 0
-    #             period = flow.results['clock_period']
-
-    #             next_period = set_period - wns - error_margin - min(0.006, abs(wns) / 3 * random.random())
-
-    #             if success:
-    #                 failed_runs = 0
-
-    #                 def merit():
-    #                     if merit_period:
-    #                         return best.period > period
-    #                     else:
-    #                         return best.period - best.wns > period - wns
-    #                 has_merit = merit()
-    #                 if not best.period or has_merit:
-    #                     if best.period:
-    #                         improvement = best.period - period
-    #                         if wns <= wns_threshold:
-    #                             logger.warning(
-    #                                 f'[DSE] Stopping attempts as wns={wns} is lower than the flow\'s improvement threshold: {wns_threshold}')
-    #                             break
-    #                     best = Best(period, {**flow.results}, flow.run_dir, wns)
-
-    #                     if improvement and improvement < small_improvement_threshold:
-    #                         num_small_improvements += 1
-    #                         if num_small_improvements > max_small_improvements:
-    #                             logger.warning(
-    #                                 f'[DSE] Number of improvements less than {small_improvement_threshold} reached {max_small_improvements}')
-
-    #                             break
-    #                     else:
-    #                         # reset to 0?
-    #                         num_small_improvements = max(0, num_small_improvements - 2)
-
-    #             else:
-    #                 if best.period:
-    #                     failed_runs += 1
-    #                     next_period = (best.period + set_period) / 2
-
-    #                     max_failed = self.args.max_failed_runs
-    #                     if failed_runs >= max_failed:
-    #                         logger.warning(
-    #                             f'[DSE] Stopping attempts as number of FAILED runs has reached maximum allowed value of {max_failed}.'
-    #                         )
-    #                         break
-
-    #             # worse or not worth it
-    #             if best.period and (best.period - next_period) < improvement_threshold:
-    #                 logger.warning(
-    #                     f'[DSE] Stopping attempts as expected improvement of period is less than the improvement threshold of {improvement_threshold}.'
-    #                 )
-    #                 break
-
-    #             logger.info(f'[DSE] best.period: {best.period}ns run_dir: {best.rundir}')
-    #             logger.info(
-    #                 f'[DSE] total_runs={total_runs} failed_runs={failed_runs} num_small_improvements={num_small_improvements} improvement={improvement} total time={time.monotonic() - state_time}')
-    #     finally:
-
-    #         logger.info(f'[DSE] best.period = {best.period}')
-    #         logger.info(f'[DSE] best.rundir = {best.rundir}')
-    #         logger.info(f'[DSE] total time = {int(time.monotonic() - state_time) // 60} minutes')
-    #         logger.info(f'[DSE] total runs = {total_runs}')
-    #         my_print(f'---- Results with optimal frequency: ----')
-    #         flow.print_results(best.results)
-
-    #         logger.info(f'Run directories: {" ".join([str(os.path.relpath(d, Path.cwd())) for d in rundirs])}')
-    #         logger.info(f'Tried periods: {tried_periods}')
+            best_json_path = Path(args.xeda_run_dir) / \
+                f'fmax_{settings["design"]["name"]}_{flow_name}_{self.timestamp}.json'
+            logger.info(f"Writing best result to {best_json_path}")
+            with open(best_json_path, 'w') as f:
+                json.dump(best, f, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
