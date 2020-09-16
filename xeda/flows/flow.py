@@ -53,6 +53,8 @@ class Flow():
         self.set_run_dir(prefix=None, override=self.args.force_run_dir)
 
         self.results = dict()
+        self.results['success'] = False
+
         self.jinja_env = Environment(
             loader=PackageLoader(self.flow_module_path, 'templates'),
             autoescape=False,
@@ -104,25 +106,8 @@ class Flow():
         except FileNotFoundError as e:
             self.fatal(f"Semantic hash failed: {e} ")
 
-    def set_parallel_run(self, queue):
+    def set_parallel_run(self):
         self.no_console = True
-        # while logger.hasHandlers():
-        #     logger.removeHandler(logger.handlers[0])
-        # logger = multiprocessing.get_logger()
-
-        # logger.setLevel(logging.DEBUG)
-        # formatter = logging.Formatter(
-        #     '[%(asctime)s| %(levelname)s| %(processName)s] %(message)s')
-        # handler = logging.FileHandler(self.run_dir / f'{self.name}_logger.log')
-        # handler = NullHandler()
-        # handler.setFormatter(formatter)
-        # handler = QueueHandler(queue)
-
-        # this bit will make sure you won't have
-        # duplicated messages in the output
-        # if not len(logger.handlers):
-        # logger.addHandler(handler)
-        # logger = logger
 
     @property
     def name(self):
@@ -262,27 +247,28 @@ class Flow():
                                 else:
                                     print(line, end='')
                             else:
-                                if error_msg_re.match(line) or critwarn_msg_re.match(line):
-                                    if spinner:
-                                        print()
-                                    logger.error(line)
-                                elif warn_msg_re.match(line):
-                                    if spinner:
-                                        print()
-                                    logger.warning(line)
-                                elif enable_echo_re.match(line):
-                                    if not self.args.quiet:
-                                        echo_instructed = True
-                                    end_step()
-                                else:
-                                    match = start_step_re.match(line)
-                                    if match:
-                                        end_step()
-                                        step = match.group('step')
-                                        spinner = make_spinner(step)
-                                    else:
+                                if not self.args.quiet:
+                                    if error_msg_re.match(line) or critwarn_msg_re.match(line):
                                         if spinner:
-                                            spinner.next()
+                                            print()
+                                        logger.error(line)
+                                    elif warn_msg_re.match(line):
+                                        if spinner:
+                                            print()
+                                        logger.warning(line)
+                                    elif enable_echo_re.match(line):
+                                        if not self.args.quiet:
+                                            echo_instructed = True
+                                        end_step()
+                                    else:
+                                        match = start_step_re.match(line)
+                                        if match:
+                                            end_step()
+                                            step = match.group('step')
+                                            spinner = make_spinner(step)
+                                        else:
+                                            if spinner:
+                                                spinner.next()
             except FileNotFoundError as e:
                 self.fatal(f"Cannot execute `{prog}`. Make sure it's properly instaulled and the executable is in PATH")
             except KeyboardInterrupt as e:

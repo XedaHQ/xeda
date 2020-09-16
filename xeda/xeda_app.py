@@ -66,7 +66,7 @@ class XedaApp:
 
             coloredlogs.install('INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
 
-            runner = runner_cls(self.args)
+            runner = runner_cls(self.args, timestamp)
         else:
             sys.exit(f"Runner for {args.command} is not implemented")
 
