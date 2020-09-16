@@ -7,7 +7,4 @@ Flows
 Reports Directory
 =================
 
-``cls.reports_subdir_name`` is a suite's default report report directory
-``self.reports_dir`` is set to the default.
-Each flow *can* override it during ``__runflow_impl__`` hook.
-
+``reports_subdir_name`` is the name of the default reports subdirectory withint a flow's ``run_dir``. All the tools in a flow save their _report_ files inside this directory. The files in this directory will be parsed during execution of a flow's ``parse_report()``.
