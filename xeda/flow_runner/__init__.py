@@ -267,6 +267,11 @@ class LwcVariantsRunner(DefaultFlowRunner):
             help='Do not inlucde reuse-key testvectors'
         )
         plug_parser.add_argument(
+            '--no-timing',
+            action='store_true',
+            help='disable timing mode'
+        )
+        plug_parser.add_argument(
             '--variants-subset',
             nargs='+',
             help='The list of variant IDs to run from all available variants loaded from variants.json.'
@@ -307,7 +312,8 @@ class LwcVariantsRunner(DefaultFlowRunner):
 
         def add_flow(settings, variant_id, variant_data):
             flow = self.setup_flow(settings, args, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
-            flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data))
+            if not args.no_timing:
+                flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data))
             flows_to_run.append(flow)
 
         for variant_id, variant_data in variants.items():
@@ -320,7 +326,8 @@ class LwcVariantsRunner(DefaultFlowRunner):
             if self.parallel_run:
                 args.quiet = True
 
-            settings['design']['tb_generics']['G_TEST_MODE'] = 4
+            if not args.no_timing:
+                settings['design']['tb_generics']['G_TEST_MODE'] = 4
             settings['design']['tb_generics']['G_FNAME_TIMING'] = f"timing_{variant_id}.txt"
             settings['design']['tb_generics']['G_FNAME_TIMING_CSV'] = f"timing_{variant_id}.csv"
             settings['design']['tb_generics']['G_FNAME_RESULT'] = f"result_{variant_id}.txt"
