@@ -41,7 +41,7 @@ class Flow():
     required_settings = {}
     default_settings = {}
     reports_subdir_name = 'reports'
-    timeout = 3600 # in seconds
+    timeout = 3600 * 2 # in seconds
 
     def __init__(self, settings: Settings, args):
 

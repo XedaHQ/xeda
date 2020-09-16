@@ -2,6 +2,7 @@ import copy
 import multiprocessing
 from multiprocessing import cpu_count
 import sys
+from typing import List
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import os
@@ -303,7 +304,7 @@ class LwcVariantsRunner(FlowRunner):
         if args.variants_subset:
             variants = {vid: vdat for vid, vdat in variants.items() if vid in args.variants_subset}
 
-        flows_to_run = []
+        flows_to_run: List[Flow] = []
 
         nproc = max(1, multiprocessing.cpu_count() // 4)
 
@@ -353,7 +354,9 @@ class LwcVariantsRunner(FlowRunner):
         if not flows_to_run:
             self.fatal("flows_to_run is empty!")
 
-        proc_timeout_seconds = 3600
+        proc_timeout_seconds = flows_to_run[0].settings.flow.get('timeout')
+        if not proc_timeout_seconds:
+            proc_timeout_seconds = flows_to_run[0].timeout
 
         if self.parallel_run:
             try:
@@ -419,16 +422,8 @@ class LwcFmaxRunner(FlowRunner):
         settings = self.get_design_settings()
 
         flow_name = args.flow
-        flow_cls = self.load_flow_class(flow_name)
 
         flow_settings = settings['flows'].get(flow_name)
-        if not flow_settings:
-            flow_settings = dict()
-            settings['flows'] = flow_settings
-
-        override_timeout = flow_settings.get('timeout')
-        if override_timeout:
-            flow_cls.timeout = override_timeout
 
         # won't try lower
         lo_freq = 4.0
@@ -438,7 +433,6 @@ class LwcFmaxRunner(FlowRunner):
             hi_freq = 200.0
         accuracy = 0.1
         delta_increment = 0.05
-        timeout = flow_cls.timeout
 
         Mega = 1000.0
         # TODO get from settings/args
@@ -451,6 +445,8 @@ class LwcFmaxRunner(FlowRunner):
         rundirs = []
         all_results = []
         total_runs = 0
+        future = None
+        num_iterations = 0
         try:
             with ProcessPool(max_workers=num_workers) as pool:
                 while hi_freq - lo_freq >= accuracy:
@@ -461,13 +457,19 @@ class LwcFmaxRunner(FlowRunner):
 
                     flows_to_run = []
                     for freq in frequencies_to_try:
-                        settings['flows'][flow_name]['clock_period'] = Mega / freq
+                        flow_settings['clock_period'] = Mega / freq
                         flow = self.setup_flow(settings, args, flow_name, max_threads=nthreads)
                         flow.set_parallel_run()
                         flows_to_run.append(flow)
 
-                    future = pool.map(run_flow_fmax, enumerate(flows_to_run), timeout=timeout)
-                    total_runs += num_workers
+                    proc_timeout_seconds = flow_settings.get('timeout')
+                    if not proc_timeout_seconds:
+                        proc_timeout_seconds = flows_to_run[0].timeout
+
+                    logger.info(f'Timeout set to: {proc_timeout_seconds} seconds.')
+
+                    future = pool.map(run_flow_fmax, enumerate(flows_to_run), timeout=proc_timeout_seconds)
+                    num_iterations += 1
 
                     iterator = future.result()
                     improved_idx = None
@@ -486,7 +488,8 @@ class LwcFmaxRunner(FlowRunner):
                         except StopIteration:
                             break
                         except TimeoutError as e:
-                            logger.critical(f"Flow run took longer than {e.args[1]} seconds")
+                            logger.critical(f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks.")
+                            future.cancel()
                         except ProcessExpired as e:
                             logger.critical(f"{e}. Exit code: {e.exitcode}")
                     if not best or improved_idx is None:
@@ -498,16 +501,26 @@ class LwcFmaxRunner(FlowRunner):
                         hi_freq = max(frequencies_to_try[-1] + freq_step,  Mega / min_plausible_period) + accuracy
                     else:
                         hi_freq = frequencies_to_try[improved_idx + 1] + accuracy
+
+                    logger.info(f'[DSE] Execution Time: {int(time.monotonic() - start_time) // 60} minutes')
+                    logger.info(f'[DSE] Number of Iterations: {num_iterations}')
+
+        except KeyboardInterrupt:
+            logger.exception('Received Keyboard Interrupt')
+            if future and not future.cancelled():
+                future.cancel()
         except:
             logger.exception('Received exception')
             raise
         finally:
             logger.info(f'[DSE] best = {best}')
-            logger.info(f'[DSE] total time = {int(time.monotonic() - start_time) // 60} minutes')
-            logger.info(f'[DSE] total runs = {total_runs}')
+            logger.info(f'[DSE] Total Execution Time: {int(time.monotonic() - start_time) // 60} minutes')
+            logger.info(f'[DSE] Total Iterations: {num_iterations}')
 
             best_json_path = Path(args.xeda_run_dir) / \
                 f'fmax_{settings["design"]["name"]}_{flow_name}_{self.timestamp}.json'
             logger.info(f"Writing best result to {best_json_path}")
             with open(best_json_path, 'w') as f:
                 json.dump(best, f, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
+            if future and not future.cancelled():
+                future.cancel()
