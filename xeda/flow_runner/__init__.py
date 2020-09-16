@@ -1,7 +1,6 @@
 import copy
 import multiprocessing
 from multiprocessing import cpu_count
-import sys
 from typing import List
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
@@ -444,7 +443,6 @@ class LwcFmaxRunner(FlowRunner):
         best = None
         rundirs = []
         all_results = []
-        total_runs = 0
         future = None
         num_iterations = 0
         try:
@@ -488,17 +486,20 @@ class LwcFmaxRunner(FlowRunner):
                         except StopIteration:
                             break
                         except TimeoutError as e:
-                            logger.critical(f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks.")
+                            logger.critical(
+                                f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks.")
                             future.cancel()
                         except ProcessExpired as e:
                             logger.critical(f"{e}. Exit code: {e.exitcode}")
                     if not best or improved_idx is None:
                         break
+                    if freq_step < accuracy:
+                        break
                     lo_freq = best.freq + delta_increment
                     # last or one before last
                     if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
                         min_plausible_period = (Mega / best.freq) - best.results['wns']
-                        hi_freq = max(frequencies_to_try[-1] + freq_step,  Mega / min_plausible_period) + accuracy
+                        hi_freq = max(frequencies_to_try[-1] + freq_step,  Mega / min_plausible_period) + accuracy / 2
                     else:
                         hi_freq = frequencies_to_try[improved_idx + 1] + accuracy
 
