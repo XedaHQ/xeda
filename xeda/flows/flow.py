@@ -7,13 +7,13 @@ import re
 from pathlib import Path
 import subprocess
 import time
-from .settings import Settings
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import logging
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
 import colored
 
+from .settings import Settings
 from ..utils import camelcase_to_snakecase, try_convert
 from ..debug import DebugLevel
 
@@ -27,27 +27,44 @@ JsonTree = Dict[str, JsonType]
 StrTreeType = Union[str, List['StrTreeType'], 'StrTree']
 StrTree = Dict[str, StrTreeType]
 
+
 class FlowFatalException(Exception):
     """Fatal error"""
     pass
 
+
 logger = logging.getLogger()
+
 
 def my_print(*args, **kwargs):
     print(*args, **kwargs)
+
 
 class Flow():
     """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
     required_settings = {}
     default_settings = {}
     reports_subdir_name = 'reports'
-    timeout = 3600 * 2 # in seconds
+    timeout = 3600 * 2  # in seconds
 
     def __init__(self, settings: Settings, args):
 
         self.args = args
         self.run_hash = None
+
+        if not isinstance(settings.design['sources'], list):
+            self.fatal('`sources` section of the settings needs to be a list')
+
+        for i, src in enumerate(settings.design['sources']):
+            if isinstance(src, str):
+                src = {"file": src}
+            if not DesignSource.is_design_source(src):
+                raise Exception(
+                    f'Entry `{src}` in `sources` needs to be a string or a DesignSource JSON dictionary but is {type(src)}')
+            settings.design['sources'][i] = DesignSource(**src)
+
         self.settings = settings
+        self.nthreads = int(settings.flow.get('nthreads', 1))
 
         # all design flow-critical settings are fixed from this point onwards
         self.set_run_dir(prefix=None, override=self.args.force_run_dir)
@@ -73,7 +90,6 @@ class Flow():
         self.post_run_hooks = []
         self.post_results_hooks = []
 
-
     def set_hash(self):
         skip_fields = {'author', 'url', 'comment', 'description', 'license'}
 
@@ -82,12 +98,9 @@ class Flow():
                 return hasher(b).hexdigest()[:32]
 
             def file_digest(filename: str):
-                try:
-                    with open(filename, 'rb') as f:
-                        return get_digest(f.read())
-                except FileNotFoundError as e:
-                    raise e  # TODO add logging here?
-            
+                with open(filename, 'rb') as f:
+                    return get_digest(f.read())
+
             # data: JsonType, not adding type as Pylance does not seem to like recursive types :/
             def sorted_dict_str(data) -> StrTreeType:
                 if type(data) == dict:
@@ -100,6 +113,11 @@ class Flow():
                     return str(data)
 
             return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
+
+        if isinstance(self, SynthFlow):
+            for k in ['tb_generics', 'tb_top']:
+                self.settings.design.pop(k, None)
+            self.settings.design['sources'] = [s for s in self.settings.design['sources'] if not s.sim_only]
 
         try:
             self.run_hash = semantic_hash(self.settings)
@@ -128,6 +146,7 @@ class Flow():
             logger.warn(f"{self.name} does not specify any required_settings for {flow}")
 
     def set_run_dir(self, prefix=None, override=None):
+
         # all design flow-critical settings are fixed from this point onwards
         self.set_hash()
 
@@ -175,7 +194,7 @@ class Flow():
         logger.debug(f'generating {script_path.resolve()} from template.')
         rendered_content = template.render(flow=self.settings.flow,
                                            design=self.settings.design,
-                                           nthreads=self.settings.nthreads,
+                                           nthreads=self.nthreads,
                                            debug=self.args.debug,
                                            reports_dir=self.reports_subdir_name,
                                            **attr)
@@ -211,7 +230,7 @@ class Flow():
             if self.no_console:
                 return None
             return Spinner('⏳' + step if unicode else step)
-        
+
         redirect_std = self.args.debug < DebugLevel.HIGH
         with open(stdout_logfile, 'w') as log_file:
             try:
@@ -341,7 +360,7 @@ class Flow():
     def print_results(self, results=None):
         if not results:
             results = self.results
-            #init to print_results time:
+            # init to print_results time:
             results['runtime_minutes'] = (time.monotonic() - self.init_time) / 60
         data_width = 32
         name_width = 80 - data_width

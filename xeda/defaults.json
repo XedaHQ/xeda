@@ -17,8 +17,8 @@
             "synthesis_engine": "synplify",
             "strategy": "Timing",
             "timeout": 1000,
-            "minimum_frequency_mhz": 8.0,
-            "fmax_hi_freq": 100.0,
+            "minimum_frequency_mhz": 5.0,
+            "fmax_hi_freq": 200.0,
             "nthreads": 4
         },
         "vivado_synth": {
@@ -26,7 +26,10 @@
             "fpga_part": "xc7a12tcsg325-3",
             "strategy": "Timing",
             "optimize_power": "False",
-            "timeout": 1200
+            "timeout": 1200,
+            "minimum_frequency_mhz": 20.0,
+            "fmax_hi_freq": 300.0,
+            "nthreads": 4
         },
         "quartus_synth": {
             "clock_period": 8.0,

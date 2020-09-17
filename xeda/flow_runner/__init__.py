@@ -15,6 +15,7 @@ import multiprocessing as mp
 import traceback
 # heavy, but will probably become handy down the road
 import numpy
+import psutil
 
 from ..debug import DebugLevel
 from ..plugins.lwc import LwcCheckTimingHook
@@ -23,6 +24,29 @@ from ..flows.flow import DesignSource, Flow, FlowFatalException, my_print
 from ..utils import load_class, dict_merge, try_convert
 
 logger = logging.getLogger()
+
+
+def print_results(results, title, subset):
+    data_width = 32
+    name_width = 80 - data_width
+    hline = "-"*(name_width + data_width)
+
+    my_print("\n" + hline)
+    my_print(f"{title:^{name_width + data_width}s}")
+    my_print(hline)
+    for k, v in results.items():
+        if not k.startswith('_') and (not subset or k in subset):
+            if isinstance(v, float):
+                my_print(f'{k:{name_width}}{v:{data_width}.6f}')
+            elif isinstance(v, bool):
+                my_print(f'{k:{name_width}}{"True" if v else "False":>{data_width}}')
+            elif isinstance(v, int):
+                my_print(f'{k:{name_width}}{v:>{data_width}}')
+            elif isinstance(v, list):
+                my_print(f'{k:{name_width}}{" ".join(v):<{data_width}}')
+            else:
+                my_print(f'{k:{name_width}}{str(v):>{data_width}s}')
+    my_print(hline + "\n")
 
 
 def run_flow(f: Flow):
@@ -103,7 +127,7 @@ class FlowRunner():
                 logger.info(f"Using design settings from {json_path}")
         except FileNotFoundError as e:
             self.fatal(
-                f'Cannot open default design settings path: {json_path}. Please specify correct path using --design-json', e)
+                f'Cannot open default design settings path: {json_path}. Please specify the correct path using --design-json', e)
         except IsADirectoryError as e:
             self.fatal(f'The specified design json is not a regular file.', e)
 
@@ -187,29 +211,22 @@ class FlowRunner():
         else:
             logger.warning(f"No settings found for {flow_name}")
 
-        flow_settings.nthreads = max(1, max_threads)
-
         flow: Flow = flow_cls(flow_settings, args)
 
-        if not isinstance(flow.settings.design['sources'], list):
-            self.fatal('`sources` section of the settings needs to be a list')
+        flow.nthreads = int(max(1, max_threads))
 
         for i, src in enumerate(flow.settings.design['sources']):
-            if isinstance(src, str):
-                src = {"file": src}
-            if not DesignSource.is_design_source(src):
-                raise Exception(
-                    f'Entry `{src}` in `sources` needs to be a string or a DesignSource JSON dictionary but is {type(src)}')
-            flow.settings.design['sources'][i] = DesignSource(**src).mk_relative(flow.run_dir)
+            flow.settings.design['sources'][i] = src.mk_relative(flow.run_dir)
 
         for gen_type in ['generics', 'tb_generics']:
-            for gen_key, gen_val in flow.settings.design[gen_type].items():
-                if isinstance(gen_val, dict) and "file" in gen_val:
-                    p = gen_val["file"]
-                    assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
-                    gen_val = flow.conv_to_relative_path(p.strip())
-                    logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
-                    flow.settings.design[gen_type][gen_key] = gen_val
+            if gen_type in flow.settings.design:
+                for gen_key, gen_val in flow.settings.design[gen_type].items():
+                    if isinstance(gen_val, dict) and "file" in gen_val:
+                        p = gen_val["file"]
+                        assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
+                        gen_val = flow.conv_to_relative_path(p.strip())
+                        logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
+                        flow.settings.design[gen_type][gen_key] = gen_val
 
         # flow.check_settings()
         flow.dump_settings()
@@ -360,9 +377,7 @@ class LwcVariantsRunner(FlowRunner):
         if not flows_to_run:
             self.fatal("flows_to_run is empty!")
 
-        proc_timeout_seconds = flows_to_run[0].settings.flow.get('timeout')
-        if not proc_timeout_seconds:
-            proc_timeout_seconds = flows_to_run[0].timeout
+        proc_timeout_seconds = flows_to_run[0].settings.flow.get('timeout', flows_to_run[0].timeout)
 
         if self.parallel_run:
             try:
@@ -395,6 +410,21 @@ class Best:
     def __init__(self, freq, results):
         self.freq = freq
         self.results = results
+
+
+def nukemall():
+    def on_terminate(proc):
+        logger.warning(f"Child process {proc.info['name']}[{proc}] terminated with exit code {proc.returncode}")
+
+    try:
+        procs = psutil.Process().children()
+        for p in procs:
+            p.terminate()
+        gone, alive = psutil.wait_procs(procs, timeout=3, callback=on_terminate)
+        for p in alive:
+            p.kill()
+    except:
+        logger.exception('exception during killing')
 
 
 class LwcFmaxRunner(FlowRunner):
@@ -432,24 +462,15 @@ class LwcFmaxRunner(FlowRunner):
         flow_settings = settings['flows'].get(flow_name)
 
         # won't try lower
-        lo_freq = flow_settings.get('minimum_frequency_mhz')
-        if not lo_freq:
-            lo_freq = 1.0
-        lo_freq = float(lo_freq)
+        lo_freq = float(flow_settings.get('minimum_frequency_mhz', 1.0))
         # can go higher
-        hi_freq = flow_settings.get('fmax_hi_freq')
-        if not hi_freq:
-            hi_freq = 500.0
-        hi_freq = float(hi_freq)
-        accuracy = 0.1
-        delta_increment = 0.049
+        hi_freq = float(flow_settings.get('fmax_hi_freq', 500.0))
+        resolution = 0.1
+        delta_increment = resolution / 2
 
         Mega = 1000.0
 
-        nthreads = flow_settings.get('nthreads')
-        if not nthreads:
-            nthreads = 4
-        nthreads = int(nthreads)
+        nthreads = int(flow_settings.get('nthreads', 4))
 
         num_workers = max(2, args.max_cpus // nthreads)
         logger.info(f'nthreads={nthreads} num_workers={num_workers}')
@@ -461,26 +482,32 @@ class LwcFmaxRunner(FlowRunner):
         all_results = []
         future = None
         num_iterations = 0
+        pool = None
+
+        def round_freq_to_ps(freq: float) -> float:
+            period = round(Mega / freq, 3)
+            return Mega / period
         try:
             with ProcessPool(max_workers=num_workers) as pool:
-                while hi_freq - lo_freq >= accuracy:
+                while hi_freq - lo_freq >= resolution:
                     frequencies_to_try, freq_step = numpy.linspace(
                         lo_freq, hi_freq, num=num_workers, dtype=float, retstep=True)
 
-                    logger.info(f"trying frequencies: {frequencies_to_try} MHz")
+                    frequencies_to_try = [round_freq_to_ps(f) for f in frequencies_to_try]
+
+                    logger.info(
+                        f"[Fmax] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies_to_try]}")
 
                     flows_to_run = []
                     for freq in frequencies_to_try:
-                        flow_settings['clock_period'] = Mega / freq
+                        flow_settings['clock_period'] = round(Mega / freq, 3)
                         flow = self.setup_flow(settings, args, flow_name, max_threads=nthreads)
                         flow.set_parallel_run()
                         flows_to_run.append(flow)
 
-                    proc_timeout_seconds = flow_settings.get('timeout')
-                    if not proc_timeout_seconds:
-                        proc_timeout_seconds = flows_to_run[0].timeout
+                    proc_timeout_seconds = flow_settings.get('timeout', flows_to_run[0].timeout)
 
-                    logger.info(f'Timeout set to: {proc_timeout_seconds} seconds.')
+                    logger.info(f'[Fmax] Timeout set to: {proc_timeout_seconds} seconds.')
 
                     future = pool.map(run_flow_fmax, enumerate(flows_to_run), timeout=proc_timeout_seconds)
                     num_iterations += 1
@@ -510,39 +537,54 @@ class LwcFmaxRunner(FlowRunner):
                             except ProcessExpired as e:
                                 logger.critical(f"{e}. Exit code: {e.exitcode}")
                     except CancelledError:
-                        logger.warning("CancelledError")
+                        logger.warning("[Fmax] CancelledError")
+                    except KeyboardInterrupt:
+                        pool.stop()
+                        pool.join()
+                        raise
 
                     if not best or improved_idx is None:
                         break
-                    if freq_step < accuracy:
+                    if freq_step < resolution / 2:
                         break
                     lo_freq = best.freq + delta_increment
                     # last or one before last
                     if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
-                        min_plausible_period = (Mega / best.freq) - best.results['wns']
-                        hi_freq = max(frequencies_to_try[-1] + freq_step,  Mega / min_plausible_period) + accuracy / 2
+                        min_plausible_period = round((Mega / best.freq) - best.results['wns'] - 0.001, 3)
+                        lo_point_choice = frequencies_to_try[1] if len(
+                            frequencies_to_try) >= 4 else frequencies_to_try[0]
+                        hi_freq = max(2 * best.freq - lo_point_choice,  Mega / min_plausible_period)
                     else:
-                        hi_freq = frequencies_to_try[improved_idx + 1] + accuracy
+                        hi_freq = frequencies_to_try[improved_idx + 1]
+                    hi_freq += resolution + 2 * freq_step
 
-                    logger.info(f'[DSE] Execution Time: {int(time.monotonic() - start_time) // 60} minute(s)')
-                    logger.info(f'[DSE] Number of Iterations: {num_iterations}')
+                    logger.info(f'[Fmax] Execution Time: {int(time.monotonic() - start_time) // 60} minute(s)')
+                    logger.info(f'[Fmax] Number of Iterations: {num_iterations}')
+                pool.close()
+                pool.join()
+                pool = None
 
         except KeyboardInterrupt:
             logger.exception('Received Keyboard Interrupt')
-            if future and not future.cancelled():
-                future.cancel()
         except:
             logger.exception('Received exception')
-            raise
         finally:
-            logger.info(f'[DSE] best = {best}')
-            logger.info(f'[DSE] Total Execution Time: {int(time.monotonic() - start_time) // 60} minute(s)')
-            logger.info(f'[DSE] Total Iterations: {num_iterations}')
+            print_results(best.results, title='Best Results', subset=[
+                          'clock_period', 'frequency', 'lut', 'ff', 'slice'])
+            runtime_minutes = int(time.monotonic() - start_time) // 60
+            logger.info(f'[Fmax] Total Execution Time: {runtime_minutes} minute(s)')
+            logger.info(f'[Fmax] Total Iterations: {num_iterations}')
 
             best_json_path = Path(args.xeda_run_dir) / \
                 f'fmax_{settings["design"]["name"]}_{flow_name}_{self.timestamp}.json'
             logger.info(f"Writing best result to {best_json_path}")
+            best.iterations = num_iterations
+            best.runtime_minutes = runtime_minutes
             with open(best_json_path, 'w') as f:
                 json.dump(best, f, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
             if future and not future.cancelled():
                 future.cancel()
+            if pool:
+                pool.close()
+                pool.join()
+            nukemall()

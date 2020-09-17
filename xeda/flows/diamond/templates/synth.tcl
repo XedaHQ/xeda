@@ -46,8 +46,8 @@ prj_strgy set_value -strategy custom_strategy lse_vhdl2008=True
 ## ???
 prj_strgy set_value -strategy custom_strategy map_overmap_device=False
 
-prj_strgy set_value -strategy custom_strategy {maptrce_analysis_option=Standard Setup With Hold Analysis on IOs}
-prj_strgy set_value -strategy custom_strategy {partrce_analysis_option=Standard Setup With Hold Analysis on IOs}
+# prj_strgy set_value -strategy custom_strategy {maptrce_analysis_option=Standard Setup With Hold Analysis on IOs}
+# prj_strgy set_value -strategy custom_strategy {partrce_analysis_option=Standard Setup With Hold Analysis on IOs}
 
 if {${strategy} == "Timing"} {
   prj_strgy set_value -strategy custom_strategy {syn_pipelining_retiming=Pipelining and Retiming}
@@ -56,7 +56,7 @@ if {${strategy} == "Timing"} {
 }
 
 
-prj_strgy set_value -strategy custom_strategy par_create_delay_statistic_file=False
+# prj_strgy set_value -strategy custom_strategy par_create_delay_statistic_file=False
 
 
 # NBR (default)/CDR
@@ -103,7 +103,7 @@ prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0
 eval prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0
 {% endif %}
 
-prj_strgy set_value -strategy custom_strategy {par_cmdline_args=-exp nbrMaxRunTime=100}
+prj_strgy set_value -strategy custom_strategy {par_cmdline_args=-exp nbrMaxRunTime=200}
 
 prj_strgy set custom_strategy
 

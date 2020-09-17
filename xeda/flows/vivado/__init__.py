@@ -1,6 +1,10 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
+import copy
+import logging
 from ..flow import SimFlow, Flow, SynthFlow, DebugLevel
+
+logger = logging.getLogger()
 
 
 def supported_vivado_generic(k, v, sim):
@@ -34,7 +38,8 @@ class Vivado(Flow):
 
     def run_vivado(self, script_path):
         debug = self.args.debug
-        vivado_args = ['-nojournal', '-mode', 'tcl' if debug >= DebugLevel.HIGHEST else 'batch', '-source', str(script_path)]
+        vivado_args = ['-nojournal', '-mode', 'tcl' if debug >=
+                       DebugLevel.HIGHEST else 'batch', '-source', str(script_path)]
         if not debug:
             vivado_args.append('-notrace')
         return self.run_process('vivado', vivado_args, initial_step='Starting vivado',
@@ -44,10 +49,81 @@ class Vivado(Flow):
 class VivadoSynth(Vivado, SynthFlow):
     default_settings = {**SynthFlow.default_settings, 'fail_critical_warning': False, 'fail_timing': False}
 
+    # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug904-vivado-implementation.pdf
+    strategy_options = {
+        "Debug": {
+            "synth": "-assert -debug_log -flatten_hierarchy none -no_timing_driven -keep_equivalent_registers -no_lc -fsm_extraction off -directive RuntimeOptimized",
+            "opt": "-directive RuntimeOptimized",
+            "place": "-directive RuntimeOptimized",
+            "route": "-directive RuntimeOptimized",
+            "phys_opt": "-directive RuntimeOptimized"
+        },
+
+        "Runtime": {
+            "synth": "-directive RuntimeOptimized",
+            "opt": "-directive RuntimeOptimized",
+            "place": "-directive RuntimeOptimized",
+            "route": "-directive RuntimeOptimized",
+            "phys_opt": "-directive RuntimeOptimized"
+        },
+
+        "Default": {
+            "synth": "-flatten_hierarchy rebuilt -retiming -directive Default",
+            "opt": "-directive ExploreWithRemap",
+            "place": "-directive Default",
+            "route": "-directive Default",
+            "phys_opt": "-directive Default"
+        },
+
+        "Timing": {
+            # or ExtraTimingOpt, ExtraPostPlacementOpt, Explore
+            # very slow: AggressiveExplore
+            # -mode -> default, out_of_context
+            # rebuilt == full in terms of QoR?
+            # -no_lc: When checked, this option turns off LUT combining
+            # -max_uram 0 for ultrascale+
+            "synth": "-flatten_hierarchy rebuilt -retiming -directive PerformanceOptimized -fsm_extraction one_hot -keep_equivalent_registers -no_lc -shreg_min_size 5 -resource_sharing off",
+            "opt": "-directive ExploreWithRemap",
+            # "place": "-directive ExtraTimingOpt",
+            "place": "-directive ExtraPostPlacementOpt",
+            # "route": "-directive NoTimingRelaxation",
+            "route": "-directive AggressiveExplore",
+            # if no directive: -placement_opt
+            "phys_opt": "-directive AggressiveExplore"
+        },
+
+        "Area": {
+            "synth": "-flatten_hierarchy full -directive AreaOptimized_high",
+            # if no directive: -resynth_seq_area
+            "opt": "-directive ExploreArea",
+            "place": "-directive Explore",
+            "route": "-directive Explore",
+            # if no directive: -placement_opt
+            "phys_opt": "-directive Explore"
+        }
+    }
+    results_dir = 'results'
+    checkpoints_dir = 'checkpoints'
+
     def run(self):
-        self.settings.flow['generics_options'] = vivado_generics(self.settings.design["generics"], sim=False)
+        generics_options = vivado_generics(self.settings.design["generics"], sim=False)
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
-        script_path = self.copy_from_template(f'{self.name}.tcl', xdc_files=[clock_xdc_path])
+        strategy = self.settings.flow.get('strategy', 'Default')
+        logger.info(f'Using synthesis strategy: {strategy}')
+        if strategy not in self.strategy_options.keys():
+            self.fatal(f'Unknow strategy: {strategy}')
+        options = copy.deepcopy(self.strategy_options[strategy])
+        if not self.settings.flow.get('use_bram', True):
+            options['synth'] += ' -max_bram 0 '
+        if not self.settings.flow.get('use_dsp', True):
+            options['synth'] += ' -max_dsp 0 '
+        script_path = self.copy_from_template(f'{self.name}.tcl',
+                                              xdc_files=[clock_xdc_path],
+                                              options=options,
+                                              generics_options=generics_options,
+                                              results_dir=self.results_dir,
+                                              checkpoints_dir=self.checkpoints_dir
+                                              )
         return self.run_vivado(script_path)
 
     def parse_reports(self):
@@ -99,7 +175,7 @@ class VivadoSynth(Vivado, SynthFlow):
         forbidden_resources = ['latch', 'dsp', 'bram_tile']
         for res in forbidden_resources:
             if (self.results[res] != 0):
-                self.logger.critical(
+                logger.critical(
                     f'{report_stage} reports show {self.results[res]} use(s) of forbidden resource {res}.')
                 failed = True
 
