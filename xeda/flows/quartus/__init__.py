@@ -79,11 +79,11 @@ class Quartus(Flow):
 
             # SYNTH_CRITICAL_CLOCK: ON, OFF : Speed Optimization Technique for Clock Domains
 
-        if not self.settings.flow['use_dsp']:
+        if not self.settings.flow['allow_dsps']:
             project_settings["AUTO_DSP_RECOGNITION"] = "OFF"
 
         ## ???? TODO don't think this is right, maybe apply ramstyle on all hierarchy using TCL?
-        if not self.settings.flow['use_bram']:
+        if not self.settings.flow['allow_brams']:
             project_settings["AUTO_RAM_RECOGNITION"] = "OFF"
             project_settings["AUTO_ROM_RECOGNITION"] = "OFF"
 

@@ -18,6 +18,7 @@ import multiprocessing as mp
 import traceback
 # heavy, but will probably become handy down the road
 import numpy
+import signal
 import psutil
 
 from ..debug import DebugLevel
@@ -240,6 +241,7 @@ class FlowRunner():
         return flow
 
     def add_common_args(parser):
+        # TODO load flow and plugin classes from custom packages, i.e. xeda_plugins.flows etc
         flow_classes = inspect.getmembers(sys.modules['xeda.flows'], lambda cls: inspect.isclass(cls) and issubclass(cls, Flow))
         registered_flows = [camelcase_to_snakecase(n) for n,c in flow_classes]
         parser.add_argument('flow', metavar='FLOW_NAME', choices=registered_flows,
@@ -422,12 +424,15 @@ def nukemall():
         logger.warning(f"Child process {proc.info['name']}[{proc}] terminated with exit code {proc.returncode}")
 
     try:
-        procs = psutil.Process().children()
+        procs = psutil.Process().children(recursive=True)
+        print(f"killing {len(procs)} child processes")
         for p in procs:
             p.terminate()
         gone, alive = psutil.wait_procs(procs, timeout=3, callback=on_terminate)
         for p in alive:
             p.kill()
+        # on nix: negative number means the process group with that PGID
+        os.kill(-os.getpgid(0), signal.SIGINT)
     except:
         logger.exception('exception during killing')
 
@@ -596,22 +601,29 @@ class LwcFmaxRunner(FlowRunner):
         except:
             logger.exception('Received exception')
         finally:
-            print_results(best.results, title='Best Results', subset=[
-                          'clock_period', 'frequency', 'lut', 'ff', 'slice'])
-            runtime_minutes = int(time.monotonic() - start_time) // 60
-            logger.info(f'[Fmax] Total Execution Time: {runtime_minutes} minute(s)')
-            logger.info(f'[Fmax] Total Iterations: {num_iterations}')
-
-            best_json_path = Path(args.xeda_run_dir) / \
-                f'fmax_{settings["design"]["name"]}_{flow_name}_{self.timestamp}.json'
-            logger.info(f"Writing best result to {best_json_path}")
-            best.iterations = num_iterations
-            best.runtime_minutes = runtime_minutes
-            with open(best_json_path, 'w') as f:
-                json.dump(best, f, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
             if future and not future.cancelled():
                 future.cancel()
             if pool:
                 pool.close()
                 pool.join()
+            else:
+                print('pool is None!')
+            runtime_minutes = int(time.monotonic() - start_time) // 60
+            if best:
+                best.iterations = num_iterations
+                best.runtime_minutes = runtime_minutes
+                print_results(best.results, title='Best Results', subset=[
+                            'clock_period', 'frequency', 'lut', 'ff', 'slice'])
+                best_json_path = Path(args.xeda_run_dir) / \
+                    f'fmax_{settings["design"]["name"]}_{flow_name}_{self.timestamp}.json'
+                logger.info(f"Writing best result to {best_json_path}")
+
+                with open(best_json_path, 'w') as f:
+                    json.dump(best, f, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
+            else:
+                logger.warning("No successful results.")
+            logger.info(f'[Fmax] Total Execution Time: {runtime_minutes} minute(s)')
+            logger.info(f'[Fmax] Total Iterations: {num_iterations}')
+
             nukemall()
+

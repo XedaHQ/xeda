@@ -51,9 +51,12 @@ class VivadoSynth(Vivado, SynthFlow):
     default_settings = {**SynthFlow.default_settings, 'fail_critical_warning': False, 'fail_timing': False}
 
     # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug904-vivado-implementation.pdf
+    # and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug901-vivado-synthesis.pdf
     strategy_options = {
         "Debug": {
-            "synth": "-assert -debug_log -flatten_hierarchy none -no_timing_driven -keep_equivalent_registers -no_lc -fsm_extraction off -directive RuntimeOptimized",
+            "synth": ["-assert", "-debug_log",
+                      "-flatten_hierarchy none", "-no_timing_driven", "-keep_equivalent_registers",
+                      "-no_lc", "-fsm_extraction off", "-directive RuntimeOptimized"],
             "opt": "-directive RuntimeOptimized",
             "place": "-directive RuntimeOptimized",
             "route": "-directive RuntimeOptimized",
@@ -61,20 +64,20 @@ class VivadoSynth(Vivado, SynthFlow):
         },
 
         "Runtime": {
-            "synth": "-directive RuntimeOptimized",
+            "synth": ["-no_timing_driven", "-directive RuntimeOptimized"],
             "opt": "-directive RuntimeOptimized",
             "place": "-directive RuntimeOptimized",
             # with -ultrathreads results are not reproducible!
-            "route": "-ultrathreads -directive RuntimeOptimized",
+            "route": ["-no_timing_driven -ultrathreads", "-directive RuntimeOptimized"],
             "phys_opt": "-directive RuntimeOptimized"
         },
 
         "Default": {
-            "synth": "-flatten_hierarchy rebuilt -retiming -directive Default",
-            "opt": "-directive ExploreWithRemap",
-            "place": "-directive Default",
-            "route": "-directive Default",
-            "phys_opt": "-directive Default"
+            "synth": ["-flatten_hierarchy rebuilt", "-directive Default"],
+            "opt": ["-directive ExploreWithRemap"],
+            "place": ["-directive Default"],
+            "route": ["-directive Default"],
+            "phys_opt": ["-directive Default"]
         },
 
         "Timing": {
@@ -84,18 +87,25 @@ class VivadoSynth(Vivado, SynthFlow):
             # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
             # -no_lc: When checked, this option turns off LUT combining
             # -keep_equivalent_registers -no_lc
-            "synth": "-flatten_hierarchy rebuilt -retiming -directive PerformanceOptimized -fsm_extraction one_hot -no_lc -shreg_min_size 5 -resource_sharing off -keep_equivalent_registers ",
-            "opt": "-directive ExploreWithRemap",
+            "synth": ["-flatten_hierarchy rebuilt",
+                      "-retiming",
+                      "-directive PerformanceOptimized",
+                      "-fsm_extraction one_hot",
+                      "-no_lc", "-shreg_min_size 5",
+                      "-resource_sharing off",
+                      "-keep_equivalent_registers "
+                      ],
+            "opt": ["-directive ExploreWithRemap"],
             # "place": "-directive ExtraTimingOpt",
-            "place": "-directive ExtraPostPlacementOpt",
+            "place": ["-directive ExtraPostPlacementOpt"],
             # "route": "-directive NoTimingRelaxation",
-            "route": "-directive AggressiveExplore",
+            "route": ["-directive AggressiveExplore"],
             # if no directive: -placement_opt
-            "phys_opt": "-directive AggressiveExplore"
+            "phys_opt": ["-directive AggressiveExplore"]
         },
 
         "Area": {
-            "synth": "-flatten_hierarchy full -directive AreaOptimized_high",
+            "synth": ["-flatten_hierarchy full", "-directive AreaOptimized_high"],
             # if no directive: -resynth_seq_area
             "opt": "-directive ExploreArea",
             "place": "-directive Explore",
@@ -112,17 +122,24 @@ class VivadoSynth(Vivado, SynthFlow):
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
         strategy = self.settings.flow.get('strategy', 'Default')
         if isinstance(strategy, abc.Mapping):
-            options = strategy
+            options = copy.deepcopy(strategy)
         else:
             logger.info(f'Using synthesis strategy: {strategy}')
             if strategy not in self.strategy_options.keys():
                 self.fatal(f'Unknow strategy: {strategy}')
             options = copy.deepcopy(self.strategy_options[strategy])
-        if not self.settings.flow.get('use_bram', True):
+        for k, v in options.items():
+            if isinstance(v, str):
+                options[k] = v.split()
+        if not self.settings.flow.get('allow_brams', True):
             # -max_uram 0 for ultrascale+
-            options['synth'] += ' -max_bram 0 '
-        if not self.settings.flow.get('use_dsp', True):
-            options['synth'] += ' -max_dsp 0 '
+            options['synth'].append('-max_bram 0')
+        if not self.settings.flow.get('allow_dsps', True):
+            options['synth'].append('-max_dsp 0')
+
+        # to strings
+        for k, v in options.items():
+            options[k] = ' '.join(v)
         script_path = self.copy_from_template(f'{self.name}.tcl',
                                               xdc_files=[clock_xdc_path],
                                               options=options,
@@ -135,7 +152,6 @@ class VivadoSynth(Vivado, SynthFlow):
     def parse_reports(self):
         reports_dir = self.reports_dir
 
-        # TODO
         report_stage = 'post_route'
         reports_dir = reports_dir / report_stage
 

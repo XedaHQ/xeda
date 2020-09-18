@@ -83,9 +83,6 @@ prj_strgy set_value -strategy custom_strategy par_routing_res_opt=1
 {% endif %}
 
 
-prj_strgy set_value -strategy custom_strategy par_stop_zero=True
-
-
 # 0-1000 default:0
 # setting to 1 seems to help timing
 prj_strgy set_value -strategy custom_strategy par_route_delay_reduction_pass=1
@@ -98,12 +95,12 @@ prj_strgy set_value -strategy custom_strategy par_place_effort_level=5
 
 # LSE options
 # lse_disable_distram=False ?
-{% if not flow.use_bram %}
+{% if not flow.allow_brams %}
 prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0 lse_ebr_util=0 lse_rom_style=Logic
 {% endif %}
 #lse_ram_style=Distributed
 
-{% if not flow.use_dsp %}
+{% if not flow.allow_dsps %}
 eval prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0
 {% endif %}
 

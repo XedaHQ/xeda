@@ -427,7 +427,7 @@ class SynthFlow(Flow):
     required_settings = {'clock_period': float}
 
     # TODO FIXME set in plugin or elsewhere!!!
-    default_settings = {'use_dsp': False, 'use_bram': False}
+    default_settings = {'allow_dsps': False, 'allow_brams': False}
     pass
 
 

@@ -17,8 +17,8 @@
             "synthesis_engine": "synplify",
             "strategy": "Timing",
             "timeout": 1000,
-            "fmax_low_freq": 5.0,
-            "fmax_high_freq": 200.0,
+            "fmax_low_freq": 8.0,
+            "fmax_high_freq": 150.0,
             "nthreads": 1
         },
         "vivado_synth": {
