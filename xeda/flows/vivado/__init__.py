@@ -1,5 +1,6 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
+from collections import abc
 import copy
 import logging
 from ..flow import SimFlow, Flow, SynthFlow, DebugLevel
@@ -63,7 +64,8 @@ class VivadoSynth(Vivado, SynthFlow):
             "synth": "-directive RuntimeOptimized",
             "opt": "-directive RuntimeOptimized",
             "place": "-directive RuntimeOptimized",
-            "route": "-directive RuntimeOptimized",
+            # with -ultrathreads results are not reproducible!
+            "route": "-ultrathreads -directive RuntimeOptimized",
             "phys_opt": "-directive RuntimeOptimized"
         },
 
@@ -78,11 +80,11 @@ class VivadoSynth(Vivado, SynthFlow):
         "Timing": {
             # or ExtraTimingOpt, ExtraPostPlacementOpt, Explore
             # very slow: AggressiveExplore
-            # -mode -> default, out_of_context
-            # rebuilt == full in terms of QoR?
+            # -mode: default, out_of_context
+            # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
             # -no_lc: When checked, this option turns off LUT combining
-            # -max_uram 0 for ultrascale+
-            "synth": "-flatten_hierarchy rebuilt -retiming -directive PerformanceOptimized -fsm_extraction one_hot -keep_equivalent_registers -no_lc -shreg_min_size 5 -resource_sharing off",
+            # -keep_equivalent_registers -no_lc
+            "synth": "-flatten_hierarchy rebuilt -retiming -directive PerformanceOptimized -fsm_extraction one_hot -no_lc -shreg_min_size 5 -resource_sharing off -keep_equivalent_registers ",
             "opt": "-directive ExploreWithRemap",
             # "place": "-directive ExtraTimingOpt",
             "place": "-directive ExtraPostPlacementOpt",
@@ -109,11 +111,15 @@ class VivadoSynth(Vivado, SynthFlow):
         generics_options = vivado_generics(self.settings.design["generics"], sim=False)
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
         strategy = self.settings.flow.get('strategy', 'Default')
-        logger.info(f'Using synthesis strategy: {strategy}')
-        if strategy not in self.strategy_options.keys():
-            self.fatal(f'Unknow strategy: {strategy}')
-        options = copy.deepcopy(self.strategy_options[strategy])
+        if isinstance(strategy, abc.Mapping):
+            options = strategy
+        else:
+            logger.info(f'Using synthesis strategy: {strategy}')
+            if strategy not in self.strategy_options.keys():
+                self.fatal(f'Unknow strategy: {strategy}')
+            options = copy.deepcopy(self.strategy_options[strategy])
         if not self.settings.flow.get('use_bram', True):
+            # -max_uram 0 for ultrascale+
             options['synth'] += ' -max_bram 0 '
         if not self.settings.flow.get('use_dsp', True):
             options['synth'] += ' -max_dsp 0 '

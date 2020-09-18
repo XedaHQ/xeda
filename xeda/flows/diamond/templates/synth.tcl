@@ -17,7 +17,7 @@ set impl_dir            "{{flow.impl_folder}}"
 eval prj_project new -name {{design.name}} -dev "{{flow.fpga_part}}" -impl ${implementation_name} -impl_dir ${impl_dir}
 
 ##strategy
-eval prj_strgy copy -from ${strategy} -name custom_strategy -file diamond_strategy.sty
+eval prj_strgy copy -from {{flow.strategy}} -name custom_strategy -file diamond_strategy.sty
 
 {% for src in design.sources %}
     eval prj_src add {% if src.type == "vhdl" -%} -format VHDL {%- elif src.type == "verilog" -%} -format Verilog {%- endif %} {{src.file}} {% if src.sim_only -%} -simulate_only {%- endif %}
@@ -49,11 +49,11 @@ prj_strgy set_value -strategy custom_strategy map_overmap_device=False
 # prj_strgy set_value -strategy custom_strategy {maptrce_analysis_option=Standard Setup With Hold Analysis on IOs}
 # prj_strgy set_value -strategy custom_strategy {partrce_analysis_option=Standard Setup With Hold Analysis on IOs}
 
-if {${strategy} == "Timing"} {
-  prj_strgy set_value -strategy custom_strategy {syn_pipelining_retiming=Pipelining and Retiming}
-  # prj_strgy set_value -strategy custom_strategy {syn_use_clk_for_uncons_io=True}
-  prj_strgy set_value -strategy custom_strategy map_timing_driven=True
-}
+{% if flow.strategy == "Timing" %}
+prj_strgy set_value -strategy custom_strategy {syn_pipelining_retiming=Pipelining and Retiming}
+# prj_strgy set_value -strategy custom_strategy {syn_use_clk_for_uncons_io=True}
+prj_strgy set_value -strategy custom_strategy map_timing_driven=True
+{% endif %}
 
 
 # prj_strgy set_value -strategy custom_strategy par_create_delay_statistic_file=False
@@ -77,9 +77,13 @@ if {${strategy} == "Timing"} {
 prj_strgy set_value -strategy custom_strategy {syn_cmdline_args={{flow.syn_cmdline_args}}}
 {% endif %}
 
-if {${strategy} == "Area"} {
-  prj_strgy set_value -strategy custom_strategy syn_area=True
-}
+{% if flow.strategy == "Area" %}
+prj_strgy set_value -strategy custom_strategy syn_area=True
+prj_strgy set_value -strategy custom_strategy par_routing_res_opt=1
+{% endif %}
+
+
+prj_strgy set_value -strategy custom_strategy par_stop_zero=True
 
 
 # 0-1000 default:0

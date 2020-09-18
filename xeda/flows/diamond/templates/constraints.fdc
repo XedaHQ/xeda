@@ -1,3 +1,5 @@
+set_option -max_parallel_jobs {{nthreads}}
+
 {% if not flow.use_dsp %}
 define_global_attribute syn_multstyle logic
 

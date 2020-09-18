@@ -144,7 +144,7 @@ report_timing_summary -max_paths 10 -file ${reports_dir}/post_place/timing_summa
 puts "==== Placement Steps Complemeted ====\n"
 
 puts "\n================================( Route Design )================================="
-eval route_design -ultrathreads {{options.route}}
+eval route_design {{options.route}}
 showWarningsAndErrors
 
 {% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}

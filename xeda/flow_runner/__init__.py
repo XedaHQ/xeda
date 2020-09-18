@@ -1,10 +1,13 @@
 import copy
+from functools import partial
 import multiprocessing
 from multiprocessing import cpu_count
 from typing import List
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import os
+import sys
+import inspect
 import logging
 from concurrent.futures import CancelledError, TimeoutError
 import time
@@ -21,7 +24,7 @@ from ..debug import DebugLevel
 from ..plugins.lwc import LwcCheckTimingHook
 from ..flows.settings import Settings
 from ..flows.flow import DesignSource, Flow, FlowFatalException, my_print
-from ..utils import load_class, dict_merge, try_convert
+from ..utils import camelcase_to_snakecase, load_class, dict_merge, try_convert
 
 logger = logging.getLogger()
 
@@ -198,7 +201,7 @@ class FlowRunner():
         flow_settings.design['generics'] = {}
         flow_settings.design['tb_generics'] = {}
 
-        # specific flow defaults
+        # specific lflow defaults
         flow_settings.flow.update(**flow_cls.default_settings)
 
         # override sections
@@ -237,8 +240,10 @@ class FlowRunner():
         return flow
 
     def add_common_args(parser):
-        # TODO add list of supported flows in help
-        parser.add_argument('flow', metavar='FLOW_NAME', help=f'Flow name.')
+        flow_classes = inspect.getmembers(sys.modules['xeda.flows'], lambda cls: inspect.isclass(cls) and issubclass(cls, Flow))
+        registered_flows = [camelcase_to_snakecase(n) for n,c in flow_classes]
+        parser.add_argument('flow', metavar='FLOW_NAME', choices=registered_flows,
+                            help=f'Flow name. Registered flows are: {registered_flows}')
         parser.add_argument('--override-settings', nargs='+',
                             help='Override certain setting value. Use <hierarchy>.key=value format'
                             'example: --override-settings flows.vivado_run.stop_time=100us')
@@ -461,14 +466,15 @@ class LwcFmaxRunner(FlowRunner):
 
         flow_settings = settings['flows'].get(flow_name)
 
-        # won't try lower
-        lo_freq = float(flow_settings.get('minimum_frequency_mhz', 1.0))
+        # will try halfing max_no_improvements iterations if all runs have failed
+        lo_freq = float(flow_settings.get('fmax_low_freq', 1.0))
         # can go higher
-        hi_freq = float(flow_settings.get('fmax_hi_freq', 500.0))
+        hi_freq = float(flow_settings.get('fmax_high_freq', 600.0))
         resolution = 0.1
+        max_no_improvements = 3
         delta_increment = resolution / 2
 
-        Mega = 1000.0
+        ONE_THOUSAND = 1000.0
 
         nthreads = int(flow_settings.get('nthreads', 4))
 
@@ -483,10 +489,12 @@ class LwcFmaxRunner(FlowRunner):
         future = None
         num_iterations = 0
         pool = None
+        no_improvements = 0
+
 
         def round_freq_to_ps(freq: float) -> float:
-            period = round(Mega / freq, 3)
-            return Mega / period
+            period = round(ONE_THOUSAND / freq, 3)
+            return ONE_THOUSAND / period
         try:
             with ProcessPool(max_workers=num_workers) as pool:
                 while hi_freq - lo_freq >= resolution:
@@ -500,7 +508,7 @@ class LwcFmaxRunner(FlowRunner):
 
                     flows_to_run = []
                     for freq in frequencies_to_try:
-                        flow_settings['clock_period'] = round(Mega / freq, 3)
+                        flow_settings['clock_period'] = round(ONE_THOUSAND / freq, 3)
                         flow = self.setup_flow(settings, args, flow_name, max_threads=nthreads)
                         flow.set_parallel_run()
                         flows_to_run.append(flow)
@@ -543,23 +551,42 @@ class LwcFmaxRunner(FlowRunner):
                         pool.join()
                         raise
 
-                    if not best or improved_idx is None:
-                        break
-                    if freq_step < resolution / 2:
-                        break
                     lo_freq = best.freq + delta_increment
-                    # last or one before last
-                    if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
-                        min_plausible_period = round((Mega / best.freq) - best.results['wns'] - 0.001, 3)
-                        lo_point_choice = frequencies_to_try[1] if len(
-                            frequencies_to_try) >= 4 else frequencies_to_try[0]
-                        hi_freq = max(2 * best.freq - lo_point_choice,  Mega / min_plausible_period)
-                    else:
-                        hi_freq = frequencies_to_try[improved_idx + 1]
-                    hi_freq += resolution + 2 * freq_step
 
-                    logger.info(f'[Fmax] Execution Time: {int(time.monotonic() - start_time) // 60} minute(s)')
-                    logger.info(f'[Fmax] Number of Iterations: {num_iterations}')
+                    if not best or improved_idx is None:
+                        no_improvements += 1
+                        if no_improvements >= max_no_improvements:
+                            logger.info(f"Stopping as there were no improvements in {no_improvements} consequetive iterations.")
+                            break
+                        logger.info(f"No improvements during this iteration.")
+                        if no_improvements >= 2:
+                            # drasticly shrink the range
+                            hi_freq = lo_freq + (hi_freq - lo_freq) / 2
+                        else:
+                            # shrink the range
+                            hi_freq -= freq_step if num_workers > 2 else resolution
+                        # smaller increment to lo_freq
+                        if not best:
+                            lo_freq /= 2.0
+                        else:
+                            lo_freq = best.freq + delta_increment / (1 + no_improvements)
+                    else:
+                        no_improvements = 0
+                        if freq_step < (resolution / 2.0):
+                            break
+                        # last or one before last
+                        if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
+                            min_plausible_period = round((ONE_THOUSAND / best.freq) - best.results['wns'] - 0.001, 3)
+                            lo_point_choice = frequencies_to_try[1] if len(
+                                frequencies_to_try) > 4 else frequencies_to_try[0]
+                            hi_freq = max(2 * best.freq - lo_point_choice,  ONE_THOUSAND / min_plausible_period)
+                        else:
+                            hi_freq = frequencies_to_try[improved_idx + 1]
+                        hi_freq += resolution + 2 * freq_step
+
+                    logger.info(f'[Fmax] End of iteration #{num_iterations}')
+                    logger.info(f'[Fmax] Execution Time so far: {int(time.monotonic() - start_time) // 60} minute(s)')
+
                 pool.close()
                 pool.join()
                 pool = None
