@@ -400,9 +400,14 @@ class Flow():
         logger.info(f"Results written to {path}")
 
     def stdout_search_re(self, regexp):
-        with open(self.run_dir / self.flow_stdout_log) as logf:
-            if re.search(regexp, logf.read()):
-                return True
+        log_file = self.run_dir / self.flow_stdout_log
+        try:
+            with open(log_file) as logf:
+                if re.search(regexp, logf.read()):
+                    return True
+        except:
+            logger.warning(f"Failed to open {log_file}")
+
         return False
 
 

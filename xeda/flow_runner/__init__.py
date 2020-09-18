@@ -432,7 +432,7 @@ def nukemall():
         for p in alive:
             p.kill()
         # on nix: negative number means the process group with that PGID
-        os.kill(-os.getpgid(0), signal.SIGINT)
+        # os.kill(-os.getpgid(0), signal.SIGINT)
     except:
         logger.exception('exception during killing')
 

@@ -4,5 +4,6 @@ from .vivado import VivadoSim, VivadoSynth
 from .quartus import QuartusSynth, QuartusDse
 from .diamond import DiamondSynth
 from .ghdl import GhdlSim
+from .modelsim import Modelsim
 
 

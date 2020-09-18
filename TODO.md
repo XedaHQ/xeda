@@ -6,8 +6,9 @@
 
 # Main code
 
-- [ ] Idea: Some code in Suite should be refactored to a FlowRunner class, suites/flows? should provide a run method.
-- [ ] parallel runs
+- [ ] FIX ligering child processes after being killed
+- [x] Idea: Some code in Suite should be refactored to a FlowRunner class, suites/flows? should provide a run method.
+- [x] parallel runs
 - [ ] Flow chaining
 - [ ] move DSE code to a plugin
 - [ ] Installation / set-up of tools
@@ -15,7 +16,8 @@
 
 ## Flows
 
-- [ ] Modelsim
+- [ ] Support multiple clocks in synthesis at least with DefaultRunner
+- [x] Modelsim
 - [ ] ghdl + yosys + nextpnr-ecp5
 - [ ] Synopsys VCS
 - [ ] Synopsys DC
@@ -27,5 +29,4 @@
 ## LWC plugins
 
 - [ ] LwcSim post_run should actually do the `regexp` on stdout and/or check results.txt
-- [ ] LwcSim replicate settings 
 - [ ] LwcSynth post_results: 1. check for usage of forbidden resources 2. only keep relevant data 
