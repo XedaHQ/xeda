@@ -145,7 +145,6 @@ class FlowRunner():
                     new_dict = dict()
                     current_dict[field] = new_dict
                     current_dict = new_dict
-                print(f'val={val}')
                 current_dict[hier[-1]] = try_convert(val, convert_lists=True)
                 settings = dict_merge(settings, patch, True)
 
@@ -155,7 +154,7 @@ class FlowRunner():
     def post_run(self, flow: Flow, print_failed=True):
         # Run post-run hooks
         for hook in flow.post_run_hooks:
-            logger.info(f"Running post-run hook from from {hook.__self__.__class__.__name__}")
+            logger.info(f"Running post-run hook from from {hook.__class__.__name__}")
             hook(flow)
 
         flow.reports_dir = flow.run_dir / flow.reports_subdir_name
@@ -174,7 +173,7 @@ class FlowRunner():
 
         # Run post-results hooks
         for hook in flow.post_results_hooks:
-            logger.info(f"Running post-results hook from {hook}")
+            logger.info(f"Running post-results hook from {hook.__class__.__name__}")
             hook(flow)
 
     def load_flow_class(self, flow_name):

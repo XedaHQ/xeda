@@ -236,8 +236,6 @@ class Flow():
         with open(stdout_logfile, 'w') as log_file:
             try:
                 logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
-                if redirect_std:
-                    logger.info(f'STDOUT from {prog} will be saved to {stdout_logfile}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.run_dir,
                                       shell=False,
@@ -247,6 +245,8 @@ class Flow():
                                       encoding='utf-8',
                                       errors='replace'
                                       ) as proc:
+                    logger.info(
+                        f'Started {proc.args[0]}[{proc.pid}].{(" Standard output is logged to: " + str(stdout_logfile)) if redirect_std else ""}')
                     def end_step():
                         if spinner:
                             if unicode:
@@ -297,27 +297,24 @@ class Flow():
             except KeyboardInterrupt as e:
                 if spinner:
                     print(SHOW_CURSOR)
-                logger.critical("Received a keyboard interrupt!")
-                if proc:
-                    logger.critical(f"Terminating {proc.args[0]}[{proc.pid}]")
+                logger.critical(f"Terminating {proc.args[0]}[{proc.pid}]")
                 raise e
             finally:
+                pid = proc.pid
                 try:
-                    if proc:
-                        pid = proc.pid
-                        procs = psutil.Process(proc.pid).children(recursive=True)
-                        print(f"Killing {len(procs)} child processes of {proc.args[0]}[{proc.pid}]")
-                        for p in procs:
+                    procs = psutil.Process(pid).children(recursive=True)
+                    for p in procs:
+                        try:
                             os.killpg(p.pid, signal.SIGINT)
                             p.terminate()
                             p.wait(timeout=1)
                             p.kill()
-                        # os.killpg(pid, signal.SIGINT)
-                        # os.killpg(pid, signal.SIGTERM)
-                        proc.terminate()
-                        proc.wait(timeout=1)
-                        proc.kill()
-                        proc.wait()
+                        except:
+                            pass
+                    proc.terminate()
+                    proc.wait(timeout=1)
+                    proc.kill()
+                    proc.wait()
                 except:
                     pass
 
