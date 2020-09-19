@@ -1,13 +1,13 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-from ..flow import DseFlow, Flow, SynthFlow
+from ..flow import DseFlow, Flow, SimFlow, SynthFlow
 from ...utils import parse_csv
 
 
 class Quartus(Flow):
     required_settings = {'clock_period': float, 'fpga_part': str}
 
-    def create_project(self):
+    def create_project(self, **kwargs):
         project_settings = None
         if 'project_settings' in self.settings.flow:
             project_settings = self.settings.flow['project_settings']
@@ -54,10 +54,7 @@ class Quartus(Flow):
 
                 # ALWAYS, AUTOMATICALLY, NEVER
                 "FINAL_PLACEMENT_OPTIMIZATION": "ALWAYS",
-
-
                 # "PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA": "ON",
-
                 # ?
                 # "ADV_NETLIST_OPT_SYNTH_GATE_RETIME": "ON",
                 # ?
@@ -79,10 +76,9 @@ class Quartus(Flow):
 
             # SYNTH_CRITICAL_CLOCK: ON, OFF : Speed Optimization Technique for Clock Domains
 
+        ## ???? TODO not sure this is right, maybe apply ramstyle/dspstyle on all hierarchy using TCL?
         if not self.settings.flow['allow_dsps']:
             project_settings["AUTO_DSP_RECOGNITION"] = "OFF"
-
-        ## ???? TODO don't think this is right, maybe apply ramstyle on all hierarchy using TCL?
         if not self.settings.flow['allow_brams']:
             project_settings["AUTO_RAM_RECOGNITION"] = "OFF"
             project_settings["AUTO_ROM_RECOGNITION"] = "OFF"
@@ -91,7 +87,8 @@ class Quartus(Flow):
         script_path = self.copy_from_template(
             f'create_project.tcl',
             sdc_files=[clock_sdc_path],
-            project_settings=project_settings
+            project_settings=project_settings,
+            **kwargs
         )
         self.run_process('quartus_sh', ['-t', str(script_path)], stdout_logfile='create_project_stdout.log')
 
@@ -193,35 +190,93 @@ class QuartusSynth(Quartus, SynthFlow):
         self.results['success'] = not failed
 
 
-class QuartusDse(QuartusSynth, DseFlow):
-    def run(self):
-        self.create_project()
-        # TODO Check correspondance of settings hash vs desgin settings
-        # 'explore': Exploration flow to use, if not specified in --config
-        #   configuration file. Valid flows: timing_aggressive,
-        #   all_optimization_modes, timing_high_effort, seed,
-        #   area_aggressive, power_high_effort, power_aggressive
-        # 'compile_flow':  'full_compile', 'fit_sta' and 'fit_sta_asm'.
-        # 'timeout': Limit the amount of time a compute node is allowed to run. Format: hh:mm:ss
-        if 'dse' not in self.settings.flow:
-            self.fatal('`flows.quartus.dse` settings are missing!')
+# class QuartusPower(QuartusSynth, SimFlow):
+#     def run(self):
+#         self.create_project(vcd=self.settings.flow.get('vcd'))
+#         script_path = self.copy_from_template(f'compile.tcl')
+#         self.run_process('quartus_sh',
+#                          ['-t', str(script_path)],
+#                          stdout_logfile='compile_stdout.log'
+#                          )
 
-        dse = self.settings.flow['dse']
-        if 'nproc' not in dse or not dse['nproc']:
-            dse['nproc'] = self.nthreads
+#     def parse_reports(self):
+#         failed = False
 
-        script_path = self.copy_from_template(f'settings.dse',
-                                              dse=dse
-                                              )
-        self.run_process('quartus_dse',
-                         ['--use-dse-file', script_path, self.settings.design['name']],
-                         stdout_logfile='dse_stdout.log',
-                         initial_step="Running Quartus DSE",
-                         )
+#         resources = parse_csv(
+#             self.reports_dir / 'Fitter' / 'Resource_Section' / 'Fitter_Resource_Utilization_by_Entity.csv',
+#             id_field='Compilation Hierarchy Node',
+#             field_parser=lambda s: int(s.split()[0]),
+#             id_parser=lambda s: s.strip()[1:],
+#             interesting_fields=['Logic Cells', 'Memory Bits', 'M9Ks', 'DSP Elements',
+#                                 'LUT-Only LCs',	'Register-Only LCs', 'LUT/Register LCs']
+#         )
 
-    def parse_reports(self):
-        'quartus_dse_report.json'
-        pass
+#         top_resources = resources[self.settings.design['top']]
+
+#         top_resources['lut'] = top_resources['LUT-Only LCs'] + top_resources['LUT/Register LCs']
+#         top_resources['ff'] = top_resources['Register-Only LCs'] + top_resources['LUT/Register LCs']
+
+#         self.results.update(top_resources)
+
+#         # TODO is this the most reliable timing report?
+#         slacks = parse_csv(
+#             self.reports_dir / 'Timing_Analyzer' / 'Multicorner_Timing_Analysis_Summary.csv',
+#             id_field='Clock',
+#             field_parser=lambda s: float(s.strip()),
+#             id_parser=lambda s: s.strip(),
+#             interesting_fields=['Setup', 'Hold']
+#         )
+#         worst_slacks = slacks['Worst-case Slack']
+#         wns = worst_slacks['Setup']
+#         whs = worst_slacks['Hold']
+#         self.results['wns'] = wns
+#         self.results['whs'] = whs
+
+#         failed |= wns < 0 or whs < 0
+
+#         for temp in ['85C', '0C']:
+#             fmax = parse_csv(
+#                 self.reports_dir / 'Timing_Analyzer' /
+#                 f'Slow_1200mV_{temp}_Model' / f'Slow_1200mV_{temp}_Model_Fmax_Summary.csv',
+#                 id_field='Clock Name',
+#                 field_parser=lambda s: s.strip().split(),
+#                 id_parser=lambda s: s.strip(),
+#                 interesting_fields=['Fmax']
+#             )
+#             self.results[f'fmax_{temp}'] = fmax['clock']['Fmax']
+
+#         self.results['success'] = not failed
+
+
+# class QuartusDse(QuartusSynth, DseFlow):
+#     def run(self):
+#         self.create_project()
+#         # TODO Check correspondance of settings hash vs desgin settings
+#         # 'explore': Exploration flow to use, if not specified in --config
+#         #   configuration file. Valid flows: timing_aggressive,
+#         #   all_optimization_modes, timing_high_effort, seed,
+#         #   area_aggressive, power_high_effort, power_aggressive
+#         # 'compile_flow':  'full_compile', 'fit_sta' and 'fit_sta_asm'.
+#         # 'timeout': Limit the amount of time a compute node is allowed to run. Format: hh:mm:ss
+#         if 'dse' not in self.settings.flow:
+#             self.fatal('`flows.quartus.dse` settings are missing!')
+
+#         dse = self.settings.flow['dse']
+#         if 'nproc' not in dse or not dse['nproc']:
+#             dse['nproc'] = self.nthreads
+
+#         script_path = self.copy_from_template(f'settings.dse',
+#                                               dse=dse
+#                                               )
+#         self.run_process('quartus_dse',
+#                          ['--use-dse-file', script_path, self.settings.design['name']],
+#                          stdout_logfile='dse_stdout.log',
+#                          initial_step="Running Quartus DSE",
+#                          )
+
+#     def parse_reports(self):
+#         'quartus_dse_report.json'
+#         pass
 
 
 # DES:

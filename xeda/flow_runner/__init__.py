@@ -476,7 +476,7 @@ class LwcFmaxRunner(FlowRunner):
         # can go higher
         hi_freq = float(flow_settings.get('fmax_high_freq', 600.0))
         resolution = 0.1
-        max_no_improvements = 3
+        max_no_improvements = 2
         delta_increment = resolution / 2
 
         ONE_THOUSAND = 1000.0
@@ -558,27 +558,27 @@ class LwcFmaxRunner(FlowRunner):
 
                     lo_freq = best.freq + delta_increment
 
+                    if freq_step < resolution * 0.9:
+                        break
+
                     if not best or improved_idx is None:
                         no_improvements += 1
                         if no_improvements >= max_no_improvements:
                             logger.info(f"Stopping as there were no improvements in {no_improvements} consequetive iterations.")
                             break
                         logger.info(f"No improvements during this iteration.")
-                        if no_improvements >= 2:
-                            # drasticly shrink the range
-                            hi_freq = lo_freq + (hi_freq - lo_freq) / 2
-                        else:
-                            # shrink the range
-                            hi_freq -= freq_step if num_workers > 2 else resolution
+
+                        shrink_factor = 1 + no_improvements
+                        
+                        next_range = (hi_freq - lo_freq) / shrink_factor
                         # smaller increment to lo_freq
                         if not best:
-                            lo_freq /= 2.0
+                            lo_freq /= shrink_factor
                         else:
-                            lo_freq = best.freq + delta_increment / (1 + no_improvements)
+                            lo_freq = best.freq + delta_increment / shrink_factor
+                        hi_freq = lo_freq + next_range
                     else:
                         no_improvements = 0
-                        if freq_step < (resolution / 2.0):
-                            break
                         # last or one before last
                         if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
                             min_plausible_period = round((ONE_THOUSAND / best.freq) - best.results['wns'] - 0.001, 3)
@@ -592,10 +592,6 @@ class LwcFmaxRunner(FlowRunner):
                     logger.info(f'[Fmax] End of iteration #{num_iterations}')
                     logger.info(f'[Fmax] Execution Time so far: {int(time.monotonic() - start_time) // 60} minute(s)')
 
-                pool.close()
-                pool.join()
-                pool = None
-
         except KeyboardInterrupt:
             logger.exception('Received Keyboard Interrupt')
         except:
@@ -606,8 +602,6 @@ class LwcFmaxRunner(FlowRunner):
             if pool:
                 pool.close()
                 pool.join()
-            else:
-                print('pool is None!')
             runtime_minutes = int(time.monotonic() - start_time) // 60
             if best:
                 best.iterations = num_iterations

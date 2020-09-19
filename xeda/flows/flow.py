@@ -12,6 +12,8 @@ import logging
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
 import colored
+import psutil
+import signal
 
 from .settings import Settings
 from ..utils import camelcase_to_snakecase, try_convert
@@ -114,11 +116,10 @@ class Flow():
 
             return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
 
-        if isinstance(self, SynthFlow):
-            for k in ['tb_generics', 'tb_top']:
+        if not isinstance(self, SimFlow):
+            for k in ['tb_generics', 'tb_top', 'tb_uut']:
                 self.settings.design.pop(k, None)
             self.settings.design['sources'] = [s for s in self.settings.design['sources'] if not s.sim_only]
-
         try:
             self.run_hash = semantic_hash(self.settings)
         except FileNotFoundError as e:
@@ -239,6 +240,7 @@ class Flow():
                     logger.info(f'STDOUT from {prog} will be saved to {stdout_logfile}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.run_dir,
+                                      shell=False,
                                       stdout=subprocess.PIPE if redirect_std else None,
                                       bufsize=1,
                                       universal_newlines=True,
@@ -288,6 +290,8 @@ class Flow():
                                         else:
                                             if spinner:
                                                 spinner.next()
+
+
             except FileNotFoundError as e:
                 self.fatal(f"Cannot execute `{prog}`. Make sure it's properly instaulled and the executable is in PATH")
             except KeyboardInterrupt as e:
@@ -296,10 +300,26 @@ class Flow():
                 logger.critical("Received a keyboard interrupt!")
                 if proc:
                     logger.critical(f"Terminating {proc.args[0]}[{proc.pid}]")
-                    proc.terminate()
-                    proc.kill()
-                    proc.wait()
                 raise e
+            finally:
+                try:
+                    if proc:
+                        pid = proc.pid
+                        procs = psutil.Process(proc.pid).children(recursive=True)
+                        print(f"Killing {len(procs)} child processes of {proc.args[0]}[{proc.pid}]")
+                        for p in procs:
+                            os.killpg(p.pid, signal.SIGINT)
+                            p.terminate()
+                            p.wait(timeout=1)
+                            p.kill()
+                        # os.killpg(pid, signal.SIGINT)
+                        # os.killpg(pid, signal.SIGTERM)
+                        proc.terminate()
+                        proc.wait(timeout=1)
+                        proc.kill()
+                        proc.wait()
+                except:
+                    pass
 
         if spinner:
             print(SHOW_CURSOR)

@@ -150,7 +150,7 @@ class LwcCheckTimingHook():
         # / can't be the first or the last character for sure
         int_div_re = re.compile(r'([^/])/([^/])')
 
-        def evaluate_formula(operation, formula_name, variables, force_int_division=True):
+        def evaluate_formula(operation, formula_name, variables, force_int_division=False):
             formula = operation[formula_name]
             if formula:
                 formula = formula.strip()

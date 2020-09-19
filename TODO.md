@@ -23,6 +23,7 @@
 - [ ] Synopsys DC
 - [ ] Synopsys ICC2
 - [ ] OpenROAD/OpenLANE
+- [ ] Quartus: Power estimation
 
 # Plugins
 
