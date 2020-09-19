@@ -369,7 +369,7 @@ class LwcVariantsRunner(FlowRunner):
             if args.gmu_kats:
                 kats = common_kats
                 if "HASH" in variant_data["operations"]:
-                    kats += hash_kats
+                    kats = common_kats + hash_kats
                 for kat in kats:
                     settings["design"]["tb_generics"]["G_FNAME_DO"] = {"file": f"KAT_GMU/{variant_id}/{kat}/do.txt"}
                     settings["design"]["tb_generics"]["G_FNAME_SDI"] = {"file": f"KAT_GMU/{variant_id}/{kat}/sdi.txt"}
