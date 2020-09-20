@@ -75,12 +75,7 @@ Xeda can assists hardware developers during verification, evaluation, and deploy
 
     package_data={"":
                   [
-                      'xeda/flows/*/templates/*.tcl',
-                      'xeda/flows/*/templates/*.sdc',
-                      'xeda/flows/vivado/templates/*.xdc',
-                      'xeda/flows/quartus/templates/*.dse',
-                      'xeda/defaults.json',
-                      '*.ys', '*.mk', '*.xdc', '*.sdf', '*.tcl', '*.json'
+                      '*.xdc', '*.sdf', '*.sdc', '*.dse', '*.fdc', '*.ldc', '*.tcl', '*.json', '*.ys'
                   ]
                   },
     include_package_data=True,
