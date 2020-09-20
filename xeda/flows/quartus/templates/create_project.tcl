@@ -2,8 +2,6 @@ set design_name           {{design.name}}
 set clock_port            {{design.clock_port}}
 set clock_period          {{flow.clock_period}}
 set top                   {{design.top}}
-set tb_top                {{design.tb_top}}
-
 {% if debug %}
 foreach key [array names quartus] {
     puts "${key}=$quartus($key)"
@@ -45,14 +43,5 @@ set_global_assignment -name {{k}} {% if v is number -%} {{v}} {%- else -%} "{{v}
 {% endfor %}
 
 set_global_assignment -name FLOW_ENABLE_POWER_ANALYZER ON
-
-{% if vcd and design.tb_uut %}
-# set_global_assignment -name POWER_INPUT_FILE_NAME "{{vcd}}" -section_id {{vcd}}
-# set_global_assignment -name POWER_VCD_FILE_START_TIME "10 ns" -section_id {{vcd}}
-# set_global_assignment -name POWER_VCD_FILE_END_TIME "1000 ns" -section_id {{vcd}}
-# set_instance_assignment -name POWER_READ_INPUT_FILE {{vcd}} -to {{design.tb_uut}}
-{% endif %}
-
-# export_assignments
 
 project_close
