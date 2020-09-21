@@ -7,20 +7,21 @@ set strategy            {{flow.strategy}}
 set implementation_name "{{flow.impl_name}}"
 set impl_dir            "{{flow.impl_folder}}"
 
+file delete -force ${impl_dir}
 # Workaround for old TCL on NFS bug
-# file delete -force {*}[glob -nocomplain ${impl_dir}/*]
-
 # while {[catch {file delete -force -- ${impl_dir} }] != 0} {
 #   after 2000 puts "delete failed. retrying..."
 # }
 
-eval prj_project new -name {{design.name}} -dev "{{flow.fpga_part}}" -impl ${implementation_name} -impl_dir ${impl_dir}
+prj_project new -name {{design.name}} -dev "{{flow.fpga_part}}" -impl ${implementation_name} -impl_dir ${impl_dir}
+
+prj_impl option synthesis {{flow.synthesis_engine}}
 
 ##strategy
 eval prj_strgy copy -from {{flow.strategy}} -name custom_strategy -file diamond_strategy.sty
 
 {% for src in design.sources %}
-    eval prj_src add {% if src.type == "vhdl" -%} -format VHDL {%- elif src.type == "verilog" -%} -format Verilog {%- endif %} {{src.file}} {% if src.sim_only -%} -simulate_only {%- endif %}
+eval prj_src add {% if src.type == "vhdl" -%} -format VHDL {%- elif src.type == "verilog" and not src.variant -%} -format Verilog {%- endif %} {{src.file}} {% if src.sim_only -%} -simulate_only {%- endif %}
 {% endfor %}
 
 {% if flow.synthesis_engine == "synplify" %}
@@ -111,7 +112,7 @@ prj_strgy set custom_strategy
 
 
 prj_impl option top {{design.top}}
-prj_impl option synthesis {{flow.synthesis_engine}}
+
 prj_syn set {{flow.synthesis_engine}}
 
 prj_project save
