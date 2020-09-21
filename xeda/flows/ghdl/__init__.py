@@ -31,7 +31,7 @@ class GhdlSim(Ghdl, SimFlow):
         if vhdl_synopsys:
             elab_options += ['-fsynopsys']
 
-        run_options = ['--ieee-asserts=disable-at-0', '--time-resolution=ps']  # TODO
+        run_options = ['--ieee-asserts=disable-at-0']  # TODO
 
         stop_time = self.settings.flow.get('stop_time')
         if stop_time:
