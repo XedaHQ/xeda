@@ -57,7 +57,7 @@ prj_strgy set_value -strategy custom_strategy map_timing_driven=True
 {% endif %}
 
 
-# prj_strgy set_value -strategy custom_strategy par_create_delay_statistic_file=False
+# prj_strgy set_value -strategy custom_strategy par_create_delay_statistic_file=True
 
 
 # NBR (default)/CDR

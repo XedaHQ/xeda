@@ -18,7 +18,6 @@ import multiprocessing as mp
 import traceback
 # heavy, but will probably become handy down the road
 import numpy
-import signal
 import psutil
 
 from ..debug import DebugLevel
@@ -413,9 +412,10 @@ class LwcVariantsRunner(FlowRunner):
 
 
 class Best:
-    def __init__(self, freq, results):
+    def __init__(self, freq, results, settings):
         self.freq = freq
-        self.results = results
+        self.results = copy.deepcopy(results)
+        self.settings = copy.deepcopy(settings)
 
 
 def nukemall():
@@ -538,7 +538,7 @@ class LwcFmaxRunner(FlowRunner):
                                 rundirs.append(flow.run_dir)
                                 if results['success'] and (not best or freq > best.freq):
                                     all_results.append(results)
-                                    best = Best(freq, results)
+                                    best = Best(freq, results, flow.settings)
                                     improved_idx = idx
                             except StopIteration:
                                 break
@@ -617,6 +617,4 @@ class LwcFmaxRunner(FlowRunner):
                 logger.warning("No successful results.")
             logger.info(f'[Fmax] Total Execution Time: {runtime_minutes} minute(s)')
             logger.info(f'[Fmax] Total Iterations: {num_iterations}')
-
-            nukemall()
 
