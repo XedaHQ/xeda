@@ -64,9 +64,8 @@ puts "Targeting device: {{flow.fpga_part}}"
 set vhdl_std_opt [expr {$vhdl_std == "08" ?  "-vhdl2008": ""}];
 
 {% for src in design.sources if not src.sim_only %}
-{% if src.type == 'verilog' %}
-
-{% if src.variant == 'systemverilog' %}
+{%- if src.type == 'verilog' %}
+{%- if src.variant == 'systemverilog' %}
 puts "Reading SystemVerilog file {{src.file}}"
 if { [catch {eval read_verilog -sv {{src.file}} } myError]} {
     errorExit $myError
@@ -76,17 +75,15 @@ puts "Reading Verilog file {{src.file}}"
 if { [catch {eval read_verilog {{src.file}} } myError]} {
     errorExit $myError
 }
-{% endif %}
-
-{% endif %}
+{%- endif %}
+{%- endif %}
 {% if src.type == 'vhdl' %}
 puts "Reading VHDL file {{src.file}} ${vhdl_std_opt}"
 if { [catch {eval read_vhdl ${vhdl_std_opt} {{src.file}} } myError]} {
     errorExit $myError
 }
-{% endif %}
-{% endfor %}
-
+{%- endif %}
+{%- endfor -%}
 
 # TODO: Skip saving some artifects in case timing not met or synthesis failed for any reason
 
