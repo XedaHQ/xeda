@@ -6,5 +6,5 @@ from .quartus import QuartusSynth
 from .diamond import DiamondSynth
 from .ghdl import GhdlSim
 from .modelsim import Modelsim
-
+from .dc import Dc
 
