@@ -118,10 +118,8 @@ set compile_optimize_unloaded_seq_logic_with_no_bound_opt true
 #???
 # set hdlin_infer_mux all
 # set hdlin_infer_mux "default"
-# set hdlin_dont_infer_mux_for_resource_sharing "true"
-# set hdlin_mux_size_limit 32
-
-puts "--- DC setup completed ---"
+set hdlin_dont_infer_mux_for_resource_sharing "true"
+set hdlin_mux_size_limit 32
 
 # Remove new variable info messages from the end of the log file
 set_app_var sh_new_variable_message false
@@ -129,9 +127,17 @@ set_app_var sh_new_variable_message false
 puts "\n===========================( Checking Libraries )==========================="
 check_library > $dc_reports_dir/${dc_design_name}.check_library.rpt
 
+query_objects [get_libs -quiet *]
+
 # The first "WORK" is a reserved word for Design Compiler. The value for
 # the -path option is customizable.
 define_design_lib WORK -path ${dc_results_dir}/WORK
+
+{%- if design.vhdl_std == "08" %}
+set hdlin_vhdl_std 2008
+{% elif design.vhdl_std == "93" %}
+set hdlin_vhdl_std 1993
+{%- endif %}
 
 {% for src in design.sources if not src.sim_only %}
 {%- if src.type == 'verilog' %}
@@ -355,6 +361,9 @@ set_app_var write_sdc_output_net_resistance false
 # SDC constraints
 write_sdc -nosplit ${dc_results_dir}/${dc_design_name}.mapped.sdc
 
+# Write IC Compiler II scripts
+write_icc2_files -force -output ${dc_results_dir}/icc2_files
+
 puts "\n===========================( Writing Reports )==========================="
 
 # Report design
@@ -397,12 +406,11 @@ report_power -nosplit -hier > ${dc_reports_dir}/${dc_design_name}.mapped.power.r
 # Report clock gating
 report_clock_gating -nosplit > ${dc_reports_dir}/${dc_design_name}.mapped.clock_gating.rpt
 
-
 # for computing gate-equivalent
 set NAND2_AREA [get_attribute {{adk.lib_name}}/{{adk.nand2_gate}} area]
 
 set f [open ${dc_reports_dir}/${dc_design_name}.mapped.area.rpt "a"]
-puts $f "Area of {{adk.nand2_gate}} gate is: $NAND2_AREA\n"
+puts $f "Area of cell library's basic NAND2 gate ({{adk.nand2_gate}}) is: $NAND2_AREA\n"
 close $f
 
 puts "\n\n---*****===( DC synthesis successfully completed )===*****---\n"

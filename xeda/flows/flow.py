@@ -12,8 +12,7 @@ import logging
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
 import colored
-import psutil
-import signal
+# import psutil
 
 from .settings import Settings
 from ..utils import camelcase_to_snakecase, try_convert
@@ -302,15 +301,15 @@ class Flow():
             finally:
                 pid = proc.pid
                 try:
-                    procs = psutil.Process(pid).children(recursive=True)
-                    for p in procs:
-                        try:
-                            os.killpg(p.pid, signal.SIGINT)
-                            p.terminate()
-                            p.wait(timeout=1)
-                            p.kill()
-                        except:
-                            pass
+                    # procs = psutil.Process(pid).children(recursive=True)
+                    # for p in procs:
+                    #     try:
+                    #         os.killpg(p.pid, signal.SIGINT)
+                    #         p.terminate()
+                    #         p.wait(timeout=1)
+                    #         p.kill()
+                    #     except:
+                    #         pass
                     proc.terminate()
                     proc.wait(timeout=1)
                     proc.kill()
@@ -336,7 +335,7 @@ class Flow():
         high_debug = self.args.verbose
         if not reportfile_path.exists():
             self.fatal(
-                f'Report file: {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check `{self.run_dir / "stdout.log"}` and other log files in {self.run_dir} to find out what errors occurred.'
+                f'Report file: {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.run_dir}'
             )
         with open(reportfile_path) as rpt_file:
             content = rpt_file.read()

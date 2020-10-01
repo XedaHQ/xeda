@@ -2,6 +2,7 @@ import copy
 from functools import partial
 import multiprocessing
 from multiprocessing import cpu_count
+from types import SimpleNamespace
 from typing import List
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
@@ -18,7 +19,8 @@ import multiprocessing as mp
 import traceback
 # heavy, but will probably become handy down the road
 import numpy
-import psutil
+# import psutil
+import tomlkit
 
 from ..debug import DebugLevel
 from ..plugins.lwc import LwcCheckTimingHook
@@ -28,6 +30,29 @@ from ..utils import camelcase_to_snakecase, load_class, dict_merge, try_convert
 
 logger = logging.getLogger()
 
+
+def tomlkit_to_popo(d):
+    try:
+        result = getattr(d, "value")
+    except AttributeError:
+        result = d
+
+    if isinstance(result, list):
+        result = [tomlkit_to_popo(x) for x in result]
+    elif isinstance(result, dict):
+        result = {
+            tomlkit_to_popo(key): tomlkit_to_popo(val) for key, val in result.items()
+        }
+    elif isinstance(result, tomlkit.items.Integer):
+        result = int(result)
+    elif isinstance(result, tomlkit.items.Float):
+        result = float(result)
+    elif isinstance(result, tomlkit.items.String):
+        result = str(result)
+    elif isinstance(result, tomlkit.items.Bool):
+        result = bool(result)
+
+    return result
 
 def print_results(results, title, subset):
     data_width = 32
@@ -117,20 +142,31 @@ class FlowRunner():
 
         return settings
 
-    def get_design_settings(self, json_path=None):
-        if not json_path:
-            json_path = self.args.design_json if self.args.design_json else Path.cwd() / 'design.json'
+    def get_design_settings(self, toml_path=None):
+        if not toml_path:
+            toml_path = self.args.design_json if self.args.design_json else Path.cwd() / 'xeda.toml'
 
         settings = self.get_default_settings()
 
         try:
-            with open(json_path) as f:
-                design_settings = json.load(f)
-                settings = dict_merge(settings, design_settings)
-                logger.info(f"Using design settings from {json_path}")
+            with open(toml_path) as f:
+                design_settings = tomlkit_to_popo(tomlkit.loads(f.read()))
+
+            #TODO FIXME convert to old namespace
+            d = design_settings['design'][0]
+            print(d)
+            rtl_srcs = d.get('rtl', dict()).get('sources', [])
+            tb_srcs = d.get('tb', dict()).get('sources', [])
+            d['sources'] = rtl_srcs + [dict(file=f, sim_only=True) for f in tb_srcs]
+            d['vhdl_std'] = d.get('language', dict()).get('vhdl',dict()).get('standard')
+            d['vhdl_synopsys'] = d.get('language', dict()).get('vhdl', dict()).get('synopsys')
+            design_settings['design'] = d
+            settings = dict_merge(settings, design_settings)
+            logger.info(f"Using design settings from {toml_path}")
+
         except FileNotFoundError as e:
             self.fatal(
-                f'Cannot open default design settings path: {json_path}. Please specify the correct path using --design-json', e)
+                f'Cannot open default design settings path: {toml_path}. Please specify the correct path using --design-json', e)
         except IsADirectoryError as e:
             self.fatal(f'The specified design json is not a regular file.', e)
 
@@ -146,6 +182,10 @@ class FlowRunner():
                     current_dict = new_dict
                 current_dict[hier[-1]] = try_convert(val, convert_lists=True)
                 settings = dict_merge(settings, patch, True)
+                
+        
+        # settings = SimpleNamespace(**settings)
+
 
         return self.validate_settings(settings)
 
@@ -423,13 +463,14 @@ def nukemall():
         logger.warning(f"Child process {proc.info['name']}[{proc}] terminated with exit code {proc.returncode}")
 
     try:
-        procs = psutil.Process().children(recursive=True)
-        print(f"killing {len(procs)} child processes")
-        for p in procs:
-            p.terminate()
-        gone, alive = psutil.wait_procs(procs, timeout=3, callback=on_terminate)
-        for p in alive:
-            p.kill()
+        pass
+        # procs = psutil.Process().children(recursive=True)
+        # print(f"killing {len(procs)} child processes")
+        # for p in procs:
+        #     p.terminate()
+        # gone, alive = psutil.wait_procs(procs, timeout=3, callback=on_terminate)
+        # for p in alive:
+        #     p.kill()
         # on nix: negative number means the process group with that PGID
         # os.kill(-os.getpgid(0), signal.SIGINT)
     except:

@@ -36,14 +36,6 @@ class XedaApp:
             'run_fmax': LwcFmaxRunner
         }
 
-    # TODO
-    def check_settings(self):
-        if "design" in self.settings:
-            ds = self.settings["design"]
-            assert "generics" not in ds or isinstance(ds["generics"], dict), "design.generics must be a dict"
-            assert "tbgenerics" not in ds or isinstance(
-                ds["tb_generics"], dict), "design.tb_generics must be a dict"
-
     def main(self):
         args = self.args = self.parse_args()
 

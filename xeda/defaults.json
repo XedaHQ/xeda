@@ -69,55 +69,7 @@
         "dc": {
             "clock_period": 3.0,
             "flatten_effort": 1,
-            "alib_dir": "/home/mmohajer/alib_cache",
-            "adk": {
-                "lib_name": "NangateOpenCellLibrary",
-                "process": 45,
-                "path": "/home/mmohajer/src/freepdk-45nm",
-                "target_libraries": [
-                    "stdcells.db"
-                ],
-                "milkeyway_reference_libraries": [
-                    "stdcells.mwlib"
-                ],
-                "milkeyway_technology_file": "rtk-tech.tf",
-                "tluplus_map": "rtk-tluplus.map",
-                "max_tluplus": "rtk-max.tluplus",
-                "min_tluplus": "rtk-min.tluplus",
-                "nand2_gate": "NAND2_X1",
-                "min_routing_layer_dc": "metal2",
-                "max_routing_layer_dc": "metal7",
-                "max_routing_layer_innovus": 7,
-                "power_mesh_bot_layer": 8,
-                "power_mesh_top_layer": 9,
-                "driving_cell": "INV_X2",
-                "typical_on_chip_load": 7,
-                "filler_cells": [
-                    "FILLCELL_X32",
-                    "FILLCELL_X16",
-                    "FILLCELL_X8",
-                    "FILLCELL_X4",
-                    "FILLCELL_X2",
-                    "FILLCELL_X1"
-                ],
-                "tie_cells": [
-                    "LOGIC1_X1",
-                    "LOGIC0_X1"
-                ],
-                "lvs_exclude_cell_list": [
-                    "FILL*",
-                    "WELLTAP*"
-                ],
-                "tie_hi_cell": "LOGIC1_X1",
-                "tie_lo_cell": "LOGIC0_X1",
-                "tie_hi_port": "Z",
-                "tie_lo_port": "Z",
-                "min_buf_cell": "BUF_X1",
-                "min_buf_port_i": "A",
-                "min_buf_port_o": "Z",
-                "ANTENNA_CELL": "ANTENNA_X1",
-                "END_CAP_CELL": ""
-            }
+            "alib_dir": "alib_cache"
         }
     }
 }
