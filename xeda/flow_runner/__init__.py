@@ -596,7 +596,6 @@ class LwcFmaxRunner(FlowRunner):
                         pool.join()
                         raise
 
-                    lo_freq = best.freq + delta_increment
 
                     if freq_step < resolution * 0.9:
                         break
@@ -618,6 +617,7 @@ class LwcFmaxRunner(FlowRunner):
                             lo_freq = best.freq + delta_increment / shrink_factor
                         hi_freq = lo_freq + next_range
                     else:
+                        lo_freq = best.freq + delta_increment
                         no_improvements = 0
                         # last or one before last
                         if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
