@@ -123,8 +123,9 @@ class FlowRunner():
         except json.decoder.JSONDecodeError as e:
             self.fatal(f"Failed to parse defaults settings file (defaults.json): {' '.join(e.args)}", e)
 
-    def fatal(self, msg, exception=None):
-        logger.critical(msg)
+    def fatal(self, msg=None, exception=None):
+        if msg:
+            logger.critical(msg)
         if exception:
             raise exception
         else:
@@ -144,22 +145,39 @@ class FlowRunner():
 
     def get_design_settings(self, toml_path=None):
         if not toml_path:
-            toml_path = self.args.design_json if self.args.design_json else Path.cwd() / 'xeda.toml'
+            toml_path = self.args.xeda_project if self.args.xeda_project else Path.cwd() / 'xeda.toml'
 
         settings = self.get_default_settings()
 
+        def get_design(d):
+            if len(d) == 1:
+                return d[0]
+            dname = self.args.design_name
+            if dname:
+                for x in d:
+                    if x['name'] == dname:
+                        return x
+                logger.critical(f'Design "{dname}" not found in the current project.')
+            else:
+                logger.critical(f'{len(d)} designs are availables in the current project. Please specify target design using --design-name')
+            logger.critical(f'Available designs: {", ".join([x["name"] for x in d])}')
+            self.fatal()
         try:
             with open(toml_path) as f:
                 design_settings = tomlkit_to_popo(tomlkit.loads(f.read()))
 
             #TODO FIXME convert to old namespace
-            d = design_settings['design'][0]
+            d = design_settings['design']
+            print(type(d))
             print(d)
+            if isinstance(d, list):
+                d = get_design(d)
             rtl_srcs = d.get('rtl', dict()).get('sources', [])
             tb_srcs = d.get('tb', dict()).get('sources', [])
             d['sources'] = rtl_srcs + [dict(file=f, sim_only=True) for f in tb_srcs]
             d['vhdl_std'] = d.get('language', dict()).get('vhdl',dict()).get('standard')
             d['vhdl_synopsys'] = d.get('language', dict()).get('vhdl', dict()).get('synopsys')
+            d['tb_generics'] = d.get('tb', dict()).get('generics', [])
             design_settings['design'] = d
             settings = dict_merge(settings, design_settings)
             logger.info(f"Using design settings from {toml_path}")
@@ -295,9 +313,15 @@ class DefaultFlowRunner(FlowRunner):
         run_parser = subparsers.add_parser('run', help='Run a flow')
         super().add_common_args(run_parser)
         run_parser.add_argument(
-            '--design-json',
-            help='Path to design JSON file.'
+            '--xeda-project',
+            default=None,
+            help='Path to Xeda project file. By default will use xeda.toml in the current directory.'
+        )        
+        run_parser.add_argument(
+            '--design-name',
+            help='Specify design.name in case multiple designs are available in the Xeda project.'
         )
+        
 
     def launch(self):
         args = self.args
