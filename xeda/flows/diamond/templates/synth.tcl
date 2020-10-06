@@ -80,8 +80,9 @@ prj_strgy set_value -strategy custom_strategy {syn_cmdline_args={{flow.syn_cmdli
 
 {% if flow.strategy == "Area" %}
 prj_strgy set_value -strategy custom_strategy syn_area=True
-prj_strgy set_value -strategy custom_strategy par_routing_res_opt=1
 {% endif %}
+
+prj_strgy set_value -strategy custom_strategy par_routing_res_opt=1
 
 
 # 0-1000 default:0

@@ -54,6 +54,7 @@ def tomlkit_to_popo(d):
 
     return result
 
+
 def print_results(results, title, subset):
     data_width = 32
     name_width = 80 - data_width
@@ -145,7 +146,7 @@ class FlowRunner():
 
     def get_design_settings(self, toml_path=None):
         if not toml_path:
-            toml_path = self.args.xeda_project if self.args.xeda_project else Path.cwd() / 'xeda.toml'
+            toml_path = self.args.xeda_project if self.args.xeda_project else Path.cwd() / 'xedaproject.toml'
 
         settings = self.get_default_settings()
 
@@ -154,28 +155,29 @@ class FlowRunner():
                 return d[0]
             dname = self.args.design_name
             if dname:
+                if isinstance(dname,list):
+                    dname = dname[0]
                 for x in d:
                     if x['name'] == dname:
                         return x
                 logger.critical(f'Design "{dname}" not found in the current project.')
             else:
-                logger.critical(f'{len(d)} designs are availables in the current project. Please specify target design using --design-name')
+                logger.critical(
+                    f'{len(d)} designs are availables in the current project. Please specify target design using --design-name')
             logger.critical(f'Available designs: {", ".join([x["name"] for x in d])}')
             self.fatal()
         try:
             with open(toml_path) as f:
                 design_settings = tomlkit_to_popo(tomlkit.loads(f.read()))
 
-            #TODO FIXME convert to old namespace
+            # TODO FIXME convert to old namespace
             d = design_settings['design']
-            print(type(d))
-            print(d)
             if isinstance(d, list):
                 d = get_design(d)
             rtl_srcs = d.get('rtl', dict()).get('sources', [])
             tb_srcs = d.get('tb', dict()).get('sources', [])
             d['sources'] = rtl_srcs + [dict(file=f, sim_only=True) for f in tb_srcs]
-            d['vhdl_std'] = d.get('language', dict()).get('vhdl',dict()).get('standard')
+            d['vhdl_std'] = d.get('language', dict()).get('vhdl', dict()).get('standard')
             d['vhdl_synopsys'] = d.get('language', dict()).get('vhdl', dict()).get('synopsys')
             d['tb_generics'] = d.get('tb', dict()).get('generics', [])
             design_settings['design'] = d
@@ -184,7 +186,7 @@ class FlowRunner():
 
         except FileNotFoundError as e:
             self.fatal(
-                f'Cannot open default design settings path: {toml_path}. Please specify the correct path using --design-json', e)
+                f'Cannot open project file: {toml_path}. Please specify the correct path using --xeda-project', e)
         except IsADirectoryError as e:
             self.fatal(f'The specified design json is not a regular file.', e)
 
@@ -200,10 +202,8 @@ class FlowRunner():
                     current_dict = new_dict
                 current_dict[hier[-1]] = try_convert(val, convert_lists=True)
                 settings = dict_merge(settings, patch, True)
-                
-        
-        # settings = SimpleNamespace(**settings)
 
+        # settings = SimpleNamespace(**settings)
 
         return self.validate_settings(settings)
 
@@ -298,13 +298,24 @@ class FlowRunner():
 
     def add_common_args(parser):
         # TODO load flow and plugin classes from custom packages, i.e. xeda_plugins.flows etc
-        flow_classes = inspect.getmembers(sys.modules['xeda.flows'], lambda cls: inspect.isclass(cls) and issubclass(cls, Flow))
-        registered_flows = [camelcase_to_snakecase(n) for n,c in flow_classes]
+        flow_classes = inspect.getmembers(sys.modules['xeda.flows'],
+                                          lambda cls: inspect.isclass(cls) and issubclass(cls, Flow))
+        registered_flows = [camelcase_to_snakecase(n) for n, c in flow_classes]
+        parser.add_argument(
+            '--xeda-project',
+            default=None,
+            help='Path to Xeda project file. By default will use xeda.toml in the current directory.'
+        )
         parser.add_argument('flow', metavar='FLOW_NAME', choices=registered_flows,
                             help=f'Flow name. Registered flows are: {registered_flows}')
         parser.add_argument('--override-settings', nargs='+',
                             help='Override certain setting value. Use <hierarchy>.key=value format'
                             'example: --override-settings flows.vivado_run.stop_time=100us')
+        parser.add_argument(
+            '--design-name',
+            nargs='+',
+            help='Specify design.name in case multiple designs are available in the Xeda project.'
+        )
 
 
 class DefaultFlowRunner(FlowRunner):
@@ -312,16 +323,6 @@ class DefaultFlowRunner(FlowRunner):
     def register_subparser(cls, subparsers):
         run_parser = subparsers.add_parser('run', help='Run a flow')
         super().add_common_args(run_parser)
-        run_parser.add_argument(
-            '--xeda-project',
-            default=None,
-            help='Path to Xeda project file. By default will use xeda.toml in the current directory.'
-        )        
-        run_parser.add_argument(
-            '--design-name',
-            help='Specify design.name in case multiple designs are available in the Xeda project.'
-        )
-        
 
     def launch(self):
         args = self.args
@@ -508,10 +509,6 @@ class LwcFmaxRunner(FlowRunner):
         plug_parser = subparsers.add_parser('run_fmax', help='find fmax')
         super().add_common_args(plug_parser)
         plug_parser.add_argument(
-            '--design-json',
-            help='Path to design JSON file.'
-        )
-        plug_parser.add_argument(
             '--max-failed-runs',
             default=10, type=int,
             help='Maximum consequetive failed runs allowed. Give up afterwards.'
@@ -559,7 +556,6 @@ class LwcFmaxRunner(FlowRunner):
         num_iterations = 0
         pool = None
         no_improvements = 0
-
 
         def round_freq_to_ps(freq: float) -> float:
             period = round(ONE_THOUSAND / freq, 3)
@@ -620,19 +616,19 @@ class LwcFmaxRunner(FlowRunner):
                         pool.join()
                         raise
 
-
                     if freq_step < resolution * 0.9:
                         break
 
                     if not best or improved_idx is None:
                         no_improvements += 1
                         if no_improvements >= max_no_improvements:
-                            logger.info(f"Stopping as there were no improvements in {no_improvements} consequetive iterations.")
+                            logger.info(
+                                f"Stopping as there were no improvements in {no_improvements} consequetive iterations.")
                             break
                         logger.info(f"No improvements during this iteration.")
 
                         shrink_factor = 1 + no_improvements
-                        
+
                         next_range = (hi_freq - lo_freq) / shrink_factor
                         # smaller increment to lo_freq
                         if not best:
@@ -671,7 +667,7 @@ class LwcFmaxRunner(FlowRunner):
                 best.iterations = num_iterations
                 best.runtime_minutes = runtime_minutes
                 print_results(best.results, title='Best Results', subset=[
-                            'clock_period', 'frequency', 'lut', 'ff', 'slice'])
+                    'clock_period', 'frequency', 'lut', 'ff', 'slice'])
                 best_json_path = Path(args.xeda_run_dir) / \
                     f'fmax_{settings["design"]["name"]}_{flow_name}_{self.timestamp}.json'
                 logger.info(f"Writing best result to {best_json_path}")
@@ -682,4 +678,3 @@ class LwcFmaxRunner(FlowRunner):
                 logger.warning("No successful results.")
             logger.info(f'[Fmax] Total Execution Time: {runtime_minutes} minute(s)')
             logger.info(f'[Fmax] Total Iterations: {num_iterations}')
-
