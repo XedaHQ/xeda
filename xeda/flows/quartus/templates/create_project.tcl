@@ -1,7 +1,5 @@
 set design_name           {{design.name}}
-set clock_port            {{design.clock_port}}
-set clock_period          {{flow.clock_period}}
-set top                   {{design.top}}
+set top                   {{design.rtl.top}}
 {% if debug %}
 foreach key [array names quartus] {
     puts "${key}=$quartus($key)"
@@ -22,11 +20,11 @@ set_global_assignment -name DEVICE {{flow.fpga_part}}
 
 set_global_assignment -name TOP_LEVEL_ENTITY ${top}
 
-{% if design.vhdl_std == "08" %}
+{% if design.language.vhdl.standard == "08" %}
     set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
 {% endif %}
 
-{% for src in design.sources if not src.sim_only and src.type %}
+{% for src in design.rtl.sources %}
 set_global_assignment -name {% if src.type == "verilog" and src.variant == "systemverilog" -%} SYSTEMVERILOG {%- else -%} {{src.type|upper}} {%- endif -%}_FILE {{src.file}}
 {% endfor %}
 

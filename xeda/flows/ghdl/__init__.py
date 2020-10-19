@@ -11,18 +11,23 @@ class Ghdl(Flow):
 class GhdlSim(Ghdl, SimFlow):
 
     def run(self):
+        design_settings = self.settings.design
+        rtl_settings = design_settings['rtl']
+        tb_settings = design_settings['tb']
+        vhdl_settings = design_settings['language']['vhdl']
+
         # TODO synthesis, lint
 
         warns = ['-Wbinding', '-Wreserved', '-Wlibrary', '-Wvital-generic',
                  '-Wdelayed-checks', '-Wbody', '-Wspecs', '-Wunused', '--warn-no-runtime-error']
 
-        vhdl_std = str(self.settings.design['vhdl_std'])
+        vhdl_std = str(vhdl_settings['standard'])
         vhdl_std_opt = f'--std={"93c" if vhdl_std == "93" else vhdl_std}'
         optimize = ['-O3']
         analysis_options = ['-frelaxed-rules', '--warn-no-vital-generic',
                             '-frelaxed', '--mb-comments', vhdl_std_opt] + optimize
 
-        vhdl_synopsys = self.settings.design['vhdl_synopsys'] if 'vhdl_synopsys' in self.settings.design else False
+        vhdl_synopsys = vhdl_settings.get('synopsys')
 
         if vhdl_synopsys:
             analysis_options += ['--ieee=synopsys', '-fsynopsys']
@@ -58,10 +63,11 @@ class GhdlSim(Ghdl, SimFlow):
         if self.vcd:
             run_options.append(f'--vcd={self.vcd}')
 
-        tb_generics_opts = [f"-g{k}={v}" for k, v in self.settings.design["tb_generics"].items()]
-        rtl_generics_opts = [f"-g{k}={v}" for k, v in self.settings.design["generics"].items()]
 
-        sources = list(map(lambda x: str(x), self.settings.design['sources']))
+        tb_generics_opts = [f"-g{k}={v}" for k, v in tb_settings["generics"].items()]
+        rtl_generics_opts = [f"-g{k}={v}" for k, v in rtl_settings["generics"].items()]
+
+        sources = list(map(lambda x: str(x), rtl_settings['sources'] + tb_settings['sources']))
 
         # self.run_process('ghdl', ['-a'] + analysis_options + warns + sources,
         #                  initial_step='Analyzing VHDL files',

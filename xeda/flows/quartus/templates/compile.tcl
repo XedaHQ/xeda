@@ -1,7 +1,5 @@
 set design_name           {{design.name}}
-set clock_port            {{design.clock_port}}
-set clock_period          {{flow.clock_period}}
-set top                   {{design.top}}
+set top                   {{design.rtl.top}}
 set debug                 {{debug}}
 
 package require ::quartus::project

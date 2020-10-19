@@ -66,7 +66,7 @@ class Dc(SynthFlow):
 
     def parse_reports(self):
         reports_dir = self.reports_dir
-        top_name = self.settings.design['top']
+        top_name = self.settings.design['rtl'].get('top', "TOP")
 
         failed = False
 

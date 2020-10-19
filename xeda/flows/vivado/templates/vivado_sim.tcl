@@ -7,7 +7,7 @@ proc errorExit {errorString} {
 }
 
 set design_name           {{design.name}}
-set tb_top                {{design.tb_top}}
+set tb_top                {{design.tb.top}}
 set results_dir           results
 # set vhdl_funcsim          ${results_dir}/${top}_impl_funcsim.vhd
 # set verilog_funcsim       ${results_dir}/${top}_impl_funcsim.v
@@ -16,7 +16,7 @@ set results_dir           results
 set timing_sim            false
 set funcsim_use_vhdl      true
 
-set uut_scope             /${tb_top}/{{design.tb_uut}}
+set uut_scope             /${tb_top}/{{design.tb.uut}}
 
 
 set wdb_file "${results_dir}/xsim_${tb_top}_dump"
@@ -65,7 +65,7 @@ if {${post_synth_sim}} {
 
 
 puts "\n===========================( Analyzing HDL Sources )==========================="
-{% for src in design.sources %}
+{% for src in (design.rtl.sources + design.tb.sources) %}
 {% if src.type == 'verilog' %}
 
 {% if src.variant == 'systemverilog' %}
@@ -82,8 +82,8 @@ if { [catch {eval exec xvlog ${analyze_flags} {{src.file}} } myError]} {
 
 {% endif %}
 {% if src.type == 'vhdl' %}
-puts "Analyzing VHDL file {{src.file}} VHDL Standard: {{design.vhdl_std}}"
-if { [catch {eval  exec xvhdl ${analyze_flags} {% if design.vhdl_std == "08" %} -2008 {% elif design.vhdl_std == "93" %} -93_mode {% endif %} {{src.file}} } myError]} {
+puts "Analyzing VHDL file {{src.file}} VHDL Standard: {{design.language.vhdl.standard}}"
+if { [catch {eval  exec xvhdl ${analyze_flags} {% if design.language.vhdl.standard == "08" %} -2008 {% elif design.language.vhdl.standard == "93" %} -93_mode {% endif %} {{src.file}} } myError]} {
     errorExit $myError
 }
 {% endif %}
@@ -91,7 +91,7 @@ if { [catch {eval  exec xvhdl ${analyze_flags} {% if design.vhdl_std == "08" %} 
 
 
 puts "\n===========================( Elaborating design: ${tb_top} )==========================="
-eval exec xelab ${xelab_flags} {% if design.vhdl_std == "93"%} -93_mode {% endif %} ${designs} 
+eval exec xelab ${xelab_flags} {% if design.language.vhdl.standard == "93"%} -93_mode {% endif %} ${designs} 
 
 # eval exec xelab -incr -debug typical -relax -mt 8 -maxdelay -L xil_defaultlib -L simprims_ver -L secureip -s ${snapshot_name} -transport_int_delays -pulse_r 0 -pulse_int_r 0 -pulse_e 0 -pulse_int_e 0 ${xsim_lib_name}.LWC_TB -generic "G_PERIOD=${clock_period}ns" ${xsim_lib_name}.glbl -log elaborate.log
 

@@ -118,8 +118,7 @@ class VivadoSynth(Vivado, SynthFlow):
     checkpoints_dir = 'checkpoints'
 
     def run(self):
-        # FIXME!!!
-        generics_options = ''#vivado_generics(self.settings.design["generics"], sim=False)
+        generics_options = vivado_generics(self.settings.design["rtl"].get("generics", {}), sim=False)
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
         strategy = self.settings.flow.get('strategy', 'Default')
         if isinstance(strategy, abc.Mapping):
@@ -211,7 +210,8 @@ class VivadoSynth(Vivado, SynthFlow):
 
 class VivadoSim(Vivado, SimFlow):
     def run(self):
-        generics_options = vivado_generics(self.settings.design["tb_generics"], sim=True)
+        generics_settings = self.settings.design["tb"].get("generics", {})
+        generics_options = vivado_generics(generics_settings, sim=True)
         saif = self.settings.flow.get('saif')
         elab_flags = f'-relax'
         script_path = self.copy_from_template(f'vivado_sim.tcl',

@@ -20,9 +20,10 @@ prj_impl option synthesis {{flow.synthesis_engine}}
 ##strategy
 eval prj_strgy copy -from {{flow.strategy}} -name custom_strategy -file diamond_strategy.sty
 
-{% for src in design.sources %}
-eval prj_src add {% if src.type == "vhdl" -%} -format VHDL {%- elif src.type == "verilog" and not src.variant -%} -format Verilog {%- endif %} {{src.file}} {% if src.sim_only -%} -simulate_only {%- endif %}
+{% for src in design.rtl.sources %}
+eval prj_src add {% if src.type == "vhdl" -%} -format VHDL {%- elif src.type == "verilog" and not src.variant -%} -format Verilog {%- endif %} {{src.file}}
 {% endfor %}
+
 
 {% if flow.synthesis_engine == "synplify" %}
 # non-timing
@@ -38,7 +39,7 @@ eval prj_src add constraints.ldc
 
 
 
-{% if design.vhdl_std == "08" %}
+{% if design.language.vhdl.standard == "08" %}
 prj_strgy set_value -strategy custom_strategy syn_vhdl2008=True
 prj_strgy set_value -strategy custom_strategy lse_vhdl2008=True
 {% endif %}
@@ -112,7 +113,7 @@ prj_strgy set custom_strategy
 
 
 
-prj_impl option top {{design.top}}
+prj_impl option top {{design.rtl.top}}
 
 prj_syn set {{flow.synthesis_engine}}
 

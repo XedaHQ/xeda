@@ -25,7 +25,7 @@ import tomlkit
 from ..debug import DebugLevel
 from ..plugins.lwc import LwcCheckTimingHook
 from ..flows.settings import Settings
-from ..flows.flow import DesignSource, Flow, FlowFatalException, SynthFlow, my_print
+from ..flows.flow import DesignSource, FileResource, Flow, FlowFatalException, SynthFlow, my_print
 from ..utils import camelcase_to_snakecase, load_class, dict_merge, try_convert
 
 logger = logging.getLogger()
@@ -266,19 +266,19 @@ class FlowRunner():
 
         design_settings = flow.settings.design
 
-        sources = design_settings['rtl' if isinstance(flow, SynthFlow) else 'tb'].get('sources')
-        for i, src in enumerate(sources):
-            sources[i] = DesignSource(src)
+        for section in ['rtl', 'tb']:
+            sources = design_settings[section].get('sources', [])
+            for i, src in enumerate(sources):
+                sources[i] = DesignSource(src)
 
-        # for gen_type in ['generics', 'tb_generics']:
-        #     if gen_type in flow.settings.design:
-        #         for gen_key, gen_val in flow.settings.design[gen_type].items():
-        #             if isinstance(gen_val, dict) and "file" in gen_val:
-        #                 p = gen_val["file"]
-        #                 assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
-        #                 gen_val = flow.conv_to_relative_path(p.strip())
-        #                 logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
-        #                 flow.settings.design[gen_type][gen_key] = gen_val
+        generics = flow.settings.design["tb"].get("generics", {})
+        for gen_key, gen_val in generics.items():
+            if FileResource.is_file_resouce(gen_val):
+                resource_path = gen_val["file"]
+                assert isinstance(resource_path, str), "value of `file` should be a relative or absolute path string"
+                gen_val = flow.conv_to_relative_path(resource_path.strip())
+                logger.info(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
+                generics[gen_key] = gen_val
 
         # flow.check_settings()
         flow.dump_settings()

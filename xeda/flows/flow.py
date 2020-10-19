@@ -110,11 +110,13 @@ class Flow():
                     return str(data)
 
             return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
-
-        # if not isinstance(self, SimFlow):
-        #     for k in ['tb_generics', 'tb_top', 'tb_uut']:
-        #         self.settings.design.pop(k, None)
-        #     self.settings.design['sources'] = [s for s in self.settings.design['sources'] if not s.sim_only]
+        
+        # remove tb attributes if not a simulation flow
+        if not isinstance(self, SimFlow):
+            tb_settings = self.settings.design.get('tb')
+            if tb_settings:
+                self.settings.design['tb'] = None
+       
         try:
             self.run_hash = semantic_hash(self.settings)
         except FileNotFoundError as e:
@@ -451,13 +453,30 @@ class SynthFlow(Flow):
 class DseFlow(Flow):
     pass
 
-
-class DesignSource:
+class FileResource:
     @classmethod
-    def is_design_source(cls, src):
+    def is_file_resouce(cls, src):
         return isinstance(src, cls) or (isinstance(src, dict) and 'file' in src)
 
-    def __init__(self, file: str, type: str = None, sim_only: bool = False, standard: str = None, variant: str = None) -> None:
+    def __init__(self, path) -> None:
+        try:
+            self.file = Path(path).resolve(strict=True)
+        except Exception as e:
+            logger.critical(f"Design source file '{path}' does not exist!")
+            raise e
+        
+        with open(self.file, 'rb') as f:
+            self.hash = hashlib.sha256(f.read()).hexdigest()
+
+class DesignSource(FileResource):
+    @classmethod
+    def is_design_source(cls, src):
+        return cls.is_file_resouce(src)
+
+    def __init__(self, file: str, type: str = None, standard: str = None, variant: str = None) -> None:
+        
+        super().__init__(file)
+        
         def type_from_suffix(file: Path) -> str:
             type_variants_map = {
                 ('vhdl', variant): ['vhd', 'vhdl'],
@@ -471,19 +490,8 @@ class DesignSource:
                     return h
             return None, None
 
-        try:
-            self.file = Path(file).resolve(strict=True)
-        except Exception as e:
-            logger.critical(f"Design source file '{self.file}' does not exist!")
-            raise e
-        
-        with open(self.file, 'rb') as f:
-            self.hash = hashlib.sha256(f.read()).hexdigest()
         self.type, self.variant = (type, variant) if type else type_from_suffix(self.file)
-        self.sim_only = sim_only
         self.standard = standard
-
-        
 
     def __str__(self):
         return str(self.file)

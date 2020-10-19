@@ -10,9 +10,10 @@ class Modelsim(SimFlow):
         vcom_options = ['-lint']
         vlog_options = ['-lint']
         vsim_opts = []
-
+        rtl_settings = self.settings.design['rtl']
+        tb_settings = self.settings.design['tb']
         sdf_conf = self.settings.flow.get('sdf')
-        tb_uut = self.settings.design.get('tb_uut')
+        tb_uut = tb_settings.get('uut')
         # sdf has two fields: file (path to sdf file), and type [min, max, typ]
         if sdf_conf and tb_uut:
             if not isinstance(sdf_conf, list):
@@ -25,7 +26,7 @@ class Modelsim(SimFlow):
             if not self.vcd:
                 self.settings.flow['vcd'] = 'timing.vcd'
 
-        tb_generics_opts = ' '.join([f"-g{k}={v}" for k, v in self.settings.design["tb_generics"].items()])
+        tb_generics_opts = ' '.join([f"-g{k}={v}" for k, v in tb_settings["generics"].items()])
 
         script_path = self.copy_from_template(f'run.tcl',
                                               generics_options=tb_generics_opts,

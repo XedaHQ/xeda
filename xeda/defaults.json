@@ -34,9 +34,9 @@
             "fpga_part": "xc7a12tcsg325-3",
             "strategy": "Timing",
             "optimize_power": "False",
-            "timeout": 1800,
-            "fmax_low_freq": 100.0,
-            "fmax_high_freq": 300.0,
+            "timeout": 3600,
+            "fmax_low_freq": 120.0,
+            "fmax_high_freq": 280.0,
             "nthreads": 4
         },
         "quartus_synth": {

@@ -2,7 +2,7 @@
 # https://github.com/cornell-brg/mflowgen/tree/master/steps/synopsys-dc-synthesis
 #
 
-set dc_design_name                {{design.top}}
+set dc_design_name                {{design.rtl.top}}
 set dc_clock_period               {{flow.clock_period}} 
 set dc_topographical              {{flow.get("topographical", True)}}
 set adk_dir                       {{adk.path}}
@@ -133,13 +133,13 @@ query_objects [get_libs -quiet *]
 # the -path option is customizable.
 define_design_lib WORK -path ${dc_results_dir}/WORK
 
-{%- if design.vhdl_std == "08" %}
+{%- if design.language.vhdl.standard == "08" %}
 set hdlin_vhdl_std 2008
-{% elif design.vhdl_std == "93" %}
+{% elif design.language.vhdl.standard == "93" %}
 set hdlin_vhdl_std 1993
 {%- endif %}
 
-{% for src in design.sources if not src.sim_only %}
+{% for src in design.rtl.sources %}
 {%- if src.type == 'verilog' %}
 {%- if src.variant == 'systemverilog' %}
 puts "\n===========================( Analyzing SystemVerilog file {{src.file}} )==========================="
@@ -178,7 +178,7 @@ write_file -hierarchy -format ddc -output ${dc_results_dir}/${dc_design_name}.el
 write_file -hierarchy -format verilog -output ${dc_results_dir}/${dc_design_name}.elab.v
 
 set clock_name ideal_clock
-create_clock -name ${clock_name} -period ${dc_clock_period} [get_ports {{design.clock_port}}]
+create_clock -name ${clock_name} -period ${dc_clock_period} [get_ports {{design.rtl.clock_port}}]
 
 # This constraint sets the load capacitance in picofarads of the
 # output pins of your design.
