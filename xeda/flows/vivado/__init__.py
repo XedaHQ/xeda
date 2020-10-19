@@ -118,7 +118,8 @@ class VivadoSynth(Vivado, SynthFlow):
     checkpoints_dir = 'checkpoints'
 
     def run(self):
-        generics_options = vivado_generics(self.settings.design["generics"], sim=False)
+        # FIXME!!!
+        generics_options = ''#vivado_generics(self.settings.design["generics"], sim=False)
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
         strategy = self.settings.flow.get('strategy', 'Default')
         if isinstance(strategy, abc.Mapping):

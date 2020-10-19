@@ -1,11 +1,19 @@
 {
     "design": {
-        "top": "LWC",
-        "tb_top": "LWC_TB",
-        "tb_uut": "uut",
-        "vhdl_std": "02",
-        "vhdl_synopsys": false,
-        "clock_port": "clk"
+        "language": {
+            "vhdl": {
+                "standard": "08",
+                "synopsys": false
+            }
+        },
+        "rtl": {
+            "top": "LWC",
+            "clock_port": "clk"
+        },
+        "tb":{
+            "top": "LWC_TB",
+            "uut": "uut"
+        }
     },
     "flows": {
         "sim_flow": {

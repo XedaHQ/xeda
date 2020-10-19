@@ -53,16 +53,16 @@ class Flow():
         self.args = args
         self.run_hash = None
 
-        if not isinstance(settings.design['sources'], list):
-            self.fatal('`sources` section of the settings needs to be a list')
+        # if not isinstance(settings.design['sources'], list):
+        #     self.fatal('`sources` section of the settings needs to be a list')
 
-        for i, src in enumerate(settings.design['sources']):
-            if isinstance(src, str):
-                src = {"file": src}
-            if not DesignSource.is_design_source(src):
-                raise Exception(
-                    f'Entry `{src}` in `sources` needs to be a string or a DesignSource JSON dictionary but is {type(src)}')
-            settings.design['sources'][i] = DesignSource(**src)
+        # for i, src in enumerate(settings.design['sources']):
+        #     if isinstance(src, str):
+        #         src = {"file": src}
+        #     if not DesignSource.is_design_source(src):
+        #         raise Exception(
+        #             f'Entry `{src}` in `sources` needs to be a string or a DesignSource JSON dictionary but is {type(src)}')
+        #     settings.design['sources'][i] = DesignSource(**src)
 
         self.settings = settings
         self.nthreads = int(settings.flow.get('nthreads', 1))
@@ -94,18 +94,14 @@ class Flow():
     def set_hash(self):
         skip_fields = {'author', 'url', 'comment', 'description', 'license'}
 
-        def semantic_hash(data: JsonTree, hash_files=True, hasher=hashlib.sha1) -> str:
+        def semantic_hash(data: JsonTree, hasher=hashlib.sha1) -> str:
             def get_digest(b: bytes):
                 return hasher(b).hexdigest()[:32]
-
-            def file_digest(filename: str):
-                with open(filename, 'rb') as f:
-                    return get_digest(f.read())
 
             # data: JsonType, not adding type as Pylance does not seem to like recursive types :/
             def sorted_dict_str(data) -> StrTreeType:
                 if type(data) == dict:
-                    return {k: sorted_dict_str(file_digest(data[k]) if hash_files and (k == 'file') else data[k]) for k in sorted(data.keys()) if not k in skip_fields}
+                    return {k: sorted_dict_str(data[k]) for k in sorted(data.keys()) if not k in skip_fields}
                 elif type(data) == list:
                     return [sorted_dict_str(val) for val in data]
                 elif hasattr(data, '__dict__'):
@@ -115,10 +111,10 @@ class Flow():
 
             return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
 
-        if not isinstance(self, SimFlow):
-            for k in ['tb_generics', 'tb_top', 'tb_uut']:
-                self.settings.design.pop(k, None)
-            self.settings.design['sources'] = [s for s in self.settings.design['sources'] if not s.sim_only]
+        # if not isinstance(self, SimFlow):
+        #     for k in ['tb_generics', 'tb_top', 'tb_uut']:
+        #         self.settings.design.pop(k, None)
+        #     self.settings.design['sources'] = [s for s in self.settings.design['sources'] if not s.sim_only]
         try:
             self.run_hash = semantic_hash(self.settings)
         except FileNotFoundError as e:
@@ -461,7 +457,7 @@ class DesignSource:
     def is_design_source(cls, src):
         return isinstance(src, cls) or (isinstance(src, dict) and 'file' in src)
 
-    def __init__(self, file: str, type: str = None, sim_only: bool = False, standard: str = None, variant: str = None, comment: str = None) -> None:
+    def __init__(self, file: str, type: str = None, sim_only: bool = False, standard: str = None, variant: str = None) -> None:
         def type_from_suffix(file: Path) -> str:
             type_variants_map = {
                 ('vhdl', variant): ['vhd', 'vhdl'],
@@ -475,22 +471,20 @@ class DesignSource:
                     return h
             return None, None
 
-        file = Path(file)
-
-        self.file: Path = file
-        self.type, self.variant = (type, variant) if type else type_from_suffix(file)
+        try:
+            self.file = Path(file).resolve(strict=True)
+        except Exception as e:
+            logger.critical(f"Design source file '{self.file}' does not exist!")
+            raise e
+        
+        with open(self.file, 'rb') as f:
+            self.hash = hashlib.sha256(f.read()).hexdigest()
+        self.type, self.variant = (type, variant) if type else type_from_suffix(self.file)
         self.sim_only = sim_only
         self.standard = standard
-        self.comment = comment
+
+        
 
     def __str__(self):
         return str(self.file)
 
-    def mk_relative(self, base):
-        try:
-            path = Path(self.file).resolve(strict=True)
-            self.file = path  # os.path.relpath(path, base)
-        except Exception as e:
-            logger.critical(f"Design source file '{self.file}' does not exist!")
-            raise e
-        return self

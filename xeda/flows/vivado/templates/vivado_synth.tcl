@@ -1,9 +1,9 @@
 # These settings are set by XEDA
 set design_name           {{design.name}}
-set vhdl_std              {{design.vhdl_std}}
+set vhdl_std              {{design.language.vhdl.standard}}
 set debug                 {{debug}}
 set nthreads              {{nthreads}}
-set top                   {{design.top}}
+set top                   {{design.rtl.top}}
 
 
 set optimize_power        {{flow.optimize_power}}
@@ -63,7 +63,7 @@ puts "Targeting device: {{flow.fpga_part}}"
 # DO NOT use per file vhdl version as not supported universally (even though our data structures support it)
 set vhdl_std_opt [expr {$vhdl_std == "08" ?  "-vhdl2008": ""}];
 
-{% for src in design.sources if not src.sim_only %}
+{% for src in design.rtl.sources %}
 {%- if src.type == 'verilog' %}
 {%- if src.variant == 'systemverilog' %}
 puts "Reading SystemVerilog file {{src.file}}"

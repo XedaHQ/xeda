@@ -25,7 +25,7 @@ import tomlkit
 from ..debug import DebugLevel
 from ..plugins.lwc import LwcCheckTimingHook
 from ..flows.settings import Settings
-from ..flows.flow import DesignSource, Flow, FlowFatalException, my_print
+from ..flows.flow import DesignSource, Flow, FlowFatalException, SynthFlow, my_print
 from ..utils import camelcase_to_snakecase, load_class, dict_merge, try_convert
 
 logger = logging.getLogger()
@@ -134,13 +134,13 @@ class FlowRunner():
 
     def validate_settings(self, settings):
         assert 'design' in settings
-        design = settings['design']
-        assert 'sources' in design
-        assert 'vhdl_std' in design
-        if design['vhdl_std'] == 8:
-            design['vhdl_std'] = "08"
-        elif design['vhdl_std'] == 2:
-            design['vhdl_std'] = "02"
+        # design = settings['design']
+        # assert 'sources' in design
+        # assert 'vhdl_std' in design
+        # if design['vhdl_std'] == 8:
+        #     design['vhdl_std'] = "08"
+        # elif design['vhdl_std'] == 2:
+        #     design['vhdl_std'] = "02"
 
         return settings
 
@@ -166,21 +166,13 @@ class FlowRunner():
                     f'{len(d)} designs are availables in the current project. Please specify target design using --design-name')
             logger.critical(f'Available designs: {", ".join([x["name"] for x in d])}')
             self.fatal()
+
         try:
             with open(toml_path) as f:
-                design_settings = tomlkit_to_popo(tomlkit.loads(f.read()))
+                xeda_project_settings = tomlkit_to_popo(tomlkit.loads(f.read()))
+            
+            design_settings = dict(design=get_design(xeda_project_settings['design']), flows=xeda_project_settings.get('flows',{}))
 
-            # TODO FIXME convert to old namespace
-            d = design_settings['design']
-            if isinstance(d, list):
-                d = get_design(d)
-            rtl_srcs = d.get('rtl', dict()).get('sources', [])
-            tb_srcs = d.get('tb', dict()).get('sources', [])
-            d['sources'] = rtl_srcs + [dict(file=f, sim_only=True) for f in tb_srcs]
-            d['vhdl_std'] = d.get('language', dict()).get('vhdl', dict()).get('standard')
-            d['vhdl_synopsys'] = d.get('language', dict()).get('vhdl', dict()).get('synopsys')
-            d['tb_generics'] = d.get('tb', dict()).get('generics', [])
-            design_settings['design'] = d
             settings = dict_merge(settings, design_settings)
             logger.info(f"Using design settings from {toml_path}")
 
@@ -254,9 +246,6 @@ class FlowRunner():
         flow_cls = self.load_flow_class(flow_name)
 
         flow_settings = Settings()
-        # default for optional design settings
-        flow_settings.design['generics'] = {}
-        flow_settings.design['tb_generics'] = {}
 
         # specific lflow defaults
         flow_settings.flow.update(**flow_cls.default_settings)
@@ -275,18 +264,21 @@ class FlowRunner():
 
         flow.nthreads = int(max(1, max_threads))
 
-        for i, src in enumerate(flow.settings.design['sources']):
-            flow.settings.design['sources'][i] = src.mk_relative(flow.run_dir)
+        design_settings = flow.settings.design
 
-        for gen_type in ['generics', 'tb_generics']:
-            if gen_type in flow.settings.design:
-                for gen_key, gen_val in flow.settings.design[gen_type].items():
-                    if isinstance(gen_val, dict) and "file" in gen_val:
-                        p = gen_val["file"]
-                        assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
-                        gen_val = flow.conv_to_relative_path(p.strip())
-                        logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
-                        flow.settings.design[gen_type][gen_key] = gen_val
+        sources = design_settings['rtl' if isinstance(flow, SynthFlow) else 'tb'].get('sources')
+        for i, src in enumerate(sources):
+            sources[i] = DesignSource(src)
+
+        # for gen_type in ['generics', 'tb_generics']:
+        #     if gen_type in flow.settings.design:
+        #         for gen_key, gen_val in flow.settings.design[gen_type].items():
+        #             if isinstance(gen_val, dict) and "file" in gen_val:
+        #                 p = gen_val["file"]
+        #                 assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
+        #                 gen_val = flow.conv_to_relative_path(p.strip())
+        #                 logger.info(f'Converting generic `{gen_key}` marked as `file`: {p} -> {gen_val}')
+        #                 flow.settings.design[gen_type][gen_key] = gen_val
 
         # flow.check_settings()
         flow.dump_settings()
