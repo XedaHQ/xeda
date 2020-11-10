@@ -166,7 +166,7 @@ report_utilization -hierarchical                                -force -file ${r
 report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
 report_power                                                    -file ${reports_dir}/post_route/power.rpt
 report_drc                                                      -file ${reports_dir}/post_route/drc.rpt
-report_ram_utilization                                          -file ${reports_dir}/post_route/ram_utilization.rpt -append -detail
+report_ram_utilization                                          -file ${reports_dir}/post_route/ram_utilization.rpt -append
 report_methodology                                              -file ${reports_dir}/post_route/methodology.rpt
 {% endif %}
 

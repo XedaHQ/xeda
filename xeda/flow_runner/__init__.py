@@ -151,12 +151,14 @@ class FlowRunner():
         settings = self.get_default_settings()
 
         def get_design(d):
+            if not isinstance(d, list):
+                return d
             if len(d) == 1:
                 return d[0]
             dname = self.args.design_name
             if dname:
                 if isinstance(dname,list):
-                    dname = dname[0]
+                    dname = dname[0] # TODO FIXME match dname !!!!
                 for x in d:
                     if x['name'] == dname:
                         return x
@@ -267,18 +269,19 @@ class FlowRunner():
         design_settings = flow.settings.design
 
         for section in ['rtl', 'tb']:
-            sources = design_settings[section].get('sources', [])
-            for i, src in enumerate(sources):
-                sources[i] = DesignSource(src)
+            if section in design_settings and design_settings[section]:
+                sources = design_settings[section].get('sources', [])
+                for i, src in enumerate(sources):
+                    sources[i] = DesignSource(src)
 
-        generics = flow.settings.design["tb"].get("generics", {})
-        for gen_key, gen_val in generics.items():
-            if FileResource.is_file_resouce(gen_val):
-                resource_path = gen_val["file"]
-                assert isinstance(resource_path, str), "value of `file` should be a relative or absolute path string"
-                gen_val = flow.conv_to_relative_path(resource_path.strip())
-                logger.info(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
-                generics[gen_key] = gen_val
+                generics = design_settings[section].get("generics", {})
+                for gen_key, gen_val in generics.items():
+                    if FileResource.is_file_resouce(gen_val):
+                        resource_path = gen_val["file"]
+                        assert isinstance(resource_path, str), "value of `file` should be a relative or absolute path string"
+                        gen_val = flow.conv_to_relative_path(resource_path.strip())
+                        logger.info(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
+                        generics[gen_key] = gen_val
 
         # flow.check_settings()
         flow.dump_settings()

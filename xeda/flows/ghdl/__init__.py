@@ -32,7 +32,9 @@ class GhdlSim(Ghdl, SimFlow):
         if vhdl_synopsys:
             analysis_options += ['--ieee=synopsys', '-fsynopsys']
 
-        elab_options = [vhdl_std_opt, '--syn-binding']
+        lib_paths = [f'-P{p}' for p in tb_settings.get('lib_paths')]
+
+        elab_options = [vhdl_std_opt, '--syn-binding', '-frelaxed']
         if vhdl_synopsys:
             elab_options += ['-fsynopsys']
 
@@ -63,9 +65,8 @@ class GhdlSim(Ghdl, SimFlow):
         if self.vcd:
             run_options.append(f'--vcd={self.vcd}')
 
-
-        tb_generics_opts = [f"-g{k}={v}" for k, v in tb_settings["generics"].items()]
-        rtl_generics_opts = [f"-g{k}={v}" for k, v in rtl_settings["generics"].items()]
+        tb_generics_opts = [f"-g{k}={v}" for k, v in tb_settings.get("generics", {}).items()]
+        rtl_generics_opts = [f"-g{k}={v}" for k, v in rtl_settings.get("generics", {}).items()]
 
         sources = list(map(lambda x: str(x), rtl_settings['sources'] + tb_settings['sources']))
 
@@ -81,6 +82,7 @@ class GhdlSim(Ghdl, SimFlow):
         #                  check=True
         #                  )
 
+        tb_top = tb_settings['top']
         
         self.run_process('ghdl', ['-i'] + analysis_options + warns + sources,
                          initial_step='Analyzing VHDL files',
@@ -88,13 +90,14 @@ class GhdlSim(Ghdl, SimFlow):
                          check=True
                          )
 
-        self.run_process('ghdl', ['-m', '-f'] + elab_options + optimize + warns + [self.settings.design['tb_top']],
+        print(lib_paths)
+        self.run_process('ghdl', ['-m', '-f'] + elab_options + optimize + warns + lib_paths + [tb_top],
                          initial_step='Elaborating design',
                          stdout_logfile='ghdl_elaborate_stdout.log',
                          check=True
                          )
 
-        self.run_process('ghdl', ['-r', vhdl_std_opt, self.settings.design['tb_top']] + run_options + tb_generics_opts,
+        self.run_process('ghdl', ['-r', vhdl_std_opt, tb_top] + run_options + tb_generics_opts,
                          initial_step='Running simulation',
                          stdout_logfile=self.flow_stdout_log,
                          force_echo=True
