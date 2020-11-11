@@ -83,7 +83,7 @@ if { [catch {eval read_vhdl ${vhdl_std_opt} {{src.file}} } myError]} {
     errorExit $myError
 }
 {%- endif %}
-{%- endfor -%}
+{%- endfor %}
 
 # TODO: Skip saving some artifects in case timing not met or synthesis failed for any reason
 

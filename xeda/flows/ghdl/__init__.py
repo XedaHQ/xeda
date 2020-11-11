@@ -60,6 +60,9 @@ class GhdlSim(Ghdl, SimFlow):
             if not isinstance(vital_sdf, list):
                 vital_sdf = [vital_sdf]
             for s in vital_sdf:
+                if isinstance(s, str):
+                    tb_uut = tb_settings['uut']
+                    s = {"delay": "max", "inst_path": tb_uut, "file": s}
                 run_options.append(f'--sdf={s["delay"]}={s["inst_path"]}={s["file"]}')
 
         if self.vcd:
