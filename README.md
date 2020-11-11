@@ -43,65 +43,18 @@ python3 -m pip install -U -e .
 
 ## Configurations
 
-Settings override in the following order:
+Settings override in the following order, from lower to higher priority:
 - System-wide `default.json` in `<DATA_DIR>/config/xeda/defaults.json`
-- Design-specific `desgin.json`
-- Command-line options
+- Design-specific settings in the current project (`xedaproject.toml`)
+- `--override-settings` command line options
 
-Sample `design.json`:
+Sample `xedaproject.toml`:
 
-```json
-{
-    "design": {
-        "name": "mydesign",
-        "description": "This really cool design",
-        "author":["Dr. Seuss", "[Xena](https://en.wikipedia.org/wiki/Xena)", "[Kamyar Mohajerani](mailto:kammoh@gmail.com)"],
-        "url": "https://github.com/KeccakTeam/Xoodoo.git",
-        "sources": [
-            {
-                "file": "src_rtl/s1.vhd"
-            },
-            {
-                "file": "src_rtl/s2.vhd"
-            },
-            {
-                "file": "src_rtl/LWC/tb_s.vhd",
-                "sim_only": true
-            }
-        ],
-        "vhdl_std": "02",
-        "vhdl_synopsys": true,
-        "top": "TOP",
-        "clock_port": "clk",
-        "tb_top": "TB_TOP",
-        "tb_generics": {
-            "STRING_GENERIC": "hello",
-            "FILENAME_STRING_GENERIC": {
-                "file": "../data.txt"
-            },
-            "INT_GENERIC": 123
-        },
-        "generics": {}
-    },
-    "flows": {
-        "diamond": {
-            "fpga_part": "LFE5U-25F-6BG381C",
-            "clock_period": 11.061946902654867,
-            "synthesis_engine": "synplify",
-            "strategy": "Timing"
-        },
-        "vivado": {
-            "fpga_part": "xc7a12tcsg325-3",
-            "clock_period": 4.369,
-            "strategy": "Timing",
-            "optimize_power": "False",
-            "sim_run": "all"
-        }
-    }
-}
+```toml
+
 ```
 
-entries in `design.sources` ar either DesignSource JSON dictionary or a string which is either an absolute path or relative to the location of the current working directory.
+entries in `design.sources` are either a dictionary structure, resembling the `DesignSource` class fields or a string which is either an absolute path or relative to the location of the current working directory.
 
 ### Design parameters
 - "vhdl_std": Can be "93" (VHDL-1993), "02" (VHDL-2002 or default language version of the tool), "08" (VHDL-2008). 

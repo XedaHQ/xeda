@@ -32,7 +32,7 @@ class GhdlSim(Ghdl, SimFlow):
         if vhdl_synopsys:
             analysis_options += ['--ieee=synopsys', '-fsynopsys']
 
-        lib_paths = [f'-P{p}' for p in tb_settings.get('lib_paths')]
+        lib_paths = [f'-P{p}' for p in tb_settings.get('lib_paths', [])]
 
         elab_options = [vhdl_std_opt, '--syn-binding', '-frelaxed']
         if vhdl_synopsys:
@@ -63,7 +63,10 @@ class GhdlSim(Ghdl, SimFlow):
                 run_options.append(f'--sdf={s["delay"]}={s["inst_path"]}={s["file"]}')
 
         if self.vcd:
-            run_options.append(f'--vcd={self.vcd}')
+            if self.vcd.endswith('.ghw'):
+                run_options.append(f'--wave={self.vcd}')
+            else:
+                run_options.append(f'--vcd={self.vcd}')
 
         tb_generics_opts = [f"-g{k}={v}" for k, v in tb_settings.get("generics", {}).items()]
         rtl_generics_opts = [f"-g{k}={v}" for k, v in rtl_settings.get("generics", {}).items()]
