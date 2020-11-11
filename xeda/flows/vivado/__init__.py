@@ -210,10 +210,11 @@ class VivadoSynth(Vivado, SynthFlow):
 
 class VivadoSim(Vivado, SimFlow):
     def run(self):
+        flow_settings = self.settings.flow
         generics_settings = self.settings.design["tb"].get("generics", {})
         generics_options = vivado_generics(generics_settings, sim=True)
         saif = self.settings.flow.get('saif')
-        elab_flags = f'-relax'
+        elab_flags = f'-nospecify -notimingchecks -relax -maxdelay -L simprims -L simprims_ver -L unisim'
         script_path = self.copy_from_template(f'vivado_sim.tcl',
                                               generics_options=generics_options,
                                               analyze_flags='-relax',
@@ -222,6 +223,7 @@ class VivadoSim(Vivado, SimFlow):
                                               initialize_zeros=False,
                                               vcd=self.vcd,
                                               saif=saif,
+                                              gate_level_sim=flow_settings.get('gate_level_sim', False),
                                               debug_traces=self.args.debug >= DebugLevel.HIGHEST or self.settings.flow.get(
                                                   'debug_traces')
                                               )

@@ -23,9 +23,9 @@ class Modelsim(SimFlow):
                 if isinstance(sdf, str):
                     sdf = {'file': sdf, 'delay_type': 'max'}
                 vsim_opts.append(f'-sdf{sdf["delay_type"]}')
-                vsim_opts.append(f'tb_uut={sdf["file"]}')
+                vsim_opts.append(f'{tb_uut}={sdf["file"]}')
             if not self.vcd:
-                flow_settings['vcd'] = 'timing.vcd'
+                flow_settings['vcd'] = 'timing_sim.vcd'
 
         tb_generics_opts = ' '.join([f"-g{k}={v}" for k, v in tb_settings["generics"].items()])
 

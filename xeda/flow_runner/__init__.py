@@ -155,7 +155,7 @@ class FlowRunner():
                 return d
             if len(d) == 1:
                 return d[0]
-            dname = self.args.design_name
+            dname = self.args.design
             if dname:
                 if isinstance(dname,list):
                     dname = dname[0] # TODO FIXME match dname !!!!
@@ -165,7 +165,7 @@ class FlowRunner():
                 logger.critical(f'Design "{dname}" not found in the current project.')
             else:
                 logger.critical(
-                    f'{len(d)} designs are availables in the current project. Please specify target design using --design-name')
+                    f'{len(d)} designs are availables in the current project. Please specify target design using --design')
             logger.critical(f'Available designs: {", ".join([x["name"] for x in d])}')
             self.fatal()
 
@@ -307,7 +307,7 @@ class FlowRunner():
                             help='Override certain setting value. Use <hierarchy>.key=value format'
                             'example: --override-settings flows.vivado_run.stop_time=100us')
         parser.add_argument(
-            '--design-name',
+            '--design',
             nargs='+',
             help='Specify design.name in case multiple designs are available in the Xeda project.'
         )

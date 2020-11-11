@@ -1,4 +1,4 @@
-set post_synth_sim false
+set post_synth_sim {{gate_level_sim}}
 
 proc errorExit {errorString} {
   puts "\n===========================( *ENABLE ECHO* )==========================="
@@ -56,7 +56,7 @@ set designs "${xsim_lib_name}.${tb_top}"
 
 if {${post_synth_sim}} {
 
-    append designs " glbl"
+    append designs " ${xsim_lib_name}.glbl"
 
     if {${timing_sim}} {
         append xelab_flags " -maxdelay -transport_int_delays -pulse_r 0 -pulse_int_r 0 "
