@@ -21,15 +21,17 @@ vcd file {{vcd}}
 {% endif %}
 
 puts "\n===========================( *ENABLE ECHO* )==========================="
-if { [catch {eval vsim -t ps {{design.tb.top}} {{vsim_opts}} {{generics_options}} } error]} {
+if { [catch {eval vsim -t ps {{top}} {{vsim_opts}} {{generics_options}} } error]} {
     puts $error
     exit 1
 }
-vcd add -r {% if design.tb.uut %} {{design.tb.uut}}/* {% else %} * {% endif %}
+vcd add -r {% if not debug and design.tb.uut %} {{design.tb.uut}}/* {% else %} * {% endif %}
 #run_wave
-run {% if 'stop_time' in flow %} {{flow.stop_time}} {% else %} -all {% endif %}
+run {% if 'stop_time' in flow %} {{flow.stop_time}} {%- else %} -all {%- endif %}
 puts "\n===========================( *DISABLE ECHO* )==========================="
 
 {% if vcd %}
 vcd flush
 {% endif %}
+
+exit

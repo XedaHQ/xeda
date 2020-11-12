@@ -8,12 +8,9 @@ class Quartus(Flow):
     required_settings = {'clock_period': float, 'fpga_part': str}
 
     def create_project(self, **kwargs):
-        project_settings = None
-        if 'project_settings' in self.settings.flow:
-            project_settings = self.settings.flow['project_settings']
-        # TODO manage settings
-        if not project_settings:
-            project_settings = {
+
+        strategy_settings = {
+            'Timing': {
                 # see https://www.intel.com/content/www/us/en/programmable/documentation/zpr1513988353912.html
                 # https://www.intel.com/content/www/us/en/programmable/quartushelp/current/index.htm
                 # BALANCED "HIGH PERFORMANCE EFFORT" AGGRESSIVE PERFORMANCE
@@ -72,11 +69,22 @@ class Quartus(Flow):
 
                 # Used during placement. Use of a higher value increases compilation time, but may increase the quality of placement.
                 "INNER_NUM": 8,
+                # SYNTH_CRITICAL_CLOCK: ON, OFF : Speed Optimization Technique for Clock Domains}
+            }, 'Default' :{
+
             }
+        }
 
-            # SYNTH_CRITICAL_CLOCK: ON, OFF : Speed Optimization Technique for Clock Domains
+        project_settings = None
+        if 'project_settings' in self.settings.flow:
+            project_settings = self.settings.flow['project_settings']
 
-        ## ???? TODO not sure this is right, maybe apply ramstyle/dspstyle on all hierarchy using TCL?
+        strategy = self.settings.flow.get('strategy', 'Default')
+        # TODO manage settings
+        if not project_settings:
+            project_settings = strategy_settings[strategy]
+
+        # ???? TODO not sure this is right, maybe apply ramstyle/dspstyle on all hierarchy using TCL?
         if not self.settings.flow['allow_dsps']:
             project_settings["AUTO_DSP_RECOGNITION"] = "OFF"
         if not self.settings.flow['allow_brams']:
@@ -135,12 +143,19 @@ class Quartus(Flow):
 class QuartusSynth(Quartus, SynthFlow):
 
     def run(self):
+        prj_name = self.settings.design['name']
         self.create_project()
         script_path = self.copy_from_template(f'compile.tcl')
         self.run_process('quartus_sh',
                          ['-t', str(script_path)],
                          stdout_logfile='compile_stdout.log'
                          )
+        self.run_process('quartus_eda', [prj_name, '--simulation', '--functional', '--tool=modelsim_oem', '--format=verilog'],
+                                stdout_logfile='eda_1_stdout.log'
+                                )
+        self.run_process('quartus_eda', [prj_name, '--simulation', '--functional', '--tool=modelsim_oem', '--format=vhdl'],
+                                stdout_logfile='eda_2_stdout.log'
+                                )
 
     def parse_reports(self):
         failed = False
@@ -154,7 +169,9 @@ class QuartusSynth(Quartus, SynthFlow):
                                 'LUT-Only LCs',	'Register-Only LCs', 'LUT/Register LCs']
         )
 
-        top_resources = resources[self.settings.design['top']]
+        rtl_top = self.settings.design['rtl']['top']
+
+        top_resources = resources[rtl_top]
 
         top_resources['lut'] = top_resources['LUT-Only LCs'] + top_resources['LUT/Register LCs']
         top_resources['ff'] = top_resources['Register-Only LCs'] + top_resources['LUT/Register LCs']
@@ -179,7 +196,8 @@ class QuartusSynth(Quartus, SynthFlow):
 
         for temp in ['85C', '0C']:
             fmax = parse_csv(
-                self.reports_dir / 'Timing_Analyzer' / f'Slow_1200mV_{temp}_Model' / f'Slow_1200mV_{temp}_Model_Fmax_Summary.csv',
+                self.reports_dir / 'Timing_Analyzer' /
+                f'Slow_1200mV_{temp}_Model' / f'Slow_1200mV_{temp}_Model_Fmax_Summary.csv',
                 id_field='Clock Name',
                 field_parser=lambda s: s.strip().split(),
                 id_parser=lambda s: s.strip(),

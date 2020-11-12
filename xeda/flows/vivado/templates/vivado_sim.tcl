@@ -1,5 +1,3 @@
-set post_synth_sim {{gate_level_sim}}
-
 proc errorExit {errorString} {
   puts "\n===========================( *ENABLE ECHO* )==========================="
   puts "Error: $errorString"
@@ -7,7 +5,7 @@ proc errorExit {errorString} {
 }
 
 set design_name           {{design.name}}
-set tb_top                {{design.tb.top}}
+set tb_top                {{tb_top}}
 set results_dir           results
 # set vhdl_funcsim          ${results_dir}/${top}_impl_funcsim.vhd
 # set verilog_funcsim       ${results_dir}/${top}_impl_funcsim.v
@@ -52,16 +50,7 @@ if { [catch {file delete -force xsim.dir} myError]} {
 
 set analyze_flags " -incr -work ${xsim_lib_name} {%- if debug %} -verbose 2 {%- endif %} {{analyze_flags}}"
 
-set designs "${xsim_lib_name}.${tb_top}"
 
-if {${post_synth_sim}} {
-
-    append designs " ${xsim_lib_name}.glbl"
-
-    if {${timing_sim}} {
-        append xelab_flags " -maxdelay -transport_int_delays -pulse_r 0 -pulse_int_r 0 "
-    }
-}
 
 
 puts "\n===========================( Analyzing HDL Sources )==========================="
@@ -91,14 +80,10 @@ if { [catch {eval  exec xvhdl ${analyze_flags} {% if design.language.vhdl.standa
 
 
 puts "\n===========================( Elaborating design: ${tb_top} )==========================="
-eval exec xelab ${xelab_flags} {% if design.language.vhdl.standard == "93"%} -93_mode {% endif %} ${designs} 
-
-# eval exec xelab -incr -debug typical -relax -mt 8 -maxdelay -L xil_defaultlib -L simprims_ver -L secureip -s ${snapshot_name} -transport_int_delays -pulse_r 0 -pulse_int_r 0 -pulse_e 0 -pulse_int_e 0 ${xsim_lib_name}.LWC_TB -generic "G_PERIOD=${clock_period}ns" ${xsim_lib_name}.glbl -log elaborate.log
-
+eval exec xelab ${xelab_flags} {% if design.language.vhdl.standard == "93"%} -93_mode {% endif %} {{sim_top}}
 
 puts "\n===========================( Loading Simulation )==========================="
 eval xsim ${snapshot_name} {{sim_flags}}
-
 
 {% if saif %}
 file delete {{saif}}

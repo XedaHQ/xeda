@@ -12,6 +12,7 @@ class GhdlSim(Ghdl, SimFlow):
 
     def run(self):
         design_settings = self.settings.design
+        flow_settings = self.settings.flow
         rtl_settings = design_settings['rtl']
         tb_settings = design_settings['tb']
         vhdl_settings = design_settings['language']['vhdl']
@@ -32,17 +33,16 @@ class GhdlSim(Ghdl, SimFlow):
         if vhdl_synopsys:
             analysis_options += ['--ieee=synopsys', '-fsynopsys']
 
-        lib_paths = [f'-P{p}' for p in tb_settings.get('lib_paths', [])]
+        lib_paths = flow_settings.get('lib_paths', [])
+        if isinstance(lib_paths, str):
+            lib_paths = [lib_paths]
+        lib_paths = [f'-P{p}' for p in lib_paths]
 
         elab_options = [vhdl_std_opt, '--syn-binding', '-frelaxed']
         if vhdl_synopsys:
             elab_options += ['-fsynopsys']
 
         run_options = ['--ieee-asserts=disable-at-0']  # TODO
-
-        stop_time = self.settings.flow.get('stop_time')
-        if stop_time:
-            run_options.append(f'--stop-time={stop_time}')
 
         if self.args.verbose:
             analysis_options.append('-v')
@@ -96,7 +96,6 @@ class GhdlSim(Ghdl, SimFlow):
                          check=True
                          )
 
-        print(lib_paths)
         self.run_process('ghdl', ['-m', '-f'] + elab_options + optimize + warns + lib_paths + [tb_top],
                          initial_step='Elaborating design',
                          stdout_logfile='ghdl_elaborate_stdout.log',

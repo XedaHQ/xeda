@@ -68,7 +68,8 @@ class VivadoSynth(Vivado, SynthFlow):
             "opt": "-directive RuntimeOptimized",
             "place": "-directive RuntimeOptimized",
             # with -ultrathreads results are not reproducible!
-            "route": ["-no_timing_driven -ultrathreads", "-directive RuntimeOptimized"],
+            # OR "-no_timing_driven -ultrathreads",
+            "route": [ "-directive RuntimeOptimized"],
             "phys_opt": "-directive RuntimeOptimized"
         },
 
@@ -211,19 +212,37 @@ class VivadoSynth(Vivado, SynthFlow):
 class VivadoSim(Vivado, SimFlow):
     def run(self):
         flow_settings = self.settings.flow
-        generics_settings = self.settings.design["tb"].get("generics", {})
+        tb_settings = self.settings.design["tb"]
+        generics_settings = tb_settings.get("generics", {})
         generics_options = vivado_generics(generics_settings, sim=True)
-        saif = self.settings.flow.get('saif')
-        elab_flags = f'-nospecify -notimingchecks -relax -maxdelay -L simprims -L simprims_ver -L unisim'
+        saif = flow_settings.get('saif')
+        elab_flags = flow_settings.get('elab_flags')
+        if not elab_flags:
+            elab_flags = ['-nospecify', '-notimingchecks', '-relax', '-maxdelay']
+
+        #for post-synthesis simulation:
+        #xelab: -incr -debug typical -relax -mt 8 -maxdelay -L xil_defaultlib -L simprims_ver -L secureip -transport_int_delays -pulse_r 0 -pulse_int_r 0 -pulse_e 0 -pulse_int_e 0
+        # other : -rangecheck
+
+        libraries = flow_settings.get('libraries')
+        if libraries:
+            elab_flags.extend([f'-L {l}' for l in libraries])
+        sim_top = tb_settings['top']
+        tb_top = sim_top
+        if isinstance(sim_top, list):
+            tb_top = sim_top[0]
+            sim_top = ' '.join(sim_top)
+
         script_path = self.copy_from_template(f'vivado_sim.tcl',
                                               generics_options=generics_options,
                                               analyze_flags='-relax',
-                                              elab_flags=elab_flags,
+                                              elab_flags=' '.join(elab_flags),
                                               sim_flags='',  # '-maxdeltaid 100000 -verbose'
                                               initialize_zeros=False,
                                               vcd=self.vcd,
+                                              sim_top=sim_top,
+                                              tb_top=tb_top,
                                               saif=saif,
-                                              gate_level_sim=flow_settings.get('gate_level_sim', False),
                                               debug_traces=self.args.debug >= DebugLevel.HIGHEST or self.settings.flow.get(
                                                   'debug_traces')
                                               )

@@ -101,9 +101,6 @@ set_property DONT_TOUCH true [get_cells -hier * ]
 eval synth_design -part {{flow.fpga_part}} -top ${top} {{options.synth}} {{generics_options}}
 showWarningsAndErrors
 
-set_property KEEP_HIERARCHY true [get_cells -hier * ]
-set_property DONT_TOUCH true [get_cells -hier * ]
-
 #write_verilog -force ${results_dir}/${top}_synth_rtl.v
 # report_utilization -file ${reports_dir}/pre_opt_utilization.rpt
 
@@ -156,19 +153,17 @@ write_checkpoint -force ${checkpoints_dir}/post_route
 puts "\n==============================( Writing Reports )================================"
 report_timing_summary -max_paths 10                             -file ${reports_dir}/post_route/timing_summary.rpt
 
-{% if flow.strategy != "Debug" %}
 report_timing  -sort_by group -max_paths 100 -path_type summary -file ${reports_dir}/post_route/timing.rpt
 reportCriticalPaths ${reports_dir}/post_route/critpath_report.csv
-report_clock_utilization                                        -force -file ${reports_dir}/post_route/clock_utilization.rpt
+# report_clock_utilization                                        -force -file ${reports_dir}/post_route/clock_utilization.rpt
 report_utilization                                              -force -file ${reports_dir}/post_route/utilization.rpt
-report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
+# report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
 report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.rpt
-report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
+# report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
 report_power                                                    -file ${reports_dir}/post_route/power.rpt
 report_drc                                                      -file ${reports_dir}/post_route/drc.rpt
-report_ram_utilization                                          -file ${reports_dir}/post_route/ram_utilization.rpt -append
-report_methodology                                              -file ${reports_dir}/post_route/methodology.rpt
-{% endif %}
+# report_ram_utilization                                          -file ${reports_dir}/post_route/ram_utilization.rpt -append
+# report_methodology                                              -file ${reports_dir}/post_route/methodology.rpt
 
 puts "==== Routing Steps Complemeted ====\n"
 
@@ -176,7 +171,8 @@ puts "\n==========================( Writing Netlist and SDF )===================
 write_sdf -mode timesim -process_corner slow -force -file ${sdf_file}
 write_verilog -include_xilinx_libs -force ${results_dir}/${top}_impl_netlist.v
 # write_verilog -mode timesim -sdf_anno true -sdf_file ${sdf_file} -force ${verilog_timesim}
-write_verilog -mode timesim -nolib -sdf_anno true -force -file ${verilog_timesim}
+# write_verilog -mode timesim -nolib -sdf_anno true -force -file ${verilog_timesim}
+write_verilog -mode timesim -sdf_anno true -force -file ${verilog_timesim}
 write_verilog -mode funcsim -force ${verilog_funcsim}
 write_vhdl    -mode funcsim -force ${vhdl_funcsim}
 write_xdc -no_fixed_only -force ${results_dir}/${top}_impl.xdc
