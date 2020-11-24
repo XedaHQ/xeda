@@ -55,15 +55,17 @@ class GhdlSim(Ghdl, SimFlow):
         # --sdf=min=PATH=FILENAME
         # --sdf=typ=PATH=FILENAME
         # --sdf=max=PATH=FILENAME
-        vital_sdf = self.settings.flow.get('sdf')
-        if vital_sdf:
-            if not isinstance(vital_sdf, list):
-                vital_sdf = [vital_sdf]
-            for s in vital_sdf:
+        tb_uut = tb_settings.get('uut')
+        sdf = self.settings.flow.get('sdf')
+        if sdf:
+            if not isinstance(sdf, list):
+                sdf = [sdf]
+            for s in sdf:
                 if isinstance(s, str):
-                    tb_uut = tb_settings['uut']
-                    s = {"delay": "max", "inst_path": tb_uut, "file": s}
-                run_options.append(f'--sdf={s["delay"]}={s["inst_path"]}={s["file"]}')
+                    s = {"file": s}
+                root = s.get("root", tb_uut)
+                assert root, "neither SDF root nor tb.uut are provided"
+                run_options.append(f'--sdf={s.get("delay", "max")}={root}={s["file"]}')
 
         if self.vcd:
             if self.vcd.endswith('.ghw'):
@@ -104,7 +106,7 @@ class GhdlSim(Ghdl, SimFlow):
 
         self.run_process('ghdl', ['-r', vhdl_std_opt, tb_top] + run_options + tb_generics_opts,
                          initial_step='Running simulation',
-                         stdout_logfile=self.flow_stdout_log,
+                         stdout_logfile='ghdl_run_stdout.log',
                          force_echo=True
                          )
 

@@ -3,7 +3,7 @@ from functools import partial
 import multiprocessing
 from multiprocessing import cpu_count
 from types import SimpleNamespace
-from typing import List
+from typing import List, Mapping
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import os
@@ -83,10 +83,10 @@ def run_flow(f: Flow):
         f.run()
         return f.results
     except FlowFatalException as e:
-        logger.critical(f'Fatal exception during flow run in {f.run_dir}: {e}')
+        logger.critical(f'Fatal exception during flow run in {f.flow_run_dir}: {e}')
         traceback.print_exc()
     except KeyboardInterrupt as e:
-        logger.critical(f'KeyboardInterrupt recieved during flow run in {f.run_dir}: {e}')
+        logger.critical(f'KeyboardInterrupt received during flow run in {f.flow_run_dir}: {e}')
         traceback.print_exc()
 
 
@@ -157,8 +157,8 @@ class FlowRunner():
                 return d[0]
             dname = self.args.design
             if dname:
-                if isinstance(dname,list):
-                    dname = dname[0] # TODO FIXME match dname !!!!
+                if isinstance(dname, list):
+                    dname = dname[0]  # TODO FIXME match dname !!!!
                 for x in d:
                     if x['name'] == dname:
                         return x
@@ -172,8 +172,9 @@ class FlowRunner():
         try:
             with open(toml_path) as f:
                 xeda_project_settings = tomlkit_to_popo(tomlkit.loads(f.read()))
-            
-            design_settings = dict(design=get_design(xeda_project_settings['design']), flows=xeda_project_settings.get('flows',{}))
+
+            design_settings = dict(design=get_design(
+                xeda_project_settings['design']), flows=xeda_project_settings.get('flows', {}))
 
             settings = dict_merge(settings, design_settings)
             logger.info(f"Using design settings from {toml_path}")
@@ -208,7 +209,7 @@ class FlowRunner():
             logger.info(f"Running post-run hook from from {hook.__class__.__name__}")
             hook(flow)
 
-        flow.reports_dir = flow.run_dir / flow.reports_subdir_name
+        flow.reports_dir = flow.flow_run_dir / flow.reports_subdir_name
         if not flow.reports_dir.exists():
             flow.reports_dir.mkdir(parents=True)
 
@@ -216,7 +217,7 @@ class FlowRunner():
         flow.results['timestamp'] = flow.timestamp
         flow.results['design.name'] = flow.settings.design['name']
         flow.results['flow.name'] = flow.name
-        flow.results['flow.run_hash'] = flow.run_hash
+        flow.results['flow.run_hash'] = flow.design_run_hash
 
         if print_failed or flow.results.get('success'):
             flow.print_results()
@@ -227,34 +228,38 @@ class FlowRunner():
             logger.info(f"Running post-results hook from {hook.__class__.__name__}")
             hook(flow)
 
-    def load_flow_class(self, flow_name):
+    def load_flow_class(self, flow_name_or_class):
+        if inspect.isclass(flow_name_or_class) and issubclass(flow_name_or_class, Flow):
+            return flow_name_or_class
         try:
-            return load_class(flow_name, ".flows")
+            return load_class(flow_name_or_class, ".flows")
         except AttributeError as e:
-            self.fatal(f"Could not find Flow class corresponding to {flow_name}. Make sure it's typed correctly.", e)
+            self.fatal(
+                f"Could not find Flow class corresponding to {flow_name_or_class}. Make sure it's typed correctly.", e)
 
-    def setup_flow(self, settings, args, flow_name, max_threads=None):
+    def setup_flow(self, settings, flow_name_or_class, max_threads=None):
         if not max_threads:
             max_threads = multiprocessing.cpu_count()
         # settings is a ref to a dict and its data can change, take a snapshot
         settings = copy.deepcopy(settings)
 
-        # def is_flow_class(cls):
-        #     try:
-        #         return issubclass(flow_name, Flow)
-        #     except:
-        #         return False
+        flow_cls = self.load_flow_class(flow_name_or_class)
 
-        flow_cls = self.load_flow_class(flow_name)
+        flow_name = flow_name_or_class if isinstance(flow_name_or_class, str) else flow_name_or_class.name
 
         flow_settings = Settings()
 
-        # specific lflow defaults
+        # flow defaults
         flow_settings.flow.update(**flow_cls.default_settings)
 
         # override sections
         flow_settings.design.update(settings['design'])
 
+        if flow_cls.depends_on:
+            for dep,subsettings in flow_cls.depends_on.items():
+                flow_settings.flow_depends[dep.name] = settings['flows'].get(dep.name, {})
+                flow_settings.flow_depends[dep.name].update(subsettings)
+                
         # override entire section if available in settings
         if flow_name in settings['flows']:
             flow_settings.flow.update(settings['flows'][flow_name])
@@ -262,32 +267,12 @@ class FlowRunner():
         else:
             logger.warning(f"No settings found for {flow_name}")
 
-        flow: Flow = flow_cls(flow_settings, args)
+
+                
+
+        flow: Flow = flow_cls(flow_settings, self.args)
 
         flow.nthreads = int(max(1, max_threads))
-
-        design_settings = flow.settings.design
-
-        for section in ['rtl', 'tb']:
-            if section in design_settings and design_settings[section]:
-                sources = design_settings[section].get('sources', [])
-                for i, src in enumerate(sources):
-                    sources[i] = DesignSource(src)
-
-                generics = design_settings[section].get("generics", {})
-                for gen_key, gen_val in generics.items():
-                    if FileResource.is_file_resouce(gen_val):
-                        resource_path = gen_val["file"]
-                        assert isinstance(resource_path, str), "value of `file` should be a relative or absolute path string"
-                        gen_val = flow.conv_to_relative_path(resource_path.strip())
-                        logger.info(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
-                        generics[gen_key] = gen_val
-
-        # flow.check_settings()
-        flow.dump_settings()
-
-        if self.parallel_run:
-            flow.set_parallel_run()
 
         return flow
 
@@ -320,10 +305,40 @@ class DefaultFlowRunner(FlowRunner):
         super().add_common_args(run_parser)
 
     def launch(self):
-        args = self.args
         settings = self.get_design_settings()
-        flow = self.setup_flow(settings, args, args.flow)
-        flow.run()
+        flow = self.setup_flow(settings, self.args.flow)
+        if flow.depends_on:
+            assert isinstance(
+                flow.depends_on, Mapping), "flow.depends_on should be a mapping of DependentFlowClass -> settings"
+
+            flow.set_run_dir()
+
+            for fcls, sub_settings in flow.depends_on.items():
+                gen_rtl_sources = sub_settings.get('rtl.sources')
+                if gen_rtl_sources:
+                    run_required = False
+                    for gen_src in gen_rtl_sources:
+                        gen_src_path = flow.run_path / fcls.name / gen_src
+                        if not gen_src_path.exists():
+                            run_required = True
+                            logger.warning(f'Need to run {fcls.__name__} to generate {gen_src_path}')
+                            break
+
+                    dep_flow = self.setup_flow(settings, fcls)
+                    dep_flow.run_path = flow.run_path
+                    dep_flow.set_run_dir()
+                    if run_required:
+                        dep_flow.run_flow()
+                        self.post_run(dep_flow)
+                        assert dep_flow.results['success']
+
+                    flow.settings.design['rtl']['sources'] = [
+                        DesignSource(dep_flow.flow_run_dir / src) for src in gen_rtl_sources
+                    ]
+
+                    logger.info(
+                        f"Setting {flow.name}.rtl.sources to {[ str(x) for x in flow.settings.design['rtl']['sources']]}")
+        flow.run_flow()
         self.post_run(flow)
 
 
@@ -401,7 +416,7 @@ class LwcVariantsRunner(FlowRunner):
         hash_kats = ['basic_hash_sizes', 'blanket_hash_test']
 
         def add_flow(settings, variant_id, variant_data):
-            flow = self.setup_flow(settings, args, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
+            flow = self.setup_flow(settings, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
             if not args.no_timing:
                 flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data))
             flows_to_run.append(flow)
@@ -449,7 +464,7 @@ class LwcVariantsRunner(FlowRunner):
                 with mp.Pool(processes=min(nproc, len(flows_to_run))) as p:
                     p.map_async(run_flow, flows_to_run).get(proc_timeout_seconds)
             except KeyboardInterrupt as e:
-                logger.critical(f'KeyboardInterrupt recieved parallel execution of runs: {e}')
+                logger.critical(f'KeyboardInterrupt received parallel execution of runs: {e}')
                 traceback.print_exc()
                 logger.warning("trying to recover completed flow results...")
         else:
@@ -467,7 +482,7 @@ class LwcVariantsRunner(FlowRunner):
             raise e
         finally:
             for flow in flows_to_run:
-                logger.info(f"Run: {flow.run_dir} {'[PASS]' if flow.results.get('success') else '[FAIL]'}")
+                logger.info(f"Run: {flow.flow_run_dir} {'[PASS]' if flow.results.get('success') else '[FAIL]'}")
             logger.info(f'{num_success} out of {total} runs succeeded.')
 
 
@@ -569,7 +584,7 @@ class LwcFmaxRunner(FlowRunner):
                     flows_to_run = []
                     for freq in frequencies_to_try:
                         flow_settings['clock_period'] = round(ONE_THOUSAND / freq, 3)
-                        flow = self.setup_flow(settings, args, flow_name, max_threads=nthreads)
+                        flow = self.setup_flow(settings, flow_name, max_threads=nthreads)
                         flow.set_parallel_run()
                         flows_to_run.append(flow)
 

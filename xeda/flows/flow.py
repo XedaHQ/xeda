@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 import subprocess
 import time
+import typing
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import logging
 from progress import SHOW_CURSOR
@@ -43,32 +44,27 @@ def my_print(*args, **kwargs):
 
 class Flow():
     """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
+    depends_on = {}
+
     required_settings = {}
     default_settings = {}
     reports_subdir_name = 'reports'
     timeout = 3600 * 2  # in seconds
+    name = None
+
+    def __init_subclass__(cls) -> None:
+        cls.name = camelcase_to_snakecase(cls.__name__)
 
     def __init__(self, settings: Settings, args):
 
         self.args = args
-        self.run_hash = None
-
-        # if not isinstance(settings.design['sources'], list):
-        #     self.fatal('`sources` section of the settings needs to be a list')
-
-        # for i, src in enumerate(settings.design['sources']):
-        #     if isinstance(src, str):
-        #         src = {"file": src}
-        #     if not DesignSource.is_design_source(src):
-        #         raise Exception(
-        #             f'Entry `{src}` in `sources` needs to be a string or a DesignSource JSON dictionary but is {type(src)}')
-        #     settings.design['sources'][i] = DesignSource(**src)
+        self.design_run_hash = None
+        self.run_path = None
+        self.flow_run_dir = None
+        self.reports_dir = None
 
         self.settings = settings
         self.nthreads = int(settings.flow.get('nthreads', 1))
-
-        # all design flow-critical settings are fixed from this point onwards
-        self.set_run_dir(prefix=None, override=self.args.force_run_dir)
 
         self.results = dict()
         self.results['success'] = False
@@ -79,19 +75,43 @@ class Flow():
             undefined=StrictUndefined
         )
 
-        self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-        self.reports_dir = None
-
-        self.flow_stdout_log = f'{self.name}_stdout.log'
-
         self.no_console = args.debug >= DebugLevel.LOW
-
-        self.init_time = time.monotonic()
-
         self.post_run_hooks = []
         self.post_results_hooks = []
 
-    def set_hash(self):
+    def run_flow(self, parallel_run=False):
+        self.set_run_dir()
+
+        design_settings = self.settings.design
+
+        for section in ['rtl', 'tb']:
+            if section in design_settings and design_settings[section]:
+                design_settings[section]['sources'] = [
+                    DesignSource(
+                        src) if isinstance(src, str) else src for src in design_settings[section].get('sources', [])
+                ]
+
+                generics = design_settings[section].get("generics", {})
+                for gen_key, gen_val in generics.items():
+                    if FileResource.is_file_resouce(gen_val):
+                        resource_path = gen_val["file"]
+                        assert isinstance(
+                            resource_path, str), "value of `file` should be a relative or absolute path string"
+                        gen_val = self.conv_to_relative_path(resource_path.strip())
+                        logger.info(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
+                        generics[gen_key] = gen_val
+
+        self.check_settings()
+        self.dump_settings()
+
+        if parallel_run:
+            self.set_parallel_run()
+
+        self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        self.init_time = time.monotonic()
+        self.run()
+
+    def hash(self, settings):
         skip_fields = {'author', 'url', 'comment', 'description', 'license'}
 
         def semantic_hash(data: JsonTree, hasher=hashlib.sha1) -> str:
@@ -110,15 +130,9 @@ class Flow():
                     return str(data)
 
             return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
-        
-        # remove tb attributes if not a simulation flow
-        if not isinstance(self, SimFlow):
-            tb_settings = self.settings.design.get('tb')
-            if tb_settings:
-                self.settings.design['tb'] = None
-       
+
         try:
-            self.run_hash = semantic_hash(self.settings)
+            return semantic_hash(settings)
         except FileNotFoundError as e:
             self.fatal(f"Semantic hash failed: {e} ")
 
@@ -126,50 +140,46 @@ class Flow():
         self.no_console = True
 
     @property
-    def name(self):
-        return camelcase_to_snakecase(self.__class__.__name__)
-
-    @property
     def flow_module_path(self):
         return self.__module__
 
-    def check_settings(self, flow):
-        if flow in self.required_settings:
-            for req_key, req_type in self.required_settings[flow].items():
-                if req_key not in self.settings.flow:
-                    self.fatal(f'{req_key} is required to be set for {self.name}:{flow}')
-                elif type(self.settings.flow[req_key]) != req_type:
-                    self.fatal(f'{req_key} should have type `{req_type.__name__}` for {self.name}:{flow}')
-        else:
-            logger.warn(f"{self.name} does not specify any required_settings for {flow}")
+    def check_settings(self):
+        for req_key, req_type in self.required_settings.items():
+            if req_key not in self.settings.flow:
+                self.fatal(f'{req_key} is required to be set for {self.name}')
+            # else:
+                # val = self.settings.flow[req_key]
+                # if (typing.get_origin(req_type) is Union and not isinstance(val, typing.get_args(req_type))) or not isinstance(val,  req_type):
+                #     self.fatal(f'{req_key} should have type `{req_type.__name__}` for {self.name}')
 
-    def set_run_dir(self, prefix=None, override=None):
+    def set_run_dir(self):
+        forced_run_dir = self.args.force_run_dir
 
         # all design flow-critical settings are fixed from this point onwards
-        self.set_hash()
 
-        all_runs_dir = Path(self.args.xeda_run_dir) / self.name
+        # remove tb attributes if not a simulation flow
+        # if not isinstance(self, SimFlow):
+        #     tb_settings = self.settings.design.get('tb')
+        #     if tb_settings:
+        #         self.settings.design['tb'] = None
 
-        if override:
-            run_dir = Path(override).resolve()
+        if self.design_run_hash is None:
+            self.design_run_hash = self.hash(self.settings)
+
+        if self.run_path is None:
+            self.run_path = Path(forced_run_dir) if forced_run_dir else (
+                Path(self.args.xeda_run_dir) / self.design_run_hash)
+
+        flow_run_dir = self.run_path / self.name
+
+        if not flow_run_dir.exists():
+            flow_run_dir.mkdir(parents=True)
         else:
+            logger.warning(f'Using existing run directory: {flow_run_dir}')
 
-            subdir = self.run_hash
-            if self.args.debug >= DebugLevel.HIGH:
-                subdir = 'debug'
-            if prefix:
-                subdir = prefix + subdir
+        assert flow_run_dir.is_dir()
 
-            run_dir = all_runs_dir / subdir
-
-        if not run_dir.exists():
-            run_dir.mkdir(parents=True)
-        else:
-            logger.warning(f'Using existing run directory: {run_dir}')
-
-        assert run_dir.is_dir()
-
-        self.run_dir = run_dir
+        self.flow_run_dir = flow_run_dir
 
     def run(self):
         # Must be implemented
@@ -182,13 +192,13 @@ class Flow():
         pass
 
     def dump_settings(self):
-        effective_settings_json = self.run_dir / f'settings.json'
+        effective_settings_json = self.flow_run_dir / f'settings.json'
         logger.info(f'dumping effective settings to {effective_settings_json}')
         self.dump_json(self.settings, effective_settings_json)
 
     def copy_from_template(self, resource_name, **attr):
         template = self.jinja_env.get_template(resource_name)
-        script_path = self.run_dir / resource_name
+        script_path = self.flow_run_dir / resource_name
         logger.debug(f'generating {script_path.resolve()} from template.')
         rendered_content = template.render(flow=self.settings.flow,
                                            design=self.settings.design,
@@ -202,7 +212,7 @@ class Flow():
 
     def conv_to_relative_path(self, src):
         path = Path(src).resolve(strict=True)
-        return os.path.relpath(path, self.run_dir)
+        return os.path.relpath(path, self.flow_run_dir)
 
     def fatal(self, msg):
         logger.critical(msg)
@@ -216,7 +226,7 @@ class Flow():
         unicode = True
         verbose = not self.args.quiet and (self.args.verbose or force_echo)
         echo_instructed = False
-        stdout_logfile = self.run_dir / stdout_logfile
+        stdout_logfile = self.flow_run_dir / stdout_logfile
         start_step_re = re.compile(r'^={12}=*\(\s*(?P<step>[^\)]+)\s*\)={12}=*')
         enable_echo_re = re.compile(r'^={12}=*\( \*ENABLE ECHO\* \)={12}=*')
         disable_echo_re = re.compile(r'^={12}=*\( \*DISABLE ECHO\* \)={12}=*')
@@ -227,14 +237,14 @@ class Flow():
         def make_spinner(step):
             if self.no_console:
                 return None
-            return Spinner('⏳' + step if unicode else step)
+            return Spinner('⏳' + step + ' ' if unicode else step + ' ')
 
         redirect_std = self.args.debug < DebugLevel.HIGH
         with open(stdout_logfile, 'w') as log_file:
             try:
-                logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_dir}')
+                logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.flow_run_dir}')
                 with subprocess.Popen([prog, *prog_args],
-                                      cwd=self.run_dir,
+                                      cwd=self.flow_run_dir,
                                       shell=False,
                                       stdout=subprocess.PIPE if redirect_std else None,
                                       bufsize=1,
@@ -244,6 +254,7 @@ class Flow():
                                       ) as proc:
                     logger.info(
                         f'Started {proc.args[0]}[{proc.pid}].{(" Standard output is logged to: " + str(stdout_logfile)) if redirect_std else ""}')
+
                     def end_step():
                         if spinner:
                             if unicode:
@@ -288,7 +299,6 @@ class Flow():
                                             if spinner:
                                                 spinner.next()
 
-
             except FileNotFoundError as e:
                 self.fatal(f"Cannot execute `{prog}`. Make sure it's properly instaulled and the executable is in PATH")
             except KeyboardInterrupt as e:
@@ -324,7 +334,7 @@ class Flow():
             if check:
                 self.fatal('Non-zero exit code')
         else:
-            logger.info(f'Execution of {prog} in {self.run_dir} completed with returncode {proc.returncode}')
+            logger.info(f'Execution of {prog} in {self.flow_run_dir} completed with returncode {proc.returncode}')
         return proc
 
     def parse_report(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
@@ -333,7 +343,7 @@ class Flow():
         high_debug = self.args.verbose
         if not reportfile_path.exists():
             self.fatal(
-                f'Report file: {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.run_dir}'
+                f'Report file: {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.flow_run_dir}'
             )
         with open(reportfile_path) as rpt_file:
             content = rpt_file.read()
@@ -409,30 +419,33 @@ class Flow():
 
     def dump_results(self):
         # write only if not exists
-        path = self.run_dir / f'{self.name}_results.json'
+        path = self.flow_run_dir / f'{self.name}_results.json'
         self.dump_json(self.results, path)
         logger.info(f"Results written to {path}")
 
     def stdout_search_re(self, regexp):
-        log_file = self.run_dir / self.flow_stdout_log
-        try:
-            with open(log_file) as logf:
-                if re.search(regexp, logf.read()):
-                    return True
-        except:
-            logger.warning(f"Failed to open {log_file}")
+        # FIXME
+        return True
+        # log_file = self.flow_run_dir / self.flow_stdout_log
+        # try:
+        #     with open(log_file) as logf:
+        #         if re.search(regexp, logf.read()):
+        #             return True
+        # except:
+        #     logger.warning(f"Failed to open {log_file}")
 
         return False
 
 
 class SimFlow(Flow):
-    required_settings = {'vcd': str}
+    required_settings = {}
 
     # TODO FIXME move to plugin
     def parse_reports(self):
-        failed = self.stdout_search_re(r'FAIL \(1\): SIMULATION FINISHED')
-        passed = self.stdout_search_re(r'PASS \(0\): SIMULATION FINISHED')
-        self.results['success'] = passed and not failed
+        # failed = self.stdout_search_re(r'FAIL \(1\): SIMULATION FINISHED')
+        # passed = self.stdout_search_re(r'PASS \(0\): SIMULATION FINISHED')
+        # FIXME FIXME this should go in LWC plugin
+        self.results['success'] = True #passed and not failed
 
     @property
     def vcd(self):
@@ -447,11 +460,11 @@ class SynthFlow(Flow):
 
     # TODO FIXME set in plugin or elsewhere!!!
     default_settings = {'allow_dsps': False, 'allow_brams': False}
-    pass
 
 
 class DseFlow(Flow):
     pass
+
 
 class FileResource:
     @classmethod
@@ -464,9 +477,10 @@ class FileResource:
         except Exception as e:
             logger.critical(f"Design source file '{path}' does not exist!")
             raise e
-        
+
         with open(self.file, 'rb') as f:
             self.hash = hashlib.sha256(f.read()).hexdigest()
+
 
 class DesignSource(FileResource):
     @classmethod
@@ -474,9 +488,9 @@ class DesignSource(FileResource):
         return cls.is_file_resouce(src)
 
     def __init__(self, file: str, type: str = None, standard: str = None, variant: str = None) -> None:
-        
+
         super().__init__(file)
-        
+
         def type_from_suffix(file: Path) -> str:
             type_variants_map = {
                 ('vhdl', variant): ['vhd', 'vhdl'],
@@ -495,4 +509,3 @@ class DesignSource(FileResource):
 
     def __str__(self):
         return str(self.file)
-

@@ -124,7 +124,7 @@ class LwcCheckTimingHook():
     def __call__(self, flow: Flow):
         logger = logging.getLogger()
         results = flow.results
-        run_dir = flow.run_dir
+        run_dir = flow.flow_run_dir
 
         if not isinstance(flow, SimFlow):
             logger.info(f"LwcCheckTimingHook only operates on simulation flows.")
@@ -268,7 +268,7 @@ class LwcCheckTimingHook():
             else:
                 print(f"cp {src} {dst}")
         if kat:
-            logger.info(f"GMU_KATs post-results hook: kat={kat} variant={variant_id} run_dir={flow.run_dir}")
+            logger.info(f"GMU_KATs post-results hook: kat={kat} variant={variant_id} run_dir={flow.flow_run_dir}")
             dst_path = Path('KAT_GMU') / variant_id / kat
             failed_tv_path = run_dir / flow.settings.design['tb_generics']['G_FNAME_FAILED_TVS']
             copy_file(timing_csv_path, dst_path / 'timing.csv')

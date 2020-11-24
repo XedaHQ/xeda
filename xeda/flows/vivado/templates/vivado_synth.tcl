@@ -3,21 +3,14 @@ set design_name           {{design.name}}
 set vhdl_std              {{design.language.vhdl.standard}}
 set debug                 {{debug}}
 set nthreads              {{nthreads}}
-set top                   {{design.rtl.top}}
 
-
-set optimize_power        {{flow.optimize_power}}
 set fail_critical_warning {{flow.fail_critical_warning}}
 set fail_timing           {{flow.fail_timing}}
+set bitstream             false
 
 set reports_dir           {{reports_dir}}
 set results_dir           {{results_dir}}
 set checkpoints_dir       {{checkpoints_dir}}
-
-set vhdl_funcsim          ${results_dir}/${top}_impl_funcsim.vhd
-set verilog_funcsim       ${results_dir}/${top}_impl_funcsim.v
-set verilog_timesim       ${results_dir}/${top}_impl_timesim.v
-set sdf_file              "[file rootname ${verilog_timesim}].sdf"
 
 {% include 'util.tcl' %}
 
@@ -92,17 +85,16 @@ read_xdc {{xdc_file}}
 {% endfor %}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="
+## eval synth_design -rtl -rtl_skip_ip -top {{design.rtl.top}} {{options.synth}} {{generics_options}}
+## write_verilog -force ${results_dir}/synth_rtl.v
+
+eval synth_design -part {{flow.fpga_part}} -top {{design.rtl.top}} {{options.synth}} {{generics_options}}
 {% if flow.strategy == "Debug" %}
-eval synth_design -rtl -rtl_skip_ip -top ${top} {{options.synth}} {{generics_options}}
 set_property KEEP_HIERARCHY true [get_cells -hier * ]
 set_property DONT_TOUCH true [get_cells -hier * ]
 {% endif %}
-
-eval synth_design -part {{flow.fpga_part}} -top ${top} {{options.synth}} {{generics_options}}
 showWarningsAndErrors
 
-#write_verilog -force ${results_dir}/${top}_synth_rtl.v
-# report_utilization -file ${reports_dir}/pre_opt_utilization.rpt
 
 {% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
 puts "\n==============================( Optimize Design )================================"
@@ -123,68 +115,51 @@ eval place_design {{options.place}}
 showWarningsAndErrors
 
 {% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
-puts "\n========================( Pysically Optimize Design 1 )=========================="
+puts "\n==============================( Post-place optimization )================================"
+eval opt_design {{options.place_opt}}
+{% endif %}
+
+
+{% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+puts "\n========================( Physical Optimization 1 )=========================="
 eval phys_opt_design {{options.phys_opt}}
 {% endif %}
 
-if {$optimize_power} {
-    puts "\n===============================( Optimize Power )================================"
-    eval power_opt_design
-}
+{% if flow.optimize_power %}
+puts "\n===============================( Power Optimization )================================"
+eval power_opt_design
+showWarningsAndErrors
+{% endif %}
 
 write_checkpoint -force ${checkpoints_dir}/post_place
 report_timing_summary -max_paths 10 -file ${reports_dir}/post_place/timing_summary.rpt
-
-puts "==== Placement Steps Complemeted ====\n"
 
 puts "\n================================( Route Design )================================="
 eval route_design {{options.route}}
 showWarningsAndErrors
 
-{% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
-puts "\n=========================( Pysically Optimize Design 2)=========================="
-eval phys_opt_design {{options.phys_opt}}
-showWarningsAndErrors
-{% endif %}
+## {% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+## puts "\n=========================( Physically Optimize Design 2)=========================="
+## eval phys_opt_design {{options.phys_opt}}
+## showWarningsAndErrors
+## {% endif %}
 
 puts "\n=============================( Writing Checkpoint )=============================="
 write_checkpoint -force ${checkpoints_dir}/post_route
 
 puts "\n==============================( Writing Reports )================================"
 report_timing_summary -max_paths 10                             -file ${reports_dir}/post_route/timing_summary.rpt
-
 report_timing  -sort_by group -max_paths 100 -path_type summary -file ${reports_dir}/post_route/timing.rpt
 reportCriticalPaths ${reports_dir}/post_route/critpath_report.csv
-# report_clock_utilization                                        -force -file ${reports_dir}/post_route/clock_utilization.rpt
+## report_clock_utilization                                        -force -file ${reports_dir}/post_route/clock_utilization.rpt
 report_utilization                                              -force -file ${reports_dir}/post_route/utilization.rpt
-# report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
+## report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
 report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.rpt
-# report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
+## report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
 report_power                                                    -file ${reports_dir}/post_route/power.rpt
 report_drc                                                      -file ${reports_dir}/post_route/drc.rpt
-# report_ram_utilization                                          -file ${reports_dir}/post_route/ram_utilization.rpt -append
-# report_methodology                                              -file ${reports_dir}/post_route/methodology.rpt
-
-puts "==== Routing Steps Complemeted ====\n"
-
-puts "\n==========================( Writing Netlist and SDF )============================="
-write_sdf -mode timesim -process_corner slow -force -file ${sdf_file}
-write_verilog -include_xilinx_libs -force ${results_dir}/${top}_impl_netlist.v
-# write_verilog -mode timesim -sdf_anno true -sdf_file ${sdf_file} -force ${verilog_timesim}
-# write_verilog -mode timesim -nolib -sdf_anno true -force -file ${verilog_timesim}
-write_verilog -mode timesim -sdf_anno true -force -file ${verilog_timesim}
-write_verilog -mode funcsim -force ${verilog_funcsim}
-write_vhdl    -mode funcsim -force ${vhdl_funcsim}
-write_xdc -no_fixed_only -force ${results_dir}/${top}_impl.xdc
-
-if {false} {
-    puts "\n==============================( Writing Bitstream )==============================="
-    write_bitstream -force ${results_dir}/${top}.bit
-}
-showWarningsAndErrors
-
-puts "\n\n---*****===( Vivado Flow Completed )===*****---\n"
-
+## report_ram_utilization                                          -file ${reports_dir}/post_route/ram_utilization.rpt -append
+report_methodology                                              -file ${reports_dir}/post_route/methodology.rpt
 
 set timing_slack [get_property SLACK [get_timing_paths]]
 puts "Final timing slack: $timing_slack ns"
@@ -196,4 +171,19 @@ if {$timing_slack < 0} {
         exit 1
     }
     puts "\n===========================( *DISABLE ECHO* )==========================="
+} else {
+    puts "\n==========================( Writing Netlist and SDF )============================="
+    write_sdf -mode timesim -process_corner slow -force -file ${results_dir}/impl_timesim.sdf
+    # should match sdf
+    write_verilog -mode timesim -sdf_anno false -force -file ${results_dir}/impl_timesim.v
+##    write_verilog -mode timesim -sdf_anno false -include_xilinx_libs -write_all_overrides -force -file ${results_dir}/impl_timesim_inlined.v
+##    write_verilog -mode funcsim -force ${results_dir}/impl_funcsim_noxlib.v
+##    write_vhdl    -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${results_dir}/impl_funcsim.vhd
+    write_xdc -no_fixed_only -force ${results_dir}/impl.xdc
+
+    if {${bitstream}} {
+        puts "\n==============================( Writing Bitstream )==============================="
+        write_bitstream -force ${results_dir}/bitstream.bit
+    }
+    showWarningsAndErrors
 }
