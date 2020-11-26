@@ -9,6 +9,8 @@ set tb_top         {{tb_top}}
 set results_dir    results
 set snapshot_name  {{tb_top}}
 
+load_feature simulator
+
 set xelab_flags "-log xelab.log"
 {% if design.language.vhdl.standard == "93" %}
 append xelab_flags " -93_mode"
@@ -17,7 +19,8 @@ append xelab_flags " -93_mode"
 if { [catch {file delete -force xsim.dir} error]} {
     puts "Failed to delete previously existing xsim.dir: $error"
 }
-set analyze_flags "-incr -work {{lib_name}} {%- if debug %} -verbose 2 {%- endif %} {{analyze_flags}}"
+
+set analyze_flags "-work {{lib_name}} {%- if debug %} -verbose 2 {%- endif %} {{analyze_flags}}"
 
 puts "\n===========================( Analyzing HDL Sources )==========================="
 {% for src in sim_sources %}
@@ -45,7 +48,7 @@ if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standar
 {% endfor %}
 
 puts "\n===========================( Elaborating design )==========================="
-if { [catch {eval exec xelab -incr -mt auto -s ${snapshot_name} -L {{lib_name}} {{elab_flags}} ${xelab_flags} {{generics_options}} {% for top in sim_tops -%} {{lib_name}}.{{top}} {% endfor -%}  } error]} {
+if { [catch {eval exec xelab -mt {{nthreads}} -s ${snapshot_name} -L {{lib_name}} {{elab_flags}} ${xelab_flags} {{generics_options}} {% for top in sim_tops -%} {{lib_name}}.{{top}} {% endfor -%}  } error]} {
     errorExit $error
 }
 
@@ -55,7 +58,7 @@ if { [catch {eval xsim ${snapshot_name} {{sim_flags}} } error] } {
 }
 
 {% if saif %}
-puts "\n===========================( Setting up SAIF dump )==========================="
+puts "\n===========================( Setting up SAIF )==========================="
 if {[file exists {{saif}}]} {
     puts "deleting existing SAIF file {{saif}}"
     file delete -force -- {{saif}}
@@ -67,7 +70,7 @@ open_saif {{saif}}
 ## set wdb_file "${results_dir}/xsim_${tb_top}_dump"
 ## open_wave_database ${wdb_file}
 {%- if vcd %}
-puts "\n===========================( Setting up VCD dump )==========================="
+puts "\n===========================( Setting up VCD )==========================="
 open_vcd {{vcd}}
 log_vcd *
 {% endif -%}
@@ -100,18 +103,20 @@ ptrace on
 
 puts "\n===========================( Running simulation )==========================="
 puts "\n===========================( *ENABLE ECHO* )==========================="
-{% if prerun_time %}
-if { [catch {eval run {{prerun_time}} } error]} {
+{% if flow.get('prerun_time') %}
+puts "Pre-run for {{flow.prerun_time}}"
+if { [catch {eval run {{flow.prerun_time}} } error]} {
     errorExit $error
 }
 {% endif -%}
 
 {%- if saif %}
-puts "Recursively adding all signals to the SAIF log list (this can take a very long time if: xelab 'debug' is set to 'full', Xilinx primitive libraries are inlined, or the design is very large)..."
-## -filter { type == signal || type == in_port || type == out_port || type == inout_port || type == port }
-log_saif [get_objects -r /{{tb_top}}/{{design.tb.uut}}/*]
-puts " ...done!"
+puts "Adding nets to be logged in SAIF"
+
+log_saif [get_objects -r -filter { type == signal || type == in_port || type == out_port || type == inout_port || type == port } /{{tb_top}}/{{design.tb.uut}}/*]
 {% endif -%}
+
+puts "Main Run\n"
 
 if { [catch {eval run {% if 'stop_time' in flow %} {{flow.stop_time}} {% else %} all {% endif %} } error]} {
     errorExit $error
@@ -119,12 +124,12 @@ if { [catch {eval run {% if 'stop_time' in flow %} {{flow.stop_time}} {% else %}
 
 puts "\n===========================( *DISABLE ECHO* )==========================="
 {% if vcd %}
-puts "\n===========================( Saving VCD to  {{vcd}} )==========================="
+puts "\n===========================( Closing VCD file )==========================="
 flush_vcd
 close_vcd
 {% endif -%}
 
 {%- if saif %}
-puts "\n===========================( Saving SAIF file )==========================="
+puts "\n===========================( Closing SAIF file )==========================="
 close_saif
 {% endif %}

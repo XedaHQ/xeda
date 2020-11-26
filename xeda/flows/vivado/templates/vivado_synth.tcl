@@ -110,9 +110,26 @@ report_utilization -file ${reports_dir}/post_synth/utilization.xml -format xml
 reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
 report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 
+
+{% if True or flow.strategy == "Power" %}
+puts "\n===============================( Post-synth Power Optimization )================================"
+# this is more effective than Post-placement Power Optimization but can hurt timing
+eval power_opt_design
+report_power_opt -file ${reports_dir}/post_synth/power_optimization.rpt
+showWarningsAndErrors
+{% endif %}
+
 puts "\n================================( Place Design )================================="
 eval place_design {{options.place}}
 showWarningsAndErrors
+
+
+{% if False and flow.strategy != "Power" and flow.optimize_power %}
+puts "\n===============================( Post-placement Power Optimization )================================"
+eval power_opt_design
+report_power_opt -file ${reports_dir}/post_synth/post_place_power_optimization.rpt
+showWarningsAndErrors
+{% endif %}
 
 {% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
 puts "\n==============================( Post-place optimization )================================"
@@ -125,11 +142,6 @@ puts "\n========================( Physical Optimization 1 )=====================
 eval phys_opt_design {{options.phys_opt}}
 {% endif %}
 
-{% if flow.optimize_power %}
-puts "\n===============================( Power Optimization )================================"
-eval power_opt_design
-showWarningsAndErrors
-{% endif %}
 
 write_checkpoint -force ${checkpoints_dir}/post_place
 report_timing_summary -max_paths 10 -file ${reports_dir}/post_place/timing_summary.rpt

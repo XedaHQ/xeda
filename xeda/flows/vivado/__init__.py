@@ -5,7 +5,10 @@ import copy
 import logging
 import os
 import math
+from pathlib import Path
 from typing import Union
+from xml.etree import ElementTree
+import html
 from ...utils import unique_list
 from ..flow import SimFlow, Flow, SynthFlow, DebugLevel
 
@@ -41,14 +44,16 @@ def vivado_generics(kvdict, sim):
 class Vivado(Flow):
     reports_subdir_name = 'reports'
 
-    def run_vivado(self, script_path):
+    def run_vivado(self, script_path, stdout_logfile=None):
+        if stdout_logfile is None:
+            stdout_logfile = f'{self.name}_stdout.log'
         debug = self.args.debug
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug >=
                        DebugLevel.HIGHEST else 'batch', '-source', str(script_path)]
         if not debug:
             vivado_args.append('-notrace')
         return self.run_process('vivado', vivado_args, initial_step='Starting vivado',
-                                stdout_logfile=f'{self.name}_stdout.log')
+                                stdout_logfile=stdout_logfile)
 
 
 class VivadoSynth(Vivado, SynthFlow):
@@ -339,8 +344,6 @@ class VivadoSim(Vivado, SimFlow):
                                               tb_top=tb_top,
                                               saif=saif,
                                               lib_name='work',
-                                              prerun_time=tb_settings.get(
-                                                  'prerun_time'),
                                               sim_sources=sim_sources,
                                               debug_traces=self.args.debug >= DebugLevel.HIGHEST or self.settings.flow.get(
                                                   'debug_traces')
@@ -380,3 +383,54 @@ class VivadoPostsynthSim(VivadoSim):
                                        '-pulse_r 0', '-pulse_int_r 0', '-pulse_e 0', '-pulse_int_e 0']
 
         super().run()
+
+
+class VivadoPower(VivadoPostsynthSim):
+    # depends_on = {VivadoPostsynthSim: {'rtl.sources': ['results/impl_timesim.v']}}
+    def run(self):
+        flow_settings = self.settings.flow
+        saif_file = 'impl_timing.saif'
+        self.power_report_filename = 'power_impl_timing.xml'
+        flow_settings['saif'] = saif_file
+        super().run() # run simulation FIXME implement through flow dependency system
+
+        script_path = self.copy_from_template(f'vivado_power.tcl',
+                                        saif_file=saif_file,
+                                        power_report_file=self.power_report_filename,
+                                        checkpoint=os.path.relpath(str(self.run_path / 'vivado_synth' / VivadoSynth.checkpoints_dir / 'post_route.dcp'), Path(self.flow_run_dir))
+                                        )
+
+        return self.run_vivado(script_path, stdout_logfile='vivado_postsynth_power_stdout.log')
+
+    def parse_reports(self):
+
+        report_xml = self.flow_run_dir / self.power_report_filename
+        
+        tree = ElementTree.parse(report_xml)
+
+        results = {}
+        components = {}
+
+        for tablerow in tree.findall("./section[@title='Summary']/table/tablerow"):
+            tablecells = tablerow.findall('tablecell')
+            key, value = (html.unescape(x.attrib['contents']).strip() for x in tablecells)
+            results[key] = value
+
+
+        for tablerow in tree.findall("./section[@title='Summary']/section[@title='On-Chip Components']/table/tablerow"):
+            tablecells = tablerow.findall('tablecell')
+            if len(tablecells) >= 2:
+                contents = [html.unescape(x.attrib['contents']).strip() for x in tablecells]
+                key = contents[0]
+                value = contents[1]
+                components[key] = value
+
+        self.results['success'] = True
+        self.results.update(**results)
+        self.results['components'] = components
+
+
+# TODO move to an LWC plugin that hooks into VivadoPower
+class VivadoPowerLwc(VivadoPower):
+    def run(self):
+        pass
