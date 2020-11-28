@@ -449,11 +449,16 @@ class VivadoPowerLwc(VivadoPower):
     def run(self):
         flow_settings = self.settings.flow
         tb_settings = self.settings.design['tb']
+        lwc_settings = self.settings.design.get('lwc')
 
         if flow_settings.get('prerun_time') is None:
             flow_settings['prerun_time'] = 100 + math.floor(self.settings.flow_depends['vivado_synth']['clock_period'] * 4) - 1
         
-        power_tvs = flow_settings.get('power_tvs', ['enc_16_0', 'enc_0_16', 'enc_1536_0', 'enc_0_1536', 'dec_16_0', 'dec_0_16', 'dec_1536_0', 'dec_0_1536', 'hash_16', 'hash_1536'])
+        power_tvs = flow_settings.get('power_tvs')
+        if not power_tvs:
+            power_tvs = ['enc_16_0', 'enc_0_16', 'enc_1536_0', 'enc_0_1536', 'dec_16_0', 'dec_0_16', 'dec_1536_0', 'dec_0_1536']
+            if lwc_settings and lwc_settings.get('supports_hash'):
+                power_tvs.extend(['hash_16', 'hash_1536'])
 
         power_tvs_root = 'KAT_POW'
         def pow_tv_run_config(tv_sub):
@@ -469,7 +474,8 @@ class VivadoPowerLwc(VivadoPower):
         flow_settings['run_configs'] = run_configs
         flow_settings['elab_debug'] = 'typical'
 
-        VivadoPostsynthSim.run(self) # run simulation FIXME implement through dependency system
+        if not flow_settings.get('skip_simulation'):
+            VivadoPostsynthSim.run(self) # run simulation FIXME implement through dependency system
 
         script_path = self.copy_from_template(f'vivado_power.tcl',
                                         run_configs=run_configs,
