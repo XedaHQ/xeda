@@ -1,8 +1,10 @@
-
+puts "\n================================( Opening routed design from checkpoint )================================="
 open_checkpoint {{checkpoint}}
 
+{% for rc in run_configs %}
+puts "\n================================( Reporting power from {{rc.saif}} )================================="
 reset_switching_activity -all
+eval read_saif -verbose {{rc.saif}}
+report_power -hier all -format xml -verbose -file {{rc.report}}
 
-eval read_saif  -verbose  -out_file power_saif_read.log {{saif_file}}
-
-report_power -hier all -advisory -format xml -verbose -file {{power_report_file}}
+{% endfor %}

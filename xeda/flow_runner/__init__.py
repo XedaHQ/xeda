@@ -93,7 +93,7 @@ def run_flow(f: Flow):
 def run_flow_fmax(arg):
     idx, f = arg
     try:
-        f.run()
+        f.run_flow()
         return idx
     except FlowFatalException as e:
         logger.critical(f'Fatal exception during flow run in {f.run_dir}: {e}')
@@ -546,7 +546,7 @@ class LwcFmaxRunner(FlowRunner):
         lo_freq = float(flow_settings.get('fmax_low_freq', 1.0))
         # can go higher
         hi_freq = float(flow_settings.get('fmax_high_freq', 600.0))
-        resolution = 0.1
+        resolution = 0.5
         max_no_improvements = 2
         delta_increment = resolution / 2
 

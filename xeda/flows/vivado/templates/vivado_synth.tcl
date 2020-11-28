@@ -110,7 +110,7 @@ report_utilization -file ${reports_dir}/post_synth/utilization.xml -format xml
 reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
 report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 
-
+## TODO FIXME
 {% if True or flow.strategy == "Power" %}
 puts "\n===============================( Post-synth Power Optimization )================================"
 # this is more effective than Post-placement Power Optimization but can hurt timing
@@ -138,7 +138,7 @@ eval opt_design {{options.place_opt}}
 
 
 {% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
-puts "\n========================( Physical Optimization 1 )=========================="
+puts "\n========================( Physical Optimization )=========================="
 eval phys_opt_design {{options.phys_opt}}
 {% endif %}
 

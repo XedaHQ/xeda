@@ -47,8 +47,10 @@ if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standar
 {% endif %}
 {% endfor %}
 
+{% for rc in run_configs %}
+
 puts "\n===========================( Elaborating design )==========================="
-if { [catch {eval exec xelab -mt {{nthreads}} -s ${snapshot_name} -L {{lib_name}} {{elab_flags}} ${xelab_flags} {{generics_options}} {% for top in sim_tops -%} {{lib_name}}.{{top}} {% endfor -%}  } error]} {
+if { [catch {eval exec xelab -mt {{nthreads}} -s ${snapshot_name} -L {{lib_name}} {{elab_flags}} ${xelab_flags} {%- for k,v in rc.generics.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in sim_tops %} {{lib_name}}.{{top}} {% endfor -%}  } error]} {
     errorExit $error
 }
 
@@ -57,13 +59,13 @@ if { [catch {eval xsim ${snapshot_name} {{sim_flags}} } error] } {
     errorExit $error
 }
 
-{% if saif %}
+{% if rc.saif %}
 puts "\n===========================( Setting up SAIF )==========================="
-if {[file exists {{saif}}]} {
-    puts "deleting existing SAIF file {{saif}}"
-    file delete -force -- {{saif}}
+if {[file exists {{rc.saif}}]} {
+    puts "deleting existing SAIF file {{rc.saif}}"
+    file delete -force -- {{rc.saif}}
 }
-open_saif {{saif}}
+open_saif {{rc.saif}}
 {% endif %}
 
 ## TODO: WDB support
@@ -74,27 +76,6 @@ puts "\n===========================( Setting up VCD )===========================
 open_vcd {{vcd}}
 log_vcd *
 {% endif -%}
-
-{% if initialize_zeros %}} ## not needed with Xilinx libs as they use the global reset mechanism (GSR)
-#
-# puts "[get_objects -recursive -filter {type =~ signal} /LWC_TB/*]"
-# set signals [get_objects -filter {TYPE == signal} /LWC_TB/*]
-# puts "${objs}"
-puts "setting initial values to 0"
-foreach sig [get_objects -recursive -filter {TYPE =~ *signal} /{{tb_top}}/{{design.tb.uut}}/*] {
-    set_value ${sig} {0}
-    # set dim [llength [split [get_property VALUE ${sig}] ,] ]
-    # if {$dim == 1} {
-    # # add_force ${sig} {0} -cancel_after 27
-    # } else {
-    # # for {set i 0} {$i < $dim} {incr i} {
-    # #   set_value ${sig}[$i] {0}
-    # #   # add_force ${sig}[$i] {0} -cancel_after 27
-    # # }
-    # }
-
-}
-{% endif %}
 
 {%- if debug_traces %}
 ltrace on
@@ -110,7 +91,7 @@ if { [catch {eval run {{flow.prerun_time}} } error]} {
 }
 {% endif -%}
 
-{%- if saif %}
+{%- if rc.saif %}
 puts "Adding nets to be logged in SAIF"
 
 log_saif [get_objects -r -filter { type == signal || type == in_port || type == out_port || type == inout_port || type == port } /{{tb_top}}/{{design.tb.uut}}/*]
@@ -122,6 +103,10 @@ if { [catch {eval run {% if 'stop_time' in flow %} {{flow.stop_time}} {% else %}
     errorExit $error
 }
 
+set fin_time [eval current_time]
+
+puts "\[Vivado\] Simulation finished at ${fin_time}"
+
 puts "\n===========================( *DISABLE ECHO* )==========================="
 {% if vcd %}
 puts "\n===========================( Closing VCD file )==========================="
@@ -129,7 +114,9 @@ flush_vcd
 close_vcd
 {% endif -%}
 
-{%- if saif %}
+{%- if rc.saif %}
 puts "\n===========================( Closing SAIF file )==========================="
 close_saif
 {% endif %}
+
+{% endfor %}
