@@ -455,7 +455,12 @@ class VivadoPowerLwc(VivadoPower):
             if lwc_settings and lwc_settings.get('supports_hash'):
                 power_tvs.extend(['hash_16', 'hash_1536'])
 
-        power_tvs_root = 'KAT_POW'
+        lwc_settings = self.settings.design.get('lwc')
+        lwc_variant = 'v1'
+        if lwc_settings:
+            lwc_variant = lwc_settings.get('variant', lwc_variant)
+        power_tvs_root = os.path.join('KAT_GMU'/ lwc_variant)
+
         def pow_tv_run_config(tv_sub):
             tv_generics = copy.deepcopy(tb_settings.get('generics', {}))
             tv_generics['G_MAX_FAILURES'] = 1
