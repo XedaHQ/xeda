@@ -1,7 +1,6 @@
 import copy
 from functools import partial
 import multiprocessing
-from multiprocessing import cpu_count
 from types import SimpleNamespace
 from typing import List, Mapping
 from pebble.common import ProcessExpired
@@ -15,15 +14,13 @@ import time
 import pkg_resources
 from pathlib import Path
 import json
-import multiprocessing as mp
 import traceback
 # heavy, but will probably become handy down the road
 import numpy
 # import psutil
 import tomlkit
 
-from ..debug import DebugLevel
-from ..plugins.lwc import LwcCheckTimingHook
+
 from ..flows.settings import Settings
 from ..flows.flow import DesignSource, FileResource, Flow, FlowFatalException, SynthFlow, my_print
 from ..utils import camelcase_to_snakecase, load_class, dict_merge, try_convert
@@ -86,28 +83,31 @@ def run_flow(f: Flow):
         logger.critical(f'Fatal exception during flow run in {f.flow_run_dir}: {e}')
         traceback.print_exc()
     except KeyboardInterrupt as e:
-        logger.critical(f'KeyboardInterrupt received during flow run in {f.flow_run_dir}: {e}')
+        logger.critical(f'Received KeyboardInterrupt during flow run in {f.flow_run_dir}: {e}')
         traceback.print_exc()
 
 
 def run_flow_fmax(arg):
-    idx, f = arg
+    idx, flow = arg
     try:
-        f.run_flow()
-        return idx
+        flow.run_flow()
+        flow.parse_reports()
+        flow.results['timestamp'] = flow.timestamp
+        flow.results['design.name'] = flow.settings.design['name']
+        flow.results['flow.name'] = flow.name
+        flow.results['flow.run_hash'] = flow.design_run_hash
+
+        return idx, flow.results, flow.settings, flow.flow_run_dir
+
     except FlowFatalException as e:
-        logger.critical(f'Fatal exception during flow run in {f.run_dir}: {e}')
+        logger.critical(f'Fatal exception during flow run in {flow.flow_run_dir}: {e}')
         traceback.print_exc()
     except KeyboardInterrupt as e:
-        logger.critical(f'KeyboardInterrupt recieved during flow run in {f.run_dir}: {e}')
+        logger.critical(f'KeyboardInterrupt received during flow run in {flow.flow_run_dir}: {e}')
         traceback.print_exc()
 
 
 class FlowRunner():
-    @classmethod
-    def register_subparser(cls, subparsers):
-        raise NotImplementedError
-
     def __init__(self, args, timestamp) -> None:
         self.args = args
         self.timestamp = timestamp
@@ -277,33 +277,10 @@ class FlowRunner():
         return flow
 
     def add_common_args(parser):
-        # TODO load flow and plugin classes from custom packages, i.e. xeda_plugins.flows etc
-        flow_classes = inspect.getmembers(sys.modules['xeda.flows'],
-                                          lambda cls: inspect.isclass(cls) and issubclass(cls, Flow))
-        registered_flows = [camelcase_to_snakecase(n) for n, c in flow_classes]
-        parser.add_argument(
-            '--xeda-project',
-            default=None,
-            help='Path to Xeda project file. By default will use xeda.toml in the current directory.'
-        )
-        parser.add_argument('flow', metavar='FLOW_NAME', choices=registered_flows,
-                            help=f'Flow name. Registered flows are: {registered_flows}')
-        parser.add_argument('--override-settings', nargs='+',
-                            help='Override certain setting value. Use <hierarchy>.key=value format'
-                            'example: --override-settings flows.vivado_run.stop_time=100us')
-        parser.add_argument(
-            '--design',
-            nargs='+',
-            help='Specify design.name in case multiple designs are available in the Xeda project.'
-        )
+        pass
 
 
-class DefaultFlowRunner(FlowRunner):
-    @classmethod
-    def register_subparser(cls, subparsers):
-        run_parser = subparsers.add_parser('run', help='Run a flow')
-        super().add_common_args(run_parser)
-
+class DefaultRunner(FlowRunner):
     def launch(self):
         settings = self.get_design_settings()
         flow = self.setup_flow(settings, self.args.flow)
@@ -314,7 +291,7 @@ class DefaultFlowRunner(FlowRunner):
             flow.set_run_dir()
 
             for fcls, sub_settings in flow.depends_on.items():
-                gen_rtl_sources = sub_settings.get('rtl.sources')
+                gen_rtl_sources = sub_settings.get('rtl.sources') ## TODO FIXME more generic dependency system, covering settings hierarchy!!!
                 if gen_rtl_sources:
                     run_required = False
                     for gen_src in gen_rtl_sources:
@@ -324,166 +301,22 @@ class DefaultFlowRunner(FlowRunner):
                             logger.warning(f'Need to run {fcls.__name__} to generate {gen_src_path}')
                             break
 
-                    dep_flow = self.setup_flow(settings, fcls)
-                    dep_flow.run_path = flow.run_path
-                    dep_flow.set_run_dir()
+                    dependency_flow = self.setup_flow(settings, fcls)
+                    dependency_flow.run_path = flow.run_path
+                    dependency_flow.set_run_dir()
                     if run_required:
-                        dep_flow.run_flow()
-                        self.post_run(dep_flow)
-                        assert dep_flow.results['success']
+                        dependency_flow.run_flow()
+                        self.post_run(dependency_flow)
+                        assert dependency_flow.results['success']
 
                     flow.settings.design['rtl']['sources'] = [
-                        DesignSource(dep_flow.flow_run_dir / src) for src in gen_rtl_sources
+                        DesignSource(dependency_flow.flow_run_dir / src) for src in gen_rtl_sources
                     ]
 
                     logger.info(
                         f"Setting {flow.name}.rtl.sources to {[ str(x) for x in flow.settings.design['rtl']['sources']]}")
         flow.run_flow()
         self.post_run(flow)
-
-
-# TODO as a plugin
-class LwcVariantsRunner(FlowRunner):
-    @classmethod
-    def register_subparser(cls, subparsers):
-        plug_parser = subparsers.add_parser('run_variants', help='Run All LWC variants in variants.json')
-        super().add_common_args(plug_parser)
-        plug_parser.add_argument(
-            '--variants-json',
-            default='variants.json',
-            help='Path to LWC variants JSON file.'
-        )
-        # TODO optionally get nproc from user
-        plug_parser.add_argument(
-            '--parallel-run',
-            action='store_true',
-            help='Use multiprocessing to run multiple flows in parallel'
-        )
-        plug_parser.add_argument(
-            '--gmu-kats',
-            action='store_true',
-            help='Run simulation with different GMU KAT files'
-        )
-        plug_parser.add_argument(
-            '--auto-copy',
-            action='store_true',
-            help='In gmu-kats mode, automatically copy files. Existing files will be silently REPLACED, so use with caution!'
-        )
-        plug_parser.add_argument(
-            '--no-reuse-key',
-            action='store_true',
-            help='Do not inlucde reuse-key testvectors'
-        )
-        plug_parser.add_argument(
-            '--no-timing',
-            action='store_true',
-            help='disable timing mode'
-        )
-        plug_parser.add_argument(
-            '--variants-subset',
-            nargs='+',
-            help='The list of variant IDs to run from all available variants loaded from variants.json.'
-        )
-
-    def launch(self):
-        args = self.args
-        self.parallel_run = args.parallel_run
-        if args.parallel_run and args.debug >= DebugLevel.MEDIUM:
-            self.parallel_run = False
-            logger.warning("parallel_run disabled due to the debug level")
-
-        total = 0
-        num_success = 0
-
-        variants_json = Path(args.variants_json).resolve()
-        variants_json_dir = os.path.dirname(variants_json)
-
-        logger.info(f'LwcVariantsRunner: loading variants data from {variants_json}')
-        with open(variants_json) as vjf:
-            variants = json.load(vjf)
-
-        if args.variants_subset:
-            variants = {vid: vdat for vid, vdat in variants.items() if vid in args.variants_subset}
-
-        flows_to_run: List[Flow] = []
-
-        nproc = max(1, multiprocessing.cpu_count() // 4)
-
-        common_kats = ['kats_for_verification', 'generic_aead_sizes_new_key']
-        if not args.no_reuse_key:
-            common_kats += ['generic_aead_sizes_reuse_key']
-
-        hash_kats = ['basic_hash_sizes', 'blanket_hash_test']
-
-        def add_flow(settings, variant_id, variant_data):
-            flow = self.setup_flow(settings, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
-            if not args.no_timing:
-                flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data))
-            flows_to_run.append(flow)
-
-        for variant_id, variant_data in variants.items():
-            logger.info(f"LwcVariantsRunner: running variant {variant_id}")
-            # path is relative to variants_json
-
-            design_json_path = Path(variants_json_dir) / variant_data["design"]  # TODO also support inline design
-            settings = self.get_design_settings(design_json_path)
-
-            if self.parallel_run:
-                args.quiet = True
-
-            if not args.no_timing:
-                settings['design']['tb_generics']['G_TEST_MODE'] = 4
-            settings['design']['tb_generics']['G_FNAME_TIMING'] = f"timing_{variant_id}.txt"
-            settings['design']['tb_generics']['G_FNAME_TIMING_CSV'] = f"timing_{variant_id}.csv"
-            settings['design']['tb_generics']['G_FNAME_RESULT'] = f"result_{variant_id}.txt"
-            settings['design']['tb_generics']['G_FNAME_FAILED_TVS'] = f"failed_test_vectors_{variant_id}.txt"
-            settings['design']['tb_generics']['G_FNAME_LOG'] = f"lwctb_{variant_id}.log"
-
-            if args.gmu_kats:
-                kats = common_kats
-                if "HASH" in variant_data["operations"]:
-                    kats = common_kats + hash_kats
-                for kat in kats:
-                    settings["design"]["tb_generics"]["G_FNAME_DO"] = {"file": f"KAT_GMU/{variant_id}/{kat}/do.txt"}
-                    settings["design"]["tb_generics"]["G_FNAME_SDI"] = {"file": f"KAT_GMU/{variant_id}/{kat}/sdi.txt"}
-                    settings["design"]["tb_generics"]["G_FNAME_PDI"] = {"file": f"KAT_GMU/{variant_id}/{kat}/pdi.txt"}
-
-                    this_variant_data = copy.deepcopy(variant_data)
-                    this_variant_data["kat"] = kat
-                    add_flow(settings, variant_id, this_variant_data)
-            else:
-                add_flow(settings, variant_id, variant_data)
-
-        if not flows_to_run:
-            self.fatal("flows_to_run is empty!")
-
-        proc_timeout_seconds = flows_to_run[0].settings.flow.get('timeout', flows_to_run[0].timeout)
-
-        if self.parallel_run:
-            try:
-                with mp.Pool(processes=min(nproc, len(flows_to_run))) as p:
-                    p.map_async(run_flow, flows_to_run).get(proc_timeout_seconds)
-            except KeyboardInterrupt as e:
-                logger.critical(f'KeyboardInterrupt received parallel execution of runs: {e}')
-                traceback.print_exc()
-                logger.warning("trying to recover completed flow results...")
-        else:
-            for flow in flows_to_run:
-                flow.run()
-
-        try:
-            for flow in flows_to_run:
-                self.post_run(flow)
-                total += 1
-                if flow.results.get('success'):
-                    num_success += 1
-        except Exception as e:
-            logger.critical("Exception during post_run")
-            raise e
-        finally:
-            for flow in flows_to_run:
-                logger.info(f"Run: {flow.flow_run_dir} {'[PASS]' if flow.results.get('success') else '[FAIL]'}")
-            logger.info(f'{num_success} out of {total} runs succeeded.')
 
 
 class Best:
@@ -512,26 +345,7 @@ def nukemall():
         logger.exception('exception during killing')
 
 
-class LwcFmaxRunner(FlowRunner):
-    @classmethod
-    def register_subparser(cls, subparsers):
-        # command should be set automatically from top and using class help, etc
-        plug_parser = subparsers.add_parser('run_fmax', help='find fmax')
-        super().add_common_args(plug_parser)
-        plug_parser.add_argument(
-            '--max-failed-runs',
-            default=10, type=int,
-            help='Maximum consequetive failed runs allowed. Give up afterwards.'
-        )
-        plug_parser.add_argument(
-            '--start-max-freq',
-            default=600, type=float,
-        )
-        plug_parser.add_argument(
-            '--max-cpus',
-            default=max(1, cpu_count()), type=int,
-        )
-
+class FmaxRunner(FlowRunner):
     def launch(self):
         start_time = time.monotonic()
 
@@ -546,7 +360,7 @@ class LwcFmaxRunner(FlowRunner):
         lo_freq = float(flow_settings.get('fmax_low_freq', 1.0))
         # can go higher
         hi_freq = float(flow_settings.get('fmax_high_freq', 600.0))
-        resolution = 0.5
+        resolution = 0.1
         max_no_improvements = 2
         delta_increment = resolution / 2
 
@@ -601,15 +415,14 @@ class LwcFmaxRunner(FlowRunner):
                         iterator = future.result()
                         while True:
                             try:
-                                idx = next(iterator)
-                                flow = flows_to_run[idx]
+                                idx, results, fsettings, rundir = next(iterator)
                                 freq = frequencies_to_try[idx]
-                                self.post_run(flow, print_failed=False)
-                                results = flow.results
-                                rundirs.append(flow.run_dir)
+                                # self.post_run(flow, print_failed=False)
+                                # results = flow.results
+                                rundirs.append(rundir)
                                 if results['success'] and (not best or freq > best.freq):
                                     all_results.append(results)
-                                    best = Best(freq, results, flow.settings)
+                                    best = Best(freq, results, fsettings)
                                     improved_idx = idx
                             except StopIteration:
                                 break

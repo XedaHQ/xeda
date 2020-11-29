@@ -1,14 +1,21 @@
 import copy
+import json
 import logging
 import math
+import multiprocessing
+import os
 from pathlib import Path
 import re
 import shutil
-import sys
 import csv
+import traceback
 from typing import List
-from ..utils import try_convert
+from ..flow_runner import FlowRunner, run_flow
 from ..flows.flow import Flow, SimFlow
+from ..utils import try_convert
+from ..debug import DebugLevel
+
+logger = logging.getLogger()
 
 
 # class LwcSim(PostResultsPlugin):
@@ -285,3 +292,169 @@ class LwcCheckTimingHook():
                 logger.info(f"Generating short HASH timing: {hash_short_timing_path}")
                 write_hash_csv(exec_times)
                 copy_file(hash_short_timing_path, dst_path / f'{flow.settings.design["name"]}_HASH_Timing.csv')
+
+
+# TODO FIXME move to LWC plugin
+class LwcSimFlow(SimFlow): 
+    def parse_reports(self):
+        failed = self.stdout_search_re(r'FAIL \(1\): SIMULATION FINISHED')
+        passed = self.stdout_search_re(r'PASS \(0\): SIMULATION FINISHED')
+        self.results['success'] = passed and not failed
+
+    def stdout_search_re(self, regexp):
+        # FIXME
+        log_file = self.flow_run_dir / self.flow_stdout_log
+        try:
+            with open(log_file) as logf:
+                if re.search(regexp, logf.read()):
+                    return True
+        except:
+            logger.warning(f"Failed to open {log_file}")
+
+        return False
+
+
+
+
+# TODO as a plugin
+class LwcVariantsRunner(FlowRunner):
+    @classmethod
+    def register_parser(cls, parser):
+        super().add_common_args(parser)
+        parser.add_argument(
+            '--variants-json',
+            default='variants.json',
+            help='Path to LWC variants JSON file.'
+        )
+        # TODO optionally get nproc from user
+        parser.add_argument(
+            '--parallel-run',
+            action='store_true',
+            help='Use multiprocessing to run multiple flows in parallel'
+        )
+        parser.add_argument(
+            '--gmu-kats',
+            action='store_true',
+            help='Run simulation with different GMU KAT files'
+        )
+        parser.add_argument(
+            '--auto-copy',
+            action='store_true',
+            help='In gmu-kats mode, automatically copy files. Existing files will be silently REPLACED, so use with caution!'
+        )
+        parser.add_argument(
+            '--no-reuse-key',
+            action='store_true',
+            help='Do not inlucde reuse-key testvectors'
+        )
+        parser.add_argument(
+            '--no-timing',
+            action='store_true',
+            help='disable timing mode'
+        )
+        parser.add_argument(
+            '--variants-subset',
+            nargs='+',
+            help='The list of variant IDs to run from all available variants loaded from variants.json.'
+        )
+
+    def launch(self):
+        args = self.args
+        self.parallel_run = args.parallel_run
+        if args.parallel_run and args.debug >= DebugLevel.MEDIUM:
+            self.parallel_run = False
+            logger.warning("parallel_run disabled due to the debug level")
+
+        total = 0
+        num_success = 0
+
+        variants_json = Path(args.variants_json).resolve()
+        variants_json_dir = os.path.dirname(variants_json)
+
+        logger.info(f'LwcVariantsRunner: loading variants data from {variants_json}')
+        with open(variants_json) as vjf:
+            variants = json.load(vjf)
+
+        if args.variants_subset:
+            variants = {vid: vdat for vid, vdat in variants.items() if vid in args.variants_subset}
+
+        flows_to_run: List[Flow] = []
+
+        nproc = max(1, multiprocessing.cpu_count() // 4)
+
+        common_kats = ['kats_for_verification', 'generic_aead_sizes_new_key']
+        if not args.no_reuse_key:
+            common_kats += ['generic_aead_sizes_reuse_key']
+
+        hash_kats = ['basic_hash_sizes', 'blanket_hash_test']
+
+        def add_flow(settings, variant_id, variant_data):
+            flow = self.setup_flow(settings, args.flow, max_threads=multiprocessing.cpu_count() // nproc // 2)
+            if not args.no_timing:
+                flow.post_results_hooks.append(LwcCheckTimingHook(variant_id, variant_data))
+            flows_to_run.append(flow)
+
+        for variant_id, variant_data in variants.items():
+            logger.info(f"LwcVariantsRunner: running variant {variant_id}")
+            # path is relative to variants_json
+
+            design_json_path = Path(variants_json_dir) / variant_data["design"]  # TODO also support inline design
+            settings = self.get_design_settings(design_json_path)
+
+            if self.parallel_run:
+                args.quiet = True
+
+            if not args.no_timing:
+                settings['design']['tb_generics']['G_TEST_MODE'] = 4
+            settings['design']['tb_generics']['G_FNAME_TIMING'] = f"timing_{variant_id}.txt"
+            settings['design']['tb_generics']['G_FNAME_TIMING_CSV'] = f"timing_{variant_id}.csv"
+            settings['design']['tb_generics']['G_FNAME_RESULT'] = f"result_{variant_id}.txt"
+            settings['design']['tb_generics']['G_FNAME_FAILED_TVS'] = f"failed_test_vectors_{variant_id}.txt"
+            settings['design']['tb_generics']['G_FNAME_LOG'] = f"lwctb_{variant_id}.log"
+
+            if args.gmu_kats:
+                kats = common_kats
+                if "HASH" in variant_data["operations"]:
+                    kats = common_kats + hash_kats
+                for kat in kats:
+                    settings["design"]["tb_generics"]["G_FNAME_DO"] = {"file": f"KAT_GMU/{variant_id}/{kat}/do.txt"}
+                    settings["design"]["tb_generics"]["G_FNAME_SDI"] = {"file": f"KAT_GMU/{variant_id}/{kat}/sdi.txt"}
+                    settings["design"]["tb_generics"]["G_FNAME_PDI"] = {"file": f"KAT_GMU/{variant_id}/{kat}/pdi.txt"}
+
+                    this_variant_data = copy.deepcopy(variant_data)
+                    this_variant_data["kat"] = kat
+                    add_flow(settings, variant_id, this_variant_data)
+            else:
+                add_flow(settings, variant_id, variant_data)
+
+        if not flows_to_run:
+            self.fatal("flows_to_run is empty!")
+
+        proc_timeout_seconds = flows_to_run[0].settings.flow.get('timeout', flows_to_run[0].timeout)
+
+        if self.parallel_run:
+            try:
+                with multiprocessing.Pool(processes=min(nproc, len(flows_to_run))) as p:
+                    p.map_async(run_flow, flows_to_run).get(proc_timeout_seconds)
+            except KeyboardInterrupt as e:
+                logger.critical(f'KeyboardInterrupt received parallel execution of runs: {e}')
+                traceback.print_exc()
+                logger.warning("trying to recover completed flow results...")
+        else:
+            for flow in flows_to_run:
+                flow.run()
+
+        try:
+            for flow in flows_to_run:
+                self.post_run(flow)
+                total += 1
+                if flow.results.get('success'):
+                    num_success += 1
+        except Exception as e:
+            logger.critical("Exception during post_run")
+            raise e
+        finally:
+            for flow in flows_to_run:
+                logger.info(f"Run: {flow.flow_run_dir} {'[PASS]' if flow.results.get('success') else '[FAIL]'}")
+            logger.info(f'{num_success} out of {total} runs succeeded.')
+

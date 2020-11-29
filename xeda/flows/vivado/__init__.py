@@ -2,6 +2,7 @@
 
 from collections import abc
 import copy
+import json
 import logging
 import os
 import math
@@ -51,8 +52,8 @@ class Vivado(Flow):
         debug = self.args.debug
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug >=
                        DebugLevel.HIGHEST else 'batch', '-source', str(script_path)]
-        if not debug:
-            vivado_args.append('-notrace')
+        # if not debug:
+        #     vivado_args.append('-notrace')
         return self.run_process('vivado', vivado_args, initial_step='Starting vivado',
                                 stdout_logfile=stdout_logfile)
 
@@ -282,7 +283,6 @@ class VivadoSim(Vivado, SimFlow):
     def run(self):
         flow_settings = self.settings.flow
         tb_settings = self.settings.design["tb"]
-        rtl_settings = self.settings.design["rtl"]
         generics = tb_settings.get("generics", {})
         saif = flow_settings.get('saif')
 
@@ -335,11 +335,6 @@ class VivadoSim(Vivado, SimFlow):
         else:
             sim_tops = [sim_tops]
 
-        sim_sources = list(rtl_settings['sources'])
-        for src in tb_settings['sources']:
-            if src not in sim_sources:
-                sim_sources.append(src)
-
         script_path = self.copy_from_template(f'vivado_sim.tcl',
                                               analyze_flags=' '.join(flow_settings.get('analyze_flags', ['-relax'])),
                                               elab_flags=' '.join(unique_list(elab_flags)),
@@ -350,7 +345,7 @@ class VivadoSim(Vivado, SimFlow):
                                               sim_tops=sim_tops,
                                               tb_top=tb_top,
                                               lib_name='work',
-                                              sim_sources=sim_sources,
+                                              sim_sources=self.sim_sources,
                                               debug_traces=self.args.debug >= DebugLevel.HIGHEST or self.settings.flow.get(
                                                   'debug_traces')
                                               )
@@ -486,29 +481,45 @@ class VivadoPowerLwc(VivadoPower):
 
     def parse_reports(self):
         design_name = self.settings.design['name']
-        fields = {'Design': design_name, 'Static': None}
+                
+        clock_period = self.settings.flow_depends['vivado_synth']['clock_period']
+        freq = math.floor(1000 / clock_period)
+        fields = {'Design': design_name, 'Frequency (MHz)': freq, 'Static': None}
+
         for rc in self.settings.flow['run_configs']:
+            name = rc['name']
             report_xml = self.flow_run_dir / rc['report']
 
             results = self.parse_power_report(report_xml)
 
             assert results['Design Nets Matched'].startswith('100%')
             assert results['Confidence Level'] == 'High'
+            static = results['Device Static (W)']
             if fields['Static'] is None:
-                fields['Static'] = results['Device Static (W)']
+                fields['Static'] = static
             else:
-                if fields['Static'] != results['Device Static (W)']:
-                    print(f"static power should be the same for all test vectors, {fields['Static']} != {results['Device Static (W)']}")
-            tv = rc['name']
-            fields[tv] = results['Dynamic (W)']
-            self.results[tv] = results
-        
+                if fields['Static'] != static:
+                    logger.warning(f"Static power for {name} {static} is different from previous test vectors ({fields['Static']})")
+                    fields[f'Static:{name}'] = static
+            fields[name] = results['Dynamic (W)']
+            self.results[name] = results
 
-        csv_filename = f"{design_name}_power.csv"
+        # copy synthesis results for reference
+        # FIXME dependency results/paths
+        with open(self.run_path / 'vivado_synth' / 'vivado_synth_results.json') as synth_results_file:
+            synth_results = json.load(synth_results_file)
 
-        with open(Path.cwd() / csv_filename, "w") as csv_file:
+        fields['LUT'] = synth_results['lut']
+        fields['FF'] = synth_results['ff']
+        fields['Slice'] = synth_results['slice']
+        fields['LUT RAM'] = synth_results['lut_mem']
+
+        csv_path = Path.cwd() / f"VivadoPowerLwc_{design_name}_{freq}MHz.csv"
+        with open(csv_path, "w") as csv_file:
             writer = csv.DictWriter(csv_file, fields.keys())
             writer.writeheader()
             writer.writerow(fields)
+        
+        logger.info(f"Power results written to {csv_path}")
 
         self.results['success'] = True

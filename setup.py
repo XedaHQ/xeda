@@ -6,7 +6,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.0.2',
+    # version='0.0.3',
 
     version_config={
         "version_style": {
@@ -60,19 +60,12 @@ Xeda can assists hardware developers during verification, evaluation, and deploy
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-        "jinja2>=2.11.2", "colored", "progress>=1.5", "coloredlogs>=14", "pebble>=4", "numpy>=1",
+        "jinja2>=2.11.2", "colored", "progress>=1.5", "coloredlogs>=14", "pebble>=4", "numpy>=1", 'psutil',
         "tomlkit>=0.7"
     ],
 
-    # setup_requires=['setuptools-vcs-version'],
+    setup_requires=['setuptools-vcs-version'],
 
-    # List additional groups of dependencies here (e.g. development
-    # dependencies). You can install these using the following syntax,
-    # for example:
-    # $ pip install -e .[dev,test]
-    # extras_require={
-    #     'dev': [],
-    # },googl
 
     package_data={"":
                   [

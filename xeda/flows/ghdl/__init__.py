@@ -13,7 +13,6 @@ class GhdlSim(Ghdl, SimFlow):
     def run(self):
         design_settings = self.settings.design
         flow_settings = self.settings.flow
-        rtl_settings = design_settings['rtl']
         tb_settings = design_settings['tb']
         vhdl_settings = design_settings['language']['vhdl']
 
@@ -74,9 +73,7 @@ class GhdlSim(Ghdl, SimFlow):
                 run_options.append(f'--vcd={self.vcd}')
 
         tb_generics_opts = [f"-g{k}={v}" for k, v in tb_settings.get("generics", {}).items()]
-        rtl_generics_opts = [f"-g{k}={v}" for k, v in rtl_settings.get("generics", {}).items()]
-
-        sources = list(map(lambda x: str(x), rtl_settings['sources'] + tb_settings['sources']))
+        # rtl_generics_opts = [f"-g{k}={v}" for k, v in rtl_settings.get("generics", {}).items()]
 
         # self.run_process('ghdl', ['-a'] + analysis_options + warns + sources,
         #                  initial_step='Analyzing VHDL files',
@@ -92,7 +89,7 @@ class GhdlSim(Ghdl, SimFlow):
 
         tb_top = tb_settings['top']
         
-        self.run_process('ghdl', ['-i'] + analysis_options + warns + sources,
+        self.run_process('ghdl', ['-i'] + analysis_options + warns + list(map(lambda x: str(x), self.sim_sources)),
                          initial_step='Analyzing VHDL files',
                          stdout_logfile='ghdl_analyze_stdout.log',
                          check=True

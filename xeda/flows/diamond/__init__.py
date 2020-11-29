@@ -23,7 +23,7 @@ class DiamondSynth(Diamond, SynthFlow):
 
     def parse_reports(self):
         self.results = dict()
-        reports_dir = self.reports_dir
+        reports_dir = self.flow_run_dir / 'diamond_impl'
         design_name = self.settings.design['name']
         impl_name = self.settings.flow['impl_name']
 
@@ -32,6 +32,7 @@ class DiamondSynth(Diamond, SynthFlow):
         freq_pat = r'^\s*Preference:\s+FREQUENCY\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_frequency>\d+\.\d+)\s+MHz\s*;\s*\n\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors?'
         self.parse_report(reports_dir / f'{design_name}_{impl_name}.twr', [period_pat, freq_pat])
 
+        print(self.results)
         if 'clock_frequency' in self.results:
             frequency = self.results['clock_frequency']
             period = 1000.0/frequency

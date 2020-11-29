@@ -5,8 +5,6 @@ proc errorExit {errorString} {
 }
 
 set design_name    {{design.name}}
-set tb_top         {{tb_top}}
-set results_dir    results
 set snapshot_name  {{tb_top}}
 
 load_feature simulator
@@ -69,8 +67,9 @@ open_saif {{rc.saif}}
 {% endif %}
 
 ## TODO: WDB support
-## set wdb_file "${results_dir}/xsim_${tb_top}_dump"
+## set wdb_file "xsim_waves"
 ## open_wave_database ${wdb_file}
+
 {%- if vcd %}
 puts "\n===========================( Setting up VCD )==========================="
 open_vcd {{vcd}}

@@ -6,23 +6,23 @@ import os
 import re
 from pathlib import Path
 import subprocess
+# from contextlib import contextmanager
 import time
-import typing
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import logging
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
 import colored
 # import psutil
+import hashlib
+import signal
+from typing import Union, Dict, List
 
 from .settings import Settings
 from ..utils import camelcase_to_snakecase, try_convert
 from ..debug import DebugLevel
 
-from pathlib import Path
-
-from typing import Union, Dict, List
-import hashlib
+logger = logging.getLogger()
 
 JsonType = Union[str, int, float, bool, List['JsonType'], 'JsonTree']
 JsonTree = Dict[str, JsonType]
@@ -35,7 +35,33 @@ class FlowFatalException(Exception):
     pass
 
 
-logger = logging.getLogger()
+def final_kill(proc):
+    try:
+        proc.wait()
+        import psutil
+        for child in psutil.Process(os.getpid()).children(recursive=True):
+            child.kill()
+    except ModuleNotFoundError:
+        logger.error(f"Failed to import module psutil. Make sure it's installed")
+    except Exception as e:
+        logger.error(f"Failed to kill child processes recursively using `psutil`: {e}")
+    finally:
+        try:
+            proc.terminate()
+            proc.wait()
+            proc.kill()
+            proc.wait()
+        except:
+            pass
+
+# @contextmanager
+# def process(*args, **kwargs):
+#     proc = subprocess.Popen(*args, **kwargs)
+#     try:
+#         yield proc
+#     finally:
+#         final_kill(proc)
+
 
 
 def my_print(*args, **kwargs):
@@ -81,24 +107,24 @@ class Flow():
 
     def run_flow(self, parallel_run=False):
         self.set_run_dir()
+        
 
         design_settings = self.settings.design
 
         for section in ['rtl', 'tb']:
             if section in design_settings and design_settings[section]:
                 design_settings[section]['sources'] = [
-                    DesignSource(
-                        src) if isinstance(src, str) else src for src in design_settings[section].get('sources', [])
+                    DesignSource(src) if isinstance(src, str) else src for src in design_settings[section].get('sources', [])
                 ]
 
                 generics = design_settings[section].get("generics", {})
                 for gen_key, gen_val in generics.items():
-                    if FileResource.is_file_resouce(gen_val):
+                    if FileResource.is_file_resource(gen_val):
                         resource_path = gen_val["file"]
                         assert isinstance(
                             resource_path, str), "value of `file` should be a relative or absolute path string"
                         gen_val = self.conv_to_relative_path(resource_path.strip())
-                        logger.info(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
+                        logger.debug(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
                         generics[gen_key] = gen_val
 
         self.check_settings()
@@ -110,6 +136,7 @@ class Flow():
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         self.init_time = time.monotonic()
         self.run()
+        self.reports_dir = Path(self.reports_subdir_name)
 
     def hash(self, settings):
         skip_fields = {'author', 'url', 'comment', 'description', 'license'}
@@ -217,6 +244,7 @@ class Flow():
     def fatal(self, msg):
         logger.critical(msg)
         raise FlowFatalException(msg)
+    
 
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):
         if not stdout_logfile:
@@ -304,26 +332,10 @@ class Flow():
             except KeyboardInterrupt as e:
                 if spinner:
                     print(SHOW_CURSOR)
-                logger.critical(f"Terminating {proc.args[0]}[{proc.pid}]")
-                raise e
+                final_kill(proc)
             finally:
-                pid = proc.pid
-                try:
-                    # procs = psutil.Process(pid).children(recursive=True)
-                    # for p in procs:
-                    #     try:
-                    #         os.killpg(p.pid, signal.SIGINT)
-                    #         p.terminate()
-                    #         p.wait(timeout=1)
-                    #         p.kill()
-                    #     except:
-                    #         pass
-                    proc.terminate()
-                    proc.wait(timeout=1)
-                    proc.kill()
-                    proc.wait()
-                except:
-                    pass
+                final_kill(proc)
+
 
         if spinner:
             print(SHOW_CURSOR)
@@ -338,7 +350,6 @@ class Flow():
         return proc
 
     def parse_report(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
-        logger.debug(f"Parsing report file: {reportfile_path}")
         # TODO fix debug and verbosity levels!
         high_debug = self.args.verbose
         if not reportfile_path.exists():
@@ -423,29 +434,25 @@ class Flow():
         self.dump_json(self.results, path)
         logger.info(f"Results written to {path}")
 
-    def stdout_search_re(self, regexp):
-        # FIXME
-        return True
-        # log_file = self.flow_run_dir / self.flow_stdout_log
-        # try:
-        #     with open(log_file) as logf:
-        #         if re.search(regexp, logf.read()):
-        #             return True
-        # except:
-        #     logger.warning(f"Failed to open {log_file}")
-
-        return False
 
 
 class SimFlow(Flow):
     required_settings = {}
 
-    # TODO FIXME move to plugin
+    def __init__(self, settings: Settings, args) -> None:
+        super().__init__(settings, args)
+
+    @property
+    def sim_sources(self):
+        tb_settings = self.settings.design["tb"]
+        srcs = self.settings.design["rtl"]['sources']
+        for src in tb_settings['sources']:
+            if not src in srcs:
+                srcs.append(src)
+        return srcs
+        
     def parse_reports(self):
-        # failed = self.stdout_search_re(r'FAIL \(1\): SIMULATION FINISHED')
-        # passed = self.stdout_search_re(r'PASS \(0\): SIMULATION FINISHED')
-        # FIXME FIXME this should go in LWC plugin
-        self.results['success'] = True #passed and not failed
+        self.results['success'] = True
 
     @property
     def vcd(self):
@@ -468,11 +475,12 @@ class DseFlow(Flow):
 
 class FileResource:
     @classmethod
-    def is_file_resouce(cls, src):
+    def is_file_resource(cls, src):
         return isinstance(src, cls) or (isinstance(src, dict) and 'file' in src)
 
     def __init__(self, path) -> None:
         try:
+            # path must be absolute 
             self.file = Path(path).resolve(strict=True)
         except Exception as e:
             logger.critical(f"Design source file '{path}' does not exist!")
@@ -480,12 +488,19 @@ class FileResource:
 
         with open(self.file, 'rb') as f:
             self.hash = hashlib.sha256(f.read()).hexdigest()
+    
+    def __eq__(self, other):
+        return self.hash == other.hash and self.file.samefile(other.file) # path is already absolute 
+
+    def __hash__(self):
+        return hash(tuple(self.hash, str(self.file) )) # path is already absolute 
+
 
 
 class DesignSource(FileResource):
     @classmethod
     def is_design_source(cls, src):
-        return cls.is_file_resouce(src)
+        return cls.is_file_resource(src)
 
     def __init__(self, file: str, type: str = None, standard: str = None, variant: str = None) -> None:
 
@@ -509,3 +524,5 @@ class DesignSource(FileResource):
 
     def __str__(self):
         return str(self.file)
+
+
