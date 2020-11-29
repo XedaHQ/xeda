@@ -335,6 +335,10 @@ class VivadoSim(Vivado, SimFlow):
         else:
             sim_tops = [sim_tops]
 
+        configuration_specification = tb_settings.get('configuration_specification')
+        if configuration_specification:
+            sim_tops[0] = configuration_specification ## xelab requires the top to be set as the name of the configuration specification!
+
         script_path = self.copy_from_template(f'vivado_sim.tcl',
                                               analyze_flags=' '.join(flow_settings.get('analyze_flags', ['-relax'])),
                                               elab_flags=' '.join(unique_list(elab_flags)),
