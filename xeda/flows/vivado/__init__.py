@@ -448,15 +448,15 @@ class VivadoPowerLwc(VivadoPower):
     def run(self):
         flow_settings = self.settings.flow
         tb_settings = self.settings.design['tb']
-        lwc_settings = self.settings.design.get('lwc')
+        lwc_settings = self.settings.design.get('lwc', {})
 
         if flow_settings.get('prerun_time') is None:
             flow_settings['prerun_time'] = 100 + math.floor(self.settings.flow_depends['vivado_synth']['clock_period'] * 4) - 1
         
         power_tvs = flow_settings.get('power_tvs')
         if not power_tvs:
-            power_tvs = ['enc_16_0', 'enc_0_16', 'enc_1536_0', 'enc_0_1536', 'dec_16_0', 'dec_0_16', 'dec_1536_0', 'dec_0_1536']
-            if lwc_settings and lwc_settings.get('supports_hash'):
+            power_tvs = ['enc_16_0', 'enc_0_16', 'enc_1536_0', 'enc_0_1536', 'dec_16_0', 'dec_1536_0']
+            if lwc_settings.get('supports_hash'):
                 power_tvs.extend(['hash_16', 'hash_1536'])
 
         lwc_settings = self.settings.design.get('lwc')
