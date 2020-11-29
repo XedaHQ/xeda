@@ -459,7 +459,7 @@ class VivadoPowerLwc(VivadoPower):
         lwc_variant = 'v1'
         if lwc_settings:
             lwc_variant = lwc_settings.get('variant', lwc_variant)
-        power_tvs_root = os.path.join('KAT_GMU'/ lwc_variant)
+        power_tvs_root = os.path.join('KAT_GMU', lwc_variant)
 
         def pow_tv_run_config(tv_sub):
             tv_generics = copy.deepcopy(tb_settings.get('generics', {}))
