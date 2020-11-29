@@ -32,7 +32,6 @@ class DiamondSynth(Diamond, SynthFlow):
         freq_pat = r'^\s*Preference:\s+FREQUENCY\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_frequency>\d+\.\d+)\s+MHz\s*;\s*\n\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors?'
         self.parse_report(reports_dir / f'{design_name}_{impl_name}.twr', [period_pat, freq_pat])
 
-        print(self.results)
         if 'clock_frequency' in self.results:
             frequency = self.results['clock_frequency']
             period = 1000.0/frequency

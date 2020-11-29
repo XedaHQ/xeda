@@ -360,6 +360,7 @@ class FmaxRunner(FlowRunner):
         lo_freq = float(flow_settings.get('fmax_low_freq', 1.0))
         # can go higher
         hi_freq = float(flow_settings.get('fmax_high_freq', 600.0))
+        assert lo_freq < hi_freq , "fmax_low_freq should be less than fmax_high_freq"
         resolution = 0.1
         max_no_improvements = 2
         delta_increment = resolution / 2
