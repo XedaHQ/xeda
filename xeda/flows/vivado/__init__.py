@@ -8,6 +8,7 @@ import os
 import math
 import csv
 from pathlib import Path
+import re
 from typing import Union
 from xml.etree import ElementTree
 import html
@@ -359,6 +360,12 @@ class VivadoSim(Vivado, SimFlow):
 class VivadoPostsynthSim(VivadoSim):
     depends_on = {VivadoSynth: {'rtl.sources': ['results/impl_timesim.v']}}
 
+    def pre_depend(self, dep):
+        pass
+
+    def post_depend(self, dep):
+        pass
+
     def run(self):
         design_settings = self.settings.design
         tb_settings = design_settings['tb']
@@ -448,6 +455,7 @@ class VivadoPowerLwc(VivadoPower):
     def run(self):
         flow_settings = self.settings.flow
         tb_settings = self.settings.design['tb']
+        design_name = self.settings.design['name']
         lwc_settings = self.settings.design.get('lwc', {})
 
         if flow_settings.get('prerun_time') is None:
@@ -459,10 +467,12 @@ class VivadoPowerLwc(VivadoPower):
             if lwc_settings.get('supports_hash'):
                 power_tvs.extend(['hash_16', 'hash_1536'])
 
-        lwc_settings = self.settings.design.get('lwc')
-        lwc_variant = 'v1'
-        if lwc_settings:
-            lwc_variant = lwc_settings.get('variant', lwc_variant)
+        lwc_variant = lwc_settings.get('variant')
+        if not lwc_variant:
+            name_splitted = design_name.split('-')
+            assert len(name_splitted) > 1, "either specify design.lwc.variant or design.name should be ending with -v\d+"
+            lwc_variant = name_splitted[-1]
+            assert re.match(r'v\d+', lwc_variant) , "either specify design.lwc.variant or design.name should be ending with -v\d+"
         power_tvs_root = os.path.join('KAT_GMU', lwc_variant)
 
         def pow_tv_run_config(tv_sub):
@@ -477,6 +487,9 @@ class VivadoPowerLwc(VivadoPower):
         run_configs = [pow_tv_run_config(tv) for tv in  power_tvs]
         flow_settings['run_configs'] = run_configs
         flow_settings['elab_debug'] = 'typical'
+
+        tb_settings["top"] = "LWC_TB"
+        tb_settings["configuration_specification"] = "LWC_wrapper_conf"
 
         if not flow_settings.get('skip_simulation'):
             VivadoPostsynthSim.run(self) # run simulation FIXME implement through dependency system
