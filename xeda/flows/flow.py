@@ -16,7 +16,7 @@ import colored
 # import psutil
 import hashlib
 import signal
-from typing import Union, Dict, List
+from typing import Mapping, Union, Dict, List
 
 from .settings import Settings
 from ..utils import camelcase_to_snakecase, try_convert
@@ -70,7 +70,14 @@ def my_print(*args, **kwargs):
 
 class Flow():
     """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
+    
     depends_on = {}
+
+    def pre_depend(self, dep):
+        pass
+
+    def post_depend(self, dep):
+        pass
 
     required_settings = {}
     default_settings = {}
@@ -105,10 +112,7 @@ class Flow():
         self.post_run_hooks = []
         self.post_results_hooks = []
 
-    def run_flow(self, parallel_run=False):
-        self.set_run_dir()
-        
-
+    def freeze_design_sources(self):
         design_settings = self.settings.design
 
         for section in ['rtl', 'tb']:
@@ -127,6 +131,12 @@ class Flow():
                         logger.debug(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
                         generics[gen_key] = gen_val
 
+    def run_flow(self, parallel_run=False):
+        self.set_run_dir()
+        
+
+
+
         self.check_settings()
         self.dump_settings()
 
@@ -139,7 +149,6 @@ class Flow():
         self.reports_dir = Path(self.reports_subdir_name)
 
     def hash(self, settings):
-        skip_fields = {'author', 'url', 'comment', 'description', 'license'}
 
         def semantic_hash(data: JsonTree, hasher=hashlib.sha1) -> str:
             def get_digest(b: bytes):
@@ -147,9 +156,9 @@ class Flow():
 
             # data: JsonType, not adding type as Pylance does not seem to like recursive types :/
             def sorted_dict_str(data) -> StrTreeType:
-                if type(data) == dict:
-                    return {k: sorted_dict_str(data[k]) for k in sorted(data.keys()) if not k in skip_fields}
-                elif type(data) == list:
+                if isinstance(data, Mapping):
+                    return {k: sorted_dict_str(data[k]) for k in sorted(data.keys())}
+                elif isinstance(data, list):
                     return [sorted_dict_str(val) for val in data]
                 elif hasattr(data, '__dict__'):
                     return sorted_dict_str(data.__dict__)
@@ -189,6 +198,8 @@ class Flow():
         #     tb_settings = self.settings.design.get('tb')
         #     if tb_settings:
         #         self.settings.design['tb'] = None
+
+        self.freeze_design_sources()
 
         if self.design_run_hash is None:
             self.design_run_hash = self.hash(self.settings)

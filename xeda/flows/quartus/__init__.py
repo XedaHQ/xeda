@@ -269,7 +269,6 @@ class QuartusSynth(Quartus, SynthFlow):
 # class QuartusDse(QuartusSynth, DseFlow):
 #     def run(self):
 #         self.create_project()
-#         # TODO Check correspondance of settings hash vs design settings
 #         # 'explore': Exploration flow to use, if not specified in --config
 #         #   configuration file. Valid flows: timing_aggressive,
 #         #   all_optimization_modes, timing_high_effort, seed,
