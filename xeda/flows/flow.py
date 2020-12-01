@@ -116,26 +116,22 @@ class Flow():
         design_settings = self.settings.design
 
         for section in ['rtl', 'tb']:
-            if section in design_settings and design_settings[section]:
-                design_settings[section]['sources'] = [
-                    DesignSource(src) if isinstance(src, str) else src for src in design_settings[section].get('sources', [])
+            section_settings = design_settings.get(section)
+            if section_settings:
+                section_settings['sources'] = [
+                    DesignSource(src) if isinstance(src, str) else src for src in section_settings.get('sources', [])
                 ]
 
-                generics = design_settings[section].get("generics", {})
+                generics = section_settings.get("generics", {})
                 for gen_key, gen_val in generics.items():
                     if FileResource.is_file_resource(gen_val):
                         resource_path = gen_val["file"]
-                        assert isinstance(
-                            resource_path, str), "value of `file` should be a relative or absolute path string"
-                        gen_val = self.conv_to_relative_path(resource_path.strip())
+                        gen_val = Path(resource_path).resolve(strict=True)
                         logger.debug(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
-                        generics[gen_key] = gen_val
+                        generics[gen_key] = str(gen_val)
 
     def run_flow(self, parallel_run=False):
         self.set_run_dir()
-        
-
-
 
         self.check_settings()
         self.dump_settings()
