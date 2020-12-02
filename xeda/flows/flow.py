@@ -230,7 +230,7 @@ class Flow():
         logger.info(f'dumping effective settings to {effective_settings_json}')
         self.dump_json(self.settings, effective_settings_json)
 
-    def copy_from_template(self, resource_name, **attr):
+    def copy_from_template(self, resource_name, **kwargs):
         template = self.jinja_env.get_template(resource_name)
         script_path = self.flow_run_dir / resource_name
         logger.debug(f'generating {script_path.resolve()} from template.')
@@ -239,7 +239,7 @@ class Flow():
                                            nthreads=self.nthreads,
                                            debug=self.args.debug,
                                            reports_dir=self.reports_subdir_name,
-                                           **attr)
+                                           **kwargs)
         with open(script_path, 'w') as f:
             f.write(rendered_content)
         return resource_name
