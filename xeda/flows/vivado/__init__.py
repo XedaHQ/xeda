@@ -9,7 +9,7 @@ import math
 import csv
 from pathlib import Path
 import re
-from typing import Union
+from typing import Sequence, Union
 from xml.etree import ElementTree
 import html
 from ...utils import unique_list
@@ -120,10 +120,10 @@ class VivadoSynth(Vivado, SynthFlow):
             "place": ["-directive ExtraPostPlacementOpt"],
             "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
                           '-dsp_register_opt', '-bram_power_opt'],
+            # if no directive: -placement_opt
+            "phys_opt": ["-directive AggressiveExplore"],
             # "route": "-directive NoTimingRelaxation",
             "route": ["-directive AggressiveExplore"],
-            # if no directive: -placement_opt
-            "phys_opt": ["-directive AggressiveExplore"]
         },
         "Timing2": {
             # or ExtraTimingOpt, ExtraPostPlacementOpt, Explore
@@ -159,9 +159,9 @@ class VivadoSynth(Vivado, SynthFlow):
             "place": "-directive Explore",
             "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
                           '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-            "route": "-directive Explore",
             # if no directive: -placement_opt
-            "phys_opt": "-directive Explore"
+            "phys_opt": "-directive Explore",
+            "route": "-directive Explore",
         }
     }
     results_dir = 'results'
@@ -464,7 +464,8 @@ class VivadoPowerLwc(VivadoPower):
         power_tvs = flow_settings.get('power_tvs')
         if not power_tvs:
             power_tvs = ['enc_16_0', 'enc_0_16', 'enc_1536_0', 'enc_0_1536', 'dec_16_0', 'dec_1536_0']
-            if lwc_settings.get('supports_hash'):
+            algorithms = lwc_settings.get('algorithm')
+            if (algorithms and (isinstance(algorithms, list) or isinstance(algorithms, tuple)) and len(algorithms) > 1) or lwc_settings.get('supports_hash'):
                 power_tvs.extend(['hash_16', 'hash_1536'])
 
         lwc_variant = lwc_settings.get('variant')
@@ -489,7 +490,8 @@ class VivadoPowerLwc(VivadoPower):
         flow_settings['elab_debug'] = 'typical'
 
         tb_settings["top"] = "LWC_TB"
-        tb_settings["configuration_specification"] = "LWC_wrapper_conf"
+        if not tb_settings.get('configuration_specification'):
+            tb_settings["configuration_specification"] = "LWC_TB_wrapper_conf"
 
         if not flow_settings.get('skip_simulation'):
             VivadoPostsynthSim.run(self) # run simulation FIXME implement through dependency system

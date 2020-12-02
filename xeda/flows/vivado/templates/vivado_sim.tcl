@@ -96,6 +96,7 @@ puts "Adding nets to be logged in SAIF"
 log_saif [get_objects -r -filter { type == signal || type == in_port || type == out_port || type == inout_port || type == port } /{{tb_top}}/{{design.tb.uut}}/*]
 {% endif -%}
 
+
 puts "Main Run\n"
 
 if { [catch {eval run {% if 'stop_time' in flow %} {{flow.stop_time}} {% else %} all {% endif %} } error]} {

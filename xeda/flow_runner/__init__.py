@@ -167,8 +167,7 @@ class FlowRunner():
                 logger.critical(
                     f'{len(d)} designs are availables in the current project. Please specify target design using --design')
             logger.critical(f'Available designs: {", ".join([x["name"] for x in d])}')
-            self.fatal()
-
+            sys.exit(1)
         try:
             with open(toml_path) as f:
                 xeda_project_settings = tomlkit_to_popo(tomlkit.loads(f.read()))
