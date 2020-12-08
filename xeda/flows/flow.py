@@ -360,9 +360,10 @@ class Flow():
         # TODO fix debug and verbosity levels!
         high_debug = self.args.verbose
         if not reportfile_path.exists():
-            self.fatal(
-                f'Report file: {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.flow_run_dir}'
+            logger.warning(
+                f'File {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.flow_run_dir}'
             )
+            return False
         with open(reportfile_path) as rpt_file:
             content = rpt_file.read()
 
@@ -398,6 +399,7 @@ class Flow():
 
                 if not matched:
                     self.fatal(f"Error parsing report file: {rpt_file.name}\n Pattern not matched: {pat}\n")
+        return True
 
     def print_results(self, results=None):
         if not results:
@@ -457,12 +459,32 @@ class SimFlow(Flow):
             if not src in srcs:
                 srcs.append(src)
         return srcs
+
+    @property
+    def sim_tops(self) -> List[str]:
+        """ a view of tb.top that returns a list of primary_unit [secondary_unit] """
+        ## TODO is there ever a >= ternary_unit? If not switch to primary_unit, secondary_unit instead of the sim_tops list
+        tb_settings = self.settings.design["tb"]
+        tops = tb_settings['top']
+        if not isinstance(tops, list):
+            tops = [tops]
+        configuration_specification = tb_settings.get('configuration_specification')
+        if configuration_specification:
+            tops[0] = configuration_specification
+        return tops
+        
+    @property
+    def tb_top(self) -> str:
+        top = self.settings.design["tb"]['top']
+        if isinstance(top, list):
+            top = top[0]
+        return top
         
     def parse_reports(self):
         self.results['success'] = True
 
     @property
-    def vcd(self):
+    def vcd(self) -> str:
         vcd = self.settings.flow.get('vcd')
         if not vcd and self.args.debug >= DebugLevel.LOW:
             vcd = 'debug_dump.vcd'

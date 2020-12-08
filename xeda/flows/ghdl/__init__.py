@@ -1,12 +1,9 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-import re
 from ..flow import SimFlow, Flow
-
 
 class Ghdl(Flow):
     pass
-
 
 class GhdlSim(Ghdl, SimFlow):
 
@@ -86,8 +83,6 @@ class GhdlSim(Ghdl, SimFlow):
         #                  stdout_logfile='ghdl_elaborate.log',
         #                  check=True
         #                  )
-
-        tb_top = tb_settings['top']
         
         self.run_process('ghdl', ['-i'] + analysis_options + warns + list(map(lambda x: str(x), self.sim_sources)),
                          initial_step='Analyzing VHDL files',
@@ -95,16 +90,14 @@ class GhdlSim(Ghdl, SimFlow):
                          check=True
                          )
 
-        self.run_process('ghdl', ['-m', '-f'] + elab_options + optimize + warns + lib_paths + [tb_top],
+        self.run_process('ghdl', ['-m', '-f'] + elab_options + optimize + warns + lib_paths + self.sim_tops,
                          initial_step='Elaborating design',
                          stdout_logfile='ghdl_elaborate_stdout.log',
                          check=True
                          )
 
-        self.run_process('ghdl', ['-r', vhdl_std_opt, tb_top] + run_options + tb_generics_opts,
+        self.run_process('ghdl', ['-r', vhdl_std_opt] + self.sim_tops + run_options + tb_generics_opts, # GHDL supports primary_unit [secondary_unit] 
                          initial_step='Running simulation',
                          stdout_logfile='ghdl_run_stdout.log',
                          force_echo=True
                          )
-
-            

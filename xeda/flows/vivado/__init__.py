@@ -9,7 +9,7 @@ import math
 import csv
 from pathlib import Path
 import re
-from typing import Sequence, Union
+from typing import Union
 from xml.etree import ElementTree
 import html
 from ...utils import unique_list
@@ -175,9 +175,12 @@ class VivadoSynth(Vivado, SynthFlow):
 
         input_delay = flow_settings.get('input_delay', 0)
         output_delay = flow_settings.get('output_delay', 0)
+        constrain_io = flow_settings.get('constrain_io', True)
 
         clock_xdc_path = self.copy_from_template(f'clock.xdc',
-                                                 input_delay=input_delay, output_delay=output_delay,
+                                                 constrain_io=constrain_io,
+                                                 input_delay=input_delay,
+                                                 output_delay=output_delay,
                                                  )
 
         strategy = flow_settings.get('strategy', 'Default')
@@ -247,17 +250,20 @@ class VivadoSynth(Vivado, SynthFlow):
         fname, fregex = ('dsp', 'DSPs')
         slice_logic_pat += r'^\s*\|\s*' + fregex + \
             r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
-        self.parse_report(reports_dir / 'utilization.rpt', slice_logic_pat)
+        failed = False
 
-        self.parse_report(reports_dir / 'timing_summary.rpt',
+
+        failed |= not self.parse_report(reports_dir / 'timing_summary.rpt',
                           r'Design\s+Timing\s+Summary[\s\|\-]+WNS\(ns\)\s+TNS\(ns\)\s+TNS Failing Endpoints\s+TNS Total Endpoints\s+WHS\(ns\)\s+THS\(ns\)\s+THS Failing Endpoints\s+THS Total Endpoints\s+WPWS\(ns\)\s+TPWS\(ns\)\s+TPWS Failing Endpoints\s+TPWS Total Endpoints\s*' +
                           r'\s*(?:\-+\s+)+' +
                           r'(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<_tns>\-?\d+(?:\.\d+)?)\s+(?P<_failing_endpoints>\-?\d+(?:\.\d+)?)\s+(?P<_tns_total_endpoints>\-?\d+(?:\.\d+)?)\s+'
                           r'(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<_ths_failing_endpoints>\-?\d+(?:\.\d+)?)\s+(?P<_ths_total_endpoints>\-?\d+(?:\.\d+)?)\s+',
                           r'Clock Summary[\s\|\-]+^\s*Clock\s+.*$[^\w]+(\w*)\s+(\{.*\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)'
                           )
+        
+        failed |= not self.parse_report(reports_dir / 'utilization.rpt', slice_logic_pat)
 
-        self.parse_report(reports_dir / 'power.rpt',
+        failed |= not self.parse_report(reports_dir / 'power.rpt',
                           r'^\s*\|\s*Total\s+On-Chip\s+Power\s+\(W\)\s*\|\s*(?P<power_total>[\-\.\w]+)\s*\|.*' +
                           r'^\s*\|\s*Dynamic\s*\(W\)\s*\|\s*(?P<power_dynamic> [\-\.\w]+)\s*\|.*' +
                           r'^\s*\|\s*Device\s+Static\s+\(W\)\s*\|\s*(?P<power_static>[\-\.\w]+)\s*\|.*' +
@@ -265,17 +271,17 @@ class VivadoSynth(Vivado, SynthFlow):
                           r'^\s*\|\s*Design\s+Nets\s+Matched\s*\|\s*(?P<power_nets_matched>[\-\.\w]+)\s*\|.*'
                           )
 
-        failed = False
-        forbidden_resources = ['latch', 'dsp', 'bram_tile']
-        for res in forbidden_resources:
-            if (self.results[res] != 0):
-                logger.critical(
-                    f'{report_stage} reports show {self.results[res]} use(s) of forbidden resource {res}.')
-                failed = True
+        if not failed:
+            forbidden_resources = ['latch', 'dsp', 'bram_tile']
+            for res in forbidden_resources:
+                if (self.results[res] != 0):
+                    logger.critical(
+                        f'{report_stage} reports show {self.results[res]} use(s) of forbidden resource {res}.')
+                    failed = True
 
-        # TODO better fail analysis for vivado
-        failed = failed or (self.results['wns'] < 0) or (self.results['whs'] < 0) or (
-            self.results['_failing_endpoints'] != 0)
+            # TODO better fail analysis for vivado
+            failed |= (self.results['wns'] < 0) or (self.results['whs'] < 0) or (
+                self.results['_failing_endpoints'] != 0)
 
         self.results['success'] = not failed
 
@@ -329,19 +335,6 @@ class VivadoSim(Vivado, SimFlow):
         if elab_optimize and elab_optimize not in elab_flags:  # FIXME none of -Ox in elab_flags
             elab_flags.append(elab_optimize)
 
-        sim_tops = tb_settings['top']
-        tb_top = sim_tops
-        if isinstance(sim_tops, list):
-            tb_top = sim_tops[0]
-        else:
-            sim_tops = [sim_tops]
-
-        configuration_specification = tb_settings.get(
-            'configuration_specification')
-        if configuration_specification:
-            # xelab requires the top to be set as the name of the configuration specification!
-            sim_tops[0] = configuration_specification
-
         script_path = self.copy_from_template(f'vivado_sim.tcl',
                                               analyze_flags=' '.join(flow_settings.get(
                                                   'analyze_flags', ['-relax'])),
@@ -352,8 +345,8 @@ class VivadoSim(Vivado, SimFlow):
                                                   flow_settings.get('sim_flags', [])),
                                               initialize_zeros=False,
                                               vcd=self.vcd,
-                                              sim_tops=sim_tops,
-                                              tb_top=tb_top,
+                                              sim_tops=self.sim_tops,
+                                              tb_top=self.tb_top,
                                               lib_name='work',
                                               sim_sources=self.sim_sources,
                                               debug_traces=self.args.debug >= DebugLevel.HIGHEST or self.settings.flow.get(
@@ -420,14 +413,8 @@ class VivadoPower(VivadoPostsynthSim):
         # run simulation FIXME implement through flow dependency system
         VivadoPostsynthSim.run(self)
 
-        # TODO duplicate, factor into VivadoSim
-        sim_tops = self.settings.design['tb']['top']
-        tb_top = sim_tops
-        if isinstance(sim_tops, list):
-            tb_top = sim_tops[0]
-
         script_path = self.copy_from_template(f'vivado_power.tcl',
-                                              tb_top=tb_top,
+                                              tb_top=self.tb_top,
                                               run_configs=[
                                                   dict(saif=saif_file, report=self.power_report_filename)],
                                               checkpoint=os.path.relpath(str(
@@ -516,18 +503,12 @@ class VivadoPowerLwc(VivadoPower):
         if not tb_settings.get('configuration_specification'):
             tb_settings["configuration_specification"] = "LWC_TB_wrapper_conf"
 
-        # TODO duplicate, factor into VivadoSim
-        sim_tops = self.settings.design['tb']['top']
-        tb_top = sim_tops
-        if isinstance(sim_tops, list):
-            tb_top = sim_tops[0]
-
         if not flow_settings.get('skip_simulation'):
             # run simulation FIXME implement through dependency system
             VivadoPostsynthSim.run(self)
 
         script_path = self.copy_from_template(f'vivado_power.tcl',
-                                              tb_top=tb_top,
+                                              tb_top=self.tb_top,
                                               run_configs=run_configs,
                                               checkpoint=os.path.relpath(str(
                                                   self.run_path / 'vivado_synth' / VivadoSynth.checkpoints_dir / 'post_route.dcp'), Path(self.flow_run_dir))

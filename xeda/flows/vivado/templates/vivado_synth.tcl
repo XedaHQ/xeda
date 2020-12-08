@@ -111,7 +111,7 @@ reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
 report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 
 ## TODO FIXME
-{% if True or flow.strategy == "Power" %}
+{% if flow.optimize_power or flow.strategy == "Power" %}
 puts "\n===============================( Post-synth Power Optimization )================================"
 # this is more effective than Post-placement Power Optimization but can hurt timing
 eval power_opt_design
