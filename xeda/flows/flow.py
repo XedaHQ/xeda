@@ -142,7 +142,6 @@ class Flow():
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         self.init_time = time.monotonic()
         self.run()
-        self.reports_dir = Path(self.reports_subdir_name)
 
     def hash(self, settings):
 
@@ -214,6 +213,7 @@ class Flow():
         assert flow_run_dir.is_dir()
 
         self.flow_run_dir = flow_run_dir
+        self.reports_dir = self.flow_run_dir / self.reports_subdir_name
 
     def run(self):
         # Must be implemented

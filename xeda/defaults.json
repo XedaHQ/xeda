@@ -24,8 +24,8 @@
             "clock_period": 15.0,
             "synthesis_engine": "lse",
             "strategy": "Timing",
-            "timeout": 1800,
-            "fmax_low_freq": 8.0,
+            "timeout": 2600,
+            "fmax_low_freq": 10.0,
             "fmax_high_freq": 150.0,
             "nthreads": 1
         },
@@ -35,8 +35,8 @@
             "strategy": "Timing",
             "optimize_power": "False",
             "timeout": 3600,
-            "fmax_low_freq": 120.0,
-            "fmax_high_freq": 280.0,
+            "fmax_low_freq": 50.0,
+            "fmax_high_freq": 310.0,
             "nthreads": 4
         },
         "quartus_synth": {

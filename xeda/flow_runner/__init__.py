@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import List, Mapping
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
-import os
+import random
 import sys
 import inspect
 import logging
@@ -344,6 +344,9 @@ def nukemall():
         logger.exception('exception during killing')
 
 
+def unique(lst):
+    return list(dict.fromkeys(lst))
+
 class FmaxRunner(FlowRunner):
     def launch(self):
         start_time = time.monotonic()
@@ -381,28 +384,43 @@ class FmaxRunner(FlowRunner):
         pool = None
         no_improvements = 0
 
+        previously_tried_frequencies=set()
+        previously_tried_periods=set() # can be different due to rounding errors
+
         def round_freq_to_ps(freq: float) -> float:
             period = round(ONE_THOUSAND / freq, 3)
             return ONE_THOUSAND / period
         try:
             with ProcessPool(max_workers=num_workers) as pool:
                 while hi_freq - lo_freq >= resolution:
-                    frequencies_to_try, freq_step = numpy.linspace(
-                        lo_freq, hi_freq, num=num_workers, dtype=float, retstep=True)
 
-                    frequencies_to_try = [round_freq_to_ps(f) for f in frequencies_to_try]
+                    while True:
+                        frequencies_to_try, freq_step = numpy.linspace(
+                            lo_freq, hi_freq, num=num_workers, dtype=float, retstep=True)
+
+                        frequencies_to_try = unique([round_freq_to_ps(f) for f in frequencies_to_try if f not in previously_tried_frequencies])
+
+                        if (num_workers - len(frequencies_to_try)) < 3:
+                            break
+                        hi_freq += 5 * resolution
+                        lo_freq -= 3 * resolution
 
                     logger.info(
                         f"[Fmax] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies_to_try]}")
 
+                    previously_tried_frequencies.update(frequencies_to_try)
+
                     flows_to_run = []
                     for freq in frequencies_to_try:
-                        flow_settings['clock_period'] = round(ONE_THOUSAND / freq, 3)
-                        flow = self.setup_flow(settings, flow_name, max_threads=nthreads)
-                        flow.set_parallel_run()
-                        flows_to_run.append(flow)
+                        clock_period = round(ONE_THOUSAND / freq, 3)
+                        if clock_period not in previously_tried_periods:
+                            previously_tried_periods.add(clock_period)
+                            flow_settings['clock_period'] = clock_period
+                            flow = self.setup_flow(settings, flow_name, max_threads=nthreads)
+                            flow.set_parallel_run()
+                            flows_to_run.append(flow)
 
-                    proc_timeout_seconds = flow_settings.get('timeout', flows_to_run[0].timeout)
+                    proc_timeout_seconds = flow_settings.get('timeout', 3600)
 
                     logger.info(f'[Fmax] Timeout set to: {proc_timeout_seconds} seconds.')
 
@@ -460,7 +478,7 @@ class FmaxRunner(FlowRunner):
                             lo_freq = best.freq + delta_increment / shrink_factor
                         hi_freq = lo_freq + next_range
                     else:
-                        lo_freq = best.freq + delta_increment
+                        lo_freq = best.freq + delta_increment + delta_increment * random.random()
                         no_improvements = 0
                         # last or one before last
                         if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
@@ -470,10 +488,14 @@ class FmaxRunner(FlowRunner):
                             hi_freq = max(2 * best.freq - lo_point_choice,  ONE_THOUSAND / min_plausible_period)
                         else:
                             hi_freq = frequencies_to_try[improved_idx + 1]
-                        hi_freq += resolution + 2 * freq_step
+                        hi_freq += 2.3 * resolution + 2 * freq_step
+                    
+                    hi_freq += random.random()
 
                     logger.info(f'[Fmax] End of iteration #{num_iterations}')
                     logger.info(f'[Fmax] Execution Time so far: {int(time.monotonic() - start_time) // 60} minute(s)')
+                    if best and best.results:
+                        print_results(best.results, title='Best so far', subset=['clock_period', 'clock_frequency', 'lut', 'ff', 'slice'])
 
         except KeyboardInterrupt:
             logger.exception('Received Keyboard Interrupt')
@@ -490,7 +512,7 @@ class FmaxRunner(FlowRunner):
                 best.iterations = num_iterations
                 best.runtime_minutes = runtime_minutes
                 print_results(best.results, title='Best Results', subset=[
-                    'clock_period', 'frequency', 'lut', 'ff', 'slice'])
+                    'clock_period', 'clock_frequency', 'lut', 'ff', 'slice'])
                 best_json_path = Path(args.xeda_run_dir) / \
                     f'fmax_{settings["design"]["name"]}_{flow_name}_{self.timestamp}.json'
                 logger.info(f"Writing best result to {best_json_path}")
