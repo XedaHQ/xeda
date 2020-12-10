@@ -105,6 +105,10 @@ class XedaApp:
             default=max(1, multiprocessing.cpu_count() // 2), type=int,
         )
 
+        parser.add_argument(
+            '--version',  action='version', version=f'%(prog)s {__version__}', help='Print version information and exit',
+        )
+
         registered_flows = [camelcase_to_snakecase(
             n) for n, _ in self.flow_classes]
 
