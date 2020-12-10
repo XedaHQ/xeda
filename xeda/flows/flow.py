@@ -1,5 +1,6 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
+import copy
 from datetime import datetime
 import json
 import os
@@ -465,7 +466,7 @@ class SimFlow(Flow):
         """ a view of tb.top that returns a list of primary_unit [secondary_unit] """
         ## TODO is there ever a >= ternary_unit? If not switch to primary_unit, secondary_unit instead of the sim_tops list
         tb_settings = self.settings.design["tb"]
-        tops = tb_settings['top']
+        tops = copy.deepcopy(tb_settings['top'])
         if not isinstance(tops, list):
             tops = [tops]
         configuration_specification = tb_settings.get('configuration_specification')
