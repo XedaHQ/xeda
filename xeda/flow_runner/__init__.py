@@ -28,6 +28,21 @@ from ..utils import camelcase_to_snakecase, load_class, dict_merge, try_convert
 logger = logging.getLogger()
 
 
+def merge_overrides(overrides, settings):
+    if overrides:
+        for override in overrides:
+            key, val = override.split('=')
+            hier = key.split('.')
+            patch_dict = dict()
+            for field in hier[:-1]:
+                new_dict = dict()
+                patch_dict[field] = new_dict
+                patch_dict = new_dict
+            patch_dict[hier[-1]] = try_convert(val, convert_lists=True)
+            settings = dict_merge(settings, patch_dict, True)
+    return settings
+
+
 def tomlkit_to_popo(d):
     try:
         result = getattr(d, "value")
@@ -184,20 +199,9 @@ class FlowRunner():
         except IsADirectoryError as e:
             self.fatal(f'The specified design json is not a regular file.', e)
 
-        if self.args.override_settings:
-            for override in self.args.override_settings:
-                key, val = override.split('=')
-                hier = key.split('.')
-                patch = dict()
-                current_dict = patch
-                for field in hier[:-1]:
-                    new_dict = dict()
-                    current_dict[field] = new_dict
-                    current_dict = new_dict
-                current_dict[hier[-1]] = try_convert(val, convert_lists=True)
-                settings = dict_merge(settings, patch, True)
-
-        # settings = SimpleNamespace(**settings)
+        settings = merge_overrides(self.args.override_settings, settings)
+        flow_settings = settings['flows'].get(self.args.flow, dict())
+        settings['flows'][self.args.flow] = merge_overrides(self.args.override_flow_settings, flow_settings)
 
         return self.validate_settings(settings)
 

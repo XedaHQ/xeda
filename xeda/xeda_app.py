@@ -148,8 +148,13 @@ class XedaApp:
             help='Path to Xeda project file. By default will use xeda.toml in the current directory.'
         )
         parser.add_argument('--override-settings', nargs='+',
-                            help='Override certain setting value. Use <hierarchy>.key=value format'
+                            help='Override setting value. Use <hierarchy>.key=value format'
                             'example: --override-settings flows.vivado_run.stop_time=100us')
+
+        parser.add_argument('--override-flow-settings', nargs='+',
+                            help='Override setting values for the specified main flow. Use <hierarchy>.key=value format'
+                            'example: xeda vivado_sim --override-settings stop_time=100us')
+                            
         parser.add_argument(
             '--design',
             nargs='+',
