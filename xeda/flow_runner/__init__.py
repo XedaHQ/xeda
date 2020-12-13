@@ -391,6 +391,10 @@ class FmaxRunner(FlowRunner):
         previously_tried_frequencies=set()
         previously_tried_periods=set() # can be different due to rounding errors
 
+        # TODO adaptive tweeking of timeout?
+        proc_timeout_seconds = flow_settings.get('timeout', 3600)
+        logger.info(f'[Fmax] Timeout set to: {proc_timeout_seconds} seconds.')
+
         def round_freq_to_ps(freq: float) -> float:
             period = round(ONE_THOUSAND / freq, 3)
             return ONE_THOUSAND / period
@@ -424,10 +428,6 @@ class FmaxRunner(FlowRunner):
                             flow.set_parallel_run()
                             flows_to_run.append(flow)
 
-                    proc_timeout_seconds = flow_settings.get('timeout', 3600)
-
-                    logger.info(f'[Fmax] Timeout set to: {proc_timeout_seconds} seconds.')
-
                     future = pool.map(run_flow_fmax, enumerate(flows_to_run), timeout=proc_timeout_seconds)
                     num_iterations += 1
 
@@ -437,14 +437,14 @@ class FmaxRunner(FlowRunner):
                         iterator = future.result()
                         while True:
                             try:
-                                idx, results, fsettings, rundir = next(iterator)
+                                idx, results, fs, rundir = next(iterator)
                                 freq = frequencies_to_try[idx]
                                 # self.post_run(flow, print_failed=False)
                                 # results = flow.results
                                 rundirs.append(rundir)
                                 if results['success'] and (not best or freq > best.freq):
                                     all_results.append(results)
-                                    best = Best(freq, results, fsettings)
+                                    best = Best(freq, results, fs)
                                     improved_idx = idx
                             except StopIteration:
                                 break
@@ -468,7 +468,7 @@ class FmaxRunner(FlowRunner):
                         no_improvements += 1
                         if no_improvements >= max_no_improvements:
                             logger.info(
-                                f"Stopping as there were no improvements in {no_improvements} consequetive iterations.")
+                                f"Stopping as there were no improvements in {no_improvements} consecutive iterations.")
                             break
                         logger.info(f"No improvements during this iteration.")
 
