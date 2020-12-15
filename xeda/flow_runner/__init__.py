@@ -410,8 +410,8 @@ class FmaxRunner(FlowRunner):
 
                         if (num_workers - len(frequencies_to_try)) < 3:
                             break
-                        hi_freq += 5 * resolution
-                        lo_freq -= 3 * resolution
+                        hi_freq += 5 * random.random() * resolution
+                        lo_freq += random.random() * resolution
 
                     logger.info(
                         f"[Fmax] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies_to_try]}")

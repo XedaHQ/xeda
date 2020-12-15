@@ -7,4 +7,5 @@ from .diamond import DiamondSynth
 from .ghdl import GhdlSim
 from .modelsim import Modelsim
 from .dc import Dc
+from .yosys import Yosys
 
