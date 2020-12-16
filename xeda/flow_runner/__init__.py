@@ -407,26 +407,33 @@ class FmaxRunner(FlowRunner):
                             lo_freq, hi_freq, num=num_workers, dtype=float, retstep=True)
 
                         frequencies_to_try = unique([round_freq_to_ps(f) for f in frequencies_to_try if f not in previously_tried_frequencies])
+                        
+                        clock_periods_to_try = []
+                        frequencies = []
+                        for freq in frequencies_to_try:
+                            clock_period = round(ONE_THOUSAND / freq, 3)
+                            if clock_period not in previously_tried_periods:
+                                clock_periods_to_try.append(clock_period)
+                                frequencies.append(freq)
+                        frequencies_to_try = frequencies
 
-                        if (num_workers - len(frequencies_to_try)) < 3:
+                        if len(frequencies_to_try) > 0 and (num_workers - len(frequencies_to_try)) <= max(2, num_workers / 4):
                             break
-                        hi_freq += 5 * random.random() * resolution
+                        hi_freq += 3 * random.random() * resolution
                         lo_freq += random.random() * resolution
 
                     logger.info(
                         f"[Fmax] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies_to_try]}")
 
                     previously_tried_frequencies.update(frequencies_to_try)
+                    previously_tried_periods.update(clock_periods_to_try)
 
                     flows_to_run = []
-                    for freq in frequencies_to_try:
-                        clock_period = round(ONE_THOUSAND / freq, 3)
-                        if clock_period not in previously_tried_periods:
-                            previously_tried_periods.add(clock_period)
-                            flow_settings['clock_period'] = clock_period
-                            flow = self.setup_flow(settings, flow_name, max_threads=nthreads)
-                            flow.set_parallel_run()
-                            flows_to_run.append(flow)
+                    for clock_period in clock_periods_to_try:
+                        flow_settings['clock_period'] = clock_period
+                        flow = self.setup_flow(settings, flow_name, max_threads=nthreads)
+                        flow.set_parallel_run()
+                        flows_to_run.append(flow)
 
                     future = pool.map(run_flow_fmax, enumerate(flows_to_run), timeout=proc_timeout_seconds)
                     num_iterations += 1
@@ -474,13 +481,12 @@ class FmaxRunner(FlowRunner):
 
                         shrink_factor = 1 + no_improvements
 
-                        next_range = (hi_freq - lo_freq) / shrink_factor
+                        hi_freq = lo_freq + resolution
                         # smaller increment to lo_freq
                         if not best:
                             lo_freq /= shrink_factor
                         else:
                             lo_freq = best.freq + delta_increment / shrink_factor
-                        hi_freq = lo_freq + next_range
                     else:
                         lo_freq = best.freq + delta_increment + delta_increment * random.random()
                         no_improvements = 0
