@@ -9,7 +9,8 @@ from pathlib import Path
 import re
 from xml.etree import ElementTree
 import html
-from ...utils import unique_list
+from distutils.util import strtobool
+from ...utils import try_convert, unique_list
 from ..flow import DesignSource, SimFlow, DebugLevel
 from .vivado_synth import VivadoSynth
 from .vivado import Vivado
@@ -113,7 +114,15 @@ class VivadoPostsynthSim(VivadoSim):
 
         netlist_base = os.path.splitext(
             str(design_settings['rtl']['sources'][0]))[0]
-        flow_settings['sdf'] = {'file': netlist_base + '.sdf'}
+        timing_sim = try_convert(flow_settings.get('timing_sim'))
+        if isinstance(timing_sim, str):
+            timing_sim = strtobool(timing_sim)
+        if timing_sim is None:
+            timing_sim = True # defaults is true!
+        timing_sim = bool(timing_sim)
+        logger.info(f'timing_sim: {timing_sim}')
+        if timing_sim and not flow_settings.get('sdf'):
+            flow_settings['sdf'] = {'file': netlist_base + '.sdf'}
 
         clock_period_ps_generic = tb_settings.get(
             'clock_period_ps_generic', 'G_PERIOD_PS')  # FIXME
@@ -231,8 +240,8 @@ class VivadoPowerLwc(VivadoPower):
         flow_settings['elab_debug'] = 'typical'
 
         tb_settings["top"] = "LWC_TB"
-        if not tb_settings.get('configuration_specification'):
-            tb_settings["configuration_specification"] = "LWC_TB_wrapper_conf"
+        # if not tb_settings.get('configuration_specification'):
+        #     tb_settings["configuration_specification"] = "LWC_TB_wrapper_conf"
 
         if not flow_settings.get('skip_simulation'):
             # run simulation FIXME implement through dependency system
