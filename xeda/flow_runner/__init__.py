@@ -7,6 +7,7 @@ from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import random
 import sys
+import re
 import inspect
 import logging
 from concurrent.futures import CancelledError, TimeoutError
@@ -19,6 +20,7 @@ import traceback
 import numpy
 # import psutil
 import tomlkit
+from math import ceil, floor
 
 
 from ..flows.settings import Settings
@@ -30,6 +32,10 @@ logger = logging.getLogger()
 
 def merge_overrides(overrides, settings):
     if overrides:
+        if isinstance(overrides, str):
+            overrides = [overrides]
+        if len(overrides) == 1:
+            overrides = re.split(r'\s*,\s*', overrides[0])
         for override in overrides:
             key, val = override.split('=')
             hier = key.split('.')
@@ -367,16 +373,16 @@ class FmaxRunner(FlowRunner):
         # can go higher
         hi_freq = float(flow_settings.get('fmax_high_freq', 600.0))
         assert lo_freq < hi_freq , "fmax_low_freq should be less than fmax_high_freq"
-        resolution = 0.1
-        max_no_improvements = 2
+        resolution = 0.09
+        max_no_improvements = 3
         delta_increment = resolution / 2
 
         ONE_THOUSAND = 1000.0
 
         nthreads = int(flow_settings.get('nthreads', 4))
 
-        num_workers = max(2, args.max_cpus // nthreads)
-        logger.info(f'nthreads={nthreads} num_workers={num_workers}')
+        max_workers = max(2, args.max_cpus // nthreads)
+        logger.info(f'nthreads={nthreads} num_workers={max_workers}')
         self.parallel_run = True
         args.quiet = True
 
@@ -399,12 +405,12 @@ class FmaxRunner(FlowRunner):
             period = round(ONE_THOUSAND / freq, 3)
             return ONE_THOUSAND / period
         try:
-            with ProcessPool(max_workers=num_workers) as pool:
+            with ProcessPool(max_workers=max_workers) as pool:
                 while hi_freq - lo_freq >= resolution:
 
                     while True:
                         frequencies_to_try, freq_step = numpy.linspace(
-                            lo_freq, hi_freq, num=num_workers, dtype=float, retstep=True)
+                            lo_freq, hi_freq, num=max_workers, dtype=float, retstep=True)
 
                         frequencies_to_try = unique([round_freq_to_ps(f) for f in frequencies_to_try if f not in previously_tried_frequencies])
                         
@@ -417,14 +423,15 @@ class FmaxRunner(FlowRunner):
                                 frequencies.append(freq)
                         frequencies_to_try = frequencies
 
-                        if len(frequencies_to_try) > 0 and (num_workers - len(frequencies_to_try)) <= max(2, num_workers / 4):
+                        if len(frequencies_to_try) > 0 and (max_workers - len(frequencies_to_try)) <= max(2, max_workers / 4):
                             break
-                        hi_freq += 3 * random.random() * resolution
-                        lo_freq += random.random() * resolution
+                        hi_freq += random.random() * delta_increment
+                        lo_freq += 0.1 * random.random() * delta_increment
 
                     logger.info(
                         f"[Fmax] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies_to_try]}")
 
+                    # TODO Just keep clock_periods!
                     previously_tried_frequencies.update(frequencies_to_try)
                     previously_tried_periods.update(clock_periods_to_try)
 
@@ -442,6 +449,9 @@ class FmaxRunner(FlowRunner):
 
                     try:
                         iterator = future.result()
+                        if not iterator:
+                            logger.error("iterator is None! Retrying")
+                            continue
                         while True:
                             try:
                                 idx, results, fs, rundir = next(iterator)
@@ -468,7 +478,7 @@ class FmaxRunner(FlowRunner):
                         pool.join()
                         raise
 
-                    if freq_step < resolution * 0.9:
+                    if freq_step < resolution * 0.5:
                         break
 
                     if not best or improved_idx is None:
@@ -479,28 +489,26 @@ class FmaxRunner(FlowRunner):
                             break
                         logger.info(f"No improvements during this iteration.")
 
-                        shrink_factor = 1 + no_improvements
-
-                        hi_freq = lo_freq + resolution
-                        # smaller increment to lo_freq
+                        shrink_factor = 0.7 + no_improvements
+                        
                         if not best:
+                            hi_freq = lo_freq + resolution
                             lo_freq /= shrink_factor
                         else:
-                            lo_freq = best.freq + delta_increment / shrink_factor
+                            hi_freq = (best.freq + hi_freq) / 2 + delta_increment
+                            lo_freq = (lo_freq + best.freq) / 2 + delta_increment * random.random()
                     else:
                         lo_freq = best.freq + delta_increment + delta_increment * random.random()
                         no_improvements = 0
                         # last or one before last
-                        if improved_idx == num_workers - 1 or frequencies_to_try[-1] - best.freq <= freq_step:
-                            min_plausible_period = round((ONE_THOUSAND / best.freq) - best.results['wns'] - 0.001, 3)
+                        if improved_idx >= len(frequencies_to_try) - 2 or frequencies_to_try[-1] - best.freq <= freq_step:
+                            min_plausible_period =  (ONE_THOUSAND / best.freq) - best.results['wns'] - 0.001
                             lo_point_choice = frequencies_to_try[1] if len(
                                 frequencies_to_try) > 4 else frequencies_to_try[0]
-                            hi_freq = max(2 * best.freq - lo_point_choice,  ONE_THOUSAND / min_plausible_period)
-                        else:
-                            hi_freq = frequencies_to_try[improved_idx + 1]
-                        hi_freq += 2.3 * resolution + 2 * freq_step
+                            hi_freq = max(best.freq + min(max_workers * 1.0, best.freq - lo_point_choice),  ceil(ONE_THOUSAND / min_plausible_period))
+                        hi_freq += 2.3 * resolution + freq_step + random.random() 
                     
-                    hi_freq += random.random()
+                    hi_freq += random.random() * delta_increment
 
                     logger.info(f'[Fmax] End of iteration #{num_iterations}')
                     logger.info(f'[Fmax] Execution Time so far: {int(time.monotonic() - start_time) // 60} minute(s)')
