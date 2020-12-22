@@ -51,8 +51,6 @@ class VivadoSynth(Vivado, SynthFlow):
         },
 
         "Timing": {
-            # or ExtraTimingOpt, ExtraPostPlacementOpt, Explore
-            # very slow: AggressiveExplore
             # -mode: default, out_of_context
             # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
             # -no_lc: When checked, this option turns off LUT combining
@@ -67,14 +65,32 @@ class VivadoSynth(Vivado, SynthFlow):
                     #   "-keep_equivalent_registers "
                       ],
             "opt": ["-directive ExploreWithRemap"],
-            # "place": "-directive ExtraTimingOpt",
             "place": ["-directive ExtraPostPlacementOpt"],
-            "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                          '-dsp_register_opt', '-bram_power_opt'],
-            # if no directive: -placement_opt
+            "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt'],
             "phys_opt": ["-directive AggressiveExplore"],
             # "route": "-directive NoTimingRelaxation",
             "route": ["-directive AggressiveExplore"],
+        },
+        "TimingCongestion": {
+            # -mode: default, out_of_context
+            # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
+            # -no_lc: When checked, this option turns off LUT combining
+            # -keep_equivalent_registers -no_lc
+            "synth": ["-flatten_hierarchy full",
+                      "-retiming",
+                      "-directive PerformanceOptimized",
+                      "-fsm_extraction one_hot",
+                    #   "-resource_sharing off",
+                    #   "-no_lc",
+                      "-shreg_min_size 5",
+                    #   "-keep_equivalent_registers "
+                      ],
+            "opt": ["-directive ExploreWithRemap"],
+            "place": ["-directive AltSpreadLogic_high"],
+            "place_opt": ['-retarget', '-propconst', '-sweep', '-remap', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
+            "phys_opt": ["-directive AggressiveExplore"],
+            # "route": "-directive NoTimingRelaxation",
+            "route": ["-directive AlternateCLBRouting"],
         },
         "Timing2": {
             # or ExtraTimingOpt, ExtraPostPlacementOpt, Explore
@@ -84,20 +100,42 @@ class VivadoSynth(Vivado, SynthFlow):
             # -no_lc: When checked, this option turns off LUT combining
             # -keep_equivalent_registers -no_lc
             "synth": ["-flatten_hierarchy full",
-                    #   "-retiming",
+                      "-retiming",
                       "-directive PerformanceOptimized",
                       "-fsm_extraction one_hot",
                       "-resource_sharing off",
-                      "-no_lc",
-                      "-shreg_min_size 5",
-                      "-keep_equivalent_registers ",
+                    #   "-no_lc",
+                      "-shreg_min_size 10",
+                      "-keep_equivalent_registers",
                       ],
-            "opt": ["-directive Explore"],
+            "opt": ["-directive ExploreWithRemap"],
             "place": "-directive ExtraTimingOpt",
-            "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                          '-dsp_register_opt', '-bram_power_opt'],
+            "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap'],
             "phys_opt": ["-directive AggressiveExplore"],
             "route": ["-directive NoTimingRelaxation"],
+        },
+
+
+        "Timing3": {
+            # -mode: default, out_of_context
+            # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
+            # -no_lc: When checked, this option turns off LUT combining
+            # -keep_equivalent_registers -no_lc
+            "synth": ["-flatten_hierarchy full",
+                      "-retiming",
+                      "-directive PerformanceOptimized",
+                      "-fsm_extraction one_hot",
+                    #   "-resource_sharing off",
+                    #   "-no_lc",
+                      "-shreg_min_size 5",
+                      "-keep_equivalent_registers "
+                      ],
+            "opt": ["-directive ExploreWithRemap"],
+            "place": ["-directive ExtraTimingOpt"],
+            "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt'],
+            "phys_opt": ["-directive AggressiveExplore"],
+            # "route": "-directive NoTimingRelaxation",
+            "route": ["-directive AlternateCLBRouting"],
         },
 
         "Area": {

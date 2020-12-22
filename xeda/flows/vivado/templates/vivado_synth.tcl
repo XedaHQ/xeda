@@ -134,38 +134,41 @@ showWarningsAndErrors
 {% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
 puts "\n==============================( Post-place optimization )================================"
 eval opt_design {{options.place_opt}}
+puts "\n==============================( Post-place optimization 2)================================"
+eval opt_design -directive Explore
 {% endif %}
 
 
 {% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
-puts "\n========================( Physical Optimization )=========================="
+puts "\n========================( Post-place Physical Optimization )=========================="
 eval phys_opt_design {{options.phys_opt}}
+puts "\n========================( Post-place Physical Optimization 2 )=========================="
+eval phys_opt_design -directive AlternateFlowWithRetiming
 {% endif %}
 
-
-write_checkpoint -force ${checkpoints_dir}/post_place
-report_timing_summary -max_paths 10 -file ${reports_dir}/post_place/timing_summary.rpt
+# write_checkpoint -force ${checkpoints_dir}/post_place
+# report_timing_summary -max_paths 10 -file ${reports_dir}/post_place/timing_summary.rpt
 
 puts "\n================================( Route Design )================================="
 eval route_design {{options.route}}
 showWarningsAndErrors
 
-## {% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
-## puts "\n=========================( Physically Optimize Design 2)=========================="
-## eval phys_opt_design {{options.phys_opt}}
-## showWarningsAndErrors
-## {% endif %}
+{% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+puts "\n=========================( Post-Route Physical Optimization )=========================="
+phys_opt_design
+showWarningsAndErrors
+{% endif %}
 
 puts "\n=============================( Writing Checkpoint )=============================="
 write_checkpoint -force ${checkpoints_dir}/post_route
 
 puts "\n==============================( Writing Reports )================================"
-report_timing_summary -max_paths 10                             -file ${reports_dir}/post_route/timing_summary.rpt
-report_timing  -sort_by group -max_paths 100 -path_type summary -file ${reports_dir}/post_route/timing.rpt
+report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file ${reports_dir}/post_route/timing_summary.rpt
+report_timing  -no_header -input_pins  -unique_pins -sort_by group -max_paths 100 -path_type full -delay_type min_max -file ${reports_dir}/post_route/timing.rpt
 reportCriticalPaths ${reports_dir}/post_route/critpath_report.csv
 ## report_clock_utilization                                        -force -file ${reports_dir}/post_route/clock_utilization.rpt
 report_utilization                                              -force -file ${reports_dir}/post_route/utilization.rpt
-## report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
+report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
 report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.rpt
 ## report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
 report_power                                                    -file ${reports_dir}/post_route/power.rpt
