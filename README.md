@@ -1,25 +1,22 @@
 [![Documentation Status](https://readthedocs.org/projects/xeda/badge/?version=latest)](https://xeda.readthedocs.io/en/latest/?badge=latest)
 
-# Xeda
+![Xeda Logo](logo.svg)
 
-## Description
+
 **Xeda** `/ˈziːdə/` is a cross-platform, cross-EDA, cross-target simulation and synthesis automation platform.
 It assists hardware developers in verification, evaluation, and deployment of RTL designs. Xeda supports flows from multiple commercial and open-source electronic design automation suites.
+
+**Xeda is the one tool to rule 'em all!**
 
 For further details, visit the [Xeda's documentations](http://xeda.rtfd.io/) (Work In Progress).
 
 
-## Definitions
-- Tool: Single executable that performs an EDA action.
-- Suite: A collection of Tools.
-- Flow: Execution of chain of tools from one or several suites. 
-- Flow dependencies:
-    Dependencies are managed by the use of design-flow hash (DFH). DFH is a combined cryptographic hash of the content of dependency files (e.g. HDL sources) as well as design and flow settings. The directory where the flow is run and the results are created is based on this design design-flow hash.
 
-## Dependencies
-- Python 3.6.9+ (tested on cpython)
 
 ## Installation
+
+Requires Python >= 3.6.9
+
 - Install from GitHub's master branch (recommended during alpha development):
 ```
 python3 -m pip install -U git+https://github.com/kammoh/xeda.git
@@ -30,7 +27,7 @@ python3 -m pip install -U git+https://github.com/kammoh/xeda.git
 python3 -m pip install -U xeda
 ```
 
-- Install from local git clone (with symlinks):
+### Development
 ```
 git clone --recursive https://github.com/kammoh/xeda.git
 cd xeda
@@ -39,41 +36,82 @@ python3 -m pip install -U -e .
 
 
 
-## Usage
+## Xeda Project File
 
-## Configurations
-
-Settings override in the following order, from lower to higher priority:
-- System-wide `default.json` in `<DATA_DIR>/config/xeda/defaults.json`
-- Design-specific settings in the current project (`xedaproject.toml`)
-- `--override-settings` command line options
+Xeda design-specific descriptions and settings are organized through project files specified in [TOML](https://toml.io/). Every project contains one or more HDL designs. The default name for the project file is `xedaproject.toml`.
 
 Sample `xedaproject.toml`:
 
 ```toml
+[project]
+name = "Project1"
+description = "My Project with 2 designs"
+
+[[design]]
+name = 'Design1'
+[design.rtl]
+sources = [
+    'src_rtl/module1.vhd',
+    'src_rtl/top.v'
+]
+top = 'Top'
+clock = 'clk'
+[design.tb]
+sources = [
+    'top_tb.vhd',
+]
+top = 'TopTB'
+
+[[design]]
+name = 'Design2'
+[design.rtl]
+sources = [
+    'src_rtl/module2.v',
+    'src_rtl/top2.vhd'
+]
+top = 'Top2'
+clock = 'clk'
+[design.tb]
+sources = [
+    'cocoTestBench.py',
+]
+top = 'cocoTestBench'
 
 ```
+Flow- or plugin-specific settings can also be stored in design or project sections.
 
-entries in `design.sources` are either a dictionary structure, resembling the `DesignSource` class fields or a string which is either an absolute path or relative to the location of the current working directory.
 
-### Design parameters
-- "vhdl_std": Can be "93" (VHDL-1993), "02" (VHDL-2002 or default language version of the tool), "08" (VHDL-2008). 
+Settings override in the following order, from lower to higher priority:
+- System-wide `default.json` in `<DATA_DIR>/config/xeda/defaults.json`
+- Design-specific settings in the current project file (`xedaproject.toml`)
+- `--override-settings` and `--override-flow-settings` command line options
 
 ## Supported Flows
 
 - Xilinx® Vivado® Design Suite
-    - synth: Full synthesis and implementation flow
-    - sim: functional simulation of RTL design
-    - post-synth-sim: Post-implementation functional and timing simulation and power analysis.
+    - `vivado_synth`: Full synthesis and implementation flow. Supported strategies:
+      - `Timing`, `Timing2`, `Timing3`: Optimize for timing performance
+      - `Area`: Optimize the flow for lowest resource usage
+      - `Runtime`: Quick run of implementation flow
+      - `Debug`: Quick flow keeping details of the design hierarchy, suitable for debugging post-synthesis issues
+    - `vivado_sim`: functional simulation of RTL design
+    - `vivado_postsynth_sim`: Post-implementation functional and timing simulation and power analysis
+    - `vivado_power`: Post-implementation power estimation based on post-implementation timing simulation with real-world target testvectors
 - Lattice® Diamond®
     - synth: Full synthesis and implementation flow
 - Intel® Quartus® Prime Lite/Pro:
     - synth: Full synthesis and implementation flow
-    - dse: Design Space Exploration
 
+- Synopsys Design Compiler
+- Synopsys VCS simulator
+- Mentor ModelSim
+
+Open Source Tool Support:
 - GHDL
-    - sim: VHDL simulation
+- Verilator
+- Yosys
+- nextpnr, prjtrellis, and openFPGAloader
 
-<!-- ## Adding new Flows -->
 
-© 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
+## Supported Flow Runners
+- `fmax`: determine the maximum frequency of a design through a smart binary search
