@@ -15,12 +15,12 @@ setup(
         },
     },
 
-    description='X-vendor, X-technology, X-platform Electronic Design Abstraction and Automation',
+    description='Cross EDA Abstraction and Automation',
     long_description='''Xeda `/ˈziːdə/` is a cross-platform, cross-EDA, cross-target abstraction and automation platform for digital hardware simulation and synthesis flows.
 Xeda can assists hardware developers during verification, evaluation, and deployment of RTL designs. Xeda supports tools and flows from multiple commercial and open-source electronic design automation suites.''',
 
     # The project's main homepage.
-    url='https://github.com/kammoh/xeda',
+    url='https://github.com/XedaHQ/xeda',
 
 
     # Author details
@@ -44,6 +44,7 @@ Xeda can assists hardware developers during verification, evaluation, and deploy
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
     ],
 
     keywords='EDA Electronic Design Automation Tool Synthesis Simulation Hardware Verilog VHDL FPGA ASIC',

@@ -36,13 +36,13 @@
      inkscape:cx="196.26378"
      inkscape:cy="101.55284"
      inkscape:document-units="px"
-     inkscape:current-layer="g273"
+     inkscape:current-layer="layer1"
      inkscape:document-rotation="0"
      showgrid="false"
      inkscape:window-width="2560"
      inkscape:window-height="1387"
      inkscape:window-x="1561"
-     inkscape:window-y="26"
+     inkscape:window-y="25"
      inkscape:window-maximized="0"
      units="px"
      inkscape:pagecheckerboard="true"
@@ -289,7 +289,7 @@
        xml:space="preserve"
        id="text431"
        style="font-style:normal;font-weight:normal;font-size:10.58329999999999949px;line-height:1.25;font-family:sans-serif;white-space:pre;shape-inside:url(#rect433);fill:#000000;fill-opacity:1;stroke:none;"
-       transform="matrix(1.1740328,0,0,1.1756293,-48.073193,-17.882155)"><tspan
+       transform="matrix(1.1740328,0,0,1.1756293,-48.073193,-17.352988)"><tspan
          x="123.63672"
          y="101.31961"><tspan
            style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:28.9278px;font-family:Audiowide;-inkscape-font-specification:'Audiowide, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal">XEDA</tspan></tspan></text>
@@ -297,7 +297,7 @@
        style="fill:#ffffff;stroke-width:0.162174"
        id="circle134"
        cx="101.57903"
-       cy="-78.824883"
+       cy="-79.35405"
        transform="scale(1,-1)"
        r="0.79374999" />
     <circle
@@ -318,7 +318,7 @@
        style="fill:#ffffff;stroke-width:0.163451"
        id="circle160"
        cx="119.31236"
-       cy="-99.468628"
+       cy="-99.997795"
        transform="scale(1,-1)"
        r="0.80000001" />
   </g>
