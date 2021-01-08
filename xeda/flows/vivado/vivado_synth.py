@@ -161,7 +161,7 @@ class VivadoSynth(Vivado, SynthFlow):
 
         input_delay = flow_settings.get('input_delay', 0)
         output_delay = flow_settings.get('output_delay', 0)
-        constrain_io = flow_settings.get('constrain_io', True)
+        constrain_io = flow_settings.get('constrain_io', False)
 
         clock_xdc_path = self.copy_from_template(f'clock.xdc',
                                                  constrain_io=constrain_io,
