@@ -257,7 +257,11 @@ class Flow():
         raise FlowFatalException(msg)
     
 
-    def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False):
+    def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False, nolog=False):
+        prog_args = [str(a) for a in prog_args]
+        if nolog:
+            subprocess.check_call([prog] + prog_args, cwd=self.flow_run_dir)
+            return
         if not stdout_logfile:
             stdout_logfile = f'{prog}_stdout.log'
         proc = None
@@ -358,7 +362,6 @@ class Flow():
                 raise NonZeroExit(m)
         else:
             logger.info(f'Execution of {prog} in {self.flow_run_dir} completed with returncode {proc.returncode}')
-        return proc
 
     def parse_report(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
         # TODO fix debug and verbosity levels!
