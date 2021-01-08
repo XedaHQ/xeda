@@ -1,0 +1,30 @@
+[[board]]
+variant = '85F'
+version = '3.0.8'
+[fpga]
+vendor = 'Lattice'
+part = 'LFE5U-85F-6BG381C'
+
+[pinout]
+timing_constraints = ['BLOCK RESETPATHS;', 'BLOCK ASYNCPATHS;']
+
+[pinout.io.clk_25mhz]
+pin = 'G2'
+frequency = 25.0
+io_type = 'LVCMOS33'
+
+[pinout.io.ftdi_rxd]
+pin = "L4"
+drive = 4
+[pinout.io.ftdi_txd]
+pin = "M1"
+[pinout.io.ftdi_nrts]
+pin = "M3"
+[pinout.io.ftdi_ndtr]
+pin = "N1"
+[pinout.io.ftdi_txden]
+pin = "L3"
+
+[pinout.io.led]
+pin = ["H3", "E1", "E2", "D1", "D2", "C1", "C2", "B2"]
+drive = 4

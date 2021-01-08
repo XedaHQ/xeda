@@ -1,0 +1,10 @@
+[[design]]
+name = 'blinky'
+
+[design.rtl]
+sources = ['blinky.v']
+top = 'top'
+
+[flows.yosys]
+clock_period = 20 # 50 MHz
+board = 'ulx3s'
