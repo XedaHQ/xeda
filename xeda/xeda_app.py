@@ -3,6 +3,7 @@
 from datetime import datetime
 import inspect
 import multiprocessing
+import os
 from pathlib import Path
 import sys
 import argparse
@@ -15,10 +16,33 @@ import pkg_resources
 from .debug import DebugLevel
 from .flow_runner import DefaultRunner, FlowRunner
 # from .plugins.lwc import LwcVariantsRunner
-
+import toml
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# def tomlkit_to_popo(d):
+#     try:
+#         result = getattr(d, "value")
+#     except AttributeError:
+#         result = d
+
+#     if isinstance(result, list):
+#         result = [tomlkit_to_popo(x) for x in result]
+#     elif isinstance(result, dict):
+#         result = {
+#             tomlkit_to_popo(key): tomlkit_to_popo(val) for key, val in result.items()
+#         }
+#     elif isinstance(result, tomlkit.items.Integer):
+#         result = int(result)
+#     elif isinstance(result, tomlkit.items.Float):
+#         result = float(result)
+#     elif isinstance(result, tomlkit.items.String):
+#         result = str(result)
+#     elif isinstance(result, tomlkit.items.Bool):
+#         result = bool(result)
+
+#     return result
 
 
 try:
@@ -48,9 +72,38 @@ class XedaApp:
 
         runner_cls = args.flow_runner
 
-        xeda_run_dir = Path(args.xeda_run_dir)
 
+        toml_path = self.args.xeda_project if self.args.xeda_project else Path.cwd() / 'xedaproject.toml'
+        xeda_project = {}
+        try:
+            with open(toml_path) as f:
+                xeda_project = toml.load(f)
+
+        except FileNotFoundError as e:
+            print(f'Cannot open project file: {toml_path}. Please specify the correct path using --xeda-project', e)
+            exit(1)
+        except IsADirectoryError as e:
+            self.fatal(f'The specified design json is not a regular file.', e)
+            raise e
+
+
+
+        if self.args.xeda_run_dir is None:
+            rundir = None
+            project = xeda_project.get('project')
+            if isinstance(project, list):
+                project = project[0]
+            if project:
+                rundir = project.get('xeda_run_dir')
+            if not rundir:
+                rundir = os.environ.get('xeda_run_dir')
+            if not rundir:
+                rundir = 'xeda_run'
+            self.args.xeda_run_dir = rundir
+            
+        xeda_run_dir = Path(args.xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
+        print(f"xeda_run_dir={xeda_run_dir}")
 
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
 
@@ -67,7 +120,7 @@ class XedaApp:
         logger.info(f"Running using FlowRunner: {runner_cls.__name__}")
         print(f"Running using FlowRunner: {runner_cls.__name__}")
 
-        runner = runner_cls(self.args, timestamp)
+        runner = runner_cls(self.args, xeda_project, timestamp)
 
         runner.launch()
 

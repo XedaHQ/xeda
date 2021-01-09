@@ -17,7 +17,6 @@ import traceback
 # heavy, but will probably become handy down the road
 import numpy
 # import psutil
-import tomlkit
 from math import ceil, floor
 
 
@@ -46,29 +45,6 @@ def merge_overrides(overrides, settings):
             settings = dict_merge(settings, patch_dict, True)
     return settings
 
-
-def tomlkit_to_popo(d):
-    try:
-        result = getattr(d, "value")
-    except AttributeError:
-        result = d
-
-    if isinstance(result, list):
-        result = [tomlkit_to_popo(x) for x in result]
-    elif isinstance(result, dict):
-        result = {
-            tomlkit_to_popo(key): tomlkit_to_popo(val) for key, val in result.items()
-        }
-    elif isinstance(result, tomlkit.items.Integer):
-        result = int(result)
-    elif isinstance(result, tomlkit.items.Float):
-        result = float(result)
-    elif isinstance(result, tomlkit.items.String):
-        result = str(result)
-    elif isinstance(result, tomlkit.items.Bool):
-        result = bool(result)
-
-    return result
 
 
 def print_results(results, title, subset):
@@ -99,12 +75,15 @@ def run_flow(f: Flow):
         f.run()
         return f.results
     except FlowFatalException as e:
-        logger.critical(f'Fatal exception during flow run in {f.flow_run_dir}: {e}')
+        logger.critical(f'[Run Thread] Fatal exception during flow run in {f.flow_run_dir}: {e}')
         traceback.print_exc()
     except KeyboardInterrupt as e:
-        logger.critical(f'Received KeyboardInterrupt during flow run in {f.flow_run_dir}: {e}')
+        logger.critical(f'[Run Thread] Received KeyboardInterrupt during flow run in {f.flow_run_dir}: {e}')
         traceback.print_exc()
-
+    except KeyboardInterrupt as e:
+        logger.critical(f'[Run Thread] Received KeyboardInterrupt during flow run in {f.flow_run_dir}: {e}')
+        traceback.print_exc()
+    return
 
 def run_flow_fmax(arg):
     idx, flow = arg
@@ -119,19 +98,25 @@ def run_flow_fmax(arg):
         return idx, flow.results, flow.settings, flow.flow_run_dir
 
     except FlowFatalException as e:
-        logger.critical(f'Fatal exception during flow run in {flow.flow_run_dir}: {e}')
+        logger.exception(f'[Run Thread] Fatal exception during flow run in {flow.flow_run_dir}: {e}')
         traceback.print_exc()
+        logger.exception(f'[Run Thread] Continuing')
     except KeyboardInterrupt as e:
-        logger.critical(f'KeyboardInterrupt received during flow run in {flow.flow_run_dir}: {e}')
-        traceback.print_exc()
+        logger.exception(f'[Run Thread] KeyboardInterrupt received during flow run in {flow.flow_run_dir}')
+        raise e
     except NonZeroExit as e:
-        pass
+        logger.exception(f'[Run Thread] {e}')
+    except Exception as e:
+        logger.exception(f"Exception: {e}")
+
+    return None, None, flow.settings, flow.flow_run_dir
 
 
 class FlowRunner():
-    def __init__(self, args, timestamp) -> None:
+    def __init__(self, args, xeda_project_settings, timestamp) -> None:
         self.args = args
         self.timestamp = timestamp
+        self.xeda_project_settings = xeda_project_settings
         # in case super().add_common_args(plug_parser) was not called in a subclass
         if not hasattr(args, 'override_settings'):
             self.args.override_settings = None
@@ -165,9 +150,8 @@ class FlowRunner():
 
         return settings
 
-    def get_design_settings(self, toml_path=None):
-        if not toml_path:
-            toml_path = self.args.xeda_project if self.args.xeda_project else Path.cwd() / 'xedaproject.toml'
+    def get_design_settings(self):
+        
 
         settings = self.get_default_settings()
 
@@ -189,21 +173,11 @@ class FlowRunner():
                     f'{len(d)} designs are availables in the current project. Please specify target design using --design')
             logger.critical(f'Available designs: {", ".join([x["name"] for x in d])}')
             sys.exit(1)
-        try:
-            with open(toml_path) as f:
-                xeda_project_settings = tomlkit_to_popo(tomlkit.loads(f.read()))
 
-            design_settings = dict(design=get_design(
-                xeda_project_settings['design']), flows=xeda_project_settings.get('flows', {}))
+        design_settings = dict(design=get_design(
+            self.xeda_project_settings['design']), flows=self.xeda_project_settings.get('flows', {}))
 
-            settings = dict_merge(settings, design_settings)
-            logger.info(f"Using design settings from {toml_path}")
-
-        except FileNotFoundError as e:
-            self.fatal(
-                f'Cannot open project file: {toml_path}. Please specify the correct path using --xeda-project', e)
-        except IsADirectoryError as e:
-            self.fatal(f'The specified design json is not a regular file.', e)
+        settings = dict_merge(settings, design_settings)
 
         settings = merge_overrides(self.args.override_settings, settings)
         flow_settings = settings['flows'].get(self.args.flow, dict())
@@ -451,18 +425,17 @@ class FmaxRunner(FlowRunner):
                         iterator = future.result()
                         if not iterator:
                             logger.error("iterator is None! Retrying")
-                            continue
+                            continue #retry
                         while True:
                             try:
                                 idx, results, fs, rundir = next(iterator)
-                                freq = frequencies_to_try[idx]
-                                # self.post_run(flow, print_failed=False)
-                                # results = flow.results
-                                rundirs.append(rundir)
-                                if results['success'] and (not best or freq > best.freq):
-                                    all_results.append(results)
-                                    best = Best(freq, results, fs)
-                                    improved_idx = idx
+                                if results:
+                                    freq = frequencies_to_try[idx]
+                                    rundirs.append(rundir)
+                                    if results['success'] and (not best or freq > best.freq):
+                                        all_results.append(results)
+                                        best = Best(freq, results, fs)
+                                        improved_idx = idx
                             except StopIteration:
                                 break
                             except TimeoutError as e:
@@ -517,8 +490,9 @@ class FmaxRunner(FlowRunner):
 
         except KeyboardInterrupt:
             logger.exception('Received Keyboard Interrupt')
-        except:
-            logger.exception('Received exception')
+        except Exception as e:
+            logger.exception(f'Received exception: {e}')
+            traceback.print_exc()
         finally:
             if future and not future.cancelled():
                 future.cancel()

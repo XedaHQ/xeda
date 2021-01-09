@@ -196,10 +196,6 @@ class Flow():
         if self.design_run_hash is None:
             self.design_run_hash = self.hash(self.settings)
 
-        if self.args.xeda_run_dir is None:
-            prj_rundir = self.settings.project.get('xeda_run_dir')
-            self.args.xeda_run_dir = prj_rundir if prj_rundir else 'xeda_run'
-
         if self.run_path is None:
             self.run_path = Path(self.args.force_run_dir) if self.args.force_run_dir else (
                 Path(self.args.xeda_run_dir) / self.design_run_hash)
