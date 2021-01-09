@@ -35,6 +35,9 @@ class FlowFatalException(Exception):
     """Fatal error"""
     pass
 
+class NonZeroExit(Exception):
+    """Process exited with non-zero return"""
+    pass
 
 def final_kill(proc):
     try:
@@ -338,7 +341,7 @@ class Flow():
                                                 spinner.next()
 
             except FileNotFoundError as e:
-                self.fatal(f"Cannot execute `{prog}`. Make sure it's properly instaulled and the executable is in PATH")
+                self.fatal(f"Cannot execute `{prog}`. Make sure it's properly installed and is in the current PATH")
             except KeyboardInterrupt as e:
                 if spinner:
                     print(SHOW_CURSOR)
@@ -351,10 +354,10 @@ class Flow():
             print(SHOW_CURSOR)
 
         if proc.returncode != 0:
-            logger.critical(
-                f'`{proc.args[0]}` exited with returncode {proc.returncode}. Please check `{stdout_logfile}` for error messages!')
+            m = f'`{proc.args[0]}` exited with returncode {proc.returncode}'
+            logger.critical(f'{m}. Please check `{stdout_logfile}` for error messages!')
             if check:
-                self.fatal('Non-zero exit code')
+                raise NonZeroExit(m)
         else:
             logger.info(f'Execution of {prog} in {self.flow_run_dir} completed with returncode {proc.returncode}')
 

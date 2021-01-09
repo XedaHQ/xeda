@@ -1,8 +1,6 @@
 import copy
-from functools import partial
 import multiprocessing
-from types import SimpleNamespace
-from typing import List, Mapping
+from typing import Mapping
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import random
@@ -24,7 +22,7 @@ from math import ceil, floor
 
 
 from ..flows.settings import Settings
-from ..flows.flow import DesignSource, FileResource, Flow, FlowFatalException, SynthFlow, my_print
+from ..flows.flow import DesignSource, FileResource, Flow, FlowFatalException, NonZeroExit, SynthFlow, my_print
 from ..utils import camelcase_to_snakecase, load_class, dict_merge, try_convert
 
 logger = logging.getLogger()
@@ -126,6 +124,8 @@ def run_flow_fmax(arg):
     except KeyboardInterrupt as e:
         logger.critical(f'KeyboardInterrupt received during flow run in {flow.flow_run_dir}: {e}')
         traceback.print_exc()
+    except NonZeroExit as e:
+        pass
 
 
 class FlowRunner():
