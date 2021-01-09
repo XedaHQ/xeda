@@ -75,15 +75,12 @@ def run_flow(f: Flow):
         f.run()
         return f.results
     except FlowFatalException as e:
-        logger.critical(f'[Run Thread] Fatal exception during flow run in {f.flow_run_dir}: {e}')
-        traceback.print_exc()
+        logger.exception(f'[Run Thread] Fatal exception during flow run in {f.flow_run_dir}: {e}')
     except KeyboardInterrupt as e:
-        logger.critical(f'[Run Thread] Received KeyboardInterrupt during flow run in {f.flow_run_dir}: {e}')
-        traceback.print_exc()
+        logger.exception(f'[Run Thread] Received KeyboardInterrupt during flow run in {f.flow_run_dir}: {e}')
     except KeyboardInterrupt as e:
-        logger.critical(f'[Run Thread] Received KeyboardInterrupt during flow run in {f.flow_run_dir}: {e}')
-        traceback.print_exc()
-    return
+        logger.exception(f'[Run Thread] Received KeyboardInterrupt during flow run in {f.flow_run_dir}: {e}')
+    return {}
 
 def run_flow_fmax(arg):
     idx, flow = arg
@@ -98,16 +95,16 @@ def run_flow_fmax(arg):
         return idx, flow.results, flow.settings, flow.flow_run_dir
 
     except FlowFatalException as e:
-        logger.exception(f'[Run Thread] Fatal exception during flow run in {flow.flow_run_dir}: {e}')
+        logger.warning(f'[Run Thread] Fatal exception during flow run in {flow.flow_run_dir}: {e}')
         traceback.print_exc()
-        logger.exception(f'[Run Thread] Continuing')
+        logger.warning(f'[Run Thread] Continuing')
     except KeyboardInterrupt as e:
         logger.exception(f'[Run Thread] KeyboardInterrupt received during flow run in {flow.flow_run_dir}')
         raise e
     except NonZeroExit as e:
-        logger.exception(f'[Run Thread] {e}')
+        logger.warning(f'[Run Thread] {e}')
     except Exception as e:
-        logger.exception(f"Exception: {e}")
+        logger.warning(f"Exception: {e}")
 
     return None, None, flow.settings, flow.flow_run_dir
 
