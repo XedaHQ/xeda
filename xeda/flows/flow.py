@@ -185,23 +185,20 @@ class Flow():
                 #     self.fatal(f'{req_key} should have type `{req_type.__name__}` for {self.name}')
 
     def set_run_dir(self):
-        forced_run_dir = self.args.force_run_dir
 
-        # all design flow-critical settings are fixed from this point onwards
-
-        # remove tb attributes if not a simulation flow
-        # if not isinstance(self, SimFlow):
-        #     tb_settings = self.settings.design.get('tb')
-        #     if tb_settings:
-        #         self.settings.design['tb'] = None
+        # all design flow-critical settings should be fixed from this point onwards
 
         self.freeze_design_sources()
 
         if self.design_run_hash is None:
             self.design_run_hash = self.hash(self.settings)
 
+        if self.args.xeda_run_dir is None:
+            prj_rundir = self.settings.project.get('xeda_run_dir')
+            self.args.xeda_run_dir = prj_rundir if prj_rundir else 'xeda_run'
+
         if self.run_path is None:
-            self.run_path = Path(forced_run_dir) if forced_run_dir else (
+            self.run_path = Path(self.args.force_run_dir) if self.args.force_run_dir else (
                 Path(self.args.xeda_run_dir) / self.design_run_hash)
 
         flow_run_dir = self.run_path / self.name
@@ -237,6 +234,7 @@ class Flow():
         logger.debug(f'generating {script_path.resolve()} from template.')
         rendered_content = template.render(flow=self.settings.flow,
                                            design=self.settings.design,
+                                           project=self.settings.project,
                                            nthreads=self.nthreads,
                                            debug=self.args.debug,
                                            reports_dir=self.reports_subdir_name,

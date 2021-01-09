@@ -5,7 +5,7 @@ from ...utils import unique_list
 from ..flow import DesignSource, SimFlow, Flow, SynthFlow, DebugLevel
 import toml
 
-from yowasp_yosys import run_yosys
+# from yowasp_yosys import run_yosys
 
 
 class RecursiveNamespace:
@@ -106,7 +106,9 @@ class Yosys(SynthFlow):
 
         synth_opts = [
             '-abc9',
+            # 'nowidelut'
             #  '-dff'
+            # '-abc2', '-retime'
         ]
 
         script_path = self.copy_from_template(

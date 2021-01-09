@@ -19,7 +19,7 @@ Requires Python >= 3.6.9
 
 - Install from GitHub's master branch (recommended during alpha development):
 ```
-python3 -m pip install -U git+https://github.com/kammoh/xeda.git
+python3 -m pip install -U git+https://github.com/XedaHQ/xeda.git
 ```
 
 - Install the latest published version from [pypi](https://pypi.org/project/xeda):
@@ -29,7 +29,7 @@ python3 -m pip install -U xeda
 
 ### Development
 ```
-git clone --recursive https://github.com/kammoh/xeda.git
+git clone --recursive https://github.com/XedaHQ/xeda.git
 cd xeda
 python3 -m pip install -U -e .
 ```

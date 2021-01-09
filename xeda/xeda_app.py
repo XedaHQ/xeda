@@ -97,7 +97,7 @@ class XedaApp:
         parser.add_argument(
             '--xeda-run-dir',
             help='Directory where the flows are executed and intermediate and result files reside.',
-            default='xeda_run'
+            default=None
         )
 
         parser.add_argument(
