@@ -90,7 +90,7 @@ class GhdlSim(Ghdl, SimFlow):
                          check=True
                          )
 
-        self.run_process('ghdl', ['-m', '-f'] + elab_options + optimize + warns + lib_paths + self.sim_tops,
+        self.run_process('ghdl', ['-m'] + elab_options + optimize + warns + lib_paths + self.sim_tops,
                          initial_step='Elaborating design',
                          stdout_logfile='ghdl_elaborate_stdout.log',
                          check=True
