@@ -21,14 +21,13 @@ logger = logging.getLogger()
 class VivadoSim(Vivado, SimFlow):
     def run(self):
         flow_settings = self.settings.flow
-        tb_settings = self.settings.design["tb"]
+        tb_settings: dict = self.settings.design["tb"]
         generics = tb_settings.get("generics", {})
         saif = flow_settings.get('saif')
 
         elab_flags = flow_settings.get('elab_flags')
         if not elab_flags:
-            elab_flags = ['-nospecify',
-                          '-notimingchecks', '-relax', '-maxdelay']
+            elab_flags = [f'-mt {"off" if self.args.debug else self.nthreads}', '-relax']
 
         elab_debug = flow_settings.get('elab_debug')
         run_configs = flow_settings.get('run_configs')
@@ -114,15 +113,13 @@ class VivadoPostsynthSim(VivadoSim):
 
         netlist_base = os.path.splitext(
             str(design_settings['rtl']['sources'][0]))[0]
-        timing_sim = try_convert(flow_settings.get('timing_sim'))
-        if isinstance(timing_sim, str):
-            timing_sim = strtobool(timing_sim)
-        if timing_sim is None:
-            timing_sim = True # defaults is true!
-        timing_sim = bool(timing_sim)
-        logger.info(f'timing_sim: {timing_sim}')
-        if timing_sim and not flow_settings.get('sdf'):
-            flow_settings['sdf'] = {'file': netlist_base + '.sdf'}
+
+        timing_sim = bool(try_convert(flow_settings.get('timing_sim', True)))
+
+        if timing_sim:
+            if not flow_settings.get('sdf'):
+                flow_settings['sdf'] = {'file': netlist_base + '.sdf'}
+            logger.info(f"Timing simulation using {flow_settings['sdf']}")
 
         clock_period_ps_generic = tb_settings.get(
             'clock_period_ps_generic', 'G_PERIOD_PS')  # FIXME
@@ -240,8 +237,9 @@ class VivadoPowerLwc(VivadoPower):
         flow_settings['elab_debug'] = 'typical'
 
         tb_settings["top"] = "LWC_TB"
-        # if not tb_settings.get('configuration_specification'):
-        #     tb_settings["configuration_specification"] = "LWC_TB_wrapper_conf"
+        
+        if not tb_settings.get('configuration_specification'):
+            tb_settings["configuration_specification"] = "LWC_TB_wrapper_conf"
 
         if not flow_settings.get('skip_simulation'):
             # run simulation FIXME implement through dependency system

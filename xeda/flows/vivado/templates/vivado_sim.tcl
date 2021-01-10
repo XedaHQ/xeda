@@ -48,7 +48,7 @@ if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standar
 {% for rc in run_configs %}
 
 puts "\n===========================( Elaborating design )==========================="
-if { [catch {eval exec xelab -mt {{nthreads}} -s ${snapshot_name} -L {{lib_name}} {{elab_flags}} ${xelab_flags} {%- for k,v in rc.generics.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in sim_tops %} {{lib_name}}.{{top}} {% endfor -%}  } error]} {
+if { [catch {eval exec xelab -s ${snapshot_name} -L {{lib_name}} {{elab_flags}} ${xelab_flags} {%- for k,v in rc.generics.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in sim_tops %} {{lib_name}}.{{top}} {% endfor -%}  } error]} {
     errorExit $error
 }
 
@@ -73,7 +73,8 @@ open_saif {{rc.saif}}
 {%- if vcd %}
 puts "\n===========================( Setting up VCD )==========================="
 open_vcd {{vcd}}
-log_vcd *
+## Vivado (tested on 2020.1) crashes if using * and shared/protected variables are present
+log_vcd [get_objects -r -filter { type == variable || type == signal || type == in_port || type == out_port || type == inout_port || type == port } *]
 {% endif -%}
 
 {%- if debug_traces %}
