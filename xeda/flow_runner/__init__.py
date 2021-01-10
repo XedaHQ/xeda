@@ -339,13 +339,11 @@ class FmaxRunner(FlowRunner):
 
         flow_settings = settings['flows'].get(flow_name)
 
-        # will try halfing max_no_improvements iterations if all runs have failed
-        lo_freq = float(flow_settings.get('fmax_low_freq', 1.0))
-        # can go higher
-        hi_freq = float(flow_settings.get('fmax_high_freq', 600.0))
+        lo_freq = float(flow_settings.get('fmax_low_freq', 10.0))
+        hi_freq = float(flow_settings.get('fmax_high_freq', 500.0))
         assert lo_freq < hi_freq , "fmax_low_freq should be less than fmax_high_freq"
         resolution = 0.09
-        max_no_improvements = 3
+        max_non_improvements = 5
         delta_increment = resolution / 2
 
         ONE_THOUSAND = 1000.0
@@ -453,7 +451,7 @@ class FmaxRunner(FlowRunner):
 
                     if not best or improved_idx is None:
                         no_improvements += 1
-                        if no_improvements >= max_no_improvements:
+                        if no_improvements >= max_non_improvements:
                             logger.info(
                                 f"Stopping as there were no improvements in {no_improvements} consecutive iterations.")
                             break
