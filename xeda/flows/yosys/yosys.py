@@ -78,8 +78,12 @@ class Yosys(SynthFlow):
             # '-abc2', '-retime'
         ]
 
+        rtl_check_flags = [] #'-noinit'
+
         script_path = self.copy_from_template(
-            f'yosys.ys', fpga=fpga, synth_opts=" ".join(synth_opts))
+            f'yosys.ys', fpga=fpga, 
+            rtl_check_flags=" ".join(rtl_check_flags),
+            synth_opts=" ".join(synth_opts))
         self.run_process(
             'yosys', ['-q', '-l', 'yosys.log', script_path])
 
