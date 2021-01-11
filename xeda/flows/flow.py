@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 # from contextlib import contextmanager
 import time
+from types import SimpleNamespace
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import logging
 from progress import SHOW_CURSOR
@@ -75,30 +76,27 @@ def my_print(*args, **kwargs):
 class Flow():
     """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
     
-    depends_on = {}
-
-    def pre_depend(self, dep):
-        pass
-
-    def post_depend(self, dep):
-        pass
-
     required_settings = {}
     default_settings = {}
     reports_subdir_name = 'reports'
     timeout = 3600 * 2  # in seconds
     name = None
 
+    @classmethod
+    def prerequisite_flows(cls, flow_settings, design_settings):
+        return {}
+
     def __init_subclass__(cls) -> None:
         cls.name = camelcase_to_snakecase(cls.__name__)
 
-    def __init__(self, settings: Settings, args):
+    def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List['Flow']):
 
         self.args = args
-        self.design_run_hash = None
+        self.xedahash = None
         self.run_path = None
         self.flow_run_dir = None
         self.reports_dir = None
+        self.init_time = 0
 
         self.settings = settings
         self.nthreads = int(settings.flow.get('nthreads', 1))
@@ -115,6 +113,8 @@ class Flow():
         self.no_console = args.debug >= DebugLevel.LOW
         self.post_run_hooks = []
         self.post_results_hooks = []
+
+        self.completed_dependencies = completed_dependencies
 
     def freeze_design_sources(self):
         design_settings = self.settings.design
@@ -134,21 +134,24 @@ class Flow():
                         logger.debug(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
                         generics[gen_key] = str(gen_val)
 
-    def run_flow(self, parallel_run=False):
-        self.set_run_dir()
+    def run_flow(self):
+        self.prepare()
+
+        if not self.flow_run_dir.exists():
+            self.flow_run_dir.mkdir(parents=True)
+        else:
+            logger.warning(f'Using existing run directory: {self.flow_run_dir}')
+
+        assert self.flow_run_dir.is_dir()
 
         self.check_settings()
         self.dump_settings()
-
-        if parallel_run:
-            self.set_parallel_run()
 
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         self.init_time = time.monotonic()
         self.run()
 
-    def hash(self, settings):
-
+    def xeda_hash(self):
         def semantic_hash(data: JsonTree, hasher=hashlib.sha1) -> str:
             def get_digest(b: bytes):
                 return hasher(b).hexdigest()[:32]
@@ -167,12 +170,10 @@ class Flow():
             return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
 
         try:
-            return semantic_hash(settings)
+            return semantic_hash(self.settings)
         except FileNotFoundError as e:
             self.fatal(f"Semantic hash failed: {e} ")
-
-    def set_parallel_run(self):
-        self.no_console = True
+        
 
     @property
     def flow_module_path(self):
@@ -187,29 +188,18 @@ class Flow():
                 # if (typing.get_origin(req_type) is Union and not isinstance(val, typing.get_args(req_type))) or not isinstance(val,  req_type):
                 #     self.fatal(f'{req_key} should have type `{req_type.__name__}` for {self.name}')
 
-    def set_run_dir(self):
-
+    def prepare(self):
         # all design flow-critical settings should be fixed from this point onwards
-
         self.freeze_design_sources()
 
-        if self.design_run_hash is None:
-            self.design_run_hash = self.hash(self.settings)
+        self.xedahash = self.xeda_hash()
 
-        if self.run_path is None:
-            self.run_path = Path(self.args.force_run_dir) if self.args.force_run_dir else (
-                Path(self.args.xeda_run_dir) / self.design_run_hash)
+        self.run_path = Path(self.args.force_run_dir) if self.args.force_run_dir else (
+                Path(self.args.xeda_run_dir) / self.xedahash)
 
-        flow_run_dir = self.run_path / self.name
+        self.run_path = self.run_path.resolve()
 
-        if not flow_run_dir.exists():
-            flow_run_dir.mkdir(parents=True)
-        else:
-            logger.warning(f'Using existing run directory: {flow_run_dir}')
-
-        assert flow_run_dir.is_dir()
-
-        self.flow_run_dir = flow_run_dir
+        self.flow_run_dir = self.run_path / self.name
         self.reports_dir = self.flow_run_dir / self.reports_subdir_name
 
     def run(self):
@@ -406,7 +396,9 @@ class Flow():
         if not results:
             results = self.results
             # init to print_results time:
-            results['runtime_minutes'] = (time.monotonic() - self.init_time) / 60
+            if results.get('runtime_minutes') is None:
+
+                results['runtime_minutes'] = (time.monotonic() - self.init_time) / 60
         data_width = 32
         name_width = 80 - data_width
         hline = "-"*(name_width + data_width)
@@ -429,18 +421,19 @@ class Flow():
                     my_print(f'{k:{name_width}}{str(v):>{data_width}s}')
         my_print(hline + "\n")
 
-    def dump_json(self, data, path, overwrite=True):
+    def dump_json(self, data, path: Path):
         if path.exists():
-            if overwrite:
-                logger.warning(f"Overwriting existing file: {path}")
-            else:
-                self.fatal(f"{path} already exists! Not overwriting!")
+            modifiedTime = os.path.getmtime(path)
+            suffix = datetime.fromtimestamp(modifiedTime).strftime("%b-%d-%y-%H%M%S")
+            backup_path = path.with_suffix(f".backup_{suffix}.json")
+            logger.warning(f"File already exists! Backing-up existing file to {backup_path}")
+            os.rename(path, backup_path)
+
         with open(path, 'w') as outfile:
             json.dump(data, outfile, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
 
     def dump_results(self):
-        # write only if not exists
-        path = self.flow_run_dir / f'{self.name}_results.json'
+        path = self.flow_run_dir / f'results.json'
         self.dump_json(self.results, path)
         logger.info(f"Results written to {path}")
 
@@ -448,9 +441,6 @@ class Flow():
 
 class SimFlow(Flow):
     required_settings = {}
-
-    def __init__(self, settings: Settings, args) -> None:
-        super().__init__(settings, args)
 
     @property
     def sim_sources(self):

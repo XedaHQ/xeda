@@ -7,4 +7,4 @@ flatten
 opt -fine -full
 synth_{{fpga.family}} {{synth_opts}} -top {{design.rtl.top}}
 opt -fine -full
-write_json {{design.name}}.json
+write_json netlist.json

@@ -1,17 +1,15 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-import copy
-import json
+
 import logging
 import os
 import math
-import csv
-from pathlib import Path
-import re
-from xml.etree import ElementTree
-import html
-from distutils.util import strtobool
+from types import SimpleNamespace
+from typing import List
+
+from pkg_resources import require
 from ...utils import try_convert, unique_list
-from ..flow import DesignSource, SimFlow, DebugLevel
+from ..flow import DesignSource, Flow, SimFlow, DebugLevel
+from ...flows.settings import Settings
 from .vivado_synth import VivadoSynth
 from .vivado import Vivado
 
@@ -27,7 +25,9 @@ class VivadoSim(Vivado, SimFlow):
 
         elab_flags = flow_settings.get('elab_flags')
         if not elab_flags:
-            elab_flags = [f'-mt {"off" if self.args.debug else self.nthreads}', '-relax']
+            elab_flags = ['-relax']
+
+        elab_flags.append(f'-mt {"off" if self.args.debug else self.nthreads}')
 
         elab_debug = flow_settings.get('elab_debug')
         run_configs = flow_settings.get('run_configs')
@@ -87,18 +87,32 @@ class VivadoSim(Vivado, SimFlow):
 
 
 class VivadoPostsynthSim(VivadoSim):
-    depends_on = {VivadoSynth: {'rtl.sources': ['results/impl_timesim.v']}}
+    """depends on VivadoSynth, can run multiple configurations (a.k.a testvectors) in a single run of vivado, elaborating the design only once """
 
-    def pre_depend(self, dep):
-        pass
+    @classmethod
+    def prerequisite_flows(cls, flow_settings, design_settings):
+        synth_overrides = {}
+        period = flow_settings.get('clock_period')
+        if period:
+            synth_overrides['clock_period'] = period
 
-    def post_depend(self, dep):
-        pass
+        opt_power = flow_settings.get('optimize_power')
+        if opt_power is not None:
+            synth_overrides['optimize_power'] = opt_power
+            
+        synth_overrides.update(constrain_io=True)
+        return {VivadoSynth: (synth_overrides, {})}
 
-    def run(self):
-        design_settings = self.settings.design
+    def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List[Flow]):
+        settings.design['rtl']['sources'] = [ DesignSource(completed_dependencies[0].flow_run_dir / 'results' / 'impl_timesim.v') ]
+
+        self.synth_flow = completed_dependencies[0]
+        self.synth_settings = self.synth_flow.settings.flow
+        self.synth_results = self.synth_flow.results
+
+        design_settings = settings.design
         tb_settings = design_settings['tb']
-        flow_settings = self.settings.flow
+        flow_settings = settings.flow
         top = tb_settings['top']
         if isinstance(top, str):
             top = [top]
@@ -119,13 +133,13 @@ class VivadoPostsynthSim(VivadoSim):
         if timing_sim:
             if not flow_settings.get('sdf'):
                 flow_settings['sdf'] = {'file': netlist_base + '.sdf'}
-            logger.info(f"Timing simulation using {flow_settings['sdf']}")
+            logger.info(f"Timing simulation using SDF {flow_settings['sdf']}")
 
         clock_period_ps_generic = tb_settings.get(
             'clock_period_ps_generic', 'G_PERIOD_PS')  # FIXME
         if clock_period_ps_generic:
             clock_ps = math.floor(
-                self.settings.flow_depends['vivado_synth']['clock_period'] * 1000)
+                self.synth_settings['clock_period'] * 1000)
             tb_settings['generics'][clock_period_ps_generic] = clock_ps
             for rc in flow_settings.get('run_configs', []):
                 rc['generics'][clock_period_ps_generic] = clock_ps
@@ -133,171 +147,5 @@ class VivadoPostsynthSim(VivadoSim):
         flow_settings['elab_flags'] = ['-relax', '-maxdelay', '-transport_int_delays',
                                        '-pulse_r 0', '-pulse_int_r 0', '-pulse_e 0', '-pulse_int_e 0']
 
-        VivadoSim.run(self)
+        VivadoSim.__init__(self, settings, args, completed_dependencies)
 
-
-class VivadoPower(VivadoPostsynthSim):
-    # depends_on = {VivadoPostsynthSim: {'rtl.sources': ['results/impl_timesim.v']}}
-    def run(self):
-        flow_settings = self.settings.flow
-
-        if flow_settings.get('prerun_time') is None:
-            flow_settings['prerun_time'] = 100 + math.floor(
-                self.settings.flow_depends['vivado_synth']['clock_period'] * 4) - 1
-        saif_file = 'impl_timing.saif'
-        self.power_report_filename = 'power_impl_timing.xml'
-        flow_settings['saif'] = saif_file
-        # run simulation FIXME implement through flow dependency system
-        VivadoPostsynthSim.run(self)
-
-        script_path = self.copy_from_template(f'vivado_power.tcl',
-                                              tb_top=self.tb_top,
-                                              run_configs=[
-                                                  dict(saif=saif_file, report=self.power_report_filename)],
-                                              checkpoint=os.path.relpath(str(
-                                                  self.run_path / 'vivado_synth' / VivadoSynth.checkpoints_dir / 'post_route.dcp'), Path(self.flow_run_dir))
-                                              )
-
-        return self.run_vivado(script_path, stdout_logfile='vivado_postsynth_power_stdout.log')
-
-    def parse_power_report(self, report_xml):
-        tree = ElementTree.parse(report_xml)
-
-        results = {}
-        components = {}
-
-        for tablerow in tree.findall("./section[@title='Summary']/table/tablerow"):
-            tablecells = tablerow.findall('tablecell')
-            key, value = (html.unescape(
-                x.attrib['contents']).strip() for x in tablecells)
-            results[key] = value
-
-        for tablerow in tree.findall("./section[@title='Summary']/section[@title='On-Chip Components']/table/tablerow"):
-            tablecells = tablerow.findall('tablecell')
-            if len(tablecells) >= 2:
-                contents = [html.unescape(
-                    x.attrib['contents']).strip() for x in tablecells]
-                key = contents[0]
-                value = contents[1]
-                components[key] = value
-        results['Components Power'] = components
-
-        return results
-
-    def parse_reports(self):
-        report_xml = self.flow_run_dir / self.power_report_filename
-
-        results = self.parse_power_report(report_xml)
-
-        self.results['success'] = True
-        self.results.update(**results)
-
-
-# TODO move to an LWC plugin that hooks into VivadoPower
-class VivadoPowerLwc(VivadoPower):
-    def run(self):
-        flow_settings = self.settings.flow
-        tb_settings = self.settings.design['tb']
-        design_name = self.settings.design['name']
-        lwc_settings = self.settings.design.get('lwc', {})
-
-        if flow_settings.get('prerun_time') is None:
-            flow_settings['prerun_time'] = 100 + math.floor(
-                self.settings.flow_depends['vivado_synth']['clock_period'] * 4) - 1
-
-        power_tvs = flow_settings.get('power_tvs')
-        if not power_tvs:
-            power_tvs = ['enc_16_0', 'enc_0_16', 'enc_1536_0',
-                         'enc_0_1536', 'dec_16_0', 'dec_1536_0']
-            algorithms = lwc_settings.get('algorithm')
-            if (algorithms and (isinstance(algorithms, list) or isinstance(algorithms, tuple)) and len(algorithms) > 1) or lwc_settings.get('supports_hash'):
-                power_tvs.extend(['hash_16', 'hash_1536'])
-
-        lwc_variant = lwc_settings.get('variant')
-        if not lwc_variant:
-            name_splitted = design_name.split('-')
-            assert len(
-                name_splitted) > 1, "either specify design.lwc.variant or design.name should be ending with -v\d+"
-            lwc_variant = name_splitted[-1]
-            assert re.match(
-                r'v\d+', lwc_variant), "either specify design.lwc.variant or design.name should be ending with -v\d+"
-        power_tvs_root = os.path.join('KAT_GMU', lwc_variant)
-
-        def pow_tv_run_config(tv_sub):
-            tv_generics = copy.deepcopy(tb_settings.get('generics', {}))
-            tv_generics['G_MAX_FAILURES'] = 1
-            tv_generics['G_TEST_MODE'] = 0
-            for t in ['pdi', 'sdi', 'do']:
-                tv_generics[f'G_FNAME_{t.upper()}'] = DesignSource(
-                    os.path.join(power_tvs_root, tv_sub, f'{t}.txt'))
-            return dict(generics=tv_generics, saif=f'{tv_sub}.saif', report=f'{tv_sub}.xml', name=tv_sub)
-
-        run_configs = [pow_tv_run_config(tv) for tv in power_tvs]
-        flow_settings['run_configs'] = run_configs
-        flow_settings['elab_debug'] = 'typical'
-
-        tb_settings["top"] = "LWC_TB"
-        
-        if not tb_settings.get('configuration_specification'):
-            tb_settings["configuration_specification"] = "LWC_TB_wrapper_conf"
-
-        if not flow_settings.get('skip_simulation'):
-            # run simulation FIXME implement through dependency system
-            VivadoPostsynthSim.run(self)
-
-        script_path = self.copy_from_template(f'vivado_power.tcl',
-                                              tb_top=self.tb_top,
-                                              run_configs=run_configs,
-                                              checkpoint=os.path.relpath(str(
-                                                  self.run_path / 'vivado_synth' / VivadoSynth.checkpoints_dir / 'post_route.dcp'), Path(self.flow_run_dir))
-                                              )
-
-        self.run_vivado(
-            script_path, stdout_logfile='vivado_postsynth_power_stdout.log')
-
-    def parse_reports(self):
-        design_name = self.settings.design['name']
-
-        clock_period = self.settings.flow_depends['vivado_synth']['clock_period']
-        freq = math.floor(1000 / clock_period)
-        fields = {'Design': design_name,
-                  'Frequency (MHz)': freq, 'Static': None}
-
-        for rc in self.settings.flow['run_configs']:
-            name = rc['name']
-            report_xml = self.flow_run_dir / rc['report']
-
-            results = self.parse_power_report(report_xml)
-
-            assert results['Design Nets Matched'].startswith('100%')
-            assert results['Confidence Level'] == 'High'
-            static = results['Device Static (W)']
-            if fields['Static'] is None:
-                fields['Static'] = static
-            else:
-                if fields['Static'] != static:
-                    logger.warning(
-                        f"Static power for {name} {static} is different from previous test vectors ({fields['Static']})")
-                    fields[f'Static:{name}'] = static
-            fields[name] = results['Dynamic (W)']
-            self.results[name] = results
-
-        # copy synthesis results for reference
-        # FIXME dependency results/paths
-        with open(self.run_path / 'vivado_synth' / 'vivado_synth_results.json') as synth_results_file:
-            synth_results = json.load(synth_results_file)
-
-        fields['LUT'] = synth_results['lut']
-        fields['FF'] = synth_results['ff']
-        fields['Slice'] = synth_results['slice']
-        fields['LUT RAM'] = synth_results['lut_mem']
-
-        csv_path = Path.cwd() / f"VivadoPowerLwc_{design_name}_{freq}MHz.csv"
-        with open(csv_path, "w") as csv_file:
-            writer = csv.DictWriter(csv_file, fields.keys())
-            writer.writeheader()
-            writer.writerow(fields)
-
-        logger.info(f"Power results written to {csv_path}")
-
-        self.results['success'] = True

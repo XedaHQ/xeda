@@ -56,7 +56,7 @@ class XedaApp:
         self.parser = argparse.ArgumentParser(
             prog=__package__,
             description=f'{__package__}: Cross-EDA abstraction and automation. Version: {__version__}')
-        self.args = None
+        parsed_args = None
 
         # TODO registered plugins
         self.flow_classes = inspect.getmembers(sys.modules['xeda.flows'],
@@ -64,16 +64,15 @@ class XedaApp:
         self.runner_classes = inspect.getmembers(sys.modules['xeda.flow_runner'],
                                                  lambda cls: inspect.isclass(cls) and issubclass(cls, FlowRunner) and cls != FlowRunner)
 
-    def main(self):
-        args = self.args = self.parse_args()
+    def main(self, args = None):
+        parsed_args = self.parse_args(args)
 
-        if args.debug:
+        if parsed_args.debug:
             logger.setLevel(logging.DEBUG)
 
-        runner_cls = args.flow_runner
+        runner_cls = parsed_args.flow_runner
 
-
-        toml_path = self.args.xeda_project if self.args.xeda_project else Path.cwd() / 'xedaproject.toml'
+        toml_path = parsed_args.xeda_project if parsed_args.xeda_project else Path.cwd() / 'xedaproject.toml'
         xeda_project = {}
         try:
             with open(toml_path) as f:
@@ -88,7 +87,7 @@ class XedaApp:
 
 
 
-        if self.args.xeda_run_dir is None:
+        if parsed_args.xeda_run_dir is None:
             rundir = None
             project = xeda_project.get('project')
             if isinstance(project, list):
@@ -99,14 +98,13 @@ class XedaApp:
                 rundir = os.environ.get('xeda_run_dir')
             if not rundir:
                 rundir = 'xeda_run'
-            self.args.xeda_run_dir = rundir
+            parsed_args.xeda_run_dir = rundir
             
-        xeda_run_dir = Path(args.xeda_run_dir).resolve()
+        xeda_run_dir = Path(parsed_args.xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
         print(f"xeda_run_dir={xeda_run_dir}")
 
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-
         logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
 
         fileHandler = logging.FileHandler(
@@ -120,11 +118,13 @@ class XedaApp:
         logger.info(f"Running using FlowRunner: {runner_cls.__name__}")
         print(f"Running using FlowRunner: {runner_cls.__name__}")
 
-        runner = runner_cls(self.args, xeda_project, timestamp)
+        xeda_project['xeda_version'] = __version__
+
+        runner = runner_cls(parsed_args, xeda_project, timestamp)
 
         runner.launch()
 
-    def parse_args(self, args=None):
+    def parse_args(self, args):
         parser = self.parser
         parser.add_argument(
             '--debug',
@@ -152,12 +152,17 @@ class XedaApp:
             help='Directory where the flows are executed and intermediate and result files reside.',
             default=None
         )
-
+        parser.add_argument(
+            '--force-rerun',
+            action='store_true',
+            default=False,
+            help='Force re-run of flow and all dependencies, even if they are already up-to-date',
+            # default=None
+        )
         parser.add_argument(
             '--max-cpus',
             default=max(1, multiprocessing.cpu_count() // 2), type=int,
         )
-
         parser.add_argument(
             '--version',  action='version', version=f'%(prog)s {__version__}', help='Print version information and exit',
         )

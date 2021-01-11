@@ -5,6 +5,6 @@ name = 'blinky'
 sources = ['blinky.v']
 top = 'top'
 
-[flows.yosys]
-clock_period = 20 # 50 MHz
+[flows.open_fpga_loader]
 board = 'ulx3s'
+clock_period = 20 # 50 MHz

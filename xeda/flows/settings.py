@@ -5,4 +5,3 @@ class Settings:
         self.design = dict()
         self.flow = dict()
         self.project = dict()
-        self.flow_depends = dict()

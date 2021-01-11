@@ -1,23 +1,18 @@
-module board_top(input  clk_25mhz,
-                  input  [6:0] btn,
-                  output [7:0] led);
 
-wire pll_clk0;
-wire pll_locked;
-
-__GEN_ECP5_PLL gen_pll_inst(.in_clk(clk_25mhz), .out_clk(pll_clk0), .locked(pll_locked));
-
-top top_inst (
-        .clk(pll_clk0),
-        .btn(btn),
-        .led(led)
-    );
-endmodule
-
-
-module top(input  clk,
+module top(input  clk_25mhz,
                input  [6:0] btn,
                output [7:0] led);
+
+wire clk;
+assign clk = clk_25mhz;
+
+// __GEN_ECP5_PLL gen_pll_inst(.in_clk(clk_25mhz), .out_clk(pll_clk0), .locked(pll_locked));
+
+// top top_inst (
+//         .clk(pll_clk0),
+//         .btn(btn),
+//         .led(led)
+//     );
 
 reg [7:0] o_led;
 assign led= o_led;

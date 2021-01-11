@@ -358,7 +358,7 @@ class LwcVariantsRunner(FlowRunner):
             help='The list of variant IDs to run from all available variants loaded from variants.json.'
         )
 
-    def launch(self):
+    def launch(self): ## FIXME BROKEN
         args = self.args
         self.parallel_run = args.parallel_run
         if args.parallel_run and args.debug >= DebugLevel.MEDIUM:
@@ -399,7 +399,7 @@ class LwcVariantsRunner(FlowRunner):
             # path is relative to variants_json
 
             design_json_path = Path(variants_json_dir) / variant_data["design"]  # TODO also support inline design
-            settings = self.get_design_settings(design_json_path)
+            settings = self.get_all_settings() ## FIXME BROKEN
 
             if self.parallel_run:
                 args.quiet = True
