@@ -85,6 +85,8 @@ def run_flow(f: Flow):
 
 
 def run_flow_fmax(arg):
+    idx: int 
+    flow: Flow
     idx, flow = arg
     try:
         flow.run_flow()
@@ -92,7 +94,7 @@ def run_flow_fmax(arg):
         flow.results['timestamp'] = flow.timestamp
         flow.results['design.name'] = flow.settings.design['name']
         flow.results['flow.name'] = flow.name
-        flow.results['flow.run_hash'] = flow.design_run_hash
+        flow.results['flow.run_hash'] = flow.xedahash
 
         return idx, flow.results, flow.settings, flow.flow_run_dir
 
@@ -227,7 +229,9 @@ class FlowRunner():
                 f"Could not find Flow class corresponding to {name}. Make sure it's typed correctly.", e)
 
     def setup_flow(self, flow_settings, design_settings, flow_cls, completed_dependencies=[]) -> Flow:
-        # settings is a ref to a dict and its data can change, take a snapshot
+        
+        if isinstance(flow_cls, str):
+            flow_cls = self.load_flowclass(flow_cls)
 
         assert issubclass(flow_cls, Flow)
 

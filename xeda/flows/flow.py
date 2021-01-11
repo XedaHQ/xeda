@@ -151,7 +151,7 @@ class Flow():
         self.init_time = time.monotonic()
         self.run()
 
-    def xeda_hash(self):
+    def gen_xeda_hash(self):
         def semantic_hash(data: JsonTree, hasher=hashlib.sha1) -> str:
             def get_digest(b: bytes):
                 return hasher(b).hexdigest()[:32]
@@ -192,7 +192,7 @@ class Flow():
         # all design flow-critical settings should be fixed from this point onwards
         self.freeze_design_sources()
 
-        self.xedahash = self.xeda_hash()
+        self.xedahash = self.gen_xeda_hash()
 
         self.run_path = Path(self.args.force_run_dir) if self.args.force_run_dir else (
                 Path(self.args.xeda_run_dir) / self.xedahash)
