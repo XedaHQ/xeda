@@ -15,7 +15,7 @@ assign clk = clk_25mhz;
 //     );
 
 reg [7:0] o_led;
-assign led= o_led;
+assign led = o_led;
 
 localparam ctr_width = 32;
 localparam ctr_lsb = 20;

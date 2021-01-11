@@ -1,10 +1,14 @@
 {% for src in design.rtl.sources %}
-read_verilog {{src}}
-{% endfor %}
+{%- if src.type == 'verilog' %}
+read_verilog -noautowire {%- if src.variant == 'systemverilog' %} -sv {% endif %} {{src}}
+{%- endif %}
+{%- endfor %}
 
-hierarchy -check -top {{design.rtl.top}} 
-flatten
-opt -fine -full
+prep -top {{design.rtl.top}}
+hierarchy -check -simcheck -top {{design.rtl.top}}
+opt
+check {{rtl_check_flags}} -assert
+write_json yosys_rtl.json
+
 synth_{{fpga.family}} {{synth_opts}} -top {{design.rtl.top}}
-opt -fine -full
 write_json netlist.json
