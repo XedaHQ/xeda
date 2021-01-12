@@ -282,7 +282,7 @@ class DefaultRunner(FlowRunner):
             prereq_flowsettings = dict_merge(self.get_flow_settings(prereq_name), flow_overrides)
             prereq_design = dict_merge(design_settings, design_overrides)
 
-            logger.warning(f"Prerequisite: {prereq}")
+            logger.warning(f"Prerequisite: {prereq.__name__}")
             # recursive call
             completed_prereq = self.launch_flow(
                 prereq, prereq_flowsettings, prereq_design, force_run

@@ -17,6 +17,11 @@ logger = logging.getLogger()
 
 
 class VivadoSim(Vivado, SimFlow):
+    """
+    xsim flow
+    Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
+    
+    """
     def run(self):
         flow_settings = self.settings.flow
         tb_settings: dict = self.settings.design["tb"]
@@ -87,7 +92,7 @@ class VivadoSim(Vivado, SimFlow):
 
 
 class VivadoPostsynthSim(VivadoSim):
-    """depends on VivadoSynth, can run multiple configurations (a.k.a testvectors) in a single run of vivado, elaborating the design only once """
+    """depends on VivadoSynth """
 
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
