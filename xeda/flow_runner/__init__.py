@@ -305,12 +305,12 @@ class DefaultRunner(FlowRunner):
                 force_run = True
                 logger.warning(f"running flow {flow.name} due to {e}")
 
-            if not flow.results.get('success'):
+            if not force_run and not flow.results.get('success'):
                 force_run = True
                 logger.info(f"Re-running flow {flow.name} as the previous run was not successful")
             
             prev_hash = flow.results.get('flow.run_hash')
-            if prev_hash != flow.xedahash:
+            if not force_run and prev_hash != flow.xedahash:
                 force_run = True
                 logger.info(f"Re-running flow {flow.name} as the previous run hash ({prev_hash}) did not match the current one ({flow.xedahash})")
 
