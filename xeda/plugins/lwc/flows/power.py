@@ -40,6 +40,8 @@ class VivadoPowerLwc(VivadoPower):
         flow_overrides['prerun_time'] = 100 + \
             (flow_overrides['clock_period'] * 4) - 1
         flow_overrides['timing_sim'] = True
+        flow_overrides['stop_time'] = None
+        flow_overrides['vcd'] = None
 
         tb_settings = design_settings['tb']
         design_name = design_settings['name']
@@ -128,6 +130,7 @@ class VivadoPowerLwc(VivadoPower):
         fields['Slice'] = self.synth_results['slice']
         fields['LUT RAM'] = self.synth_results['lut_mem']
 
+        # self.run_path.parent ?
         csv_path = Path.cwd() / f"VivadoPowerLwc_{design_name}_{freq}MHz.csv"
         with open(csv_path, "w") as csv_file:
             writer = csv.DictWriter(csv_file, fields.keys())
@@ -148,12 +151,7 @@ class VivadoPowerTimingOnly(SimFlow):
         flow_overrides = {}
         design_overrides = {}
 
-        flow_overrides['clock_period'] = flow_settings.get(
-            'clock_period', 13.333)
-        flow_overrides['optimize_power'] = flow_settings.get(
-            'optimize_power', True)
-        flow_overrides['prerun_time'] = 100 + \
-            (flow_overrides['clock_period'] * 4) - 1
+        flow_overrides['clock_period'] = flow_settings.get('clock_period', 13.333)
         flow_overrides['timing_sim'] = False
         flow_overrides['stop_time'] = None
         flow_overrides['saif'] = None

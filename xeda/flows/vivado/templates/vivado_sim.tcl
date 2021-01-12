@@ -100,7 +100,7 @@ log_saif [get_objects -r -filter { type == signal || type == internal_signal || 
 
 puts "Main Run\n"
 
-if { [catch {eval run {% if 'stop_time' in flow %} {{flow.stop_time}} {% else %} all {% endif %} } error]} {
+if { [catch {eval run {% if 'stop_time' in flow and flow.stop_time %} {{flow.stop_time}} {% else %} all {% endif %} } error]} {
     errorExit $error
 }
 
