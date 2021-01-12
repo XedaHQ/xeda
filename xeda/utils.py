@@ -19,6 +19,7 @@ def snakecase_to_camelcase(name: str) -> str:
 
 def load_class(full_class_string: str, defualt_module_name=None) -> type:
     cls_path_lst = full_class_string.split(".")
+    print(cls_path_lst)
     assert len(cls_path_lst) > 0
 
     cls_name = snakecase_to_camelcase(cls_path_lst[-1])
@@ -27,6 +28,8 @@ def load_class(full_class_string: str, defualt_module_name=None) -> type:
     else:
         mod_name = ".".join(cls_path_lst[:-1])
     assert mod_name
+
+    print(f'mod_name={mod_name}')
 
     module = importlib.import_module(mod_name, __package__ if mod_name.startswith('.') else None )
     return getattr(module, cls_name)

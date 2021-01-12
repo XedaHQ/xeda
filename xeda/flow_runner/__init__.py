@@ -223,8 +223,13 @@ class FlowRunner():
             hook(flow)
 
     def load_flowclass(self, name: str) -> Flow:
+        splitted = name.split('.')
+        package = ".flows"
+        if len(splitted) > 1:
+            name = splitted[-1]
+            package = ".plugins." + ".".join(splitted[:-1]) + ".flows" # FIXME TODO merge-in plugin code
         try:
-            return load_class(name, ".flows")
+            return load_class(name, package)
         except AttributeError as e:
             self.fatal(
                 f"Could not find Flow class corresponding to {name}. Make sure it's typed correctly.", e)
@@ -259,6 +264,8 @@ class FlowRunner():
     def get_flow_settings(self, flow_name):
         return self.all_settings['flows'].get(flow_name, {})
 
+
+class DefaultRunner(FlowRunner):
     def launch_flow(self, flow_name_or_class, flow_settings, design_settings, force_run):
         flow_class = self.load_flowclass(flow_name_or_class) if isinstance(
             flow_name_or_class, str) else flow_name_or_class
@@ -323,10 +330,6 @@ class FlowRunner():
         flow_name = self.args.flow
         flow_settings = self.get_flow_settings(flow_name)
         self.launch_flow(flow_name, flow_settings, self.all_settings['design'], self.args.force_rerun)
-
-
-class DefaultRunner(FlowRunner):
-    pass
 
 
 class Best:

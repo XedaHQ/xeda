@@ -190,8 +190,8 @@ class XedaApp:
                     args.flow_runner = DefaultRunner
                 else:
                     sys.exit(f'Use [RunnerName]:flow_name')
-                if not flow_name in registered_flows:  # FIXME check when loading
-                    sys.exit(f'Flow {flow_name} not found')
+                # if not flow_name in registered_flows:  # FIXME check when loading
+                #     sys.exit(f'Flow {flow_name} not found')
                 setattr(args, self.dest, flow_name)
 
         parser.add_argument('flow', metavar='[RUNNER_NAME:]FLOW_NAME', action=CommandAction,

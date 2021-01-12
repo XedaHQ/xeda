@@ -12,12 +12,12 @@ import time
 from types import SimpleNamespace
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import logging
+from jinja2.loaders import ChoiceLoader
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
 import colored
 # import psutil
 import hashlib
-import signal
 from typing import Mapping, Union, Dict, List
 
 from .settings import Settings
@@ -36,9 +36,11 @@ class FlowFatalException(Exception):
     """Fatal error"""
     pass
 
+
 class NonZeroExit(Exception):
     """Process exited with non-zero return"""
     pass
+
 
 def final_kill(proc):
     try:
@@ -47,9 +49,11 @@ def final_kill(proc):
         for child in psutil.Process(os.getpid()).children(recursive=True):
             child.kill()
     except ModuleNotFoundError:
-        logger.error(f"Failed to import module psutil. Make sure it's installed")
+        logger.error(
+            f"Failed to import module psutil. Make sure it's installed")
     except Exception as e:
-        logger.error(f"Failed to kill child processes recursively using `psutil`: {e}")
+        logger.error(
+            f"Failed to kill child processes recursively using `psutil`: {e}")
     finally:
         try:
             proc.terminate()
@@ -68,14 +72,13 @@ def final_kill(proc):
 #         final_kill(proc)
 
 
-
 def my_print(*args, **kwargs):
     print(*args, **kwargs)
 
 
 class Flow():
     """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
-    
+
     required_settings = {}
     default_settings = {}
     reports_subdir_name = 'reports'
@@ -105,7 +108,15 @@ class Flow():
         self.results['success'] = False
 
         self.jinja_env = Environment(
-            loader=PackageLoader(self.flow_module_path, 'templates'),
+            loader=ChoiceLoader(
+                [
+                    PackageLoader(self.__module__, 'templates'),
+                    PackageLoader(self.__class__.__module__, 'templates'),
+                ] +
+                [
+                    PackageLoader(clz.__module__, 'templates') for clz in self.__class__.__bases__
+                ]
+            ),
             autoescape=False,
             undefined=StrictUndefined
         )
@@ -131,7 +142,8 @@ class Flow():
                     if FileResource.is_file_resource(gen_val):
                         resource_path = gen_val["file"]
                         gen_val = Path(resource_path).resolve(strict=True)
-                        logger.debug(f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
+                        logger.debug(
+                            f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
                         generics[gen_key] = str(gen_val)
 
     def run_flow(self):
@@ -140,7 +152,8 @@ class Flow():
         if not self.flow_run_dir.exists():
             self.flow_run_dir.mkdir(parents=True)
         else:
-            logger.warning(f'Using existing run directory: {self.flow_run_dir}')
+            logger.warning(
+                f'Using existing run directory: {self.flow_run_dir}')
 
         assert self.flow_run_dir.is_dir()
 
@@ -173,11 +186,6 @@ class Flow():
             return semantic_hash(self.settings)
         except FileNotFoundError as e:
             self.fatal(f"Semantic hash failed: {e} ")
-        
-
-    @property
-    def flow_module_path(self):
-        return self.__module__
 
     def check_settings(self):
         for req_key, req_type in self.required_settings.items():
@@ -195,7 +203,7 @@ class Flow():
         self.xedahash = self.gen_xeda_hash()
 
         self.run_path = Path(self.args.force_run_dir) if self.args.force_run_dir else (
-                Path(self.args.xeda_run_dir) / self.xedahash)
+            Path(self.args.xeda_run_dir) / self.xedahash)
 
         self.run_path = self.run_path.resolve()
 
@@ -239,7 +247,6 @@ class Flow():
     def fatal(self, msg):
         logger.critical(msg)
         raise FlowFatalException(msg)
-    
 
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False, nolog=False):
         prog_args = [str(a) for a in prog_args]
@@ -254,12 +261,14 @@ class Flow():
         verbose = not self.args.quiet and (self.args.verbose or force_echo)
         echo_instructed = False
         stdout_logfile = self.flow_run_dir / stdout_logfile
-        start_step_re = re.compile(r'^={12}=*\(\s*(?P<step>[^\)]+)\s*\)={12}=*')
+        start_step_re = re.compile(
+            r'^={12}=*\(\s*(?P<step>[^\)]+)\s*\)={12}=*')
         enable_echo_re = re.compile(r'^={12}=*\( \*ENABLE ECHO\* \)={12}=*')
         disable_echo_re = re.compile(r'^={12}=*\( \*DISABLE ECHO\* \)={12}=*')
         error_msg_re = re.compile(r'^\s*error:?\s+', re.IGNORECASE)
         warn_msg_re = re.compile(r'^\s*warning:?\s+', re.IGNORECASE)
-        critwarn_msg_re = re.compile(r'^\s*critical\s+warning:?\s+', re.IGNORECASE)
+        critwarn_msg_re = re.compile(
+            r'^\s*critical\s+warning:?\s+', re.IGNORECASE)
 
         def make_spinner(step):
             if self.no_console:
@@ -269,7 +278,8 @@ class Flow():
         redirect_std = self.args.debug < DebugLevel.HIGH
         with open(stdout_logfile, 'w') as log_file:
             try:
-                logger.info(f'Running `{prog} {" ".join(prog_args)}` in {self.flow_run_dir}')
+                logger.info(
+                    f'Running `{prog} {" ".join(prog_args)}` in {self.flow_run_dir}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.flow_run_dir,
                                       shell=False,
@@ -327,7 +337,8 @@ class Flow():
                                                 spinner.next()
 
             except FileNotFoundError as e:
-                self.fatal(f"Cannot execute `{prog}`. Make sure it's properly installed and is in the current PATH")
+                self.fatal(
+                    f"Cannot execute `{prog}`. Make sure it's properly installed and is in the current PATH")
             except KeyboardInterrupt as e:
                 if spinner:
                     print(SHOW_CURSOR)
@@ -335,17 +346,18 @@ class Flow():
             finally:
                 final_kill(proc)
 
-
         if spinner:
             print(SHOW_CURSOR)
 
         if proc.returncode != 0:
             m = f'`{proc.args[0]}` exited with returncode {proc.returncode}'
-            logger.critical(f'{m}. Please check `{stdout_logfile}` for error messages!')
+            logger.critical(
+                f'{m}. Please check `{stdout_logfile}` for error messages!')
             if check:
                 raise NonZeroExit(m)
         else:
-            logger.info(f'Execution of {prog} in {self.flow_run_dir} completed with returncode {proc.returncode}')
+            logger.info(
+                f'Execution of {prog} in {self.flow_run_dir} completed with returncode {proc.returncode}')
 
     def parse_report(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
         # TODO fix debug and verbosity levels!
@@ -389,7 +401,8 @@ class Flow():
                     matched = match_pattern(pat)
 
                 if not matched:
-                    self.fatal(f"Error parsing report file: {rpt_file.name}\n Pattern not matched: {pat}\n")
+                    self.fatal(
+                        f"Error parsing report file: {rpt_file.name}\n Pattern not matched: {pat}\n")
         return True
 
     def print_results(self, results=None):
@@ -398,7 +411,8 @@ class Flow():
             # init to print_results time:
             if results.get('runtime_minutes') is None:
 
-                results['runtime_minutes'] = (time.monotonic() - self.init_time) / 60
+                results['runtime_minutes'] = (
+                    time.monotonic() - self.init_time) / 60
         data_width = 32
         name_width = 80 - data_width
         hline = "-"*(name_width + data_width)
@@ -411,7 +425,8 @@ class Flow():
                 if isinstance(v, float):
                     my_print(f'{k:{name_width}}{v:{data_width}.3f}')
                 elif isinstance(v, bool):
-                    bdisp = (colored.fg("green") + "✓" if v else colored.fg("red") + "✗") + colored.attr("reset")
+                    bdisp = (colored.fg(
+                        "green") + "✓" if v else colored.fg("red") + "✗") + colored.attr("reset")
                     my_print(f'{k:{name_width}}{bdisp:>{data_width}}')
                 elif isinstance(v, int):
                     my_print(f'{k:{name_width}}{v:>{data_width}}')
@@ -424,19 +439,21 @@ class Flow():
     def dump_json(self, data, path: Path):
         if path.exists():
             modifiedTime = os.path.getmtime(path)
-            suffix = datetime.fromtimestamp(modifiedTime).strftime("%b-%d-%y-%H%M%S")
+            suffix = datetime.fromtimestamp(
+                modifiedTime).strftime("%b-%d-%y-%H%M%S")
             backup_path = path.with_suffix(f".backup_{suffix}.json")
-            logger.warning(f"File already exists! Backing-up existing file to {backup_path}")
+            logger.warning(
+                f"File already exists! Backing-up existing file to {backup_path}")
             os.rename(path, backup_path)
 
         with open(path, 'w') as outfile:
-            json.dump(data, outfile, default=lambda x: x.__dict__ if hasattr(x, '__dict__') else str(x), indent=4)
+            json.dump(data, outfile, default=lambda x: x.__dict__ if hasattr(
+                x, '__dict__') else str(x), indent=4)
 
     def dump_results(self):
         path = self.flow_run_dir / f'results.json'
         self.dump_json(self.results, path)
         logger.info(f"Results written to {path}")
-
 
 
 class SimFlow(Flow):
@@ -454,23 +471,24 @@ class SimFlow(Flow):
     @property
     def sim_tops(self) -> List[str]:
         """ a view of tb.top that returns a list of primary_unit [secondary_unit] """
-        ## TODO is there ever a >= ternary_unit? If not switch to primary_unit, secondary_unit instead of the sim_tops list
+        # TODO is there ever a >= ternary_unit? If not switch to primary_unit, secondary_unit instead of the sim_tops list
         tb_settings = self.settings.design["tb"]
         tops = copy.deepcopy(tb_settings['top'])
         if not isinstance(tops, list):
             tops = [tops]
-        configuration_specification = tb_settings.get('configuration_specification')
+        configuration_specification = tb_settings.get(
+            'configuration_specification')
         if configuration_specification:
             tops[0] = configuration_specification
         return tops
-        
+
     @property
     def tb_top(self) -> str:
         top = self.settings.design["tb"]['top']
         if isinstance(top, list):
             top = top[0]
         return top
-        
+
     def parse_reports(self):
         self.results['success'] = True
 
@@ -500,7 +518,7 @@ class FileResource:
 
     def __init__(self, path) -> None:
         try:
-            # path must be absolute 
+            # path must be absolute
             self.file = Path(path).resolve(strict=True)
         except Exception as e:
             logger.critical(f"Design source file '{path}' does not exist!")
@@ -508,13 +526,14 @@ class FileResource:
 
         with open(self.file, 'rb') as f:
             self.hash = hashlib.sha256(f.read()).hexdigest()
-    
+
     def __eq__(self, other):
-        return self.hash == other.hash and self.file.samefile(other.file) # path is already absolute 
+        # path is already absolute
+        return self.hash == other.hash and self.file.samefile(other.file)
 
     def __hash__(self):
-        return hash(tuple(self.hash, str(self.file) )) # path is already absolute 
-
+        # path is already absolute
+        return hash(tuple(self.hash, str(self.file)))
 
 
 class DesignSource(FileResource):
@@ -539,10 +558,9 @@ class DesignSource(FileResource):
                     return h
             return None, None
 
-        self.type, self.variant = (type, variant) if type else type_from_suffix(self.file)
+        self.type, self.variant = (
+            type, variant) if type else type_from_suffix(self.file)
         self.standard = standard
 
     def __str__(self):
         return str(self.file)
-
-

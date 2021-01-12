@@ -2,4 +2,4 @@
 
 from .vivado_sim import VivadoSim, VivadoPostsynthSim
 from .vivado_synth import VivadoSynth
-from .vivado_power import VivadoPower, VivadoPowerLwc
+from .vivado_power import VivadoPower

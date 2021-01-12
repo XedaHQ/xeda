@@ -71,7 +71,7 @@ class VivadoSynth(Vivado, SynthFlow):
             # "route": "-directive NoTimingRelaxation",
             "route": ["-directive AggressiveExplore"],
         },
-        "TimingCongestion": {
+        "ExtraTimingCongestion": {
             # -mode: default, out_of_context
             # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
             # -no_lc: When checked, this option turns off LUT combining
@@ -92,7 +92,7 @@ class VivadoSynth(Vivado, SynthFlow):
             # "route": "-directive NoTimingRelaxation",
             "route": ["-directive AlternateCLBRouting"],
         },
-        "Timing2": {
+        "ExtraTiming": {
             # or ExtraTimingOpt, ExtraPostPlacementOpt, Explore
             # very slow: AggressiveExplore
             # -mode: default, out_of_context
@@ -116,7 +116,7 @@ class VivadoSynth(Vivado, SynthFlow):
         },
 
 
-        "Timing3": {
+        "ExtraTimingAltRouting": {
             # -mode: default, out_of_context
             # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
             # -no_lc: When checked, this option turns off LUT combining
