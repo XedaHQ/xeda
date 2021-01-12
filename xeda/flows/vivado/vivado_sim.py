@@ -142,11 +142,13 @@ class VivadoPostsynthSim(VivadoSim):
 
         clock_period_ps_generic = tb_settings.get(
             'clock_period_ps_generic', 'G_PERIOD_PS')  # FIXME
+        tb_settings['generics'] = tb_settings.get('generics', {}) # optional key, create if not exists
         if clock_period_ps_generic:
             clock_ps = math.floor(
                 self.synth_settings['clock_period'] * 1000)
             tb_settings['generics'][clock_period_ps_generic] = clock_ps
             for rc in flow_settings.get('run_configs', []):
+                rc['generics'] = rc.get('generics', {}) # create if not exists
                 rc['generics'][clock_period_ps_generic] = clock_ps
 
         flow_settings['elab_flags'] = ['-relax', '-maxdelay', '-transport_int_delays',
