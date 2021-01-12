@@ -74,7 +74,7 @@ open_saif {{rc.saif}}
 puts "\n===========================( Setting up VCD )==========================="
 open_vcd {{vcd}}
 ## Vivado (tested on 2020.1) crashes if using * and shared/protected variables are present
-log_vcd [get_objects -r -filter { type == variable || type == signal || type == in_port || type == out_port || type == inout_port || type == port } *]
+log_vcd [get_objects -r -filter { type == variable || type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } *]
 {% endif -%}
 
 {%- if debug_traces %}
@@ -94,7 +94,7 @@ if { [catch {eval run {{flow.prerun_time}} } error]} {
 {%- if rc.saif %}
 puts "Adding nets to be logged in SAIF"
 
-log_saif [get_objects -r -filter { type == signal || type == in_port || type == out_port || type == inout_port || type == port } /{{tb_top}}/{{design.tb.uut}}/*]
+log_saif [get_objects -r -filter { type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } /{{tb_top}}/{{design.tb.uut}}/*]
 {% endif -%}
 
 

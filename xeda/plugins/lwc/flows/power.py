@@ -145,9 +145,8 @@ class VivadoPowerTimingOnly(SimFlow):
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
 
-        parent_prereqs = {}
-
-        flow_overrides, design_overrides = parent_prereqs[VivadoPostsynthSim]
+        flow_overrides = {}
+        design_overrides = {}
 
         flow_overrides['clock_period'] = flow_settings.get(
             'clock_period', 13.333)
@@ -156,6 +155,9 @@ class VivadoPowerTimingOnly(SimFlow):
         flow_overrides['prerun_time'] = 100 + \
             (flow_overrides['clock_period'] * 4) - 1
         flow_overrides['timing_sim'] = False
+        flow_overrides['stop_time'] = None
+        flow_overrides['saif'] = None
+        flow_overrides['vcd'] = None
 
         tb_settings = design_settings['tb']
         design_name = design_settings['name']
@@ -193,6 +195,7 @@ class VivadoPowerTimingOnly(SimFlow):
         design_overrides['tb'] = design_overrides.get('tb', {})
         if 'configuration_specification' not in tb_settings:
             design_overrides['tb']["configuration_specification"] = "LWC_TB_wrapper_conf"
+
 
         return {VivadoSim: (flow_overrides, design_overrides)}
 
