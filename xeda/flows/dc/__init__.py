@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from ..flow import SynthFlow
 import re
 import sys, os
-import tomlkit
+import toml
 from glob import glob
 from ...utils import dict_merge
 
@@ -45,7 +45,7 @@ class Dc(SynthFlow):
         adk_config = {}
         for toml_file in adk_root.glob('*.toml'):
             with open(toml_file) as f:
-                adk_config = dict_merge(adk_config, tomlkit.loads(f.read()), add_keys=True)
+                adk_config = dict_merge(adk_config, toml.loads(f.read()), add_keys=True)
 
         adk = get_hier(adk_config, adk_id)
 
