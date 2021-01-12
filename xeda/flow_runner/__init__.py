@@ -91,6 +91,7 @@ def run_flow_fmax(arg):
     try:
         flow.run_flow()
         flow.parse_reports()
+        flow.dump_results()
         flow.results['timestamp'] = flow.timestamp
         flow.results['design.name'] = flow.settings.design['name']
         flow.results['flow.name'] = flow.name
@@ -407,7 +408,8 @@ class FmaxRunner(FlowRunner):
         try:
             with ProcessPool(max_workers=max_workers) as pool:
                 while hi_freq - lo_freq >= resolution:
-
+                    
+                    finder_retries = 0
                     while True:
                         frequencies_to_try, freq_step = numpy.linspace(
                             lo_freq, hi_freq, num=max_workers, dtype=float, retstep=True)
@@ -424,10 +426,13 @@ class FmaxRunner(FlowRunner):
                                 frequencies.append(freq)
                         frequencies_to_try = frequencies
 
-                        if len(frequencies_to_try) > 0 and (max_workers - len(frequencies_to_try)) <= max(2, max_workers / 4):
+                        min_required =  (max_workers -  max(2, max_workers / 4)) if finder_retries > 10 else max_workers
+
+                        if len(frequencies_to_try) >= max(1, min_required):
                             break
                         hi_freq += random.random() * delta_increment
                         lo_freq += 0.1 * random.random() * delta_increment
+                        finder_retries += 1
 
                     logger.info(
                         f"[Fmax] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies_to_try]}")
@@ -506,23 +511,26 @@ class FmaxRunner(FlowRunner):
                         lo_freq = best.freq + delta_increment + delta_increment * random.random()
                         no_improvements = 0
                         # last or one before last
-                        if improved_idx >= len(frequencies_to_try) - 2 or frequencies_to_try[-1] - best.freq <= freq_step:
+                        if improved_idx >= (len(frequencies_to_try) // 2) or frequencies_to_try[-1] - best.freq <= freq_step:
                             min_plausible_period = (
                                 ONE_THOUSAND / best.freq) - best.results['wns'] - 0.001
                             lo_point_choice = frequencies_to_try[1] if len(
                                 frequencies_to_try) > 4 else frequencies_to_try[0]
                             hi_freq = max(best.freq + min(max_workers * 1.0, best.freq -
                                                           lo_point_choice),  ceil(ONE_THOUSAND / min_plausible_period))
-                        hi_freq += 2.3 * resolution + freq_step + random.random()
+                        else:
+                            hi_freq = (hi_freq + best.freq + freq_step) / 2
 
-                    hi_freq += random.random() * delta_increment
+                        hi_freq += 1
+
+                    hi_freq = ceil(hi_freq)
 
                     logger.info(f'[Fmax] End of iteration #{num_iterations}')
                     logger.info(
                         f'[Fmax] Execution Time so far: {int(time.monotonic() - start_time) // 60} minute(s)')
                     if best and best.results:
                         print_results(best.results, title='Best so far', subset=[
-                                      'clock_period', 'clock_frequency', 'lut', 'ff', 'slice'])
+                                      'clock_period', 'clock_frequency', 'wns', 'lut', 'ff', 'slice'])
 
         except KeyboardInterrupt:
             logger.exception('Received Keyboard Interrupt')
