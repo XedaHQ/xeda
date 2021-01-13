@@ -1,5 +1,4 @@
 # © 2021 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-
 import copy
 import logging
 import os
@@ -12,12 +11,10 @@ from xeda.flows.flow import DesignSource, SimFlow
 from xeda.flows.vivado.vivado_sim import VivadoPostsynthSim, VivadoSim
 from xeda.flows.vivado.vivado_power import VivadoPower
 
-
-_logger = logging.getLogger()
-
-
 __all__ = ['VivadoPowerLwc', 'VivadoPowerTimingOnly']
 
+
+_logger = logging.getLogger()
 
 _default_power_tvs = ['enc_16_0', 'enc_0_16', 'enc_1536_0',
                      'enc_0_1536', 'dec_16_0', 'dec_1536_0']
@@ -68,6 +65,10 @@ class VivadoPowerLwc(VivadoPower):
             tv_generics = copy.deepcopy(tb_settings.get('generics', {}))
             tv_generics['G_MAX_FAILURES'] = 1
             tv_generics['G_TEST_MODE'] = 0
+            clock_period_ps_generic = tb_settings.get('clock_period_ps_generic', 'G_PERIOD_PS')
+            clock_ps = math.floor(
+                flow_overrides['clock_period'] * 1000)
+            tv_generics[clock_period_ps_generic] = clock_ps
             tv_generics['G_FNAME_LOG'] = f'{tv_sub}_LWCTB_log.txt'
             for t in ['pdi', 'sdi', 'do']:
                 tv_generics[f'G_FNAME_{t.upper()}'] = DesignSource(
@@ -92,11 +93,12 @@ class VivadoPowerLwc(VivadoPower):
 
         freq = math.floor(1000 / clock_period)
         fields = {'Design': design_name,
-                  'Frequency (MHz)': freq, 'Static': None}
+                  'Frequency (MHz)': freq}
 
         timing_pat = re.compile(
             r"PASS \(0\): SIMULATION FINISHED after (?P<cycles>\d+) cycles at (?P<totaltime>.*)")
 
+        statics = {}
         for rc in self.postsynthsim_settings['run_configs']:
             name = rc['name']
             report_xml = self.flow_run_dir / rc['report']
@@ -106,13 +108,8 @@ class VivadoPowerLwc(VivadoPower):
             assert results['Design Nets Matched'].startswith('100%')
             assert results['Confidence Level'] == 'High'
             static = results['Device Static (W)']
-            if fields['Static'] is None:
-                fields['Static'] = static
-            else:
-                if fields['Static'] != static:
-                    _logger.warning(
-                        f"Static power for {name} {static} is different from previous test vectors ({fields['Static']})")
-                    fields[f'Static:{name}'] = static
+            statics[f'Static:{name}'] = static
+
             fields[name] = results['Dynamic (W)']
 
             lwctb_log = self.postsynthsim_flow.flow_run_dir / \
@@ -125,10 +122,19 @@ class VivadoPowerLwc(VivadoPower):
                 results['totaltime'] = match.group('totaltime')
             self.results[name] = results
 
+
+        for x in ['hash_16', 'hash_1536']:
+            if x not in fields:
+                y = x + '_cycles'
+                fields[x] = fields.get(x)
+                fields[y] = fields.get(y) # being over-paranoid not to loose anything
+
         fields['LUT'] = self.synth_results['lut']
         fields['FF'] = self.synth_results['ff']
         fields['Slice'] = self.synth_results['slice']
         fields['LUT RAM'] = self.synth_results['lut_mem']
+        fields['Static'] = list(statics.values())[0]
+        fields.update(statics)
 
         # self.run_path.parent ?
         csv_path = Path.cwd() / f"VivadoPowerLwc_{design_name}_{freq}MHz.csv"
@@ -183,6 +189,10 @@ class VivadoPowerTimingOnly(SimFlow):
             tv_generics['G_MAX_FAILURES'] = 1
             tv_generics['G_TEST_MODE'] = 0
             tv_generics['G_FNAME_LOG'] = f'{tv_sub}_LWCTB_log.txt'
+            clock_period_ps_generic = tb_settings.get('clock_period_ps_generic', 'G_PERIOD_PS')
+            clock_ps = math.floor(
+                flow_overrides['clock_period'] * 1000)
+            tv_generics[clock_period_ps_generic] = clock_ps
             for t in ['pdi', 'sdi', 'do']:
                 tv_generics[f'G_FNAME_{t.upper()}'] = DesignSource(
                     os.path.join(power_tvs_root, tv_sub, f'{t}.txt'))
@@ -193,7 +203,6 @@ class VivadoPowerTimingOnly(SimFlow):
         design_overrides['tb'] = design_overrides.get('tb', {})
         if 'configuration_specification' not in tb_settings:
             design_overrides['tb']["configuration_specification"] = "LWC_TB_wrapper_conf"
-
 
         return {VivadoSim: (flow_overrides, design_overrides)}
 
@@ -237,4 +246,3 @@ class VivadoPowerTimingOnly(SimFlow):
 
         _logger.info(f"CSV results written to {csv_path}")
         self.results['success'] = True
-
