@@ -75,16 +75,20 @@ class XedaApp:
             if not rundir:
                 rundir = 'xeda_run'
             parsed_args.xeda_run_dir = rundir
-            
+
         xeda_run_dir = Path(parsed_args.xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
-        print(f"xeda_run_dir={xeda_run_dir}")
+
+        logdir = xeda_run_dir / 'Logs'
+        logdir.mkdir(exist_ok=True, parents=True)
 
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
         logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
 
-        fileHandler = logging.FileHandler(
-            xeda_run_dir / f"xeda_{timestamp}.log")
+        logfile = logdir / f"xeda_{timestamp}.log"
+        print(f"Logging to {logfile}")
+
+        fileHandler = logging.FileHandler(logfile)
         fileHandler.setFormatter(logFormatter)
         logger.addHandler(fileHandler)
 
@@ -92,7 +96,6 @@ class XedaApp:
             'INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
 
         logger.info(f"Running using FlowRunner: {runner_cls.__name__}")
-        print(f"Running using FlowRunner: {runner_cls.__name__}")
 
         xeda_project['xeda_version'] = __version__
 

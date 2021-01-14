@@ -267,6 +267,10 @@ class FlowRunner():
 
 class DefaultRunner(FlowRunner):
     def launch_flow(self, flow_name_or_class, flow_settings, design_settings, force_run):
+
+        if force_run:
+            logger.warning(f"Forced re-run of {flow_name_or_class}")
+
         flow_class = self.load_flowclass(flow_name_or_class) if isinstance(
             flow_name_or_class, str) else flow_name_or_class
 

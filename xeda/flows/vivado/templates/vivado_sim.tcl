@@ -70,9 +70,9 @@ open_saif {{rc.saif}}
 ## set wdb_file "xsim_waves"
 ## open_wave_database ${wdb_file}
 
-{%- if vcd %}
+{%- if rc.vcd %}
 puts "\n===========================( Setting up VCD )==========================="
-open_vcd {{vcd}}
+open_vcd {{rc.vcd}}
 ## Vivado (tested on 2020.1) crashes if using * and shared/protected variables are present
 log_vcd [get_objects -r -filter { type == variable || type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } *]
 {% endif -%}
@@ -109,7 +109,7 @@ set fin_time [eval current_time]
 puts "\[Vivado\] Simulation finished at ${fin_time}"
 
 puts "\n===========================( *DISABLE ECHO* )==========================="
-{% if vcd %}
+{% if rc.vcd %}
 puts "\n===========================( Closing VCD file )==========================="
 flush_vcd
 close_vcd

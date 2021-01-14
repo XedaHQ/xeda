@@ -20,8 +20,9 @@ class VivadoSim(Vivado, SimFlow):
     """
     xsim flow
     Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
-    
+
     """
+
     def run(self):
         flow_settings = self.settings.flow
         tb_settings: dict = self.settings.design["tb"]
@@ -42,13 +43,22 @@ class VivadoSim(Vivado, SimFlow):
             elab_flags.append(f'-debug {elab_debug}')
 
         if not run_configs:
-            run_configs = [dict(saif=saif, generics=generics)]
+            run_configs = [dict(saif=saif, generics=generics,
+                                vcd=self.vcd, name='default')]
+            if self.vcd:
+                logger.info(f"Dumping VCD to {self.flow_run_dir / self.vcd}")
         else:
-            for rc in run_configs:
+            for idx, rc in enumerate(run_configs):
                 # merge
                 rc['generics'] = {**generics, **rc['generics']}
-                if saif and not 'saif' in rc:
+                if not 'saif' in rc:
                     rc['saif'] = saif
+                if not 'name' in rc:
+                    rc['name'] = f'run_{idx}'
+                if not 'vcd' in rc:
+                    rc['vcd'] = (rc['name'] + '_' +
+                                 self.vcd) if self.vcd else None
+
 
         tb_uut = tb_settings.get('uut')
         sdf = flow_settings.get('sdf')
@@ -80,7 +90,6 @@ class VivadoSim(Vivado, SimFlow):
                                               sim_flags=' '.join(
                                                   flow_settings.get('sim_flags', [])),
                                               initialize_zeros=False,
-                                              vcd=self.vcd,
                                               sim_tops=self.sim_tops,
                                               tb_top=self.tb_top,
                                               lib_name='work',
@@ -104,12 +113,13 @@ class VivadoPostsynthSim(VivadoSim):
         opt_power = flow_settings.get('optimize_power')
         if opt_power is not None:
             synth_overrides['optimize_power'] = opt_power
-            
+
         synth_overrides.update(constrain_io=True)
         return {VivadoSynth: (synth_overrides, {})}
 
     def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List[Flow]):
-        settings.design['rtl']['sources'] = [ DesignSource(completed_dependencies[0].flow_run_dir / 'results' / 'impl_timesim.v') ]
+        settings.design['rtl']['sources'] = [DesignSource(
+            completed_dependencies[0].flow_run_dir / 'results' / 'impl_timesim.v')]
 
         self.synth_flow = completed_dependencies[0]
         self.synth_settings = self.synth_flow.settings.flow
@@ -142,17 +152,17 @@ class VivadoPostsynthSim(VivadoSim):
 
         clock_period_ps_generic = tb_settings.get(
             'clock_period_ps_generic', 'G_PERIOD_PS')  # FIXME
-        tb_settings['generics'] = tb_settings.get('generics', {}) # optional key, create if not exists
+        tb_settings['generics'] = tb_settings.get(
+            'generics', {})  # optional key, create if not exists
         if clock_period_ps_generic:
             clock_ps = math.floor(
                 self.synth_settings['clock_period'] * 1000)
             tb_settings['generics'][clock_period_ps_generic] = clock_ps
             for rc in flow_settings.get('run_configs', []):
-                rc['generics'] = rc.get('generics', {}) # create if not exists
+                rc['generics'] = rc.get('generics', {})  # create if not exists
                 rc['generics'][clock_period_ps_generic] = clock_ps
 
         flow_settings['elab_flags'] = ['-relax', '-maxdelay', '-transport_int_delays',
                                        '-pulse_r 0', '-pulse_int_r 0', '-pulse_e 0', '-pulse_int_e 0']
 
         VivadoSim.__init__(self, settings, args, completed_dependencies)
-

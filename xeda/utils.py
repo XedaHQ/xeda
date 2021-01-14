@@ -59,10 +59,10 @@ def try_convert(s, convert_lists=False):
 
     try:
         return int(s)
-    except ValueError:
+    except Exception:
         try:
             return float(s)
-        except ValueError:
+        except Exception:
             s = str(s)
             if s.lower in ['true', 'yes']:
                 return True

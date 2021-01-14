@@ -11,15 +11,18 @@ from xeda.flows.flow import DesignSource, SimFlow
 from xeda.flows.vivado.vivado_sim import VivadoPostsynthSim, VivadoSim
 from xeda.flows.vivado.vivado_power import VivadoPower
 
+from ..lwc import LWC
+
 __all__ = ['VivadoPowerLwc', 'VivadoPowerTimingOnly']
 
 
 _logger = logging.getLogger()
 
 _default_power_tvs = ['enc_16_0', 'enc_0_16', 'enc_1536_0',
-                     'enc_0_1536', 'dec_16_0', 'dec_1536_0']
+                      'enc_0_1536', 'dec_16_0', 'dec_1536_0']
 
-class VivadoPowerLwc(VivadoPower):
+
+class VivadoPowerLwc(VivadoPower, LWC):
     required_settings = {}
 
     @classmethod
@@ -47,9 +50,9 @@ class VivadoPowerLwc(VivadoPower):
         power_tvs = flow_settings.get('power_tvs')
         if not power_tvs:
             power_tvs = _default_power_tvs
-            algorithms = lwc_settings.get('algorithm')
-            if (algorithms and (isinstance(algorithms, list) or isinstance(algorithms, tuple)) and len(algorithms) > 1) or lwc_settings.get('supports_hash'):
+            if LWC.supports_hash(design_settings):
                 power_tvs.extend(['hash_16', 'hash_1536'])
+
 
         lwc_variant = lwc_settings.get('variant')
         if not lwc_variant:
@@ -61,11 +64,14 @@ class VivadoPowerLwc(VivadoPower):
                 r'v\d+', lwc_variant), "either specify design.lwc.variant or design.name should be ending with -v\d+"
         power_tvs_root = os.path.join('KAT_GMU', lwc_variant)
 
+        default_generics = tb_settings.get('generics', {})
+
         def pow_tv_run_config(tv_sub):
-            tv_generics = copy.deepcopy(tb_settings.get('generics', {}))
+            tv_generics = copy.deepcopy(default_generics)
             tv_generics['G_MAX_FAILURES'] = 1
             tv_generics['G_TEST_MODE'] = 0
-            clock_period_ps_generic = tb_settings.get('clock_period_ps_generic', 'G_PERIOD_PS')
+            clock_period_ps_generic = tb_settings.get(
+                'clock_period_ps_generic', 'G_PERIOD_PS')
             clock_ps = math.floor(
                 flow_overrides['clock_period'] * 1000)
             tv_generics[clock_period_ps_generic] = clock_ps
@@ -78,6 +84,12 @@ class VivadoPowerLwc(VivadoPower):
 
         flow_overrides['run_configs'] = [
             pow_tv_run_config(tv) for tv in power_tvs]
+
+        for t in ['pdi', 'sdi', 'do']:
+            del default_generics[f'G_FNAME_{t.upper()}']
+
+        tb_settings['generics'] = default_generics
+
         design_overrides['tb'] = design_overrides.get('tb', {})
         if 'configuration_specification' not in tb_settings:
             _logger.info(
@@ -122,12 +134,12 @@ class VivadoPowerLwc(VivadoPower):
                 results['totaltime'] = match.group('totaltime')
             self.results[name] = results
 
-
         for x in ['hash_16', 'hash_1536']:
             if x not in fields:
                 y = x + '_cycles'
                 fields[x] = fields.get(x)
-                fields[y] = fields.get(y) # being over-paranoid not to loose anything
+                # being over-paranoid not to loose anything
+                fields[y] = fields.get(y)
 
         fields['LUT'] = self.synth_results['lut']
         fields['FF'] = self.synth_results['ff']
@@ -147,7 +159,7 @@ class VivadoPowerLwc(VivadoPower):
         self.results['success'] = True
 
 
-class VivadoPowerTimingOnly(SimFlow):
+class VivadoPowerTimingOnly(SimFlow, LWC):
     """
     just trying to reuse VivadoPowerLWc code to redo quick cycle accurate simulation and retrieve missing data
     """
@@ -157,39 +169,32 @@ class VivadoPowerTimingOnly(SimFlow):
         flow_overrides = {}
         design_overrides = {}
 
-        flow_overrides['clock_period'] = flow_settings.get('clock_period', 13.333)
+        flow_overrides['clock_period'] = flow_settings.get(
+            'clock_period', 13.333)
         flow_overrides['timing_sim'] = False
         flow_overrides['stop_time'] = None
         flow_overrides['saif'] = None
         flow_overrides['vcd'] = None
 
         tb_settings = design_settings['tb']
-        design_name = design_settings['name']
-        lwc_settings = design_settings.get('lwc', {})
 
         power_tvs = flow_settings.get('power_tvs')
         if not power_tvs:
             power_tvs = _default_power_tvs
-            algorithms = lwc_settings.get('algorithm')
-            if (algorithms and (isinstance(algorithms, list) or isinstance(algorithms, tuple)) and len(algorithms) > 1) or lwc_settings.get('supports_hash'):
+            if LWC.supports_hash(design_settings):
                 power_tvs.extend(['hash_16', 'hash_1536'])
 
-        lwc_variant = lwc_settings.get('variant')
-        if not lwc_variant:
-            name_splitted = design_name.split('-')
-            assert len(
-                name_splitted) > 1, "either specify design.lwc.variant or design.name should be ending with -v\d+"
-            lwc_variant = name_splitted[-1]
-            assert re.match(
-                r'v\d+', lwc_variant), "either specify design.lwc.variant or design.name should be ending with -v\d+"
-        power_tvs_root = os.path.join('KAT_GMU', lwc_variant)
+        power_tvs_root = os.path.join('KAT_GMU', LWC.variant(design_settings))
+
+        default_generics = tb_settings.get('generics', {})
 
         def pow_tv_run_config(tv_sub):
-            tv_generics = copy.deepcopy(tb_settings.get('generics', {}))
+            tv_generics = copy.deepcopy(default_generics)
             tv_generics['G_MAX_FAILURES'] = 1
             tv_generics['G_TEST_MODE'] = 0
             tv_generics['G_FNAME_LOG'] = f'{tv_sub}_LWCTB_log.txt'
-            clock_period_ps_generic = tb_settings.get('clock_period_ps_generic', 'G_PERIOD_PS')
+            clock_period_ps_generic = tb_settings.get(
+                'clock_period_ps_generic', 'G_PERIOD_PS')
             clock_ps = math.floor(
                 flow_overrides['clock_period'] * 1000)
             tv_generics[clock_period_ps_generic] = clock_ps
@@ -200,6 +205,10 @@ class VivadoPowerTimingOnly(SimFlow):
 
         flow_overrides['run_configs'] = [
             pow_tv_run_config(tv) for tv in power_tvs]
+        for t in ['pdi', 'sdi', 'do']:
+            del default_generics[f'G_FNAME_{t.upper()}']
+        tb_settings['generics'] = default_generics
+
         design_overrides['tb'] = design_overrides.get('tb', {})
         if 'configuration_specification' not in tb_settings:
             design_overrides['tb']["configuration_specification"] = "LWC_TB_wrapper_conf"
@@ -207,7 +216,7 @@ class VivadoPowerTimingOnly(SimFlow):
         return {VivadoSim: (flow_overrides, design_overrides)}
 
     def run(self):
-        _logger.info("doing nothing!")
+        _logger.info("running nothing!")
 
     def parse_reports(self):
         design_name = self.settings.design['name']

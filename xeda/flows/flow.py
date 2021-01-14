@@ -97,6 +97,7 @@ class Flow():
         self.args = args
         self.xedahash = None
         self.run_path = None
+        self.xeda_run_dir = Path(args.xeda_run_dir)
         self.flow_run_dir = None
         self.reports_dir = None
         self.init_time = 0
@@ -126,25 +127,6 @@ class Flow():
         self.post_results_hooks = []
 
         self.completed_dependencies = completed_dependencies
-
-    def freeze_design_sources(self):
-        design_settings = self.settings.design
-
-        for section in ['rtl', 'tb']:
-            section_settings = design_settings.get(section)
-            if section_settings:
-                section_settings['sources'] = [
-                    DesignSource(src) if isinstance(src, str) else src for src in section_settings.get('sources', [])
-                ]
-
-                generics = section_settings.get("generics", {})
-                for gen_key, gen_val in generics.items():
-                    if FileResource.is_file_resource(gen_val):
-                        resource_path = gen_val["file"]
-                        gen_val = Path(resource_path).resolve(strict=True)
-                        logger.debug(
-                            f'Converting generic `{gen_key}` marked as `file`: {resource_path} -> {gen_val}')
-                        generics[gen_key] = str(gen_val)
 
     def run_flow(self):
         self.prepare()
@@ -197,13 +179,29 @@ class Flow():
                 #     self.fatal(f'{req_key} should have type `{req_type.__name__}` for {self.name}')
 
     def prepare(self):
+        design_settings = self.settings.design
+
+        for section in ['rtl', 'tb']:
+            section_settings = design_settings.get(section)
+            if section_settings:
+                section_settings['sources'] = [
+                    DesignSource(src) if isinstance(src, str) else src for src in section_settings.get('sources', [])
+                ]
+
+                generics = section_settings.get("generics", {})
+                for gen_key, gen_val in generics.items():
+                    if isinstance(gen_val, dict) and 'file' in gen_val:
+                        path = gen_val['file']
+                        logger.debug(
+                            f'Generic `{gen_key}` marked with `file` attribute is treated as FileResource({path})')
+                        generics[gen_key] = FileResource(path)
+
         # all design flow-critical settings should be fixed from this point onwards
-        self.freeze_design_sources()
 
         self.xedahash = self.gen_xeda_hash()
 
         self.run_path = Path(self.args.force_run_dir) if self.args.force_run_dir else (
-            Path(self.args.xeda_run_dir) / self.xedahash)
+            self.xeda_run_dir / '.xeda_run' / self.xedahash)
 
         self.run_path = self.run_path.resolve()
 
@@ -431,7 +429,8 @@ class Flow():
                 elif isinstance(v, int):
                     my_print(f'{k:{name_width}}{v:>{data_width}}')
                 elif isinstance(v, list):
-                    my_print(f'{k:{name_width}}{" ".join(v):<{data_width}}')
+                    my_print(
+                        f'{k:{name_width}}{" ".join([str(x) for x in v]):<{data_width}}')
                 else:
                     my_print(f'{k:{name_width}}{str(v):>{data_width}s}')
         my_print(hline + "\n")
@@ -440,7 +439,7 @@ class Flow():
         if path.exists():
             modifiedTime = os.path.getmtime(path)
             suffix = datetime.fromtimestamp(
-                modifiedTime).strftime("%b-%d-%y-%H%M%S")
+                modifiedTime).strftime("%Y-%m-%d-%H%M%S")
             backup_path = path.with_suffix(f".backup_{suffix}.json")
             logger.warning(
                 f"File already exists! Backing-up existing file to {backup_path}")
@@ -506,6 +505,11 @@ class SynthFlow(Flow):
     # TODO FIXME set in plugin or elsewhere!!!
     default_settings = {'allow_dsps': False, 'allow_brams': False}
 
+    def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List['Flow']):
+        if not isinstance(self, SimFlow):
+            settings.design['tb'] = {}
+        super().__init__(settings, args, completed_dependencies)
+
 
 class DseFlow(Flow):
     pass
@@ -517,6 +521,9 @@ class FileResource:
         return isinstance(src, cls) or (isinstance(src, dict) and 'file' in src)
 
     def __init__(self, path) -> None:
+        self.file = None
+        self.hash = None
+
         try:
             # path must be absolute
             self.file = Path(path).resolve(strict=True)
@@ -534,6 +541,12 @@ class FileResource:
     def __hash__(self):
         # path is already absolute
         return hash(tuple(self.hash, str(self.file)))
+
+    def __str__(self):
+        return str(self.file)
+
+    def __repr__(self) -> str:
+        return 'FileResource:' + self.__str__()
 
 
 class DesignSource(FileResource):
@@ -561,6 +574,3 @@ class DesignSource(FileResource):
         self.type, self.variant = (
             type, variant) if type else type_from_suffix(self.file)
         self.standard = standard
-
-    def __str__(self):
-        return str(self.file)
