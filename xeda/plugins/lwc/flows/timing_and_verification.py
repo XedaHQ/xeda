@@ -25,6 +25,16 @@ class VivadoSimTiming(VivadoSim, LWC):
     def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List['Flow']):
         tb_settings = settings.design.get('tb', {})
 
+        lwc_settings = settings.design.get('lwc', {})
+
+        tb_settings['top'] = 'LWC_TB'
+
+        if not lwc_settings.get('two_pass'):
+            tb_settings['configuration_specification'] = None
+        elif tb_settings.get('configuration_specification'):
+            _logger.warning("Two-pass LWC. Not overwriting top configuration!")
+            _logger.warning(f"design.tb.configuration_specification={tb_settings['configuration_specification']}")
+
         tb_generics = tb_settings.get('generics', {})
         tb_generics['G_MAX_FAILURES'] = 1
         tb_generics['G_TEST_MODE'] = 4
@@ -201,7 +211,6 @@ class VivadoSimTiming(VivadoSim, LWC):
                                 bsx4 = cycle
                             elif idx == 4:
                                 bsx5  = cycle
-                print(bsx4, bsx5)
                 if bsx4 and bsx5:
                     row[f'{"+".join(msg_type)}_Long'] = str(int(bsx5) - int(bsx4))
                 
@@ -212,11 +221,21 @@ class VivadoSimTiming(VivadoSim, LWC):
 
         if supports_hash:
             op = 'Hash'
+            bsx4 = None
+            bsx5 = None
             row = {}
-            for sz in sizes + [block_size_bits['HM'] * j // 8 for j in range(4, 6)]:
+            hm_sizes = sizes + [block_size_bits['HM'] * j // 8 for j in range(4, 6)]
+            for idx,sz in enumerate(hm_sizes):
                 for msg, cycle in timing_results[op]:
                     if msg.get('HM') == sz:
                         row[f'HM_{sz}'] = cycle
+                        if idx == 3:
+                            bsx4 = cycle
+                        elif idx == 4:
+                            bsx5  = cycle
+            if bsx4 and bsx5:
+                row[f'HM_Long'] = str(int(bsx5) - int(bsx4))
+
             csv_lines.append(op)
             csv_lines.append(', '.join(row.keys()))
             csv_lines.append(', '.join(row.values()))

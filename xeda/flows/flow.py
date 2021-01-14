@@ -494,7 +494,12 @@ class SimFlow(Flow):
     @property
     def vcd(self) -> str:
         vcd = self.settings.flow.get('vcd')
-        if not vcd and self.args.debug >= DebugLevel.LOW:
+        if vcd:
+            if not isinstance(vcd, str): # e.g. True
+                vcd = 'dump.vcd'
+            elif not vcd.endswith('.vcd'):
+                vcd += '.vcd'
+        elif self.args.debug >= DebugLevel.LOW:
             vcd = 'debug_dump.vcd'
         return vcd
 
