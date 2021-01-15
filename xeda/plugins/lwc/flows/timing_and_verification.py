@@ -206,7 +206,6 @@ class VivadoSimTiming(VivadoSim, LWC):
                             v == 0 for k, v in msg.items() if k not in msg_type)
                         if right_value and others_zero:
                             row[f'{"+".join(msg_type)}_{sz[0] if len(sz) == 1 or (sz[0] == sz[1]) else f"{sz[0]}+{sz[1]}"}'] = cycle
-                            print(idx)
                             if idx == 3:
                                 bsx4 = cycle
                             elif idx == 4:
