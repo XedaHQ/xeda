@@ -5,20 +5,16 @@ import re
 from types import SimpleNamespace
 from typing import List
 
-from xeda.flows.flow import FileResource, Flow
+from xeda.flows.flow import FileResource, Flow, removesuffix
 from xeda.flows.settings import Settings
 from xeda.flows.vivado.vivado_sim import VivadoSim
 
 from ..lwc import LWC
 
-__all__ = ['VivadoSimTiming']
+__all__ = ['VivadoSimTiming', 'VivadoSimVerification']
 
 _logger = logging.getLogger()
 
-
-# similar to str.removesuffix in Python 3.9+
-def removesuffix(s: str, suffix: str) -> str:
-    return s[:-len(suffix)] if suffix and s.endswith(suffix) else s
 
 
 class VivadoSimTiming(VivadoSim, LWC):
@@ -32,8 +28,8 @@ class VivadoSimTiming(VivadoSim, LWC):
         if not lwc_settings.get('two_pass'):
             tb_settings['configuration_specification'] = None
         elif tb_settings.get('configuration_specification'):
-            _logger.warning("Two-pass LWC. Not overwriting top configuration!")
-            _logger.warning(f"design.tb.configuration_specification={tb_settings['configuration_specification']}")
+            _logger.warning(f"Two-pass LWC with design.tb.configuration_specification={tb_settings['configuration_specification']} -> LWC_TB_2pass_conf")
+            tb_settings['configuration_specification'] = 'LWC_TB_2pass_conf'
 
         tb_generics = tb_settings.get('generics', {})
         tb_generics['G_MAX_FAILURES'] = 1
@@ -241,14 +237,110 @@ class VivadoSimTiming(VivadoSim, LWC):
             csv_lines.append("")
 
         name = self.settings.design.get('name', "<NO-NAME>")
-        results_dir = self.xeda_run_dir / 'Results'
-        results_dir.mkdir(exist_ok=True, parents=True)
-        csv_files = results_dir / (name + '_Timing.csv')
+        csv_files = self.results_dir / (name + '_Timing.csv')
         with open(csv_files, 'w') as f:
             f.writelines([l + '\n' for l in csv_lines])
 
         _logger.info(f"Timing results written to {csv_files}")
 
         results.update(timing_results)
+
+        results['success'] = True
+
+
+
+class VivadoSimVerification(VivadoSim, LWC):
+    def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List['Flow']):
+        tb_settings = settings.design.get('tb', {})
+
+        lwc_settings = settings.design.get('lwc', {})
+
+        tb_settings['top'] = 'LWC_TB'
+
+        if not lwc_settings.get('two_pass'):
+            tb_settings['configuration_specification'] = None
+        elif tb_settings.get('configuration_specification'):
+            _logger.warning(f"Two-pass LWC with design.tb.configuration_specification={tb_settings['configuration_specification']} -> LWC_TB_2pass_conf")
+            tb_settings['configuration_specification'] = 'LWC_TB_2pass_conf'
+            
+
+        tb_generics = tb_settings.get('generics', {})
+        tb_generics['G_MAX_FAILURES'] = 100
+        tb_generics['G_TEST_MODE'] = 0 # TODO
+
+        tb_settings['generics'] = tb_generics  # in case they didn't exist
+        settings.design['tb'] = tb_settings
+
+        tv_root = 'KAT'
+        variant = LWC.variant(settings.design)
+
+        for t in ['pdi', 'sdi', 'do']:
+            gen = f'G_FNAME_{t.upper()}'
+            if gen in tb_generics:
+                del tb_generics[gen]
+
+        tvs = ['kats_for_verification']
+
+        # if LWC.supports_hash(settings.design):
+        #     tvs.extend(['basic_hash_sizes'])
+
+        run_configs = []
+
+        for tv_subfolder in tvs:
+            rc_generics = deepcopy(tb_generics)
+            rc_generics['G_FNAME_LOG'] = f'LWC_TB_log_{tv_subfolder}.log'
+
+            for t in ['pdi', 'sdi', 'do']:
+                rc_generics[f'G_FNAME_{t.upper()}'] = FileResource(
+                    os.path.join(tv_root, variant, tv_subfolder, f'{t}.txt'))
+
+            run_configs.append(dict(generics=rc_generics, name=tv_subfolder))
+
+        settings.flow['run_configs'] = run_configs
+
+        super().__init__(settings, args, completed_dependencies)
+
+    def parse_reports(self):
+        VivadoSim.parse_reports(self)
+        results = self.results
+
+        if not results.get('success'):
+            results['success'] = False
+            return
+
+        tb_settings = self.settings.design['tb']
+
+        run_configs = self.settings.flow.get('run_configs', [dict(
+            generics=tb_settings.get('generics', {}), name="DEFAULT")])
+
+        success_pat = re.compile(
+            r"PASS \(0\): SIMULATION FINISHED after (?P<cycles>\d+) cycles at (?P<totaltime>.*)")
+
+        for rc in run_configs:
+            rc_results = {}
+            rc_generics = rc['generics']
+            rc_name = rc['name']
+
+            lwctb_log = self.flow_run_dir / rc_generics['G_FNAME_LOG']
+            with open(lwctb_log) as f:
+                match = success_pat.search(f.read())
+                if not match:
+                    _logger.critical(
+                        f"timing pattern not found in the LWC_TB log {lwctb_log}. Make sure simulation has not failed and that you are using the correct version of LWC_TB")
+                    self.results['success'] = False
+                    return
+            rc_results['postreset_cycles'] = match.group('cycles')
+            rc_results['total_sim_time'] = match.group('totaltime')
+
+            pdi: FileResource = rc_generics[f'G_FNAME_PDI']
+            sdi = rc_generics.get(f'G_FNAME_SDI')
+            do = rc_generics[f'G_FNAME_DO']
+
+            rc_results['PDI'] = str(pdi)
+            rc_results['SDI'] = str(sdi)
+            rc_results['DO'] = str(do)
+
+            results['TV:' + rc_name] = rc_results
+
 
         results['success'] = True

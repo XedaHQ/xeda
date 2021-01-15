@@ -86,7 +86,7 @@ class VivadoPowerLwc(VivadoPower, LWC):
             pow_tv_run_config(tv) for tv in power_tvs]
 
         for t in ['pdi', 'sdi', 'do']:
-            del default_generics[f'G_FNAME_{t.upper()}']
+            default_generics.pop(f'G_FNAME_{t.upper()}', None)
 
         tb_settings['generics'] = default_generics
 
@@ -149,7 +149,7 @@ class VivadoPowerLwc(VivadoPower, LWC):
         fields.update(statics)
 
         # self.run_path.parent ?
-        csv_path = Path.cwd() / f"VivadoPowerLwc_{design_name}_{freq}MHz.csv"
+        csv_path = self.results_dir / f"VivadoPowerLwc_{design_name}_{freq}MHz.csv"
         with open(csv_path, "w") as csv_file:
             writer = csv.DictWriter(csv_file, fields.keys())
             writer.writeheader()
@@ -206,7 +206,7 @@ class VivadoPowerTimingOnly(SimFlow, LWC):
         flow_overrides['run_configs'] = [
             pow_tv_run_config(tv) for tv in power_tvs]
         for t in ['pdi', 'sdi', 'do']:
-            del default_generics[f'G_FNAME_{t.upper()}']
+            default_generics.pop(f'G_FNAME_{t.upper()}', None)
         tb_settings['generics'] = default_generics
 
         design_overrides['tb'] = design_overrides.get('tb', {})
@@ -246,7 +246,7 @@ class VivadoPowerTimingOnly(SimFlow, LWC):
                 results['totaltime'] = match.group('totaltime')
             self.results[name] = results
 
-        csv_path = Path.cwd() / \
+        csv_path = self.results_dir / \
             f"VivadoPowerLwcTimingOnly_{design_name}_{freq}MHz.csv"
         with open(csv_path, "w") as csv_file:
             writer = csv.DictWriter(csv_file, fields.keys())

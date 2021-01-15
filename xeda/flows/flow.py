@@ -76,6 +76,14 @@ def my_print(*args, **kwargs):
     print(*args, **kwargs)
 
 
+# similar to str.removesuffix in Python 3.9+
+def removesuffix(s: str, suffix: str) -> str:
+    return s[:-len(suffix)] if suffix and s.endswith(suffix) else s
+
+def removeprefix(s: str, suffix: str) -> str:
+    return s[len(suffix):] if suffix and s.startswith(suffix) else s
+
+
 class Flow():
     """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
 
@@ -90,7 +98,13 @@ class Flow():
         return {}
 
     def __init_subclass__(cls) -> None:
-        cls.name = camelcase_to_snakecase(cls.__name__)
+        cls_name = camelcase_to_snakecase(cls.__name__)
+        mod_name = cls.__module__
+        if mod_name and not mod_name.startswith('xeda.flows.'):
+            mod_name = removeprefix(mod_name, "xeda.plugins.")
+            m = mod_name.split('.')  # FIXME FIXME FIXME!!!
+            cls_name =  m[0] + "." + cls_name
+        cls.name = cls_name
 
     def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List['Flow']):
 
@@ -98,6 +112,8 @@ class Flow():
         self.xedahash = None
         self.run_path = None
         self.xeda_run_dir = Path(args.xeda_run_dir)
+        self.results_dir = self.xeda_run_dir / 'Results' / self.name
+        self.results_dir.mkdir(exist_ok=True, parents=True)
         self.flow_run_dir = None
         self.reports_dir = None
         self.init_time = 0
