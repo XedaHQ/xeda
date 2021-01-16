@@ -3,6 +3,7 @@
 import logging
 import os
 import math
+from os.path import join
 from types import SimpleNamespace
 from typing import List
 
@@ -58,7 +59,6 @@ class VivadoSim(Vivado, SimFlow):
                 if not 'vcd' in rc:
                     rc['vcd'] = (rc['name'] + '_' +
                                  self.vcd) if self.vcd else None
-
 
         tb_uut = tb_settings.get('uut')
         sdf = flow_settings.get('sdf')
@@ -122,8 +122,7 @@ class VivadoPostsynthSim(VivadoSim):
         self.synth_settings = self.synth_flow.settings.flow
         self.synth_results = self.synth_flow.results
 
-        settings.design['rtl']['sources'] = [DesignSource(VivadoSynth.synth_output_dir / 'impl_timesim.v')]
-
+        settings.design['rtl']['sources'] = [DesignSource(self.synth_flow.flow_run_dir / VivadoSynth.synth_output_dir / 'impl_timesim.v')]
 
         design_settings = settings.design
         tb_settings = design_settings['tb']
