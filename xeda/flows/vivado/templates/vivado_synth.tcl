@@ -9,7 +9,7 @@ set fail_timing           {{flow.fail_timing}}
 set bitstream             false
 
 set reports_dir           {{reports_dir}}
-set results_dir           {{results_dir}}
+set synth_output_dir           {{synth_output_dir}}
 set checkpoints_dir       {{checkpoints_dir}}
 
 {% include 'util.tcl' %}
@@ -19,7 +19,7 @@ puts "Using \"{{flow.strategy}}\" synthesis strategy"
 
 set_param general.maxThreads ${nthreads}
 
-file mkdir ${results_dir}
+file mkdir ${synth_output_dir}
 file mkdir ${reports_dir}
 file mkdir [file join ${reports_dir} post_synth]
 file mkdir [file join ${reports_dir} post_place]
@@ -86,7 +86,7 @@ read_xdc {{xdc_file}}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="
 ## eval synth_design -rtl -rtl_skip_ip -top {{design.rtl.top}} {{options.synth}} {{generics_options}}
-## write_verilog -force ${results_dir}/synth_rtl.v
+## write_verilog -force ${synth_output_dir}/synth_rtl.v
 
 eval synth_design -part {{flow.fpga_part}} -top {{design.rtl.top}} {{options.synth}} {{generics_options}}
 {% if flow.strategy == "Debug" %}
@@ -188,17 +188,17 @@ if {$timing_slack < 0} {
     puts "\n===========================( *DISABLE ECHO* )==========================="
 } else {
     puts "\n==========================( Writing Netlist and SDF )============================="
-    write_sdf -mode timesim -process_corner slow -force -file ${results_dir}/impl_timesim.sdf
+    write_sdf -mode timesim -process_corner slow -force -file ${synth_output_dir}/impl_timesim.sdf
     # should match sdf
-    write_verilog -mode timesim -sdf_anno false -force -file ${results_dir}/impl_timesim.v
-##    write_verilog -mode timesim -sdf_anno false -include_xilinx_libs -write_all_overrides -force -file ${results_dir}/impl_timesim_inlined.v
-##    write_verilog -mode funcsim -force ${results_dir}/impl_funcsim_noxlib.v
-##    write_vhdl    -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${results_dir}/impl_funcsim.vhd
-    write_xdc -no_fixed_only -force ${results_dir}/impl.xdc
+    write_verilog -mode timesim -sdf_anno false -force -file ${synth_output_dir}/impl_timesim.v
+##    write_verilog -mode timesim -sdf_anno false -include_xilinx_libs -write_all_overrides -force -file ${synth_output_dir}/impl_timesim_inlined.v
+##    write_verilog -mode funcsim -force ${synth_output_dir}/impl_funcsim_noxlib.v
+##    write_vhdl    -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${synth_output_dir}/impl_funcsim.vhd
+    write_xdc -no_fixed_only -force ${synth_output_dir}/impl.xdc
 
     if {${bitstream}} {
         puts "\n==============================( Writing Bitstream )==============================="
-        write_bitstream -force ${results_dir}/bitstream.bit
+        write_bitstream -force ${synth_output_dir}/bitstream.bit
     }
     showWarningsAndErrors
 }

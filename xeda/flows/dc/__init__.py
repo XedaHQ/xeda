@@ -55,7 +55,7 @@ class Dc(SynthFlow):
         print(adk)
 
         script_path = self.copy_from_template(f'run.tcl',
-                                              results_dir='results',
+                                              synth_output_dir='output',
                                               adk=adk,
                                               )
 

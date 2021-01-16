@@ -118,12 +118,12 @@ class VivadoPostsynthSim(VivadoSim):
         return {VivadoSynth: (synth_overrides, {})}
 
     def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List[Flow]):
-        settings.design['rtl']['sources'] = [DesignSource(
-            completed_dependencies[0].flow_run_dir / 'results' / 'impl_timesim.v')]
-
-        self.synth_flow = completed_dependencies[0]
+        self.synth_flow: VivadoSynth = completed_dependencies[0]
         self.synth_settings = self.synth_flow.settings.flow
         self.synth_results = self.synth_flow.results
+
+        settings.design['rtl']['sources'] = [DesignSource(VivadoSynth.synth_output_dir / 'impl_timesim.v')]
+
 
         design_settings = settings.design
         tb_settings = design_settings['tb']

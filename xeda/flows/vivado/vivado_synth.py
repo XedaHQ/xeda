@@ -16,6 +16,9 @@ class VivadoSynth(Vivado, SynthFlow):
 
     required_settings = {'clock_period': Union[str, int]}
 
+    synth_output_dir = 'output'
+    checkpoints_dir = 'checkpoints'
+
     # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug904-vivado-implementation.pdf
     # and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug901-vivado-synthesis.pdf
     strategy_options = {
@@ -150,8 +153,7 @@ class VivadoSynth(Vivado, SynthFlow):
             "route": "-directive Explore",
         }
     }
-    results_dir = 'results'
-    checkpoints_dir = 'checkpoints'
+
 
     def run(self):
         rtl_settings = self.settings.design["rtl"]
@@ -193,7 +195,7 @@ class VivadoSynth(Vivado, SynthFlow):
                                               xdc_files=[clock_xdc_path],
                                               options=options,
                                               generics_options=generics_options,
-                                              results_dir=self.results_dir,
+                                              synth_output_dir=self.synth_output_dir,
                                               checkpoints_dir=self.checkpoints_dir
                                               )
         return self.run_vivado(script_path)

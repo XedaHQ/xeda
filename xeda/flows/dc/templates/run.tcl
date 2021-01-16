@@ -10,7 +10,7 @@ set dc_target_libraries           { {{- adk.target_libraries|join(' ') -}} }
 set mw_ref_libs                   "$adk_dir/{{- adk.milkeyway_reference_libraries|join(' $adk_dir/') -}}"
 set mw_tf                         $adk_dir/{{adk.milkeyway_technology_file}}
 set dc_reports_dir                {{reports_dir}}
-set dc_results_dir                {{results_dir}}
+set dc_results_dir                {{synth_output_dir}}
 
 file mkdir ${dc_reports_dir}
 file mkdir ${dc_results_dir}
