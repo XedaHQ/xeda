@@ -18,27 +18,30 @@ class GhdlSim(Ghdl, SimFlow):
         warns = ['-Wbinding', '-Wreserved', '-Wlibrary', '-Wvital-generic',
                  '-Wdelayed-checks', '-Wbody', '-Wspecs', '-Wunused', '--warn-no-runtime-error']
 
-        vhdl_std = str(vhdl_settings['standard'])
-        vhdl_std_opt = f'--std={"93c" if vhdl_std == "93" else vhdl_std}'
+        vhdl_std_opts = []
+        vhdl_std = vhdl_settings.get('standard')
+        if vhdl_std:
+            vhdl_std_opts.append(f'--std={"93c" if str(vhdl_std) == "93" else vhdl_std}')
+
         optimize = ['-O3']
-        analysis_options = ['-frelaxed-rules', '--warn-no-vital-generic',
-                            '-frelaxed', '--mb-comments', vhdl_std_opt] + optimize
 
-        vhdl_synopsys = vhdl_settings.get('synopsys')
+        analysis_options = []
 
-        if vhdl_synopsys:
-            analysis_options += ['--ieee=synopsys', '-fsynopsys']
+        if vhdl_settings.get('synopsys'):
+            analysis_options.append('--ieee=synopsys')
+            vhdl_std_opts.append('-fsynopsys')
+
+        analysis_options += vhdl_std_opts + ['-frelaxed-rules', '--warn-no-vital-generic',
+                            '-frelaxed', '--mb-comments'] + optimize
+
+        run_options = ['--ieee-asserts=disable-at-0']  # TODO
+        elab_options = vhdl_std_opts + ['--syn-binding', '-frelaxed']
+
 
         lib_paths = flow_settings.get('lib_paths', [])
         if isinstance(lib_paths, str):
             lib_paths = [lib_paths]
         lib_paths = [f'-P{p}' for p in lib_paths]
-
-        elab_options = [vhdl_std_opt, '--syn-binding', '-frelaxed']
-        if vhdl_synopsys:
-            elab_options += ['-fsynopsys']
-
-        run_options = ['--ieee-asserts=disable-at-0']  # TODO
 
         if self.args.verbose:
             analysis_options.append('-v')
@@ -96,7 +99,7 @@ class GhdlSim(Ghdl, SimFlow):
                          check=True
                          )
 
-        self.run_process('ghdl', ['-r', vhdl_std_opt] + self.sim_tops + run_options + tb_generics_opts, # GHDL supports primary_unit [secondary_unit] 
+        self.run_process('ghdl', ['-r'] + vhdl_std_opts + self.sim_tops + run_options + tb_generics_opts, # GHDL supports primary_unit [secondary_unit] 
                          initial_step='Running simulation',
                          stdout_logfile='ghdl_run_stdout.log',
                          force_echo=True
