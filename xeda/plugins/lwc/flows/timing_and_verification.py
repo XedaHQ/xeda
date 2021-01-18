@@ -16,11 +16,9 @@ __all__ = ['VivadoSimTiming', 'VivadoSimVerification']
 _logger = logging.getLogger()
 
 
-
 class VivadoSimTiming(VivadoSim, LWC):
     def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List['Flow']):
         tb_settings = settings.design.get('tb', {})
-
         lwc_settings = settings.design.get('lwc', {})
 
         tb_settings['top'] = 'LWC_TB'
@@ -28,7 +26,8 @@ class VivadoSimTiming(VivadoSim, LWC):
         if not lwc_settings.get('two_pass'):
             tb_settings['configuration_specification'] = None
         elif tb_settings.get('configuration_specification'):
-            _logger.warning(f"Two-pass LWC with design.tb.configuration_specification={tb_settings['configuration_specification']} -> LWC_TB_2pass_conf")
+            _logger.warning(
+                f"Two-pass LWC with design.tb.configuration_specification={tb_settings['configuration_specification']} -> LWC_TB_2pass_conf")
             tb_settings['configuration_specification'] = 'LWC_TB_2pass_conf'
 
         tb_generics = tb_settings.get('generics', {})
@@ -48,12 +47,25 @@ class VivadoSimTiming(VivadoSim, LWC):
 
         tvs = ['generic_aead_sizes_new_key']
 
-        if LWC.supports_hash(settings.design):
+        supports_hash = LWC.supports_hash(settings.design)
+
+        block_size_bits = lwc_settings.get('block_bits')
+        if not block_size_bits or 'AD' not in block_size_bits or 'PT' not in block_size_bits or (supports_hash and 'HM' not in block_size_bits):
+            _logger.critical(
+                f'Missing required design.lwc.block_bits settings for {settings.design.get("name")}. design.lwc.block_bits is {block_size_bits}')
+            exit(1)
+
+        if lwc_settings.get('key_reuse'):
+            tvs.extend([('generic_aead_sizes_reuse_key', 'Reuse Key')])
+        if supports_hash:
             tvs.extend(['basic_hash_sizes'])
 
         run_configs = []
 
         for tv_subfolder in tvs:
+            prefix = None
+            if isinstance(tv_subfolder, tuple):
+                tv_subfolder, prefix = tv_subfolder
             rc_generics = deepcopy(tb_generics)
             rc_generics['G_FNAME_TIMING'] = f'LWC_TB_timing_{tv_subfolder}.log'
             rc_generics['G_FNAME_LOG'] = f'LWC_TB_log_{tv_subfolder}.log'
@@ -62,7 +74,8 @@ class VivadoSimTiming(VivadoSim, LWC):
                 rc_generics[f'G_FNAME_{t.upper()}'] = FileResource(
                     os.path.join(tv_root, variant, tv_subfolder, f'{t}.txt'))
 
-            run_configs.append(dict(generics=rc_generics, name=tv_subfolder))
+            run_configs.append(
+                dict(generics=rc_generics, name=tv_subfolder, prefix=prefix))
 
         settings.flow['run_configs'] = run_configs
 
@@ -87,11 +100,11 @@ class VivadoSimTiming(VivadoSim, LWC):
             r"####\s+(?P<op>\w+.*)\s*\n\s*#### MsgID\s*=\s*(?P<msgid>\d+)\s*,?\s*KeyID\s*=\s*(?P<keyid>\d+)\s*,?\s*(?P<the_rest>\w+.*)\s*\n", re.MULTILINE | re.IGNORECASE)
 
         timing_results = {}
-
         for rc in run_configs:
             rc_results = {}
             rc_generics = rc['generics']
             rc_name = rc['name']
+            prefix = rc.get('prefix')
 
             lwctb_log = self.flow_run_dir / rc_generics['G_FNAME_LOG']
             with open(lwctb_log) as f:
@@ -155,6 +168,8 @@ class VivadoSimTiming(VivadoSim, LWC):
             for msg, (id, cycles) in zip(msgs, tp):
                 assert msg['msgid'] == id
                 op = msg['op']
+                if prefix:
+                    op += ' (' + prefix + ')'
                 msg = {removesuffix(k, 'Size').strip().upper(
                 ): v for k, v in msg.items() if k not in ['keyid', 'op', 'msgid']}
 
@@ -167,8 +182,7 @@ class VivadoSimTiming(VivadoSim, LWC):
 
         lwc_settings = self.settings.design.get('lwc', {})
         block_size_bits = lwc_settings.get('block_bits')
-        assert 'AD' in block_size_bits
-        assert 'PT' in block_size_bits
+
         if supports_hash:
             assert 'HM' in block_size_bits
 
@@ -177,63 +191,56 @@ class VivadoSimTiming(VivadoSim, LWC):
 
         csv_lines = []
 
-        bsx4 = None
-        bsx5 = None
 
         # enc, dec
-        for op in ['Encrypt', 'Decrypt']:
-            row = {}
-            tr = timing_results.get(op)
+        for op , tr in timing_results.items():
+            bsx4 = None
+            bsx5 = None
+            row = []
             if not tr:
                 continue
-            xt = 'PT' if op == 'Encrypt' else 'CT'
-            # Cryptic code ahead
-            for msg_type in ['AD', xt, None]:
-                msg_type = (msg_type,) if msg_type else ('AD', xt)
-                bsizes = [block_size_bits[m] for m in msg_type]
-                xxz = [tuple(sz for _ in bsizes) for sz in sizes] + \
-                    [tuple(bs * j // 8 for bs in bsizes) for j in range(4, 6)]
-                for idx,sz in enumerate(xxz):
-                    for msg, cycle in tr:
-                        # print(list(zip(msg_type,sz)))
-                        right_value = all(z == msg.get(m)
-                                          for m, z in zip(msg_type, sz))
-                        others_zero = all(
-                            v == 0 for k, v in msg.items() if k not in msg_type)
-                        if right_value and others_zero:
-                            row[f'{"+".join(msg_type)}_{sz[0] if len(sz) == 1 or (sz[0] == sz[1]) else f"{sz[0]}+{sz[1]}"}'] = cycle
+            if op != 'Hash':
+                xt = 'PT' if op.startswith('Encrypt') else 'CT'
+                # Cryptic code ahead
+                for msg_type in ['AD', xt, None]:
+                    msg_type = (msg_type,) if msg_type else ('AD', xt)
+                    bsizes = [block_size_bits[m] for m in msg_type]
+                    xxz = [tuple(sz for _ in bsizes) for sz in sizes] + \
+                        [tuple(bs * j // 8 for bs in bsizes) for j in range(4, 6)]
+                    for idx, sz in enumerate(xxz):
+                        for msg, cycle in tr:
+                            # print(list(zip(msg_type,sz)))
+                            right_value = all(z == msg.get(m)
+                                              for m, z in zip(msg_type, sz))
+                            others_zero = all(
+                                v == 0 for k, v in msg.items() if k not in msg_type)
+                            if right_value and others_zero:
+                                row.append((f'{"+".join(msg_type)}_{sz[0] if len(sz) == 1 or (sz[0] == sz[1]) else f"{sz[0]}+{sz[1]}"}', cycle))
+                                if idx == 3:
+                                    bsx4 = cycle
+                                elif idx == 4:
+                                    bsx5 = cycle
+                    if bsx4 and bsx5:
+                        row.append((f'{"+".join(msg_type)}_Long', str(int(bsx5) - int(bsx4))))
+
+            else:
+                hm_sizes = sizes + [block_size_bits['HM']
+                                    * j // 8 for j in range(4, 6)]
+                for idx, sz in enumerate(hm_sizes):
+                    for msg, cycle in timing_results.get(op, []):
+                        if msg.get('HM') == sz:
+                            row.append((f'HM_{sz}', cycle))
                             if idx == 3:
                                 bsx4 = cycle
                             elif idx == 4:
-                                bsx5  = cycle
+                                bsx5 = cycle
                 if bsx4 and bsx5:
-                    row[f'{"+".join(msg_type)}_Long'] = str(int(bsx5) - int(bsx4))
-                
-            csv_lines.append(op)
-            csv_lines.append(', '.join(row.keys()))
-            csv_lines.append(', '.join(row.values()))
-            csv_lines.append("")
-
-        if supports_hash:
-            op = 'Hash'
-            bsx4 = None
-            bsx5 = None
-            row = {}
-            hm_sizes = sizes + [block_size_bits['HM'] * j // 8 for j in range(4, 6)]
-            for idx,sz in enumerate(hm_sizes):
-                for msg, cycle in timing_results[op]:
-                    if msg.get('HM') == sz:
-                        row[f'HM_{sz}'] = cycle
-                        if idx == 3:
-                            bsx4 = cycle
-                        elif idx == 4:
-                            bsx5  = cycle
-            if bsx4 and bsx5:
-                row[f'HM_Long'] = str(int(bsx5) - int(bsx4))
+                    row.append((f'HM_Long', str(int(bsx5) - int(bsx4))))
 
             csv_lines.append(op)
-            csv_lines.append(', '.join(row.keys()))
-            csv_lines.append(', '.join(row.values()))
+            ks, vs = tuple(zip(*row))
+            csv_lines.append(', '.join(ks))
+            csv_lines.append(', '.join(vs))
             csv_lines.append("")
 
         name = self.settings.design.get('name', "<NO-NAME>")
@@ -248,7 +255,6 @@ class VivadoSimTiming(VivadoSim, LWC):
         results['success'] = True
 
 
-
 class VivadoSimVerification(VivadoSim, LWC):
     def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List['Flow']):
         tb_settings = settings.design.get('tb', {})
@@ -260,13 +266,13 @@ class VivadoSimVerification(VivadoSim, LWC):
         if not lwc_settings.get('two_pass'):
             tb_settings['configuration_specification'] = None
         elif tb_settings.get('configuration_specification'):
-            _logger.warning(f"Two-pass LWC with design.tb.configuration_specification={tb_settings['configuration_specification']} -> LWC_TB_2pass_conf")
+            _logger.warning(
+                f"Two-pass LWC with design.tb.configuration_specification={tb_settings['configuration_specification']} -> LWC_TB_2pass_conf")
             tb_settings['configuration_specification'] = 'LWC_TB_2pass_conf'
-            
 
         tb_generics = tb_settings.get('generics', {})
         tb_generics['G_MAX_FAILURES'] = 100
-        tb_generics['G_TEST_MODE'] = 0 # TODO
+        tb_generics['G_TEST_MODE'] = 0  # TODO
 
         tb_settings['generics'] = tb_generics  # in case they didn't exist
         settings.design['tb'] = tb_settings
@@ -341,6 +347,5 @@ class VivadoSimVerification(VivadoSim, LWC):
             rc_results['DO'] = str(do)
 
             results['TV:' + rc_name] = rc_results
-
 
         results['success'] = True
