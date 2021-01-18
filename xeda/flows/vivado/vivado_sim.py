@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import List
 
 from pkg_resources import require
-from ...utils import try_convert, unique_list
+from ...utils import try_convert, unique
 from ..flow import DesignSource, Flow, SimFlow, DebugLevel
 from ...flows.settings import Settings
 from .vivado_synth import VivadoSynth
@@ -85,7 +85,7 @@ class VivadoSim(Vivado, SimFlow):
                                               analyze_flags=' '.join(flow_settings.get(
                                                   'analyze_flags', ['-relax'])),
                                               elab_flags=' '.join(
-                                                  unique_list(elab_flags)),
+                                                  unique(elab_flags)),
                                               run_configs=run_configs,
                                               sim_flags=' '.join(
                                                   flow_settings.get('sim_flags', [])),

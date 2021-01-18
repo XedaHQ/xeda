@@ -11,6 +11,7 @@ class DiamondSynth(Diamond, SynthFlow):
     default_settings = {**SynthFlow.default_settings,
                         'impl_folder': 'diamond_impl',
                         'impl_name': 'Implementation0',
+                        'nthreads': 2,
                         'syn_cmdline_args': None}
 
     def run(self):

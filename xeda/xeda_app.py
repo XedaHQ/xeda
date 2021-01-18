@@ -27,12 +27,26 @@ except pkg_resources.DistributionNotFound:
     __version__ = '(N/A - Local package)'
 
 
+def sanitize_toml(obj):
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    elif isinstance(obj, list):
+        return [sanitize_toml(x) for x in obj]
+    elif isinstance(obj, tuple):
+        return tuple(sanitize_toml(list(obj)))
+    elif isinstance(obj, dict):
+        return {k:sanitize_toml(v) for k,v in obj.items()}
+    elif hasattr(obj, '__dict__'):
+        return(sanitize_toml(dict(**obj.__dict__)))
+    else:
+        print(f"ERROR in xeda_app.sanitize_toml: unhandled object of type {type(obj)}: {obj}")
+        return sanitize_toml(dict(obj))
+
 class XedaApp:
     def __init__(self):
         self.parser = argparse.ArgumentParser(
             prog=__package__,
             description=f'{__package__}: Cross-EDA abstraction and automation. Version: {__version__}')
-        parsed_args = None
 
         # TODO registered plugins
         self.flow_classes = inspect.getmembers(sys.modules['xeda.flows'],
@@ -48,20 +62,18 @@ class XedaApp:
 
         runner_cls = parsed_args.flow_runner
 
-        toml_path = parsed_args.xeda_project if parsed_args.xeda_project else Path.cwd() / 'xedaproject.toml'
+        toml_path = parsed_args.xedaproject if parsed_args.xedaproject else Path.cwd() / 'xedaproject.toml'
         xeda_project = {}
         try:
             with open(toml_path) as f:
-                xeda_project = toml.load(f)
+                xeda_project = sanitize_toml(toml.load(f))
 
         except FileNotFoundError as e:
-            print(f'Cannot open project file: {toml_path}. Please specify the correct path using --xeda-project', e)
+            print(f'Cannot open project file: {toml_path}. Please specify the correct path using --xedaproject', e)
             exit(1)
         except IsADirectoryError as e:
             self.fatal(f'The specified design json is not a regular file.', e)
             raise e
-
-
 
         if parsed_args.xeda_run_dir is None:
             rundir = None
@@ -140,7 +152,7 @@ class XedaApp:
         )
         parser.add_argument(
             '--max-cpus',
-            default=max(1, multiprocessing.cpu_count() // 2), type=int,
+            default=max(1, multiprocessing.cpu_count()), type=int,
         )
         parser.add_argument(
             '--version',  action='version', version=f'%(prog)s {__version__}', help='Print version information and exit',
@@ -180,7 +192,7 @@ class XedaApp:
                             f'Available runners are: {[camelcase_to_snakecase(n) for n, _ in self.runner_classes]}'
                             )
         parser.add_argument(
-            '--xeda-project',
+            '--xedaproject',
             default=None,
             help='Path to Xeda project file. By default will use xeda.toml in the current directory.'
         )

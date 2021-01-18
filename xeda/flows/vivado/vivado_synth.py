@@ -11,7 +11,7 @@ logger = logging.getLogger()
 
 
 class VivadoSynth(Vivado, SynthFlow):
-    default_settings = {**SynthFlow.default_settings,
+    default_settings = {**SynthFlow.default_settings, 'nthreads': 4,
                         'fail_critical_warning': False, 'fail_timing': False}
 
     required_settings = {'clock_period': Union[str, int]}

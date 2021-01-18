@@ -9,11 +9,11 @@ import re
 
 from xeda.flows.flow import DesignSource, SimFlow
 from xeda.flows.vivado.vivado_sim import VivadoPostsynthSim, VivadoSim
-from xeda.flows.vivado.vivado_power import VivadoPower
+from xeda.flows.vivado.vivado_power import VivadoPower as XedaVivadoPower
 
 from ..lwc import LWC
 
-__all__ = ['VivadoPowerLwc', 'VivadoPowerTimingOnly']
+__all__ = ['VivadoPower', 'VivadoPowerTimingOnly']
 
 
 _logger = logging.getLogger()
@@ -22,13 +22,13 @@ _default_power_tvs = ['enc_16_0', 'enc_0_16', 'enc_1536_0',
                       'enc_0_1536', 'dec_16_0', 'dec_1536_0']
 
 
-class VivadoPowerLwc(VivadoPower, LWC):
+class VivadoPower(XedaVivadoPower, LWC):
     required_settings = {}
 
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
 
-        parent_prereqs = VivadoPower.prerequisite_flows(
+        parent_prereqs = XedaVivadoPower.prerequisite_flows(
             flow_settings, design_settings)
 
         flow_overrides, design_overrides = parent_prereqs[VivadoPostsynthSim]

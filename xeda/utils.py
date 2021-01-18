@@ -3,10 +3,13 @@ import csv
 import importlib
 from typing import Any, List
 
-# uniquify list while preserving order, compatible with Python 3.6
-def unique_list(lst: List[Any]) -> List[Any]:
-    seen = set()
-    return [x for x in lst if x not in seen and not seen.add(x)]
+
+def unique(lst: List[Any]) -> List[Any]:
+    """uniquify list while preserving order"""
+    # compatible with Python 3.6 ???
+    # seen = set()
+    # return [x for x in lst if x not in seen and not seen.add(x)]
+    return list(dict.fromkeys(lst))
 
 def camelcase_to_snakecase(name: str) -> str:
     name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
