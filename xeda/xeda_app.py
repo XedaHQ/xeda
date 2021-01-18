@@ -194,7 +194,7 @@ class XedaApp:
         parser.add_argument(
             '--xedaproject',
             default=None,
-            help='Path to Xeda project file. By default will use xeda.toml in the current directory.'
+            help='Path to Xeda project file. By default will use xedaproject.toml in the current directory.'
         )
         parser.add_argument('--override-settings', nargs='+',
                             help='Override setting value. Use <hierarchy>.key=value format'
