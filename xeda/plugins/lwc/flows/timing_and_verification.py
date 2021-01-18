@@ -215,11 +215,14 @@ class VivadoSimTiming(VivadoSim, LWC):
                             others_zero = all(
                                 v == 0 for k, v in msg.items() if k not in msg_type)
                             if right_value and others_zero:
-                                row.append((f'{"+".join(msg_type)}_{sz[0] if len(sz) == 1 or (sz[0] == sz[1]) else f"{sz[0]}+{sz[1]}"}', cycle))
                                 if idx == 3:
                                     bsx4 = cycle
                                 elif idx == 4:
                                     bsx5 = cycle
+                                else:
+                                    row.append((f'{"+".join(msg_type)}_{sz[0] if len(sz) == 1 or (sz[0] == sz[1]) else f"{sz[0]}+{sz[1]}"}', cycle))
+                                break
+
                     if bsx4 and bsx5:
                         row.append((f'{"+".join(msg_type)}_Long', str(int(bsx5) - int(bsx4))))
 
@@ -229,11 +232,13 @@ class VivadoSimTiming(VivadoSim, LWC):
                 for idx, sz in enumerate(hm_sizes):
                     for msg, cycle in timing_results.get(op, []):
                         if msg.get('HM') == sz:
-                            row.append((f'HM_{sz}', cycle))
                             if idx == 3:
                                 bsx4 = cycle
                             elif idx == 4:
                                 bsx5 = cycle
+                            else:
+                                row.append((f'HM_{sz}', cycle))
+                            break
                 if bsx4 and bsx5:
                     row.append((f'HM_Long', str(int(bsx5) - int(bsx4))))
 
