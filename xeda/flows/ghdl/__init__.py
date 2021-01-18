@@ -73,33 +73,26 @@ class GhdlSim(Ghdl, SimFlow):
                 run_options.append(f'--vcd={self.vcd}')
 
         tb_generics_opts = [f"-g{k}={v}" for k, v in tb_settings.get("generics", {}).items()]
-        # rtl_generics_opts = [f"-g{k}={v}" for k, v in rtl_settings.get("generics", {}).items()]
-
-        # self.run_process('ghdl', ['-a'] + analysis_options + warns + sources,
-        #                  initial_step='Analyzing VHDL files',
-        #                  stdout_logfile='ghdl_analyze.log',
-        #                  check=True
-        #                  )
-
-        # self.run_process('ghdl', ['-e'] + elab_options + [self.settings.design['tb_top']],
-        #                  initial_step='Elaborating design',
-        #                  stdout_logfile='ghdl_elaborate.log',
-        #                  check=True
-        #                  )
         
-        self.run_process('ghdl', ['-i'] + analysis_options + warns + list(map(lambda x: str(x), self.sim_sources)),
+        self.run_process('ghdl', ['remove'] + vhdl_std_opts,
+                         initial_step='Clean up previously-generated files and library',
+                         stdout_logfile='ghdl_remove_stdout.log',
+                         check=True
+                         )
+
+        self.run_process('ghdl', ['import'] + analysis_options + warns + list(map(lambda x: str(x), self.sim_sources)),
                          initial_step='Analyzing VHDL files',
                          stdout_logfile='ghdl_analyze_stdout.log',
                          check=True
                          )
 
-        self.run_process('ghdl', ['-m'] + elab_options + optimize + warns + lib_paths + self.sim_tops,
+        self.run_process('ghdl', ['make'] + elab_options + optimize + warns + lib_paths + self.sim_tops,
                          initial_step='Elaborating design',
                          stdout_logfile='ghdl_elaborate_stdout.log',
                          check=True
                          )
 
-        self.run_process('ghdl', ['-r'] + vhdl_std_opts + self.sim_tops + run_options + tb_generics_opts, # GHDL supports primary_unit [secondary_unit] 
+        self.run_process('ghdl', ['run'] + vhdl_std_opts + self.sim_tops + run_options + tb_generics_opts, # GHDL supports primary_unit [secondary_unit] 
                          initial_step='Running simulation',
                          stdout_logfile='ghdl_run_stdout.log',
                          force_echo=True
