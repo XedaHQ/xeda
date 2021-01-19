@@ -69,7 +69,7 @@ class XedaApp:
                     "project": 
                 {"name": "", "description":""}}
                 xedaprj_design = {
-                    "design":[{"name":"", "rtl":{"sources":["src_rtl/top.v"], "top":"Top", "clock":"clk"}, "tb":{"sources":["top_tb.vhd"], "top":"TopTB"}}]}
+                    "design":[{"name":"", "rtl":{"sources":["top.v"], "top":"Top", "clock":"clk"}, "tb":{"sources":["top_tb.vhd"], "top":"TopTB"}}]}
                 comments_str = '\n# Add another [[design]] below or add flow settings with [flows.<flow_name>].\n# Example: [flows.vivado_sim]\n# See xeda.readthedocs.io for the full list of flow settings'
                 logger.critical(f"Writing xedaproject.toml to {toml_path}")
                 with open(toml_path, 'w') as f:
