@@ -135,8 +135,8 @@ class XedaApp:
             xeda_project['xeda_version'] = __version__
 
             runner = runner_cls(parsed_args, xeda_project, timestamp)
+
             runner.launch()
-        
 
     def parse_args(self, args):
         parser = self.parser
