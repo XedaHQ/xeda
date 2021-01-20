@@ -66,11 +66,16 @@ class GhdlSim(Ghdl, SimFlow):
                 assert root, "neither SDF root nor tb.uut are provided"
                 run_options.append(f'--sdf={s.get("delay", "max")}={root}={s["file"]}')
 
+        ghw = flow_settings.get('wave', flow_settings.get('ghw'))
+
         if self.vcd:
-            if self.vcd.endswith('.ghw'):
-                run_options.append(f'--wave={self.vcd}')
-            else:
-                run_options.append(f'--vcd={self.vcd}')
+            run_options.append(f'--vcd={self.vcd}')
+        elif ghw:
+            if not isinstance(ghw, str):
+                ghw = 'dump.ghw'
+            if not ghw.endswith('.ghw'):
+                ghw += '.ghw'
+            run_options.append(f'--wave={ghw}')
 
         tb_generics_opts = [f"-g{k}={v}" for k, v in tb_settings.get("generics", {}).items()]
         

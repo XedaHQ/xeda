@@ -1,7 +1,5 @@
 import copy
 import os
-import sys
-from xeda.flows.settings import Settings
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import random
