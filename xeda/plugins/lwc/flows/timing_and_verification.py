@@ -326,6 +326,7 @@ class VivadoSimVerification(VivadoSim, LWC):
         success_pat = re.compile(
             r"PASS \(0\): SIMULATION FINISHED after (?P<cycles>\d+) cycles at (?P<totaltime>.*)")
         name = self.settings.design.get('name', "<NO-NAME>")
+        results['success'] = True
         for rc in run_configs:
             rc_results = {}
             rc_generics = rc['generics']
@@ -353,9 +354,6 @@ class VivadoSimVerification(VivadoSim, LWC):
 
             results['TV:' + rc_name] = rc_results
 
-        
-        if results['success'] != False:
-            results['success'] = True
 
         success_file = self.results_dir / (name + '_verification_results.json')
         
