@@ -55,7 +55,7 @@ class VivadoSimTiming(VivadoSim, LWC):
                 f'Missing required design.lwc.block_bits settings for {settings.design.get("name")}. design.lwc.block_bits is {block_size_bits}')
             exit(1)
 
-        if lwc_settings.get('key_reuse'):
+        if lwc_settings.get('key_reuse', lwc_settings.get('reuse_key')):
             tvs.extend([('generic_aead_sizes_reuse_key', 'Reuse Key')])
         if supports_hash:
             tvs.extend(['basic_hash_sizes'])
@@ -63,9 +63,9 @@ class VivadoSimTiming(VivadoSim, LWC):
         run_configs = []
 
         for tv_subfolder in tvs:
-            prefix = None
+            suffix = None
             if isinstance(tv_subfolder, tuple):
-                tv_subfolder, prefix = tv_subfolder
+                tv_subfolder, suffix = tv_subfolder
             rc_generics = deepcopy(tb_generics)
             rc_generics['G_FNAME_TIMING'] = f'LWC_TB_timing_{tv_subfolder}.log'
             rc_generics['G_FNAME_LOG'] = f'LWC_TB_log_{tv_subfolder}.log'
@@ -75,7 +75,7 @@ class VivadoSimTiming(VivadoSim, LWC):
                     os.path.join(tv_root, variant, tv_subfolder, f'{t}.txt'))
 
             run_configs.append(
-                dict(generics=rc_generics, name=tv_subfolder, prefix=prefix))
+                dict(generics=rc_generics, name=tv_subfolder, suffix=suffix))
 
         settings.flow['run_configs'] = run_configs
 
@@ -104,7 +104,7 @@ class VivadoSimTiming(VivadoSim, LWC):
             rc_results = {}
             rc_generics = rc['generics']
             rc_name = rc['name']
-            prefix = rc.get('prefix')
+            suffix = rc.get('suffix')
 
             lwctb_log = self.flow_run_dir / rc_generics['G_FNAME_LOG']
             with open(lwctb_log) as f:
@@ -168,8 +168,8 @@ class VivadoSimTiming(VivadoSim, LWC):
             for msg, (id, cycles) in zip(msgs, tp):
                 assert msg['msgid'] == id
                 op = msg['op']
-                if prefix:
-                    op += ' (' + prefix + ')'
+                if suffix:
+                    op += ' (' + suffix + ')'
                 msg = {removesuffix(k, 'Size').strip().upper(
                 ): v for k, v in msg.items() if k not in ['keyid', 'op', 'msgid']}
 
@@ -209,7 +209,6 @@ class VivadoSimTiming(VivadoSim, LWC):
                         [tuple(bs * j // 8 for bs in bsizes) for j in range(4, 6)]
                     for idx, sz in enumerate(xxz):
                         for msg, cycle in tr:
-                            # print(list(zip(msg_type,sz)))
                             right_value = all(z == msg.get(m)
                                               for m, z in zip(msg_type, sz))
                             others_zero = all(
@@ -220,7 +219,7 @@ class VivadoSimTiming(VivadoSim, LWC):
                                 elif idx == 4:
                                     bsx5 = cycle
                                 else:
-                                    row.append((f'{"+".join(msg_type)}_{sz[0] if len(sz) == 1 or (sz[0] == sz[1]) else f"{sz[0]}+{sz[1]}"}', cycle))
+                                    row.append((f'{"+".join(msg_type)}_{"+".join(map(str,sz))}', cycle))
                                 break
 
                     if bsx4 and bsx5:
@@ -292,8 +291,8 @@ class VivadoSimVerification(VivadoSim, LWC):
 
         tvs = ['kats_for_verification']
 
-        # if LWC.supports_hash(settings.design):
-        #     tvs.extend(['basic_hash_sizes'])
+        if LWC.supports_hash(settings.design):
+            tvs.extend(['blanket_hash_test'])
 
         run_configs = []
 
