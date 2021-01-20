@@ -4,11 +4,11 @@ import os
 import re
 from types import SimpleNamespace
 from typing import List
-
+from shutil import copyfile
 from xeda.flows.flow import FileResource, Flow, removesuffix
 from xeda.flows.settings import Settings
 from xeda.flows.vivado.vivado_sim import VivadoSim
-
+import json
 from ..lwc import LWC
 
 __all__ = ['VivadoSimTiming', 'VivadoSimVerification']
@@ -266,7 +266,7 @@ class VivadoSimVerification(VivadoSim, LWC):
         lwc_settings = settings.design.get('lwc', {})
 
         tb_settings['top'] = 'LWC_TB'
-
+        
         if not lwc_settings.get('two_pass'):
             tb_settings['configuration_specification'] = None
         elif tb_settings.get('configuration_specification'):
@@ -299,7 +299,7 @@ class VivadoSimVerification(VivadoSim, LWC):
         for tv_subfolder in tvs:
             rc_generics = deepcopy(tb_generics)
             rc_generics['G_FNAME_LOG'] = f'LWC_TB_log_{tv_subfolder}.log'
-
+            rc_generics['G_FNAME_FAILED_TVS'] = f'{tv_subfolder}_failed_testvectors.txt'
             for t in ['pdi', 'sdi', 'do']:
                 rc_generics[f'G_FNAME_{t.upper()}'] = FileResource(
                     os.path.join(tv_root, variant, tv_subfolder, f'{t}.txt'))
@@ -325,7 +325,7 @@ class VivadoSimVerification(VivadoSim, LWC):
 
         success_pat = re.compile(
             r"PASS \(0\): SIMULATION FINISHED after (?P<cycles>\d+) cycles at (?P<totaltime>.*)")
-
+        name = self.settings.design.get('name', "<NO-NAME>")
         for rc in run_configs:
             rc_results = {}
             rc_generics = rc['generics']
@@ -338,9 +338,10 @@ class VivadoSimVerification(VivadoSim, LWC):
                     _logger.critical(
                         f"timing pattern not found in the LWC_TB log {lwctb_log}. Make sure simulation has not failed and that you are using the correct version of LWC_TB")
                     self.results['success'] = False
-                    return
-            rc_results['postreset_cycles'] = match.group('cycles')
-            rc_results['total_sim_time'] = match.group('totaltime')
+                    copyfile(self.flow_run_dir / rc_generics['G_FNAME_FAILED_TVS'], self.results_dir / (name+'_'+rc_generics['G_FNAME_FAILED_TVS']))
+                else:    
+                    rc_results['postreset_cycles'] = match.group('cycles')
+                    rc_results['total_sim_time'] = match.group('totaltime')
 
             pdi: FileResource = rc_generics[f'G_FNAME_PDI']
             sdi = rc_generics.get(f'G_FNAME_SDI')
@@ -352,4 +353,11 @@ class VivadoSimVerification(VivadoSim, LWC):
 
             results['TV:' + rc_name] = rc_results
 
-        results['success'] = True
+        
+        if results['success'] != False:
+            results['success'] = True
+
+        success_file = self.results_dir / (name + '_verification_results.json')
+        
+        with open(success_file, 'w') as f:
+            json.dump(results, f,indent=4)
