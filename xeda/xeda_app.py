@@ -12,7 +12,6 @@ from .utils import camelcase_to_snakecase, load_class
 import coloredlogs
 import logging
 import pkg_resources
-
 from .debug import DebugLevel
 from .flow_runner import DefaultRunner, FlowRunner
 import toml
@@ -48,6 +47,10 @@ class XedaApp:
             prog=__package__,
             description=f'{__package__}: Cross-EDA abstraction and automation. Version: {__version__}')
 
+
+        
+        parsed_args = None
+
         # TODO registered plugins
         self.flow_classes = inspect.getmembers(sys.modules['xeda.flows'],
                                                lambda cls: inspect.isclass(cls) and issubclass(cls, Flow) and cls != Flow and cls != SimFlow and cls != SynthFlow)
@@ -56,64 +59,84 @@ class XedaApp:
 
     def main(self, args = None):
         parsed_args = self.parse_args(args)
-
-        if parsed_args.debug:
-            logger.setLevel(logging.DEBUG)
-
-        runner_cls = parsed_args.flow_runner
-
         toml_path = parsed_args.xedaproject if parsed_args.xedaproject else Path.cwd() / 'xedaproject.toml'
-        xeda_project = {}
-        try:
-            with open(toml_path) as f:
-                xeda_project = sanitize_toml(toml.load(f))
+        if parsed_args.flow == "init":
+            if Path(toml_path).is_file():
+                logger.critical(f"{toml_path} already exists! Exiting")
+                return
+            else:
+                xedaprj_header = {
+                    "project": 
+                {"name": "", "description":""}}
+                xedaprj_design = {
+                    "design":[{"name":"", "rtl":{"sources":["top.v"], "top":"Top", "clock":"clk"}, "tb":{"sources":["top_tb.vhd"], "top":"TopTB"}}]}
+                comments_str = '\n# Add another [[design]] below or add flow settings with [flows.<flow_name>].\n# Example: [flows.vivado_sim]\n# See xeda.readthedocs.io for the full list of flow settings'
+                logger.critical(f"Writing xedaproject.toml to {toml_path}")
+                with open(toml_path, 'w') as f:
+                    toml.dump(xedaprj_header,f)
+                    f.write('\n')
+                    toml.dump(xedaprj_design,f)
+                    f.write(comments_str)
+                
+                return
+        else:
+            if parsed_args.debug:
+                logger.setLevel(logging.DEBUG)
 
-        except FileNotFoundError as e:
-            print(f'Cannot open project file: {toml_path}. Please specify the correct path using --xedaproject', e)
-            exit(1)
-        except IsADirectoryError as e:
-            self.fatal(f'The specified design json is not a regular file.', e)
-            raise e
+            runner_cls = parsed_args.flow_runner
 
-        if parsed_args.xeda_run_dir is None:
-            rundir = None
-            project = xeda_project.get('project')
-            if isinstance(project, list):
-                project = project[0]
-            if project:
-                rundir = project.get('xeda_run_dir')
-            if not rundir:
-                rundir = os.environ.get('xeda_run_dir')
-            if not rundir:
-                rundir = 'xeda_run'
-            parsed_args.xeda_run_dir = rundir
+            
+            xeda_project = {}
+            try:
+                with open(toml_path) as f:
+                    xeda_project = sanitize_toml(toml.load(f))
 
-        xeda_run_dir = Path(parsed_args.xeda_run_dir).resolve()
-        xeda_run_dir.mkdir(exist_ok=True, parents=True)
+            except FileNotFoundError as e:
+                print(f'Cannot open project file: {toml_path}. Please specify the correct path using --xedaproject', e)
+                exit(1)
+            except IsADirectoryError as e:
+                self.fatal(f'The specified design json is not a regular file.', e)
+                raise e
 
-        logdir = xeda_run_dir / 'Logs'
-        logdir.mkdir(exist_ok=True, parents=True)
+            if parsed_args.xeda_run_dir is None:
+                rundir = None
+                project = xeda_project.get('project')
+                if isinstance(project, list):
+                    project = project[0]
+                if project:
+                    rundir = project.get('xeda_run_dir')
+                if not rundir:
+                    rundir = os.environ.get('xeda_run_dir')
+                if not rundir:
+                    rundir = 'xeda_run'
+                parsed_args.xeda_run_dir = rundir
 
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-        logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+            xeda_run_dir = Path(parsed_args.xeda_run_dir).resolve()
+            xeda_run_dir.mkdir(exist_ok=True, parents=True)
 
-        logfile = logdir / f"xeda_{timestamp}.log"
-        print(f"Logging to {logfile}")
+            logdir = xeda_run_dir / 'Logs'
+            logdir.mkdir(exist_ok=True, parents=True)
 
-        fileHandler = logging.FileHandler(logfile)
-        fileHandler.setFormatter(logFormatter)
-        logger.addHandler(fileHandler)
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
+            logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
 
-        coloredlogs.install(
-            'INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
+            logfile = logdir / f"xeda_{timestamp}.log"
+            print(f"Logging to {logfile}")
 
-        logger.info(f"Running using FlowRunner: {runner_cls.__name__}")
+            fileHandler = logging.FileHandler(logfile)
+            fileHandler.setFormatter(logFormatter)
+            logger.addHandler(fileHandler)
 
-        xeda_project['xeda_version'] = __version__
+            coloredlogs.install(
+                'INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
 
-        runner = runner_cls(parsed_args, xeda_project, timestamp)
+            logger.info(f"Running using FlowRunner: {runner_cls.__name__}")
 
-        runner.launch()
+            xeda_project['xeda_version'] = __version__
+
+            runner = runner_cls(parsed_args, xeda_project, timestamp)
+
+            runner.launch()
 
     def parse_args(self, args):
         parser = self.parser
@@ -185,11 +208,13 @@ class XedaApp:
                 #     sys.exit(f'Flow {flow_name} not found')
                 setattr(args, self.dest, flow_name)
 
-        parser.add_argument('flow', metavar='[RUNNER_NAME:]FLOW_NAME', action=CommandAction,
-                            help=f'Flow name optionally prepended by flow-runner.' +
-                            'If runner is not specified the default runner is used.\n' +
-                            f'Available flows are: {registered_flows}\n' +
-                            f'Available runners are: {[camelcase_to_snakecase(n) for n, _ in self.runner_classes]}'
+        parser.add_argument('flow', choices=['init','[RUNNER_NAME:]FLOW_NAME'], action=CommandAction,
+                            help=f'''\
+                            init creates a skeleton xedaproject.toml for new projects.\n
+                            Flow name optionally prepended by flow-runner.
+                            If runner is not specified the default runner is used.\n
+                            Available flows are: {registered_flows}\n
+                            Available runners are: {[camelcase_to_snakecase(n) for n, _ in self.runner_classes]}\n'''
                             )
         parser.add_argument(
             '--xedaproject',
