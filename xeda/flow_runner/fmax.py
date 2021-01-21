@@ -86,7 +86,6 @@ class FmaxRunner(FlowRunner):
         hi_freq = float(flow_settings.get('fmax_high_freq', 500.0))
         assert lo_freq < hi_freq, "fmax_low_freq should be less than fmax_high_freq"
         resolution = 0.09
-        max_non_improvements = 5
         delta_increment = resolution / 2
 
         ONE_THOUSAND = 1000.0
@@ -198,26 +197,25 @@ class FmaxRunner(FlowRunner):
                         raise
 
                     if freq_step < resolution * 0.5:
+                        logger.info(f"Stopping: freq_step={freq_step} is below the limit")
                         break
 
                     if not best or improved_idx is None:
                         no_improvements += 1
-                        if no_improvements >= max_non_improvements:
-                            logger.info(
-                                f"Stopping as there were no improvements in {no_improvements} consecutive iterations.")
+                        if no_improvements > 4:
+                            logger.info(f"Stopping no viable frequencies found after {no_improvements} tries.")
                             break
                         logger.info(f"No improvements during this iteration.")
-
-                        shrink_factor = 0.7 + no_improvements
-
                         if not best:
                             hi_freq = lo_freq + resolution
+                            shrink_factor = 0.7 + no_improvements
                             lo_freq /= shrink_factor
                         else:
-                            hi_freq = (best.freq + hi_freq) / \
-                                2 + delta_increment
-                            lo_freq = (lo_freq + best.freq) / 2 + \
-                                delta_increment * random.random()
+                            if no_improvements > 1 and freq_step < no_improvements * resolution:
+                                logger.info(f"Stopping as there were no improvements in {no_improvements} consecutive iterations.")
+                                break
+                            hi_freq = (best.freq + 1.5 * freq_step) / 2
+                            lo_freq = (lo_freq + best.freq) / 2
                     else:
                         lo_freq = best.freq + delta_increment + delta_increment * random.random()
                         no_improvements = 0

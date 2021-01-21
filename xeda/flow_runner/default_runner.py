@@ -225,7 +225,7 @@ class FlowRunner:
 class DefaultRunner(FlowRunner):
     def launch_flow(self, flow_name_or_class, flow_settings, design_settings, force_run):
         if force_run:
-            logger.warning(f"Forced re-run of {flow_name_or_class}")
+            logger.info(f"Forced re-run of {flow_name_or_class}")
 
         flow_class = self.load_flowclass(flow_name_or_class) if isinstance(
             flow_name_or_class, str) else flow_name_or_class
@@ -243,7 +243,7 @@ class DefaultRunner(FlowRunner):
                 self.get_flow_settings(prereq_name), flow_overrides)
             prereq_design = dict_merge(design_settings, design_overrides)
 
-            logger.warning(f"Prerequisite: {prereq.__name__}")
+            logger.info(f"Prerequisite: {prereq.__name__}")
             # recursive call
             completed_prereq = self.launch_flow(
                 prereq, prereq_flowsettings, prereq_design, self.args.force_rerun
@@ -265,7 +265,7 @@ class DefaultRunner(FlowRunner):
                     f"Running flow {flow.name} as {results_json} does not exist.")
             except Exception as e:
                 force_run = True
-                logger.warning(f"running flow {flow.name} due to {e}")
+                logger.info(f"running flow {flow.name} due to {e}")
 
             if not force_run and not flow.results.get('success'):
                 force_run = True
