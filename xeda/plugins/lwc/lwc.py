@@ -1,5 +1,8 @@
+import logging
 import re
 from xeda.flows.flow import Flow
+
+_logger = logging.getLogger()
 
 class LWC:
     @classmethod
@@ -24,3 +27,18 @@ class LWC:
         if lwc_settings.get('supports_hash'):
             return True
         return (algorithms and (isinstance(algorithms, list) or isinstance(algorithms, tuple)) and len(algorithms) > 1)
+
+    @classmethod
+    def wrap_design(cls, design_settings):
+        lwc = design_settings.get('lwc', {})
+        lwc_wrapper = lwc.get('wrapper')
+        if lwc_wrapper:
+            two_pass = lwc.get('two_pass')
+            for section in 'rtl', 'tb':
+                for k,v in lwc_wrapper.get(section, {}).items():
+                    if k == 'sources':
+                        _logger.info(f"Extending design.{section}.{k} with sources from design.lwc.wrapper.{section}.{k}")
+                        design_settings[section][k] += [x for x in v if x not in design_settings[section].get(k, {})]
+                    else:
+                        _logger.info(f"Replacing design.{section}.{k} with design.lwc.wrapper.{section}.{k}={v}")
+                        design_settings[section][k] = v

@@ -43,6 +43,8 @@ class VivadoPower(XedaVivadoPower, LWC):
         flow_overrides['stop_time'] = None
         flow_overrides['vcd'] = None
 
+        LWC.wrap_design(design_settings)
+
         tb_settings = design_settings['tb']
         design_name = design_settings['name']
         lwc_settings = design_settings.get('lwc', {})
