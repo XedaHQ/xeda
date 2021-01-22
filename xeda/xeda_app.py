@@ -30,20 +30,23 @@ except pkg_resources.DistributionNotFound:
 
 class ListDesignsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
-        xedaproject = namespace.xedaproject
         try:
-            with open(xedaproject) as f:
-                xp = toml.load(f)
-            print(f'Listing designs in `{xedaproject}`:')
+            xp = load_xedaproject(namespace.xedaproject)
+            print(f'Listing designs in `{namespace.xedaproject}`:')
             designs = xp.get('design')
             if designs:
                 if not isinstance(designs, list):
                     designs = [designs]
                 for d in designs:
                     dn = d.get('name')
-                    print(f"{' '*4}{dn}")
-        except FileNotFoundError:
-            print(f'xedaproject: `{xedaproject}` not found!')
+                    if not dn:
+                        dn = '!!!<UNKNOWN>!!!'
+                    desc = d.get('description')
+                    if desc:
+                        desc = ": " + desc
+                    else:
+                        desc = ""
+                    print(f"{' '*4}{dn:<10} {desc:.80}")
         finally:
             exit(0)
 
@@ -162,13 +165,11 @@ def get_main_argparser():
                               'example: --override-settings flows.vivado_run.stop_time=100us'
                               )
                         )
-
     parser.add_argument('--override-flow-settings', nargs='+',
                         help=(
                             'Override setting values for the specified main flow. Use <hierarchy>.key=value format'
                             'example: xeda vivado_sim --override-settings stop_time=100us')
                         )
-
     parser.add_argument(
         '--version',  action='version', version=f'%(prog)s {__version__}', help='Print version information and exit',
     )
@@ -222,6 +223,15 @@ def sanitize_toml(obj):
             f"ERROR in xeda_app.sanitize_toml: unhandled object of type {type(obj)}: {obj}")
         return sanitize_toml(dict(obj))
 
+def load_xedaproject(toml_path):
+    try:
+        with open(toml_path) as f:
+            return sanitize_toml(toml.load(f))
+    except FileNotFoundError:
+        exit(
+            f'Cannot open project file: {toml_path}. Please run from the project directory with xedaproject.toml or specify the correct path using the --xedaproject flag')
+    except IsADirectoryError:
+        exit(f'The specified xedaproject is not a regular file.')
 
 class XedaApp:
     def main(self, args=None):
@@ -233,18 +243,7 @@ class XedaApp:
         runner_cls = parsed_args.flow_runner
 
         toml_path = Path(parsed_args.xedaproject)
-        xeda_project = {}
-        try:
-            with open(toml_path) as f:
-                xeda_project = sanitize_toml(toml.load(f))
-
-        except FileNotFoundError as e:
-            print(
-                f'Cannot open project file: {toml_path}. Please run from the project directory with xedaproject.toml or specify the correct path using the --xedaproject flag', e)
-            exit(1)
-        except IsADirectoryError as e:
-            self.fatal(f'The specified xedaproject is not a regular file.', e)
-            raise e
+        xeda_project = load_xedaproject(toml_path)
 
         if parsed_args.xeda_run_dir is None:
             rundir = None

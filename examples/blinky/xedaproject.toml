@@ -1,5 +1,6 @@
 [[design]]
 name = 'blinky'
+description = 'Running LEDs on the ULX3S board'
 
 [design.rtl]
 sources = ['blinky.v']
