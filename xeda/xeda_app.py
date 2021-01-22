@@ -28,6 +28,26 @@ except pkg_resources.DistributionNotFound:
     __version__ = '(N/A - Local package)'
 
 
+class ListDesignsAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        xedaproject = namespace.xedaproject
+        try:
+            with open(xedaproject) as f:
+                xp = toml.load(f)
+            print(f'Listing designs in `{xedaproject}`:')
+            designs = xp.get('design')
+            if designs:
+                if not isinstance(designs, list):
+                    designs = [designs]
+                for d in designs:
+                    dn = d.get('name')
+                    print(f"{' '*4}{dn}")
+        except FileNotFoundError:
+            print(f'xedaproject: `{xedaproject}` not found!')
+        finally:
+            exit(0)
+
+
 def get_main_argparser():
 
     # TODO registered plugins
@@ -82,8 +102,7 @@ def get_main_argparser():
         default=max(1, multiprocessing.cpu_count()), type=int,
     )
 
-    registered_flows = [camelcase_to_snakecase(
-        n) for n, _ in flow_classes]
+    registered_flows = [camelcase_to_snakecase(n) for n, _ in flow_classes]
 
     class CommandAction(argparse.Action):
         def __call__(self, parser, args, value, option_string=None):
@@ -116,9 +135,26 @@ def get_main_argparser():
                               f'Available runners are: {[camelcase_to_snakecase(n) for n, _ in runner_classes]}'
                               )
                         )
+    # redundant, kept for compatibility
+    parser.add_argument(
+        '--design',
+        nargs='?',
+        help='Specify design.name in case multiple designs are available in the Xeda project.'
+    )
+    parser.add_argument(
+        'design',
+        nargs='?',
+        help='Specify design.name in case multiple designs are available in the Xeda project.'
+    )
+    parser.add_argument(
+        '--list-designs',
+        nargs=0,
+        action=ListDesignsAction,
+        help='List all designs available in the Xeda project.'
+    )
     parser.add_argument(
         '--xedaproject',
-        default=None,
+        default='xedaproject.toml',
         help='Path to Xeda project file. By default will use xedaproject.toml in the current directory.'
     )
     parser.add_argument('--override-settings', nargs='+',
@@ -145,23 +181,25 @@ def gen_shell_completion():
     print("Installing shell completion")
     parser = get_main_argparser()
     completion = shtab.complete(parser, shell="bash")
-    dir = Path.home() / '.bash_completion.d'
-    env_dir = os.environ.get('BASH_COMPLETION_USER_DIR')
-    if env_dir:
-        dir = Path(env_dir) / 'completions'
+    xdg_home = os.environ.get('XDG_DATA_HOME', os.path.join(
+        os.environ.get('HOME', str(Path.home())), '.local', 'share'))
+    completion_user_dir = os.environ.get(
+        'BASH_COMPLETION_USER_DIR', os.path.join(xdg_home, 'bash-completion'))
+
+    dir = Path(completion_user_dir)
     if not dir.exists():
         dir.mkdir(parents=True)
     completion_file = dir / 'xeda'
     with open(completion_file, 'w') as f:
         f.write(completion)
-    eager_completion =Path.home() / '.bash_completion'
+    eager_completion = Path.home() / '.bash_completion'
     source_line = f'. {completion_file} # added by xeda'
     if eager_completion.exists():
         with open(eager_completion, "r+") as f:
             for line in f:
                 if source_line in line:
                     break
-            else: # else-for "completion clause"
+            else:  # else-for "completion clause"
                 f.write(source_line + os.linesep)
     else:
         with open(eager_completion, "w") as f:
@@ -194,8 +232,7 @@ class XedaApp:
 
         runner_cls = parsed_args.flow_runner
 
-        toml_path = parsed_args.xedaproject if parsed_args.xedaproject else Path.cwd() / \
-            'xedaproject.toml'
+        toml_path = Path(parsed_args.xedaproject)
         xeda_project = {}
         try:
             with open(toml_path) as f:

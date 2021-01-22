@@ -82,8 +82,8 @@ class FmaxRunner(FlowRunner):
         flow_settings = settings['flows'].get(flow_name)
         design_settings = settings['design']
 
-        lo_freq = float(flow_settings.get('fmax_low_freq', 10.0))
-        hi_freq = float(flow_settings.get('fmax_high_freq', 500.0))
+        lo_freq = float(flow_settings.get('fmax_low', flow_settings.get('fmax_low_freq', 10.0)))
+        hi_freq = float(flow_settings.get('fmax_high', flow_settings.get('fmax_high_freq', 500.0)))
         assert lo_freq < hi_freq, "fmax_low_freq should be less than fmax_high_freq"
         resolution = 0.09
         delta_increment = resolution / 2
