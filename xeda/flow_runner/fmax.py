@@ -211,7 +211,7 @@ class FmaxRunner(FlowRunner):
                             shrink_factor = 0.7 + no_improvements
                             lo_freq /= shrink_factor
                         else:
-                            if no_improvements > 1 and freq_step < no_improvements * resolution:
+                            if no_improvements > 2 and freq_step < no_improvements * resolution:
                                 logger.info(f"Stopping as there were no improvements in {no_improvements} consecutive iterations.")
                                 break
                             hi_freq = (best.freq + 1.5 * freq_step) / 2
