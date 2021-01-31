@@ -29,7 +29,7 @@ class Best:
 
 
 def run_flow_fmax(arg):
-    idx: int 
+    idx: int
     flow: Flow
     idx, flow = arg
     try:
@@ -40,7 +40,11 @@ def run_flow_fmax(arg):
         flow.results['design.name'] = flow.settings.design['name']
         flow.results['flow.name'] = flow.name
         flow.results['flow.run_hash'] = flow.xedahash
-
+        max_luts = flow.settings.flow.get('max_luts')
+        lut = flow.results.get('lut')
+        if max_luts and lut and int(lut) > int(max_luts):
+            flow.results['exceeds_max_luts'] = True
+            idx = None
         return idx, flow.results, flow.settings, flow.flow_run_dir
 
     except FlowFatalException as e:
@@ -69,7 +73,6 @@ class FmaxRunner(FlowRunner):
 
         self.args.xeda_run_dir = os.path.join(self.args.xeda_run_dir, "fmax")
         logger.warning(f"xeda_run_dir was changed to {self.args.xeda_run_dir}")
-        
 
     def launch(self):
         start_time = time.monotonic()
@@ -82,8 +85,17 @@ class FmaxRunner(FlowRunner):
         flow_settings = settings['flows'].get(flow_name)
         design_settings = settings['design']
 
-        lo_freq = float(flow_settings.get('fmax_low', flow_settings.get('fmax_low_freq', 10.0)))
-        hi_freq = float(flow_settings.get('fmax_high', flow_settings.get('fmax_high_freq', 500.0)))
+        # compatibility with previous key name
+        lo_freq = float(flow_settings.get(
+            'fmax_low', flow_settings.get('fmax_low_freq', 10.0)))
+        hi_freq = float(flow_settings.get(
+            'fmax_high', flow_settings.get('fmax_high_freq', 500.0)))
+
+        flow_settings['fmax_low'] = lo_freq
+        flow_settings['fmax_high'] = hi_freq
+        flow_settings.pop('fmax_low_freq', None)
+        flow_settings.pop('fmax_high_freq', None)
+        
         assert lo_freq < hi_freq, "fmax_low_freq should be less than fmax_high_freq"
         resolution = 0.09
         delta_increment = resolution / 2
@@ -97,19 +109,22 @@ class FmaxRunner(FlowRunner):
         args.quiet = True
 
         best = None
-        rundirs = []
-        all_results = []
+        flow_run_dirs = []
+        successful_results = []
         future = None
         num_iterations = 0
         pool = None
         no_improvements = 0
 
         previously_tried_frequencies = set()
-        previously_tried_periods = set()  # can be different due to rounding errors
+        # can be different due to rounding errors, TODO only keep track of periods?
+        previously_tried_periods = set()
 
         # TODO adaptive tweeking of timeout?
         proc_timeout_seconds = flow_settings.get('timeout', 3600)
         logger.info(f'[Fmax] Timeout set to: {proc_timeout_seconds} seconds.')
+
+        error_retries = 0
 
         def round_freq_to_ps(freq: float) -> float:
             period = round(ONE_THOUSAND / freq, 3)
@@ -117,7 +132,7 @@ class FmaxRunner(FlowRunner):
         try:
             with ProcessPool(max_workers=max_workers) as pool:
                 while hi_freq - lo_freq >= resolution:
-                    
+
                     finder_retries = 0
                     while True:
                         frequencies_to_try, freq_step = numpy.linspace(
@@ -135,12 +150,14 @@ class FmaxRunner(FlowRunner):
                                 frequencies.append(freq)
                         frequencies_to_try = frequencies
 
-                        min_required =  (max_workers -  max(2, max_workers / 4)) if finder_retries > 10 else max_workers
+                        min_required = (
+                            max_workers - max(2, max_workers / 4)) if finder_retries > 20 else max_workers
 
                         if len(frequencies_to_try) >= max(1, min_required):
                             break
                         hi_freq += random.random() * delta_increment
-                        lo_freq += 0.1 * random.random() * delta_increment
+                        min_lo_freq = best.freq + delta_increment if best else lo_freq
+                        lo_freq = max(min_lo_freq, lo_freq - 0.1 * random.random())
                         finder_retries += 1
 
                     logger.info(
@@ -154,7 +171,8 @@ class FmaxRunner(FlowRunner):
                     for clock_period in clock_periods_to_try:
                         flow_settings['clock_period'] = clock_period
                         flow_settings['nthreads'] = nthreads
-                        flow = self.setup_flow(flow_settings, design_settings, flow_name)
+                        flow = self.setup_flow(
+                            flow_settings, design_settings, flow_name)
 
                         flow.no_console = True
                         flows_to_run.append(flow)
@@ -169,19 +187,29 @@ class FmaxRunner(FlowRunner):
                         iterator = future.result()
                         if not iterator:
                             logger.error("iterator is None! Retrying")
-                            continue  # retry
+                            if error_retries < 4:
+                                error_retries += 1
+                                continue  # retry
+                            else:
+                                logger.error("error_retries > MAX, exiting")
+                                break
                         while True:
                             try:
-                                idx, results, fs, rundir = next(iterator)
-                                if results:
+                                idx, results, fs, flow_run_dir = next(iterator)
+                                flow_run_dirs.append(flow_run_dir)
+                                if idx and results:
                                     freq = frequencies_to_try[idx]
-                                    rundirs.append(rundir)
-                                    if results['success'] and (not best or freq > best.freq):
-                                        all_results.append(results)
-                                        best = Best(freq, results, fs)
-                                        improved_idx = idx
+                                    if results['success']:
+                                        error_retries = 0
+                                        r = {k: results.get(k) for k in (
+                                            'clock_period', 'clock_frequency', 'wns', 'lut', 'ff', 'slice')}
+                                        r['flow_run_dir'] = flow_run_dir
+                                        successful_results.append(r)
+                                        if not best or freq > best.freq:
+                                            best = Best(freq, results, fs)
+                                            improved_idx = idx
                             except StopIteration:
-                                break
+                                break # inner while True
                             except TimeoutError as e:
                                 logger.critical(
                                     f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks.")
@@ -197,13 +225,15 @@ class FmaxRunner(FlowRunner):
                         raise
 
                     if freq_step < resolution * 0.5:
-                        logger.info(f"Stopping: freq_step={freq_step} is below the limit")
+                        logger.info(
+                            f"Stopping: freq_step={freq_step} is below the limit")
                         break
 
                     if not best or improved_idx is None:
                         no_improvements += 1
                         if no_improvements > 4:
-                            logger.info(f"Stopping no viable frequencies found after {no_improvements} tries.")
+                            logger.info(
+                                f"Stopping no viable frequencies found after {no_improvements} tries.")
                             break
                         logger.info(f"No improvements during this iteration.")
                         if not best:
@@ -212,9 +242,10 @@ class FmaxRunner(FlowRunner):
                             lo_freq /= shrink_factor
                         else:
                             if no_improvements > 2 and freq_step < no_improvements * resolution:
-                                logger.info(f"Stopping as there were no improvements in {no_improvements} consecutive iterations.")
+                                logger.info(
+                                    f"Stopping as there were no improvements in {no_improvements} consecutive iterations.")
                                 break
-                            hi_freq = (best.freq + 1.5 * freq_step) / 2
+                            hi_freq = best.freq + 1.5 * max(freq_step, 1 + max_workers * resolution)
                             lo_freq = (lo_freq + best.freq) / 2
                     else:
                         lo_freq = best.freq + delta_increment + delta_increment * random.random()
@@ -240,6 +271,7 @@ class FmaxRunner(FlowRunner):
                     if best and best.results:
                         print_results(best.results, title='Best so far', subset=[
                                       'clock_period', 'clock_frequency', 'wns', 'lut', 'ff', 'slice'])
+                    logger.info(f"Next iteration: [{lo_freq} ... {hi_freq}] resolution={resolution}")
 
         except KeyboardInterrupt:
             logger.exception('Received Keyboard Interrupt')
@@ -263,7 +295,7 @@ class FmaxRunner(FlowRunner):
                 logger.info(f"Writing best result to {best_json_path}")
 
                 with open(best_json_path, 'w') as f:
-                    json.dump(best, f, default=lambda x: x.__dict__ if hasattr(
+                    json.dump(dict(best=best, successful_results=successful_results, flow_run_dirs=flow_run_dirs), f, default=lambda x: x.__dict__ if hasattr(
                         x, '__dict__') else str(x), indent=4)
             else:
                 logger.warning("No successful results.")

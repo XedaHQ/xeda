@@ -32,7 +32,6 @@
             "clock_period": 5.0,
             "fpga_part": "xc7a12tcsg325-3",
             "strategy": "ExtraTiming",
-            "optimize_power": "False",
             "timeout": 3600,
             "fmax_low_freq": 50.0,
             "fmax_high_freq": 310.0,
