@@ -401,7 +401,9 @@ read_saif -map_names -input {{flow.saif.file}} -instance_name {{flow.saif.instan
 report_saif -hier -annotated_flag -rtl_saif > ${dc_reports_dir}/${dc_design_name}.mapped.saif.rpt
 saif_map -type ptpx -write_map ${dc_reports_dir}/${dc_design_name}.namemap
 {%- endif %}
-report_power -nosplit -hier > ${dc_reports_dir}/${dc_design_name}.mapped.power.rpt
+
+report_power -nosplit -analysis_effort high > ${dc_reports_dir}/${dc_design_name}.mapped.power.rpt
+report_power -nosplit -analysis_effort high -hierarchy -levels 3 > ${dc_reports_dir}/${dc_design_name}.mapped.hier.power.rpt
 
 # Report clock gating
 report_clock_gating -nosplit > ${dc_reports_dir}/${dc_design_name}.mapped.clock_gating.rpt
