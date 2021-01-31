@@ -37,7 +37,7 @@ class Vivado(Flow):
     def run_vivado(self, script_path, stdout_logfile=None):
         if stdout_logfile is None:
             stdout_logfile = f'{self.name}_stdout.log'
-        debug = self.args.debug
+        debug = self.args.debug > DebugLevel.NONE
         vivado_args = ['-nojournal', '-mode', 'tcl' if debug >=
                        DebugLevel.HIGHEST else 'batch', '-source', str(script_path)]
         # if not debug:

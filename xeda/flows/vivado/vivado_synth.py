@@ -12,7 +12,8 @@ logger = logging.getLogger()
 
 class VivadoSynth(Vivado, SynthFlow):
     default_settings = {**SynthFlow.default_settings, 'nthreads': 4,
-                        'fail_critical_warning': False, 'fail_timing': False}
+                        'fail_critical_warning': False, 'fail_timing': False, 
+                        'optimize_power': False, 'optimize_power_postplace': False}
 
     required_settings = {'clock_period': Union[str, int]}
 
@@ -117,8 +118,6 @@ class VivadoSynth(Vivado, SynthFlow):
             "phys_opt": ["-directive AggressiveExplore"],
             "route": ["-directive NoTimingRelaxation"],
         },
-
-
         "ExtraTimingAltRouting": {
             # -mode: default, out_of_context
             # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
@@ -140,14 +139,75 @@ class VivadoSynth(Vivado, SynthFlow):
             # "route": "-directive NoTimingRelaxation",
             "route": ["-directive AlternateCLBRouting"],
         },
-
+        # AreaOptimized_medium or _high print error messages in Vivado 2020.1: "unexpected non-zero reference counts" and are thus not used
         "Area": {
-            "synth": ["-flatten_hierarchy full", "-directive AreaOptimized_high"],
+            "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", ],
             # if no directive: -resynth_seq_area
             "opt": "-directive ExploreArea",
-            "place": "-directive Explore",
-            "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                          '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+            "place": "-directive Default",
+            "place_opt": "-directive ExploreArea",
+            # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+            #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+            # if no directive: -placement_opt
+            "phys_opt": "-directive Explore",
+            "route": "-directive Explore",
+        },
+        "AreaTiming": {
+            "synth": ["-flatten_hierarchy full", "-retiming"],
+            # if no directive: -resynth_seq_area
+            "opt": ["-directive ExploreWithRemap"],
+            "place": ["-directive ExtraPostPlacementOpt"],
+            # "place_opt": ["-directive ExploreArea"],
+            "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+            "place_opt2": "-directive ExploreArea",
+            # if no directive: -placement_opt
+            "phys_opt": "-directive Explore",
+            "route": "-directive Explore",
+        },
+        "AreaExploreWithRemap": {
+            "synth": ["-flatten_hierarchy full", "-retiming"],
+            # if no directive: -resynth_seq_area
+            "opt": "-directive ExploreArea",
+            "place": "-directive Default",
+            "place_opt": "-directive ExploreWithRemap",
+            # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+            #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+            # if no directive: -placement_opt
+            "phys_opt": "-directive Explore",
+            "route": "-directive Explore",
+        },
+        "AreaExploreWithRemap2": {
+            "synth": [],
+            # if no directive: -resynth_seq_area
+            "opt": "-directive ExploreArea",
+            "place": "-directive Default",
+            "place_opt": "-directive ExploreWithRemap",
+            # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+            #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+            # if no directive: -placement_opt
+            "phys_opt": "-directive Explore",
+            "route": "-directive Explore",
+        },
+        "AreaExplore": {
+            "synth": ["-flatten_hierarchy full"],
+            # if no directive: -resynth_seq_area
+            "opt": "-directive ExploreArea",
+            "place": "-directive Default",
+            "place_opt": "-directive ExploreArea",
+            # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+            #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+            # if no directive: -placement_opt
+            "phys_opt": "-directive Explore",
+            "route": "-directive Explore",
+        },
+        "Power": {
+            "synth": ["-flatten_hierarchy full", "-gated_clock_conversion auto"],
+            # if no directive: -resynth_seq_area
+            "opt": "-directive ExploreSequentialArea",
+            "place": "-directive Default",
+            "place_opt": "-directive ExploreArea",
+            # ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+                        #   '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
             # if no directive: -placement_opt
             "phys_opt": "-directive Explore",
             "route": "-directive Explore",
@@ -179,6 +239,9 @@ class VivadoSynth(Vivado, SynthFlow):
             if strategy not in self.strategy_options.keys():
                 self.fatal(f'Unknown strategy: {strategy}')
             options = copy.deepcopy(self.strategy_options[strategy])
+        if 'place_opt2' not in options:
+            options['place_opt2'] = '-directive Explore'
+
         for k, v in options.items():
             if isinstance(v, str):
                 options[k] = v.split()
@@ -190,7 +253,8 @@ class VivadoSynth(Vivado, SynthFlow):
 
         # to strings
         for k, v in options.items():
-            options[k] = ' '.join(v)
+            options[k] = ' '.join(v) if v is not None else None
+            
         script_path = self.copy_from_template(f'{self.name}.tcl',
                                               xdc_files=[clock_xdc_path],
                                               options=options,

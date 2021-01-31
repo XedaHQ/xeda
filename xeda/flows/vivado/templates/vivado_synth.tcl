@@ -96,7 +96,7 @@ set_property DONT_TOUCH true [get_cells -hier * ]
 showWarningsAndErrors
 
 
-{% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+{% if 'opt' in options and options.opt != None and flow.strategy != "Debug" and flow.strategy != "Runtime" %}
 puts "\n==============================( Optimize Design )================================"
 eval opt_design {{options.opt}}
 {% endif %}
@@ -111,7 +111,7 @@ reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
 report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 
 ## TODO FIXME
-{% if flow.optimize_power or flow.strategy == "Power" %}
+{% if flow.optimize_power and not flow.optimize_power_postplace %}
 puts "\n===============================( Post-synth Power Optimization )================================"
 # this is more effective than Post-placement Power Optimization but can hurt timing
 eval power_opt_design
@@ -124,22 +124,24 @@ eval place_design {{options.place}}
 showWarningsAndErrors
 
 
-{% if False and flow.strategy != "Power" and flow.optimize_power %}
+{% if flow.optimize_power_postplace %}
 puts "\n===============================( Post-placement Power Optimization )================================"
 eval power_opt_design
 report_power_opt -file ${reports_dir}/post_synth/post_place_power_optimization.rpt
 showWarningsAndErrors
 {% endif %}
 
-{% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+{% if 'place_opt' in options and options.place_opt != None %}
 puts "\n==============================( Post-place optimization )================================"
 eval opt_design {{options.place_opt}}
+{% if options.place_opt2 != None %}
 puts "\n==============================( Post-place optimization 2)================================"
-eval opt_design -directive Explore
+eval opt_design {{options.place_opt2}}
+{% endif %}
 {% endif %}
 
 
-{% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+{% if options.phys_opt != None and flow.strategy != "Debug" and flow.strategy != "Runtime" %}
 puts "\n========================( Post-place Physical Optimization )=========================="
 eval phys_opt_design {{options.phys_opt}}
 puts "\n========================( Post-place Physical Optimization 2 )=========================="
@@ -153,7 +155,7 @@ puts "\n================================( Route Design )========================
 eval route_design {{options.route}}
 showWarningsAndErrors
 
-{% if flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+{% if options.phys_opt != None and flow.strategy != "Debug" and flow.strategy != "Runtime" %}
 puts "\n=========================( Post-Route Physical Optimization )=========================="
 phys_opt_design
 showWarningsAndErrors
