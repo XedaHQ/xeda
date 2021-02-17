@@ -29,22 +29,21 @@ class VivadoPower(Vivado):
 
     @classmethod
     def prerequisite_flows(cls, flow_settings, _design_settings):
-        sim_overrides = {}
+        synth_overrides = dict(strategy=flow_settings.get('strategy', 'AreaPower')) ## FIXME!!! For reasons still unknown, not all strategies lead to correct post-impl simulation
+        postsynthsim_overrides = dict(constrain_io=True, elab_debug='typical',
+                                      saif=cls.default_saif_file,  dependencies=dict(vivado_synth=synth_overrides))
+
         period = flow_settings.get('clock_period')
         if period:
-            sim_overrides['clock_period'] = period
+            postsynthsim_overrides['clock_period'] = period
+            synth_overrides['clock_period'] = period
 
         opt_power = flow_settings.get('optimize_power')
         if opt_power is not None:
-            sim_overrides['optimize_power'] = opt_power
+            postsynthsim_overrides['optimize_power'] = opt_power
+            synth_overrides['optimize_power'] = opt_power
 
-        sim_overrides['saif'] = cls.default_saif_file
-
-        sim_overrides['elab_debug'] = 'typical'
-
-        sim_overrides.update(constrain_io=True)
-
-        return {VivadoPostsynthSim: (sim_overrides, {})}
+        return {VivadoPostsynthSim: (postsynthsim_overrides, {})}
 
     def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List['Flow']):
         self.postsynthsim_flow = completed_dependencies[0]
@@ -55,7 +54,6 @@ class VivadoPower(Vivado):
         self.power_report_filename = 'power_impl_timing.xml'
         super().__init__(settings, args, completed_dependencies)
 
-        
     def run(self):
         run_configs = self.postsynthsim_settings.get('run_configs')
 
@@ -66,10 +64,10 @@ class VivadoPower(Vivado):
         if run_configs:
             run_configs = [update_saif_path(rc) for rc in run_configs]
         else:
-            run_configs = dict(saif=self.default_saif_file, report=self.power_report_filename)
+            run_configs = dict(saif=self.default_saif_file,
+                               report=self.power_report_filename)
 
         self.run_configs = run_configs
-                                                  
 
         script_path = self.copy_from_template(f'vivado_power.tcl',
                                               tb_top=self.postsynthsim_flow.tb_top,

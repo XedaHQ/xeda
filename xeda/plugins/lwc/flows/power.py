@@ -24,6 +24,7 @@ _default_power_tvs = ['enc_16_0', 'enc_0_16', 'enc_1536_0',
 
 class VivadoPower(XedaVivadoPower, LWC):
     required_settings = {}
+    # default_settings = dict(strategy='ExtraTiming')
 
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
@@ -31,17 +32,21 @@ class VivadoPower(XedaVivadoPower, LWC):
         parent_prereqs = XedaVivadoPower.prerequisite_flows(
             flow_settings, design_settings)
 
-        flow_overrides, design_overrides = parent_prereqs[VivadoPostsynthSim]
+        postsynthsim_overrides, design_overrides = parent_prereqs[VivadoPostsynthSim]
 
-        flow_overrides['clock_period'] = flow_settings.get(
+        postsynthsim_overrides['dependencies'] = postsynthsim_overrides.get('dependencies', {})
+        postsynthsim_overrides['dependencies']['vivado_synth'] = postsynthsim_overrides['dependencies'].get('vivado_synth', {})
+        postsynthsim_overrides['dependencies']['vivado_synth']['strategy'] = 'AreaTiming' ## 'AreaPower'
+
+        postsynthsim_overrides['clock_period'] = flow_settings.get(
             'clock_period', 13.333)
-        flow_overrides['optimize_power'] = flow_settings.get(
+        postsynthsim_overrides['optimize_power'] = flow_settings.get(
             'optimize_power', True)
-        flow_overrides['prerun_time'] = 100 + \
-            (flow_overrides['clock_period'] * 4) - 1
-        flow_overrides['timing_sim'] = True
-        flow_overrides['stop_time'] = None
-        flow_overrides['vcd'] = None
+        postsynthsim_overrides['prerun_time'] = 100 + \
+            (postsynthsim_overrides['clock_period'] * 4) - 1
+        postsynthsim_overrides['timing_sim'] = True
+        postsynthsim_overrides['stop_time'] = None
+        postsynthsim_overrides['vcd'] = None
 
         LWC.wrap_design(design_settings)
 
@@ -75,7 +80,7 @@ class VivadoPower(XedaVivadoPower, LWC):
             clock_period_ps_generic = tb_settings.get(
                 'clock_period_ps_generic', 'G_PERIOD_PS')
             clock_ps = math.floor(
-                flow_overrides['clock_period'] * 1000)
+                postsynthsim_overrides['clock_period'] * 1000)
             tv_generics[clock_period_ps_generic] = clock_ps
             tv_generics['G_FNAME_LOG'] = f'{tv_sub}_LWCTB_log.txt'
             for t in ['pdi', 'sdi', 'do']:
@@ -84,7 +89,7 @@ class VivadoPower(XedaVivadoPower, LWC):
             saif = f'{tv_sub}.saif'
             return dict(generics=tv_generics, saif=str(saif), report=f'{tv_sub}.xml', name=tv_sub)
 
-        flow_overrides['run_configs'] = [
+        postsynthsim_overrides['run_configs'] = [
             pow_tv_run_config(tv) for tv in power_tvs]
 
         for t in ['pdi', 'sdi', 'do']:
@@ -98,7 +103,7 @@ class VivadoPower(XedaVivadoPower, LWC):
                 "setting design.tb.configuration_specification = LWC_TB_wrapper_conf")
             design_overrides['tb']["configuration_specification"] = "LWC_TB_wrapper_conf"
 
-        return {VivadoPostsynthSim: (flow_overrides, design_overrides)}
+        return {VivadoPostsynthSim: (postsynthsim_overrides, design_overrides)}
 
     def parse_reports(self):
         design_name = self.settings.design['name']
@@ -121,10 +126,16 @@ class VivadoPower(XedaVivadoPower, LWC):
 
             assert results['Design Nets Matched'].startswith('100%')
             assert results['Confidence Level'] == 'High'
-            static = results['Device Static (W)']
-            statics[f'Static:{name}'] = static
+            
+            def get_power(s):
+                res = results.get(f'{s} (W)')
+                if res is None:
+                    res = round(float(results[f'{s} (mW)']) / 1000, 6)
+                return res
 
-            fields[name] = results['Dynamic (W)']
+            statics[f'Static:{name}'] = get_power('Device Static')
+
+            fields[name] = get_power('Dynamic')
 
             lwctb_log = self.postsynthsim_flow.flow_run_dir / \
                 f'{name}_LWCTB_log.txt'

@@ -105,7 +105,7 @@ class VivadoPostsynthSim(VivadoSim):
 
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
-        synth_overrides = {}
+        synth_overrides = dict(constrain_io=True)
         period = flow_settings.get('clock_period')
         if period:
             synth_overrides['clock_period'] = period
@@ -114,7 +114,6 @@ class VivadoPostsynthSim(VivadoSim):
         if opt_power is not None:
             synth_overrides['optimize_power'] = opt_power
 
-        synth_overrides.update(constrain_io=True)
         return {VivadoSynth: (synth_overrides, {})}
 
     def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List[Flow]):

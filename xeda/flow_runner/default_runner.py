@@ -239,8 +239,10 @@ class DefaultRunner(FlowRunner):
             prereq_name = prereq if isinstance(
                 prereq, str) else camelcase_to_snakecase(prereq.name)
 
-            prereq_flowsettings = dict_merge(
-                self.get_flow_settings(prereq_name), flow_overrides)
+            parent_overrides = flow_settings.get('dependencies', {}).get(prereq_name, {})
+
+            prereq_flowsettings = dict_merge(self.get_flow_settings(prereq_name), parent_overrides)
+            prereq_flowsettings = dict_merge(prereq_flowsettings, flow_overrides)
             prereq_design = dict_merge(design_settings, design_overrides)
 
             logger.info(f"Prerequisite: {prereq.__name__}")

@@ -1,5 +1,7 @@
 
-# © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
+# Xeda Vivado Synthtesis flow
+# ©2021 Kamyar Mohajerani and contributors
+
 from collections import abc
 import copy
 import logging
@@ -76,33 +78,21 @@ class VivadoSynth(Vivado, SynthFlow):
             "route": ["-directive AggressiveExplore"],
         },
         "ExtraTimingCongestion": {
-            # -mode: default, out_of_context
-            # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
-            # -no_lc: When checked, this option turns off LUT combining
-            # -keep_equivalent_registers -no_lc
             "synth": ["-flatten_hierarchy full",
                       "-retiming",
                       "-directive PerformanceOptimized",
                       "-fsm_extraction one_hot",
-                    #   "-resource_sharing off",
-                    #   "-no_lc",
-                      "-shreg_min_size 5",
-                    #   "-keep_equivalent_registers "
+                      "-resource_sharing off",
+                      "-shreg_min_size 10",
+                      "-keep_equivalent_registers",
                       ],
             "opt": ["-directive ExploreWithRemap"],
             "place": ["-directive AltSpreadLogic_high"],
             "place_opt": ['-retarget', '-propconst', '-sweep', '-remap', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
             "phys_opt": ["-directive AggressiveExplore"],
-            # "route": "-directive NoTimingRelaxation",
             "route": ["-directive AlternateCLBRouting"],
         },
         "ExtraTiming": {
-            # or ExtraTimingOpt, ExtraPostPlacementOpt, Explore
-            # very slow: AggressiveExplore
-            # -mode: default, out_of_context
-            # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
-            # -no_lc: When checked, this option turns off LUT combining
-            # -keep_equivalent_registers -no_lc
             "synth": ["-flatten_hierarchy full",
                       "-retiming",
                       "-directive PerformanceOptimized",
@@ -114,7 +104,7 @@ class VivadoSynth(Vivado, SynthFlow):
                       ],
             "opt": ["-directive ExploreWithRemap"],
             "place": "-directive ExtraTimingOpt",
-            "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap'],
+            "place_opt": ['-retarget', '-propconst', '-sweep', '-remap', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
             "phys_opt": ["-directive AggressiveExplore"],
             "route": ["-directive NoTimingRelaxation"],
         },
@@ -139,9 +129,9 @@ class VivadoSynth(Vivado, SynthFlow):
             # "route": "-directive NoTimingRelaxation",
             "route": ["-directive AlternateCLBRouting"],
         },
-        # AreaOptimized_medium or _high print error messages in Vivado 2020.1: "unexpected non-zero reference counts" and are thus not used
         "Area": {
-            "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", ],
+            # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
+            "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", "-directive AreaOptimized_medium"],
             # if no directive: -resynth_seq_area
             "opt": "-directive ExploreArea",
             "place": "-directive Default",
@@ -152,6 +142,29 @@ class VivadoSynth(Vivado, SynthFlow):
             "phys_opt": "-directive Explore",
             "route": "-directive Explore",
         },
+        "AreaHigh": {
+            # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
+            "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing on", "-directive AreaOptimized_high"],
+            # if no directive: -resynth_seq_area
+            "opt": "-directive ExploreArea",
+            "place": "-directive Default",
+            "place_opt": "-directive ExploreArea",
+            # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+            #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+            # if no directive: -placement_opt
+            "phys_opt": "-directive Explore",
+            "route": "-directive Explore",
+        },
+        "AreaPower": {
+            # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
+            "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", "-gated_clock_conversion auto", "-directive AreaOptimized_medium"],
+            "opt": ["-directive ExploreArea"],
+            "place": "-directive Default",
+            "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+            "place_opt2": "-directive ExploreArea",
+            "phys_opt": ["-directive AggressiveExplore"], ## ## FIXME!!! This is the only option that results in correct post-impl timing sim! Why??!
+            "route": ["-directive Explore"],
+        },
         "AreaTiming": {
             "synth": ["-flatten_hierarchy full", "-retiming"],
             # if no directive: -resynth_seq_area
@@ -161,13 +174,13 @@ class VivadoSynth(Vivado, SynthFlow):
             "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
             "place_opt2": "-directive ExploreArea",
             # if no directive: -placement_opt
-            "phys_opt": "-directive Explore",
+            "phys_opt": "-directive AggressiveExplore",
             "route": "-directive Explore",
         },
         "AreaExploreWithRemap": {
             "synth": ["-flatten_hierarchy full", "-retiming"],
             # if no directive: -resynth_seq_area
-            "opt": "-directive ExploreArea",
+            "opt": "-directive ExploreWithRemap",
             "place": "-directive Default",
             "place_opt": "-directive ExploreWithRemap",
             # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
@@ -201,11 +214,11 @@ class VivadoSynth(Vivado, SynthFlow):
             "route": "-directive Explore",
         },
         "Power": {
-            "synth": ["-flatten_hierarchy full", "-gated_clock_conversion auto"],
+            "synth": ["-flatten_hierarchy full", "-gated_clock_conversion auto", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto"],
             # if no directive: -resynth_seq_area
             "opt": "-directive ExploreSequentialArea",
             "place": "-directive Default",
-            "place_opt": "-directive ExploreArea",
+            "place_opt": "-directive ExploreSequentialArea",
             # ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
                         #   '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
             # if no directive: -placement_opt
@@ -245,10 +258,16 @@ class VivadoSynth(Vivado, SynthFlow):
         for k, v in options.items():
             if isinstance(v, str):
                 options[k] = v.split()
-        if not self.settings.flow.get('allow_brams', True):
-            # -max_uram 0 for ultrascale+
+
+        blacklisted_resources = flow_settings.get('blacklisted_resources', ['latch', 'dsp', 'bram_tile'])
+        if 'bram' in blacklisted_resources and 'bram_tile' not in blacklisted_resources:
+            blacklisted_resources.append('bram_tile')
+        self.blacklisted_resources = blacklisted_resources
+
+        if not self.settings.flow.get('allow_brams', True) or 'bram_tile' in blacklisted_resources:
+            # FIXME also add -max_uram 0 for ultrascale+
             options['synth'].append('-max_bram 0')
-        if not flow_settings.get('allow_dsps', True):
+        if not flow_settings.get('allow_dsps', True) or 'dsp' in blacklisted_resources:
             options['synth'].append('-max_dsp 0')
 
         # to strings
@@ -316,16 +335,15 @@ class VivadoSynth(Vivado, SynthFlow):
             reports_dir / 'utilization.rpt', slice_logic_pat)
 
         failed |= not self.parse_report(reports_dir / 'power.rpt',
-                                        r'^\s*\|\s*Total\s+On-Chip\s+Power\s+\(W\)\s*\|\s*(?P<power_total>[\-\.\w]+)\s*\|.*' +
-                                        r'^\s*\|\s*Dynamic\s*\(W\)\s*\|\s*(?P<power_dynamic> [\-\.\w]+)\s*\|.*' +
-                                        r'^\s*\|\s*Device\s+Static\s+\(W\)\s*\|\s*(?P<power_static>[\-\.\w]+)\s*\|.*' +
+                                        r'^\s*\|\s*Total\s+On-Chip\s+Power\s+\((?P<power_onchip_unit>\w+)\)\s*\|\s*(?P<power_onchip>[\-\.\w]+)\s*\|.*' +
+                                        r'^\s*\|\s*Dynamic\s*\((?P<power_dynamic_unit>\w+)\)\s*\|\s*(?P<power_dynamic> [\-\.\w]+)\s*\|.*' +
+                                        r'^\s*\|\s*Device\s+Static\s+\((?P<power_static_unit>\w+)\)\s*\|\s*(?P<power_static>[\-\.\w]+)\s*\|.*' +
                                         r'^\s*\|\s*Confidence\s+Level\s*\|\s*(?P<power_confidence_level>[\-\.\w]+)\s*\|.*' +
                                         r'^\s*\|\s*Design\s+Nets\s+Matched\s*\|\s*(?P<power_nets_matched>[\-\.\w]+)\s*\|.*'
                                         )
 
         if not failed:
-            forbidden_resources = ['latch', 'dsp', 'bram_tile']
-            for res in forbidden_resources:
+            for res in self.blacklisted_resources:
                 if (self.results[res] != 0):
                     logger.critical(
                         f'{report_stage} reports show {self.results[res]} use(s) of forbidden resource {res}.')
