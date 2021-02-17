@@ -16,22 +16,6 @@ if {[catch {execute_flow -compile} result]} {
     exit 1
 }
 
-if {[catch {execute_flow -check_netlist} result]} {
-    puts "ERROR: Check netlist failed. Result: $result. See report files.\n"
-    exit 1
-}
-
-
-if {[catch {execute_flow -generate_functional_sim_netlist} result]} {
-    puts "ERROR: Compilation failed. Result: $result. See report files.\n"
-    exit 1
-}
-
-# if {[catch {execute_flow -compile_and_simulate} result]} {
-#     puts "ERROR: Compilation failed. Result: $result. See report files.\n"
-#     exit 1
-# }
-
 
 # TODO set up: verilog include-dirs, VHDL generics, verilog params,
 
@@ -79,6 +63,24 @@ foreach panel_name $panel_names {
     }
     close $fh
 }
+
+
+# if {[catch {execute_flow -check_netlist} result]} {
+#     puts "ERROR: Check netlist failed. Result: $result. See report files.\n"
+#     exit 1
+# }
+
+
+# if {[catch {execute_flow -generate_functional_sim_netlist} result]} {
+#     puts "ERROR: Compilation failed. Result: $result. See report files.\n"
+#     exit 1
+# }
+
+# if {[catch {execute_flow -compile_and_simulate} result]} {
+#     puts "ERROR: Compilation failed. Result: $result. See report files.\n"
+#     exit 1
+# }
+
 
 unload_report
 

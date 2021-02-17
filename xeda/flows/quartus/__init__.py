@@ -150,12 +150,9 @@ class QuartusSynth(Quartus, SynthFlow):
                          ['-t', str(script_path)],
                          stdout_logfile='compile_stdout.log'
                          )
-        self.run_process('quartus_eda', [prj_name, '--simulation', '--functional', '--tool=modelsim_oem', '--format=verilog'],
-                                stdout_logfile='eda_1_stdout.log'
-                                )
-        self.run_process('quartus_eda', [prj_name, '--simulation', '--functional', '--tool=modelsim_oem', '--format=vhdl'],
-                                stdout_logfile='eda_2_stdout.log'
-                                )
+        # self.run_process('quartus_eda', [prj_name, '--simulation', '--functional', '--tool=modelsim_oem', '--format=verilog'],
+        #                         stdout_logfile='eda_1_stdout.log'
+        #                         )
 
     def parse_reports(self):
         failed = False
@@ -191,19 +188,27 @@ class QuartusSynth(Quartus, SynthFlow):
         whs = worst_slacks['Hold']
         self.results['wns'] = wns
         self.results['whs'] = whs
+        self.results['clock_period'] = float(self.settings.flow['clock_period'])
+        self.results['clock_frequency'] = 1000 / self.results['clock_period']
+        
 
         failed |= wns < 0 or whs < 0
 
+        vcc = '1200mV'
+        corner = 'Slow'
         for temp in ['85C', '0C']:
             fmax = parse_csv(
                 self.reports_dir / 'Timing_Analyzer' /
-                f'Slow_1200mV_{temp}_Model' / f'Slow_1200mV_{temp}_Model_Fmax_Summary.csv',
+                f'{corner}_{vcc}_{temp}_Model' / f'{corner}_{vcc}_{temp}_Model_Fmax_Summary.csv',
                 id_field='Clock Name',
                 field_parser=lambda s: s.strip().split(),
                 id_parser=lambda s: s.strip(),
                 interesting_fields=['Fmax']
             )
             self.results[f'fmax_{temp}'] = fmax['clock']['Fmax']
+
+        temp = '85C'
+        self.results['clock_frequency'] = self.results[f'fmax_{temp}']
 
         self.results['success'] = not failed
 
