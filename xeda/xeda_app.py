@@ -16,6 +16,7 @@ import pkg_resources
 from .debug import DebugLevel
 from .flow_runner import DefaultRunner, FlowRunner
 import toml
+import json
 import shtab
 
 logger = logging.getLogger()
@@ -223,13 +224,19 @@ def sanitize_toml(obj):
             f"ERROR in xeda_app.sanitize_toml: unhandled object of type {type(obj)}: {obj}")
         return sanitize_toml(dict(obj))
 
-def load_xedaproject(toml_path):
+def load_xedaproject(project_file: Path):
     try:
-        with open(toml_path) as f:
-            return sanitize_toml(toml.load(f))
+        with open(project_file) as f:
+            ext = project_file.suffix.lower()
+            if ext == '.json':
+                return json.load(f)
+            elif ext == '.toml':
+                return sanitize_toml(toml.load(f))
+            else:
+                exit(f"xedaproject: {project_file} has unknown extension {ext}. Currently supported formats are TOML (.toml) and JSON (.json)")
     except FileNotFoundError:
         exit(
-            f'Cannot open project file: {toml_path}. Please run from the project directory with xedaproject.toml or specify the correct path using the --xedaproject flag')
+            f'Cannot open project file: {project_file}. Please run from the project directory with xedaproject.toml or specify the correct path using the --xedaproject flag')
     except IsADirectoryError:
         exit(f'The specified xedaproject is not a regular file.')
 

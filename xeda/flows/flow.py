@@ -373,7 +373,7 @@ class Flow():
             logger.info(
                 f'Execution of {prog} in {self.flow_run_dir} completed with returncode {proc.returncode}')
 
-    def parse_report(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
+    def parse_report_regex(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True):
         # TODO fix debug and verbosity levels!
         high_debug = self.args.verbose
         if not reportfile_path.exists():

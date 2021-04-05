@@ -1,6 +1,9 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
+import html
 import logging
+from xml.etree import ElementTree
 from ..flow import Flow, DebugLevel
+from functools import reduce
 
 logger = logging.getLogger()
 
@@ -44,3 +47,35 @@ class Vivado(Flow):
         #     vivado_args.append('-notrace')
         return self.run_process('vivado', vivado_args, initial_step='Starting vivado',
                                 stdout_logfile=stdout_logfile)
+
+    @staticmethod
+    def parse_xml_report(report_xml):
+        tree = ElementTree.parse(report_xml)
+
+        data = {}
+        # components = {}
+
+        for section in tree.findall(f"./section"):
+            section_title = section.get("title")
+            for table in section.findall("./table"):
+                table_data = {}
+                header = [html.unescape(col.attrib['contents']).strip() for col in table.findall("./tablerow/tableheader")]
+                for tablerow in table.findall("./tablerow"):
+                    cells = [html.unescape(cell.attrib['contents']).strip() for cell in tablerow.findall("./tablecell")]
+                    if cells:
+                        # choose 0th element as "index data" (distinct key)
+                        cell_data = {h:c for h,c in zip(header[1:],cells[1:]) if c}
+                        cell_key = cells[0]
+                        if cell_data:
+                            table_data[cell_key] = cell_data
+                if table_data:
+                    table_title = table.get("title")
+                    title = section_title + ":" + table_title if table_title else section_title
+                    data[title] = table_data
+        return data
+        
+    @staticmethod
+    def get_from_path(dct: dict, path):
+        if isinstance(path, str):
+            path = path.split('.')
+        return reduce(dict.__getitem__, path, dct)

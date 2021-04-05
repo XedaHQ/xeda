@@ -70,7 +70,7 @@ class Dc(SynthFlow):
 
         failed = False
 
-        self.parse_report(reports_dir / f'{top_name}.mapped.area.rpt',
+        self.parse_report_regex(reports_dir / f'{top_name}.mapped.area.rpt',
                           r'Number of ports:\s*(?P<num_ports>\d+)',
                           r'Number of nets:\s*(?P<num_nets>\d+)',
                           r'Number of cells:\s*(?P<num_cells>\d+)',

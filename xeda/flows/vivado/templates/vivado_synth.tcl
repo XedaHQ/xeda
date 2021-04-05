@@ -105,10 +105,9 @@ eval opt_design {{options.opt}}
 puts "==== Synthesis and Mapping Steps Complemeted ====\n"
 write_checkpoint -force ${checkpoints_dir}/post_synth
 report_timing_summary -file ${reports_dir}/post_synth/timing_summary.rpt
-report_utilization -file ${reports_dir}/post_synth/utilization.rpt
-report_utilization -file ${reports_dir}/post_synth/utilization.xml -format xml
-reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
-report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
+report_utilization -hierarchical -force -file ${reports_dir}/post_synth/hierarchical_utilization.rpt
+# reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
+# report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 
 ## TODO FIXME
 {% if flow.optimize_power and not flow.optimize_power_postplace %}
@@ -127,7 +126,7 @@ showWarningsAndErrors
 {% if flow.optimize_power_postplace %}
 puts "\n===============================( Post-placement Power Optimization )================================"
 eval power_opt_design
-report_power_opt -file ${reports_dir}/post_synth/post_place_power_optimization.rpt
+report_power_opt -file ${reports_dir}/post_place/post_place_power_optimization.rpt
 showWarningsAndErrors
 {% endif %}
 
@@ -148,8 +147,9 @@ puts "\n========================( Post-place Physical Optimization 2 )==========
 eval phys_opt_design -directive AlternateFlowWithRetiming
 {% endif %}
 
-# write_checkpoint -force ${checkpoints_dir}/post_place
-# report_timing_summary -max_paths 10 -file ${reports_dir}/post_place/timing_summary.rpt
+write_checkpoint -force ${checkpoints_dir}/post_place
+report_timing_summary -file ${reports_dir}/post_place/timing_summary.rpt
+report_utilization -hierarchical -force -file ${reports_dir}/post_place/hierarchical_utilization.rpt
 
 puts "\n================================( Route Design )================================="
 eval route_design {{options.route}}
@@ -171,6 +171,7 @@ reportCriticalPaths ${reports_dir}/post_route/critpath_report.csv
 ## report_clock_utilization                                        -force -file ${reports_dir}/post_route/clock_utilization.rpt
 report_utilization                                              -force -file ${reports_dir}/post_route/utilization.rpt
 report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
+report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
 report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.rpt
 ## report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
 report_power                                                    -file ${reports_dir}/post_route/power.rpt

@@ -6,6 +6,7 @@ from collections import abc
 import copy
 import logging
 from typing import Union
+from xeda.utils import try_convert
 from ..flow import SynthFlow
 from .vivado import Vivado, vivado_generics
 
@@ -14,7 +15,7 @@ logger = logging.getLogger()
 
 class VivadoSynth(Vivado, SynthFlow):
     default_settings = {**SynthFlow.default_settings, 'nthreads': 4,
-                        'fail_critical_warning': False, 'fail_timing': False, 
+                        'fail_critical_warning': False, 'fail_timing': False,
                         'optimize_power': False, 'optimize_power_postplace': False}
 
     required_settings = {'clock_period': Union[str, int]}
@@ -65,10 +66,10 @@ class VivadoSynth(Vivado, SynthFlow):
                       "-retiming",
                       "-directive PerformanceOptimized",
                       "-fsm_extraction one_hot",
-                    #   "-resource_sharing off",
-                    #   "-no_lc",
+                      #   "-resource_sharing off",
+                      #   "-no_lc",
                       "-shreg_min_size 5",
-                    #   "-keep_equivalent_registers "
+                      #   "-keep_equivalent_registers "
                       ],
             "opt": ["-directive ExploreWithRemap"],
             "place": ["-directive ExtraPostPlacementOpt"],
@@ -98,7 +99,7 @@ class VivadoSynth(Vivado, SynthFlow):
                       "-directive PerformanceOptimized",
                       "-fsm_extraction one_hot",
                       "-resource_sharing off",
-                    #   "-no_lc",
+                      #   "-no_lc",
                       "-shreg_min_size 10",
                       "-keep_equivalent_registers",
                       ],
@@ -117,8 +118,8 @@ class VivadoSynth(Vivado, SynthFlow):
                       "-retiming",
                       "-directive PerformanceOptimized",
                       "-fsm_extraction one_hot",
-                    #   "-resource_sharing off",
-                    #   "-no_lc",
+                      #   "-resource_sharing off",
+                      #   "-no_lc",
                       "-shreg_min_size 5",
                       "-keep_equivalent_registers "
                       ],
@@ -162,11 +163,12 @@ class VivadoSynth(Vivado, SynthFlow):
             "place": "-directive Default",
             "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
             "place_opt2": "-directive ExploreArea",
-            "phys_opt": ["-directive AggressiveExplore"], ## ## FIXME!!! This is the only option that results in correct post-impl timing sim! Why??!
+            # FIXME!!! This is the only option that results in correct post-impl timing sim! Why??!
+            "phys_opt": ["-directive AggressiveExplore"],
             "route": ["-directive Explore"],
         },
         "AreaTiming": {
-            "synth": ["-flatten_hierarchy full", "-retiming"],
+            "synth": ["-flatten_hierarchy rebuilt", "-retiming"],
             # if no directive: -resynth_seq_area
             "opt": ["-directive ExploreWithRemap"],
             "place": ["-directive ExtraPostPlacementOpt"],
@@ -220,13 +222,12 @@ class VivadoSynth(Vivado, SynthFlow):
             "place": "-directive Default",
             "place_opt": "-directive ExploreSequentialArea",
             # ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                        #   '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+            #   '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
             # if no directive: -placement_opt
             "phys_opt": "-directive Explore",
             "route": "-directive Explore",
         }
     }
-
 
     def run(self):
         rtl_settings = self.settings.design["rtl"]
@@ -237,6 +238,7 @@ class VivadoSynth(Vivado, SynthFlow):
         input_delay = flow_settings.get('input_delay', 0)
         output_delay = flow_settings.get('output_delay', 0)
         constrain_io = flow_settings.get('constrain_io', False)
+        out_of_context = flow_settings.get('out_of_context', False)
 
         clock_xdc_path = self.copy_from_template(f'clock.xdc',
                                                  constrain_io=constrain_io,
@@ -252,28 +254,43 @@ class VivadoSynth(Vivado, SynthFlow):
             if strategy not in self.strategy_options.keys():
                 self.fatal(f'Unknown strategy: {strategy}')
             options = copy.deepcopy(self.strategy_options[strategy])
+
         if 'place_opt2' not in options:
-            options['place_opt2'] = '-directive Explore'
+            options['place_opt2'] = '-directive Explore' # FIXME default=None: disable place_opt2
+
+        if out_of_context:
+            options['synth'].extend(["-mode", "out_of_context"])
 
         for k, v in options.items():
             if isinstance(v, str):
                 options[k] = v.split()
 
-        blacklisted_resources = flow_settings.get('blacklisted_resources', ['latch', 'dsp', 'bram_tile'])
+        default_blacklisted_resources = ['latch']
+        # backward compatibility
+        if not self.settings.flow.get('allow_brams', True):
+            default_blacklisted_resources.append('bram_tile')
+
+        if not flow_settings.get('allow_dsps', True):
+            default_blacklisted_resources.append('dsp')
+
+        blacklisted_resources = flow_settings.get(
+            'blacklisted_resources', default_blacklisted_resources)
         if 'bram' in blacklisted_resources and 'bram_tile' not in blacklisted_resources:
             blacklisted_resources.append('bram_tile')
-        self.blacklisted_resources = blacklisted_resources
 
-        if not self.settings.flow.get('allow_brams', True) or 'bram_tile' in blacklisted_resources:
+        self.blacklisted_resources = blacklisted_resources
+        logger.info(f"blacklisted_resources: {blacklisted_resources}")
+
+        if 'bram_tile' in blacklisted_resources:
             # FIXME also add -max_uram 0 for ultrascale+
             options['synth'].append('-max_bram 0')
-        if not flow_settings.get('allow_dsps', True) or 'dsp' in blacklisted_resources:
+        if 'dsp' in blacklisted_resources:
             options['synth'].append('-max_dsp 0')
 
         # to strings
         for k, v in options.items():
             options[k] = ' '.join(v) if v is not None else None
-            
+
         script_path = self.copy_from_template(f'{self.name}.tcl',
                                               xdc_files=[clock_xdc_path],
                                               options=options,
@@ -284,69 +301,45 @@ class VivadoSynth(Vivado, SynthFlow):
         return self.run_vivado(script_path)
 
     def parse_reports(self):
-        reports_dir = self.reports_dir
-
         report_stage = 'post_route'
-        reports_dir = reports_dir / report_stage
+        reports_dir = self.reports_dir / report_stage
 
-        fields = {'lut': 'Slice LUTs', 'ff': 'Register as Flip Flop',
-                  'latch': 'Register as Latch'}
-        hrule_pat = r'^\s*(?:\+\-+)+\+\s*$'
-        slice_logic_pat = r'^\S*\d+\.\s*Slice Logic\s*\-+\s*' + \
-            hrule_pat + r'.*' + hrule_pat + r'.*'
-        for fname, fregex in fields.items():
-            slice_logic_pat += r'^\s*\|\s*' + fregex + \
-                r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
-
-        slice_logic_pat += hrule_pat + r".*" + \
-            r'^\S*\d+\.\s*Slice\s+Logic\s+Distribution\s*\-+\s*' + \
-            hrule_pat + r'.*' + hrule_pat + r'.*'
-
-        fields = {'slice': 'Slices?', 'lut_logic': 'LUT as Logic ',
-                  'lut_mem': 'LUT as Memory'}
-        for fname, fregex in fields.items():
-            slice_logic_pat += r'^\s*\|\s*' + fregex + \
-                r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
-
-        slice_logic_pat += hrule_pat + r".*" + r'^\S*\d+\.\s*Memory\s*\-+\s*' + \
-            hrule_pat + r'.*' + hrule_pat + r'.*'
-        fields = {'bram_tile': 'Block RAM Tile',
-                  'bram_RAMB36': 'RAMB36[^\|]+', 'bram_RAMB18': 'RAMB18'}
-        for fname, fregex in fields.items():
-            slice_logic_pat += r'^\s*\|\s*' + fregex + \
-                r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
-        slice_logic_pat += hrule_pat + r".*" + r'^\S*\d+\.\s*DSP\s*\-+\s*' + \
-            hrule_pat + r'.*' + hrule_pat + r'.*'
-
-        fname, fregex = ('dsp', 'DSPs')
-        slice_logic_pat += r'^\s*\|\s*' + fregex + \
-            r'\s*\|\s*' + f'(?P<{fname}>\\d+)' + r'\s*\|.*'
         failed = False
 
-        failed |= not self.parse_report(reports_dir / 'timing_summary.rpt',
-                                        r'Design\s+Timing\s+Summary[\s\|\-]+WNS\(ns\)\s+TNS\(ns\)\s+TNS Failing Endpoints\s+TNS Total Endpoints\s+WHS\(ns\)\s+THS\(ns\)\s+THS Failing Endpoints\s+THS Total Endpoints\s+WPWS\(ns\)\s+TPWS\(ns\)\s+TPWS Failing Endpoints\s+TPWS Total Endpoints\s*' +
-                                        r'\s*(?:\-+\s+)+' +
-                                        r'(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<_tns>\-?\d+(?:\.\d+)?)\s+(?P<_failing_endpoints>\-?\d+(?:\.\d+)?)\s+(?P<_tns_total_endpoints>\-?\d+(?:\.\d+)?)\s+'
-                                        r'(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<_ths_failing_endpoints>\-?\d+(?:\.\d+)?)\s+(?P<_ths_total_endpoints>\-?\d+(?:\.\d+)?)\s+',
-                                        r'Clock Summary[\s\|\-]+^\s*Clock\s+.*$[^\w]+(\w*)\s+(\{.*\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)'
-                                        )
+        failed |= not self.parse_report_regex(reports_dir / 'timing_summary.rpt',
+                                              r'Design\s+Timing\s+Summary[\s\|\-]+WNS\(ns\)\s+TNS\(ns\)\s+TNS Failing Endpoints\s+TNS Total Endpoints\s+WHS\(ns\)\s+THS\(ns\)\s+THS Failing Endpoints\s+THS Total Endpoints\s+WPWS\(ns\)\s+TPWS\(ns\)\s+TPWS Failing Endpoints\s+TPWS Total Endpoints\s*' +
+                                              r'\s*(?:\-+\s+)+' +
+                                              r'(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<_tns>\-?\d+(?:\.\d+)?)\s+(?P<_failing_endpoints>\-?\d+(?:\.\d+)?)\s+(?P<_tns_total_endpoints>\-?\d+(?:\.\d+)?)\s+'
+                                              r'(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<_ths_failing_endpoints>\-?\d+(?:\.\d+)?)\s+(?P<_ths_total_endpoints>\-?\d+(?:\.\d+)?)\s+',
+                                              r'Clock Summary[\s\|\-]+^\s*Clock\s+.*$[^\w]+(\w*)\s+(\{.*\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)'
+                                              )
 
-        failed |= not self.parse_report(
-            reports_dir / 'utilization.rpt', slice_logic_pat)
+        # failed |= not self.parse_report(reports_dir / 'power.rpt',
+        #                                 r'^\s*\|\s*Total\s+On-Chip\s+Power\s+\((?P<power_onchip_unit>\w+)\)\s*\|\s*(?P<power_onchip>[\-\.\w]+)\s*\|.*' +
+        #                                 r'^\s*\|\s*Dynamic\s*\((?P<power_dynamic_unit>\w+)\)\s*\|\s*(?P<power_dynamic> [\-\.\w]+)\s*\|.*' +
+        #                                 r'^\s*\|\s*Device\s+Static\s+\((?P<power_static_unit>\w+)\)\s*\|\s*(?P<power_static>[\-\.\w]+)\s*\|.*' +
+        #                                 r'^\s*\|\s*Confidence\s+Level\s*\|\s*(?P<power_confidence_level>[\-\.\w]+)\s*\|.*' +
+        #                                 r'^\s*\|\s*Design\s+Nets\s+Matched\s*\|\s*(?P<power_nets_matched>[\-\.\w]+)\s*\|.*'
+        #                                 )
 
-        failed |= not self.parse_report(reports_dir / 'power.rpt',
-                                        r'^\s*\|\s*Total\s+On-Chip\s+Power\s+\((?P<power_onchip_unit>\w+)\)\s*\|\s*(?P<power_onchip>[\-\.\w]+)\s*\|.*' +
-                                        r'^\s*\|\s*Dynamic\s*\((?P<power_dynamic_unit>\w+)\)\s*\|\s*(?P<power_dynamic> [\-\.\w]+)\s*\|.*' +
-                                        r'^\s*\|\s*Device\s+Static\s+\((?P<power_static_unit>\w+)\)\s*\|\s*(?P<power_static>[\-\.\w]+)\s*\|.*' +
-                                        r'^\s*\|\s*Confidence\s+Level\s*\|\s*(?P<power_confidence_level>[\-\.\w]+)\s*\|.*' +
-                                        r'^\s*\|\s*Design\s+Nets\s+Matched\s*\|\s*(?P<power_nets_matched>[\-\.\w]+)\s*\|.*'
-                                        )
+        utilization = self.parse_xml_report(reports_dir / 'utilization.xml')
+        fields = {'slice': 'Slice Logic.Slice LUTs', 'lut_logic': 'Slice Logic.LUT as Logic',
+                  'lut_mem': 'Slice Logic.LUT as Memory',
+                  'lut': 'Slice Logic.Slice LUTs', 'ff': 'Slice Logic.Register as Flip Flop',
+                  'latch': 'Slice Logic.Register as Latch',
+                  'bram_tile': 'Memory.Block RAM Tile',
+                  'bram_RAMB36': 'Memory.RAMB36/FIFO*', 'bram_RAMB18': 'Memory.RAMB18',
+                  'dsp': 'DSP.DSPs'
+                  }
+        for k, path in fields.items():
+            self.results[k] = try_convert(self.get_from_path(utilization, path + ".Used"))
+        self.results['utilization'] = utilization
 
         if not failed:
             for res in self.blacklisted_resources:
-                if (self.results[res] != 0):
+                if (self.results[res]):
                     logger.critical(
-                        f'{report_stage} reports show {self.results[res]} use(s) of forbidden resource {res}.')
+                        f'{report_stage} reports show {self.results[res]} use(s) of blacklisted resource {res}.')
                     failed = True
 
             # TODO better fail analysis for vivado

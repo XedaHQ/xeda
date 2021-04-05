@@ -31,7 +31,7 @@ class DiamondSynth(Diamond, SynthFlow):
         period_pat = r'''^\s*Preference:\s+PERIOD\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_period>\d+\.\d+)\s+ns.*HIGH\s+\d+\.\d+\s+ns\s*;\s*
 \s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors?'''
         freq_pat = r'^\s*Preference:\s+FREQUENCY\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_frequency>\d+\.\d+)\s+MHz\s*;\s*\n\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors?'
-        self.parse_report(reports_dir / f'{design_name}_{impl_name}.twr', [period_pat, freq_pat])
+        self.parse_report_regex(reports_dir / f'{design_name}_{impl_name}.twr', [period_pat, freq_pat])
 
         if 'clock_frequency' in self.results:
             frequency = self.results['clock_frequency']
@@ -48,7 +48,7 @@ class DiamondSynth(Diamond, SynthFlow):
 \s*Cost\s+\[ncd\]\s+Unrouted\s+Slack\s+Score\s+Slack\(hold\)\s+Score\(hold\)\s+Time\s+Status\s*
 (\s*\-+){8}\s*
 \s*(?P<_lvl_cost>\S+)\s+(?P<_ncd>\S+)\s+(?P<_num_unrouted>\d+)\s+(?P<wns>\-?\d+\.\d+)\s+(?P<_setup_score>\d+)\s+(?P<whs>\-?\d+\.\d+)\s+(?P<_hold_score>\d+)\s+(?P<_runtime>\d+(?:\:\d+)*)\s+(?P<_status>\w+)\s*$'''
-        self.parse_report(reports_dir / f'{design_name}_{impl_name}.par', slice_pat, time_pat)
+        self.parse_report_regex(reports_dir / f'{design_name}_{impl_name}.par', slice_pat, time_pat)
 
         # NOTE there can be "page breaks" anywhere in the mrp file (others? TODO)
         # NOTE therefore only match lines
@@ -68,7 +68,7 @@ class DiamondSynth(Diamond, SynthFlow):
         dsp_pattern = r'''\s+MULT18X18D\s+(?P<_dsp_MULT18X18D>\d+)\s*.*
 \s+MULT9X9D\s+(?P<_dsp_MULT9X9D>\d+)\s*.*'''
 
-        self.parse_report(reports_dir / f'{design_name}_{impl_name}.mrp', slice_pattern, dsp_pattern)
+        self.parse_report_regex(reports_dir / f'{design_name}_{impl_name}.mrp', slice_pattern, dsp_pattern)
 
         # FIXME add other types of available ALUs and DSPs
         self.results['dsp'] = self.results['_dsp_MULT18X18D'] + self.results['_dsp_MULT9X9D']
