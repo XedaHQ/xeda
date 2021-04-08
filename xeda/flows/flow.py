@@ -16,7 +16,6 @@ from jinja2.loaders import ChoiceLoader
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
 import colored
-# import psutil
 import hashlib
 from typing import Mapping, Union, Dict, List
 
@@ -44,24 +43,12 @@ class NonZeroExit(Exception):
 
 def final_kill(proc):
     try:
+        proc.terminate()
         proc.wait()
-        import psutil
-        for child in psutil.Process(os.getpid()).children(recursive=True):
-            child.kill()
-    except ModuleNotFoundError:
-        logger.error(
-            f"Failed to import module psutil. Make sure it's installed")
-    except Exception as e:
-        logger.error(
-            f"Failed to kill child processes recursively using `psutil`: {e}")
-    finally:
-        try:
-            proc.terminate()
-            proc.wait()
-            proc.kill()
-            proc.wait()
-        except:
-            pass
+        proc.kill()
+        proc.wait()
+    except:
+        pass
 
 # @contextmanager
 # def process(*args, **kwargs):

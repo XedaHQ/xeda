@@ -4,7 +4,6 @@ import re
 import logging
 import pkg_resources
 import json
-# import psutil
 
 from ..flows.settings import Settings
 from ..flows.flow import Flow, FlowFatalException, my_print
