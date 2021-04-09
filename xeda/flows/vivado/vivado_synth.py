@@ -62,7 +62,7 @@ class VivadoSynth(Vivado, SynthFlow):
             # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
             # -no_lc: When checked, this option turns off LUT combining
             # -keep_equivalent_registers -no_lc
-            "synth": ["-flatten_hierarchy full",
+            "synth": ["-flatten_hierarchy rebuilt",
                       "-retiming",
                       "-directive PerformanceOptimized",
                       "-fsm_extraction one_hot",
@@ -75,6 +75,7 @@ class VivadoSynth(Vivado, SynthFlow):
             "place": ["-directive ExtraPostPlacementOpt"],
             "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt'],
             "phys_opt": ["-directive AggressiveExplore"],
+            "place_opt2": ["-directive Explore"],
             # "route": "-directive NoTimingRelaxation",
             "route": ["-directive AggressiveExplore"],
         },
@@ -90,6 +91,7 @@ class VivadoSynth(Vivado, SynthFlow):
             "opt": ["-directive ExploreWithRemap"],
             "place": ["-directive AltSpreadLogic_high"],
             "place_opt": ['-retarget', '-propconst', '-sweep', '-remap', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
+            "place_opt2": ["-directive Explore"],
             "phys_opt": ["-directive AggressiveExplore"],
             "route": ["-directive AlternateCLBRouting"],
         },
@@ -105,7 +107,8 @@ class VivadoSynth(Vivado, SynthFlow):
                       ],
             "opt": ["-directive ExploreWithRemap"],
             "place": "-directive ExtraTimingOpt",
-            "place_opt": ['-retarget', '-propconst', '-sweep', '-remap', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
+            "place_opt": ['-retarget', '-propconst', '-sweep', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
+            "place_opt2": ["-directive Explore"],
             "phys_opt": ["-directive AggressiveExplore"],
             "route": ["-directive NoTimingRelaxation"],
         },
@@ -162,7 +165,7 @@ class VivadoSynth(Vivado, SynthFlow):
             "opt": ["-directive ExploreArea"],
             "place": "-directive Default",
             "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-            "place_opt2": "-directive ExploreArea",
+            "place_opt2": ["-directive ExploreArea"],
             # FIXME!!! This is the only option that results in correct post-impl timing sim! Why??!
             "phys_opt": ["-directive AggressiveExplore"],
             "route": ["-directive Explore"],
@@ -174,7 +177,7 @@ class VivadoSynth(Vivado, SynthFlow):
             "place": ["-directive ExtraPostPlacementOpt"],
             # "place_opt": ["-directive ExploreArea"],
             "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-            "place_opt2": "-directive ExploreArea",
+            "place_opt2": ["-directive ExploreArea"],
             # if no directive: -placement_opt
             "phys_opt": "-directive AggressiveExplore",
             "route": "-directive Explore",
@@ -256,7 +259,7 @@ class VivadoSynth(Vivado, SynthFlow):
             options = copy.deepcopy(self.strategy_options[strategy])
 
         if 'place_opt2' not in options:
-            options['place_opt2'] = '-directive Explore' # FIXME default=None: disable place_opt2
+            options['place_opt2'] = None
 
         if out_of_context:
             options['synth'].extend(["-mode", "out_of_context"])
@@ -322,25 +325,57 @@ class VivadoSynth(Vivado, SynthFlow):
         #                                 r'^\s*\|\s*Design\s+Nets\s+Matched\s*\|\s*(?P<power_nets_matched>[\-\.\w]+)\s*\|.*'
         #                                 )
 
-        utilization = self.parse_xml_report(reports_dir / 'utilization.xml')
-        fields = {'slice': 'Slice Logic.Slice LUTs', 'lut_logic': 'Slice Logic.LUT as Logic',
-                  'lut_mem': 'Slice Logic.LUT as Memory',
-                  'lut': 'Slice Logic.Slice LUTs', 'ff': 'Slice Logic.Register as Flip Flop',
-                  'latch': 'Slice Logic.Register as Latch',
-                  'bram_tile': 'Memory.Block RAM Tile',
-                  'bram_RAMB36': 'Memory.RAMB36/FIFO*', 'bram_RAMB18': 'Memory.RAMB18',
-                  'dsp': 'DSP.DSPs'
-                  }
-        for k, path in fields.items():
-            self.results[k] = try_convert(self.get_from_path(utilization, path + ".Used"))
-        self.results['utilization'] = utilization
+        report_file = reports_dir / 'utilization.xml'
+        utilization = self.parse_xml_report(report_file)
+        # ordered dict
+        fields = [
+            ('slice', ['Slice Logic Distribution', 'Slice']),
+            ('slice', ['CLB Logic Distribution', 'CLB']),  # Ultrascale+
+            ('lut', ['Slice Logic', 'Slice LUTs']),
+            ('lut', ['Slice Logic', 'Slice LUTs*']),
+            ('lut', ['CLB Logic', 'CLB LUTs']),
+            ('lut', ['CLB Logic', 'CLB LUTs*']),
+            ('lut_logic', ['Slice Logic', 'LUT as Logic']),
+            ('lut_logic', ['CLB Logic', 'LUT as Logic']),
+            ('lut_mem', ['Slice Logic', 'LUT as Memory']),
+            ('lut_mem', ['CLB Logic', 'LUT as Memory']),
+            ('ff', ['Slice Logic', 'Register as Flip Flop']),
+            ('ff', ['CLB Logic', 'CLB Registers']),
+            ('latch', ['Slice Logic', 'Register as Latch']),
+            ('latch', ['CLB Logic', 'Register as Latch']),
+            ('bram_tile', ['Memory', 'Block RAM Tile']),
+            ('bram_tile', ["BLOCKRAM", "Block RAM Tile"]),
+            ('bram_RAMB36', ['Memory', 'RAMB36/FIFO*']),
+            ('bram_RAMB36', ["BLOCKRAM", "RAMB36/FIFO*"]),
+            ('bram_RAMB18', ['Memory', 'RAMB18']),
+            ('bram_RAMB18', ["BLOCKRAM", "RAMB18"]),
+            ('dsp', ['DSP', 'DSPs']),
+            ('dsp', ["ARITHMETIC", "DSPs"]),
+        ]
+        for k, path in fields:
+            if self.results.get(k) is None:
+                path.append("Used")
+                try:
+                    self.results[k] = self.get_from_path(utilization, path)
+                except:
+                    logger.info(
+                        f"{path} not found in the utilization report {report_file}.")
+
+        self.results['_utilization'] = utilization
 
         if not failed:
             for res in self.blacklisted_resources:
-                if (self.results[res]):
-                    logger.critical(
-                        f'{report_stage} reports show {self.results[res]} use(s) of blacklisted resource {res}.')
-                    failed = True
+                res_util = self.results.get(res)
+                if res_util is not None:
+                    try:
+                        res_util = int(res_util)
+                        if res_util > 0:
+                            logger.critical(
+                                f'{report_stage} utilization report lists {res_util} use(s) of blacklisted resource `{res}`.')
+                            failed = True
+                    except:
+                        logger.warn(
+                            f'Unknown utilization value: `{res_util}` for blacklisted resource `{res}`. Optimistically assuming results are not violating the blacklist criteria.')
 
             # TODO better fail analysis for vivado
             failed |= (self.results['wns'] < 0) or (self.results['whs'] < 0) or (

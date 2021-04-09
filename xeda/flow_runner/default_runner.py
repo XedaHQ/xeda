@@ -296,7 +296,7 @@ class DefaultRunner(FlowRunner):
         flow_name = self.args.flow
         flow_settings = self.get_flow_settings(flow_name)
         self.launch_flow(flow_name, flow_settings,
-                         self.all_settings['design'], True)
+                         self.all_settings['design'], not self.args.use_stale)
 
 
 def nukemall():

@@ -1,6 +1,7 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 import html
 import logging
+from xeda.utils import try_convert
 from xml.etree import ElementTree
 from ..flow import Flow, DebugLevel
 from functools import reduce
@@ -67,7 +68,7 @@ class Vivado(Flow):
                         cell_data = {h:c for h,c in zip(header[1:],cells[1:]) if c}
                         cell_key = cells[0]
                         if cell_data:
-                            table_data[cell_key] = cell_data
+                            table_data[cell_key] = try_convert(cell_data, to_str=False)
                 if table_data:
                     table_title = table.get("title")
                     title = section_title + ":" + table_title if table_title else section_title

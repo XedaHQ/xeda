@@ -411,7 +411,6 @@ class Flow():
             results = self.results
             # init to print_results time:
             if results.get('runtime_minutes') is None:
-
                 results['runtime_minutes'] = (
                     time.monotonic() - self.init_time) / 60
         data_width = 32
@@ -422,7 +421,7 @@ class Flow():
         my_print(f"{'Results':^{name_width + data_width}s}")
         my_print(hline)
         for k, v in results.items():
-            if not k.startswith('_'):
+            if v is not None and not k.startswith('_'):
                 if isinstance(v, float):
                     my_print(f'{k:{name_width}}{v:{data_width}.3f}')
                 elif isinstance(v, bool):

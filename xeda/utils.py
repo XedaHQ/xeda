@@ -49,7 +49,7 @@ def dict_merge(base_dct, merge_dct, add_keys=True):
     return rtn_dct
 
 
-def try_convert(s, convert_lists=False):
+def try_convert(s, convert_lists=False, to_str=True):
     if s is None:
         return 'None'
     if isinstance(s, str): # always?
@@ -66,12 +66,12 @@ def try_convert(s, convert_lists=False):
         try:
             return float(s)
         except Exception:
-            s = str(s)
-            if s.lower in ['true', 'yes']:
+            s1 = str(s)
+            if s1.lower in ['true', 'yes']:
                 return True
-            if s.lower in ['false', 'no']:
+            if s1.lower in ['false', 'no']:
                 return False
-            return s
+            return s1 if to_str else s
 
 
 def parse_csv(path, id_field, field_parser=(lambda x: x), id_parser=(lambda x: x), interesting_fields=None):

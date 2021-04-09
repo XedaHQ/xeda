@@ -99,7 +99,12 @@ def get_main_argparser():
         action='store_true',
         default=False,
         help='Force re-run of flow and all dependencies, even if they are already up-to-date',
-        # default=None
+    )
+    parser.add_argument(
+        '--use-stale',
+        action='store_true',
+        default=False,
+        help="Don'r run the flow if stale results already exist.",
     )
     parser.add_argument(
         '--max-cpus',
