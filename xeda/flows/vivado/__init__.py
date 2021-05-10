@@ -3,3 +3,4 @@
 from .vivado_sim import VivadoSim, VivadoPostsynthSim
 from .vivado_synth import VivadoSynth
 from .vivado_power import VivadoPower
+from .vivado_project import VivadoPrjSynth

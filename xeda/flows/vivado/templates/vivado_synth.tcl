@@ -11,7 +11,7 @@ set fail_timing           {{flow.fail_timing}}
 set bitstream             false
 
 set reports_dir           {{reports_dir}}
-set synth_output_dir           {{synth_output_dir}}
+set synth_output_dir      {{synth_output_dir}}
 set checkpoints_dir       {{checkpoints_dir}}
 
 {% include 'util.tcl' %}
@@ -43,6 +43,7 @@ set_msg_config -id "\[Drc 23-20\]" -suppress
 # Update IP version
 set_msg_config -id "\[Netlist 29-345\]" -suppress   
 
+set_param tcl.collectionResultDisplayLimit 0
 set parts [get_parts]
 
 puts "\n================================( Read Design Files and Constraints )================================"
@@ -171,16 +172,17 @@ puts "\n==============================( Writing Reports )=======================
 report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file ${reports_dir}/post_route/timing_summary.rpt
 report_timing  -no_header -input_pins  -unique_pins -sort_by group -max_paths 100 -path_type full -delay_type min_max -file ${reports_dir}/post_route/timing.rpt
 reportCriticalPaths ${reports_dir}/post_route/critpath_report.csv
-## report_clock_utilization                                        -force -file ${reports_dir}/post_route/clock_utilization.rpt
-report_utilization                                              -force -file ${reports_dir}/post_route/utilization.rpt
-report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
-report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
-report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.rpt
-## report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
-report_power                                                    -file ${reports_dir}/post_route/power.rpt
-report_drc                                                      -file ${reports_dir}/post_route/drc.rpt
-## report_ram_utilization                                          -file ${reports_dir}/post_route/ram_utilization.rpt -append
-report_methodology                                              -file ${reports_dir}/post_route/methodology.rpt
+## report_clock_utilization           -force -file ${reports_dir}/post_route/clock_utilization.rpt
+report_utilization                 -force -file ${reports_dir}/post_route/utilization.rpt
+report_utilization                 -force -file ${reports_dir}/post_route/utilization.xml -format xml
+report_utilization -hierarchical   -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
+report_utilization -hierarchical   -force -file ${reports_dir}/post_route/hierarchical_utilization.rpt
+## report_utilization -hierarchical   -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
+report_power                       -file ${reports_dir}/post_route/power.rpt
+report_drc                         -file ${reports_dir}/post_route/drc.rpt
+## report_ram_utilization             -file ${reports_dir}/post_route/ram_utilization.rpt -append
+report_methodology                 -file ${reports_dir}/post_route/methodology.rpt
+## report_qor_suggestions -force      -file ${reports_dir}/post_route/qor_suggestions.rpt
 
 set timing_slack [get_property SLACK [get_timing_paths]]
 puts "Final timing slack: $timing_slack ns"
