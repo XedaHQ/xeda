@@ -147,7 +147,9 @@ eval opt_design {{options.place_opt2}}
 puts "\n========================( Post-place Physical Optimization )=========================="
 eval phys_opt_design {{options.phys_opt}}
 puts "\n========================( Post-place Physical Optimization 2 )=========================="
-eval phys_opt_design -directive AlternateFlowWithRetiming
+{% if options.place_opt2 != None %}
+eval phys_opt_design {{options.phys_opt2}}
+{% endif %}
 {% endif %}
 
 write_checkpoint -force ${checkpoints_dir}/post_place
