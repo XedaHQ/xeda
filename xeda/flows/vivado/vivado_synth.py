@@ -6,7 +6,6 @@ from collections import abc
 import copy
 import logging
 from typing import Union
-from xeda.utils import try_convert
 from ..flow import SynthFlow
 from .vivado import Vivado, vivado_generics
 
