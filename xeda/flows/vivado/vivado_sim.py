@@ -9,8 +9,8 @@ from typing import List
 
 from pkg_resources import require
 from ...utils import try_convert, unique
-from ..flow import DesignSource, Flow, SimFlow, DebugLevel
-from ...flows.settings import Settings
+from ..design import DesignSource
+from ..flow import Flow, SimFlow, DebugLevel
 from .vivado_synth import VivadoSynth
 from .vivado import Vivado
 

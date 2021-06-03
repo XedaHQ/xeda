@@ -1,8 +1,9 @@
 
 import logging
 import pkg_resources
-from ..flow import DesignSource, SimFlow, Flow, SynthFlow
+from ..flow import FPGA, SynthFlow
 import toml
+from pydantic import NoneStr
 
 # from yowasp_yosys import run_yosys
 
@@ -30,28 +31,6 @@ class RecursiveNamespace:
                 setattr(self, key, val)
 
 
-class FPGA:
-    def __init__(self, part: str, vendor=None) -> None:
-        if part.startswith('LFE'):
-            self.vendor = 'Lattice'
-            part = part.split('-')
-            assert len(part) == 3
-            if part[0].startswith('LFE5U'):
-                if part[0] == 'LFE5UM':
-                    self.family = 'ecp5'  # With SERDES
-                    self.has_serdes = True
-                if part[0] == 'LFE5UM5G':
-                    self.family = 'ecp5-5g'
-                elif part[0] == 'LFE5U':
-                    self.family = 'ecp5'
-                self.capacity = part[1][:-1] + 'k'
-                spg = part[2]
-                self.speed = spg[0]
-                package = spg[1:-1]
-                if package.startswith('BG'):
-                    package = 'CABGA' + package[2:]
-                self.package = package
-                self.grade = spg[-1]
 
 def get_board_data(board):
     board_toml = pkg_resources.resource_string(
@@ -61,15 +40,17 @@ def get_board_data(board):
     return toml.loads(board_toml)
 
 
-
-
 class Yosys(SynthFlow):
-    def run(self):
-        flow_settings = self.settings.flow
+    class Settings(SynthFlow.Settings):
+        clock_period: float = -1
 
-        fpga = flow_settings.get('fpga')
-        if not isinstance(fpga, FPGA):
-            fpga = FPGA(fpga)
+
+    def run(self):
+        flow_settings = self.settings
+
+        fpga = flow_settings.fpga
+        
+        print(fpga)
 
         synth_opts = [
             '-abc9',
@@ -91,6 +72,9 @@ class Yosys(SynthFlow):
 
 
 class NextPnr(SynthFlow):
+    class Settings(SynthFlow):
+        board: NoneStr = None
+
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
         board = flow_settings.get('board')

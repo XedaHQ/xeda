@@ -1,6 +1,5 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-from datetime import datetime
 import inspect
 import multiprocessing
 import os
@@ -9,12 +8,12 @@ import sys
 import argparse
 from .flows.flow import Flow, SimFlow, SynthFlow
 from .utils import camelcase_to_snakecase, load_class
-import coloredlogs
 import logging
 import pkg_resources
 
 from .debug import DebugLevel
-from .flow_runner import DefaultRunner, FlowRunner
+from .flow_runner import FlowRunner
+from .flow_runner.default_runner import DefaultRunner
 import toml
 import json
 import shtab
@@ -150,11 +149,11 @@ def get_main_argparser():
         nargs='?',
         help='Specify design.name in case multiple designs are available in the Xeda project.'
     )
-    parser.add_argument(
-        'design',
-        nargs='?',
-        help='Specify design.name in case multiple designs are available in the Xeda project.'
-    )
+    # parser.add_argument(
+    #     'design',
+    #     nargs='?',
+    #     help='Specify design.name in case multiple designs are available in the Xeda project.'
+    # )
     parser.add_argument(
         '--list-designs',
         nargs=0,
@@ -257,43 +256,8 @@ class XedaApp:
         toml_path = Path(parsed_args.xedaproject)
         xeda_project = load_xedaproject(toml_path)
 
-        if parsed_args.xeda_run_dir is None:
-            rundir = None
-            project = xeda_project.get('project')
-            if isinstance(project, list):
-                project = project[0]
-            if project:
-                rundir = project.get('xeda_run_dir')
-            if not rundir:
-                rundir = os.environ.get('xeda_run_dir')
-            if not rundir:
-                rundir = 'xeda_run'
-            parsed_args.xeda_run_dir = rundir
-
-        xeda_run_dir = Path(parsed_args.xeda_run_dir).resolve()
-        xeda_run_dir.mkdir(exist_ok=True, parents=True)
-
-        logdir = xeda_run_dir / 'Logs'
-        logdir.mkdir(exist_ok=True, parents=True)
-
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-        logFormatter = logging.Formatter(
-            "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
-
-        logfile = logdir / f"xeda_{timestamp}.log"
-        print(f"Logging to {logfile}")
-
-        fileHandler = logging.FileHandler(logfile)
-        fileHandler.setFormatter(logFormatter)
-        logger.addHandler(fileHandler)
-
-        coloredlogs.install(
-            'INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
-
-        logger.info(f"Running using FlowRunner: {runner_cls.__name__}")
-
         xeda_project['xeda_version'] = __version__
 
-        runner = runner_cls(parsed_args, xeda_project, timestamp)
+        runner: FlowRunner = runner_cls(parsed_args, xeda_project)
 
-        runner.launch()
+        runner.launch(parsed_args.flow, parsed_args.force_rerun)
