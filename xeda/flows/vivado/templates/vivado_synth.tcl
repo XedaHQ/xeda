@@ -4,22 +4,18 @@
 # These settings are set by Xeda
 set design_name           {{design.name}}
 set vhdl_std              {{design.language.vhdl.standard}}
-set nthreads              {{nthreads}}
+set nthreads              {{settings.nthreads}}
+set fail_critical_warning {{settings.fail_critical_warning}}
 
-set fail_critical_warning {{flow.fail_critical_warning}}
-set fail_timing           {{flow.fail_timing}}
-set bitstream             false
-
-set reports_dir           {{reports_dir}}
-set synth_output_dir      {{synth_output_dir}}
-set checkpoints_dir       {{checkpoints_dir}}
+set reports_dir           {{settings.reports_dir}}
+set synth_output_dir      {{settings.synth_output_dir}}
+set checkpoints_dir       {{settings.checkpoints_dir}}
+set fpga_part             {{settings.fpga.part}}
 
 {% include 'util.tcl' %}
 
-# TODO move all strategy-based decisions to Python side
-puts "Using \"{{flow.strategy}}\" synthesis strategy"
 
-set_param general.maxThreads ${nthreads}
+set_param general.maxThreads {{settings.nthreads}}
 
 file mkdir ${synth_output_dir}
 file mkdir ${reports_dir}
@@ -48,14 +44,14 @@ set parts [get_parts]
 
 puts "\n================================( Read Design Files and Constraints )================================"
 
-if {[lsearch -exact $parts {{flow.fpga_part}}] < 0} {
-    puts "ERROR: device {{flow.fpga_part}} is not supported!"
+if {[lsearch -exact $parts $fpga_part] < 0} {
+    puts "ERROR: device $fpga_part is not supported!"
     puts "Supported devices:"
     puts [join $parts " "]
     quit
 }
 
-puts "Targeting device: {{flow.fpga_part}}"
+puts "Targeting device: $fpga_part"
 
 # DO NOT use per file vhdl version as not supported universally (even though our data structures support it)
 set vhdl_std_opt [expr {$vhdl_std == "08" ?  "-vhdl2008": ""}];
@@ -74,7 +70,7 @@ if { [catch {eval read_verilog {{src.file}} } myError]} {
 }
 {%- endif %}
 {%- endif %}
-{% if src.type == 'vhdl' %}
+{% if src.type == 'vhdl' -%}
 puts "Reading VHDL file {{src.file}} ${vhdl_std_opt}"
 if { [catch {eval read_vhdl ${vhdl_std_opt} {{src.file}} } myError]} {
     errorExit $myError
@@ -84,37 +80,36 @@ if { [catch {eval read_vhdl ${vhdl_std_opt} {{src.file}} } myError]} {
 
 # TODO: Skip saving some artifects in case timing not met or synthesis failed for any reason
 
-{% for xdc_file in xdc_files %}
+{% for xdc_file in xdc_files -%}
 read_xdc {{xdc_file}}
 {% endfor %}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="
-## eval synth_design -rtl -rtl_skip_ip -top {{design.rtl.top}} {{options.synth}} {{generics_options}}
-## write_verilog -force ${synth_output_dir}/synth_rtl.v
+eval synth_design -part $fpga_part -top {{design.rtl.top}} {{settings.synth.steps.synth}} {{settings.generics|vivado_generics}}
 
-eval synth_design -part {{flow.fpga_part}} -top {{design.rtl.top}} {{options.synth}} {{generics_options}}
-{% if flow.strategy == "Debug" %}
+{% if settings.synth.strategy == "Debug" -%}
 set_property KEEP_HIERARCHY true [get_cells -hier * ]
 set_property DONT_TOUCH true [get_cells -hier * ]
 {% endif %}
 showWarningsAndErrors
 
 
-{% if 'opt' in options and options.opt != None and flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+{% if settings.synth.steps.opt != None -%}
 puts "\n==============================( Optimize Design )================================"
-eval opt_design {{options.opt}}
+eval opt_design {{settings.synth.steps.opt}}
 {% endif %}
 
-
 puts "==== Synthesis and Mapping Steps Complemeted ====\n"
+
+{% if settings.write_checkpoint -%}
 write_checkpoint -force ${checkpoints_dir}/post_synth
 report_timing_summary -file ${reports_dir}/post_synth/timing_summary.rpt
 report_utilization -hierarchical -force -file ${reports_dir}/post_synth/hierarchical_utilization.rpt
 # reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
 # report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
+{% endif %}
 
-## TODO FIXME
-{% if flow.optimize_power and not flow.optimize_power_postplace %}
+{% if settings.optimize_power and not settings.optimize_power_postplace -%}
 puts "\n===============================( Post-synth Power Optimization )================================"
 # this is more effective than Post-placement Power Optimization but can hurt timing
 eval power_opt_design
@@ -123,52 +118,58 @@ showWarningsAndErrors
 {% endif %}
 
 puts "\n================================( Place Design )================================="
-eval place_design {{options.place}}
+eval place_design {{settings.impl.steps.place}}
 showWarningsAndErrors
 
 
-{% if flow.optimize_power_postplace %}
+{% if settings.optimize_power_postplace %}
 puts "\n===============================( Post-placement Power Optimization )================================"
 eval power_opt_design
 report_power_opt -file ${reports_dir}/post_place/post_place_power_optimization.rpt
 showWarningsAndErrors
 {% endif %}
 
-{% if 'place_opt' in options and options.place_opt != None %}
+{% if settings.impl.steps.place_opt != None -%}
 puts "\n==============================( Post-place optimization )================================"
-eval opt_design {{options.place_opt}}
-{% if options.place_opt2 != None %}
+eval opt_design {{settings.impl.steps.place_opt}}
+
+{% if settings.impl.steps.place_opt2 != None -%}
 puts "\n==============================( Post-place optimization 2)================================"
-eval opt_design {{options.place_opt2}}
+eval opt_design {{settings.impl.steps.place_opt2}}
 {% endif %}
+
 {% endif %}
 
 
-{% if options.phys_opt != None and flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+{% if settings.impl.steps.phys_opt != None -%}
 puts "\n========================( Post-place Physical Optimization )=========================="
-eval phys_opt_design {{options.phys_opt}}
+eval phys_opt_design {{settings.impl.steps.phys_opt}}
+{% if settings.impl.steps.place_opt2 != None -%}
 puts "\n========================( Post-place Physical Optimization 2 )=========================="
-{% if options.place_opt2 != None %}
-eval phys_opt_design {{options.phys_opt2}}
+eval phys_opt_design {{settings.impl.steps.phys_opt2}}
 {% endif %}
 {% endif %}
 
+{% if settings.write_checkpoint -%}
 write_checkpoint -force ${checkpoints_dir}/post_place
 report_timing_summary -file ${reports_dir}/post_place/timing_summary.rpt
 report_utilization -hierarchical -force -file ${reports_dir}/post_place/hierarchical_utilization.rpt
+{% endif %}
 
 puts "\n================================( Route Design )================================="
-eval route_design {{options.route}}
+eval route_design {{settings.impl.steps.route}}
 showWarningsAndErrors
 
-{% if options.phys_opt != None and flow.strategy != "Debug" and flow.strategy != "Runtime" %}
+{% if settings.impl.steps.phys_opt != None -%}
 puts "\n=========================( Post-Route Physical Optimization )=========================="
-phys_opt_design
+phys_opt_design {{settings.impl.steps.phys_opt}}
 showWarningsAndErrors
 {% endif %}
 
+{% if settings.write_checkpoint -%}
 puts "\n=============================( Writing Checkpoint )=============================="
 write_checkpoint -force ${checkpoints_dir}/post_route
+{% endif %}
 
 puts "\n==============================( Writing Reports )================================"
 report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file ${reports_dir}/post_route/timing_summary.rpt
@@ -190,25 +191,27 @@ set timing_slack [get_property SLACK [get_timing_paths]]
 puts "Final timing slack: $timing_slack ns"
 
 if {$timing_slack < 0} {
-    puts "\n===========================( *ENABLE ECHO* )==========================="
     puts "ERROR: Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
-    if {$fail_timing} {
-        exit 1
-    }
-    puts "\n===========================( *DISABLE ECHO* )==========================="
-} else {
-    puts "\n==========================( Writing Netlist and SDF )============================="
-    write_sdf -mode timesim -process_corner slow -force -file ${synth_output_dir}/impl_timesim.sdf
-    # should match sdf
-    write_verilog -mode timesim -sdf_anno false -force -file ${synth_output_dir}/impl_timesim.v
+{% if settings.fail_timing -%}
+    exit 1
+{% endif %}
+}
+
+{%- if settings.write_netlist -%}
+puts "\n==========================( Writing Netlist and SDF )============================="
+write_sdf -mode timesim -process_corner slow -force -file ${synth_output_dir}/impl_timesim.sdf
+# should match sdf
+write_verilog -mode timesim -sdf_anno false -force -file ${synth_output_dir}/impl_timesim.v
 ##    write_verilog -mode timesim -sdf_anno false -include_xilinx_libs -write_all_overrides -force -file ${synth_output_dir}/impl_timesim_inlined.v
 ##    write_verilog -mode funcsim -force ${synth_output_dir}/impl_funcsim_noxlib.v
 ##    write_vhdl    -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${synth_output_dir}/impl_funcsim.vhd
-    write_xdc -no_fixed_only -force ${synth_output_dir}/impl.xdc
+write_xdc -no_fixed_only -force ${synth_output_dir}/impl.xdc
+{% endif %}
 
-    if {${bitstream}} {
-        puts "\n==============================( Writing Bitstream )==============================="
-        write_bitstream -force ${synth_output_dir}/bitstream.bit
-    }
-    showWarningsAndErrors
-}
+{%- if settings.write_bitstream -%}
+puts "\n==============================( Writing Bitstream )==============================="
+write_bitstream -force ${synth_output_dir}/bitstream.bit
+{% endif %}
+
+showWarningsAndErrors
+puts "\n===========================( *DISABLE ECHO* )==========================="

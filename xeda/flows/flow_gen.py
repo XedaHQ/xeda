@@ -34,7 +34,7 @@ class FlowGen:
 
         return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
 
-    def generate(self, flow_name: str, module_name: str, design: Design, xeda_run_dir: Path, package: str = __package__) -> Flow:
+    def generate(self, flow_name: str, module_name: str, design: Design, xeda_run_dir: Path, completed_dependencies: List[Flow], package: str = __package__) -> Flow:
         print(
             f"flow_name:{flow_name} module_name:{module_name} registered flows: {registered_flows}")
         full_module_name = "xeda" + \
@@ -60,8 +60,9 @@ class FlowGen:
         run_path.mkdir(exist_ok=True)
         reports_dir = run_path / flow_settings.reports_subdir_name
         reports_dir.mkdir(exist_ok=True)
-
-        flow = flow_class(flow_settings, design, run_path)
+        
+        flow = flow_class(flow_settings, design, run_path,
+                          completed_dependencies)
         flow.dump_settings()
 
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")

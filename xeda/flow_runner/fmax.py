@@ -1,5 +1,7 @@
 import copy
 import os
+from typing import Dict, Any, List
+from types import SimpleNamespace
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import random
@@ -13,8 +15,12 @@ import traceback
 import numpy
 from math import ceil
 
+from pydantic.error_wrappers import ValidationError, display_errors
+
 from ..utils import unique
 from .default_runner import FlowRunner, print_results
+from ..flows.design import Design, DesignError
+from ..flows.flow_gen import FlowGen
 from ..flows.flow import Flow, FlowFatalException, NonZeroExit
 
 
@@ -33,7 +39,7 @@ def run_flow_fmax(arg):
     flow: Flow
     idx, flow = arg
     try:
-        flow.run_flow()
+        flow.run()
         flow.parse_reports()
         flow.dump_results()
         flow.results['timestamp'] = flow.timestamp
@@ -65,25 +71,43 @@ def run_flow_fmax(arg):
 
 
 class FmaxRunner(FlowRunner):
-    def __init__(self, args, xeda_project, timestamp) -> None:
-        super().__init__(args, xeda_project, timestamp)
-        if self.args.force_run_dir:
+    def __init__(self, args: SimpleNamespace, xeda_project: Dict[str, Any]) -> None:
+        if args.force_run_dir:
             logger.warning("force_run_dir will be disabled in FmaxRunner")
-            self.args.force_run_dir = None
+            args.force_run_dir = None
+        super().__init__(args, xeda_project)
+        self.xeda_run_dir = self.args.xeda_run_dir / "fmax"
 
-        self.args.xeda_run_dir = os.path.join(self.args.xeda_run_dir, "fmax")
-        logger.warning(f"xeda_run_dir was changed to {self.args.xeda_run_dir}")
 
-    def launch(self):
+    def launch(self, flow_name: str, force_run: bool) -> List[Flow]:
+        """
+        runs the flow and returns the completed flow object
+        """
+
+        if force_run:
+            logger.info(f"Forced re-run of {flow_name}")
+
+        design_settings = self.get_design(self.selected_design)
+
+        logger.info(f"design_settings={design_settings}")
+
+
+
+        try:
+            design: Design = Design(**design_settings)
+        except ValidationError as e:
+            errors = e.errors()
+            raise DesignError(f"{len(errors)} errors while parsing `design` settings:\n\n{display_errors(errors)}\n") from None
+
+
+
         start_time = time.monotonic()
 
-        args = self.args
-        settings = self.all_settings
+        flow_settings = self.flows.get(flow_name, {})
+        
+        flow_gen = FlowGen(self.flows)
+        flow: Flow = flow_gen.generate(flow_name, ".", design, self.xeda_run_dir, completed_dependencies = [])
 
-        flow_name = args.flow
-
-        flow_settings = settings['flows'].get(flow_name)
-        design_settings = settings['design']
 
         # compatibility with previous key name
         lo_freq = float(flow_settings.get(
@@ -93,9 +117,7 @@ class FmaxRunner(FlowRunner):
 
         flow_settings['fmax_low'] = lo_freq
         flow_settings['fmax_high'] = hi_freq
-        flow_settings.pop('fmax_low_freq', None)
-        flow_settings.pop('fmax_high_freq', None)
-        
+
         assert lo_freq < hi_freq, "fmax_low_freq should be less than fmax_high_freq"
         resolution = 0.09
         delta_increment = resolution / 2
@@ -157,7 +179,8 @@ class FmaxRunner(FlowRunner):
                             break
                         hi_freq += random.random() * delta_increment
                         min_lo_freq = best.freq + delta_increment if best else lo_freq
-                        lo_freq = max(min_lo_freq, lo_freq - 0.1 * random.random())
+                        lo_freq = max(min_lo_freq, lo_freq -
+                                      0.1 * random.random())
                         finder_retries += 1
 
                     logger.info(
@@ -209,7 +232,7 @@ class FmaxRunner(FlowRunner):
                                             best = Best(freq, results, fs)
                                             improved_idx = idx
                             except StopIteration:
-                                break # inner while True
+                                break  # inner while True
                             except TimeoutError as e:
                                 logger.critical(
                                     f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks.")
@@ -245,7 +268,8 @@ class FmaxRunner(FlowRunner):
                                 logger.info(
                                     f"Stopping as there were no improvements in {no_improvements} consecutive iterations.")
                                 break
-                            hi_freq = best.freq + 1.5 * max(freq_step, 1 + max_workers * resolution)
+                            hi_freq = best.freq + 1.5 * \
+                                max(freq_step, 1 + max_workers * resolution)
                             lo_freq = (lo_freq + best.freq) / 2
                     else:
                         lo_freq = best.freq + delta_increment + delta_increment * random.random()
@@ -271,7 +295,8 @@ class FmaxRunner(FlowRunner):
                     if best and best.results:
                         print_results(best.results, title='Best so far', subset=[
                                       'clock_period', 'clock_frequency', 'wns', 'lut', 'ff', 'slice'])
-                    logger.info(f"Next iteration: [{lo_freq} ... {hi_freq}] resolution={resolution}")
+                    logger.info(
+                        f"Next iteration: [{lo_freq} ... {hi_freq}] resolution={resolution}")
 
         except KeyboardInterrupt:
             logger.exception('Received Keyboard Interrupt')

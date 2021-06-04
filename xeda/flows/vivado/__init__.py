@@ -1,48 +1,55 @@
 import html
 import logging
-from xeda.utils import try_convert
-from xml.etree import ElementTree
-from ..flow import Flow, DebugLevel
 from functools import reduce
+from typing import List
+from xml.etree import ElementTree
+from pathlib import Path
+
+from ...flows.design import Design
+from ...utils import try_convert
+from ..flow import Flow, DebugLevel
 
 logger = logging.getLogger()
 
 
-def supported_vivado_generic(k, v, sim):
-    if sim:
-        return True
-    if isinstance(v, int):
-        return True
-    if isinstance(v, bool):
-        return True
-    v = str(v)
-    return (v.isnumeric() or (v.strip().lower() in {'true', 'false'}))
+def vivado_generics(kvdict, sim=False):
+    def supported_vivado_generic(k, v, sim):
+        if sim:
+            return True
+        if isinstance(v, int):
+            return True
+        if isinstance(v, bool):
+            return True
+        v = str(v)
+        return (v.isnumeric() or (v.strip().lower() in {'true', 'false'}))
 
-
-def vivado_gen_convert(k, x, sim):
-    if sim:
+    def vivado_gen_convert(k, x, sim):
+        if sim:
+            return x
+        xl = str(x).strip().lower()
+        if xl == 'false':
+            return "1\\'b0"
+        if xl == 'true':
+            return "1\\'b1"
         return x
-    xl = str(x).strip().lower()
-    if xl == 'false':
-        return "1\\'b0"
-    if xl == 'true':
-        return "1\\'b1"
-    return x
 
-
-def vivado_generics(kvdict, sim):
     return ' '.join([f"-generic{'_top' if sim else ''} {k}={vivado_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_vivado_generic(k, v, sim)])
 
 
 class Vivado(Flow):
     reports_subdir_name = 'reports'
 
+    def __init__(self, flow_settings: Flow.Settings, design: Design, run_path: Path, completed_dependencies: List[Flow]):
+        super().__init__(flow_settings, design, run_path,
+                         completed_dependencies=completed_dependencies)
+        self.jinja_env.filters['vivado_generics'] = vivado_generics
+
     def run_vivado(self, script_path, stdout_logfile=None):
         if stdout_logfile is None:
             stdout_logfile = f'{self.name}_stdout.log'
         debug = self.settings.debug  # > DebugLevel.NONE
-        vivado_args = ['-nojournal', '-mode', 'tcl' if debug >=
-                       DebugLevel.HIGHEST else 'batch', '-source', str(script_path)]
+        vivado_args = ['-nojournal', '-mode',
+                       'tcl' if debug else 'batch', '-source', str(script_path)]
         if not debug:
             vivado_args.append('-notrace')
         return self.run_process('vivado', vivado_args, initial_step='Starting vivado',

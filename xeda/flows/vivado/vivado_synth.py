@@ -5,264 +5,286 @@
 from collections import abc
 import copy
 import logging
-from typing import Dict, Union
-from ..flow import SynthFlow
+from typing import Any, Dict, Optional, List, Sequence
+
+from pydantic.main import BaseModel
+from ..flow import FPGA, SynthFlow
 from . import Vivado, vivado_generics
 
 logger = logging.getLogger()
 
+# curated options based on experiments and:
+# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug904-vivado-implementation.pdf
+# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug901-vivado-synthesis.pdf
+xeda_strategies: Dict[str, Dict[str, Any]] = {
+    "Debug": {
+        "synth": ["-assert", "-debug_log",
+                  "-flatten_hierarchy none", "-no_timing_driven", "-keep_equivalent_registers",
+                  "-no_lc", "-fsm_extraction off", "-directive RuntimeOptimized"],
+        "opt": "-directive RuntimeOptimized",
+        "place": "-directive RuntimeOptimized",
+        "place_opt": [],
+        "route": "-directive RuntimeOptimized",
+        "phys_opt": "-directive RuntimeOptimized"
+    },
+
+    "Runtime": {
+        "synth": ["-no_timing_driven", "-directive RuntimeOptimized"],
+        "opt": "-directive RuntimeOptimized",
+        "place": "-directive RuntimeOptimized",
+        "place_opt": [],
+        # with -ultrathreads results are not reproducible!
+        # OR "-no_timing_driven -ultrathreads",
+        "route": ["-directive RuntimeOptimized"],
+        "phys_opt": "-directive RuntimeOptimized"
+    },
+
+    "Default": {
+        "synth": ["-flatten_hierarchy rebuilt", "-directive Default"],
+        "opt": ["-directive ExploreWithRemap"],
+        "place": ["-directive Default"],
+        "place_opt": [],
+        "route": ["-directive Default"],
+        "phys_opt": ["-directive Default"]
+    },
+
+    "Timing": {
+        # -mode: default, out_of_context
+        # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
+        # -no_lc: When checked, this option turns off LUT combining
+        # -keep_equivalent_registers -no_lc
+        "synth": ["-flatten_hierarchy rebuilt",
+                  "-retiming",
+                  "-directive PerformanceOptimized",
+                  "-fsm_extraction one_hot",
+                  #   "-resource_sharing off",
+                  #   "-no_lc",
+                  "-shreg_min_size 5",
+                  #   "-keep_equivalent_registers "
+                  ],
+        "opt": ["-directive ExploreWithRemap"],
+        "place": ["-directive ExtraPostPlacementOpt"],
+        "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt'],
+        "phys_opt": ["-directive AggressiveExplore"],
+        "place_opt2": ["-directive Explore"],
+        # "route": "-directive NoTimingRelaxation",
+        "route": ["-directive AggressiveExplore"],
+    },
+    "ExtraTimingCongestion": {
+        "synth": ["-flatten_hierarchy full",
+                  "-retiming",
+                  "-directive PerformanceOptimized",
+                  "-fsm_extraction one_hot",
+                  "-resource_sharing off",
+                  "-shreg_min_size 10",
+                  "-keep_equivalent_registers",
+                  ],
+        "opt": ["-directive ExploreWithRemap"],
+        "place": ["-directive AltSpreadLogic_high"],
+        "place_opt": ['-retarget', '-propconst', '-sweep', '-remap', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
+        "place_opt2": ["-directive Explore"],
+        "phys_opt": ["-directive AggressiveExplore"],
+        "route": ["-directive AlternateCLBRouting"],
+    },
+    "ExtraTiming": {
+        "synth": ["-flatten_hierarchy full",
+                  "-retiming",
+                  "-directive PerformanceOptimized",
+                  "-fsm_extraction one_hot",
+                  "-resource_sharing off",
+                  #   "-no_lc",
+                  "-shreg_min_size 10",
+                  "-keep_equivalent_registers",
+                  ],
+        "opt": ["-directive ExploreWithRemap"],
+        "place": "-directive ExtraTimingOpt",
+        "place_opt": ['-retarget', '-propconst', '-sweep', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
+        "place_opt2": ["-directive Explore"],
+        "phys_opt": ["-directive AggressiveExplore"],
+        "route": ["-directive NoTimingRelaxation"],
+    },
+    "ExtraTimingAltRouting": {
+        # -mode: default, out_of_context
+        # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
+        # -no_lc: When checked, this option turns off LUT combining
+        # -keep_equivalent_registers -no_lc
+        "synth": ["-flatten_hierarchy full",
+                  "-retiming",
+                  "-directive PerformanceOptimized",
+                  "-fsm_extraction one_hot",
+                  #   "-resource_sharing off",
+                  #   "-no_lc",
+                  "-shreg_min_size 5",
+                  "-keep_equivalent_registers "
+                  ],
+        "opt": ["-directive ExploreWithRemap"],
+        "place": ["-directive ExtraTimingOpt"],
+        "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt'],
+        "phys_opt": ["-directive AggressiveExplore"],
+        # "route": "-directive NoTimingRelaxation",
+        "route": ["-directive AlternateCLBRouting"],
+    },
+    "Area": {
+        # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
+        "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", "-directive AreaOptimized_medium"],
+        # if no directive: -resynth_seq_area
+        "opt": "-directive ExploreArea",
+        "place": "-directive Default",
+        "place_opt": "-directive ExploreArea",
+        # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+        #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+        # if no directive: -placement_opt
+        "phys_opt": "-directive Explore",
+        "route": "-directive Explore",
+    },
+    "AreaHigh": {
+        # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
+        "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing on", "-directive AreaOptimized_high"],
+        # if no directive: -resynth_seq_area
+        "opt": "-directive ExploreArea",
+        "place": "-directive Default",
+        "place_opt": "-directive ExploreArea",
+        # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+        #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+        # if no directive: -placement_opt
+        "phys_opt": "-directive Explore",
+        "route": "-directive Explore",
+    },
+    "AreaPower": {
+        # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
+        "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", "-gated_clock_conversion auto", "-directive AreaOptimized_medium"],
+        "opt": ["-directive ExploreArea"],
+        "place": "-directive Default",
+        "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+        "place_opt2": ["-directive ExploreArea"],
+        # FIXME!!! This is the only option that results in correct post-impl timing sim! Why??!
+        "phys_opt": ["-directive AggressiveExplore"],
+        "route": ["-directive Explore"],
+    },
+    "AreaTiming": {
+        "synth": ["-flatten_hierarchy rebuilt", "-retiming"],
+        # if no directive: -resynth_seq_area
+        "opt": ["-directive ExploreWithRemap"],
+        "place": ["-directive ExtraPostPlacementOpt"],
+        # "place_opt": ["-directive ExploreArea"],
+        "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+        "place_opt2": ["-directive ExploreArea"],
+        # if no directive: -placement_opt
+        "phys_opt": "-directive AggressiveExplore",
+        "route": "-directive Explore",
+    },
+    "AreaExploreWithRemap": {
+        "synth": ["-flatten_hierarchy full", "-retiming"],
+        # if no directive: -resynth_seq_area
+        "opt": "-directive ExploreWithRemap",
+        "place": "-directive Default",
+        "place_opt": "-directive ExploreWithRemap",
+        # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+        #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+        # if no directive: -placement_opt
+        "phys_opt": "-directive Explore",
+        "route": "-directive Explore",
+    },
+    "AreaExploreWithRemap2": {
+        "synth": [],
+        # if no directive: -resynth_seq_area
+        "opt": "-directive ExploreArea",
+        "place": "-directive Default",
+        "place_opt": "-directive ExploreWithRemap",
+        # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+        #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+        # if no directive: -placement_opt
+        "phys_opt": "-directive Explore",
+        "route": "-directive Explore",
+    },
+    "AreaExplore": {
+        "synth": ["-flatten_hierarchy full"],
+        # if no directive: -resynth_seq_area
+        "opt": "-directive ExploreArea",
+        "place": "-directive Default",
+        "place_opt": "-directive ExploreArea",
+        # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+        #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+        # if no directive: -placement_opt
+        "phys_opt": "-directive Explore",
+        "route": "-directive Explore",
+    },
+    "Power": {
+        "synth": ["-flatten_hierarchy full", "-gated_clock_conversion auto", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto"],
+        # if no directive: -resynth_seq_area
+        "opt": "-directive ExploreSequentialArea",
+        "place": "-directive Default",
+        "place_opt": "-directive ExploreSequentialArea",
+        # ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
+        #   '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
+        # if no directive: -placement_opt
+        "phys_opt": "-directive Explore",
+        "route": "-directive Explore",
+    }
+}
+
+
+class RunOptions(BaseModel):
+    strategy: Optional[str] = None
+    steps: Dict[str, Any] = {}
+
 
 class VivadoSynth(Vivado, SynthFlow):
-    class Settings(SynthFlow.Settings):
-        nthreads: int = 4
+    class BaseSettings(SynthFlow.Settings):
         fail_critical_warning = False
         fail_timing = True
         optimize_power = False
         optimize_power_postplace = False
-        synth_output_dir = 'output'
-        checkpoints_dir = 'checkpoints'
         blacklisted_resources = ['latch']
 
         input_delay = 0
         output_delay = 0
         constrain_io = False
         out_of_context = False
+        write_checkpoint = False
+        write_netlist = False
+        write_bitstream = False
 
-        strategy: str = 'Default'
-        # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug904-vivado-implementation.pdf
-        # and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug901-vivado-synthesis.pdf
-        strategy_options: Dict[str, Dict] = {
-            "Debug": {
-                "synth": ["-assert", "-debug_log",
-                          "-flatten_hierarchy none", "-no_timing_driven", "-keep_equivalent_registers",
-                          "-no_lc", "-fsm_extraction off", "-directive RuntimeOptimized"],
-                "opt": "-directive RuntimeOptimized",
-                "place": "-directive RuntimeOptimized",
-                "place_opt": [],
-                "route": "-directive RuntimeOptimized",
-                "phys_opt": "-directive RuntimeOptimized"
-            },
+        synth: RunOptions = RunOptions()
+        impl: RunOptions = RunOptions()
 
-            "Runtime": {
-                "synth": ["-no_timing_driven", "-directive RuntimeOptimized"],
-                "opt": "-directive RuntimeOptimized",
-                "place": "-directive RuntimeOptimized",
-                "place_opt": [],
-                # with -ultrathreads results are not reproducible!
-                # OR "-no_timing_driven -ultrathreads",
-                "route": ["-directive RuntimeOptimized"],
-                "phys_opt": "-directive RuntimeOptimized"
-            },
+        fpga: FPGA
 
-            "Default": {
-                "synth": ["-flatten_hierarchy rebuilt", "-directive Default"],
-                "opt": ["-directive ExploreWithRemap"],
-                "place": ["-directive Default"],
-                "place_opt": [],
-                "route": ["-directive Default"],
-                "phys_opt": ["-directive Default"]
-            },
+    class Settings(BaseSettings):
+        synth_output_dir = 'output'
+        checkpoints_dir = 'checkpoints'
 
-            "Timing": {
-                # -mode: default, out_of_context
-                # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
-                # -no_lc: When checked, this option turns off LUT combining
-                # -keep_equivalent_registers -no_lc
-                "synth": ["-flatten_hierarchy rebuilt",
-                          "-retiming",
-                          "-directive PerformanceOptimized",
-                          "-fsm_extraction one_hot",
-                          #   "-resource_sharing off",
-                          #   "-no_lc",
-                          "-shreg_min_size 5",
-                          #   "-keep_equivalent_registers "
-                          ],
-                "opt": ["-directive ExploreWithRemap"],
-                "place": ["-directive ExtraPostPlacementOpt"],
-                "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt'],
-                "phys_opt": ["-directive AggressiveExplore"],
-                "place_opt2": ["-directive Explore"],
-                # "route": "-directive NoTimingRelaxation",
-                "route": ["-directive AggressiveExplore"],
-            },
-            "ExtraTimingCongestion": {
-                "synth": ["-flatten_hierarchy full",
-                          "-retiming",
-                          "-directive PerformanceOptimized",
-                          "-fsm_extraction one_hot",
-                          "-resource_sharing off",
-                          "-shreg_min_size 10",
-                          "-keep_equivalent_registers",
-                          ],
-                "opt": ["-directive ExploreWithRemap"],
-                "place": ["-directive AltSpreadLogic_high"],
-                "place_opt": ['-retarget', '-propconst', '-sweep', '-remap', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
-                "place_opt2": ["-directive Explore"],
-                "phys_opt": ["-directive AggressiveExplore"],
-                "route": ["-directive AlternateCLBRouting"],
-            },
-            "ExtraTiming": {
-                "synth": ["-flatten_hierarchy full",
-                          "-retiming",
-                          "-directive PerformanceOptimized",
-                          "-fsm_extraction one_hot",
-                          "-resource_sharing off",
-                          #   "-no_lc",
-                          "-shreg_min_size 10",
-                          "-keep_equivalent_registers",
-                          ],
-                "opt": ["-directive ExploreWithRemap"],
-                "place": "-directive ExtraTimingOpt",
-                "place_opt": ['-retarget', '-propconst', '-sweep', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
-                "place_opt2": ["-directive Explore"],
-                "phys_opt": ["-directive AggressiveExplore"],
-                "route": ["-directive NoTimingRelaxation"],
-            },
-            "ExtraTimingAltRouting": {
-                # -mode: default, out_of_context
-                # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
-                # -no_lc: When checked, this option turns off LUT combining
-                # -keep_equivalent_registers -no_lc
-                "synth": ["-flatten_hierarchy full",
-                          "-retiming",
-                          "-directive PerformanceOptimized",
-                          "-fsm_extraction one_hot",
-                          #   "-resource_sharing off",
-                          #   "-no_lc",
-                          "-shreg_min_size 5",
-                          "-keep_equivalent_registers "
-                          ],
-                "opt": ["-directive ExploreWithRemap"],
-                "place": ["-directive ExtraTimingOpt"],
-                "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt'],
-                "phys_opt": ["-directive AggressiveExplore"],
-                # "route": "-directive NoTimingRelaxation",
-                "route": ["-directive AlternateCLBRouting"],
-            },
-            "Area": {
-                # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
-                "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", "-directive AreaOptimized_medium"],
-                # if no directive: -resynth_seq_area
-                "opt": "-directive ExploreArea",
-                "place": "-directive Default",
-                "place_opt": "-directive ExploreArea",
-                # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-                # if no directive: -placement_opt
-                "phys_opt": "-directive Explore",
-                "route": "-directive Explore",
-            },
-            "AreaHigh": {
-                # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
-                "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing on", "-directive AreaOptimized_high"],
-                # if no directive: -resynth_seq_area
-                "opt": "-directive ExploreArea",
-                "place": "-directive Default",
-                "place_opt": "-directive ExploreArea",
-                # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-                # if no directive: -placement_opt
-                "phys_opt": "-directive Explore",
-                "route": "-directive Explore",
-            },
-            "AreaPower": {
-                # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
-                "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", "-gated_clock_conversion auto", "-directive AreaOptimized_medium"],
-                "opt": ["-directive ExploreArea"],
-                "place": "-directive Default",
-                "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-                "place_opt2": ["-directive ExploreArea"],
-                # FIXME!!! This is the only option that results in correct post-impl timing sim! Why??!
-                "phys_opt": ["-directive AggressiveExplore"],
-                "route": ["-directive Explore"],
-            },
-            "AreaTiming": {
-                "synth": ["-flatten_hierarchy rebuilt", "-retiming"],
-                # if no directive: -resynth_seq_area
-                "opt": ["-directive ExploreWithRemap"],
-                "place": ["-directive ExtraPostPlacementOpt"],
-                # "place_opt": ["-directive ExploreArea"],
-                "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-                "place_opt2": ["-directive ExploreArea"],
-                # if no directive: -placement_opt
-                "phys_opt": "-directive AggressiveExplore",
-                "route": "-directive Explore",
-            },
-            "AreaExploreWithRemap": {
-                "synth": ["-flatten_hierarchy full", "-retiming"],
-                # if no directive: -resynth_seq_area
-                "opt": "-directive ExploreWithRemap",
-                "place": "-directive Default",
-                "place_opt": "-directive ExploreWithRemap",
-                # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-                # if no directive: -placement_opt
-                "phys_opt": "-directive Explore",
-                "route": "-directive Explore",
-            },
-            "AreaExploreWithRemap2": {
-                "synth": [],
-                # if no directive: -resynth_seq_area
-                "opt": "-directive ExploreArea",
-                "place": "-directive Default",
-                "place_opt": "-directive ExploreWithRemap",
-                # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-                # if no directive: -placement_opt
-                "phys_opt": "-directive Explore",
-                "route": "-directive Explore",
-            },
-            "AreaExplore": {
-                "synth": ["-flatten_hierarchy full"],
-                # if no directive: -resynth_seq_area
-                "opt": "-directive ExploreArea",
-                "place": "-directive Default",
-                "place_opt": "-directive ExploreArea",
-                # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-                # if no directive: -placement_opt
-                "phys_opt": "-directive Explore",
-                "route": "-directive Explore",
-            },
-            "Power": {
-                "synth": ["-flatten_hierarchy full", "-gated_clock_conversion auto", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto"],
-                # if no directive: -resynth_seq_area
-                "opt": "-directive ExploreSequentialArea",
-                "place": "-directive Default",
-                "place_opt": "-directive ExploreSequentialArea",
-                # ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-                #   '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-                # if no directive: -placement_opt
-                "phys_opt": "-directive Explore",
-                "route": "-directive Explore",
-            }
-        }
+        def __init__(__pydantic_self__, **data: Any) -> None:
+            def get_steps(run: str) -> List[str]:
+                if run == 'synth':
+                    return ['synth', 'opt']
+                else:
+                    return ['place', 'place_opt', 'place_opt2', 'phys_opt', 'route']
+
+            for x in ['synth', 'impl']:
+                if x not in data:
+                    data[x] = {}
+                if data[x].get('strategy') is None:
+                    data[x]['strategy'] = 'Default'
+                strategy = data[x]['strategy']
+                if data[x].get('steps') is None:
+                    data[x]['steps'] = {}
+                steps = data[x]['steps']
+                for step in get_steps(x):
+                    if steps.get(step) is None:
+                        steps[step] = xeda_strategies[strategy].get(step)
+                        if isinstance(steps[step], list):
+                            steps[step] = ' '.join(steps[step])
+            print(f"data={data}")
+            super().__init__(**data)
 
     def run(self):
 
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
+        settings = self.settings
 
-        strategy = self.settings.strategy
-        logger.info(f'Using synthesis strategy: {strategy}')
-
-        # TODO use a @validator?
-        if strategy not in self.strategy_options.keys():
-            self.fatal(f'Unknown strategy: {strategy}')
-        options = copy.deepcopy(self.strategy_options[strategy])
-
-        if 'place_opt2' not in options:
-            options['place_opt2'] = None
-
-        if self.settings.out_of_context:
-            options['synth'].extend(["-mode", "out_of_context"])
-
-        for k, v in options.items():
-            if isinstance(v, str):
-                options[k] = v.split()
-
-        default_blacklisted_resources = ['latch']
-        # backward compatibility
-
+        if settings.out_of_context:
+            settings.synth.steps['synth'] += "-mode out_of_context"
 
         blacklisted_resources = self.settings.blacklisted_resources
         if 'bram' in blacklisted_resources and 'bram_tile' not in blacklisted_resources:
@@ -273,17 +295,12 @@ class VivadoSynth(Vivado, SynthFlow):
 
         if 'bram_tile' in blacklisted_resources:
             # FIXME also add -max_uram 0 for ultrascale+
-            options['synth'].append('-max_bram 0')
+            settings.synth.steps['synth'].append('-max_bram 0')
         if 'dsp' in blacklisted_resources:
-            options['synth'].append('-max_dsp 0')
-
-        # to strings
-        for k, v in options.items():
-            options[k] = ' '.join(v) if v is not None else None
+            settings.synth.steps['synth'].append('-max_dsp 0')
 
         script_path = self.copy_from_template(f'{self.name}.tcl',
                                               xdc_files=[clock_xdc_path],
-                                              options=options,
                                               )
         return self.run_vivado(script_path)
 
@@ -342,7 +359,8 @@ class VivadoSynth(Vivado, SynthFlow):
                 try:
                     self.results[k] = self.get_from_path(utilization, path)
                 except:
-                    logger.debug(f"{path} not found in the utilization report {report_file}.")
+                    logger.debug(
+                        f"{path} not found in the utilization report {report_file}.")
 
         self.results['_utilization'] = utilization
 

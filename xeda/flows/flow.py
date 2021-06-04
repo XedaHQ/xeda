@@ -19,6 +19,7 @@ from progress.spinner import Spinner as Spinner
 import colored
 from typing import Mapping, Dict, List
 import inspect
+import multiprocessing
 
 from pydantic.types import NoneStr
 
@@ -72,11 +73,10 @@ def removeprefix(s: str, suffix: str) -> str:
 
 class MetaFlow(ABCMeta):
     # called when instance is created
-    def __call__(self, *args, **kwargs):
-        print("MetaFlow __call__")
-        # assert issubclass(self.Settings, Flow.Settings) and not issubclass(Flow.Settings, self.Settings), f"need to extend inner class Settings ({self.__name__}.Settings) from Flow.Settings"
-        obj = super(MetaFlow, self).__call__(*args, **kwargs)
-        return obj
+    # def __call__(self, *args, **kwargs):
+    #     obj = super(MetaFlow, self).__call__(*args, **kwargs)
+    #     return obj
+    pass
 
 
 registered_flows: Dict[Tuple[str, str], Type[Flow]] = {}
@@ -94,7 +94,7 @@ class Flow(metaclass=MetaFlow):
         reports_subdir_name: str = 'reports'
         timeout_seconds: int = 3600 * 2
         """max number of threads/cpus"""
-        nthreads: int = 4
+        nthreads: int = Field(default_factory=multiprocessing.cpu_count)
         quiet: bool = False
         verbose: bool = False
         debug: bool = False
@@ -192,7 +192,7 @@ class Flow(metaclass=MetaFlow):
         logger.info(f'dumping effective settings to {effective_settings_json}')
         self.dump_json(self.settings, effective_settings_json)
 
-    def copy_from_template(self, resource_name, **kwargs):
+    def copy_from_template(self, resource_name, **kwargs) -> str:
         template = self.jinja_env.get_template(resource_name)
         script_path = self.run_path / resource_name
         logger.debug(f'generating {script_path.resolve()} from template.')
@@ -466,7 +466,7 @@ class SimFlow(Flow):
 
 
 class FPGA(BaseModel):
-    part: NoneStr = None
+    part: str
     vendor: NoneStr = None
     family: NoneStr = None
     speed_grade: NoneStr = None

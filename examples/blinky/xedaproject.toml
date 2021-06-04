@@ -18,3 +18,10 @@ clock_period = 40 #
 [flows.vivado_prj_synth]
 fpga.part = 'xc7a12tcsg325-1'
 clock_period = 40
+synth.strategy = 'Flow_PerfOptimized_high'
+impl.strategy = 'Performance_Explore'
+blacklisted_resources = ['bram', 'dsp']
+
+[flows.vivado_synth]
+fpga.part = 'xc7a12tcsg325-1'
+clock_period = 40

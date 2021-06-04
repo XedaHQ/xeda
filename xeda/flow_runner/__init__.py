@@ -3,7 +3,7 @@ import coloredlogs
 import os
 import logging
 from types import SimpleNamespace
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, List, Sequence
 from pathlib import Path
 from datetime import datetime
 import logging
@@ -19,12 +19,12 @@ logger = logging.getLogger()
 
 
 class FlowRunner:
-    def __init__(self, parsed_args: SimpleNamespace, xeda_project) -> None:
-        self.consolidate_settings(parsed_args, xeda_project)
+    def __init__(self, args: SimpleNamespace, xeda_project: Dict[str, Any]) -> None:
+        self.consolidate_settings(args, xeda_project)
 
-        self.selected_design = parsed_args.design
+        self.selected_design = args.design
 
-        if parsed_args.xeda_run_dir is None:
+        if args.xeda_run_dir is None:
             rundir = xeda_project.get('xeda_run_dir')
             if rundir is None or not isinstance(rundir, str):
                 project = xeda_project.get('project')
@@ -34,9 +34,9 @@ class FlowRunner:
                     rundir = os.environ.get('XEDA_RUN_DIR')
                 if not rundir:
                     rundir = 'xeda_run'
-            parsed_args.xeda_run_dir = rundir
+            args.xeda_run_dir = rundir
 
-        xeda_run_dir = Path(parsed_args.xeda_run_dir).resolve()
+        xeda_run_dir = Path(args.xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
         self.xeda_run_dir = xeda_run_dir
         self.install_file_logger(self.xeda_run_dir / 'Logs')
@@ -98,10 +98,11 @@ class FlowRunner:
         if not isinstance(designs, Sequence):
             designs = [designs]
         self.designs = designs
-        self.flows = xeda_project['flows']
+        flows = xeda_project['flows']
+        self.flows = flows
 
 
-    def launch(self, flow_name: str, force_run: bool) -> Flow:
+    def launch(self, flow_name: str, force_run: bool) -> List[Flow]:
         """
         runs the flow and returns the completed flow object
         """
@@ -121,14 +122,18 @@ class FlowRunner:
             errors = e.errors()
             raise DesignError(f"{len(errors)} errors while parsing `design` settings:\n\n{display_errors(errors)}\n") from None
 
+        completed_dependencies: List[Flow] = []
+
         flow: Flow = flow_gen.generate(
-            flow_name, ".", design, self.xeda_run_dir)
+            flow_name, ".", design, self.xeda_run_dir, completed_dependencies=completed_dependencies)
         flow.run()
         flow.parse_reports()
         flow.dump_results()
         flow.print_results()
 
-        return flow
+        completed_dependencies.append(flow)
+
+        return completed_dependencies
 
         # flow.parse_reports()
         # flow.results['timestamp'] = flow.timestamp

@@ -6,18 +6,10 @@ create_project -part {{settings.fpga.part}} -force -verbose {{design.name}}
 set design_name           {{design.name}}
 set vhdl_std              {{design.language.vhdl.standard}}
 
-set bitstream             false
-
-set reports_dir           {{settings.reports_dir}}
-
 {% include 'util.tcl' %}
 
 set_param general.maxThreads {{settings.nthreads}}
 
-file mkdir ${reports_dir}
-file mkdir [file join ${reports_dir} post_synth]
-file mkdir [file join ${reports_dir} post_place]
-file mkdir [file join ${reports_dir} post_route]
 
 puts "\n================================( Read Design Files and Constraints )================================"
 
@@ -56,25 +48,32 @@ puts "available synthesis strategies: $avail_synth_strategies"
 
 {% if settings.synth.strategy %}
 puts "setting synthesis strategy to {{settings.synth.strategy}}"
-set_property -name strategy -value {{settings.synth.strategy}} -objects [get_runs synth_1]
+set_property strategy {{settings.synth.strategy}} [get_runs synth_1]
 {% endif %}
 
 
 set avail_impl_strategies [join [list_property_value strategy [get_runs impl_1] ] " "]
 puts "available implementation strategies: $avail_impl_strategies"
 
-{% if settings.impl.strategy %}
+{% if settings.impl.strategy -%}
 puts "setting implementation strategy to {{settings.impl.strategy}}"
-set_property -name strategy -value {{settings.impl.strategy}} -objects [get_runs impl_1]
-{% endif %}
+set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
+{% endif -%}
 
-{% for name,value in settings.synth.steps.items() %}
-set_property -name STEPS.{{name}} -value {{value}} -objects [get_runs synth_1]
-{% endfor %}
+{% for step,options in settings.synth.steps.items() -%}
+{% for name,value in options.items() -%}
+set_property STEPS.{{step}}.{{name}} {{value}} [get_runs synth_1]
+{% endfor -%}
+{% endfor -%}
 
-{% for name,value in settings.impl.steps.items() %}
-set_property -name STEPS.{{name}} -value {{value}} -objects [get_runs impl_1]
-{% endfor %}
+{% for step,options in settings.impl.steps.items() -%}
+{% for name,value in options.items() -%}
+set_property STEPS.{{step}}.{{name}} {{value}} [get_runs impl_1]
+{% endfor -%}
+{% endfor -%}
+
+add_files -fileset utils_1 -norecurse [pwd]/{{reports_tcl}}
+set_property STEPS.ROUTE_DESIGN.TCL.POST [pwd]/{{reports_tcl}} [get_runs impl_1]
 
 puts "\n================================( Running Synthesis )================================="
 launch_runs synth_1 -jobs {{settings.nthreads}}
@@ -83,61 +82,3 @@ wait_on_run synth_1
 puts "\n================================( Running Implementation )================================="
 launch_runs impl_1 -jobs {{settings.nthreads}} -to_step route_design
 wait_on_run impl_1
-
-
-puts "\n=============================( Opening Implemented Design )=============================="
-open_run impl_1
-
-
-puts "\n==============================( Writing Reports )================================"
-report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file ${reports_dir}/post_route/timing_summary.rpt
-report_timing  -no_header -input_pins  -unique_pins -sort_by group -max_paths 100 -path_type full -delay_type min_max -file ${reports_dir}/post_route/timing.rpt
-reportCriticalPaths ${reports_dir}/post_route/critpath_report.csv
-## report_clock_utilization                                        -force -file ${reports_dir}/post_route/clock_utilization.rpt
-# report_utilization                                              -force -file ${reports_dir}/post_route/utilization.rpt
-report_utilization                                              -force -file ${reports_dir}/post_route/utilization.xml -format xml
-report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
-# report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.rpt
-## report_utilization -hierarchical                                -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
-# report_power                                                    -file ${reports_dir}/post_route/power.rpt
-# report_drc                                                      -file ${reports_dir}/post_route/drc.rpt
-## report_ram_utilization                                          -file ${reports_dir}/post_route/ram_utilization.rpt -append
-# report_methodology                                              -file ${reports_dir}/post_route/methodology.rpt
-
-set timing_slack [get_property SLACK [get_timing_paths]]
-puts "Final timing slack: $timing_slack ns"
-
-# report_qor_suggestions -file ${reports_dir}/post_route/qor_suggestions.rpt 
-# -max_strategies 5
-# write_qor_suggestions -force qor_suggestions.rqs
-
-# close_project
-
-# showWarningsAndErrors
-
-if {$timing_slack < 0} {
-    puts "\n===========================( *ENABLE ECHO* )==========================="
-    puts "ERROR: Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
-    puts "\n===========================( *DISABLE ECHO* )==========================="
-    {% if settings.fail_timing %}
-    exit 1
-    {% endif %}    
-} else {
-    # puts "\n==========================( Writing Netlist and SDF )============================="
-    # write_sdf -mode timesim -process_corner slow -force -file ${synth_output_dir}/impl_timesim.sdf
-    # should match sdf
-    # write_verilog -mode timesim -sdf_anno false -force -file ${synth_output_dir}/impl_timesim.v
-##    write_verilog -mode timesim -sdf_anno false -include_xilinx_libs -write_all_overrides -force -file ${synth_output_dir}/impl_timesim_inlined.v
-##    write_verilog -mode funcsim -force ${synth_output_dir}/impl_funcsim_noxlib.v
-##    write_vhdl    -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${synth_output_dir}/impl_funcsim.vhd
-    # write_xdc -no_fixed_only -force ${synth_output_dir}/impl.xdc
-
-    # if {${bitstream}} {
-    #     puts "\n==============================( Writing Bitstream )==============================="
-    #     write_bitstream -force ${synth_output_dir}/bitstream.bit
-    # }
-}
-
-
-
-
