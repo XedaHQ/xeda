@@ -10,6 +10,9 @@ set vhdl_std              {{design.language.vhdl.standard}}
 
 set_param general.maxThreads {{settings.nthreads}}
 
+set reports_dir           {{settings.reports_dir}}
+file mkdir ${reports_dir}
+file mkdir [file join ${reports_dir} post_route]
 
 puts "\n================================( Read Design Files and Constraints )================================"
 
