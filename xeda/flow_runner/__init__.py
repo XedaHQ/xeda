@@ -124,7 +124,7 @@ class FlowRunner:
         completed_dependencies: List[Flow] = []
 
         flow: Flow = flow_gen.generate(
-            flow_name, ".", design, self.xeda_run_dir, completed_dependencies=completed_dependencies)
+            flow_name, ".flows", design, self.xeda_run_dir, completed_dependencies=completed_dependencies)
         flow.run()
         flow.parse_reports()
         flow.dump_results()

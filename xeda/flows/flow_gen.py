@@ -1,8 +1,8 @@
 import logging
 import time
 from datetime import datetime
-from typing import Mapping, Optional, Type, Union, Dict, List, Any
-from xeda.utils import snakecase_to_camelcase
+from typing import Mapping, Optional, Type, Dict, List, Any
+from ..utils import snakecase_to_camelcase
 from .flow import Flow, Design, registered_flows
 import importlib
 import hashlib
@@ -40,11 +40,11 @@ class FlowGen:
         full_module_name = "xeda" + \
             module_name if module_name.startswith('.') else module_name
 
-        flow_class: Optional[Type[Flow]] = registered_flows.get(
-            (flow_name, full_module_name))
+        (mod, flow_class) = registered_flows.get(flow_name, (None, None))
         if flow_class is None:
-            print("Not found in registered flows")
+            logger.warn(f"Flow {(flow_name, full_module_name)} was not found in registered flows. Trying to load using importlib.import_module")
             module = importlib.import_module(module_name, package)
+            assert module is not None, f"importlib.import_module returned None. module_name: {module_name}, package: {package}"
             flow_class = getattr(module, snakecase_to_camelcase(flow_name))
         assert flow_class is not None and issubclass(flow_class, Flow)
         flow_settings = flow_class.Settings(

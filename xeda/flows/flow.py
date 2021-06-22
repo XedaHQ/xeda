@@ -79,7 +79,7 @@ class MetaFlow(ABCMeta):
     pass
 
 
-registered_flows: Dict[Tuple[str, str], Type[Flow]] = {}
+registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
 
 
 """ A flow may run one or more tools and is associated with a single set of settings and a single design. """
@@ -112,13 +112,12 @@ class Flow(metaclass=MetaFlow):
             return
         cls_name = camelcase_to_snakecase(cls.__name__)
         mod_name = cls.__module__
-        print(f"registering flow {cls_name} from {mod_name}")
-        registered_flows[(cls_name, mod_name)] = cls
+        logger.info(f"registering flow {cls_name} from {mod_name}")
+        registered_flows[cls_name] = (mod_name, cls)
 
-        mod_name = cls.__module__
         if mod_name and not mod_name.startswith('xeda.flows.'):
-            mod_name = removeprefix(mod_name, "xeda.plugins.")
-            m = mod_name.split('.')  # FIXME FIXME FIXME!!!
+            mod_name1 = removeprefix(mod_name, "xeda.plugins.")
+            m = mod_name1.split('.')  # FIXME FIXME FIXME!!!
             cls_name = m[0] + "." + cls_name
         cls.name = cls_name
 
