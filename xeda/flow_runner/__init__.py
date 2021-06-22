@@ -98,8 +98,7 @@ class FlowRunner:
         if not isinstance(designs, Sequence):
             designs = [designs]
         self.designs = designs
-        flows = xeda_project['flows']
-        self.flows = flows
+        self.flows = xeda_project.get('flows', {})
 
 
     def launch(self, flow_name: str, force_run: bool) -> List[Flow]:

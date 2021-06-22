@@ -1,0 +1,15 @@
+[[design]]
+name = 'full_adder'
+description = 'Example VHDL design'
+
+[design.rtl]
+sources = ['full_adder.vhd']
+top = 'full_adder'
+clock_port = 'clk'
+
+[design.tb]
+sources = ['full_adder_tb.vhd']
+top = 'full_adder_tb'
+
+[flows.ghdl_sim]
+warn_error = true

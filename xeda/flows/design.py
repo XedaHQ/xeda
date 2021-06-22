@@ -1,11 +1,9 @@
-from abc import ABCMeta
-from pydantic import BaseModel, Field, ValidationError, Extra
-from typing import List, Optional, Mapping, Any, Sequence, Type, Dict, Tuple
+from pydantic import BaseModel
+from pydantic.types import NoneStr
+from typing import List, Optional, Sequence, Dict, Tuple
 from pathlib import Path
 import logging
 import hashlib
-
-from pydantic.types import NoneStr
 
 logger = logging.getLogger()
 
@@ -76,7 +74,7 @@ class PhaseSettings(BaseModel):
 
     def __init__(self, **data):
         sources = data.get('sources')
-        if sources and isinstance(sources, Sequence):
+        if sources is not None and isinstance(sources, Sequence):
             sources = [DesignSource(src) if isinstance(
                 src, str) else src for src in sources]
             data.pop('sources')
@@ -91,19 +89,29 @@ class RtlSettings(PhaseSettings):
 
 
 class TbSettings(PhaseSettings):
-    pass
+    uut: NoneStr = None
+    secondary_top: NoneStr = None
+    configuration_specification: NoneStr = None
 
 
 class LanguageSettings(BaseModel):
     standard: NoneStr = None
 
 
+class VhdlSettings(LanguageSettings):
+    synopsys: bool = False
+
+
+class Language(BaseModel):
+    vhdl: VhdlSettings = VhdlSettings()
+    verilog: LanguageSettings = LanguageSettings()
+
+
 class Design(BaseModel):
     name: str
     rtl: RtlSettings
-    tb: Optional[TbSettings] = None
-    language: Dict[str, LanguageSettings] = {
-        'vhdl': LanguageSettings(), 'verilog': LanguageSettings()}
+    tb: TbSettings = TbSettings(sources=[], top=None)
+    language: Language = Language()
 
 
 class DesignError(Exception):

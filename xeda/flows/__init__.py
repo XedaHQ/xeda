@@ -5,7 +5,7 @@ from .vivado.vivado_project import VivadoPrjSynth
 from .vivado.vivado_synth import VivadoSynth
 # from .quartus import QuartusSynth
 # from .diamond import DiamondSynth
-# from .ghdl import GhdlSim
+from .ghdl import GhdlSim
 # from .modelsim import Modelsim
 # from .dc import Dc
 # from .yosys import Yosys, NextPnr, OpenFpgaLoader

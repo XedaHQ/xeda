@@ -100,6 +100,8 @@ class Flow(metaclass=MetaFlow):
         debug: bool = False
         no_console: bool = False
         reports_dir: str = 'reports'
+        lib_paths: List[str] = []
+        generics: Dict[str, str] = {}
 
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
@@ -148,36 +150,6 @@ class Flow(metaclass=MetaFlow):
         )
 
         self.completed_dependencies = completed_dependencies
-
-    # def prepare(self):
-    #     design_settings = self.settings.design
-
-    #     for section in ['rtl', 'tb']:
-    #         section_settings = design_settings.get(section)
-    #         if section_settings:
-    #             section_settings['sources'] = [
-    #                 DesignSource(src) if isinstance(src, str) else src for src in section_settings.get('sources', [])
-    #             ]
-
-    #             generics = section_settings.get("generics", {})
-    #             for gen_key, gen_val in generics.items():
-    #                 if isinstance(gen_val, dict) and 'file' in gen_val:
-    #                     path = gen_val['file']
-    #                     logger.debug(
-    #                         f'Generic `{gen_key}` marked with `file` attribute is treated as FileResource({path})')
-    #                     generics[gen_key] = FileResource(path)
-
-    #     # all design flow-critical settings should be fixed from this point onwards
-
-    #     self.xedahash = self.gen_xeda_hash()
-
-    #     self.run_path = Path(self.args.force_run_dir) if self.args.force_run_dir else (
-    #         self.xeda_run_dir / '.xeda_run' / self.xedahash)
-
-    #     self.run_path = self.run_path.resolve()
-
-    #     self.run_path = self.run_path / self.name
-    #     self.reports_dir = self.run_path / self.reports_subdir_name
 
     @abstractmethod
     def run(self):
@@ -423,37 +395,41 @@ class Flow(metaclass=MetaFlow):
 
 
 class SimFlow(Flow):
+    class Settings(Flow.Settings):
+        vcd: NoneStr = None
+        stop_time: NoneStr = None
+
+    def __init__(self, flow_settings: SimFlow.Settings, design: Design, run_path: Path, completed_dependencies: List[Flow] = []):
+        self.settings: SimFlow.Settings = flow_settings
+        super().__init__(flow_settings, design, run_path, completed_dependencies)
 
     @property
     def sim_sources(self):
-        return self.design.tb.sources - self.design.rtl.sources
+        return self.design.rtl.sources + [src for src in self.design.tb.sources if src not in self.design.rtl.sources]
 
     @property
     def sim_tops(self) -> List[str]:
         """ a view of tb.top that returns a list of primary_unit [secondary_unit] """
-        # TODO is there ever a >= ternary_unit? If not switch to primary_unit, secondary_unit instead of the sim_tops list
-        tb_settings = self.settings.design["tb"]
-        tops = copy.deepcopy(tb_settings['top'])
-        if not isinstance(tops, list):
-            tops = [tops]
-        configuration_specification = tb_settings.get(
-            'configuration_specification')
-        if configuration_specification:
-            tops[0] = configuration_specification
+        conf_spec = self.design.tb.configuration_specification
+        if conf_spec:
+            return [conf_spec]
+        tops = []
+        if self.design.tb.top:
+            tops = [self.design.tb.top]
+        if self.design.tb.secondary_top:
+            tops.append(self.design.tb.secondary_top)
         return tops
 
     @property
     def tb_top(self) -> str:
-        top = self.design.tb.top
-        if isinstance(top, list):
-            top = top[0]
-        return top
+        assert self.design.tb.top, "design.tb.top must be set for simulation flow"
+        return self.design.tb.top
 
     def parse_reports(self):
         self.results['success'] = True
 
     @property
-    def vcd(self) -> str:
+    def vcd(self) -> Optional[str]:
         vcd = self.settings.vcd
         if vcd:
             if not isinstance(vcd, str):  # e.g. True
@@ -506,7 +482,6 @@ class SynthFlow(Flow):
     class Settings(Flow.Settings):
         """target clock period in nano-seconds"""
         clock_period: float
-        generics: Dict[str, str] = {}
         fpga: Optional[FPGA]
         tech: Optional[str]
 
