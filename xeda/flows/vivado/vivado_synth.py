@@ -380,7 +380,11 @@ class VivadoSynth(Vivado, SynthFlow):
                             f'Unknown utilization value: `{res_util}` for blacklisted resource `{res}`. Optimistically assuming results are not violating the blacklist criteria.')
 
             # TODO better fail analysis for vivado
-            failed |= (self.results['wns'] < 0) or (self.results['whs'] < 0) or (
-                self.results['_failing_endpoints'] != 0)
+            if 'wns' in self.results:
+                failed |= (self.results['wns'] < 0)
+            if 'whs' in self.results:    
+                failed |= (self.results['whs'] < 0)
+            if '_failing_endpoints' in self.results:    
+                failed |= self.results['_failing_endpoints'] != 0
 
         self.results['success'] = not failed

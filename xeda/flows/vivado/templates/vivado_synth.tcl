@@ -188,13 +188,16 @@ report_methodology                 -file ${reports_dir}/post_route/methodology.r
 ## report_qor_suggestions -force      -file ${reports_dir}/post_route/qor_suggestions.rpt
 
 set timing_slack [get_property SLACK [get_timing_paths]]
-puts "Final timing slack: $timing_slack ns"
 
-if {$timing_slack < 0} {
-    puts "ERROR: Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
-{% if settings.fail_timing -%}
-    exit 1
-{% endif %}
+if {[string is double -strict $timing_slack]} {
+    puts "Final timing slack: $timing_slack ns"
+
+    if {[string is double -strict $timing_slack] && ($timing_slack < 0)} {
+        puts "ERROR: Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
+    {% if settings.fail_timing -%}
+        exit 1
+    {% endif %}
+    }
 }
 
 {%- if settings.write_netlist -%}

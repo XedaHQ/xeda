@@ -6,14 +6,18 @@ from ..flow import SimFlow, Flow
 class Ghdl(Flow):
     """GHDL flows: sim, synthesis, lint"""
     class GhdlSettings(Flow.Settings):
-        analysis_flags: List[str] = ['-frelaxed-rules', '--warn-no-vital-generic',
-                                     '-frelaxed', '--mb-comments']
+        analysis_flags: List[str] = [
+            '-frelaxed-rules', '--warn-no-vital-generic', '-frelaxed', '--mb-comments'
+        ]
         optimization_flags: List[str] = ['-O3']
         elab_flags: List[str] = ['--syn-binding', '-frelaxed']
         run_flags: List[str] = ['--ieee-asserts=disable-at-0']
-        warn_flags: List[str] = ['-Wbinding', '-Wdefault-binding', '-Wreserved', '-Wlibrary', '-Wvital-generic',
-                                 '-Wdelayed-checks', '-Wbody', '-Wspecs', '-Wunused', '--warn-no-runtime-error']
+        warn_flags: List[str] = [
+            '-Wbinding', '-Wdefault-binding', '-Wreserved', '-Wlibrary', '-Wvital-generic',
+            '-Wdelayed-checks', '-Wbody', '-Wspecs', '-Wunused', '--warn-no-runtime-error'
+        ]
         warn_error: bool = False
+
 
 class GhdlSim(Ghdl, SimFlow):
     class Settings(Ghdl.GhdlSettings, SimFlow.Settings):

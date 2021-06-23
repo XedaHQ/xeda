@@ -17,3 +17,8 @@ warn_error = true
 [flows.vivado_prj_synth]
 fpga.part = 'xc7a12tcsg325-1'
 clock_period = 0.0
+
+[flows.vivado_synth]
+fpga.part = 'xc7a12tcsg325-1'
+clock_period = 0.0
+
