@@ -5,7 +5,7 @@ description = 'Example VHDL design'
 [design.rtl]
 sources = ['full_adder.vhd']
 top = 'full_adder'
-clock_port = 'clk'
+clock_port = ''
 
 [design.tb]
 sources = ['full_adder_tb.vhd']
@@ -13,3 +13,7 @@ top = 'full_adder_tb'
 
 [flows.ghdl_sim]
 warn_error = true
+
+[flows.vivado_prj_synth]
+fpga.part = 'xc7a12tcsg325-1'
+clock_period = 0.0

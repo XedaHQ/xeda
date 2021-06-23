@@ -1,10 +1,7 @@
 import logging
-from typing import Dict, Any, Optional
-from pydantic.main import BaseModel
 
 from .vivado_synth import RunOptions, VivadoSynth
-from ..flow import SynthFlow, Flow
-from . import vivado_generics
+from ..flow import SynthFlow
 
 logger = logging.getLogger()
 

@@ -1,8 +1,7 @@
 from __future__ import annotations
 from abc import ABCMeta, abstractmethod
-from pydantic import BaseModel, Field, ValidationError, Extra
+from pydantic import BaseModel, Field, Extra
 from typing import List, Optional, Type, Tuple
-import copy
 from datetime import datetime
 import json
 import os
@@ -10,17 +9,15 @@ import re
 from pathlib import Path
 import subprocess
 import time
-from types import SimpleNamespace
 from jinja2 import Environment, PackageLoader, StrictUndefined
 import logging
 from jinja2.loaders import ChoiceLoader
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner as Spinner
 import colored
-from typing import Mapping, Dict, List
+from typing import Dict, List
 import inspect
 import multiprocessing
-
 from pydantic.types import NoneStr
 
 from .design import Design
@@ -134,16 +131,21 @@ class Flow(metaclass=MetaFlow):
         self.results = dict()
         self.results['success'] = False
 
+        loaderChoices = []
+        mod_paths = []
+
+        for mpx in [self.__module__, self.__class__.__module__] + [clz.__module__ for clz in self.__class__.__bases__]:
+            for mp in [mpx, mpx.rsplit(".", 1)[0]]:
+                if mp not in mod_paths:
+                    mod_paths.append(mp)
+        for mp in mod_paths:
+            try:
+                loaderChoices.append(PackageLoader(mp))
+            except:
+                pass
+
         self.jinja_env = Environment(
-            loader=ChoiceLoader(
-                [
-                    PackageLoader(self.__module__, 'templates'),
-                    PackageLoader(self.__class__.__module__, 'templates'),
-                ] +
-                [
-                    PackageLoader(clz.__module__, 'templates') for clz in self.__class__.__bases__
-                ]
-            ),
+            loader=ChoiceLoader(loaderChoices),
             autoescape=False,
             undefined=StrictUndefined
         )
@@ -260,7 +262,7 @@ class Flow(metaclass=MetaFlow):
                                             print()
                                         logger.warning(line)
                                     elif enable_echo_re.match(line):
-                                        if not self.args.quiet:
+                                        if not self.settings.quiet:
                                             echo_instructed = True
                                         end_step()
                                     else:

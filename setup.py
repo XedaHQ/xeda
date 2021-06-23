@@ -82,8 +82,8 @@ Xeda can assists hardware developers during verification, evaluation, and deploy
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-        "jinja2==2.11.2", "colored", "progress>=1.5", "coloredlogs>=14", "pebble>=4", "numpy>=1",
-        "toml>=0.10.2", "shtab>=1.3.4", "pydantic"
+        "jinja2>=3.0.1", "colored", "progress>=1.5", "coloredlogs>=14", "pebble>=4", "numpy>=1",
+        "toml>=0.10.2", "shtab>=1.3.4", "pydantic>=1.8.2,<1.9"
     ],
 
     setup_requires=['setuptools-vcs-version'],

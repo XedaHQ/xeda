@@ -35,17 +35,21 @@ class FlowGen:
         return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
 
     def generate(self, flow_name: str, module_name: str, design: Design, xeda_run_dir: Path, completed_dependencies: List[Flow], package: str = __package__) -> Flow:
-        print(
-            f"flow_name:{flow_name} module_name:{module_name} registered flows: {registered_flows}")
-        full_module_name = "xeda" + \
-            module_name if module_name.startswith('.') else module_name
-
         (mod, flow_class) = registered_flows.get(flow_name, (None, None))
         if flow_class is None:
-            logger.warn(f"Flow {(flow_name, full_module_name)} was not found in registered flows. Trying to load using importlib.import_module")
-            module = importlib.import_module(module_name, package)
+            logger.warn(f"Flow {flow_name} was not found in registered flows. Trying to load using importlib.import_module")
+            try:
+                module = importlib.import_module(module_name)
+            except ModuleNotFoundError as e:
+                logger.critical(f"Unable to import {module_name} from {package}")
+                raise e from None
             assert module is not None, f"importlib.import_module returned None. module_name: {module_name}, package: {package}"
-            flow_class = getattr(module, snakecase_to_camelcase(flow_name))
+            flow_class_name = snakecase_to_camelcase(flow_name)
+            try:
+                flow_class = getattr(module, flow_class_name)
+            except AttributeError as e:
+                logger.critical(f"Unable to find class {flow_class_name} in {module}")
+                raise e from None
         assert flow_class is not None and issubclass(flow_class, Flow)
         flow_settings = flow_class.Settings(
             **self.all_flows_settings.get(flow_name, {}))

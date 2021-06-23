@@ -3,6 +3,7 @@
 # all Flow classes imported here can be used from FlowRunners and will be reported on the command-line help
 from .vivado.vivado_project import VivadoPrjSynth
 from .vivado.vivado_synth import VivadoSynth
+from .vivado.vivado_sim import VivadoSim
 # from .quartus import QuartusSynth
 # from .diamond import DiamondSynth
 from .ghdl import GhdlSim

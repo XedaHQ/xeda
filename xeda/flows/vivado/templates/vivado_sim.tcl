@@ -18,7 +18,7 @@ if { [catch {file delete -force xsim.dir} error]} {
     puts "Failed to delete previously existing xsim.dir: $error"
 }
 
-set analyze_flags "-work {{lib_name}} {%- if debug %} -verbose 2 {%- endif %} {{analyze_flags}}"
+set analyze_flags "-work {{lib_name}} {%- if settings.debug %} -verbose 2 {%- endif %} {{settings.analyze_flags|join(' ')}}"
 
 puts "\n===========================( Analyzing HDL Sources )==========================="
 {% for src in sim_sources %}
@@ -48,12 +48,12 @@ if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standar
 {% for rc in run_configs %}
 
 puts "\n===========================( Elaborating design )==========================="
-if { [catch {eval exec xelab -s ${snapshot_name} -L {{lib_name}} {{elab_flags}} ${xelab_flags} {%- for k,v in rc.generics.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in sim_tops %} {{lib_name}}.{{top}} {% endfor -%}  } error]} {
+if { [catch {eval exec xelab -s ${snapshot_name} -L {{lib_name}} {{settings.elab_flags|join(' ')}} ${xelab_flags} {%- for k,v in rc.generics.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in sim_tops %} {{lib_name}}.{{top}} {% endfor -%}  } error]} {
     errorExit $error
 }
 
 puts "\n===========================( Loading Simulation )==========================="
-if { [catch {eval xsim ${snapshot_name} {{sim_flags}} } error] } {
+if { [catch {eval xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} } error] } {
     errorExit $error
 }
 
@@ -77,16 +77,16 @@ open_vcd {{rc.vcd}}
 log_vcd [get_objects -r -filter { type == variable || type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } *]
 {% endif -%}
 
-{%- if debug_traces %}
+{%- if settings.debug_traces %}
 ltrace on
 ptrace on
 {% endif -%}
 
 puts "\n===========================( Running simulation )==========================="
 puts "\n===========================( *ENABLE ECHO* )==========================="
-{% if flow.get('prerun_time') %}
+{% if settings.prerun_time %}
 puts "Pre-run for {{flow.prerun_time}}"
-if { [catch {eval run {{flow.prerun_time}} } error]} {
+if { [catch {eval run {{settings.prerun_time}} } error]} {
     errorExit $error
 }
 {% endif -%}
@@ -100,7 +100,7 @@ log_saif [get_objects -r -filter { type == signal || type == internal_signal || 
 
 puts "Main Run\n"
 
-if { [catch {eval run {% if 'stop_time' in flow and flow.stop_time %} {{flow.stop_time}} {% else %} all {% endif %} } error]} {
+if { [catch {eval run {% if settings.stop_time %} {{flow.stop_time}} {% else %} all {% endif %} } error]} {
     errorExit $error
 }
 
