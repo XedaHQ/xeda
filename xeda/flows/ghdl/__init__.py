@@ -82,7 +82,7 @@ class GhdlSim(Ghdl, SimFlow):
             run_options.append(f'--wave={ghw}')
 
         tb_generics_opts = [f"-g{k}={v}" for k,
-                            v in self.settings.generics.items()]
+                            v in self.design.tb.generics.items()]
 
         self.run_process('ghdl', ['remove'] + vhdl_std_opts,
                          initial_step='Clean up previously-generated files and library',
