@@ -19,7 +19,7 @@ from typing import Dict, List
 import inspect
 import multiprocessing
 from pydantic.types import NoneStr
-
+import errno
 from .design import Design
 from ..utils import camelcase_to_snakecase, try_convert
 from ..debug import DebugLevel
@@ -394,7 +394,17 @@ class Flow(metaclass=MetaFlow):
         self.dump_json(self.results, path)
         logger.info(f"Results written to {path}")
 
-
+    def create_symlink_to_latest_run(self):
+        try:
+            os.symlink(self.run_path, self.run_path.parent / 'latest_xeda_run', target_is_directory=True)
+            logger.info(f"Creating symbolic link xeda_run/latest_xeda_run -> {self.run_path}")
+        except OSError as e:
+            if e.errno == errno.EEXIST:
+                os.remove(self.run_path.parent / 'latest_xeda_run')
+                os.symlink(self.run_path, self.run_path.parent / 'latest_xeda_run')
+                logger.info(f"Creating symbolic link xeda_run/latest_xeda_run -> {self.run_path}")
+            else:
+                raise e
 class SimFlow(Flow):
     class Settings(Flow.Settings):
         vcd: NoneStr = None

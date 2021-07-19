@@ -129,7 +129,8 @@ class FlowRunner:
         flow.parse_reports()
         flow.dump_results()
         flow.print_results()
-
+        flow.create_symlink_to_latest_run();
+        
         completed_dependencies.append(flow)
 
         return completed_dependencies
