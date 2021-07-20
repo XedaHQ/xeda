@@ -97,6 +97,7 @@ class Flow(metaclass=MetaFlow):
         debug: bool = False
         no_console: bool = False
         reports_dir: str = 'reports'
+        xeda_run_symlink_dir: str = ''
         lib_paths: List[str] = []
         generics: Dict[str, str] = {}
 
@@ -396,13 +397,13 @@ class Flow(metaclass=MetaFlow):
 
     def create_symlink_to_latest_run(self):
         try:
-            os.symlink(self.run_path, self.run_path.parent / 'latest_xeda_run', target_is_directory=True)
-            logger.info(f"Creating symbolic link xeda_run/latest_xeda_run -> {self.run_path}")
+            os.symlink(self.run_path, self.run_path.parent / self.settings.xeda_run_symlink_dir, target_is_directory=True)
+            logger.info(f"Creating symbolic link {self.run_path.parent / self.settings.xeda_run_symlink_dir} -> {self.run_path}")
         except OSError as e:
             if e.errno == errno.EEXIST:
-                os.remove(self.run_path.parent / 'latest_xeda_run')
-                os.symlink(self.run_path, self.run_path.parent / 'latest_xeda_run')
-                logger.info(f"Creating symbolic link xeda_run/latest_xeda_run -> {self.run_path}")
+                os.remove(self.run_path.parent / self.settings.xeda_run_symlink_dir)
+                os.symlink(self.run_path, self.run_path.parent / self.settings.xeda_run_symlink_dir)
+                logger.info(f"Creating symbolic link {self.run_path.parent / self.settings.xeda_run_symlink_dir} -> {self.run_path}")
             else:
                 raise e
 class SimFlow(Flow):
