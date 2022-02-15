@@ -1,0 +1,2 @@
+include versioneer.py
+include src/xeda/_version.py

@@ -5,7 +5,23 @@ description = 'Running LEDs on the ULX3S board'
 [design.rtl]
 sources = ['blinky.v']
 top = 'top'
+clock_port = 'clk_25mhz'
 
 [flows.open_fpga_loader]
 board = 'ulx3s'
-clock_period = 20 # 50 MHz
+clock_period = 40 # 25 MHz
+
+[flows.yosys]
+fpga.family = 'ecp5'
+clock_period = 40 #
+
+[flows.vivado_prj_synth]
+fpga.part = 'xc7a12tcsg325-1'
+clock_period = 4.0
+synth.strategy = 'Flow_PerfOptimized_high'
+impl.strategy = 'Performance_Explore'
+blacklisted_resources = ['bram', 'dsp']
+
+[flows.vivado_synth]
+fpga.part = 'xc7a12tcsg325-1'
+clock_period = 4.0

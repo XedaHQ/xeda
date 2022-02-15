@@ -1,4 +1,4 @@
-[![Documentation Status](https://readthedocs.org/projects/xeda/badge/?version=latest)](https://xeda.readthedocs.io/en/latest/?badge=latest)
+[![Documentation Status](https://readthedocs.org/projects/xeda/badge/?version=latest)](https://xeda.readthedocs.io/en/latest/?badge=latest) ![visitors](https://page-views.glitch.me/badge?page_id=XedaHQ.xeda)
 
 ![Xeda Logo](logo.svg)
 
