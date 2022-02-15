@@ -19,7 +19,7 @@ class XedaBaseModel(BaseModel, metaclass=ABCMeta):
 
 
 class FileResource:
-    def __init__(self, path: Union[str, PathLike, dict[str, str]], **data) -> None:
+    def __init__(self, path: Union[str, PathLike, Dict[str, str]], **data) -> None:
         try:
             if isinstance(path, dict):
                 if 'file' not in path:
