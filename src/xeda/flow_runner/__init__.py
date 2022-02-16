@@ -38,10 +38,10 @@ class FlowRunner:
 
         fileHandler = logging.FileHandler(logfile)
         fileHandler.setFormatter(logFormatter)
-        logger.addHandler(fileHandler)
+        root_logger = logging.getLogger()
+        root_logger.addHandler(fileHandler)
 
-        coloredlogs.install(
-            'INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=logger)
+        coloredlogs.install('INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=root_logger)
 
         logger.info(f"Running using FlowRunner: {self.__class__.__name__}")
 

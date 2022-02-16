@@ -13,9 +13,7 @@ from progress import SHOW_CURSOR
 from progress.spinner import Spinner
 import colored
 from typing import Dict, List
-import inspect
 import multiprocessing
-from typing_extensions import Annotated
 
 
 from .design import Design, XedaBaseModel
@@ -30,9 +28,11 @@ class FlowFatalException(Exception):
     """Fatal error"""
     pass
 
+
 class FlowSettingsError(Exception):
     """Raised when `design` settings are invalid"""
     pass
+
 
 class NonZeroExit(Exception):
     """Process exited with non-zero return"""
@@ -120,9 +120,8 @@ class Flow(Tool, metaclass=MetaFlow):
     def init(self):
         pass
 
-    def add_dependency(self, dep_flow_class, dep_settings):
+    def add_dependency(self, dep_flow_class: Type['Flow'], dep_settings: Settings):
         self.dependencies.append((dep_flow_class, dep_settings))
-        pass
 
     def __init__(self, flow_settings: 'Flow.Settings', design: Design, run_path: Path):
         super().__init__(flow_settings, run_path)
@@ -133,7 +132,7 @@ class Flow(Tool, metaclass=MetaFlow):
         self.timestamp = None
 
         self.reports_dir = run_path / self.settings.reports_subdir_name
-        if self.reports_dir.exists() and os.listdir(self.reports_dir): # exists and non-empty
+        if self.reports_dir.exists() and os.listdir(self.reports_dir):  # exists and non-empty
             backup_existing(self.reports_dir)
         self.reports_dir.mkdir(exist_ok=True)
 
@@ -164,7 +163,7 @@ class Flow(Tool, metaclass=MetaFlow):
             autoescape=False,
             undefined=StrictUndefined
         )
-        self.dependencies = []
+        self.dependencies: List[Tuple[Type[Flow], Flow.Settings]] = []
         self.completed_dependencies: List[Flow] = []
 
     @abstractmethod
@@ -173,9 +172,10 @@ class Flow(Tool, metaclass=MetaFlow):
         pass
 
     def parse_reports(self) -> bool:
+        assert isinstance(self.results['success'], bool)
         return self.results['success']
 
-    def copy_from_template(self, resource_name, **kwargs) -> str:
+    def copy_from_template(self, resource_name, **kwargs) -> os.PathLike:
         template = self.jinja_env.get_template(resource_name)
         script_path: Path = self.run_path / resource_name
         logger.debug(f'generating {script_path.resolve()} from template.')
@@ -186,7 +186,7 @@ class Flow(Tool, metaclass=MetaFlow):
         )
         with open(script_path, 'w') as f:
             f.write(rendered_content)
-        return script_path.relative_to(self.run_path) # resource_name
+        return script_path.relative_to(self.run_path)  # resource_name
 
     def add_filter(self, filter_name: str, func) -> None:
         self.jinja_env.filters[filter_name] = func
@@ -483,7 +483,6 @@ class FPGA(BaseModel):
             value = "-".join(sp[:-1])
         return value
 
-
     def __init__(self, **data) -> None:
         super().__init__(**data)
         return
@@ -498,7 +497,8 @@ class FPGA(BaseModel):
             print(f"FPGA init device={device}")
             # exit(1)
             if self.vendor == 'lattice':
-                assert len(device) >= 2, "Lattice device should be in form of fffff-ccF-ppppp"
+                assert len(
+                    device) >= 2, "Lattice device should be in form of fffff-ccF-ppppp"
                 if device[0].startswith('lfe5u'):
                     print("yes")
                     # exit(1)
@@ -537,8 +537,9 @@ class FPGA(BaseModel):
                 # TODO: more
             if not self.part and self.device and self.package and self.speed:
                 if self.vendor == 'xilinx':
-                    self.part = (self.device + self.package + self.speed).lower()
-                
+                    self.part = (self.device + self.package +
+                                 self.speed).lower()
+
         # if self.part:
         #     if self.vendor == 'xilinx':
         #         if not self.speed:
@@ -554,6 +555,7 @@ class TargetTechnology(XedaBaseModel):
     liberty: Optional[str] = None
     gates: Optional[str] = None
     lut: Optional[str] = None
+
 
 class SynthFlow(Flow):
     class Settings(Flow.Settings):

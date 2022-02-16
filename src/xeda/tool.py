@@ -10,8 +10,6 @@ import contextlib
 
 logger = logging.getLogger(__name__)
 
-logger.setLevel(logging.DEBUG)
-
 try:
     nullcontext: Callable = contextlib.nullcontext
 except AttributeError:  # Python < 3.7
@@ -69,7 +67,7 @@ class Tool(metaclass=ABCMeta):
     default_docker: Optional[DockerToolSettings] = None
     name: Optional[str] = None
 
-    def __init__(self, settings: Type[Settings], run_path):
+    def __init__(self, settings: Settings, run_path):
         self.run_path = run_path
         self.settings = settings
         self._version = None
@@ -82,7 +80,7 @@ class Tool(metaclass=ABCMeta):
         return self._info
 
     def get_info(self):
-        logger.error("Tool.info is not implemented!")
+        logger.critical(f"Tool.info is not implemented for {self.__class__.__name__}!")
         return {}
 
     def get_version(self):
@@ -115,8 +113,6 @@ class Tool(metaclass=ABCMeta):
         if env:
             env = {str(k): str(v) for k, v in env.items()}
         logger.info(f'Running `{" ".join([executable, *args])}`')
-        logger.error(f'Running `{" ".join([executable, *args])}`')
-        print(f'>> Running `{" ".join([executable, *args])}`')
         if stdout and isinstance(stdout, str) or isinstance(stdout, os.PathLike):
             stdout = Path(stdout)
             if not stdout.is_absolute():

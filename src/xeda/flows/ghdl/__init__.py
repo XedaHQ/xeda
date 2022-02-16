@@ -1,5 +1,3 @@
-from enum import Enum, auto
-from pathlib import Path
 from typing import List, Optional, Union, Tuple
 from pydantic import Field, NoneStr, validator
 import logging
@@ -13,7 +11,7 @@ except ImportError:
 
 from ..flow import Flow, SimFlow, SynthFlow
 from ...flows.design import Design
-from ...tool import NonZeroExitCode, Tool
+from ...tool import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -278,14 +276,14 @@ class GhdlSim(Ghdl, SimFlow):
         wave = ss.wave
         if self.vcd:
             run_flags.append(f'--vcd={self.vcd}')
-            logger.critical(f"Dumping VCD to {self.vcd}")
+            logger.warning(f"Dumping VCD to {self.vcd}")
         elif wave:
             if isinstance(wave, bool):
                 wave = design.name
             if not wave.endswith('.ghw'):
                 wave += '.ghw'
             run_flags.append(f'--wave={wave}')
-            logger.critical(f"Dumping GHW to {wave}")
+            logger.warning(f"Dumping GHW to {wave}")
         vpi = None
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:
