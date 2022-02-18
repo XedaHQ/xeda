@@ -40,6 +40,11 @@ def append_flag(flag_list: List[str], flag: str):
     return flag_list
 
 
+def to_simplenamespace(d: dict) -> SimpleNamespace:
+    print(f"d={d} ({type(d)})")
+    return SimpleNamespace(**{k: (to_simplenamespace(v) if isinstance(v, dict) else v) for k, v in d.items()})
+
+
 class YosysSynth(Yosys, SynthFlow):
     class Settings(Yosys.Settings, SynthFlow.Settings):
         log_file: Optional[str] = 'yosys.log'
@@ -186,10 +191,6 @@ class YosysSynth(Yosys, SynthFlow):
             assert ss.fpga.family or ss.fpga.vendor == "xilinx"
         # TODO use pydantic or dataclass?
         self.artifacts = {
-            'netlist': {
-            },
-            'rtl': {
-            },
             'diagrams': {
             },
             'reports': {
@@ -199,22 +200,27 @@ class YosysSynth(Yosys, SynthFlow):
             },
         }
         # TODO in runner?
-        self.artifacts = SimpleNamespace(**self.artifacts)
-
+        ar = {}
         if ss.rtl_json:
-            self.artifacts.rtl['json'] = ss.rtl_json
+            ar['json'] = ss.rtl_json
         if ss.rtl_vhdl:
-            self.artifacts.rtl['vhdl'] = ss.rtl_vhdl
+            ar['vhdl'] = ss.rtl_vhdl
         if ss.rtl_verilog:
-            self.artifacts.rtl['verilog'] = ss.rtl_verilog
-        if not ss.stop_after:
+            ar['verilog'] = ss.rtl_verilog
+        if ar:
+            self.artifacts['rtl'] = ar
+        if not ss.stop_after:  # FIXME
+            an = {}
             if ss.netlist_json:
-                self.artifacts.netlist['json'] = ss.netlist_json
+                an['json'] = ss.netlist_json
             if ss.netlist_vhdl:
-                self.artifacts.netlist['vhdl'] = ss.netlist_vhdl
+                an['vhdl'] = ss.netlist_vhdl
             if ss.netlist_verilog:
-                self.artifacts.netlist['verilog'] = ss.netlist_verilog
+                an['verilog'] = ss.netlist_verilog
+            if an:
+                self.artifacts['netlist'] = an
 
+        self.artifacts = to_simplenamespace(self.artifacts)
 
     def run(self):
         ss = self.settings
@@ -278,21 +284,21 @@ class YosysSynth(Yosys, SynthFlow):
             args.extend(['-T', '-Q', '-q'])
         self.results['_tool'] = self.info  # TODO where should this go?
         logger.info(f"Logging yosys output to {ss.log_file}")
-        self.run_tool(self.default_executable, args)
+        # self.run_tool(self.default_executable, args)
         netlistsvg = True
         skin_file = None
         elk_layout = None
         if netlistsvg:
-            rtl_json = self.artifacts.rtl.get('json')
+            rtl_json = self.artifacts.rtl.__dict__.get('json')
             if rtl_json:
                 svg_file = 'rtl.svg'
-                self.artifacts.diagrams['netlistsvg_rtl'] = svg_file
+                self.artifacts.diagrams.netlistsvg_rtl = svg_file
                 args = [rtl_json, '-o', svg_file]
                 if skin_file:
                     args.extend(['--skin', skin_file])
                 if elk_layout:
                     args.extend(['--layout', elk_layout])
-                self.run_tool('netlistsvg', args, check=True) # ??
+                self.run_tool('netlistsvg', args, check=True)  # ??
             if ss.netlist_json and False:
                 svg_file = 'netlist.svg'
                 self.artifacts.diagrams['netlistsvg'] = svg_file
@@ -308,7 +314,14 @@ class YosysSynth(Yosys, SynthFlow):
         if self.settings.fpga:
             if self.settings.fpga.vendor == 'xilinx':
                 self.parse_report_regex(
-                    self.artifacts.reports.utilization, r"FDRE\s*(?P<FFs>\d+)", r"number of LCs:\s*(?P<Estimated_LCs>\d+)")
+                    self.artifacts.reports.utilization,
+                    r"=== design hierarchy ===",
+                    r"FDRE\s*(?P<_FDRE>\d+)",
+                    r"FDSE\s*(?P<_FDSE>\d+)",
+                    r"number of LCs:\s*(?P<Estimated_LCs>\d+)",
+                    sequential=True, required=False
+                )
+                self.results['FFs'] = int(self.results.get('_FDRE', 0)) + int(self.results.get('_FDSE', 0))
             if self.settings.fpga.family == 'ecp5':
                 self.parse_report_regex(
                     self.artifacts.reports.utilization, r"TRELLIS_FF\s+(?P<FFs>\d+)", r"LUT4\s+(?P<LUT4>\d+)")

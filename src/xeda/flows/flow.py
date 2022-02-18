@@ -90,7 +90,7 @@ class Flow(Tool, metaclass=MetaFlow):
     default_executable: NoneStr = None
     docker_image: NoneStr = None
 
-    class Settings(Tool.Settings, metaclass=ABCMeta, extra=Extra.forbid):
+    class Settings(Tool.Settings, XedaBaseModel, metaclass=ABCMeta):
         """Settings that can affect flow's behavior"""
         reports_subdir_name: str = 'reports'
         timeout_seconds: int = 3600 * 2
@@ -100,6 +100,13 @@ class Flow(Tool, metaclass=MetaFlow):
         reports_dir: str = 'reports'
         unique_rundir: bool = False
         clean: bool = False
+
+
+    class Results(XedaBaseModel, metaclass=ABCMeta):
+        success: bool
+        artifacts: List[Union[str, os.PathLike]]
+        reports: List[Union[str, os.PathLike]]
+
 
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
@@ -311,17 +318,17 @@ class Flow(Tool, metaclass=MetaFlow):
             logger.info(
                 f'Execution of {prog} in {self.run_path} completed with returncode {proc.returncode}')
 
-    def parse_report_regex(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True, required=False):
+    def parse_report_regex(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True, required=False, sequential=False):
         if isinstance(reportfile_path, str):
             reportfile_path = self.run_path / reportfile_path
         # TODO fix debug and verbosity levels!
-        high_debug = self.settings.verbose
         if not reportfile_path.exists():
             logger.warning(
                 f'File {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.run_path}'
             )
             return False
         with open(reportfile_path) as rpt_file:
+            global content
             content = rpt_file.read()
 
             flags = re.MULTILINE | re.IGNORECASE
@@ -329,6 +336,7 @@ class Flow(Tool, metaclass=MetaFlow):
                 flags |= re.DOTALL
 
             def match_pattern(pat):
+                global content
                 match = re.search(pat, content, flags)
                 if match is None:
                     return False
@@ -336,22 +344,19 @@ class Flow(Tool, metaclass=MetaFlow):
                 for k, v in match_dict.items():
                     self.results[k] = try_convert(v)
                     logger.debug(f'{k}: {self.results[k]}')
+                if sequential:
+                    content = content[match.span(0)[1]:]
+                    print(f">>> len(content)= {len(content)}")
                 return True
 
             for pat in [re_pattern, *other_re_patterns]:
                 matched = False
                 if isinstance(pat, list):
-                    if high_debug:
-                        logger.debug(f"Matching any of: {pat}")
+                    logger.debug(f"Matching any of: {pat}")
                     for subpat in pat:
                         matched = match_pattern(subpat)
-                        if matched:
-                            if high_debug:
-                                logger.debug("subpat matched!")
-                            break
                 else:
-                    if high_debug:
-                        logger.debug(f"Matching: {pat}")
+                    logger.debug(f"Matching: {pat}")
                     matched = match_pattern(pat)
 
                 if not matched and required:

@@ -99,12 +99,12 @@ class DVSettings(XedaBaseModel, validate_assignment=True):
         allow_population_by_field_name=True,
         has_alias=True,
     )
-    # defines: Dict[str, DefineType] = Field(default=dict())
+    defines: Dict[str, DefineType] = Field(default=dict())
 
     @root_validator()
     def the_root_validator(cls, values):
         value = values.get('parameters')
-        if value is None:
+        if not value:
             value = values.get('generics')
         if value:
             for k, v in value.items():
@@ -116,10 +116,11 @@ class DVSettings(XedaBaseModel, validate_assignment=True):
 
     # @validator('generics', 'parameters', pre=False, always=True)
     # def file_resource_parameters(cls, value, values, config, field):
-    #     if value:
-    #         for k, v in value.items():
-    #             if isinstance(v, dict) and v.get('file'):
-    #                 value[k] = FileResource(v).__str__()
+    #     other_field = 'generics' if field == 'parameters' else 'parameters'
+    #     other = values.get(other_field)
+    #     ov = values.get(other)
+    #     if not value and ov:
+    #         return ov
     #     return value
 
     @validator('sources', pre=True)

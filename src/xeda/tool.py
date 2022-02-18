@@ -8,6 +8,8 @@ from pydantic.types import NoneStr
 from pathlib import Path
 import contextlib
 
+from .flows.design import XedaBaseModel
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -49,7 +51,7 @@ class DockerToolSettings(BaseModel, extra=Extra.forbid):
 class Tool(metaclass=ABCMeta):
     """abstraction for an EDA tool"""
 
-    class Settings(BaseModel, metaclass=ABCMeta, extra=Extra.allow):
+    class Settings(XedaBaseModel, metaclass=ABCMeta, extra=Extra.allow):
         docker: Optional[DockerToolSettings] = None
         remote: Optional[RemoteToolSettings] = None
         native: Optional[NativeToolSettings] = None
