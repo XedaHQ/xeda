@@ -30,7 +30,7 @@ class FileResource:
                 p = Path.cwd() / p
             self.file = p.resolve(strict=True)
         except FileNotFoundError as e:
-            logger.critical(f"Design source file '{path}' does not exist!")
+            logger.critical(f"Design resource '{path}' does not exist!")
             raise e
 
         with open(self.file, 'rb') as f:

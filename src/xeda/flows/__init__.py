@@ -7,8 +7,8 @@ from .vivado.vivado_sim import VivadoSim
 from .ise import IseSynth
 # from .quartus import QuartusSynth
 # from .diamond import DiamondSynth
-from .ghdl import GhdlSim
+from .ghdl import GhdlSim, GhdlSynth
 # from .modelsim import Modelsim
 # from .dc import Dc
 # from .yosys import Yosys, NextPnr, OpenFpgaLoader
-from .yosys import Yosys
+from .yosys import Yosys, YosysSynth
