@@ -1,19 +1,19 @@
 yosys -import
-
+set log_prefix "yosys> "
 {% for src in design.rtl.sources %}
 {%- if src.type == 'verilog' %}
-puts "Reading {{src}}"
+puts "$log_prefix Reading {{src}}"
 # -Dname=value -Idir
 read_verilog {{settings.read_verilog_flags|join(" ")}} {{src}}
 {%- elif src.type == 'systemverilog' %}
-puts "Reading {{src}}"
+puts "$log_prefix Reading {{src}}"
 read_verilog {{settings.read_verilog_flags|join(" ")}} -sv {{src}}
 {%- endif %}
 {%- endfor %}
 
 {%- set vhdl_files = design.rtl.sources | selectattr("type", "equalto", "vhdl") | list %}
 {%- if vhdl_files %}
-log -stdout yosys> Compiling VHDL files
+puts "$log_prefix Reading VHDL files: {{vhdl_files|join(" ")}}"
 yosys plugin -i ghdl
 yosys ghdl {{ghdl_args|join(" ")}}
 {%- endif %}
@@ -26,10 +26,12 @@ read_verilog -lib {{src}}
 {%- endfor %}
 
 
-# hierarchy -check {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %}
 
+{%if true-%}
 prep{%if settings.flatten%} -flatten{%endif%}{%if design.rtl.top %} -top {{design.rtl.top}}{% else %} -auto-top{%endif%}
-
+{%else-%}
+hierarchy -check {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %}
+{%-endif%}
 
 check -initdrv -assert
 {%- for attr,attr_dict in settings.set_attributes.items() %}
@@ -39,15 +41,15 @@ setattr -set {{attr}} {{value}} {{path}}
 {%- endfor %}
 
 {% if settings.rtl_json -%}
-log -stdout yosys> Writing JSON {{settings.rtl_json}}
+puts "$log_prefix Writing JSON {{settings.rtl_json}}"
 write_json {{settings.rtl_json}}
 {%- endif %}
 {% if settings.rtl_verilog -%}
-log -stdout yosys> Writing Verilog {{settings.rtl_verilog}}
+puts "$log_prefix Writing Verilog {{settings.rtl_verilog}}"
 write_verilog {{settings.rtl_verilog}}
 {%- endif %}
 {% if settings.rtl_vhdl -%}
-log -stdout yosys> Writing VHDL {{settings.rtl_vhdl}}
+puts "$log_prefix  Writing VHDL {{settings.rtl_vhdl}}"
 yosys write_vhdl {{settings.rtl_vhdl}}
 {%- endif %}
 {% if settings.show_rtl -%}
@@ -57,31 +59,31 @@ show -prefix rtl_show -format dot {{settings.show_rtl_flags|join(" ")}}
 {%if settings.stop_after != "rtl" -%}
 
 {%- if settings.fpga %}
-log -stdout yosys> Running FPGA synthesis for device {{settings.fpga}}
+puts "$log_prefix Running FPGA synthesis for device {{settings.fpga}}"
     {%- if settings.fpga.vendor == "xilinx" %}
-log -stdout yosys> Target: Xilinx {%if settings.fpga.part%} {{settings.fpga.part}} {%else%} {{settings.fpga.device}} {%endif%}
+puts "$log_prefix Target: Xilinx {%if settings.fpga.part%} {{settings.fpga.part}} {%else%} {{settings.fpga.device}} {%endif%}"
 synth_xilinx {%- if settings.fpga.family %} -family {{settings.fpga.family}} {%- endif %} {{settings.synth_flags|join(" ")}}
     {%- elif settings.fpga.family %}
-log -stdout yosys> Target: {{settings.fpga.family}}
+puts "$log_prefix  Target: {{settings.fpga.family}}"
 synth_{{settings.fpga.family}} {{settings.synth_flags|join(" ")}}
     {%- else %}
-log -stderr yosys> Unknown FPGA vendor, family, or device
+puts "$log_prefix Unknown FPGA vendor, family, or device"
     {%- endif %}
 {%- else %}
-log -stdout yosys> Running synthesis
+puts "$log_prefix  Running synthesis"
 synth {{settings.synth_flags|join(" ")}}
     {%- if settings.tech %}
         {% if settings.tech.liberty -%}
-log -stdout yosys> Mapping FFs to lib
+puts "$log_prefix  Mapping FFs to technology library"
 dfflibmap -liberty {{settings.tech.liberty}}
         {%- endif %}
-log -stdout yosys> Running ABC
+puts "$log_prefix  Running ABC"
 abc {{settings.abc_flags|join(" ")}}
     {%- endif %}
 {%- endif %}
 
 {% if settings.post_synth_opt -%}
-log -stdout Post-synthesis optimization
+puts "$log_prefix Final netlist optimization"
 opt -full -purge -sat
 opt -full -purge 
 {%- endif %}
@@ -90,32 +92,32 @@ opt -full -purge
 splitnets {{settings.splitnets|join(" ")}}
 {%- endif %}
 
-puts "Writing stat to {{artifacts.reports.utilization}}"
+puts "$log_prefix Writing stat to {{artifacts.reports.utilization}}"
 tee -q -o {{artifacts.reports.utilization}} stat {%- if settings.fpga and settings.fpga.vendor == "xilinx" %} -tech xilinx {%-elif settings.tech and settings.tech.liberty%} -liberty {{settings.tech.liberty}}  {%- endif %}
 
 check {% if settings.check_assert -%} -assert {%- endif %}
 
 {% if settings.netlist_json -%}
-log -stdout yosys> Writing netlist {{settings.netlist_json}}
+puts "$log_prefix Writing netlist {{settings.netlist_json}}"
 write_json {{settings.netlist_json}}
 {%- endif %}
 {% if settings.netlist_verilog -%}
-log -stdout yosys> Writing netlist {{settings.netlist_verilog}}
+puts "$log_prefix Writing netlist {{settings.netlist_verilog}}"
 write_verilog {{settings.write_verilog_flags|join(" ")}} {{settings.netlist_verilog}}
 {%- endif %}
 {% if settings.netlist_vhdl -%}
-log -stdout yosys> Writing netlist {{settings.netlist_vhdl}}
+puts "$log_prefix Writing netlist {{settings.netlist_vhdl}}"
 yosys write_vhdl {{settings.write_vhdl_flags|join(" ")}} {{settings.netlist_vhdl}}
 {%- endif %}
 
 {% if settings.sta -%}
-puts "Writing timing report to {{artifacts.report.timing}}"
+puts "$log_prefix Writing timing report to {{artifacts.report.timing}}"
 tee -o {{artifacts.reports.timing}} ltp
 tee -a {{artifacts.reports.timing}} sta
 {%- endif %}
 
 {% if settings.show_netlist -%}
-log -stdout yosys> Writing netlist diagram to netlist_show.dot
+puts "$log_prefix Writing netlist diagram to {{settings.show_netlist}}"
 show -prefix netlist_show -format dot {{settings.show_netlist_flags|join(" ")}}
 {%- endif %}
 

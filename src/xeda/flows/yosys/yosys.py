@@ -2,13 +2,13 @@
 import json
 import logging
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Dict, List, Literal, Optional, Tuple, Type
 import pkg_resources
 from pydantic.fields import Field
 import toml
 from pydantic import NoneStr, root_validator, validator
 import os
+from munch import Munch
 
 from ...flows.ghdl import GhdlSynth
 from ...tool import Tool
@@ -40,15 +40,12 @@ def append_flag(flag_list: List[str], flag: str):
     return flag_list
 
 
-def to_simplenamespace(d: dict) -> SimpleNamespace:
-    print(f"d={d} ({type(d)})")
-    return SimpleNamespace(**{k: (to_simplenamespace(v) if isinstance(v, dict) else v) for k, v in d.items()})
 
 
 class YosysSynth(Yosys, SynthFlow):
     class Settings(Yosys.Settings, SynthFlow.Settings):
         log_file: Optional[str] = 'yosys.log'
-        flatten: bool = Field(False, description="flatten design")
+        flatten: bool = Field(True, description="flatten design")
         abc9: bool = Field(True, description="Use abc9")
         retime: bool = Field(False, description="Enable flip-flop retiming")
         nobram: bool = Field(
@@ -103,12 +100,13 @@ class YosysSynth(Yosys, SynthFlow):
         ]
         ghdl: GhdlSynth.Settings = GhdlSynth.Settings()
         post_synth_opt: bool = Field(
-            False, description="run additional optimization steps after synthesis if complete"
+            True, description="run additional optimization steps after synthesis if complete"
         )
         verilog_lib: List[str] = []
         splitnets: Optional[List[str]] = None  # ['-driver']
         set_attributes: Dict[str, Dict[str, Any]] = {}
         stop_after: Optional[Literal['rtl']]
+        netlistsvg: Optional[str] = Field(None, description="Generate a netlist SVG by runnning 'netlistsvg' (netlistsvg needs to be installed)")
 
         @validator('write_verilog_flags', pre=False)
         def validate_write_verilog_flags(cls, value, values):
@@ -220,7 +218,7 @@ class YosysSynth(Yosys, SynthFlow):
             if an:
                 self.artifacts['netlist'] = an
 
-        self.artifacts = to_simplenamespace(self.artifacts)
+        self.artifacts = Munch.fromDict(self.artifacts)
 
     def run(self):
         ss = self.settings
@@ -284,11 +282,10 @@ class YosysSynth(Yosys, SynthFlow):
             args.extend(['-T', '-Q', '-q'])
         self.results['_tool'] = self.info  # TODO where should this go?
         logger.info(f"Logging yosys output to {ss.log_file}")
-        # self.run_tool(self.default_executable, args)
-        netlistsvg = True
+        self.run_tool(self.default_executable, args)
         skin_file = None
         elk_layout = None
-        if netlistsvg:
+        if ss.netlistsvg:
             rtl_json = self.artifacts.rtl.__dict__.get('json')
             if rtl_json:
                 svg_file = 'rtl.svg'

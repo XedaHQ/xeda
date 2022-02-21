@@ -18,9 +18,8 @@ from math import ceil
 from pydantic.error_wrappers import ValidationError, display_errors
 
 from ..utils import unique
-from .default_runner import FlowRunner, print_results
+from . import FlowRunner, generate
 from ..flows.design import Design, DesignError
-from ..flows.flow_gen import FlowGen
 from ..flows.flow import Flow, FlowFatalException, NonZeroExit
 
 
@@ -103,10 +102,9 @@ class FmaxRunner(FlowRunner):
 
         start_time = time.monotonic()
 
+        ## FIXME FIXME broken
         flow_settings = self.flows.get(flow_name, {})
-        
-        flow_gen = FlowGen(self.flows)
-        flow: Flow = flow_gen.generate(flow_name, ".", design, self.xeda_run_dir, completed_dependencies = [])
+        flow: Flow = generate(flow_name, design, self.xeda_run_dir)
 
 
         # compatibility with previous key name

@@ -20,9 +20,7 @@ from pydantic.error_wrappers import ValidationError, display_errors
 from .flows.flow import Flow, SimFlow, SynthFlow
 from .utils import camelcase_to_snakecase, load_class
 from .debug import DebugLevel
-from .flow_runner import FlowRunner, DefaultRunner
-from .flow_runner import FlowGen
-from .flows.flow_gen import FlowGen, get_flow_class
+from .flow_runner import FlowRunner, DefaultRunner, merge_overrides, get_flow_class, get_settings_schema
 from .flows.design import Design, DesignError
 from .flows.flow import Flow, FlowSettingsError
 
@@ -33,13 +31,11 @@ __version__ = get_versions()['version']
 del get_versions
 
 
-
 class FlowSettingsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         try:
             print(f"flow={namespace.flow}")
-            flow_gen = FlowGen({})
-            schema = flow_gen.get_settings_schema(namespace.flow, "xeda.flows")
+            schema = get_settings_schema(namespace.flow, "xeda.flows")
             self.print_flow_settings(schema)
         finally:
             exit(0)
@@ -343,7 +339,6 @@ def load_design_from_toml(design_file) -> Design:
 def run(args=None):
     parsed_args = get_main_argparser().parse_args(args)
 
-
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     if parsed_args.debug:
@@ -397,11 +392,11 @@ def run(args=None):
     if force_run:
         logger.info(f"Forced re-run of {flow_name}")
 
-    flow_overrides = FlowGen.merge_overrides(
+    flow_overrides = merge_overrides(
         parsed_args.flow_settings, flows.get(flow_name, {}))
     if parsed_args.flow_settings:
         assert len(flow_overrides) >= 1
-        
+
     runner: FlowRunner = runner_cls(xeda_run_dir)
 
     flow_class = get_flow_class(flow_name, "xeda.flows", __package__)

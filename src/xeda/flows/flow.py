@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod
-from pydantic import BaseModel, Field, Extra, root_validator, validator
+from pydantic import BaseModel, Field, validator
 from pydantic.types import NoneStr
-from typing import Any, List, Optional, Type, Tuple, Union
+from typing import List, Optional, Type, Tuple, Union
 import os
 import re
 from pathlib import Path
@@ -11,17 +11,14 @@ import logging
 from jinja2.loaders import ChoiceLoader
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner
-import colored
 from typing import Dict, List
 import multiprocessing
-
-
 from .design import Design, XedaBaseModel
 from ..tool import Tool
 from ..utils import backup_existing, camelcase_to_snakecase, try_convert
 from ..debug import DebugLevel
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class FlowFatalException(Exception):
@@ -115,7 +112,7 @@ class Flow(Tool, metaclass=MetaFlow):
     def __init_subclass__(cls) -> None:
         cls_name = camelcase_to_snakecase(cls.__name__)
         mod_name = cls.__module__
-        logger.info(f"registering flow {cls_name} from {mod_name}")
+        log.info(f"registering flow {cls_name} from {mod_name}")
         registered_flows[cls_name] = (mod_name, cls)
 
         if mod_name and not mod_name.startswith('xeda.flows.'):
@@ -185,7 +182,7 @@ class Flow(Tool, metaclass=MetaFlow):
     def copy_from_template(self, resource_name, **kwargs) -> os.PathLike:
         template = self.jinja_env.get_template(resource_name)
         script_path: Path = self.run_path / resource_name
-        logger.debug(f'generating {script_path.resolve()} from template.')
+        log.debug(f'generating {script_path.resolve()} from template.')
         rendered_content = template.render(
             settings=self.settings,
             design=self.design,
@@ -203,9 +200,10 @@ class Flow(Tool, metaclass=MetaFlow):
         return os.path.relpath(path, self.run_path)
 
     def fatal(self, msg):
-        logger.critical(msg)
+        log.critical(msg)
         raise FlowFatalException(msg)
 
+    # FIXME REMOVE!! +remove progress from dep
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False, nolog=False):
         prog_args = [str(a) for a in prog_args]
         if nolog:
@@ -237,7 +235,7 @@ class Flow(Tool, metaclass=MetaFlow):
         redirect_std = self.settings.debug < DebugLevel.HIGH
         with open(stdout_logfile, 'w') as log_file:
             try:
-                logger.info(
+                log.info(
                     f'Running `{prog} {" ".join(prog_args)}` in {self.run_path}')
                 with subprocess.Popen([prog, *prog_args],
                                       cwd=self.run_path,
@@ -248,7 +246,7 @@ class Flow(Tool, metaclass=MetaFlow):
                                       encoding='utf-8',
                                       errors='replace'
                                       ) as proc:
-                    logger.info(
+                    log.info(
                         f'Started {proc.args[0]}[{proc.pid}].{(" Standard output is logged to: " + str(stdout_logfile)) if redirect_std else ""}')
 
                     def end_step():
@@ -276,11 +274,11 @@ class Flow(Tool, metaclass=MetaFlow):
                                     if error_msg_re.match(line) or critwarn_msg_re.match(line):
                                         if spinner:
                                             print()
-                                        logger.error(line)
+                                        log.error(line)
                                     elif warn_msg_re.match(line):
                                         if spinner:
                                             print()
-                                        logger.warning(line)
+                                        log.warning(line)
                                     elif enable_echo_re.match(line):
                                         if not self.settings.quiet:
                                             echo_instructed = True
@@ -310,12 +308,12 @@ class Flow(Tool, metaclass=MetaFlow):
 
         if proc.returncode != 0:
             m = f'`{proc.args[0]}` exited with returncode {proc.returncode}'
-            logger.critical(
+            log.critical(
                 f'{m}. Please check `{stdout_logfile}` for error messages!')
             if check:
                 raise NonZeroExit(m)
         else:
-            logger.info(
+            log.info(
                 f'Execution of {prog} in {self.run_path} completed with returncode {proc.returncode}')
 
     def parse_report_regex(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True, required=False, sequential=False):
@@ -323,7 +321,7 @@ class Flow(Tool, metaclass=MetaFlow):
             reportfile_path = self.run_path / reportfile_path
         # TODO fix debug and verbosity levels!
         if not reportfile_path.exists():
-            logger.warning(
+            log.warning(
                 f'File {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.run_path}'
             )
             return False
@@ -343,55 +341,27 @@ class Flow(Tool, metaclass=MetaFlow):
                 match_dict = match.groupdict()
                 for k, v in match_dict.items():
                     self.results[k] = try_convert(v)
-                    logger.debug(f'{k}: {self.results[k]}')
+                    log.debug(f'{k}: {self.results[k]}')
                 if sequential:
                     content = content[match.span(0)[1]:]
-                    print(f">>> len(content)= {len(content)}")
+                    log.debug(f">>> len(content)= {len(content)}")
                 return True
 
             for pat in [re_pattern, *other_re_patterns]:
                 matched = False
                 if isinstance(pat, list):
-                    logger.debug(f"Matching any of: {pat}")
+                    log.debug(f"Matching any of: {pat}")
                     for subpat in pat:
                         matched = match_pattern(subpat)
                 else:
-                    logger.debug(f"Matching: {pat}")
+                    log.debug(f"Matching: {pat}")
                     matched = match_pattern(pat)
 
                 if not matched and required:
-                    logger.critical(
+                    log.critical(
                         f"Error parsing report file: {rpt_file.name}\n Pattern not matched: {pat}\n")
                     return False
         return True
-
-    def print_results(self, results=None):
-        if not results:
-            results = self.results
-
-        data_width = 32
-        name_width = 80 - data_width
-        hline = "-"*(name_width + data_width)
-
-        my_print("\n" + hline)
-        my_print(f"{'Results':^{name_width + data_width}s}")
-        my_print(hline)
-        for k, v in results.items():
-            if v is not None and not k.startswith('_'):
-                if isinstance(v, float):
-                    my_print(f'{k:{name_width}}{v:{data_width}.3f}')
-                elif isinstance(v, bool):
-                    bdisp = (colored.fg(
-                        "green") + "✓" if v else colored.fg("red") + "✗") + colored.attr("reset")
-                    my_print(f'{k:{name_width}}{bdisp:>{data_width}}')
-                elif isinstance(v, int):
-                    my_print(f'{k:{name_width}}{v:>{data_width}}')
-                elif isinstance(v, list):
-                    my_print(
-                        f'{k:{name_width}}{" ".join([str(x) for x in v]):<{data_width}}')
-                else:
-                    my_print(f'{k:{name_width}}{str(v):>{data_width}s}')
-        my_print(hline + "\n")
 
 
 class Cocotb(Tool):
@@ -400,7 +370,7 @@ class Cocotb(Tool):
 
     def __init__(self, sim_tool: 'SimFlow'):
         if not sim_tool.cocotb_sim_name:
-            logger.warning("Cocotb requires a cocotb-simulation tool")
+            log.warning("Cocotb requires a cocotb-simulation tool")
             return
         super().__init__(sim_tool.settings, sim_tool.run_path)
         self.sim_tool = sim_tool
@@ -419,7 +389,7 @@ class Cocotb(Tool):
                                              ["--prefix"], stdout=True, check=True
                                              ) + f"/cocotb/libs/libcocotbvpi_{cocotb_name}.{so_ext}"
 
-        logger.warn(f"cocotb.vpi_path = {so_path}")
+        log.warn(f"cocotb.vpi_path = {so_path}")
         return so_path
 
 

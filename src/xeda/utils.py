@@ -16,10 +16,11 @@ def backup_existing(path: Path):
         logger.warning(f"path {path} does not exist to backup!")
         return
     modifiedTime = os.path.getmtime(path)
-    suffix = datetime.fromtimestamp(
-        modifiedTime).strftime("%Y-%m-%d-%H%M%S")
-    backup_path = path.with_suffix(f".backup_{suffix}.json")
-    logger.warning(f"Backing-up {path.name} as {backup_path}")
+    suffix = f'.backup_{datetime.fromtimestamp(modifiedTime).strftime("%Y-%m-%d-%H%M%S")}'
+    if path.suffix:
+        suffix += path.suffix
+    backup_path = path.with_suffix(suffix)
+    logger.warning(f"Backing-up existing '{path.name}' to '{backup_path.name}'")
     os.rename(path, backup_path)
 
 
