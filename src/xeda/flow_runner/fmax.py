@@ -307,10 +307,10 @@ class FmaxRunner(FlowRunner):
             if pool:
                 pool.close()
                 pool.join()
-            runtime_minutes = int(time.monotonic() - start_time) // 60
+            runtime = int(time.monotonic() - start_time)
             if best:
                 best.iterations = num_iterations
-                best.runtime_minutes = runtime_minutes
+                best.runtime = runtime
                 print_results(best.results, title='Best Results', subset=[
                     'clock_period', 'clock_frequency', 'lut', 'ff', 'slice'])
                 best_json_path = Path(args.xeda_run_dir) / \
@@ -323,5 +323,5 @@ class FmaxRunner(FlowRunner):
             else:
                 logger.warning("No successful results.")
             logger.info(
-                f'[Fmax] Total Execution Time: {runtime_minutes} minute(s)')
+                f'[Fmax] Total Execution Time: {runtime} minute(s)')
             logger.info(f'[Fmax] Total Iterations: {num_iterations}')

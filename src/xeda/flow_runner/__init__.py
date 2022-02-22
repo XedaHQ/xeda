@@ -1,19 +1,19 @@
 from datetime import datetime
+import math
 import coloredlogs
 import time
 import logging
 from pathlib import Path
-from datetime import datetime
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Mapping, Type, Any
 import importlib
 import hashlib
 import re
 from pathvalidate import sanitize_filename
 from rich import box, print_json
-from rich.table import Table, Row
+from rich.table import Table
 from rich.style import Style
-from rich.rule import Rule
+from rich.text import Text
 
 from ..console import console
 from ..flows.flow import Flow, Design, registered_flows
@@ -34,23 +34,31 @@ def print_results(flow: Flow, results=None):
         results = flow.results
     console.print()
     table = Table(title="Results", title_style=Style(frame=True, bold=True),
-                  title_justify='left', show_header=False, box=box.HEAVY_EDGE, show_lines=True
+                  show_header=False,
+                  box=box.ROUNDED,
+                  show_lines=True,
                   )
     table.add_column("Field", justify="left", style="bold", no_wrap=True)
     table.add_column("Value", justify="right")
     for k, v in results.items():
         if v is not None and not k.startswith('_'):
             if k == 'success':
-                success = "heavy_check_mark" if v else "cross_mark"
-                success = f":{success}-text:"
-                # table.add_row("Status", Text(Emoji.replace(success), style=Style(color='green' if v else 'red')))
-                table.add_row("Status", success, style=Style(
-                    color='green' if v else 'red'))
+                text = "OK :heavy_check_mark-text:" if v else "FAILED :cross_mark-text:"
+                color = 'green' if v else 'red'
+                table.add_row("Status", text, style=Style(color=color))
+                continue
+            if k == 'design':
+                table.add_row("Design Name", Text(v), style=Style(dim=True))
+                continue
+            if k == 'flow':
+                table.add_row("Flow Name", Text(v), style=Style(dim=True))
+                continue
+            if k == 'runtime':
+                table.add_row("Running Time", str(timedelta(seconds=int(v))), style=Style(dim=True))
                 continue
             if isinstance(v, float):
                 v = f'{v:.3f}'
             table.add_row(k, str(v))
-    # console.print(Rule("Results"), width=table.width)
     console.print(table)
 
 
@@ -153,9 +161,11 @@ def generate(flow_class, design: Design, xeda_run_dir: Path, override_settings: 
     logger.info(f'dumping effective settings to {settings_json_path}')
     all_settings = dict(
         design=design,
+        design_hash=design_hash,
         flow_name=flow_name,
         flow_settings=flow_settings,
-        xeda_version=__version__
+        xeda_version=__version__,
+        flowrun_hash=flowrun_hash
     )
     dump_json(all_settings, settings_json_path)
 
@@ -166,6 +176,8 @@ def generate(flow_class, design: Design, xeda_run_dir: Path, override_settings: 
 
     flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     flow.init_time = time.monotonic()
+    flow.design_hash = design_hash
+    flow.flow_hash = flowrun_hash
 
     return flow
 
@@ -216,11 +228,14 @@ class FlowRunner:
 
         failed = False
 
+        flow.results['design'] = flow.design.name
+        flow.results['flow'] = flow.name
+
         flow.init()
         # print(flow.dependencies)
         for dep_cls, dep_settings in flow.dependencies:
             # merge with existing self.flows[dep].settings
-            completed_dep = self.run_flow(dep_cls, dep_settings, design)
+            completed_dep = self.run_flow(dep_cls, design, dep_settings)
             if not completed_dep or not completed_dep.results['success']:
                 logger.critical(f"Dependency flow {dep_cls.name} failed")
                 raise Exception()  # TODO
@@ -234,8 +249,7 @@ class FlowRunner:
             raise e from None
 
         if flow.init_time is not None:
-            flow.results['runtime_minutes'] = (
-                time.monotonic() - flow.init_time) / 60
+            flow.results['runtime'] = time.monotonic() - flow.init_time
 
         if not failed:
             flow.parse_reports()
@@ -250,9 +264,6 @@ class FlowRunner:
             flow.results['success'] = False
             # set success=false if execution failed
             logger.critical(f"{flow.name} failed!")
-
-        flow.results['design'] = flow.design.name
-        flow.results['flow'] = flow.name
 
         path = flow.run_path / f'results.json'
         dump_json(flow.results, path)

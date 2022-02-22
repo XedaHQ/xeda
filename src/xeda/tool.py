@@ -67,7 +67,6 @@ class Tool(metaclass=ABCMeta):
 
     default_native: NativeToolSettings
     default_docker: Optional[DockerToolSettings] = None
-    name: Optional[str] = None
 
     def __init__(self, settings: Settings, run_path):
         self.run_path = run_path

@@ -81,7 +81,7 @@ registered_flows: Dict[str, Tuple[str, Type['Flow']]] = {}
 class Flow(Tool, metaclass=MetaFlow):
     """ A flow may run one or more tools and is associated with a single set of settings and a single design.
     All tool executables should be available on the installed system or on the same docker image. """
-    name = None  # "name" is automatically set
+    name: str  # "name" is automatically set
 
     # customized by subclasses:
     default_executable: NoneStr = None
@@ -134,6 +134,8 @@ class Flow(Tool, metaclass=MetaFlow):
 
         self.init_time = None
         self.timestamp = None
+        self.flow_hash = None
+        self.design_hash = None
 
         self.reports_dir = run_path / self.settings.reports_subdir_name
         if self.reports_dir.exists() and os.listdir(self.reports_dir):  # exists and non-empty
