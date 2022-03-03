@@ -1,9 +1,7 @@
 import logging
-
 from .vivado_synth import RunOptions, VivadoSynth
-from ..flow import SynthFlow
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class VivadoPrjSynth(VivadoSynth):
@@ -42,14 +40,14 @@ class VivadoPrjSynth(VivadoSynth):
             }, **settings.impl.steps}
 
         if not self.design.rtl.clock_port:
-            logger.critical("No clocks specified for top RTL design. Continuing with synthesis anyways.")
+            log.critical("No clocks specified for top RTL design. Continuing with synthesis anyways.")
         else:
             assert self.settings.clock_period, "`clock_period` must be specified and be positive value"
             freq = 1000 / self.settings.clock_period
-            logger.info(f"clock.port={self.design.rtl.clock_port} clock.frequency={freq:.3f} MHz")
+            log.info(f"clock.port={self.design.rtl.clock_port} clock.frequency={freq:.3f} MHz")
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
 
-        logger.info(
+        log.info(
             f"blacklisted_resources: {self.settings.blacklisted_resources}")
 
         # for x in ["synth", "impl"]:

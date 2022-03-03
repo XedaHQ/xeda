@@ -1,0 +1,14 @@
+name = 'sqrt'
+description = 'Integer Square Root'
+language.vhdl.standard = "2008"
+
+[rtl]
+sources = ['sqrt.vhdl']
+top = 'sqrt'
+clock_port = 'clk'
+parameters = { G_IN_WIDTH = 32 }
+
+[tb]
+sources = ['tb/tb_sqrt.py']
+cocotb = true
+# top = 'tb_sqrt'

@@ -5,7 +5,7 @@ from .vivado.vivado_project import VivadoPrjSynth
 from .vivado.vivado_synth import VivadoSynth
 from .vivado.vivado_sim import VivadoSim
 from .ise import IseSynth
-# from .quartus import QuartusSynth
+from .quartus import Quartus
 # from .diamond import DiamondSynth
 from .ghdl import GhdlSim, GhdlSynth
 # from .modelsim import Modelsim

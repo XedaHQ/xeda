@@ -7,16 +7,18 @@ import re
 from pathlib import Path
 import subprocess
 from jinja2 import Environment, PackageLoader, StrictUndefined
-import logging
 from jinja2.loaders import ChoiceLoader
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner
 from typing import Dict, List
+import logging
 import multiprocessing
+import psutil
 from .design import Design, XedaBaseModel
 from ..tool import Tool
 from ..utils import backup_existing, camelcase_to_snakecase, try_convert
 from ..debug import DebugLevel
+from .cocotb import Cocotb
 
 log = logging.getLogger(__name__)
 
@@ -45,20 +47,9 @@ def final_kill(proc):
     except:
         pass
 
-# @contextmanager
-# def process(*args, **kwargs):
-#     proc = subprocess.Popen(*args, **kwargs)
-#     try:
-#         yield proc
-#     finally:
-#         final_kill(proc)
-
-
-def my_print(*args, **kwargs):
-    print(*args, **kwargs)
-
-
 # similar to str.removesuffix in Python 3.9+
+
+
 def removesuffix(s: str, suffix: str) -> str:
     return s[:-len(suffix)] if suffix and s.endswith(suffix) else s
 
@@ -67,18 +58,10 @@ def removeprefix(s: str, suffix: str) -> str:
     return s[len(suffix):] if suffix and s.startswith(suffix) else s
 
 
-class MetaFlow(ABCMeta):
-    # called when instance is created
-    # def __call__(self, *args, **kwargs):
-    #     obj = super(MetaFlow, self).__call__(*args, **kwargs)
-    #     return obj
-    pass
-
-
 registered_flows: Dict[str, Tuple[str, Type['Flow']]] = {}
 
 
-class Flow(Tool, metaclass=MetaFlow):
+class Flow(Tool, metaclass=ABCMeta):
     """ A flow may run one or more tools and is associated with a single set of settings and a single design.
     All tool executables should be available on the installed system or on the same docker image. """
     name: str  # "name" is automatically set
@@ -87,23 +70,23 @@ class Flow(Tool, metaclass=MetaFlow):
     default_executable: NoneStr = None
     docker_image: NoneStr = None
 
-    class Settings(Tool.Settings, XedaBaseModel, metaclass=ABCMeta):
+    class Settings(Tool.Settings, XedaBaseModel):
         """Settings that can affect flow's behavior"""
         reports_subdir_name: str = 'reports'
         timeout_seconds: int = 3600 * 2
         nthreads: int = Field(default_factory=multiprocessing.cpu_count,
-                              description="max number of threads/cpus")
+                              description="max number of threads")
+        ncpus: int = Field(psutil.cpu_count(logical=False),
+                           description="Number of physical CPUs to use.")
         no_console: bool = False
         reports_dir: str = 'reports'
         unique_rundir: bool = False
         clean: bool = False
 
-
     class Results(XedaBaseModel, metaclass=ABCMeta):
         success: bool
         artifacts: List[Union[str, os.PathLike]]
         reports: List[Union[str, os.PathLike]]
-
 
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
@@ -188,6 +171,7 @@ class Flow(Tool, metaclass=MetaFlow):
         rendered_content = template.render(
             settings=self.settings,
             design=self.design,
+            artifacts=self.artifacts,
             **kwargs
         )
         with open(script_path, 'w') as f:
@@ -366,46 +350,21 @@ class Flow(Tool, metaclass=MetaFlow):
         return True
 
 
-class Cocotb(Tool):
-    """Cocotb support for a SimFlow"""
-    """Not an autonomous tool. Requires instance of a simulation tool"""
-
-    def __init__(self, sim_tool: 'SimFlow'):
-        if not sim_tool.cocotb_sim_name:
-            log.warning("Cocotb requires a cocotb-simulation tool")
-            return
-        super().__init__(sim_tool.settings, sim_tool.run_path)
-        self.sim_tool = sim_tool
-
-    def get_version(self):
-        return self.sim_tool.run_tool("cocotb-config", ["--version"], stdout=True)
-
-    def vpi_path(self):
-        cocotb_name = self.sim_tool.cocotb_sim_name
-        so_ext = "so"  # TODO?
-        if self.version_minor >= 5:
-            so_path = self.sim_tool.run_tool("cocotb-config",
-                                             ["--lib-name-path", "vpi", cocotb_name], stdout=True)
-        else:
-            so_path = self.sim_tool.run_tool("cocotb-config",
-                                             ["--prefix"], stdout=True, check=True
-                                             ) + f"/cocotb/libs/libcocotbvpi_{cocotb_name}.{so_ext}"
-
-        log.warn(f"cocotb.vpi_path = {so_path}")
-        return so_path
-
-
 class SimFlow(Flow):
     cocotb_sim_name: NoneStr = None
 
     class Settings(Flow.Settings):
         vcd: Union[None, str, bool] = None
         stop_time: Union[None, str, int, float] = None
+        cocotb: Cocotb.Settings = Cocotb.Settings()
 
     def __init__(self, flow_settings: 'SimFlow.Settings', design: Design, run_path: Path):
         self.settings: SimFlow.Settings = flow_settings
         super().__init__(flow_settings, design, run_path)
-        self.cocotb = Cocotb(self)
+
+        self.cocotb: Optional[Cocotb] = Cocotb(
+            self.settings.cocotb, self.cocotb_sim_name, self.run_path
+        ) if self.cocotb_sim_name else None
 
     def parse_reports(self):
         self.results['success'] = True
@@ -534,15 +493,62 @@ class TargetTechnology(XedaBaseModel):
     lut: Optional[str] = None
 
 
+class PhysicalClock(XedaBaseModel):
+    name: Optional[str] = None
+    period: float = Field(description="period (nanoseconds)")
+    rise: float = Field(0., description="rise time (nanoseconds)")
+    fall: float = Field(0., description="fall time (nanoseconds)")
+    uncertainty: Optional[float] = Field(None, description="clock uncertainty")
+    skew: Optional[float] = Field(None, description="skew")
+    port: Optional[str] = Field(None, description="associated design port")
+
+    @validator('fall', always=True)
+    def fall_validate(cls, value, values):
+        if not value:
+            value = round(values.get('period', 0.) / 2., 3)
+        return value
+
+    @property
+    def duty_cycle(self) -> float:
+        return (self.fall - self.rise) / self.period
+
+    @property
+    def freq_mhz(self) -> float:
+        return 1000. / self.period
+
+
 class SynthFlow(Flow):
     class Settings(Flow.Settings):
         """base Synthesis flow settings"""
         clock_period: Optional[float] = Field(
             None, description="target clock period in nanoseconds"
         )
+        clocks: Dict[str, PhysicalClock] = {}
+
+        @validator('clocks', always=True)
+        def clocks_validate(cls, value, values):
+            clock_period = values.get('clock_period')
+            if not value and clock_period:
+                value = {
+                    'main_clock': PhysicalClock(name='main_clock', period=clock_period)
+                }
+            return value
+
         fpga: Optional[FPGA] = None
         tech: Optional[TargetTechnology] = None
         blacklisted_resources: Optional[List[str]]
+
+    def __init__(self, flow_settings: 'SynthFlow.Settings', design: Design, run_path: Path):
+        design_clocks = design.rtl.clocks
+        for clock_name, physical_clock in flow_settings.clocks.items():
+            if not physical_clock.port:
+                try:
+                    physical_clock.port = design_clocks[clock_name].port
+                    flow_settings.clocks[clock_name] = physical_clock
+                except LookupError as e:
+                    log.critical(f"Physical clock {clock_name} has no corresponding clock port in design.rtl")
+                    raise e from None
+        super().__init__(flow_settings, design, run_path)
 
 
 class FpgaSynthFlow(SynthFlow):

@@ -9,13 +9,6 @@ clock_port = ''
 sources = ['full_adder_tb.vhd']
 top = 'full_adder_tb'
 
-[[design]]
-name = 'pipelined-full-adder'
-description = 'Example VHDL design'
-[design.rtl]
-sources = ['full_adder_piped.vhd']
-top = 'full_adder_piped'
-clock_port = 'clk'
 
 [flows.ghdl_sim]
 warn_error = true

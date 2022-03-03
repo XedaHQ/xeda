@@ -7,8 +7,7 @@ from pathlib import Path
 import logging
 import hashlib
 
-
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class XedaBaseModel(BaseModel, metaclass=ABCMeta):
@@ -30,7 +29,7 @@ class FileResource:
                 p = Path.cwd() / p
             self.file = p.resolve(strict=True)
         except FileNotFoundError as e:
-            logger.critical(f"Design resource '{path}' does not exist!")
+            log.critical(f"Design resource '{path}' does not exist!")
             raise e
 
         with open(self.file, 'rb') as f:
@@ -84,7 +83,7 @@ DefineType = Any
 class DVSettings(XedaBaseModel, validate_assignment=True):
     """Design/Verification settings"""
     sources: List[DesignSource]
-    top: Optional[Union[str, Tuple[str, str]]] = None
+    top: Optional[Union[str, Tuple[str, Optional[str]]]] = None
     generics: Dict[str, DefineType] = Field(
         default=dict(),
         description='Top-level generics/defines specified as a mapping',
@@ -114,15 +113,6 @@ class DVSettings(XedaBaseModel, validate_assignment=True):
             values['parameters'] = value
         return values
 
-    # @validator('generics', 'parameters', pre=False, always=True)
-    # def file_resource_parameters(cls, value, values, config, field):
-    #     other_field = 'generics' if field == 'parameters' else 'parameters'
-    #     other = values.get(other_field)
-    #     ov = values.get(other)
-    #     if not value and ov:
-    #         return ov
-    #     return value
-
     @validator('sources', pre=True)
     def sources_to_files(cls, sources):
         if sources:
@@ -130,22 +120,15 @@ class DVSettings(XedaBaseModel, validate_assignment=True):
                 src if isinstance(src, DesignSource) else DesignSource(src) for src in sources
             ]
 
-    # def __init__(self, **data):
-    #     sources = data.get('sources')
-    #     if sources:
-    #         data['sources'] = [
-    #             src if isinstance(src, DesignSource) else DesignSource(src) for src in sources
-    #         ]
-    #     super().__init__(**data)
-
 
 class Clock(BaseModel):
     port: NoneStr
 
 
 class RtlSettings(DVSettings):
-    clock: Clock = Clock(port=None)
-    clock_port: NoneStr = None
+    clock: Clock = Clock(port=None)  # TODO rename to primary_clock?
+    clocks: Dict[str, Clock] = {}
+    clock_port: NoneStr = None  # TODO remove?
 
     @root_validator(pre=False)
     def rtl_settings_validate(cls, values):
@@ -155,6 +138,8 @@ class RtlSettings(DVSettings):
             clock.port = clock_port
         if not clock_port:
             values['clock_port'] = clock.port
+        if not values.get('clocks'):
+            values['clocks'] = {'main_clock': clock}
         return values
 
 
@@ -164,9 +149,7 @@ class TbSettings(DVSettings):
     secondary_top: NoneStr = Field(
         None, description="Name of the secondary top unit (if available)")
     configuration_specification: NoneStr = None
-    cocotb: Union[bool, Dict[str, Any]] = Field(
-        False, description="testbench is based on cocotb. Optionally provide cocotb settings")
-    testcase: NoneStr = None
+    cocotb: bool = Field(False, description="testbench is based on cocotb framework")
 
 
 class LanguageSettings(XedaBaseModel):

@@ -1,35 +1,49 @@
-set design_name           {{design.name}}
+set project_name          {{design.name}}
 set top                   {{design.rtl.top}}
-set debug                 {{debug}}
 
 package require ::quartus::project
 package require ::quartus::flow
 
-project_open ${design_name}
+project_open ${project_name}
 
 load_package flow
 
-puts "\n===========================( Running flow )==========================="
+puts "\n===========================( Running compile flow )==========================="
 # runs: quartus_map, quartus_fit, quartus_asm, and quartus_sta
 if {[catch {execute_flow -compile} result]} {
     puts "ERROR: Compilation failed. Result: $result. See report files.\n"
-    exit 1
+    qexit -error
 }
 
+puts "clocks: [get_clocks]"
 
 # TODO set up: verilog include-dirs, VHDL generics, verilog params,
-
 
 load_package report
 load_report
 
+
+set panel "Timing Analyzer||Setup Summary"
+set panel_id [get_report_panel_id $panel]
+
+# negative if panel not found
+if {$panel_id > 0} {   
+    set setup_slack [get_report_panel_data -col_name Slack -row 1 -id $panel_id]
+    puts ""
+    puts "-----------------------------------------------------"
+    puts "Setup slack: $setup_slack"
+    puts "-----------------------------------------------------"
+    puts ""
+    if {$setup_slack<0} {
+        puts "\[ERROR\] Timing not met!"
+        # qexit -error
+    }
+}
+
+
 set panel_names [get_report_panel_names]
 
 puts "panel_names=${panel_names}"
-
-set reports_dir {{reports_dir}}
-
-file mkdir $reports_dir
 
 foreach panel_name $panel_names {
 
@@ -45,7 +59,7 @@ foreach panel_name $panel_names {
     set csv_file [regsub -all {_*'+_*} $csv_file {} ]
     set csv_file [regsub -all {_*"+_*} $csv_file {} ]
 
-    set csv_file $reports_dir/$csv_file.csv
+    set csv_file {{reports_dir}}/$csv_file.csv
 
     set csv_file_dir [file dirname ${csv_file}]
 

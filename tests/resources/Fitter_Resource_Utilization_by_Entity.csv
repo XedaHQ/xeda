@@ -1,0 +1,2 @@
+Compilation Hierarchy Node,ALMs needed [=A-B+C],[A] ALMs used in final placement,[B] Estimate of ALMs recoverable by dense packing,[C] Estimate of ALMs unavailable,ALMs used for memory,Combinational ALUTs,Dedicated Logic Registers,I/O Registers,Block Memory Bits,M10Ks,DSP Blocks,Pins,Virtual Pins,Full Hierarchy Name,Entity Name,Library Name
+|full_adder_piped,1.5 (1.5),1.5 (1.5),0.0 (0.0),0.0 (0.0),0.0 (0.0),3 (3),2 (2),0 (0),0,0,0,7,0,|full_adder_piped,full_adder_piped,work

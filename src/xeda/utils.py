@@ -1,7 +1,7 @@
 import re
 import csv
 import importlib
-from typing import Any, List
+from typing import Any, List, Union
 import os
 import json
 from pathlib import Path
@@ -20,14 +20,15 @@ def backup_existing(path: Path):
     if path.suffix:
         suffix += path.suffix
     backup_path = path.with_suffix(suffix)
-    logger.warning(f"Backing-up existing '{path.name}' to '{backup_path.name}'")
-    os.rename(path, backup_path)
+    typ = "file" if path.is_file() else "directory" if path.is_dir() else "???"
+    logger.warning(f"Renaming existing {typ} '{path.name}' to '{backup_path.name}'")
+    os.rename(path, backup_path)  # TODO use shutil.move instead?
 
 
 def dump_json(data, path: Path):
     if path.exists():
         backup_existing(path)
-    
+
     assert not path.exists(), "Old file still exists!"
 
     with open(path, 'w') as outfile:
@@ -106,16 +107,3 @@ def try_convert(s, convert_lists=False, to_str=True):
             if s1.lower in ['false', 'no']:
                 return False
             return s1 if to_str else s
-
-
-def parse_csv(path, id_field, field_parser=(lambda x: x), id_parser=(lambda x: x), interesting_fields=None):
-    data = {}
-
-    with open(path, newline='') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            if not interesting_fields:
-                interesting_fields = row.keys()
-            id = id_parser(row[id_field])
-            data[id] = {k: field_parser(row[k]) for k in interesting_fields}
-        return data

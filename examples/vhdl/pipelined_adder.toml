@@ -1,0 +1,7 @@
+name = 'pipelined_adder'
+description = 'Example VHDL design'
+
+[rtl]
+sources = ['full_adder_piped.vhd']
+top = 'full_adder_piped'
+clock_port = 'clk'

@@ -1,9 +1,8 @@
 from datetime import datetime
-import math
 import coloredlogs
 import time
 import logging
-from pathlib import Path
+from pathlib import Path, PosixPath
 from datetime import datetime, timedelta
 from typing import Mapping, Type, Any
 import importlib
@@ -26,7 +25,7 @@ from .._version import get_versions
 __version__ = get_versions()['version']
 del get_versions
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 def print_results(flow: Flow, results=None):
@@ -38,8 +37,8 @@ def print_results(flow: Flow, results=None):
                   box=box.ROUNDED,
                   show_lines=True,
                   )
-    table.add_column("Field", justify="left", style="bold", no_wrap=True)
-    table.add_column("Value", justify="right")
+    table.add_column(style="bold", no_wrap=True)
+    table.add_column(justify="right")
     for k, v in results.items():
         if v is not None and not k.startswith('_'):
             if k == 'success':
@@ -65,12 +64,12 @@ def print_results(flow: Flow, results=None):
 def get_flow_class(flow_name: str, module_name: str, package: str) -> Type[Flow]:
     (mod, flow_class) = registered_flows.get(flow_name, (None, None))
     if flow_class is None:
-        logger.warn(
+        log.warning(
             f"Flow {flow_name} was not found in registered flows. Trying to load using importlib.import_module")
         try:
             module = importlib.import_module(module_name)
         except ModuleNotFoundError as e:
-            logger.critical(
+            log.critical(
                 f"Unable to import {module_name} from {package}")
             raise e from None
         assert module is not None, f"importlib.import_module returned None. module_name: {module_name}, package: {package}"
@@ -78,7 +77,7 @@ def get_flow_class(flow_name: str, module_name: str, package: str) -> Type[Flow]
         try:
             flow_class = getattr(module, flow_class_name)
         except AttributeError as e:
-            logger.critical(
+            log.critical(
                 f"Unable to find class {flow_class_name} in {module}")
             raise e from None
     assert flow_class is not None and issubclass(flow_class, Flow)
@@ -158,7 +157,7 @@ def generate(flow_class, design: Design, xeda_run_dir: Path, override_settings: 
     run_path.mkdir(parents=True, exist_ok=True)
 
     settings_json_path = run_path / f'settings.json'
-    logger.info(f'dumping effective settings to {settings_json_path}')
+    log.info(f'dumping effective settings to {settings_json_path}')
     all_settings = dict(
         design=design,
         design_hash=design_hash,
@@ -207,18 +206,18 @@ class FlowRunner:
         coloredlogs.install(
             'INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=root_logger)
 
-        logger.info(f"Running using FlowRunner: {self.__class__.__name__}")
+        log.info(f"Running using FlowRunner: {self.__class__.__name__}")
 
     def fatal(self, msg=None, exception=None):
         if msg:
-            logger.critical(msg)
+            log.critical(msg)
         if exception:
             raise exception
         else:
             raise Exception(msg)
 
     def run_flow(self, flow_class, design: Design, setting_overrides={}):
-        logger.debug(f"run_flow {flow_class}")
+        log.debug(f"run_flow {flow_class}")
 
         design.check()
 
@@ -237,13 +236,13 @@ class FlowRunner:
             # merge with existing self.flows[dep].settings
             completed_dep = self.run_flow(dep_cls, design, dep_settings)
             if not completed_dep or not completed_dep.results['success']:
-                logger.critical(f"Dependency flow {dep_cls.name} failed")
+                log.critical(f"Dependency flow {dep_cls.name} failed")
                 raise Exception()  # TODO
             flow.completed_dependencies.append(completed_dep)
         try:
             flow.run()
         except NonZeroExitCode as e:
-            logger.critical(
+            log.critical(
                 f"Execution of {e.command_args[0]} returned {e.exit_code}")
             failed = True
             raise e from None
@@ -254,20 +253,26 @@ class FlowRunner:
         if not failed:
             flow.parse_reports()
             if not flow.results['success']:
-                logger.error(f"Failure was reported in the parsed results.")
+                log.error(f"Failure was reported in the parsed results.")
                 failed = True
+
+        def default_encoder(x):
+            if isinstance(x, PosixPath):
+                return str(x.relative_to(flow.run_path))
+            return str(x)
+
         if flow.artifacts:
             print(f"Generated artifacts in {flow.run_path}:")  # FIXME
-            print_json(data=flow.artifacts)  # FIXME
+            print_json(data=flow.artifacts, default=default_encoder)  # FIXME
 
         if failed:
             flow.results['success'] = False
             # set success=false if execution failed
-            logger.critical(f"{flow.name} failed!")
+            log.critical(f"{flow.name} failed!")
 
         path = flow.run_path / f'results.json'
         dump_json(flow.results, path)
-        logger.info(f"Results written to {path}")
+        log.info(f"Results written to {path}")
 
         print_results(flow)
 

@@ -1,0 +1,8 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="1646240102" />
+    <testcase name="test_sqrt" classname="tb_sqrt" file="/Users/kamyar/src/xeda/examples/vhdl/sqrt/tb/tb_sqrt.py" lineno="7" time="0.002543926239013672" sim_time_ns="200.000001" ratio_time="78618.6320706939">
+      <failure />
+    </testcase>
+  </testsuite>
+</testsuites>

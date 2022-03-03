@@ -1,8 +1,9 @@
 import os
 import subprocess
 import logging
-from abc import ABCMeta, abstractmethod
-from typing import Any, Callable, Mapping, Optional, List, Dict, Type, Union
+from abc import ABCMeta
+from typing import Any, Callable, Mapping, Optional, Dict, TypeVar, Union
+from xmlrpc.client import Boolean
 from pydantic import BaseModel, Field, Extra
 from pydantic.types import NoneStr
 from pathlib import Path
@@ -10,7 +11,7 @@ import contextlib
 
 from .flows.design import XedaBaseModel
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 try:
     nullcontext: Callable = contextlib.nullcontext
@@ -48,6 +49,9 @@ class DockerToolSettings(BaseModel, extra=Extra.forbid):
     image_registry: NoneStr = Field(None, description="Docker image registry")
 
 
+ToolSettingsType = TypeVar('ToolSettingsType', bound='Tool.Settings')
+
+
 class Tool(metaclass=ABCMeta):
     """abstraction for an EDA tool"""
 
@@ -70,6 +74,7 @@ class Tool(metaclass=ABCMeta):
 
     def __init__(self, settings: Settings, run_path):
         self.run_path = run_path
+        assert isinstance(settings, self.Settings)
         self.settings = settings
         self._version = None
         self._info: Optional[Dict[str, Any]] = None
@@ -81,7 +86,7 @@ class Tool(metaclass=ABCMeta):
         return self._info
 
     def get_info(self):
-        logger.critical(f"Tool.info is not implemented for {self.__class__.__name__}!")
+        log.critical(f"Tool.info is not implemented for {self.__class__.__name__}!")
         return {}
 
     def get_version(self):
@@ -108,17 +113,25 @@ class Tool(metaclass=ABCMeta):
     def version_minor(self):
         return int(self.version.split(".")[1])
 
+    def has_min_version(self, target: str) -> Boolean:
+        for tv, sv in zip(target.split("."), self.version.split(".")):
+            if sv < tv:
+                return False
+            if sv > tv:
+                return True
+        return True
+
     def _run_process(self, executable, args, env, stdout: Union[bool, str, os.PathLike], check):
         if args:
             args = [str(a) for a in args]
         if env:
             env = {str(k): str(v) for k, v in env.items()}
-        logger.info(f'Running `{" ".join([executable, *args])}`')
+        log.info(f'Running `{" ".join([executable, *args])}`')
         if stdout and isinstance(stdout, str) or isinstance(stdout, os.PathLike):
             stdout = Path(stdout)
             if not stdout.is_absolute():
                 stdout = self.run_path / stdout
-            logger.info(f"redirecting stdout to {stdout}")
+            log.info(f"redirecting stdout to {stdout}")
             cm = open(stdout, "w")
         else:
             cm = nullcontext()
@@ -133,7 +146,7 @@ class Tool(metaclass=ABCMeta):
                                   errors='replace',
                                   env=env
                                   ) as proc:
-                logger.info(f"Started {executable}[{proc.pid}]")
+                log.info(f"Started {executable}[{proc.pid}]")
                 if stdout:
                     if stdout == True:
                         out, err = proc.communicate(timeout=None)
@@ -141,7 +154,7 @@ class Tool(metaclass=ABCMeta):
                             raise NonZeroExitCode(proc.args, proc.returncode)
                         return out.strip()  # FIXME
                     else:  # FIXME
-                        logger.info(f" Standard output is logged to: {stdout}")
+                        log.info(f" Standard output is logged to: {stdout}")
                 else:
                     proc.wait()
         if check and proc.returncode != 0:
@@ -154,7 +167,7 @@ class Tool(metaclass=ABCMeta):
         #     env = {str(k): str(v) for k, v in env.items()}
         processes = []
         for cmd in commands:
-            logger.info(f'Running `{" ".join(cmd)}`')
+            log.info(f'Running `{" ".join(cmd)}`')
             proc = subprocess.Popen(cmd,
                                     cwd=self.run_path,
                                     shell=False,
@@ -165,7 +178,7 @@ class Tool(metaclass=ABCMeta):
                                     errors='replace',
                                     #   env=env
                                     )
-            logger.info(f'Started {proc.args[0]}[{proc.pid}]')
+            log.info(f'Started {proc.args[0]}[{proc.pid}]')
             processes.append(proc)
 
         for p in processes:

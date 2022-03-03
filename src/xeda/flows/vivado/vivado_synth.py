@@ -11,7 +11,7 @@ from ...utils import backup_existing
 from ..flow import FPGA, FpgaSynthFlow
 from . import Vivado, vivado_generics
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 # curated options based on experiments and:
 # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug904-vivado-implementation.pdf
@@ -306,7 +306,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             blacklisted_resources.append('bram_tile')
 
         self.blacklisted_resources = blacklisted_resources
-        logger.info(f"blacklisted_resources: {blacklisted_resources}")
+        log.info(f"blacklisted_resources: {blacklisted_resources}")
 
         # if 'bram_tile' in blacklisted_resources:
         #     # FIXME also add -max_uram 0 for ultrascale+
@@ -391,7 +391,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 try:
                     self.results[k] = self.get_from_path(utilization, path)
                 except:
-                    logger.debug(
+                    log.debug(
                         f"{path} not found in the utilization report {report_file}.")
 
         self.results['_utilization'] = utilization
@@ -403,11 +403,11 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                     try:
                         res_util = int(res_util)
                         if res_util > 0:
-                            logger.critical(
+                            log.critical(
                                 f'{report_stage} utilization report lists {res_util} use(s) of blacklisted resource `{res}`.')
                             failed = True
                     except:
-                        logger.warn(
+                        log.warning(
                             f'Unknown utilization value: `{res_util}` for blacklisted resource `{res}`. Optimistically assuming results are not violating the blacklist criteria.')
 
             # TODO better fail analysis for vivado

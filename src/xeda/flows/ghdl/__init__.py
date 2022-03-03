@@ -1,8 +1,8 @@
+from pathlib import Path
 from typing import List, Optional, Union, Tuple
 from pydantic import Field, NoneStr, validator
 import logging
 import platform
-import os
 try:
     from typing import Literal
 except ImportError:
@@ -27,7 +27,7 @@ class Ghdl(Tool):
     docker_image: NoneStr = "hdlc/sim:osvb"
     default_executable: NoneStr = "ghdl"
 
-    class GhdlSettings(Tool.Settings):
+    class Settings(Tool.Settings):
         analysis_flags: List[str] = []
         elab_flags: List[str] = [
             '--syn-binding'
@@ -53,6 +53,7 @@ class Ghdl(Tool):
             [], description="Additional directories to add to the library search path")
         optimization_flags: List[str] = Field(
             [], description="Optimization flags")
+        expect_failure: bool = False
 
         @validator('lib_paths', pre=False)
         def ghdl_settings_validator(cls, value, values):
@@ -119,6 +120,8 @@ class Ghdl(Tool):
             elab_flags.extend(['-fcaret-diagnostics', '-fcolor-diagnostics'])
         if ss.work:
             elab_flags.append('-v')
+        if ss.expect_failure:
+            elab_flags.append('--expect-failure')
         if vhdl.synopsys:
             analysis_flags.append('--ieee=synopsys')
         if stage == "import" or stage == "analyze":
@@ -133,7 +136,8 @@ class Ghdl(Tool):
     def elaborate(self, sources, top, vhdl) -> Tuple[str, str]:
         """returns top(s) as a list"""
         steps = ["import", "make"]
-        ss = self.settings
+        assert isinstance(self.settings, self.Settings)
+        ss: 'Ghdl.Settings' = self.settings
         opt_flags = ss.optimization_flags
         if ss.clean:
             steps.insert(0, "remove")
@@ -160,17 +164,17 @@ class Ghdl(Tool):
                     stdout=True
                 )
                 top = [out.strip()]
-                logger.warn(f"setting top to {top}")
+                logger.warning(f"setting top to {top}")
             else:
                 self.run_tool(
                     self.default_executable,
                     [step, *args]
                 )
-        return (top[0], top[1]) if len(top) == 2 else top[0]
+        return (top[0], top[1] if len(top) == 2 else None)
 
 
 class GhdlSynth(Ghdl, SynthFlow):
-    class Settings(Ghdl.GhdlSettings, SynthFlow.Settings):
+    class Settings(Ghdl.Settings, SynthFlow.Settings):
         vendor_library: NoneStr = Field(
             None, description="Any unit from this library is a black box")
         no_formal: bool = Field(
@@ -187,7 +191,8 @@ class GhdlSynth(Ghdl, SynthFlow):
 
     def run(self) -> bool:
         design = self.design
-        ss = self.settings
+        assert isinstance(self.settings, self.Settings)
+        ss: 'GhdlSynth.Settings' = self.settings
         top = self.elaborate(design.rtl.sources,
                              design.rtl.top, design.language.vhdl)
         args = self.synth_args(ss, design, one_shot_elab=False, top=top)
@@ -200,7 +205,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         return True
 
     @classmethod
-    def synth_args(cls, ss,  design: Design, one_shot_elab=True, top: Optional[Union[str, List[str]]] = None) -> List[str]:
+    def synth_args(cls, ss,  design: Design, one_shot_elab=True, top: Optional[Union[str, Tuple[str, NoneStr]]] = None) -> List[str]:
         flags = cls.get_flags(ss, design.language.vhdl, "elaborate")
         if ss.vendor_library:
             flags.append(f"--vendor-library={ss.vendor_library}")
@@ -225,7 +230,9 @@ class GhdlSynth(Ghdl, SynthFlow):
             if isinstance(top, str):
                 flags.append(top)
             else:
-                flags.extend(top)
+                for t in top:
+                    if t:
+                        flags.extend(t)
         return flags
 
     def parse_reports(self):
@@ -233,14 +240,14 @@ class GhdlSynth(Ghdl, SynthFlow):
 
 
 class GhdlLint(Ghdl, Flow):
-    class Settings(Ghdl.GhdlSettings):
+    class Settings(Ghdl.Settings):
         pass
 
 
 class GhdlSim(Ghdl, SimFlow):
     cocotb_sim_name = "ghdl"
 
-    class Settings(Ghdl.GhdlSettings, SimFlow.Settings):
+    class Settings(Ghdl.Settings, SimFlow.Settings):
         run_flags: List[str] = [
             '--ieee-asserts=disable-at-0'
         ]
@@ -273,17 +280,18 @@ class GhdlSim(Ghdl, SimFlow):
                 assert root, "neither SDF root nor tb.uut are provided"
                 run_flags.append(
                     f'--sdf={s.get("delay", "max")}={root}={s["file"]}')
-        wave = ss.wave
+
         if self.vcd:
             run_flags.append(f'--vcd={self.vcd}')
-            logger.warning(f"Dumping VCD to {self.vcd}")
-        elif wave:
+            logger.warning(f"Dumping VCD to {self.run_path.relative_to(Path.cwd()) / self.vcd}")
+        elif ss.wave:
+            wave = ss.wave
             if isinstance(wave, bool):
                 wave = design.name
             if not wave.endswith('.ghw'):
                 wave += '.ghw'
             run_flags.append(f'--wave={wave}')
-            logger.warning(f"Dumping GHW to {wave}")
+            logger.warning(f"Dumping GHW to {self.run_path.relative_to(Path.cwd()) / wave}")
         vpi = None
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:
@@ -306,33 +314,17 @@ class GhdlSim(Ghdl, SimFlow):
             design.tb.top,
             design.language.vhdl
         )
-        args = cf + design.sim_tops + run_flags
-        env = {}
-        if design.tb.cocotb and self.cocotb:
-            # assert design.tb.top, "tb.top not defined"
-            coco_module = design.tb.sources[0].file.stem
-            tb_top_path = design.tb.sources[0].file.parent
-            ppath = []
-            current_ppath = os.environ.get('PYTHONPATH')
-            if current_ppath:
-                ppath = current_ppath.split(os.pathsep)
-            ppath.append(str(tb_top_path))
-            env = {
-                "MODULE": coco_module,
-                "TOPLEVEL": design.tb.top[0],  # TODO
-                "TOPLEVEL_LANG": "vhdl",
-                "COCOTB_REDUCED_LOG_FMT": 1,
-                "PYTHONPATH": os.pathsep.join(ppath),
-            }
-            if design.tb.testcase:
-                env['TESTCASE'] = design.tb.testcase
+        status_ok = True
         self.run_tool(
             self.default_executable,
-            ["run", *args],
-            env
+            ["run", *cf, *design.sim_tops, *run_flags],
+            self.cocotb.env(design)
         )
-        self.results['success'] = True
-        return True
+        return status_ok
 
     def parse_reports(self):
-        return self.results['success']
+        status_ok = True
+        if self.cocotb and self.design.tb.cocotb:
+            status_ok &= self.cocotb.parse_results()
+        self.results['success'] = status_ok
+        return status_ok
