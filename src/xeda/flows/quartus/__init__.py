@@ -288,6 +288,7 @@ class Quartus(FpgaSynthFlow):
             log.critical("No timing summary report is available")
 
         timing_reports_folder: Path = timing_reports['*']
+        max_fmax = 0.
         for fmax_report in timing_reports_folder.glob('Slow_*_Model/Slow_*_Model_Fmax_Summary.csv'):
             log.info(f"Parsing timing report: {fmax_report}")
             fmax = parse_csv(
@@ -298,7 +299,6 @@ class Quartus(FpgaSynthFlow):
                 interesting_fields=['Fmax']
             )
             conditions = fmax_report.parent.name.lstrip("Slow_").rstrip("_Model").split("_")
-            max_fmax = 0.
             for clock in self.settings.clocks.keys():
                 flst = fmax.get(clock, {}).get('Fmax')
                 assert len(flst) == 2
@@ -310,8 +310,8 @@ class Quartus(FpgaSynthFlow):
                 if fmhz > max_fmax:
                     max_fmax = fmhz
                 self.results[f'Fmax@{":".join(conditions)} (MHz)'] = fmhz
-            if max_fmax:
-                self.results['Fmax'] = max_fmax
+        if max_fmax:
+            self.results['Fmax'] = max_fmax
 
         self.results['success'] = not failed
 
