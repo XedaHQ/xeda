@@ -1,7 +1,6 @@
 import re
-import csv
 import importlib
-from typing import Any, List, Union
+from typing import Any, List
 import os
 import json
 from pathlib import Path
@@ -9,6 +8,23 @@ from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_toml(obj):
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    elif isinstance(obj, list):
+        return [sanitize_toml(x) for x in obj]
+    elif isinstance(obj, tuple):
+        return tuple(sanitize_toml(list(obj)))
+    elif isinstance(obj, dict):
+        return {k: sanitize_toml(v) for k, v in obj.items()}
+    elif hasattr(obj, '__dict__'):
+        return(sanitize_toml(dict(**obj.__dict__)))
+    else:
+        print(
+            f"ERROR in xeda_app.sanitize_toml: unhandled object of type {type(obj)}: {obj}")
+        return sanitize_toml(dict(obj))
 
 
 def backup_existing(path: Path):

@@ -1,30 +1,31 @@
+import os
 from pathlib import Path
 from xeda.flows.quartus import parse_csv, try_num
+from . import RESOURCES_DIR
 
 
 def test_parse_csv():
-    report_file = "tests/resources/Fitter_Resource_Utilization_by_Entity.csv"
     resources = parse_csv(
-        report_file,
+        RESOURCES_DIR / "Fitter_Resource_Utilization_by_Entity.csv",
         id_field='Compilation Hierarchy Node',
         field_parser=lambda s: try_num(s.split()[0]),
         id_parser=lambda s: s.strip().lstrip("|"),
         # interesting_fields=None
         interesting_fields=[
-                'Logic Cells',
-                'LUT-Only LCs',
-                'Register-Only LCs',
-                'LUT/Register LCs',
-                'Dedicated Logic Registers',
-                'ALMs needed [=A-B+C]',
-                'Combinational ALUTs',
-                'ALMs used for memory',
-                'Memory Bits', 'M10Ks', 'M9Ks', 'DSP Elements',
-                'DSP Blocks',
-                'Block Memory Bits',
-                'Pins',
-                'I/O Registers',
-            ]
+            'Logic Cells',
+            'LUT-Only LCs',
+            'Register-Only LCs',
+            'LUT/Register LCs',
+            'Dedicated Logic Registers',
+            'ALMs needed [=A-B+C]',
+            'Combinational ALUTs',
+            'ALMs used for memory',
+            'Memory Bits', 'M10Ks', 'M9Ks', 'DSP Elements',
+            'DSP Blocks',
+            'Block Memory Bits',
+            'Pins',
+            'I/O Registers',
+        ]
         # ['Logic Cells', 'Memory Bits', 'M10Ks', 'M9Ks', 'DSP Elements', 'ALMs needed [=A-B+C]',
         #                     'Combinational ALUTs', 'ALMs used for memory', 'DSP Blocks', 'Pins'
         #                     'LUT-Only LCs',	'Register-Only LCs', 'LUT/Register LCs', 'Block Memory Bits']
@@ -53,7 +54,7 @@ def test_parse_csv():
 
 
 def test_parse_csv_no_header():
-    parsed = parse_csv("tests/resources/Flow_Summary.csv", None)
+    parsed = parse_csv(RESOURCES_DIR / "Flow_Summary.csv", None)
     assert parsed == {
         'Flow Status': 'Successful - Tue Mar  1 11:10:35 2022',
         'Quartus Prime Version': '21.1.0 Build 842 10/21/2021 SJ Lite Edition',
@@ -73,17 +74,16 @@ def test_parse_csv_no_header():
     }
 
 
-# Python program to explain os.cpu_count() method  
-  
-# importing os module 
-import os
-  
-  
+# Python program to explain os.cpu_count() method
+
+# importing os module
+
+
 # Get the number of CPUs
 # in the system using
 # os.cpu_count() method
 cpuCount = os.cpu_count()
-  
+
 # Print the number of
 # CPUs in the system
 print("Number of CPUs in the system:", cpuCount)

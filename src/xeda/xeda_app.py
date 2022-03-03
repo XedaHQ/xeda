@@ -18,7 +18,7 @@ from argparse_formatter import FlexiFormatter
 from pydantic.error_wrappers import ValidationError, display_errors
 
 from .flows.flow import Flow, SimFlow, SynthFlow
-from .utils import camelcase_to_snakecase, load_class
+from .utils import camelcase_to_snakecase, load_class, sanitize_toml
 from .debug import DebugLevel
 from .flow_runner import FlowRunner, DefaultRunner, merge_overrides, get_flow_class, get_settings_schema
 from .flows.design import Design, DesignError
@@ -292,23 +292,6 @@ def gen_shell_completion():
             f.write(source_line + os.linesep)
 
 
-def sanitize_toml(obj):
-    if isinstance(obj, (str, int, float, bool)):
-        return obj
-    elif isinstance(obj, list):
-        return [sanitize_toml(x) for x in obj]
-    elif isinstance(obj, tuple):
-        return tuple(sanitize_toml(list(obj)))
-    elif isinstance(obj, dict):
-        return {k: sanitize_toml(v) for k, v in obj.items()}
-    elif hasattr(obj, '__dict__'):
-        return(sanitize_toml(dict(**obj.__dict__)))
-    else:
-        print(
-            f"ERROR in xeda_app.sanitize_toml: unhandled object of type {type(obj)}: {obj}")
-        return sanitize_toml(dict(obj))
-
-
 def load_xeda(file: Path):
     with open(file) as f:
         ext = file.suffix.lower()
@@ -320,7 +303,7 @@ def load_xeda(file: Path):
             exit(
                 f"File {file} has unknown extension {ext}. Currently supported formats are TOML (.toml) and JSON (.json)")
 
-
+# TODO deprecate and remove
 def validate_design(design_dict: dict) -> Design:
     try:
         return Design(**design_dict)
@@ -330,10 +313,9 @@ def validate_design(design_dict: dict) -> Design:
             f"{len(errors)} error(s) validating design settings:\n\n{display_errors(errors)}\n"
         ) from None
 
-
+# TODO deprecate and remove
 def load_design_from_toml(design_file) -> Design:
-    design_dict = sanitize_toml(toml.load(design_file))
-    return validate_design(design_dict)
+    return Design.from_toml(design_file)
 
 
 def run(args=None):
@@ -350,7 +332,7 @@ def run(args=None):
     flows = {}
     rundir = None
     if parsed_args.design_file:
-        design = load_design_from_toml(parsed_args.design_file)
+        design = Design.from_toml(parsed_args.design_file)
     else:
         toml_path = Path(parsed_args.xedaproject)
         print(f"toml_path={toml_path}")

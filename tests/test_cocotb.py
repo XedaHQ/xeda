@@ -1,9 +1,6 @@
 from pathlib import Path
 from xeda.flows.flow import Cocotb
-
-TESTS_DIR = Path(__file__).parent.resolve()
-RESOURCES_DIR = TESTS_DIR / "resources"
-
+from . import RESOURCES_DIR
 
 def test_cocotb_version():
     settings = Cocotb.Settings()

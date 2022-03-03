@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from pydantic import BaseModel, Field, validator
+from pydantic import Field, validator
 from pydantic.types import NoneStr
 from typing import List, Optional, Type, Tuple, Union
 import os
@@ -23,9 +23,9 @@ from .cocotb import Cocotb
 log = logging.getLogger(__name__)
 
 
-def regex_match(string, pattern: str, ignorecase=False) -> bool:
+def regex_match(string, pattern: str, ignorecase=False) -> Optional[re.Match]:
     if not isinstance(string, str):
-        return False
+        return None
     return re.match(pattern, string,  flags=re.I if ignorecase else 0)
 
 
@@ -395,7 +395,7 @@ class SimFlow(Flow):
         return vcd
 
 
-class FPGA(BaseModel):
+class FPGA(XedaBaseModel):
     """FPGA target device"""
     part: NoneStr = Field(None, description="full device part identifier")
     vendor: NoneStr

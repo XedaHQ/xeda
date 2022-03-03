@@ -1,11 +1,14 @@
 from abc import ABCMeta
-from os import PathLike
+import os
+from typing import List, Optional, Dict, Tuple, Union, Any
 from pydantic import BaseModel, Field, NoneStr, validator, Extra, validate_model
 from pydantic.class_validators import root_validator
-from typing import List, Optional, Mapping, Dict, Tuple, Union, Any
-from pathlib import Path
+from pydantic.error_wrappers import ValidationError, display_errors
+from pathlib import Path, PurePath
 import logging
 import hashlib
+import toml
+from ..utils import sanitize_toml
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +21,7 @@ class XedaBaseModel(BaseModel, metaclass=ABCMeta):
 
 
 class FileResource:
-    def __init__(self, path: Union[str, PathLike, Dict[str, str]], **data) -> None:
+    def __init__(self, path: Union[str, os.PathLike, Dict[str, str]], **data) -> None:
         try:
             if isinstance(path, dict):
                 if 'file' not in path:
@@ -192,7 +195,7 @@ class Design(XedaBaseModel, extra=Extra.allow):
         return self.rtl.sources + [src for src in self.tb.sources if src not in self.rtl.sources and (src.type == 'vhdl' or src.type == 'verilog')]
 
     @staticmethod
-    def make_list(x: Union[str, Tuple[str, str]]) -> List[str]:
+    def _make_tops_list(x: Union[str, Tuple[str, Optional[str]]]) -> List[str]:
         if isinstance(x, str):
             return [x]
         elif isinstance(x, tuple):
@@ -208,18 +211,30 @@ class Design(XedaBaseModel, extra=Extra.allow):
         if self.tb is None:
             return []
         if self.tb.cocotb and self.rtl.top:
-            return self.make_list(self.rtl.top)
+            return self._make_tops_list(self.rtl.top)
         if self.tb.top:
-            tops = self.make_list(self.tb.top)
+            tops = self._make_tops_list(self.tb.top)
             if self.tb.secondary_top and not tops[1]:
                 tops = [tops[0], self.tb.secondary_top]  # FIXME
             return tops
         return []
 
-    def check(self):
+    def check(self):  # TODO remove? as not serving a purpose (does it even work?)
         *_, validation_error = validate_model(self.__class__, self.__dict__)
         if validation_error:
             raise validation_error
+
+    @classmethod
+    def from_toml(cls, design_file: Union[str, PurePath]) -> 'Design':
+        design_dict = sanitize_toml(toml.load(design_file))
+        try:
+            return Design(**design_dict)
+        except ValidationError as e:
+            errors = e.errors()
+            log.critical(f"{len(errors)} error(s) validating design from {design_file}.")
+            raise DesignError(
+                f"\n{display_errors(errors)}\n"
+            ) from None
 
 
 class DesignError(Exception):
