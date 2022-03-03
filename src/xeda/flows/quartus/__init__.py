@@ -309,7 +309,7 @@ class Quartus(FpgaSynthFlow):
                     assert flst[1] == 'MHz'
                 if fmhz > max_fmax:
                     max_fmax = fmhz
-                self.results[f'Fmax@{":".join(conditions)} (MHz)'] = fmhz
+                self.results[f'{clock} Fmax@{":".join(conditions)} (MHz)'] = fmhz
         if max_fmax:
             self.results['Fmax'] = max_fmax
 
