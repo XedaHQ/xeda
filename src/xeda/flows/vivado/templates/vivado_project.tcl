@@ -61,7 +61,8 @@ set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
 {% endif -%}
 
 {% for k,v in design.rtl.parameters.items() -%}
-{% set x = "\\\"" + v + "\\\"" if v is string else v -%}
+## "\\\"" + v + "\\\"" if v is string  # assume done by user
+{% set x = "1'b%d" % v if v is boolean else v if v is match("\d+'b[01]+") else "\\\"" + v + "\\\"" if v is string else v -%}
 set_property generic {% raw -%} { {%- endraw -%} {{ k }}={{ x }} {%- raw -%} } {%- endraw %} [current_fileset]
 {% endfor -%}
 

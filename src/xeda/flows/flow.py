@@ -16,11 +16,17 @@ import multiprocessing
 import psutil
 from .design import Design, XedaBaseModel
 from ..tool import Tool
-from ..utils import backup_existing, camelcase_to_snakecase, try_convert
+from ..utils import backup_existing, camelcase_to_snakecase, try_convert, unique
 from ..debug import DebugLevel
 from .cocotb import Cocotb
 
 log = logging.getLogger(__name__)
+
+
+def regex_match(string, pattern: str, ignorecase=False) -> bool:
+    if not isinstance(string, str):
+        return False
+    return re.match(pattern, string,  flags=re.I if ignorecase else 0)
 
 
 class FlowFatalException(Exception):
@@ -110,6 +116,26 @@ class Flow(Tool, metaclass=ABCMeta):
     def add_dependency(self, dep_flow_class: Type['Flow'], dep_settings: Settings):
         self.dependencies.append((dep_flow_class, dep_settings))
 
+    @classmethod
+    def _create_jinja_env(cls, extra_modules=[]):
+        loaderChoices = []
+        mod_paths = []
+        modules = unique(extra_modules + [cls.__module__] + [clz.__module__ for clz in cls.__bases__])
+        for mpx in modules:
+            for mp in [mpx, mpx.rsplit(".", 1)[0]]:
+                if mp not in mod_paths:
+                    mod_paths.append(mp)
+        for mp in mod_paths:
+            try:
+                loaderChoices.append(PackageLoader(mp))
+            except:
+                pass
+        return Environment(
+            loader=ChoiceLoader(loaderChoices),
+            autoescape=False,
+            undefined=StrictUndefined
+        )
+
     def __init__(self, flow_settings: 'Flow.Settings', design: Design, run_path: Path):
         super().__init__(flow_settings, run_path)
         self.settings: Flow.Settings = flow_settings
@@ -133,25 +159,8 @@ class Flow(Tool, metaclass=ABCMeta):
         # everything else in run_path can be deleted by the flow-runner or overwritten in subsequent operations
         # artifacts can be backed up if the same run_path is used after this flow is complete
         self.artifacts: Dict[str, os.PathLike] = dict()
-
-        loaderChoices = []
-        mod_paths = []
-
-        for mpx in [self.__module__, self.__class__.__module__] + [clz.__module__ for clz in self.__class__.__bases__]:
-            for mp in [mpx, mpx.rsplit(".", 1)[0]]:
-                if mp not in mod_paths:
-                    mod_paths.append(mp)
-        for mp in mod_paths:
-            try:
-                loaderChoices.append(PackageLoader(mp))
-            except:
-                pass
-
-        self.jinja_env = Environment(
-            loader=ChoiceLoader(loaderChoices),
-            autoescape=False,
-            undefined=StrictUndefined
-        )
+        self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
+        self.add_template_test('match', regex_match)
         self.dependencies: List[Tuple[Type[Flow], Flow.Settings]] = []
         self.completed_dependencies: List[Flow] = []
 
@@ -178,8 +187,11 @@ class Flow(Tool, metaclass=ABCMeta):
             f.write(rendered_content)
         return script_path.relative_to(self.run_path)  # resource_name
 
-    def add_filter(self, filter_name: str, func) -> None:
+    def add_template_filter(self, filter_name: str, func) -> None:
         self.jinja_env.filters[filter_name] = func
+
+    def add_template_test(self, filter_name: str, func) -> None:
+        self.jinja_env.tests[filter_name] = func
 
     def conv_to_relative_path(self, src):
         path = Path(src).resolve(strict=True)

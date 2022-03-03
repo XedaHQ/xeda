@@ -47,8 +47,10 @@ class VivadoPrjSynth(VivadoSynth):
             log.info(f"clock.port={self.design.rtl.clock_port} clock.frequency={freq:.3f} MHz")
         clock_xdc_path = self.copy_from_template(f'clock.xdc')
 
-        log.info(
-            f"blacklisted_resources: {self.settings.blacklisted_resources}")
+        if self.settings.blacklisted_resources:
+            log.info(
+                f"blacklisted_resources: {self.settings.blacklisted_resources}"
+            )
 
         # for x in ["synth", "impl"]:
         #     x_options = flow_settings.get(f"{x}_options")

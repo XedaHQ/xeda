@@ -314,7 +314,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         # if 'dsp' in blacklisted_resources:
         #     settings.synth.steps['synth'].append('-max_dsp 0')
 
-        self.add_filter('flatten_dict',
+        self.add_template_filter('flatten_dict',
                         lambda d: ' '.join(
                             [f"{k} {v}" if v else k for k, v in d.items()])
                         )
