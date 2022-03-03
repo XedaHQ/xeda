@@ -60,6 +60,11 @@ puts "setting implementation strategy to {{settings.impl.strategy}}"
 set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
 {% endif -%}
 
+{% for k,v in design.rtl.parameters.items() -%}
+{% set x = "\\\"" + v + "\\\"" if v is string else v -%}
+set_property generic {% raw -%} { {%- endraw -%} {{ k }}={{ x }} {%- raw -%} } {%- endraw %} [current_fileset]
+{% endfor -%}
+
 # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_2/ug912-vivado-properties.pdf
 # and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_2/ug835-vivado-tcl-commands.pdf
 {% for step,options in settings.synth.steps.items() -%}

@@ -81,10 +81,8 @@ top = 'cocoTestBench'
 Flow- or plugin-specific settings can also be stored in design or project sections.
 
 
-Settings override in the following order, from lower to higher priority:
-- System-wide `default.json` in `<DATA_DIR>/config/xeda/defaults.json`
 - Design-specific settings in the current project file (`xedaproject.toml`)
-- `--override-settings` and `--override-flow-settings` command line options
+- `--flow-settings` command line options
 
 ## Supported Flows
 
