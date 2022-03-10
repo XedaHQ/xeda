@@ -2,6 +2,7 @@ import os
 import subprocess
 import logging
 from abc import ABCMeta
+from sys import stderr
 from typing import Any, Callable, Mapping, Optional, Dict, TypeVar, Union
 from xmlrpc.client import Boolean
 from pydantic import BaseModel, Field, Extra
@@ -148,13 +149,14 @@ class Tool(metaclass=ABCMeta):
                                   ) as proc:
                 log.info(f"Started {executable}[{proc.pid}]")
                 if stdout:
-                    if stdout == True:
+                    if isinstance(stdout, bool):
                         out, err = proc.communicate(timeout=None)
                         if check and proc.returncode != 0:
                             raise NonZeroExitCode(proc.args, proc.returncode)
-                        return out.strip()  # FIXME
+                        print(err, file=stderr)
+                        return out.strip()
                     else:  # FIXME
-                        log.info(f" Standard output is logged to: {stdout}")
+                        log.info("Standard output is logged to: %s", stdout)
                 else:
                     proc.wait()
         if check and proc.returncode != 0:
@@ -167,7 +169,7 @@ class Tool(metaclass=ABCMeta):
         #     env = {str(k): str(v) for k, v in env.items()}
         processes = []
         for cmd in commands:
-            log.info(f'Running `{" ".join(cmd)}`')
+            log.info("Running `%s`", " ".join(cmd))
             proc = subprocess.Popen(cmd,
                                     cwd=self.run_path,
                                     shell=False,
@@ -178,7 +180,7 @@ class Tool(metaclass=ABCMeta):
                                     errors='replace',
                                     #   env=env
                                     )
-            log.info(f'Started {proc.args[0]}[{proc.pid}]')
+            log.info("Started %s[%s]", proc.args[0], proc.pid)
             processes.append(proc)
 
         for p in processes:
@@ -234,7 +236,7 @@ class Tool(metaclass=ABCMeta):
         """Run the tool from a docker container"""
         wd = self.run_path
         cwd = Path.cwd()
-        docker_args = [f"--rm",  "--interactive", "--tty",
+        docker_args = [f"--rm", "--interactive", "--tty",
                        f"--workdir={wd}", f"--volume={cwd}:{cwd}", f"--volume={wd}:{wd}"]
         if env:
             env_file = wd / f"{executable}_docker.env"

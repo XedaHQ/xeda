@@ -1,15 +1,10 @@
-# Xeda Vivado Synthtesis flow
-# ©2021 Kamyar Mohajerani and contributors
-
 import logging
-import re
-from typing import Any, Dict, Optional, List, Union
-from pydantic import BaseModel, ValidationError, validator, Field, NoneStr
+from typing import Any, Dict, Optional, List
+from pydantic import validator, Field, NoneStr
 from pydantic.main import Extra
 
-from ...utils import backup_existing
-from ..flow import FPGA, FpgaSynthFlow
-from . import Vivado, vivado_generics
+from ..flow import FPGA, FpgaSynthFlow, XedaBaseModel
+from . import Vivado
 
 log = logging.getLogger(__name__)
 
@@ -238,7 +233,7 @@ def xeda_steps(strategy: str, s: str):
     return {step: xeda_strategies[strategy].get(step) for step in get_steps(s)}
 
 
-class RunOptions(BaseModel, extra=Extra.forbid):
+class RunOptions(XedaBaseModel, extra=Extra.forbid):
     strategy: NoneStr = None
     steps: Dict[str, StepsValType] = {}
 
@@ -315,9 +310,9 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         #     settings.synth.steps['synth'].append('-max_dsp 0')
 
         self.add_template_filter('flatten_dict',
-                        lambda d: ' '.join(
-                            [f"{k} {v}" if v else k for k, v in d.items()])
-                        )
+                                 lambda d: ' '.join(
+                                     [f"{k} {v}" if v else k for k, v in d.items()])
+                                 )
 
         script_path = self.copy_from_template(f'{self.name}.tcl',
                                               xdc_files=[clock_xdc_path],
@@ -340,15 +335,18 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
                                                   )
             if not failed:
-                wns = self.results['wns']
-                # see https://support.xilinx.com/s/article/57304?language=en_US
-                # Fmax in Megahertz
-                # Here Fmax refers to: "The maximum frequency a design can run on Hardware in a given implementation
-                # Fmax = 1/(T-WNS), with WNS positive or negative, where T is the target clock period."
-                self.results['fmax'] = 1000.0 / \
-                    (self.results['clock_period'] - wns)
-                if wns < 0:
-                    failed = True
+                wns = self.results.get('wns')
+                if isinstance(wns, float) or isinstance(wns, int):
+                    if wns < 0:
+                        failed = True
+                    # see https://support.xilinx.com/s/article/57304?language=en_US
+                    # Fmax in Megahertz
+                    # Here Fmax refers to: "The maximum frequency a design can run on Hardware in a given implementation
+                    # Fmax = 1/(T-WNS), with WNS positive or negative, where T is the target clock period."
+                    clock_period = self.results['clock_period']
+                    assert isinstance(clock_period, float) or isinstance(
+                        clock_period, int), f"clock_period: {clock_period} is not a number"
+                    self.results['Fmax'] = 1000.0 / (clock_period - wns)
 
         return not failed
 

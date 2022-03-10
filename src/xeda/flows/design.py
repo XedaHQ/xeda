@@ -22,6 +22,7 @@ class XedaBaseModel(BaseModel, metaclass=ABCMeta):
 
 class FileResource:
     def __init__(self, path: Union[str, os.PathLike, Dict[str, str]], **data) -> None:
+        self._content_hash = None
         try:
             if isinstance(path, dict):
                 if 'file' not in path:
@@ -35,11 +36,17 @@ class FileResource:
             log.critical(f"Design resource '{path}' does not exist!")
             raise e
 
-        with open(self.file, 'rb') as f:
-            self.hash = hashlib.sha256(f.read()).hexdigest()
+    @property
+    def hash(self):
+        """return hash of file content"""
+        if self._content_hash is None:
+            with open(self.file, 'rb') as f:
+                self._content_hash = hashlib.sha256(f.read()).hexdigest()
+        return self._content_hash
 
     def __eq__(self, other):
-        # path is already absolute
+        if not isinstance(other, FileResource):
+            return False
         return self.hash == other.hash and self.file.samefile(other.file)
 
     def __hash__(self):
@@ -77,6 +84,10 @@ class DesignSource(FileResource):
                 standard = standard[2:]
         self.standard = standard
 
+    def __eq__(self, other):
+        # added attributes do not change semantic equality
+        return super().__eq__(other)
+
 
 DefineType = Any
 # the order matters!
@@ -86,7 +97,9 @@ DefineType = Any
 class DVSettings(XedaBaseModel, validate_assignment=True):
     """Design/Verification settings"""
     sources: List[DesignSource]
-    top: Optional[Union[str, Tuple[str, Optional[str]]]] = None
+    top: Optional[Tuple[str, Optional[str]]] = Field(
+        None, description="Toplevel module(s) of the design. In addition to the primary toplevel, a secondary toplevel module can also be specified."
+    )
     generics: Dict[str, DefineType] = Field(
         default=dict(),
         description='Top-level generics/defines specified as a mapping',
@@ -115,6 +128,16 @@ class DVSettings(XedaBaseModel, validate_assignment=True):
             values['generics'] = value
             values['parameters'] = value
         return values
+
+    @validator('top', pre=True)
+    def top_validator(cls, top):
+        if top is not None:
+            if isinstance(top, str):
+                top = top.split(",")
+            if isinstance(top, list):
+                assert 1 <= len(top) <= 2
+                top = (top[0], top[1] if len(top) == 2 else None)
+        return top
 
     @validator('sources', pre=True)
     def sources_to_files(cls, sources):

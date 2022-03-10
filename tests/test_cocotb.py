@@ -2,6 +2,7 @@ from pathlib import Path
 from xeda.flows.flow import Cocotb
 from . import RESOURCES_DIR
 
+
 def test_cocotb_version():
     settings = Cocotb.Settings()
     cocotb = Cocotb(settings, "dummy", Path.cwd())
@@ -22,6 +23,7 @@ def test_cocotb_version():
     assert not cocotb.has_min_version("2")
     assert not cocotb.has_min_version("2.0.0")
     assert not cocotb.has_min_version("2.0.0.0")
+
 
 def test_cocotb_parse_xml():
     settings = Cocotb.Settings()

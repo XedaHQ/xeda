@@ -70,15 +70,13 @@ def run_flow_fmax(arg):
 
 
 class FmaxRunner(FlowRunner):
-    def __init__(self, args: SimpleNamespace, xeda_project: Dict[str, Any]) -> None:
-        if args.force_run_dir:
-            logger.warning("force_run_dir will be disabled in FmaxRunner")
-            args.force_run_dir = None
-        super().__init__(args, xeda_project)
-        self.xeda_run_dir = self.args.xeda_run_dir / "fmax"
+    def __init__(self, _xeda_run_dir='xeda_fmax_run') -> None:
+        # if args.force_run_dir:
+        #     logger.warning("force_run_dir will be disabled in FmaxRunner")
+        #     args.force_run_dir = None
+        super().__init__(_xeda_run_dir)
 
-
-    def launch(self, flow_name: str, force_run: bool) -> List[Flow]:
+    def run_flow(self, flow_name: str, force_run: bool) -> List[Flow]:
         """
         runs the flow and returns the completed flow object
         """
@@ -90,22 +88,17 @@ class FmaxRunner(FlowRunner):
 
         logger.info(f"design_settings={design_settings}")
 
-
-
         try:
             design: Design = Design(**design_settings)
         except ValidationError as e:
             errors = e.errors()
             raise DesignError(f"{len(errors)} errors while parsing `design` settings:\n\n{display_errors(errors)}\n") from None
 
-
-
         start_time = time.monotonic()
 
-        ## FIXME FIXME broken
+        # FIXME FIXME broken
         flow_settings = self.flows.get(flow_name, {})
         flow: Flow = generate(flow_name, design, self.xeda_run_dir)
-
 
         # compatibility with previous key name
         lo_freq = float(flow_settings.get(
@@ -279,7 +272,7 @@ class FmaxRunner(FlowRunner):
                             lo_point_choice = frequencies_to_try[1] if len(
                                 frequencies_to_try) > 4 else frequencies_to_try[0]
                             hi_freq = max(best.freq + min(max_workers * 1.0, best.freq -
-                                                          lo_point_choice),  ceil(ONE_THOUSAND / min_plausible_period))
+                                                          lo_point_choice), ceil(ONE_THOUSAND / min_plausible_period))
                         else:
                             hi_freq = (hi_freq + best.freq + freq_step) / 2
 

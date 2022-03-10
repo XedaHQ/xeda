@@ -12,28 +12,32 @@ from typing import List
 from xml.etree import ElementTree
 import html
 
-from ..flow import DesignSource, Flow
-from ...flows.settings import Settings
+from ..design import DesignSource
+from ..flow import Flow
 from .vivado_sim import VivadoPostsynthSim
 from .vivado_synth import VivadoSynth
-from .vivado import Vivado
+from . import Vivado
 
 logger = logging.getLogger(__name__)
 
 
-class VivadoPower(Vivado):
+class VivadoPower(Vivado, Flow):
+    class Settings(Vivado.Settings, Flow.Settings):
+        clock_period: float
+        saif_filename: str = 'impl_timing.saif'
+        power_report_filename: str = 'power_impl_timing.xml'
 
-    required_settings = {'clock_period'}
-
-    default_saif_file = 'impl_timing.saif'
-
-    @classmethod
-    def prerequisite_flows(cls, flow_settings, _design_settings):
+    def init(self):
+        self.postsynthsim_flow = completed_dependencies[0]
+        self.postsynthsim_settings = self.postsynthsim_flow.settings.flow
+        self.synth_flow = self.postsynthsim_flow.completed_dependencies[0]
+        self.synth_settings = self.synth_flow.settings.flow
+        self.synth_results = self.synth_flow.results
         # FIXME!!! For reasons still unknown, not all strategies lead to correct post-impl simulation
         synth_overrides = dict(
             strategy=flow_settings.get('strategy', 'AreaPower'))
         postsynthsim_overrides = dict(input_delay=0.0, output_delay=0.0, elab_debug='typical',
-                                      saif=cls.default_saif_file,  dependencies=dict(vivado_synth=synth_overrides))
+                                      saif=cls.saif_filename,  dependencies=dict(vivado_synth=synth_overrides))
 
         period = flow_settings.get('clock_period')
         if period:
@@ -47,15 +51,6 @@ class VivadoPower(Vivado):
 
         return {VivadoPostsynthSim: (postsynthsim_overrides, {})}
 
-    def __init__(self, settings: Settings, args: SimpleNamespace, completed_dependencies: List['Flow']):
-        self.postsynthsim_flow = completed_dependencies[0]
-        self.postsynthsim_settings = self.postsynthsim_flow.settings.flow
-        self.synth_flow = self.postsynthsim_flow.completed_dependencies[0]
-        self.synth_settings = self.synth_flow.settings.flow
-        self.synth_results = self.synth_flow.results
-        self.power_report_filename = 'power_impl_timing.xml'
-        super().__init__(settings, args, completed_dependencies)
-
     def run(self):
         run_configs = self.postsynthsim_settings.get('run_configs')
 
@@ -66,7 +61,7 @@ class VivadoPower(Vivado):
         if run_configs:
             run_configs = [update_saif_path(rc) for rc in run_configs]
         else:
-            run_configs = dict(saif=self.default_saif_file,
+            run_configs = dict(saif=self.saif_filename,
                                report=self.power_report_filename)
 
         self.run_configs = run_configs

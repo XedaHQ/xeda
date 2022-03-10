@@ -29,7 +29,7 @@ async def test_sqrt_corners(dut):
     # TODO make sure ranges are within G_IN_WIDTH bits
     assert G_IN_WIDTH >= 6
     testcases = list(range(30)) + list(range(2**G_IN_WIDTH - 70, 2**G_IN_WIDTH))
-    testcases += list(range(2**G_IN_WIDTH//2 - 30, 2**G_IN_WIDTH//2 + 30))
+    testcases += list(range(2**G_IN_WIDTH // 2 - 30, 2**G_IN_WIDTH // 2 + 30))
     for rad in testcases:
         await tb.verify(rad)
 

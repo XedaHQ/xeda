@@ -44,7 +44,10 @@ class YosysSynth(Yosys, SynthFlow):
             False, description="Do not use MUX resources to implement LUTs larger than native for the target")
         dff: bool = Field(True, description="Run abc/abc9 with -dff option")
         widemux: int = Field(
-            0, description="enable inference of hard multiplexer resources for muxes at or above this number of inputs (minimum value 2, recommended value >= 5 or disabled = 0)")
+            0,
+            description="enable inference of hard multiplexer resources for muxes at or above this number of inputs"
+            " (minimum value 2, recommended value >= 5 or disabled = 0)"
+        )
         read_verilog_flags: List[str] = [
             "-noautowire",
         ]
@@ -155,7 +158,8 @@ class YosysSynth(Yosys, SynthFlow):
 
         @root_validator(pre=True)
         def check_target(cls, values):
-            # assert 'fpga' in values or 'tech' in values, "ERROR in flows.yosys.settings: No targets specified! Either 'fpga' or 'tech' must be specified."
+            assert values.get('fpga') or values.get(
+                'tech'), "ERROR in flows.yosys.settings: No targets specified! Either 'fpga' or 'tech' must be specified."
             return values
 
     def get_info(self):

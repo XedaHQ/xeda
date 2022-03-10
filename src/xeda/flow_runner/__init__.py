@@ -4,7 +4,7 @@ import time
 import logging
 from pathlib import Path, PosixPath
 from datetime import datetime, timedelta
-from typing import Mapping, Type, Any
+from typing import Mapping, Optional, Type, Any, Union
 import importlib
 import hashlib
 import re
@@ -72,13 +72,14 @@ def get_flow_class(flow_name: str, module_name: str, package: str) -> Type[Flow]
             log.critical(
                 f"Unable to import {module_name} from {package}")
             raise e from None
-        assert module is not None, f"importlib.import_module returned None. module_name: {module_name}, package: {package}"
+        assert module is not None, f"Failed to load module {module_name} from package {package}"
         flow_class_name = snakecase_to_camelcase(flow_name)
         try:
             flow_class = getattr(module, flow_class_name)
         except AttributeError as e:
             log.critical(
-                f"Unable to find class {flow_class_name} in {module}")
+                f"Unable to find class {flow_class_name} in module {module}"
+            )
             raise e from None
     assert flow_class is not None and issubclass(flow_class, Flow)
     return flow_class
@@ -133,8 +134,10 @@ def get_settings_schema(flow_name: str, module_name: str, package: str = __packa
     return flow_class.Settings.schema(by_alias=False)
 
 
-def generate(flow_class, design: Design, xeda_run_dir: Path, override_settings: Mapping[str, Any]) -> Flow:
+def generate(flow_class, design: Design, xeda_run_dir: Path, override_settings: Union[Mapping[str, Any], Flow.Settings]) -> Flow:
     flow_name = flow_class.name
+    if isinstance(override_settings, Flow.Settings):
+        override_settings = override_settings.dict()
     flow_settings = flow_class.Settings(**override_settings)
     design_hash = semantic_hash(design)
     flowrun_hash = semantic_hash(dict(
@@ -216,7 +219,7 @@ class FlowRunner:
         else:
             raise Exception(msg)
 
-    def run_flow(self, flow_class, design: Design, setting_overrides={}):
+    def run_flow(self, flow_class: Type[Flow], design: Design, setting_overrides: Mapping[str, Any] = {}) -> Optional[Flow]:
         log.debug(f"run_flow {flow_class}")
 
         design.check()

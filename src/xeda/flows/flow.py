@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 def regex_match(string, pattern: str, ignorecase=False) -> Optional[re.Match]:
     if not isinstance(string, str):
         return None
-    return re.match(pattern, string,  flags=re.I if ignorecase else 0)
+    return re.match(pattern, string, flags=re.I if ignorecase else 0)
 
 
 class FlowFatalException(Exception):
@@ -44,7 +44,7 @@ class NonZeroExit(Exception):
     pass
 
 
-def final_kill(proc):
+def final_kill(proc: subprocess.Popen):
     try:
         proc.terminate()
         proc.wait()
@@ -126,9 +126,9 @@ class Flow(Tool, metaclass=ABCMeta):
                 if mp not in mod_paths:
                     mod_paths.append(mp)
         for mp in mod_paths:
-            try:
+            try: # TODO better/cleaner way
                 loaderChoices.append(PackageLoader(mp))
-            except:
+            except ValueError:
                 pass
         return Environment(
             loader=ChoiceLoader(loaderChoices),
@@ -209,7 +209,6 @@ class Flow(Tool, metaclass=ABCMeta):
             return
         if not stdout_logfile:
             stdout_logfile = f'{prog}_stdout.log'
-        proc = None
         spinner = None
         unicode = True
         verbose = not self.settings.quiet and (

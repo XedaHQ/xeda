@@ -22,8 +22,10 @@ def sanitize_toml(obj):
     elif hasattr(obj, '__dict__'):
         return(sanitize_toml(dict(**obj.__dict__)))
     else:
-        print(
-            f"ERROR in xeda_app.sanitize_toml: unhandled object of type {type(obj)}: {obj}")
+        logger.critical(
+            f"ERROR in sanitize_toml: unhandled object of type %s: %s",
+            type(obj), obj
+        )
         return sanitize_toml(dict(obj))
 
 

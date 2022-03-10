@@ -6,7 +6,8 @@ from typing import Mapping
 from types import SimpleNamespace
 from ..flow import SynthFlow
 import re
-import sys, os
+import sys
+import os
 import toml
 from glob import glob
 from ...utils import dict_merge
@@ -17,17 +18,17 @@ logger = logging.getLogger(__name__)
 def get_hier(dct, dotted_path, default=None):
     splitted = dotted_path.split('.')
     merged_leaves = {}
-    for i,key in enumerate(splitted):
+    for i, key in enumerate(splitted):
         try:
-            for k,v in dct.items():
+            for k, v in dct.items():
                 if not isinstance(v, Mapping):
                     merged_leaves[k] = v
             dct = dct[key]
         except KeyError:
             print(f'Key {key} not found in {".".join(splitted[:i])}!')
             return default
-            
-    for k,v in dct.items():
+
+    for k, v in dct.items():
         # if not isinstance(v, Mapping):
         merged_leaves[k] = v
     return SimpleNamespace(**merged_leaves)
@@ -71,29 +72,28 @@ class Dc(SynthFlow):
         failed = False
 
         self.parse_report_regex(reports_dir / f'{top_name}.mapped.area.rpt',
-                          r'Number of ports:\s*(?P<num_ports>\d+)',
-                          r'Number of nets:\s*(?P<num_nets>\d+)',
-                          r'Number of cells:\s*(?P<num_cells>\d+)',
-                          r'Number of combinational cells:\s*(?P<num_cells_combinational>\d+)',
-                          r'Number of sequential cells:\s*(?P<num_cells_sequentual>\d+)',
-                          r'Number of macros/black boxes:\s*(?P<num_macro_bbox>\d+)',
-                          r'Number of buf/inv:\s*(?P<num_buf_inv>\d+)',
-                          r'Number of references:\s*(?P<num_refs>\d+)',
-                          r'Combinational area:\s*(?P<area_combinational>\d+(?:\.\d+)?)',
-                          r'Buf/Inv area:\s*(?P<area_buf_inv>\d+(?:\.\d+)?)',
-                          r'Noncombinational area:\s*(?P<area_noncombinational>\d+(?:\.\d+)?)',
-                          r'Macro/Black Box area:\s*(?P<area_macro_bbox>\d+(?:\.\d+)?)',
-                          r'Net Interconnect area:\s*(?P<area_interconnect>\S+.*$)',
-                          r'Total cell area:\s*(?P<area_cell_total>\d+(?:\.\d+)?)',
-                          r'Total area:\s*(?P<area_macro_bbox>\w+)',
-                          r'Core Area:\s*(?P<area_core>\d+(?:\.\d+)?)',
-                          r'Aspect Ratio:\s*(?P<aspect_ratio>\d+(?:\.\d+)?)',
-                          r'Utilization Ratio:\s*(?P<utilization_ratio>\d+(?:\.\d+)?)',
-                          dotall=False
-                          )
+                                r'Number of ports:\s*(?P<num_ports>\d+)',
+                                r'Number of nets:\s*(?P<num_nets>\d+)',
+                                r'Number of cells:\s*(?P<num_cells>\d+)',
+                                r'Number of combinational cells:\s*(?P<num_cells_combinational>\d+)',
+                                r'Number of sequential cells:\s*(?P<num_cells_sequentual>\d+)',
+                                r'Number of macros/black boxes:\s*(?P<num_macro_bbox>\d+)',
+                                r'Number of buf/inv:\s*(?P<num_buf_inv>\d+)',
+                                r'Number of references:\s*(?P<num_refs>\d+)',
+                                r'Combinational area:\s*(?P<area_combinational>\d+(?:\.\d+)?)',
+                                r'Buf/Inv area:\s*(?P<area_buf_inv>\d+(?:\.\d+)?)',
+                                r'Noncombinational area:\s*(?P<area_noncombinational>\d+(?:\.\d+)?)',
+                                r'Macro/Black Box area:\s*(?P<area_macro_bbox>\d+(?:\.\d+)?)',
+                                r'Net Interconnect area:\s*(?P<area_interconnect>\S+.*$)',
+                                r'Total cell area:\s*(?P<area_cell_total>\d+(?:\.\d+)?)',
+                                r'Total area:\s*(?P<area_macro_bbox>\w+)',
+                                r'Core Area:\s*(?P<area_core>\d+(?:\.\d+)?)',
+                                r'Aspect Ratio:\s*(?P<aspect_ratio>\d+(?:\.\d+)?)',
+                                r'Utilization Ratio:\s*(?P<utilization_ratio>\d+(?:\.\d+)?)',
+                                dotall=False
+                                )
 
         reportfile_path = reports_dir / f'{top_name}.mapped.qor.rpt'
-
 
         def try_convert(s):
             s = s.strip()
@@ -105,7 +105,6 @@ class Dc(SynthFlow):
                 except:
                     return s
 
-
         def parse_kvs(kvs):
             kvs = re.split(r'\s*\n\s*', kvs)
             kvs = [re.split(r'\s*:\s*', s.strip()) for s in kvs if s.strip()]
@@ -113,7 +112,6 @@ class Dc(SynthFlow):
 
         path_group_re = re.compile(
             r"^\s*Timing Path Group\s+'(?P<path_group_name>\w+)'\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)", re.MULTILINE)
-
 
         area_re = re.compile(r"^\s*Area\s*\n\s*\-+\s*\n(?P<kv1>(?:^.*\n)+)\s*\-+\s*\n(?P<kv2>(?:^.*\n)+)", re.MULTILINE)
         drc_re = re.compile(r"^\s*Design Rules\s*\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)", re.MULTILINE)
@@ -168,4 +166,3 @@ class Dc(SynthFlow):
             self.results['path_groups'] = path_groups
 
         self.results['success'] = not failed
-

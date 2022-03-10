@@ -13,10 +13,10 @@ class LWC:
         if not lwc_variant:
             name_splitted = design_name.split('-')
             assert len(
-                name_splitted) > 1, "either specify design.lwc.variant or design.name should be ending with -v\d+"
+                name_splitted) > 1, "either specify design.lwc.variant or design.name should be ending with -v\\d+"
             lwc_variant = name_splitted[-1]
             assert re.match(
-                r'v\d+', lwc_variant), "either specify design.lwc.variant or design.name should be ending with -v\d+"
+                r'v\d+', lwc_variant), "either specify design.lwc.variant or design.name should be ending with -v\\d+"
 
         return lwc_variant
 

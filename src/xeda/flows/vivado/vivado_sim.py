@@ -1,22 +1,15 @@
 import logging
-import os
-import math
-from types import SimpleNamespace
-from typing import Dict, List, Optional
-from pydantic.main import BaseModel
+from typing import Dict, List
+from pydantic.types import NoneStr
 
-from pydantic.types import NonNegativeInt, NoneStr
-
-from ...utils import try_convert, unique
-from ..design import DefineType, Design, DesignSource
-from ..flow import Flow, SimFlow, DebugLevel
-from .vivado_synth import VivadoSynth
+from ..design import DefineType
+from ..flow import SimFlow, XedaBaseModel
 from ..vivado import Vivado
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
-class RunConfig(BaseModel, arbitrary_types_allowed=True):
+class RunConfig(XedaBaseModel, arbitrary_types_allowed=True):
     name: NoneStr = None
     saif: NoneStr = None
     vcd: NoneStr = None
@@ -39,7 +32,7 @@ class VivadoSim(Vivado, SimFlow):
         sdf: NoneStr = None
         optimization_flags: List[str] = ['-O3']
         debug_traces: bool = False
-        prerun_time: Optional[str] = None
+        prerun_time: NoneStr = None
 
     def run(self):
         saif = self.settings.saif
@@ -60,7 +53,7 @@ class VivadoSim(Vivado, SimFlow):
             multirun_configs = [RunConfig(saif=saif, generics=generics,
                                      vcd=self.vcd, name='default')]
             if self.vcd:
-                logger.info(f"Dumping VCD to {self.run_path / self.vcd}")
+                log.info(f"Dumping VCD to {self.run_path / self.vcd}")
         else:
             for idx, rc in enumerate(multirun_configs):
                 # merge

@@ -67,7 +67,7 @@ class Ghdl(Tool):
             ["--version"],
             stdout=True,
         )
-        lines = [l.strip() for l in out.splitlines()]
+        lines = [line.strip() for line in out.splitlines()]
         return {
             'version': lines[0],
             'compiler': lines[1],
@@ -205,7 +205,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         return True
 
     @classmethod
-    def synth_args(cls, ss,  design: Design, one_shot_elab=True, top: Optional[Union[str, Tuple[str, NoneStr]]] = None) -> List[str]:
+    def synth_args(cls, ss, design: Design, one_shot_elab=True, top: Optional[Union[str, Tuple[str, NoneStr]]] = None) -> List[str]:
         flags = cls.get_flags(ss, design.language.vhdl, "elaborate")
         if ss.vendor_library:
             flags.append(f"--vendor-library={ss.vendor_library}")

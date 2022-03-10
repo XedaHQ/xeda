@@ -154,7 +154,7 @@ class Quartus(FpgaSynthFlow):
 
             # "PHYSICAL_SYNTHESIS_EFFORT": "EXTRA",
 
-            #NORMAL, OFF, EXTRA_EFFORT
+            # NORMAL, OFF, EXTRA_EFFORT
             # "OPTIMIZE_POWER_DURING_SYNTHESIS": "NORMAL",
             # SYNTH_CRITICAL_CLOCK: ON, OFF : Speed Optimization Technique for Clock Domains}
             "AUTO_DSP_RECOGNITION": ss.dsp_recognition,
