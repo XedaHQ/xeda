@@ -1,5 +1,6 @@
 from enum import IntEnum
 
+
 class DebugLevel(IntEnum):
     NONE = 0
     LOW = 1
