@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 import logging
-from typing import Dict, Sequence, Tuple, Type
+from typing import Sequence
 import toml
 import json
 import re
@@ -18,7 +18,7 @@ from rich.table import Table
 from rich.style import Style
 from rich.text import Text
 from rich import box
-from click.shell_completion import get_completion_class, ShellComplete
+from click.shell_completion import get_completion_class
 from click_help_colors import HelpColorsGroup
 import yaml
 
