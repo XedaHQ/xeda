@@ -280,11 +280,11 @@ class Design(XedaBaseModel, extra=Extra.allow):
         except ValidationError as e:
             errors = e.errors()
             log.critical(f"{len(errors)} error(s) validating design from {design_file}.")
-            raise DesignError(
+            raise InvalidDesign(
                 f"\n{display_errors(errors)}\n"
             ) from None
 
 
-class DesignError(Exception):
-    """Raised when `design` settings are invalid"""
+class InvalidDesign(Exception):
+    """Failed to validate Design properties"""
     pass

@@ -19,7 +19,7 @@ from pydantic.error_wrappers import ValidationError, display_errors
 
 from ..utils import unique
 from . import FlowRunner, generate
-from ..flows.design import Design, DesignError
+from ..flows.design import Design, InvalidDesign
 from ..flows.flow import Flow, FlowFatalException, NonZeroExit
 
 
@@ -92,7 +92,7 @@ class FmaxRunner(FlowRunner):
             design: Design = Design(**design_settings)
         except ValidationError as e:
             errors = e.errors()
-            raise DesignError(f"{len(errors)} errors while parsing `design` settings:\n\n{display_errors(errors)}\n") from None
+            raise InvalidDesign(f"{len(errors)} errors while parsing `design` settings:\n\n{display_errors(errors)}\n") from None
 
         start_time = time.monotonic()
 

@@ -1,7 +1,8 @@
 from abc import ABCMeta, abstractmethod
+import inspect
 from pydantic import Field, validator
 from pydantic.types import NoneStr
-from typing import List, Optional, Type, Tuple, Union
+from typing import ClassVar, List, Optional, Type, Tuple, TypeVar, Union
 import os
 import re
 from pathlib import Path
@@ -53,14 +54,14 @@ def final_kill(proc: subprocess.Popen):
     except:
         pass
 
-# similar to str.removesuffix in Python 3.9+
-
 
 def removesuffix(s: str, suffix: str) -> str:
+    """similar to str.removesuffix in Python 3.9+"""
     return s[:-len(suffix)] if suffix and s.endswith(suffix) else s
 
 
 def removeprefix(s: str, suffix: str) -> str:
+    """similar to str.removeprefix in Python 3.9+"""
     return s[len(suffix):] if suffix and s.startswith(suffix) else s
 
 
@@ -99,10 +100,11 @@ class Flow(Tool, metaclass=ABCMeta):
         return {}
 
     def __init_subclass__(cls) -> None:
-        cls_name = camelcase_to_snakecase(cls.__name__)
+        cls_name = cls.__name__
         mod_name = cls.__module__
         log.info(f"registering flow {cls_name} from {mod_name}")
-        registered_flows[cls_name] = (mod_name, cls)
+        if not inspect.isabstract(cls):
+            registered_flows[cls_name] = (mod_name, cls)
 
         if mod_name and not mod_name.startswith('xeda.flows.'):
             mod_name1 = removeprefix(mod_name, "xeda.plugins.")
@@ -126,7 +128,7 @@ class Flow(Tool, metaclass=ABCMeta):
                 if mp not in mod_paths:
                     mod_paths.append(mp)
         for mp in mod_paths:
-            try: # TODO better/cleaner way
+            try:  # TODO better/cleaner way
                 loaderChoices.append(PackageLoader(mp))
             except ValueError:
                 pass
@@ -199,7 +201,7 @@ class Flow(Tool, metaclass=ABCMeta):
 
     def fatal(self, msg):
         log.critical(msg)
-        raise FlowFatalException(msg)
+        raise FlowFatalException(msg) from None
 
     # FIXME REMOVE!! +remove progress from dep
     def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False, nolog=False):
@@ -296,9 +298,6 @@ class Flow(Tool, metaclass=ABCMeta):
             except KeyboardInterrupt as e:
                 if spinner:
                     print(SHOW_CURSOR)
-                final_kill(proc)
-            finally:
-                final_kill(proc)
 
         if spinner:
             print(SHOW_CURSOR)

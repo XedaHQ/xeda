@@ -4,10 +4,8 @@
 
 from collections import abc
 import logging
-from typing import Optional, Sequence, Mapping, Union
-from pydantic.types import NoneStr
-from pathlib import Path
-from ..flow import FPGA, SynthFlow
+from typing import Mapping, Union
+from ..flow import FpgaSynthFlow
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +13,9 @@ OptionValueType = Union[str, int, bool, float]
 OptionsType = Mapping[str, OptionValueType]
 
 
-class IseSynth(SynthFlow):
+class IseSynth(FpgaSynthFlow):
     """FPGA synthesis using Xilinx ISE"""
-    class Settings(SynthFlow.Settings):
+    class Settings(FpgaSynthFlow.Settings):
         # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx14_7/devref.pdf
         synthesis_options: OptionsType = {
             "Optimization Effort": "High",

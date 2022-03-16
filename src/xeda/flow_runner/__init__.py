@@ -89,7 +89,6 @@ def merge_overrides(overrides, settings):
     if overrides:
         if isinstance(overrides, str):
             overrides = re.split(r'\s*,\s*', overrides)
-
         if isinstance(overrides, list):
             for override in overrides:
                 key, val = override.split('=')
@@ -104,8 +103,8 @@ def merge_overrides(overrides, settings):
             return settings
         if isinstance(overrides, Flow.Settings):
             overrides = overrides.__dict__
-        assert isinstance(
-            overrides, dict), f"overrides is of type {type(overrides)}"
+        assert isinstance(overrides, dict), f"overrides is of unsupported type: {type(overrides)}"
+        log.info(f"Overriding the following flow settings: {overrides}")
         for k, v in overrides.items():
             settings[k] = v
     return settings

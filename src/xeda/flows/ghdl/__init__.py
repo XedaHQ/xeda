@@ -133,7 +133,7 @@ class Ghdl(Tool):
         else:
             assert False, "unknown stage!"
 
-    def elaborate(self, sources, top, vhdl) -> Tuple[str, str]:
+    def elaborate(self, sources, tops, vhdl) -> Tuple[str, str]:
         """returns top(s) as a list"""
         steps = ["import", "make"]
         assert isinstance(self.settings, self.Settings)
@@ -141,13 +141,13 @@ class Ghdl(Tool):
         opt_flags = ss.optimization_flags
         if ss.clean:
             steps.insert(0, "remove")
-        if not top:
+        if not tops:
             # run find-top after import
             steps.insert(steps.index("import") + 1, "find-top")
-        elif isinstance(top, str):
-            top = [top]
-        elif isinstance(top, tuple):
-            top = [t for t in top if t]
+        elif isinstance(tops, str):
+            tops = [tops]
+        elif isinstance(tops, tuple):
+            tops = [t for t in tops if t]
         for step in steps:
             args = self.get_flags(ss, vhdl, step)
             if step in ["import", "analyze"]:
@@ -156,21 +156,21 @@ class Ghdl(Tool):
                 if self.info.get('backend', '').lower().startswith("llvm"):
                     if platform.system() == 'Darwin' and platform.machine() == 'arm64':
                         args += ['-Wl,-Wl,-no_compact_unwind']
-                args += opt_flags + top
+                args += opt_flags + tops
             if step == "find-top":
                 out = self.run_tool(
                     self.default_executable,
                     [step, *args],
                     stdout=True
                 )
-                top = [out.strip()]
-                logger.warning(f"setting top to {top}")
+                tops = [out.strip()]
+                logger.warning(f"setting top to {tops}")
             else:
                 self.run_tool(
                     self.default_executable,
                     [step, *args]
                 )
-        return (top[0], top[1] if len(top) == 2 else None)
+        return (tops[0], tops[1] if len(tops) == 2 else None)
 
 
 class GhdlSynth(Ghdl, SynthFlow):
@@ -228,6 +228,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         if one_shot_elab:
             flags += [str(v) for v in design.rtl.sources if v.type == "vhdl"]
             flags.append('-e')
+        print(top)
         if not top:
             top = design.rtl.top
         if top:
@@ -236,7 +237,7 @@ class GhdlSynth(Ghdl, SynthFlow):
             else:
                 for t in top:
                     if t:
-                        flags.extend(t)
+                        flags.append(t)
         return flags
 
     def parse_reports(self):

@@ -15,12 +15,12 @@ class Cocotb(Tool):
     """Cocotb support for a SimFlow"""
     """Not a stand-alone tool, but is used from a SimFlow"""
     class Settings(Tool.Settings):
-        coverage: bool = Field(True, description="collect coverage data if supported by simulation tool")
-        reduced_log_fmt: bool = True
-        results: str = "results.xml"
-        resolve_x: Literal["VALUE_ERROR", "ZEROS", "ONES", "RANDOM"] = Field("VALUE_ERROR", description="how to resolve bits with a value of X, Z, U or W when being converted to integer")
+        coverage: bool = Field(True, description="Collect coverage data if supported by simulation tool.")
+        reduced_log_fmt: bool = Field(True, description="Display shorter log lines in the terminal.")
+        results: str = Field("results.xml", description="xUnit-compatible cocotb result file.", hidden_from_schema=True)
+        resolve_x: Literal["VALUE_ERROR", "ZEROS", "ONES", "RANDOM"] = Field("VALUE_ERROR", description="how to resolve bits with a value of X, Z, U or W when being converted to integer.")
         testcase: List[str] = Field([], description="List of test-cases to run. Can also be specified as a comma-separated string. Currently used for cocotb testbenches only.")
-        random_seed: Optional[int]
+        random_seed: Optional[int] = Field(None, description="Seed the Python random module to recreate a previous test stimulus.")
         gpi_extra: List[str] = Field([], description="A comma-separated list of extra libraries that are dynamically loaded at runtime.")
 
         @validator('testcase', 'gpi_extra', pre=True, always=True)
