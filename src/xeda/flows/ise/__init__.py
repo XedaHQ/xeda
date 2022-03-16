@@ -16,9 +16,8 @@ OptionsType = Mapping[str, OptionValueType]
 
 
 class IseSynth(SynthFlow):
-
+    """FPGA synthesis using Xilinx ISE"""
     class Settings(SynthFlow.Settings):
-        clock_period: NoneStr = None
         # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx14_7/devref.pdf
         synthesis_options: OptionsType = {
             "Optimization Effort": "High",

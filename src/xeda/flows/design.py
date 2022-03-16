@@ -1,7 +1,7 @@
 from abc import ABCMeta
 import os
 from typing import List, Optional, Dict, Tuple, Union, Any
-from pydantic import BaseModel, Field, NoneStr, validator, Extra, validate_model
+from pydantic import BaseModel, Field, NoneStr, validator, Extra, validate_model, PrivateAttr
 from pydantic.class_validators import root_validator
 from pydantic.error_wrappers import ValidationError, display_errors
 from pathlib import Path, PurePath
@@ -21,7 +21,7 @@ class XedaBaseModel(BaseModel, metaclass=ABCMeta):
 
 
 class FileResource:
-    def __init__(self, path: Union[str, os.PathLike, Dict[str, str]], **data) -> None:
+    def __init__(self, path: Union[str, os.PathLike, Dict[str, str]], _root_path: Optional[Path] = None, **data) -> None:
         self._content_hash = None
         try:
             if isinstance(path, dict):
@@ -29,8 +29,8 @@ class FileResource:
                     raise Exception(f'Required field `file` is missing.')
                 path = path['file']
             p = Path(path)
-            if not p.is_absolute():
-                p = Path.cwd() / p
+            if _root_path and not p.is_absolute():
+                p = _root_path / p
             self.file = p.resolve(strict=True)
         except FileNotFoundError as e:
             log.critical(f"Design resource '{path}' does not exist!")
@@ -61,8 +61,8 @@ class FileResource:
 
 
 class DesignSource(FileResource):
-    def __init__(self, path: str, typ: str = None, standard: str = None, variant: str = None, **data) -> None:
-        super().__init__(path, **data)
+    def __init__(self, path: str, typ: str = None, standard: str = None, variant: str = None, design_root: Optional[Path] = None, **data) -> None:
+        super().__init__(path, design_root, **data)
 
         def type_from_suffix(path: Path) -> Tuple[Optional[str], Optional[str]]:
             type_variants_map = {
@@ -96,6 +96,9 @@ DefineType = Any
 
 class DVSettings(XedaBaseModel, validate_assignment=True):
     """Design/Verification settings"""
+    # private attributes
+    root_path: Optional[Path] = None
+    # public fields
     sources: List[DesignSource]
     top: Optional[Tuple[str, Optional[str]]] = Field(
         None, description="Toplevel module(s) of the design. In addition to the primary toplevel, a secondary toplevel module can also be specified."
@@ -139,12 +142,13 @@ class DVSettings(XedaBaseModel, validate_assignment=True):
                 top = (top[0], top[1] if len(top) == 2 else None)
         return top
 
-    @validator('sources', pre=True)
-    def sources_to_files(cls, sources):
-        if sources:
-            return [
-                src if isinstance(src, DesignSource) else DesignSource(src) for src in sources
-            ]
+    @validator('sources', pre=True, always=False)
+    def sources_to_files(cls, sources, values, field, **kwargs):
+        root_path = values.get('root_path')
+        del values['root_path']
+        return [
+            src if isinstance(src, DesignSource) else DesignSource(src, design_root=root_path) for src in sources
+        ]
 
 
 class Clock(BaseModel):
@@ -213,6 +217,20 @@ class Design(XedaBaseModel, extra=Extra.allow):
     tb: Optional[TbSettings] = None
     language: Language = Language()
 
+    def __init__(__pydantic_self__, design_root=None, **data: Any) -> None:
+        if design_root is None:
+            design_root = Path.cwd()
+        elif not isinstance(design_root, Path):
+            design_root = Path(design_root).resolve()
+        if not design_root.exists():
+            raise ValueError("Specified design_root does not exist!")
+        # if not design_root.is_absolute():
+            # raise ValueError("Design.root_path must be an absolute path!")
+        data['rtl']['root_path'] = design_root
+        if 'tb' in data:
+            data['tb']['root_path'] = design_root
+        super().__init__(**data)
+
     @property
     def sim_sources(self):
         return self.rtl.sources + [src for src in self.tb.sources if src not in self.rtl.sources and (src.type == 'vhdl' or src.type == 'verilog')]
@@ -248,10 +266,17 @@ class Design(XedaBaseModel, extra=Extra.allow):
             raise validation_error
 
     @classmethod
-    def from_toml(cls, design_file: Union[str, PurePath]) -> 'Design':
-        design_dict = sanitize_toml(toml.load(design_file))
+    def from_toml(cls, design_file: Union[str, os.PathLike], design_root: Union[None, str, os.PathLike] = None) -> 'Design':
+        """Load and validate a design description in TOML fromat"""
+        if not isinstance(design_file, Path):
+            design_file = Path(design_file)
+        toml_dict = toml.load(design_file)
+        design_dict = sanitize_toml(toml_dict)
+        if design_root is None:
+            # Default value for design_root is the folder containing the design description file.
+            design_root = design_file.parent
         try:
-            return Design(**design_dict)
+            return Design(design_root=design_root, **design_dict)
         except ValidationError as e:
             errors = e.errors()
             log.critical(f"{len(errors)} error(s) validating design from {design_file}.")

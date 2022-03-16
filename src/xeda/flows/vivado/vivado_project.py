@@ -5,6 +5,7 @@ log = logging.getLogger(__name__)
 
 
 class VivadoPrjSynth(VivadoSynth):
+    """Synthesize with Xilinx Vivado using a project-based flow"""
     class Settings(VivadoSynth.BaseSettings):
         """Settings for Vivado synthesis in project mode settings"""
         # fail_critical_warning = False

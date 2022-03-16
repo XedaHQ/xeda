@@ -6,6 +6,8 @@ from . import RESOURCES_DIR
 
 
 def test_vivado_prj_template():
+    path = RESOURCES_DIR / "design0/design0.toml"
+    assert path.exists()
     design = Design.from_toml(RESOURCES_DIR / "design0/design0.toml")
     settings = VivadoPrjSynth.Settings(fpga=FPGA(part="abcd"), clock_period=5.5)
     run_dir = Path.cwd() / "vivado_prj_run"
@@ -22,4 +24,3 @@ def test_vivado_prj_template():
     ]
     for l in expected_lines:
         assert l in vivado_tcl
-

@@ -51,6 +51,7 @@ def try_float(s: str):
 
 
 class Quartus(FpgaSynthFlow):
+    """FPGA synthesis using Intel Quartus"""
     class Settings(FpgaSynthFlow.Settings):
         # part number (fpga.part) formats are quite complicated.
         # See: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf

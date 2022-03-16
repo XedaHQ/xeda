@@ -29,6 +29,7 @@ def append_flag(flag_list: List[str], flag: str):
 
 
 class YosysSynth(Yosys, SynthFlow):
+    """Synthesize the design using Yosys Open SYnthesis Suite"""
     class Settings(Yosys.Settings, SynthFlow.Settings):
         log_file: Optional[str] = 'yosys.log'
         flatten: bool = Field(True, description="flatten design")

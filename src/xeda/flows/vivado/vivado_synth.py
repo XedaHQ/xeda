@@ -239,6 +239,7 @@ class RunOptions(XedaBaseModel, extra=Extra.forbid):
 
 
 class VivadoSynth(Vivado, FpgaSynthFlow):
+    """Synthesize with Xilinx Vivado using a custom flow"""
     class BaseSettings(FpgaSynthFlow.Settings):
         fail_critical_warning = False
         fail_timing = True

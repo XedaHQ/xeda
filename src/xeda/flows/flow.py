@@ -78,8 +78,8 @@ class Flow(Tool, metaclass=ABCMeta):
 
     class Settings(Tool.Settings, XedaBaseModel):
         """Settings that can affect flow's behavior"""
-        reports_subdir_name: str = 'reports'
-        timeout_seconds: int = 3600 * 2
+        reports_subdir_name: str = Field('reports', hidden_from_schema=True)
+        timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
         nthreads: int = Field(default_factory=multiprocessing.cpu_count,
                               description="max number of threads")
         ncpus: int = Field(psutil.cpu_count(logical=False),

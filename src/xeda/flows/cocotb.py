@@ -15,7 +15,7 @@ class Cocotb(Tool):
     """Cocotb support for a SimFlow"""
     """Not a stand-alone tool, but is used from a SimFlow"""
     class Settings(Tool.Settings):
-        coverage: bool = True
+        coverage: bool = Field(True, description="collect coverage data if supported by simulation tool")
         reduced_log_fmt: bool = True
         results: str = "results.xml"
         resolve_x: Literal["VALUE_ERROR", "ZEROS", "ONES", "RANDOM"] = Field("VALUE_ERROR", description="how to resolve bits with a value of X, Z, U or W when being converted to integer")

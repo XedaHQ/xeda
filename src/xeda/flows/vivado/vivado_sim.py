@@ -17,10 +17,9 @@ class RunConfig(XedaBaseModel, arbitrary_types_allowed=True):
 
 
 class VivadoSim(Vivado, SimFlow):
-    """
-    xsim flow
-    Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
-    """
+    """Simulate using Xilinx Vivado simulator (xsim) flow"""
+    # TODO change this?
+    # Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
 
     class Settings(SimFlow.Settings, Vivado.Settings):
         saif: NoneStr = None

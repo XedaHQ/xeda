@@ -57,18 +57,17 @@ class Tool(metaclass=ABCMeta):
     """abstraction for an EDA tool"""
 
     class Settings(XedaBaseModel, metaclass=ABCMeta, extra=Extra.allow):
-        docker: Optional[DockerToolSettings] = None
-        remote: Optional[RemoteToolSettings] = None
-        native: Optional[NativeToolSettings] = None
-        log_stdout: bool = Field(False, description="Log stdout to a file")
-        log_stderr: bool = Field(False, description="Log stderr to a file")
-        bin_path: str = Field(None, description="Path to the tool binary")
-        require_version: NoneStr = Field(
-            None, description="Require tool version")
-        dockerized: bool = Field(False, description="Run the tool dockerized")
-        quiet: bool = False
-        verbose: int = 0
-        debug: bool = False
+        docker: Optional[DockerToolSettings] = Field(None, hidden_from_schema=True)
+        remote: Optional[RemoteToolSettings] = Field(None, hidden_from_schema=True)
+        native: Optional[NativeToolSettings] = Field(None, hidden_from_schema=True)
+        log_stdout: bool = Field(False, description="Log stdout to a file", hidden_from_schema=True)
+        log_stderr: bool = Field(False, description="Log stderr to a file", hidden_from_schema=True)
+        bin_path: str = Field(None, description="Path to the tool binary", hidden_from_schema=True)
+        require_version: NoneStr = Field(None, description="Require tool version", hidden_from_schema=True)
+        dockerized: bool = Field(False, description="Run the tool dockerized", hidden_from_schema=True)
+        quiet: bool = Field(False, hidden_from_schema=True)
+        verbose: int = Field(0, hidden_from_schema=True)
+        debug: bool = Field(False, hidden_from_schema=True)
 
     default_native: NativeToolSettings
     default_docker: Optional[DockerToolSettings] = None

@@ -129,11 +129,6 @@ def semantic_hash(data: Any) -> str:
     return get_digest(bytes(repr(sorted_dict_str(data)), 'UTF-8'))
 
 
-def get_settings_schema(flow_name: str, module_name: str, package: str = __package__):
-    flow_class = get_flow_class(flow_name, module_name, package)
-    return flow_class.Settings.schema(by_alias=False)
-
-
 def generate(flow_class, design: Design, xeda_run_dir: Path, override_settings: Union[Mapping[str, Any], Flow.Settings]) -> Flow:
     flow_name = flow_class.name
     if isinstance(override_settings, Flow.Settings):
@@ -303,4 +298,5 @@ class FlowRunner:
 
 
 class DefaultRunner(FlowRunner):
+    """Executes a flow and its dependencies and then reports selected results"""
     pass

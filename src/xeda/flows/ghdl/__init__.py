@@ -44,9 +44,9 @@ class Ghdl(Tool):
             False, description="warnings are always considered as errors")
         elab_werror: bool = Field(
             False, description="During elaboration, warnings are considered as errors")
-        relaxed: bool = True
+        relaxed: bool = Field(True, description="Slightly relax some rules to be compatible with various other simulators or synthesizers.")
         clean: bool = True
-        diagnostics: bool = True
+        diagnostics: bool = Field(True, description="Enable both color and source line carret diagnostics.")
         work: NoneStr = Field(
             None, description="Set the name of the WORK library")
         lib_paths: Union[str, List[str]] = Field(
@@ -117,7 +117,7 @@ class Ghdl(Tool):
             analysis_flags.append('-v')
             elab_flags.append('-v')
         if ss.diagnostics:
-            elab_flags.extend(['-fcaret-diagnostics', '-fcolor-diagnostics'])
+            elab_flags.extend(['-fcaret-diagnostics', '-fcolor-diagnostics', '-fdiagnostics-show-option'])
         if ss.work:
             elab_flags.append('-v')
         if ss.expect_failure:
@@ -174,6 +174,10 @@ class Ghdl(Tool):
 
 
 class GhdlSynth(Ghdl, SynthFlow):
+    """
+    Convert a VHDL design using 'ghdl --synth'
+     (Please see `YosysSynth` (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis)
+    """
     class Settings(Ghdl.Settings, SynthFlow.Settings):
         vendor_library: NoneStr = Field(
             None, description="Any unit from this library is a black box")
@@ -240,11 +244,13 @@ class GhdlSynth(Ghdl, SynthFlow):
 
 
 class GhdlLint(Ghdl, Flow):
+    """Lint VHDL sources using GHDL"""
     class Settings(Ghdl.Settings):
         pass
 
 
 class GhdlSim(Ghdl, SimFlow):
+    """Simulate a VHDL design using GHDL"""
     cocotb_sim_name = "ghdl"
 
     class Settings(Ghdl.Settings, SimFlow.Settings):
@@ -255,9 +261,9 @@ class GhdlSim(Ghdl, SimFlow):
             ['-O3'], description="Simulation optimization flags")
         sdf: Union[bool, None, List[str], str] = Field(
             None, description="Do VITAL annotation on PATH with SDF file.")
-        wave: Union[bool, None, str] = None
+        wave: Union[bool, None, str] = Field(None, description="Write the waveforms into a GHDL Waveform (GHW) file.")
         stop_delta: NoneStr = Field(
-            None, description="Stop the simulation after N delta cycles in the same current time. The default is 5000.")
+            None, description="Stop the simulation after N delta cycles in the same current time.")
         debug: bool = Field(
             False, description="Enable simulation and runtime debugging flags")
 
