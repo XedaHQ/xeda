@@ -29,7 +29,9 @@ class FileResource:
                     raise Exception(f'Required field `file` is missing.')
                 path = path['file']
             p = Path(path)
-            if _root_path and not p.is_absolute():
+            if not p.is_absolute():
+                if not _root_path:
+                    _root_path = Path.cwd()
                 p = _root_path / p
             self.file = p.resolve(strict=True)
         except FileNotFoundError as e:
@@ -61,8 +63,8 @@ class FileResource:
 
 
 class DesignSource(FileResource):
-    def __init__(self, path: str, typ: str = None, standard: str = None, variant: str = None, design_root: Optional[Path] = None, **data) -> None:
-        super().__init__(path, design_root, **data)
+    def __init__(self, path: str, typ: str = None, standard: str = None, variant: str = None, _root_path: Optional[Path] = None, **data) -> None:
+        super().__init__(path, _root_path, **data)
 
         def type_from_suffix(path: Path) -> Tuple[Optional[str], Optional[str]]:
             type_variants_map = {
@@ -96,8 +98,6 @@ DefineType = Any
 
 class DVSettings(XedaBaseModel, validate_assignment=True):
     """Design/Verification settings"""
-    # private attributes
-    root_path: Optional[Path] = None
     # public fields
     sources: List[DesignSource]
     top: Optional[Tuple[str, Optional[str]]] = Field(
@@ -143,11 +143,9 @@ class DVSettings(XedaBaseModel, validate_assignment=True):
         return top
 
     @validator('sources', pre=True, always=False)
-    def sources_to_files(cls, sources, values, field, **kwargs):
-        root_path = values.get('root_path')
-        del values['root_path']
+    def sources_to_files(cls, sources):
         return [
-            src if isinstance(src, DesignSource) else DesignSource(src, design_root=root_path) for src in sources
+            src if isinstance(src, DesignSource) else DesignSource(src) for src in sources
         ]
 
 
@@ -217,20 +215,6 @@ class Design(XedaBaseModel, extra=Extra.allow):
     tb: Optional[TbSettings] = None
     language: Language = Language()
 
-    def __init__(__pydantic_self__, design_root=None, **data: Any) -> None:
-        if design_root is None:
-            design_root = Path.cwd()
-        elif not isinstance(design_root, Path):
-            design_root = Path(design_root).resolve()
-        if not design_root.exists():
-            raise ValueError("Specified design_root does not exist!")
-        # if not design_root.is_absolute():
-            # raise ValueError("Design.root_path must be an absolute path!")
-        data['rtl']['root_path'] = design_root
-        if 'tb' in data:
-            data['tb']['root_path'] = design_root
-        super().__init__(**data)
-
     @property
     def sim_sources(self):
         return self.rtl.sources + [src for src in self.tb.sources if src not in self.rtl.sources and (src.type == 'vhdl' or src.type == 'verilog')]
@@ -275,14 +259,18 @@ class Design(XedaBaseModel, extra=Extra.allow):
         if design_root is None:
             # Default value for design_root is the folder containing the design description file.
             design_root = design_file.parent
+        current_wd = Path.cwd()
         try:
-            return Design(design_root=design_root, **design_dict)
+            os.chdir(design_root)
+            return Design(**design_dict)
         except ValidationError as e:
             errors = e.errors()
             log.critical(f"{len(errors)} error(s) validating design from {design_file}.")
             raise InvalidDesign(
                 f"\n{display_errors(errors)}\n"
             ) from None
+        finally:
+            os.chdir(current_wd)
 
 
 class InvalidDesign(Exception):
