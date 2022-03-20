@@ -27,7 +27,7 @@ if { [catch {eval vsim -t ps {{top}} {{vsim_opts}} {{generics_options}} } error]
 }
 vcd add -r {% if not debug and design.tb.uut %} {{design.tb.uut}}/* {% else %} * {% endif %}
 #run_wave
-run {% if 'stop_time' in flow %} {{flow.stop_time}} {%- else %} -all {%- endif %}
+run {% if 'stop_time' in flow %} {{settings.stop_time}} {%- else %} -all {%- endif %}
 puts "\n===========================( *DISABLE ECHO* )==========================="
 
 {% if vcd %}

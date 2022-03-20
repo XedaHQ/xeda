@@ -1,12 +1,14 @@
 # © 2022 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 """Xeda Command-line interface"""
 from dataclasses import dataclass
+from datetime import datetime
 from functools import reduce
 import multiprocessing
 import os
 from pathlib import Path
 import sys
 import logging
+import coloredlogs
 from typing import Sequence
 import toml
 import json
@@ -26,7 +28,8 @@ from ._version import get_versions
 from .utils import camelcase_to_snakecase, load_class, sanitize_toml
 from .debug import DebugLevel
 from .flow_runner import DefaultRunner, merge_overrides, get_flow_class
-from .flows.flow import Flow, FlowFatalException, FlowSettingsError, SimFlow, SynthFlow, registered_flows
+from .flows.flow import Flow, FlowFatalException, registered_flows
+from .tool import NonZeroExitCode
 from .flows.design import Design
 from .console import console
 
@@ -144,6 +147,21 @@ class XedaHelpGroup(HelpColorsGroup):
         super().format_usage(ctx, formatter)
 
 
+def setup_logger(log, logdir: Path):
+    coloredlogs.install(
+        None, fmt='%(asctime)s %(levelname)s %(message)s', logger=log
+    )
+    logdir.mkdir(exist_ok=True, parents=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
+    logfile = logdir / f"xeda_{timestamp}.log"
+    log.info(f"Logging to {logfile}")
+    logFormatter = logging.Formatter(
+        "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+    fileHandler = logging.FileHandler(logfile)
+    fileHandler.setFormatter(logFormatter)
+    log.addHandler(fileHandler)
+
+
 @click.group(cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
 @click.option('--verbose', is_flag=True, help='Enables verbose mode.')
 @click.option('--quiet', is_flag=True, help="Enable quiet mode.")
@@ -232,6 +250,10 @@ def cli(ctx: click.Context, **kwargs):
 @ click.pass_context
 def run(ctx, force_run, flow, flow_settings, xeda_run_dir, design_file=None, xedaproject=None, design_name=None):
     args: XedaOptions = ctx.obj
+    # Always run setup_logger with INFO log level
+    log.setLevel(logging.INFO)
+    setup_logger(log, xeda_run_dir / 'Logs')
+    # then switch to requested level
     log.setLevel(logging.WARNING if args.quiet else logging.DEBUG if args.debug else logging.INFO)
 
     # FIXME
@@ -276,6 +298,9 @@ def run(ctx, force_run, flow, flow_settings, xeda_run_dir, design_file=None, xed
     try:
         runner.run_flow(flow_class, design, flow_overrides)
     except FlowFatalException as e:
+        log.critical(f"Flow {flow} failed!")
+        exit(1)
+    except NonZeroExitCode as e:
         log.critical(f"Flow {flow} failed!")
         exit(1)
     except ValidationError as e:

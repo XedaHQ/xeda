@@ -41,7 +41,7 @@ if { [catch {eval read_vhdl {% if design.language.vhdl.standard == "08" or desig
 read_xdc {{xdc_file}}
 {% endfor %}
 
-set_property top {{design.rtl.top}} [get_fileset sources_1]
+set_property top {{design.rtl.primary_top}} [get_fileset sources_1]
 
 set avail_synth_strategies [join [list_property_value strategy [get_runs synth_1] ] " "]
 puts "available synthesis strategies: $avail_synth_strategies"

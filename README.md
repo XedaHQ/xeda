@@ -1,4 +1,5 @@
-[![Documentation Status](https://readthedocs.org/projects/xeda/badge/?version=latest)](https://xeda.readthedocs.io/en/latest/?badge=latest) ![visitors](https://page-views.glitch.me/badge?page_id=XedaHQ.xeda)
+
+[![CI Tests](https://github.com/XedaHQ/xeda/workflows/CI%20Tests/badge.svg?branch=dev)](https://github.com/XedaHQ/xeda/actions) [![Documentation Status](https://readthedocs.org/projects/xeda/badge/?version=latest)](https://xeda.readthedocs.io/en/latest/?badge=latest) ![visitors](https://page-views.glitch.me/badge?page_id=XedaHQ.xeda)
 
 ![Xeda Logo](logo.svg)
 

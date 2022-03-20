@@ -7,55 +7,49 @@ import math
 import csv
 from pathlib import Path
 import re
-from types import SimpleNamespace
 from typing import List
 from xml.etree import ElementTree
 import html
 
-from ..design import DesignSource
 from ..flow import Flow
-from .vivado_sim import VivadoPostsynthSim
+from .vivado_sim import VivadoPostsynthSim, VivadoSim
 from .vivado_synth import VivadoSynth
 from . import Vivado
 
 logger = logging.getLogger(__name__)
 
 
-class VivadoPower(Vivado, Flow):
-    class Settings(Vivado.Settings, Flow.Settings):
+class VivadoPower(Vivado):
+    class Settings(Vivado.Settings):
         clock_period: float
-        saif_filename: str = 'impl_timing.saif'
         power_report_filename: str = 'power_impl_timing.xml'
+        post_synth_sim: VivadoPostsynthSim.Settings = VivadoPostsynthSim.Settings(elab_debug='typical')
 
     def init(self):
-        self.postsynthsim_flow = completed_dependencies[0]
-        self.postsynthsim_settings = self.postsynthsim_flow.settings.flow
-        self.synth_flow = self.postsynthsim_flow.completed_dependencies[0]
-        self.synth_settings = self.synth_flow.settings.flow
-        self.synth_results = self.synth_flow.results
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        # override/sanitize VivadoPostsynthSim dependency settings
+        pss = ss.post_synth_sim
+        if pss.synth.input_delay is None:
+            pss.synth.input_delay = 0.0
+        if pss.synth.output_delay is None:
+            pss.synth.output_delay = 0.0
+
         # FIXME!!! For reasons still unknown, not all strategies lead to correct post-impl simulation
-        synth_overrides = dict(
-            strategy=flow_settings.get('strategy', 'AreaPower'))
-        postsynthsim_overrides = dict(input_delay=0.0, output_delay=0.0, elab_debug='typical',
-                                      saif=cls.saif_filename,  dependencies=dict(vivado_synth=synth_overrides))
-
-        period = flow_settings.get('clock_period')
-        if period:
-            postsynthsim_overrides['clock_period'] = period
-            synth_overrides['clock_period'] = period
-
-        opt_power = flow_settings.get('optimize_power')
-        if opt_power is not None:
-            postsynthsim_overrides['optimize_power'] = opt_power
-            synth_overrides['optimize_power'] = opt_power
-
-        return {VivadoPostsynthSim: (postsynthsim_overrides, {})}
+        pss.synth.synth.strategy = 'AreaPower'
+        pss.synth.optimize_power = True
+        # pss.synth.clock_period
+        # pss.synth.clocks
+        self.add_dependency(VivadoPostsynthSim, pss)
 
     def run(self):
-        run_configs = self.postsynthsim_settings.get('run_configs')
+        saif_filename: str = 'impl_timing.saif'
+        postsynthsim = self.completed_dependencies[0]
+        postsynthsim_settings = postsynthsim.settings
+        run_configs = postsynthsim_settings.get('run_configs')
 
         def update_saif_path(rc):
-            rc['saif'] = str(self.postsynthsim_flow.flow_run_dir / rc['saif'])
+            rc['saif'] = str(postsynthsim.flow_run_dir / rc['saif'])
             return rc
 
         if run_configs:
@@ -67,7 +61,7 @@ class VivadoPower(Vivado, Flow):
         self.run_configs = run_configs
 
         script_path = self.copy_from_template(f'vivado_power.tcl',
-                                              tb_top=self.postsynthsim_flow.tb_top,
+                                              tb_top=postsynthsim.tb_top,
                                               run_configs=self.run_configs,
                                               checkpoint=str(
                                                   self.synth_flow.flow_run_dir / VivadoSynth.checkpoints_dir / 'post_route.dcp')
@@ -90,8 +84,10 @@ class VivadoPower(Vivado, Flow):
         for tablerow in tree.findall("./section[@title='Summary']/section[@title='On-Chip Components']/table/tablerow"):
             tablecells = tablerow.findall('tablecell')
             if len(tablecells) >= 2:
-                contents = [html.unescape(
-                    x.attrib['contents']).strip() for x in tablecells]
+                contents = [
+                    html.unescape(x.attrib['contents']).strip()
+                    for x in tablecells
+                ]
                 key = contents[0]
                 value = contents[1]
                 components[key] = value
@@ -101,8 +97,6 @@ class VivadoPower(Vivado, Flow):
 
     def parse_reports(self):
         report_xml = self.flow_run_dir / self.power_report_filename
-
         results = self.parse_power_report(report_xml)
-
-        self.results['success'] = True
+        self.results.success = True  # ???
         self.results.update(**results)

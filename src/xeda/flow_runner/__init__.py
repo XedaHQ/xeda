@@ -1,5 +1,4 @@
 from datetime import datetime
-import coloredlogs
 import time
 import logging
 from pathlib import Path, PosixPath
@@ -29,6 +28,7 @@ log = logging.getLogger(__name__)
 
 
 def print_results(flow: Flow, results=None):
+    skip_if_not = {'artifacts', 'reports'}
     if results is None:
         results = flow.results
     console.print()
@@ -40,7 +40,9 @@ def print_results(flow: Flow, results=None):
     table.add_column(style="bold", no_wrap=True)
     table.add_column(justify="right")
     for k, v in results.items():
-        if v is not None and not k.startswith('_'):
+        if k in skip_if_not and not v:
+            continue
+        elif v is not None and not k.startswith('_'):
             if k == 'success':
                 text = "OK :heavy_check_mark-text:" if v else "FAILED :cross_mark-text:"
                 color = 'green' if v else 'red'
@@ -53,7 +55,7 @@ def print_results(flow: Flow, results=None):
                 table.add_row("Flow Name", Text(v), style=Style(dim=True))
                 continue
             if k == 'runtime':
-                table.add_row("Running Time", str(timedelta(seconds=int(v))), style=Style(dim=True))
+                table.add_row("Running Time", str(timedelta(seconds=round(v))), style=Style(dim=True))
                 continue
             if isinstance(v, float):
                 v = f'{v:.3f}'
@@ -183,27 +185,6 @@ class FlowRunner:
         xeda_run_dir = Path(_xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
         self.xeda_run_dir = xeda_run_dir
-        self.install_file_logger(self.xeda_run_dir / 'Logs')
-
-    def install_file_logger(self, logdir: Path):
-        logdir.mkdir(exist_ok=True, parents=True)
-
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-        logFormatter = logging.Formatter(
-            "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
-
-        logfile = logdir / f"xeda_{timestamp}.log"
-        print(f"Logging to {logfile}")
-
-        fileHandler = logging.FileHandler(logfile)
-        fileHandler.setFormatter(logFormatter)
-        root_logger = logging.getLogger()
-        root_logger.addHandler(fileHandler)
-
-        coloredlogs.install(
-            'INFO', fmt='%(asctime)s %(levelname)s %(message)s', logger=root_logger)
-
-        log.info(f"Running using FlowRunner: {self.__class__.__name__}")
 
     def fatal(self, msg=None, exception=None):
         if msg:
@@ -231,7 +212,7 @@ class FlowRunner:
         # print(flow.dependencies)
         for dep_cls, dep_settings in flow.dependencies:
             # merge with existing self.flows[dep].settings
-            completed_dep = self.run_flow(dep_cls, design, dep_settings)
+            completed_dep = self.run_flow(dep_cls, design, dep_settings.dict())
             if not completed_dep or not completed_dep.results['success']:
                 log.critical(f"Dependency flow {dep_cls.name} failed")
                 raise Exception()  # TODO
@@ -242,10 +223,9 @@ class FlowRunner:
             log.critical(
                 f"Execution of {e.command_args[0]} returned {e.exit_code}")
             failed = True
-            raise e from None
 
         if flow.init_time is not None:
-            flow.results['runtime'] = time.monotonic() - flow.init_time
+            flow.results.runtime = time.monotonic() - flow.init_time
 
         if not failed:
             flow.parse_reports()

@@ -219,8 +219,6 @@ class YosysSynth(Yosys, SynthFlow):
 
         if ss.flatten:
             append_flag(ss.synth_flags, '-flatten')
-        if self.design.rtl.top:
-            append_flag(ss.synth_flags, f'-top {self.design.rtl.top}')
 
         # add FPGA-specific synth_xx flags
         if ss.fpga:
@@ -262,9 +260,7 @@ class YosysSynth(Yosys, SynthFlow):
                                               ghdl_args=GhdlSynth.synth_args(
                                                   ss.ghdl,
                                                   self.design
-                                              ),
-                                              artifacts=self.artifacts,
-                                              )
+                                              ))
         log.info(f"Yosys script: {self.run_path / script_path}")
         # args = ['-s', script_path]
         args = ['-c', script_path]

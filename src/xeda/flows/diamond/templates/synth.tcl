@@ -2,10 +2,10 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
 # Area/Balanced/Timing
-set strategy            {{flow.strategy}}
+set strategy            {{settings.strategy}}
 
-set implementation_name "{{flow.impl_name}}"
-set impl_dir            "{{flow.impl_folder}}"
+set implementation_name "{{settings.impl_name}}"
+set impl_dir            "{{settings.impl_folder}}"
 
 file delete -force ${impl_dir}
 # Workaround for old TCL on NFS bug
@@ -13,19 +13,19 @@ file delete -force ${impl_dir}
 #   after 2000 puts "delete failed. retrying..."
 # }
 
-prj_project new -name {{design.name}} -dev "{{flow.fpga_part}}" -impl ${implementation_name} -impl_dir ${impl_dir}
+prj_project new -name {{design.name}} -dev "{{settings.fpga_part}}" -impl ${implementation_name} -impl_dir ${impl_dir}
 
-prj_impl option synthesis {{flow.synthesis_engine}}
+prj_impl option synthesis {{settings.synthesis_engine}}
 
 ##strategy
-eval prj_strgy copy -from {{flow.strategy}} -name custom_strategy -file diamond_strategy.sty
+eval prj_strgy copy -from {{settings.strategy}} -name custom_strategy -file diamond_strategy.sty
 
 {% for src in design.rtl.sources %}
 eval prj_src add {% if src.type == "vhdl" -%} -format VHDL {%- elif src.type == "verilog" and not src.variant -%} -format Verilog {%- endif %} {{src.file}}
 {% endfor %}
 
 
-{% if flow.synthesis_engine == "synplify" %}
+{% if settings.synthesis_engine == "synplify" %}
 # non-timing
 eval prj_src add constraints.fdc
 
@@ -33,7 +33,7 @@ eval prj_src add constraints.fdc
 eval prj_src add constraints.sdc
 {% endif %}
 
-{% if flow.synthesis_engine == "lse" %}
+{% if settings.synthesis_engine == "lse" %}
 eval prj_src add constraints.ldc
 {% endif %}
 
@@ -51,7 +51,7 @@ prj_strgy set_value -strategy custom_strategy map_overmap_device=False
 # prj_strgy set_value -strategy custom_strategy {maptrce_analysis_option=Standard Setup With Hold Analysis on IOs}
 # prj_strgy set_value -strategy custom_strategy {partrce_analysis_option=Standard Setup With Hold Analysis on IOs}
 
-{% if flow.strategy == "Timing" %}
+{% if settings.strategy == "Timing" %}
 prj_strgy set_value -strategy custom_strategy {syn_pipelining_retiming=Pipelining and Retiming}
 # prj_strgy set_value -strategy custom_strategy {syn_use_clk_for_uncons_io=True}
 prj_strgy set_value -strategy custom_strategy map_timing_driven=True
@@ -75,11 +75,11 @@ prj_strgy set_value -strategy custom_strategy map_timing_driven=True
 
 
 
-{% if flow.syn_cmdline_args %}
-prj_strgy set_value -strategy custom_strategy {syn_cmdline_args={{flow.syn_cmdline_args}}}
+{% if settings.syn_cmdline_args %}
+prj_strgy set_value -strategy custom_strategy {syn_cmdline_args={{settings.syn_cmdline_args|join(" ")}}}
 {% endif %}
 
-{% if flow.strategy == "Area" %}
+{% if settings.strategy == "Area" %}
 prj_strgy set_value -strategy custom_strategy syn_area=True
 {% endif %}
 
@@ -98,12 +98,12 @@ prj_strgy set_value -strategy custom_strategy par_place_effort_level=5
 
 # LSE options
 # lse_disable_distram=False ?
-{% if not flow.allow_brams %}
+{% if not settings.allow_brams %}
 prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0 lse_ebr_util=0 lse_rom_style=Logic
 {% endif %}
 #lse_ram_style=Distributed
 
-{% if not flow.allow_dsps %}
+{% if not settings.allow_dsps %}
 eval prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0
 {% endif %}
 
@@ -113,9 +113,9 @@ prj_strgy set custom_strategy
 
 
 
-prj_impl option top {{design.rtl.top}}
+prj_impl option top {{design.rtl.primary_top}}
 
-prj_syn set {{flow.synthesis_engine}}
+prj_syn set {{settings.synthesis_engine}}
 
 prj_project save
 ###################

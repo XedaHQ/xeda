@@ -2,9 +2,9 @@
 # https://github.com/cornell-brg/mflowgen/tree/master/steps/synopsys-dc-synthesis
 #
 
-set dc_design_name                {{design.rtl.top}}
-set dc_clock_period               {{flow.clock_period}} 
-set dc_topographical              {{flow.get("topographical", True)}}
+set dc_design_name                {{design.rtl.primary_top}}
+set dc_clock_period               {{settings.clock_period}} 
+set dc_topographical              {{settings.get("topographical", True)}}
 set adk_dir                       {{adk.path}}
 set dc_target_libraries           { {{- adk.target_libraries|join(' ') -}} }
 set mw_ref_libs                   "$adk_dir/{{- adk.milkeyway_reference_libraries|join(' $adk_dir/') -}}"
@@ -21,12 +21,12 @@ file delete -force {*}[glob -nocomplain ${dc_results_dir}/*]
 set dc_tluplus_map              {{adk.tluplus_map}}
 set dc_tluplus_max              {{adk.max_tluplus}}
 set dc_tluplus_min              {{adk.min_tluplus}}
-set dc_additional_search_path   {{flow.get('additional_search_path', '{}')}}
+set dc_additional_search_path   {{settings.get('additional_search_path', '{}')}}
 
 set_host_options -max_cores {{nthreads}}
 
 # Set up alib caching for faster consecutive runs
-set_app_var alib_library_analysis_path {{flow.alib_dir}}
+set_app_var alib_library_analysis_path {{settings.alib_dir}}
 
 # Set up search path for libraries and design files
 set_app_var search_path ". $adk_dir $dc_additional_search_path $search_path"
@@ -40,7 +40,7 @@ set_app_var synthetic_library  dw_foundation.sldb
 set_app_var link_library       [join "
                                  *
                                  $target_library
-                                 {{flow.get('extra_link_libraries',[])|join(' ')}}
+                                 {{settings.get('extra_link_libraries',[])|join(' ')}}
                                  $synthetic_library
                                "]
 
@@ -229,18 +229,18 @@ set_compile_spg_mode icc2
 
 set compile_ultra_options " -spg -retime"
 
-{% if flow.get('flatten_effort') == 0 %}
+{% if settings.get('flatten_effort') == 0 %}
 puts "Info: All design hierarchies are preserved unless otherwise specified."
 set_app_var compile_ultra_ungroup_dw false
 puts "Info: Design Compiler compile_ultra boundary optimization is disabled."
 append compile_ultra_options " -no_autoungroup -no_boundary_optimization"
-{% elif flow.get('flatten_effort') == 1 %}
+{% elif settings.get('flatten_effort') == 1 %}
 puts "Info: Unconditionally ungroup the DesignWare cells."
 set_app_var compile_ultra_ungroup_dw true
 puts "Info: Design Compiler compile_ultra automatic ungrouping is disabled."
 puts "Info: Design Compiler compile_ultra boundary optimization is disabled."
 append compile_ultra_options " -no_autoungroup -no_boundary_optimization"
-{% elif flow.get('flatten_effort') == 2 %}
+{% elif settings.get('flatten_effort') == 2 %}
 puts "Info: Unconditionally ungroup the DesignWare cells."
 set_app_var compile_ultra_ungroup_dw true
 puts "Info: Design Compiler compile_ultra automatic ungrouping is enabled."
@@ -255,7 +255,7 @@ puts "Info: Design Compiler compile_ultra boundary optimization is enabled."
 set_app_var compile_ultra_ungroup_dw true
 {% endif %}
 
-{% if flow.get('gate_clock', False) %}
+{% if settings.get('gate_clock', False) %}
 append compile_ultra_options " -gate_clock -self_gating"
 {% endif %}
 
@@ -300,7 +300,7 @@ check_design > ${dc_reports_dir}/${dc_design_name}.mapped.checkdesign.rpt
 # Synopsys Formality
 set_svf -off
 
-{% if flow.get('uniquify_with_design_name') %}
+{% if settings.get('uniquify_with_design_name') %}
 # Uniquify by prefixing every module in the design with the design name.
 # This is useful for hierarchical LVS when multiple blocks use modules
 # with the same name but different definitions.
@@ -318,9 +318,9 @@ change_names -rules verilog -hierarchy
 
 puts "\n===========================( Writing Results )==========================="
 
-{% if flow.get('saif') -%}
+{% if settings.get('saif') -%}
 # Write the .namemap file for energy analysis
-saif_map -create_map -input {{flow.saif.file}} -source_instance {{flow.saif.instance}}
+saif_map -create_map -input {{settings.saif.file}} -source_instance {{settings.saif.instance}}
 {%- endif %}
 
 # Write out files
@@ -396,8 +396,8 @@ report_reference -nosplit -hierarchy > ${dc_reports_dir}/${dc_design_name}.mappe
 report_resources -nosplit -hierarchy > ${dc_reports_dir}/${dc_design_name}.mapped.resources.rpt
 
 # Report power
-{% if flow.get('saif') -%}
-read_saif -map_names -input {{flow.saif.file}} -instance_name {{flow.saif.instance}}  -verbose
+{% if settings.get('saif') -%}
+read_saif -map_names -input {{settings.saif.file}} -instance_name {{settings.saif.instance}}  -verbose
 report_saif -hier -annotated_flag -rtl_saif > ${dc_reports_dir}/${dc_design_name}.mapped.saif.rpt
 saif_map -type ptpx -write_map ${dc_reports_dir}/${dc_design_name}.namemap
 {%- endif %}

@@ -322,7 +322,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
     def parse_timing_report(self, reports_dir) -> bool:
         failed = False
-
+        assert isinstance(self.settings, self.Settings)
         if self.design.rtl.clock_port and self.settings.clock_period:
             failed |= not self.parse_report_regex(reports_dir / 'timing_summary.rpt',
                                                   r'Timing\s+Summary[\s\|\-]+WNS\(ns\)\s+TNS\(ns\)\s+' +

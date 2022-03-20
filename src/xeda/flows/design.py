@@ -1,10 +1,10 @@
 from abc import ABCMeta
 import os
 from typing import List, Optional, Dict, Tuple, Union, Any
-from pydantic import BaseModel, Field, NoneStr, validator, Extra, validate_model, PrivateAttr
+from pydantic import BaseModel, Field, validator, Extra, validate_model, PrivateAttr
 from pydantic.class_validators import root_validator
 from pydantic.error_wrappers import ValidationError, display_errors
-from pathlib import Path, PurePath
+from pathlib import Path
 import logging
 import hashlib
 import toml
@@ -95,13 +95,16 @@ DefineType = Any
 # the order matters!
 # Union[FileResource, int, bool, float, str]
 
+# Tuple -> Tuple[()] (empty tuple), but pydantic 1.9.0 + Python 3.9 typing do not like it
+DesignTopType = Union[Tuple, Tuple[str], Tuple[str, str]]
+
 
 class DVSettings(XedaBaseModel, validate_assignment=True):
     """Design/Verification settings"""
     # public fields
     sources: List[DesignSource]
-    top: Optional[Tuple[str, Optional[str]]] = Field(
-        None, description="Toplevel module(s) of the design. In addition to the primary toplevel, a secondary toplevel module can also be specified."
+    top: DesignTopType = Field(
+        tuple(), description="Toplevel module(s) of the design. In addition to the primary toplevel, a secondary toplevel module can also be specified."
     )
     generics: Dict[str, DefineType] = Field(
         default=dict(),
@@ -133,14 +136,15 @@ class DVSettings(XedaBaseModel, validate_assignment=True):
         return values
 
     @validator('top', pre=True)
-    def top_validator(cls, top):
-        if top is not None:
+    def top_validator(cls, top) -> DesignTopType:
+        if top:
             if isinstance(top, str):
-                top = top.split(",")
+                top = (top,)
             if isinstance(top, list):
-                assert 1 <= len(top) <= 2
-                top = (top[0], top[1] if len(top) == 2 else None)
-        return top
+                assert len(top) <= 2
+                top = tuple(top)
+            return top
+        return tuple()
 
     @validator('sources', pre=True, always=False)
     def sources_to_files(cls, sources):
@@ -148,15 +152,19 @@ class DVSettings(XedaBaseModel, validate_assignment=True):
             src if isinstance(src, DesignSource) else DesignSource(src) for src in sources
         ]
 
+    @property
+    def primary_top(self) -> str:
+        return self.top[0] if self.top else ""
+
 
 class Clock(BaseModel):
-    port: NoneStr
+    port: Optional[str]
 
 
 class RtlSettings(DVSettings):
     clock: Clock = Clock(port=None)  # TODO rename to primary_clock?
     clocks: Dict[str, Clock] = {}
-    clock_port: NoneStr = None  # TODO remove?
+    clock_port: Optional[str] = None  # TODO remove?
 
     @root_validator(pre=False)
     def rtl_settings_validate(cls, values):
@@ -172,18 +180,16 @@ class RtlSettings(DVSettings):
 
 
 class TbSettings(DVSettings):
-    uut: NoneStr = Field(
+    uut: Optional[str] = Field(
         None, description="instance name of the unit under test in the testbench")
-    secondary_top: NoneStr = Field(
-        None, description="Name of the secondary top unit (if available)")
-    configuration_specification: NoneStr = None
+    configuration_specification: Optional[str] = None
     cocotb: bool = Field(False, description="testbench is based on cocotb framework")
 
 
 class LanguageSettings(XedaBaseModel):
-    standard: NoneStr = Field(None, description="Standard version",
+    standard: Optional[str] = Field(None, description="Standard version",
                               alias='version', has_alias=True, allow_population_by_field_name=True)
-    version: NoneStr = Field(None, description="Standard version",
+    version: Optional[str] = Field(None, description="Standard version",
                              alias='standard', has_alias=True, allow_population_by_field_name=True)
 
     @validator('standard', pre=True)
@@ -219,30 +225,14 @@ class Design(XedaBaseModel, extra=Extra.allow):
     def sim_sources(self):
         return self.rtl.sources + [src for src in self.tb.sources if src not in self.rtl.sources and (src.type == 'vhdl' or src.type == 'verilog')]
 
-    @staticmethod
-    def _make_tops_list(x: Union[str, Tuple[str, Optional[str]]]) -> List[str]:
-        if isinstance(x, str):
-            return [x]
-        elif isinstance(x, tuple):
-            return [t for t in x if t]
-        return x
-
     @property
-    def sim_tops(self) -> List[str]:
-        """ a view of tb.top that returns a list of primary_unit [secondary_unit] """
-        # conf_spec = self.tb.configuration_specification ## TODO ???
-        # if conf_spec:
-        #     return [conf_spec]
-        if self.tb is None:
-            return []
-        if self.tb.cocotb and self.rtl.top:
-            return self._make_tops_list(self.rtl.top)
-        if self.tb.top:
-            tops = self._make_tops_list(self.tb.top)
-            if self.tb.secondary_top and not tops[1]:
-                tops = [tops[0], self.tb.secondary_top]  # FIXME
-            return tops
-        return []
+    def sim_tops(self) -> DesignTopType:
+        if self.tb:
+            if self.tb.cocotb and self.rtl.top:
+                return self.rtl.top
+            else:
+                return self.tb.top
+        return ()
 
     def check(self):  # TODO remove? as not serving a purpose (does it even work?)
         *_, validation_error = validate_model(self.__class__, self.__dict__)

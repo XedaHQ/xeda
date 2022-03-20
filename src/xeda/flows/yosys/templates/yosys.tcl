@@ -28,7 +28,7 @@ read_verilog -lib {{src}}
 
 
 {%if true-%}
-prep{%if settings.flatten%} -flatten{%endif%}{%if design.rtl.top %} -top {{design.rtl.top}}{% else %} -auto-top{%endif%}
+prep{%if settings.flatten%} -flatten{%endif%}{%if design.rtl.top %} -top {{design.rtl.primary_top}}{% else %} -auto-top{%endif%}
 {%else-%}
 hierarchy -check {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %}
 {%-endif%}
@@ -65,13 +65,13 @@ puts "$log_prefix Target: Xilinx {%if settings.fpga.part%} {{settings.fpga.part}
 synth_xilinx {%- if settings.fpga.family %} -family {{settings.fpga.family}} {%- endif %} {{settings.synth_flags|join(" ")}}
     {%- elif settings.fpga.family %}
 puts "$log_prefix  Target: {{settings.fpga.family}}"
-synth_{{settings.fpga.family}} {{settings.synth_flags|join(" ")}}
+synth_{{settings.fpga.family}} {{settings.synth_flags|join(" ")}} {%- if design.rtl.top %} -top {{design.rtl.primary_top}}{%- endif %}
     {%- else %}
 puts "$log_prefix Unknown FPGA vendor, family, or device"
     {%- endif %}
 {%- else %}
 puts "$log_prefix  Running synthesis"
-synth {{settings.synth_flags|join(" ")}}
+synth {{settings.synth_flags|join(" ")}} {%- if design.rtl.top %} -top {{design.rtl.primary_top}}{%- endif %}
     {%- if settings.tech %}
         {% if settings.tech.liberty -%}
 puts "$log_prefix  Mapping FFs to technology library"

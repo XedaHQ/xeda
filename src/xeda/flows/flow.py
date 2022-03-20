@@ -1,23 +1,21 @@
 from abc import ABCMeta, abstractmethod
 import inspect
-from pydantic import Field, validator
-from pydantic.types import NoneStr
-from typing import ClassVar, List, Optional, Type, Tuple, TypeVar, Union
+from pydantic import Field, validator, Extra
+from typing import Any, ItemsView, Dict, List, Optional, Type, Tuple, Union
 import os
 import re
 from pathlib import Path
 import subprocess
-from jinja2 import Environment, PackageLoader, StrictUndefined
-from jinja2.loaders import ChoiceLoader
+from jinja2 import Environment, PackageLoader, StrictUndefined, ChoiceLoader
 from progress import SHOW_CURSOR
 from progress.spinner import Spinner
-from typing import Dict, List
 import logging
 import multiprocessing
 import psutil
+
 from .design import Design, XedaBaseModel
 from ..tool import Tool
-from ..utils import backup_existing, camelcase_to_snakecase, try_convert, unique
+from ..utils import backup_existing, try_convert, unique
 from ..debug import DebugLevel
 from .cocotb import Cocotb
 
@@ -68,14 +66,17 @@ def removeprefix(s: str, suffix: str) -> str:
 registered_flows: Dict[str, Tuple[str, Type['Flow']]] = {}
 
 
+DictStrPath = Dict[str, Union[str, os.PathLike]]
+
+
 class Flow(Tool, metaclass=ABCMeta):
     """ A flow may run one or more tools and is associated with a single set of settings and a single design.
     All tool executables should be available on the installed system or on the same docker image. """
     name: str  # "name" is automatically set
 
     # customized by subclasses:
-    default_executable: NoneStr = None
-    docker_image: NoneStr = None
+    default_executable: Optional[str] = None
+    docker_image: Optional[str] = None
 
     class Settings(Tool.Settings, XedaBaseModel):
         """Settings that can affect flow's behavior"""
@@ -84,16 +85,43 @@ class Flow(Tool, metaclass=ABCMeta):
         nthreads: int = Field(default_factory=multiprocessing.cpu_count,
                               description="max number of threads")
         ncpus: int = Field(psutil.cpu_count(logical=False),
-                           description="Number of physical CPUs to use.")
+                           description="Number of physical CPUs to use."
+                           )
         no_console: bool = False
         reports_dir: str = 'reports'
-        unique_rundir: bool = False
-        clean: bool = False
+        unique_rundir: bool = False # FIXME: rename + test + doc
+        clean: bool = False  # TODO remove!
+        lib_paths: List[str] = Field([], description="Additional directories to add to the library search path")
+
+        @validator('lib_paths', pre=True)
+        def lib_paths_validator(cls, value):
+            if isinstance(value, str):
+                value = [value]
+            return value
 
     class Results(XedaBaseModel, metaclass=ABCMeta):
-        success: bool
-        artifacts: List[Union[str, os.PathLike]]
-        reports: List[Union[str, os.PathLike]]
+        class Config(XedaBaseModel.Config):
+            extra = Extra.allow
+        success: bool = False
+        runtime: float = Field("Time of the execution of run() in fractional seconds")
+
+        def __getitem__(self, key: str) -> Any:
+            assert isinstance(key, str)
+            return getattr(self, key)
+
+        def __setitem__(self, key: str, value) -> None:
+            assert isinstance(key, str)
+            setattr(self, key, value)
+
+        def items(self) -> ItemsView[str, Any]:
+            return self.dict().items()
+
+        def get(self, key: str, default=None) -> Any:
+            return self.dict().get(key, default)
+
+    @property
+    def success(self) -> bool:
+        return self.results.success
 
     @classmethod
     def prerequisite_flows(cls, flow_settings, design_settings):
@@ -106,10 +134,6 @@ class Flow(Tool, metaclass=ABCMeta):
         if not inspect.isabstract(cls):
             registered_flows[cls_name] = (mod_name, cls)
 
-        if mod_name and not mod_name.startswith('xeda.flows.'):
-            mod_name1 = removeprefix(mod_name, "xeda.plugins.")
-            m = mod_name1.split('.')  # FIXME FIXME FIXME!!!
-            cls_name = m[0] + "." + cls_name
         cls.name = cls_name
 
     def init(self):
@@ -138,9 +162,10 @@ class Flow(Tool, metaclass=ABCMeta):
             undefined=StrictUndefined
         )
 
-    def __init__(self, flow_settings: 'Flow.Settings', design: Design, run_path: Path):
-        super().__init__(flow_settings, run_path)
-        self.settings: Flow.Settings = flow_settings
+    def __init__(self, settings: Settings, design: Design, run_path: Path):
+        assert isinstance(settings, self.Settings)
+        super().__init__(settings, run_path)
+        self.settings = settings
         self.design: Design = design
 
         self.init_time = None
@@ -148,19 +173,16 @@ class Flow(Tool, metaclass=ABCMeta):
         self.flow_hash = None
         self.design_hash = None
 
-        self.reports_dir = run_path / self.settings.reports_subdir_name
-        if self.reports_dir.exists() and os.listdir(self.reports_dir):  # exists and non-empty
-            backup_existing(self.reports_dir)
-        self.reports_dir.mkdir(exist_ok=True)
-
-        self.results: Dict[str, Union[str, int, float, bool]] = dict()
-        self.results['success'] = False
-
         # a map of "precious" files generated by the flow
         # these files can be used in a subsequent flow depending on this flow
         # everything else in run_path can be deleted by the flow-runner or overwritten in subsequent operations
         # artifacts can be backed up if the same run_path is used after this flow is complete
-        self.artifacts: Dict[str, os.PathLike] = dict()
+        self.artifacts: DictStrPath = {}
+        self.reports: DictStrPath = {}
+        # TODO deprecate and use self.reports
+        self.reports_dir = run_path / self.settings.reports_subdir_name
+        self.reports_dir.mkdir(exist_ok=True)
+        self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
         self.add_template_test('match', regex_match)
         self.dependencies: List[Tuple[Type[Flow], Flow.Settings]] = []
@@ -361,15 +383,16 @@ class Flow(Tool, metaclass=ABCMeta):
 
 
 class SimFlow(Flow):
-    cocotb_sim_name: NoneStr = None
+    cocotb_sim_name: Optional[str] = None
 
     class Settings(Flow.Settings):
         vcd: Union[None, str, bool] = None
         stop_time: Union[None, str, int, float] = None
         cocotb: Cocotb.Settings = Cocotb.Settings()
+        optimization_flags: List[str] = Field([], description="Optimization flags")
 
-    def __init__(self, flow_settings: 'SimFlow.Settings', design: Design, run_path: Path):
-        self.settings: SimFlow.Settings = flow_settings
+    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
+        assert isinstance(self.settings, self.Settings)
         super().__init__(flow_settings, design, run_path)
 
         self.cocotb: Optional[Cocotb] = Cocotb(
@@ -382,6 +405,7 @@ class SimFlow(Flow):
 
     @property
     def vcd(self) -> Optional[str]:
+        assert isinstance(self.settings, self.Settings)
         vcd = self.settings.vcd
         if vcd is not None:
             if not isinstance(vcd, str):  # e.g. True
@@ -395,13 +419,13 @@ class SimFlow(Flow):
 
 class FPGA(XedaBaseModel):
     """FPGA target device"""
-    part: NoneStr = Field(None, description="full device part identifier")
-    vendor: NoneStr
-    device: NoneStr
-    family: NoneStr
-    speed: NoneStr = Field(None, description="speed-grade")
-    package: NoneStr
-    capacity: NoneStr
+    part: Optional[str] = Field(None, description="full device part identifier")
+    vendor: Optional[str]
+    device: Optional[str]
+    family: Optional[str]
+    speed: Optional[str] = Field(None, description="speed-grade")
+    package: Optional[str]
+    capacity: Optional[str]
 
     # @root_validator(pre=True)
     # def fpga_root_validator(cls, values):
@@ -548,7 +572,7 @@ class SynthFlow(Flow):
         tech: Optional[TargetTechnology] = None
         blacklisted_resources: Optional[List[str]]
 
-    def __init__(self, flow_settings: 'SynthFlow.Settings', design: Design, run_path: Path):
+    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
         design_clocks = design.rtl.clocks
         for clock_name, physical_clock in flow_settings.clocks.items():
             if not physical_clock.port:

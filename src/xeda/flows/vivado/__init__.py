@@ -37,8 +37,8 @@ def vivado_generics(kvdict, sim=False):
     return ' '.join([f"-generic{'_top' if sim else ''} {k}={vivado_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_vivado_generic(k, v, sim)])
 
 
-class Vivado(Flow, Tool):
-    class Settings(Flow.Settings, Tool.Settings):
+class Vivado(Flow):
+    class Settings(Flow.Settings):
         pass
 
     def __init__(self, flow_settings: Settings, design: Design, run_path: Path):

@@ -1,18 +1,14 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-
-from ..flow import Flow, SynthFlow
-
-
-class Diamond(Flow):
-    pass
+from typing import List
+from ..flow import FpgaSynthFlow
 
 
-class DiamondSynth(Diamond, SynthFlow):
-    default_settings = {**SynthFlow.default_settings,
-                        'impl_folder': 'diamond_impl',
-                        'impl_name': 'Implementation0',
-                        'nthreads': 2,
-                        'syn_cmdline_args': None}
+
+class DiamondSynth(FpgaSynthFlow):
+    class Settings(FpgaSynthFlow.Settings):
+        impl_folder: str = 'diamond_impl'
+        impl_name: str = 'Implementation0'
+        syn_cmdline_args: List[str] = []
 
     def run(self):
         constraint_exts = ['ldc'] if self.settings.flow["synthesis_engine"] == "lse" else ['sdc', 'fdc']

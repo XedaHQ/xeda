@@ -1,19 +1,19 @@
 from pathlib import Path
 from typing import List, Optional, Union, Tuple
-from pydantic import Field, NoneStr, validator
+from pydantic import Field
 import logging
 import platform
 try:
     from typing import Literal
 except ImportError:
-    from typing_extensions import Literal
+    from typing_extensions import Literal  # type: ignore
 
 
 from ..flow import Flow, SimFlow, SynthFlow
-from ...flows.design import Design
+from ...flows.design import Design, DesignTopType
 from ...tool import Tool
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 def append_flag(flag_list: List[str], flag: str):
@@ -24,8 +24,8 @@ def append_flag(flag_list: List[str], flag: str):
 
 class Ghdl(Tool):
     """GHDL VHDL simulation, synthesis, and linting tool: https://ghdl.readthedocs.io"""
-    docker_image: NoneStr = "hdlc/sim:osvb"
-    default_executable: NoneStr = "ghdl"
+    docker_image: Optional[str] = "hdlc/sim:osvb"
+    default_executable: Optional[str] = "ghdl"
 
     class Settings(Tool.Settings):
         analysis_flags: List[str] = []
@@ -47,19 +47,10 @@ class Ghdl(Tool):
         relaxed: bool = Field(True, description="Slightly relax some rules to be compatible with various other simulators or synthesizers.")
         clean: bool = True
         diagnostics: bool = Field(True, description="Enable both color and source line carret diagnostics.")
-        work: NoneStr = Field(
-            None, description="Set the name of the WORK library")
-        lib_paths: Union[str, List[str]] = Field(
-            [], description="Additional directories to add to the library search path")
-        optimization_flags: List[str] = Field(
-            [], description="Optimization flags")
+        work: Optional[str] = Field(
+            None, description="Set the name of the WORK library"
+        )
         expect_failure: bool = False
-
-        @validator('lib_paths', pre=False)
-        def ghdl_settings_validator(cls, value, values):
-            if isinstance(value, str):
-                value = [value]
-            return value
 
     def get_info(self):  # from Tool
         out = self.run_tool(
@@ -133,44 +124,48 @@ class Ghdl(Tool):
         else:
             assert False, "unknown stage!"
 
-    def elaborate(self, sources, tops, vhdl) -> Tuple[str, str]:
+    def elaborate(self, sources, top: DesignTopType, vhdl) -> DesignTopType:
         """returns top(s) as a list"""
         steps = ["import", "make"]
         assert isinstance(self.settings, self.Settings)
-        ss: 'Ghdl.Settings' = self.settings
-        opt_flags = ss.optimization_flags
+        ss = self.settings
         if ss.clean:
             steps.insert(0, "remove")
-        if not tops:
+        print("!!!!!!", top)
+        if not top:
             # run find-top after import
+            log.warning("added find-top to steps")
             steps.insert(steps.index("import") + 1, "find-top")
-        elif isinstance(tops, str):
-            tops = [tops]
-        elif isinstance(tops, tuple):
-            tops = [t for t in tops if t]
         for step in steps:
             args = self.get_flags(ss, vhdl, step)
+            if isinstance(ss, SimFlow.Settings):
+                args += ss.optimization_flags
             if step in ["import", "analyze"]:
-                args += opt_flags + sources
+                args += sources
             elif step in ["make", "elaborate"]:
                 if self.info.get('backend', '').lower().startswith("llvm"):
                     if platform.system() == 'Darwin' and platform.machine() == 'arm64':
                         args += ['-Wl,-Wl,-no_compact_unwind']
-                args += opt_flags + tops
+                args += list(top)
             if step == "find-top":
                 out = self.run_tool(
                     self.default_executable,
                     [step, *args],
                     stdout=True
                 )
-                tops = [out.strip()]
-                logger.warning(f"setting top to {tops}")
+                top_list = out.strip().split()
+                # clunky way of converting to tuple, just to be safe and also keep mypy happy
+                top = () if len(top_list) == 0 else (top_list[0],) if len(top_list) == 1 else (top_list[0], top_list[1])
+                if top:
+                    log.info(f"find-top: top-module was set to {top}")
+                else:
+                    log.warning(f"find-top: unable to determine the top-module")
             else:
                 self.run_tool(
                     self.default_executable,
                     [step, *args]
                 )
-        return (tops[0], tops[1] if len(tops) == 2 else None)
+        return top
 
 
 class GhdlSynth(Ghdl, SynthFlow):
@@ -179,7 +174,7 @@ class GhdlSynth(Ghdl, SynthFlow):
      (Please see `YosysSynth` (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis)
     """
     class Settings(Ghdl.Settings, SynthFlow.Settings):
-        vendor_library: NoneStr = Field(
+        vendor_library: Optional[str] = Field(
             None, description="Any unit from this library is a black box")
         no_formal: bool = Field(
             True, description="Neither synthesize assert nor PSL. Required for yosys+nextpnr flow.")
@@ -205,11 +200,11 @@ class GhdlSynth(Ghdl, SynthFlow):
             ["synth", *args],
             stdout=ss.out_file
         )
-        self.results['success'] = True
+        self.results.success = True
         return True
 
     @classmethod
-    def synth_args(cls, ss, design: Design, one_shot_elab=True, top: Optional[Union[str, Tuple[str, NoneStr]]] = None) -> List[str]:
+    def synth_args(cls, ss, design: Design, one_shot_elab=True, top: DesignTopType = ()) -> List[str]:
         flags = cls.get_flags(ss, design.language.vhdl, "elaborate")
         if ss.vendor_library:
             flags.append(f"--vendor-library={ss.vendor_library}")
@@ -228,16 +223,9 @@ class GhdlSynth(Ghdl, SynthFlow):
         if one_shot_elab:
             flags += [str(v) for v in design.rtl.sources if v.type == "vhdl"]
             flags.append('-e')
-        print(top)
         if not top:
             top = design.rtl.top
-        if top:
-            if isinstance(top, str):
-                flags.append(top)
-            else:
-                for t in top:
-                    if t:
-                        flags.append(t)
+        flags.extend(list(top))
         return flags
 
     def parse_reports(self):
@@ -263,7 +251,7 @@ class GhdlSim(Ghdl, SimFlow):
         sdf: Union[bool, None, List[str], str] = Field(
             None, description="Do VITAL annotation on PATH with SDF file.")
         wave: Union[bool, None, str] = Field(None, description="Write the waveforms into a GHDL Waveform (GHW) file.")
-        stop_delta: NoneStr = Field(
+        stop_delta: Optional[str] = Field(
             None, description="Stop the simulation after N delta cycles in the same current time.")
         debug: bool = Field(
             False, description="Enable simulation and runtime debugging flags")
@@ -290,7 +278,7 @@ class GhdlSim(Ghdl, SimFlow):
 
         if self.vcd:
             run_flags.append(f'--vcd={self.vcd}')
-            logger.warning(f"Dumping VCD to {self.run_path.relative_to(Path.cwd()) / self.vcd}")
+            log.warning(f"Dumping VCD to {self.run_path.relative_to(Path.cwd()) / self.vcd}")
         elif ss.wave:
             wave = ss.wave
             if isinstance(wave, bool):
@@ -298,7 +286,7 @@ class GhdlSim(Ghdl, SimFlow):
             if not wave.endswith('.ghw'):
                 wave += '.ghw'
             run_flags.append(f'--wave={wave}')
-            logger.warning(f"Dumping GHW to {self.run_path.relative_to(Path.cwd()) / wave}")
+            log.warning(f"Dumping GHW to {self.run_path.relative_to(Path.cwd()) / wave}")
         vpi = None
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:
@@ -316,12 +304,15 @@ class GhdlSim(Ghdl, SimFlow):
             run_flags.append(f'--stop-delta={ss.stop_delta}')
 
         run_flags.extend(self.generics_flags(design.tb.generics))
-        design.tb.top = self.elaborate(
+        x = self.elaborate(
             design.sim_sources,
             design.tb.top,
             design.language.vhdl
         )
+        print(f"x={x}")
+        design.tb.top = x
         status_ok = True
+        print(">>>", design.sim_tops, design.tb.top)
         self.run_tool(
             self.default_executable,
             ["run", *cf, *design.sim_tops, *run_flags],

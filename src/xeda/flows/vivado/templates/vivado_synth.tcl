@@ -84,7 +84,7 @@ read_xdc {{xdc_file}}
 {% endfor %}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="
-eval synth_design -part $fpga_part -top {{design.rtl.top}} {{settings.synth.steps.synth|flatten_dict}} {{design.rtl.generics|vivado_generics}}
+eval synth_design -part $fpga_part -top {{design.rtl.primary_top}} {{settings.synth.steps.synth|flatten_dict}} {{design.rtl.generics|vivado_generics}}
 
 {% if settings.synth.strategy == "Debug" -%}
 set_property KEEP_HIERARCHY true [get_cells -hier * ]

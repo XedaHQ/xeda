@@ -24,7 +24,7 @@ read_verilog -lib {{src}}
 {%- endfor %}
 
 {%- if design.rtl.top %}
-hierarchy -check -top {{design.rtl.top}}
+hierarchy -check -top {{design.rtl.primary}}
 {%- else %}
 hierarchy -check -auto-top
 {%- endif %}
