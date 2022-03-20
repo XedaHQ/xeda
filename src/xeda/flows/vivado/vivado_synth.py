@@ -233,7 +233,7 @@ def xeda_steps(strategy: str, s: str):
     return {step: xeda_strategies[strategy].get(step) for step in get_steps(s)}
 
 
-class RunOptions(XedaBaseModel, extra=Extra.forbid):
+class RunOptions(XedaBaseModel):
     strategy: NoneStr = None
     steps: Dict[str, StepsValType] = {}
 

@@ -5,7 +5,7 @@ from abc import ABCMeta
 from sys import stderr
 from typing import Any, Callable, Mapping, Optional, Dict, TypeVar, Union
 from xmlrpc.client import Boolean
-from pydantic import BaseModel, Field, Extra
+from pydantic import Field, Extra
 from pydantic.types import NoneStr
 from pathlib import Path
 import contextlib
@@ -30,7 +30,7 @@ class NonZeroExitCode(Exception):
     pass
 
 
-class RemoteToolSettings(BaseModel, extra=Extra.forbid):
+class RemoteToolSettings(XedaBaseModel):
     junest_path: str  # FIXME REMOVE
     junest_method: str = 'ns'
     junest_mounts: Optional[Mapping[str, str]] = None
@@ -39,11 +39,11 @@ class RemoteToolSettings(BaseModel, extra=Extra.forbid):
     port: int = 22
 
 
-class NativeToolSettings(BaseModel, extra=Extra.forbid):
+class NativeToolSettings(XedaBaseModel):
     executable: str
 
 
-class DockerToolSettings(BaseModel, extra=Extra.forbid):
+class DockerToolSettings(XedaBaseModel):
     executable: NoneStr = None
     image_name: str = Field(description="Docker image name")
     image_tag: NoneStr = Field(None, description="Docker image tag")
@@ -56,7 +56,7 @@ ToolSettingsType = TypeVar('ToolSettingsType', bound='Tool.Settings')
 class Tool(metaclass=ABCMeta):
     """abstraction for an EDA tool"""
 
-    class Settings(XedaBaseModel, metaclass=ABCMeta, extra=Extra.allow):
+    class Settings(XedaBaseModel, metaclass=ABCMeta):
         docker: Optional[DockerToolSettings] = Field(None, hidden_from_schema=True)
         remote: Optional[RemoteToolSettings] = Field(None, hidden_from_schema=True)
         native: Optional[NativeToolSettings] = Field(None, hidden_from_schema=True)

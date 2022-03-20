@@ -12,7 +12,7 @@ from ..vivado.vivado_synth import VivadoSynth
 log = logging.getLogger(__name__)
 
 
-class RunConfig(XedaBaseModel, arbitrary_types_allowed=True):
+class RunConfig(XedaBaseModel):
     name: Optional[str] = None
     saif: Optional[str] = None
     vcd: Optional[str] = None
@@ -110,7 +110,7 @@ class VivadoPostsynthSim(VivadoSim):
     Depends on VivadoSynth
     """
     class Settings(VivadoSim.Settings):
-        synth: VivadoSynth.Settings = VivadoSynth.Settings(input_delay=0.0, output_delay=0.0)
+        synth: VivadoSynth.Settings
         tb_clock_param: Dict[str, str] = Field(
             {},
             description="""A mapping of 'clock'->'param'. Sets (and overrides) testbanch parameter/generic named 'param'
@@ -138,6 +138,14 @@ class VivadoPostsynthSim(VivadoSim):
         ss = self.settings
         assert isinstance(ss, self.Settings)
         synth_settings: VivadoSynth.Settings = synth_flow.settings
+        if synth_settings.input_delay is None:
+            synth_settings.input_delay = 0.0
+        if synth_settings.output_delay is None:
+            synth_settings.output_delay = 0.0
+
+        # FIXME!!! For reasons still unknown, not all strategies lead to correct post-impl simulation
+        synth_settings.synth.strategy = 'AreaPower'
+
         synth_results = synth_flow.results
         synth_netlist = synth_flow.artifacts.get('netlist.impl.timesim.v')
         synth_sdf = synth_flow.artifacts.get('sdf.impl')

@@ -30,10 +30,6 @@ class VivadoPower(Vivado):
         assert isinstance(ss, self.Settings)
         # override/sanitize VivadoPostsynthSim dependency settings
         pss = ss.post_synth_sim
-        if pss.synth.input_delay is None:
-            pss.synth.input_delay = 0.0
-        if pss.synth.output_delay is None:
-            pss.synth.output_delay = 0.0
 
         # FIXME!!! For reasons still unknown, not all strategies lead to correct post-impl simulation
         pss.synth.synth.strategy = 'AreaPower'

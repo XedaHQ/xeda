@@ -99,7 +99,7 @@ DefineType = Any
 DesignTopType = Union[Tuple, Tuple[str], Tuple[str, str]]
 
 
-class DVSettings(XedaBaseModel, validate_assignment=True):
+class DVSettings(XedaBaseModel):
     """Design/Verification settings"""
     # public fields
     sources: List[DesignSource]
@@ -215,11 +215,14 @@ class Language(XedaBaseModel):
     verilog: LanguageSettings = LanguageSettings()
 
 
-class Design(XedaBaseModel, extra=Extra.allow):
+class Design(XedaBaseModel):
     name: str
     rtl: RtlSettings
     tb: Optional[TbSettings] = None
     language: Language = Language()
+
+    class Config(XedaBaseModel.Config):
+        extra = Extra.allow
 
     @property
     def sim_sources(self):

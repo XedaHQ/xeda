@@ -24,13 +24,8 @@ jobs:
         run: |
           python -VV
           python -m site
-          python -m pip install --upgrade pip setuptools wheel virtualenv tox tox-gh-actions pytest pytest-cov mypy coverage[toml] 
+          python -m pip install --upgrade pip setuptools wheel virtualenv tox tox-gh-actions pytest pytest-cov mypy coverage[toml] types-toml
+          mypy --install-types
 
       - name: "Run tox targets for ${{ matrix.python-version }}"
         run: "python -m tox"
-
-      - name: "Run mypy"
-        uses: jpetrucciani/mypy-check@master
-        with:
-          path: 'src/'
-          mypy_flags: 
