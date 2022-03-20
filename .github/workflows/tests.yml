@@ -24,8 +24,7 @@ jobs:
         run: |
           python -VV
           python -m site
-          python -m pip install --upgrade pip setuptools wheel virtualenv tox tox-gh-actions pytest pytest-cov mypy coverage[toml] types-toml
-          mypy --install-types
+          python -m pip install --upgrade pip setuptools wheel virtualenv tox tox-gh-actions pytest pytest-cov mypy coverage[toml]
 
       - name: "Run tox targets for ${{ matrix.python-version }}"
         run: "python -m tox"
