@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 from xeda import Design, Flow
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim
@@ -10,7 +11,13 @@ xeda_runner = DefaultRunner()
 
 
 def test_sqrt():
-    for w in [8, 9, 16, 17, 18, 20, 21, 31, 32, 63, 64, 66]:
+    LONG_TEST = [8, 9, 16, 17, 18, 20, 21, 31, 32, 63, 64, 66]
+    QUICK_TEST = [8, 32]
+    ws = QUICK_TEST
+    if os.environ.get('LONG_TEST'):
+        print("runing long test!")
+        ws = LONG_TEST
+    for w in ws:
         design.tb.parameters = {
             **design.tb.parameters,
             'G_IN_WIDTH': w

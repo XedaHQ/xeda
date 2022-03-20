@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from pydantic.fields import Field
-from pydantic import NoneStr, root_validator, validator
+from pydantic import root_validator, validator
 from munch import Munch
 
 from ...flows.ghdl import GhdlSynth
@@ -15,8 +15,9 @@ log = logging.getLogger(__name__)
 
 class Yosys(Tool):
     """Yosys Open SYnthesis Suite: https://yosyshq.net/yosys"""
-    docker_image: NoneStr = "hdlc/impl"
-    default_executable: NoneStr = "yosys"
+
+    docker_image: Optional[str] = "hdlc/impl"
+    default_executable: Optional[str] = "yosys"
 
     class Settings(Tool.Settings):
         pass
@@ -30,24 +31,28 @@ def append_flag(flag_list: List[str], flag: str):
 
 class YosysSynth(Yosys, SynthFlow):
     """Synthesize the design using Yosys Open SYnthesis Suite"""
+
     class Settings(Yosys.Settings, SynthFlow.Settings):
-        log_file: Optional[str] = 'yosys.log'
+        log_file: Optional[str] = "yosys.log"
         flatten: bool = Field(True, description="flatten design")
         abc9: bool = Field(True, description="Use abc9")
         retime: bool = Field(False, description="Enable flip-flop retiming")
-        nobram: bool = Field(
-            False, description="Do not map to block RAM cells")
+        nobram: bool = Field(False, description="Do not map to block RAM cells")
         nodsp: bool = Field(False, description="Do not use DSP resources")
         nolutram: bool = Field(False, description="Do not use LUT RAM cells")
         sta: bool = Field(
-            False, description="Run a simple static timing analysis (requires `flatten`)")
+            False,
+            description="Run a simple static timing analysis (requires `flatten`)",
+        )
         nowidelut: bool = Field(
-            False, description="Do not use MUX resources to implement LUTs larger than native for the target")
+            False,
+            description="Do not use MUX resources to implement LUTs larger than native for the target",
+        )
         dff: bool = Field(True, description="Run abc/abc9 with -dff option")
         widemux: int = Field(
             0,
             description="enable inference of hard multiplexer resources for muxes at or above this number of inputs"
-            " (minimum value 2, recommended value >= 5 or disabled = 0)"
+            " (minimum value 2, recommended value >= 5 or disabled = 0)",
         )
         read_verilog_flags: List[str] = [
             "-noautowire",
@@ -59,7 +64,7 @@ class YosysSynth(Yosys, SynthFlow):
             # '-norename',
             # '-std08'.
             # '-noattr',
-            '-renameprefix YOSYS_n',
+            "-renameprefix YOSYS_n",
             # "-v",
         ]
         write_verilog_flags: List[str] = [
@@ -79,46 +84,46 @@ class YosysSynth(Yosys, SynthFlow):
         rtl_json: Optional[str] = "rtl.json"
         show_rtl: bool = False
         show_rtl_flags: List[str] = [
-            '-stretch',
-            '-enum',
-            '-width',
+            "-stretch",
+            "-enum",
+            "-width",
         ]
         show_netlist: bool = False
-        show_netlist_flags: List[str] = [
-            '-stretch',
-            '-enum'
-        ]
+        show_netlist_flags: List[str] = ["-stretch", "-enum"]
         ghdl: GhdlSynth.Settings = GhdlSynth.Settings()
         post_synth_opt: bool = Field(
-            True, description="run additional optimization steps after synthesis if complete"
+            True,
+            description="run additional optimization steps after synthesis if complete",
         )
         verilog_lib: List[str] = []
         splitnets: Optional[List[str]] = None  # ['-driver']
         set_attributes: Dict[str, Dict[str, Any]] = {}
-        stop_after: Optional[Literal['rtl']]
+        stop_after: Optional[Literal["rtl"]]
         netlistsvg: Optional[str] = Field(
-            None, description="Generate a netlist SVG by runnning 'netlistsvg' (netlistsvg needs to be installed)")
+            None,
+            description="Generate a netlist SVG by runnning 'netlistsvg' (netlistsvg needs to be installed)",
+        )
 
-        @validator('write_verilog_flags', pre=False)
+        @validator("write_verilog_flags", pre=False)
         def validate_write_verilog_flags(cls, value, values):
-            if values.get('debug'):
-                value.append('-norename')
+            if values.get("debug"):
+                value.append("-norename")
             return value
 
-        @validator('verilog_lib', pre=True)
+        @validator("verilog_lib", pre=True)
         def validate_verilog_lib(cls, value, values):
             if isinstance(value, str):
                 value = [value]
             value = [str(Path(v).resolve(strict=True)) for v in value]
             return value
 
-        @validator('splitnets', pre=True)
+        @validator("splitnets", pre=True)
         def validate_splitnets(cls, value, values):
             if isinstance(value, str):
                 value = [value]
-            return [v if not v.strip() or v.startswith('-') else f'-{v}' for v in value]
+            return [v if not v.strip() or v.startswith("-") else f"-{v}" for v in value]
 
-        @validator('set_attributes', pre=True, always=True)
+        @validator("set_attributes", pre=True, always=True)
         def validate_set_attributes(cls, value, values):
             if value:
                 if isinstance(value, str):
@@ -129,12 +134,12 @@ class YosysSynth(Yosys, SynthFlow):
                             with open(attr_file) as f:
                                 print(f"loading as json")
                                 value = {**json.load(f)}
-                                print(
-                                    f"converted{attr_file} to {type(value)} \n")
+                                print(f"converted{attr_file} to {type(value)} \n")
                         except json.JSONDecodeError as e:
                             # raise e from None
                             log.critical(
-                                f"Decoding of JSON file {attr_file} failed: {e.args}")
+                                f"Decoding of JSON file {attr_file} failed: {e.args}"
+                            )
                             exit(1)
                         except TypeError as e:
                             log.critical(f"JSON TypeError: {e.args}")
@@ -152,15 +157,16 @@ class YosysSynth(Yosys, SynthFlow):
                         if isinstance(path, list):
                             path = "/".join(path)
                         if isinstance(v, str):
-                            v = f"\"{v}\""
+                            v = f'"{v}"'
                         attr_dict[path] = v
                     value[attr] = dict(attr_dict)
             return value
 
         @root_validator(pre=True)
         def check_target(cls, values):
-            assert values.get('fpga') or values.get(
-                'tech'), "ERROR in flows.yosys.settings: No targets specified! Either 'fpga' or 'tech' must be specified."
+            assert values.get("fpga") or values.get(
+                "tech"
+            ), "ERROR in flows.yosys.settings: No targets specified! Either 'fpga' or 'tech' must be specified."
             return values
 
     def get_info(self):
@@ -169,46 +175,44 @@ class YosysSynth(Yosys, SynthFlow):
             ["--version"],
             stdout=True,
         )
-        return {'version': out.strip()}
+        return {"version": out.strip()}
 
     def init(self):
         # TODO?
-        self.stat_report = 'utilization.rpt'
-        self.timing_report = 'timing.rpt'
+        self.stat_report = "utilization.rpt"
+        self.timing_report = "timing.rpt"
 
         ss = self.settings
         if ss.fpga:
             assert ss.fpga.family or ss.fpga.vendor == "xilinx"
         # TODO use pydantic or dataclass?
         self.artifacts = {
-            'diagrams': {
-            },
-            'reports': {
-
-                'utilization': self.stat_report,
-                'timing': self.timing_report,
+            "diagrams": {},
+            "reports": {
+                "utilization": self.stat_report,
+                "timing": self.timing_report,
             },
         }
         # TODO in runner?
         ar = {}
         if ss.rtl_json:
-            ar['json'] = ss.rtl_json
+            ar["json"] = ss.rtl_json
         if ss.rtl_vhdl:
-            ar['vhdl'] = ss.rtl_vhdl
+            ar["vhdl"] = ss.rtl_vhdl
         if ss.rtl_verilog:
-            ar['verilog'] = ss.rtl_verilog
+            ar["verilog"] = ss.rtl_verilog
         if ar:
-            self.artifacts['rtl'] = ar
+            self.artifacts["rtl"] = ar
         if not ss.stop_after:  # FIXME
             an = {}
             if ss.netlist_json:
-                an['json'] = ss.netlist_json
+                an["json"] = ss.netlist_json
             if ss.netlist_vhdl:
-                an['vhdl'] = ss.netlist_vhdl
+                an["vhdl"] = ss.netlist_vhdl
             if ss.netlist_verilog:
-                an['verilog'] = ss.netlist_verilog
+                an["verilog"] = ss.netlist_verilog
             if an:
-                self.artifacts['netlist'] = an
+                self.artifacts["netlist"] = an
 
         self.artifacts = Munch.fromDict(self.artifacts)
 
@@ -218,97 +222,102 @@ class YosysSynth(Yosys, SynthFlow):
             ss.flatten = True
 
         if ss.flatten:
-            append_flag(ss.synth_flags, '-flatten')
+            append_flag(ss.synth_flags, "-flatten")
 
         # add FPGA-specific synth_xx flags
         if ss.fpga:
             if ss.abc9:  # ABC9 is for only FPGAs?
-                append_flag(ss.synth_flags, '-abc9')
+                append_flag(ss.synth_flags, "-abc9")
             if ss.retime:
-                append_flag(ss.synth_flags, '-retime')
+                append_flag(ss.synth_flags, "-retime")
             if ss.dff:
-                append_flag(ss.synth_flags, '-dff')
+                append_flag(ss.synth_flags, "-dff")
             if ss.nobram:
-                append_flag(ss.synth_flags, '-nobram')
+                append_flag(ss.synth_flags, "-nobram")
             if ss.nolutram:
-                append_flag(ss.synth_flags, '-nolutram')
+                append_flag(ss.synth_flags, "-nolutram")
             if ss.nodsp:
-                append_flag(ss.synth_flags, '-nodsp')
+                append_flag(ss.synth_flags, "-nodsp")
             if ss.nowidelut:
-                append_flag(ss.synth_flags, '-nowidelut')
+                append_flag(ss.synth_flags, "-nowidelut")
             if ss.widemux:
-                append_flag(ss.synth_flags, f'-widemux {ss.widemux}')
-            if ss.fpga.vendor == 'xilinx':
-                ss.write_vhdl_flags.append('-unisim')
+                append_flag(ss.synth_flags, f"-widemux {ss.widemux}")
+            if ss.fpga.vendor == "xilinx":
+                ss.write_vhdl_flags.append("-unisim")
         else:
             if ss.dff:
-                append_flag(ss.abc_flags, '-dff')
+                append_flag(ss.abc_flags, "-dff")
             if ss.tech:
                 if ss.tech.gates:
-                    append_flag(ss.abc_flags, f'-g {ss.tech.gates}')
+                    append_flag(ss.abc_flags, f"-g {ss.tech.gates}")
                 elif ss.tech.liberty:
                     liberty_path = Path(ss.tech.liberty)
                     liberty_path = liberty_path.resolve().absolute()
-                    assert liberty_path.exists(
+                    assert (
+                        liberty_path.exists()
                     ), f"Specified tech.liberty={liberty_path} does not exist!"
                     ss.tech.liberty = str(liberty_path)
-                    append_flag(ss.abc_flags, f'-liberty {ss.tech.liberty}')
+                    append_flag(ss.abc_flags, f"-liberty {ss.tech.liberty}")
                 elif ss.tech.lut:
-                    append_flag(ss.abc_flags, f'-lut {ss.tech.lut}')
+                    append_flag(ss.abc_flags, f"-lut {ss.tech.lut}")
 
-        script_path = self.copy_from_template('yosys.tcl',
-                                              ghdl_args=GhdlSynth.synth_args(
-                                                  ss.ghdl,
-                                                  self.design
-                                              ))
+        script_path = self.copy_from_template(
+            "yosys.tcl", ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design)
+        )
         log.info(f"Yosys script: {self.run_path / script_path}")
         # args = ['-s', script_path]
-        args = ['-c', script_path]
+        args = ["-c", script_path]
         if ss.log_file:
-            args.extend(['-L', ss.log_file])
+            args.extend(["-L", ss.log_file])
         if not ss.verbose:  # reduce noise unless verbose
-            args.extend(['-T', '-Q', '-q'])
-        self.results['_tool'] = self.info  # TODO where should this go?
+            args.extend(["-T", "-Q", "-q"])
+        self.results["_tool"] = self.info  # TODO where should this go?
         log.info(f"Logging yosys output to {ss.log_file}")
         self.run_tool(self.default_executable, args)
         skin_file = None
         elk_layout = None
         if ss.netlistsvg:
-            rtl_json = self.artifacts.rtl.__dict__.get('json')
+            rtl_json = self.artifacts.rtl.__dict__.get("json")
             if rtl_json:
-                svg_file = 'rtl.svg'
+                svg_file = "rtl.svg"
                 self.artifacts.diagrams.netlistsvg_rtl = svg_file
-                args = [rtl_json, '-o', svg_file]
+                args = [rtl_json, "-o", svg_file]
                 if skin_file:
-                    args.extend(['--skin', skin_file])
+                    args.extend(["--skin", skin_file])
                 if elk_layout:
-                    args.extend(['--layout', elk_layout])
-                self.run_tool('netlistsvg', args, check=True)  # ??
+                    args.extend(["--layout", elk_layout])
+                self.run_tool("netlistsvg", args, check=True)  # ??
             if ss.netlist_json and False:
-                svg_file = 'netlist.svg'
-                self.artifacts.diagrams['netlistsvg'] = svg_file
-                args = [self.artifacts.netlist.json, '-o', svg_file]
+                svg_file = "netlist.svg"
+                self.artifacts.diagrams["netlistsvg"] = svg_file
+                args = [self.artifacts.netlist.json, "-o", svg_file]
                 if skin_file:
-                    args.extend(['--skin', skin_file])
+                    args.extend(["--skin", skin_file])
                 if elk_layout:
-                    args.extend(['--layout', elk_layout])
-                self.run_tool('netlistsvg', args)
+                    args.extend(["--layout", elk_layout])
+                self.run_tool("netlistsvg", args)
         return True
 
     def parse_reports(self):
         if self.settings.fpga:
-            if self.settings.fpga.vendor == 'xilinx':
+            if self.settings.fpga.vendor == "xilinx":
                 self.parse_report_regex(
                     self.artifacts.reports.utilization,
                     r"=== design hierarchy ===",
                     r"FDRE\s*(?P<_FDRE>\d+)",
                     r"FDSE\s*(?P<_FDSE>\d+)",
                     r"number of LCs:\s*(?P<Estimated_LCs>\d+)",
-                    sequential=True, required=False
+                    sequential=True,
+                    required=False,
                 )
-                self.results['FFs'] = int(self.results.get('_FDRE', 0)) + int(self.results.get('_FDSE', 0))
-            if self.settings.fpga.family == 'ecp5':
+                self.results["FFs"] = int(self.results.get("_FDRE", 0)) + int(
+                    self.results.get("_FDSE", 0)
+                )
+            if self.settings.fpga.family == "ecp5":
                 self.parse_report_regex(
-                    self.artifacts.reports.utilization, r"TRELLIS_FF\s+(?P<FFs>\d+)", r"LUT4\s+(?P<LUT4>\d+)")
-        self.results['success'] = True  # FIXME
+                    self.artifacts.reports.utilization,
+                    r"TRELLIS_FF\s+(?P<FFs>\d+)",
+                    r"LUT4\s+(?P<LUT4>\d+)",
+                )
+        self.results["success"] = True  # FIXME
         return True

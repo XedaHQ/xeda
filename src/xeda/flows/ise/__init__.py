@@ -1,4 +1,3 @@
-
 # Xeda ISE Synthesis flow
 # ©2021 Kamyar Mohajerani and contributors
 
@@ -14,6 +13,7 @@ OptionsType = Mapping[str, OptionValueType]
 
 class IseSynth(FpgaSynthFlow):
     """FPGA synthesis using Xilinx ISE"""
+
     class Settings(FpgaSynthFlow.Settings):
         # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx14_7/devref.pdf
         synthesis_options: OptionsType = {
@@ -36,29 +36,38 @@ class IseSynth(FpgaSynthFlow):
         }
 
     def run(self):
-        constraint_file = self.copy_from_template(f'constraints.xcf')
-        ucf_file = self.copy_from_template(f'constraints.ucf')
+        xcf_file = self.copy_from_template(f"constraints.xcf")
+        ucf_file = self.copy_from_template(f"constraints.ucf")
 
         self.add_template_filter(
-            'quote_str', lambda v: f"\"{v}\"" if isinstance(v, str) else v
+            "quote_str", lambda v: f'"{v}"' if isinstance(v, str) else v
         )
 
-        script_path = self.copy_from_template(f'ise_synth.tcl')
+        script_path = self.copy_from_template(
+            "ise_synth.tcl",
+            xcf_file=xcf_file,
+            ucf_file=ucf_file,
+        )
 
-        self.run_process('xtclsh', [script_path], initial_step='Starting ISE',
-                         stdout_logfile='xeda_ise_stdout.log')
+        self.run_process(
+            "xtclsh",
+            [script_path],
+            initial_step="Starting ISE",
+            stdout_logfile="xeda_ise_stdout.log",
+        )
 
     def parse_reports(self):
         # self.parse_report_regex(self.design.name + ".twr", r'(?P<wns>\-?\d+')
-        fail = not self.parse_report_regex(self.design.rtl.top + "_par.xrpt",
-                                           r'stringID="PAR_SLICES" value="(?P<slice>\-?\d+)"',
-                                           r'stringID="PAR_SLICE_REGISTERS" value="(?P<ff>\-?\d+)"',
-                                           r'stringID="PAR_SLICE_LUTS" value="(?P<lut>\-?\d+)"',
+        fail = not self.parse_report_regex(
+            self.design.rtl.top + "_par.xrpt",
+            r'stringID="PAR_SLICES" value="(?P<slice>\-?\d+)"',
+            r'stringID="PAR_SLICE_REGISTERS" value="(?P<ff>\-?\d+)"',
+            r'stringID="PAR_SLICE_LUTS" value="(?P<lut>\-?\d+)"',
+        )
+        fail |= not self.parse_report_regex(
+            self.design.rtl.top + ".syr",
+            r"Minimum period:\s+(?P<minimum_period>\-?\d+(?:\.\d+)?)ns\s+\(Maximum Frequency: (?P<maximum_frequency>\-?\d+(?:\.\d+)?)MHz\)",
+            r"Slack:\s+(?P<wns>\-?\d+(?:\.\d+)?)ns",
+        )
 
-                                           )
-        fail |= not self.parse_report_regex(self.design.rtl.top + ".syr",
-                                            r'Minimum period:\s+(?P<minimum_period>\-?\d+(?:\.\d+)?)ns\s+\(Maximum Frequency: (?P<maximum_frequency>\-?\d+(?:\.\d+)?)MHz\)',
-                                            r'Slack:\s+(?P<wns>\-?\d+(?:\.\d+)?)ns'
-                                            )
-
-        self.results['success'] = not fail and self.results['wns'] > 0
+        self.results["success"] = not fail and self.results["wns"] > 0

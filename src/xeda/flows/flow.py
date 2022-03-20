@@ -52,7 +52,7 @@ def final_kill(proc: subprocess.Popen):
 
 def removesuffix(s: str, suffix: str) -> str:
     """similar to str.removesuffix in Python 3.9+"""
-    return s[:-len(suffix)] if suffix and s.endswith(suffix) else s
+    return s[: -len(suffix)] if suffix and s.endswith(suffix) else s
 
 
 def removeprefix(s: str, suffix: str) -> str:
@@ -60,15 +60,16 @@ def removeprefix(s: str, suffix: str) -> str:
     return s[len(suffix):] if suffix and s.startswith(suffix) else s
 
 
-registered_flows: Dict[str, Tuple[str, Type['Flow']]] = {}
+registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
 
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
 
 
 class Flow(Tool, metaclass=ABCMeta):
-    """ A flow may run one or more tools and is associated with a single set of settings and a single design.
-    All tool executables should be available on the installed system or on the same docker image. """
+    """A flow may run one or more tools and is associated with a single set of settings and a single design.
+    All tool executables should be available on the installed system or on the same docker image."""
+
     name: str  # "name" is automatically set
 
     # customized by subclasses:
@@ -77,20 +78,26 @@ class Flow(Tool, metaclass=ABCMeta):
 
     class Settings(Tool.Settings, XedaBaseModel):
         """Settings that can affect flow's behavior"""
-        reports_subdir_name: str = Field('reports', hidden_from_schema=True)
-        timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
-        nthreads: int = Field(default_factory=multiprocessing.cpu_count,
-                              description="max number of threads")
-        ncpus: int = Field(psutil.cpu_count(logical=False),
-                           description="Number of physical CPUs to use."
-                           )
-        no_console: bool = False
-        reports_dir: str = 'reports'
-        unique_rundir: bool = False # FIXME: rename + test + doc
-        clean: bool = False  # TODO remove!
-        lib_paths: List[str] = Field([], description="Additional directories to add to the library search path")
 
-        @validator('lib_paths', pre=True)
+        reports_subdir_name: str = Field("reports", hidden_from_schema=True)
+        timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
+        nthreads: int = Field(
+            default_factory=multiprocessing.cpu_count,
+            description="max number of threads",
+        )
+        ncpus: int = Field(
+            psutil.cpu_count(logical=False),
+            description="Number of physical CPUs to use.",
+        )
+        no_console: bool = False
+        reports_dir: str = "reports"
+        unique_rundir: bool = False  # FIXME: rename + test + doc
+        clean: bool = False  # TODO remove!
+        lib_paths: List[str] = Field(
+            [], description="Additional directories to add to the library search path"
+        )
+
+        @validator("lib_paths", pre=True)
         def lib_paths_validator(cls, value):
             if isinstance(value, str):
                 value = [value]
@@ -99,6 +106,7 @@ class Flow(Tool, metaclass=ABCMeta):
     class Results(XedaBaseModel, metaclass=ABCMeta):
         class Config(XedaBaseModel.Config):
             extra = Extra.allow
+
         success: bool = False
         runtime: float = Field("Time of the execution of run() in fractional seconds")
 
@@ -136,14 +144,16 @@ class Flow(Tool, metaclass=ABCMeta):
     def init(self):
         pass
 
-    def add_dependency(self, dep_flow_class: Type['Flow'], dep_settings: Settings):
+    def add_dependency(self, dep_flow_class: Type["Flow"], dep_settings: Settings):
         self.dependencies.append((dep_flow_class, dep_settings))
 
     @classmethod
     def _create_jinja_env(cls, extra_modules=[]):
         loaderChoices = []
         mod_paths = []
-        modules = unique(extra_modules + [cls.__module__] + [clz.__module__ for clz in cls.__bases__])
+        modules = unique(
+            extra_modules + [cls.__module__] + [clz.__module__ for clz in cls.__bases__]
+        )
         for mpx in modules:
             for mp in [mpx, mpx.rsplit(".", 1)[0]]:
                 if mp not in mod_paths:
@@ -156,7 +166,7 @@ class Flow(Tool, metaclass=ABCMeta):
         return Environment(
             loader=ChoiceLoader(loaderChoices),
             autoescape=False,
-            undefined=StrictUndefined
+            undefined=StrictUndefined,
         )
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
@@ -181,29 +191,29 @@ class Flow(Tool, metaclass=ABCMeta):
         self.reports_dir.mkdir(exist_ok=True)
         self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
-        self.add_template_test('match', regex_match)
+        self.add_template_test("match", regex_match)
         self.dependencies: List[Tuple[Type[Flow], Flow.Settings]] = []
         self.completed_dependencies: List[Flow] = []
 
     @abstractmethod
     def run(self) -> bool:
-        """ return False on failure """
+        """return False on failure"""
 
     def parse_reports(self) -> bool:
-        assert isinstance(self.results['success'], bool)
-        return self.results['success']
+        assert isinstance(self.results["success"], bool)
+        return self.results["success"]
 
     def copy_from_template(self, resource_name, **kwargs) -> os.PathLike:
         template = self.jinja_env.get_template(resource_name)
         script_path: Path = self.run_path / resource_name
-        log.debug(f'generating {script_path.resolve()} from template.')
+        log.debug(f"generating {script_path.resolve()} from template.")
         rendered_content = template.render(
             settings=self.settings,
             design=self.design,
             artifacts=self.artifacts,
-            **kwargs
+            **kwargs,
         )
-        with open(script_path, 'w') as f:
+        with open(script_path, "w") as f:
             f.write(rendered_content)
         return script_path.relative_to(self.run_path)  # resource_name
 
@@ -222,55 +232,63 @@ class Flow(Tool, metaclass=ABCMeta):
         raise FlowFatalException(msg) from None
 
     # FIXME REMOVE!! +remove progress from dep
-    def run_process(self, prog, prog_args, check=True, stdout_logfile=None, initial_step=None, force_echo=False, nolog=False):
+    def run_process(
+        self,
+        prog,
+        prog_args,
+        check=True,
+        stdout_logfile=None,
+        initial_step=None,
+        force_echo=False,
+        nolog=False,
+    ):
         prog_args = [str(a) for a in prog_args]
         if nolog:
             subprocess.check_call([prog] + prog_args, cwd=self.run_path)
             return
         if not stdout_logfile:
-            stdout_logfile = f'{prog}_stdout.log'
+            stdout_logfile = f"{prog}_stdout.log"
         spinner = None
         unicode = True
-        verbose = not self.settings.quiet and (
-            self.settings.verbose or force_echo)
+        verbose = not self.settings.quiet and (self.settings.verbose or force_echo)
         echo_instructed = False
         stdout_logfile = self.run_path / stdout_logfile
-        start_step_re = re.compile(
-            r'^={12}=*\(\s*(?P<step>[^\)]+)\s*\)={12}=*')
-        enable_echo_re = re.compile(r'^={12}=*\( \*ENABLE ECHO\* \)={12}=*')
-        disable_echo_re = re.compile(r'^={12}=*\( \*DISABLE ECHO\* \)={12}=*')
-        error_msg_re = re.compile(r'^\s*error:?\s+', re.IGNORECASE)
-        warn_msg_re = re.compile(r'^\s*warning:?\s+', re.IGNORECASE)
-        critwarn_msg_re = re.compile(
-            r'^\s*critical\s+warning:?\s+', re.IGNORECASE)
+        start_step_re = re.compile(r"^={12}=*\(\s*(?P<step>[^\)]+)\s*\)={12}=*")
+        enable_echo_re = re.compile(r"^={12}=*\( \*ENABLE ECHO\* \)={12}=*")
+        disable_echo_re = re.compile(r"^={12}=*\( \*DISABLE ECHO\* \)={12}=*")
+        error_msg_re = re.compile(r"^\s*error:?\s+", re.IGNORECASE)
+        warn_msg_re = re.compile(r"^\s*warning:?\s+", re.IGNORECASE)
+        critwarn_msg_re = re.compile(r"^\s*critical\s+warning:?\s+", re.IGNORECASE)
 
         def make_spinner(step):
             if self.settings.no_console:
                 return None
-            return Spinner('⏳' + step + ' ' if unicode else step + ' ')
+            return Spinner("⏳" + step + " " if unicode else step + " ")
 
         redirect_std = self.settings.debug < DebugLevel.HIGH
-        with open(stdout_logfile, 'w') as log_file:
+        with open(stdout_logfile, "w") as log_file:
             try:
-                log.info(
-                    f'Running `{prog} {" ".join(prog_args)}` in {self.run_path}')
-                with subprocess.Popen([prog, *prog_args],
-                                      cwd=self.run_path,
-                                      shell=False,
-                                      stdout=subprocess.PIPE if redirect_std else None,
-                                      bufsize=1,
-                                      universal_newlines=True,
-                                      encoding='utf-8',
-                                      errors='replace'
-                                      ) as proc:
+                log.info(f'Running `{prog} {" ".join(prog_args)}` in {self.run_path}')
+                with subprocess.Popen(
+                    [prog, *prog_args],
+                    cwd=self.run_path,
+                    shell=False,
+                    stdout=subprocess.PIPE if redirect_std else None,
+                    bufsize=1,
+                    universal_newlines=True,
+                    encoding="utf-8",
+                    errors="replace",
+                ) as proc:
                     log.info(
-                        f'Started {proc.args[0]}[{proc.pid}].{(" Standard output is logged to: " + str(stdout_logfile)) if redirect_std else ""}')
+                        f'Started {proc.args[0]}[{proc.pid}].{(" Standard output is logged to: " + str(stdout_logfile)) if redirect_std else ""}'
+                    )
 
                     def end_step():
                         if spinner:
                             if unicode:
-                                print('\r✅', end='')
+                                print("\r✅", end="")
                             spinner.finish()
+
                     if redirect_std:
                         if initial_step:
                             spinner = make_spinner(initial_step)
@@ -285,10 +303,12 @@ class Flow(Tool, metaclass=ABCMeta):
                                 if disable_echo_re.match(line):
                                     echo_instructed = False
                                 else:
-                                    print(line, end='')
+                                    print(line, end="")
                             else:
                                 if not self.settings.quiet:
-                                    if error_msg_re.match(line) or critwarn_msg_re.match(line):
+                                    if error_msg_re.match(
+                                        line
+                                    ) or critwarn_msg_re.match(line):
                                         if spinner:
                                             print()
                                         log.error(line)
@@ -304,7 +324,7 @@ class Flow(Tool, metaclass=ABCMeta):
                                         match = start_step_re.match(line)
                                         if match:
                                             end_step()
-                                            step = match.group('step')
+                                            step = match.group("step")
                                             spinner = make_spinner(step)
                                         else:
                                             if spinner:
@@ -312,7 +332,8 @@ class Flow(Tool, metaclass=ABCMeta):
 
             except FileNotFoundError as e:
                 self.fatal(
-                    f"Cannot execute `{prog}`. Make sure it's properly installed and is in the current PATH")
+                    f"Cannot execute `{prog}`. Make sure it's properly installed and is in the current PATH"
+                )
             except KeyboardInterrupt as e:
                 if spinner:
                     print(SHOW_CURSOR)
@@ -321,22 +342,30 @@ class Flow(Tool, metaclass=ABCMeta):
             print(SHOW_CURSOR)
 
         if proc.returncode != 0:
-            m = f'`{proc.args[0]}` exited with returncode {proc.returncode}'
-            log.critical(
-                f'{m}. Please check `{stdout_logfile}` for error messages!')
+            m = f"`{proc.args[0]}` exited with returncode {proc.returncode}"
+            log.critical(f"{m}. Please check `{stdout_logfile}` for error messages!")
             if check:
                 raise NonZeroExit(m)
         else:
             log.info(
-                f'Execution of {prog} in {self.run_path} completed with returncode {proc.returncode}')
+                f"Execution of {prog} in {self.run_path} completed with returncode {proc.returncode}"
+            )
 
-    def parse_report_regex(self, reportfile_path, re_pattern, *other_re_patterns, dotall=True, required=False, sequential=False):
+    def parse_report_regex(
+        self,
+        reportfile_path,
+        re_pattern,
+        *other_re_patterns,
+        dotall=True,
+        required=False,
+        sequential=False,
+    ):
         if isinstance(reportfile_path, str):
             reportfile_path = self.run_path / reportfile_path
         # TODO fix debug and verbosity levels!
         if not reportfile_path.exists():
             log.warning(
-                f'File {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.run_path}'
+                f"File {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.run_path}"
             )
             return False
         with open(reportfile_path) as rpt_file:
@@ -355,7 +384,7 @@ class Flow(Tool, metaclass=ABCMeta):
                 match_dict = match.groupdict()
                 for k, v in match_dict.items():
                     self.results[k] = try_convert(v)
-                    log.debug(f'{k}: {self.results[k]}')
+                    log.debug(f"{k}: {self.results[k]}")
                 if sequential:
                     content = content[match.span(0)[1]:]
                     log.debug(f">>> len(content)= {len(content)}")
@@ -373,7 +402,8 @@ class Flow(Tool, metaclass=ABCMeta):
 
                 if not matched and required:
                     log.critical(
-                        f"Error parsing report file: {rpt_file.name}\n Pattern not matched: {pat}\n")
+                        f"Error parsing report file: {rpt_file.name}\n Pattern not matched: {pat}\n"
+                    )
                     return False
         return True
 
@@ -387,17 +417,19 @@ class SimFlow(Flow):
         cocotb: Cocotb.Settings = Cocotb.Settings()
         optimization_flags: List[str] = Field([], description="Optimization flags")
 
-    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
-        assert isinstance(self.settings, self.Settings)
-        super().__init__(flow_settings, design, run_path)
+    def __init__(self, settings: Settings, design: Design, run_path: Path):
+        super().__init__(settings, design, run_path)
 
-        self.cocotb: Optional[Cocotb] = Cocotb(
-            self.settings.cocotb, self.cocotb_sim_name, self.run_path
-        ) if self.cocotb_sim_name else None
+        assert isinstance(self.settings, self.Settings)
+        self.cocotb: Optional[Cocotb] = (
+            Cocotb(self.settings.cocotb, self.cocotb_sim_name, self.run_path)
+            if self.cocotb_sim_name
+            else None
+        )
 
     def parse_reports(self):
-        self.results['success'] = True
-        return self.results['success']
+        self.results["success"] = True
+        return self.results["success"]
 
     @property
     def vcd(self) -> Optional[str]:
@@ -405,16 +437,17 @@ class SimFlow(Flow):
         vcd = self.settings.vcd
         if vcd is not None:
             if not isinstance(vcd, str):  # e.g. True
-                vcd = 'dump.vcd'
-            elif not vcd.endswith('.vcd'):
-                vcd += '.vcd'
+                vcd = "dump.vcd"
+            elif not vcd.endswith(".vcd"):
+                vcd += ".vcd"
         elif self.settings.debug:  # >= DebugLevel.LOW:
-            vcd = 'debug_dump.vcd'
+            vcd = "debug_dump.vcd"
         return vcd
 
 
 class FPGA(XedaBaseModel):
     """FPGA target device"""
+
     part: Optional[str] = Field(None, description="full device part identifier")
     vendor: Optional[str]
     device: Optional[str]
@@ -440,12 +473,12 @@ class FPGA(XedaBaseModel):
     #     print(f"values={values}")
     #     raise ValueError('Full part number and/or vendor, family, device, package must be specified')
 
-    @validator('device', pre=True, always=True)
+    @validator("device", pre=True, always=True)
     def part_validator(cls, value, values):
-        part = values.get('part')
+        part = values.get("part")
         if not value and part:
             # TODO more cheking?
-            sp = part.split('-')
+            sp = part.split("-")
             value = "-".join(sp[:-1])
         return value
 
@@ -455,42 +488,43 @@ class FPGA(XedaBaseModel):
         if self.part:
             self.part = self.part.lower()
             if not self.device:
-                self.device = self.part.split('-')[0]
+                self.device = self.part.split("-")[0]
         if self.device:
             self.device = self.device.lower()
 
-            device = self.device.split('-')
+            device = self.device.split("-")
             print(f"FPGA init device={device}")
             # exit(1)
-            if self.vendor == 'lattice':
-                assert len(
-                    device) >= 2, "Lattice device should be in form of fffff-ccF-ppppp"
-                if device[0].startswith('lfe5u'):
+            if self.vendor == "lattice":
+                assert (
+                    len(device) >= 2
+                ), "Lattice device should be in form of fffff-ccF-ppppp"
+                if device[0].startswith("lfe5u"):
                     print("yes")
                     # exit(1)
-                    if device[0] == 'lfe5um':
-                        self.family = 'ecp5'  # With SERDES
+                    if device[0] == "lfe5um":
+                        self.family = "ecp5"  # With SERDES
                         self.has_serdes = True
-                    if device[0] == 'lfe5um5g':
-                        self.family = 'ecp5-5g'
-                    elif device[0] == 'lfe5u':
-                        self.family = 'ecp5'
-                    self.capacity = device[1][:-1] + 'k'
+                    if device[0] == "lfe5um5g":
+                        self.family = "ecp5-5g"
+                    elif device[0] == "lfe5u":
+                        self.family = "ecp5"
+                    self.capacity = device[1][:-1] + "k"
                     if len(device) == 3:
                         spg = device[2]
                         self.speed = spg[0]
                         package = spg[1:-1]
-                        if package.startswith('bg'):
-                            package = 'cabga' + package[2:]
+                        if package.startswith("bg"):
+                            package = "cabga" + package[2:]
                         self.package = package
                         self.grade = spg[-1]
-            elif self.vendor == 'xilinx':
+            elif self.vendor == "xilinx":
                 d = device[0]
                 if d.startswith("xc7"):
                     self.family = "xc7"
-                elif d.startswith("xcu") and d[3] != 'p':
+                elif d.startswith("xcu") and d[3] != "p":
                     self.family = "xcu"
-                elif d.startswith("xcv") and d[3] != 'e':
+                elif d.startswith("xcv") and d[3] != "e":
                     self.family = "xcv"
                 elif d.startswith("xc3sda"):
                     self.family = "xc3sda"
@@ -502,9 +536,8 @@ class FPGA(XedaBaseModel):
                     self.family = d[:4]
                 # TODO: more
             if not self.part and self.device and self.package and self.speed:
-                if self.vendor == 'xilinx':
-                    self.part = (self.device + self.package +
-                                 self.speed).lower()
+                if self.vendor == "xilinx":
+                    self.part = (self.device + self.package + self.speed).lower()
 
         # if self.part:
         #     if self.vendor == 'xilinx':
@@ -526,16 +559,16 @@ class TargetTechnology(XedaBaseModel):
 class PhysicalClock(XedaBaseModel):
     name: Optional[str] = None
     period: float = Field(description="period (nanoseconds)")
-    rise: float = Field(0., description="rise time (nanoseconds)")
-    fall: float = Field(0., description="fall time (nanoseconds)")
+    rise: float = Field(0.0, description="rise time (nanoseconds)")
+    fall: float = Field(0.0, description="fall time (nanoseconds)")
     uncertainty: Optional[float] = Field(None, description="clock uncertainty")
     skew: Optional[float] = Field(None, description="skew")
     port: Optional[str] = Field(None, description="associated design port")
 
-    @validator('fall', always=True)
+    @validator("fall", always=True)
     def fall_validate(cls, value, values):
         if not value:
-            value = round(values.get('period', 0.) / 2., 3)
+            value = round(values.get("period", 0.0) / 2.0, 3)
         return value
 
     @property
@@ -544,23 +577,24 @@ class PhysicalClock(XedaBaseModel):
 
     @property
     def freq_mhz(self) -> float:
-        return 1000. / self.period
+        return 1000.0 / self.period
 
 
 class SynthFlow(Flow):
     class Settings(Flow.Settings):
         """base Synthesis flow settings"""
+
         clock_period: Optional[float] = Field(
             None, description="target clock period in nanoseconds"
         )
         clocks: Dict[str, PhysicalClock] = {}
 
-        @validator('clocks', always=True)
+        @validator("clocks", always=True)
         def clocks_validate(cls, value, values):
-            clock_period = values.get('clock_period')
+            clock_period = values.get("clock_period")
             if not value and clock_period:
                 value = {
-                    'main_clock': PhysicalClock(name='main_clock', period=clock_period)
+                    "main_clock": PhysicalClock(name="main_clock", period=clock_period)
                 }
             return value
 
@@ -576,7 +610,9 @@ class SynthFlow(Flow):
                     physical_clock.port = design_clocks[clock_name].port
                     flow_settings.clocks[clock_name] = physical_clock
                 except LookupError as e:
-                    log.critical(f"Physical clock {clock_name} has no corresponding clock port in design.rtl")
+                    log.critical(
+                        f"Physical clock {clock_name} has no corresponding clock port in design.rtl"
+                    )
                     raise e from None
         super().__init__(flow_settings, design, run_path)
 
@@ -584,6 +620,7 @@ class SynthFlow(Flow):
 class FpgaSynthFlow(SynthFlow):
     class Settings(SynthFlow.Settings):
         """base FPGA Synthesis flow settings"""
+
         fpga: FPGA
 
 

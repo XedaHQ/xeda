@@ -17,8 +17,10 @@ log = logging.getLogger(__name__)
 try:
     nullcontext: Callable = contextlib.nullcontext
 except AttributeError:  # Python < 3.7
+
     def nullcontext_(a=None):
         return contextlib.contextmanager(lambda: (x for x in [a]))()
+
     nullcontext = nullcontext_
 
 
@@ -31,15 +33,11 @@ class NonZeroExitCode(Exception):
 
 class RemoteToolSettings(XedaBaseModel):
     junest_path: str  # FIXME REMOVE
-    junest_method: str = 'ns'
+    junest_method: str = "ns"
     junest_mounts: Optional[Mapping[str, str]] = None
     exec_path: NoneStr = None
     hostname: str
     port: int = 22
-
-
-class NativeToolSettings(XedaBaseModel):
-    executable: str
 
 
 class DockerToolSettings(XedaBaseModel):
@@ -49,27 +47,35 @@ class DockerToolSettings(XedaBaseModel):
     image_registry: NoneStr = Field(None, description="Docker image registry")
 
 
-ToolSettingsType = TypeVar('ToolSettingsType', bound='Tool.Settings')
+ToolSettingsType = TypeVar("ToolSettingsType", bound="Tool.Settings")
 
 
 class Tool(metaclass=ABCMeta):
     """abstraction for an EDA tool"""
 
+    default_executable: Optional[str] = None
+
     class Settings(XedaBaseModel, metaclass=ABCMeta):
-        docker: Optional[DockerToolSettings] = Field(None, hidden_from_schema=True)
         remote: Optional[RemoteToolSettings] = Field(None, hidden_from_schema=True)
-        native: Optional[NativeToolSettings] = Field(None, hidden_from_schema=True)
-        log_stdout: bool = Field(False, description="Log stdout to a file", hidden_from_schema=True)
-        log_stderr: bool = Field(False, description="Log stderr to a file", hidden_from_schema=True)
-        bin_path: str = Field(None, description="Path to the tool binary", hidden_from_schema=True)
-        require_version: NoneStr = Field(None, description="Require tool version", hidden_from_schema=True)
-        dockerized: bool = Field(False, description="Run the tool dockerized", hidden_from_schema=True)
+        docker: Optional[DockerToolSettings] = Field(None, hidden_from_schema=True)
+        log_stdout: bool = Field(
+            False, description="Log stdout to a file", hidden_from_schema=True
+        )
+        log_stderr: bool = Field(
+            False, description="Log stderr to a file", hidden_from_schema=True
+        )
+        bin_path: str = Field(
+            None, description="Path to the tool binary", hidden_from_schema=True
+        )
+        require_version: NoneStr = Field(
+            None, description="Require tool version", hidden_from_schema=True
+        )
+        dockerized: bool = Field(
+            False, description="Run the tool dockerized", hidden_from_schema=True
+        )
         quiet: bool = Field(False, hidden_from_schema=True)
         verbose: int = Field(0, hidden_from_schema=True)
         debug: bool = Field(False, hidden_from_schema=True)
-
-    default_native: NativeToolSettings
-    default_docker: Optional[DockerToolSettings] = None
 
     def __init__(self, settings: Settings, run_path):
         self.run_path = run_path
@@ -120,7 +126,9 @@ class Tool(metaclass=ABCMeta):
                 return True
         return True
 
-    def _run_process(self, executable, args, env, stdout: Union[bool, str, os.PathLike], check):
+    def _run_process(
+        self, executable, args, env, stdout: Union[bool, str, os.PathLike], check
+    ):
         if args:
             args = [str(a) for a in args]
         if env:
@@ -135,16 +143,17 @@ class Tool(metaclass=ABCMeta):
         else:
             cm = nullcontext()
         with (cm) as f:
-            with subprocess.Popen([executable, *args],
-                                  cwd=self.run_path,
-                                  shell=False,
-                                  stdout=f if f else subprocess.PIPE if stdout else None,
-                                  bufsize=1,
-                                  universal_newlines=True,
-                                  encoding='utf-8',
-                                  errors='replace',
-                                  env=env
-                                  ) as proc:
+            with subprocess.Popen(
+                [executable, *args],
+                cwd=self.run_path,
+                shell=False,
+                stdout=f if f else subprocess.PIPE if stdout else None,
+                bufsize=1,
+                universal_newlines=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            ) as proc:
                 log.info(f"Started {executable}[{proc.pid}]")
                 if stdout:
                     if isinstance(stdout, bool):
@@ -168,16 +177,17 @@ class Tool(metaclass=ABCMeta):
         processes = []
         for cmd in commands:
             log.info("Running `%s`", " ".join(cmd))
-            proc = subprocess.Popen(cmd,
-                                    cwd=self.run_path,
-                                    shell=False,
-                                    #   stdout=subprocess.PIPE if stdout else None,
-                                    bufsize=1,
-                                    universal_newlines=True,
-                                    encoding='utf-8',
-                                    errors='replace',
-                                    #   env=env
-                                    )
+            proc = subprocess.Popen(
+                cmd,
+                cwd=self.run_path,
+                shell=False,
+                #   stdout=subprocess.PIPE if stdout else None,
+                bufsize=1,
+                universal_newlines=True,
+                encoding="utf-8",
+                errors="replace",
+                #   env=env
+            )
             log.info("Started %s[%s]", proc.args[0], proc.pid)
             processes.append(proc)
 
@@ -186,8 +196,7 @@ class Tool(metaclass=ABCMeta):
 
         for p in processes:
             if p.returncode != 0:
-                raise Exception(
-                    f"Process exited with return code {proc.returncode}")
+                raise Exception(f"Process exited with return code {proc.returncode}")
 
     def _run_system(self, executable, args, env, stdout, check):
         """Run the tool if locally installed on the system and available on the current user's PATH"""
@@ -200,33 +209,63 @@ class Tool(metaclass=ABCMeta):
         # if env is not None:
         # env = {**os.environ, **env}
 
-        remote_sshfs_mount_dir = '~/mnt'
-        self.settings.remote.junest_mounts[remote_sshfs_mount_dir] = str(
-            self.run_path)
-        mount_opts = [f"--bind {k} {v}" for k,
-                      v in self.settings.remote.junest_mounts.items()]
+        remote_sshfs_mount_dir = "~/mnt"
+        self.settings.remote.junest_mounts[remote_sshfs_mount_dir] = str(self.run_path)
+        mount_opts = [
+            f"--bind {k} {v}" for k, v in self.settings.remote.junest_mounts.items()
+        ]
         junest_backend_opts = ["-b"] + mount_opts
-        junest_cmd = [self.settings.remote.junest_path] + junest_backend_opts + \
-            ["--", self.settings.remote.exec_path] + args
+        junest_cmd = (
+            [self.settings.remote.junest_path]
+            + junest_backend_opts
+            + ["--", self.settings.remote.exec_path]
+            + args
+        )
 
         remote_cmd = junest_cmd
         client_nc_port = 34567
         reverse_sftp_port = 10000
 
-        sshfs_opts = ["directport=10000", "idmap=user",
-                      "exec", "compression=yes"]
+        sshfs_opts = ["directport=10000", "idmap=user", "exec", "compression=yes"]
 
-        sshfs_cmd = ['sshfs', '-o',
-                     ','.join(sshfs_opts), f'localhost:{self.run_path}', remote_sshfs_mount_dir]
+        sshfs_cmd = [
+            "sshfs",
+            "-o",
+            ",".join(sshfs_opts),
+            f"localhost:{self.run_path}",
+            remote_sshfs_mount_dir,
+        ]
 
-        ssh_proc = ['ssh', self.settings.remote.hostname, "-p",
-                    str(self.settings.remote.port)]
+        ssh_proc = [
+            "ssh",
+            self.settings.remote.hostname,
+            "-p",
+            str(self.settings.remote.port),
+        ]
 
-        sshfs_proc = ssh_proc + ["-R", f"{reverse_sftp_port}:localhost:{client_nc_port}",
-                                       "mkdir", "-p", remote_sshfs_mount_dir, "&&"] + sshfs_cmd + ["&&"] + remote_cmd
+        sshfs_proc = (
+            ssh_proc
+            + [
+                "-R",
+                f"{reverse_sftp_port}:localhost:{client_nc_port}",
+                "mkdir",
+                "-p",
+                remote_sshfs_mount_dir,
+                "&&",
+            ]
+            + sshfs_cmd
+            + ["&&"]
+            + remote_cmd
+        )
 
-        ncat_proc = ["ncat", "-l", "-p",
-                     f"{client_nc_port}", "-e", "/usr/libexec/sftp-server"]
+        ncat_proc = [
+            "ncat",
+            "-l",
+            "-p",
+            f"{client_nc_port}",
+            "-e",
+            "/usr/libexec/sftp-server",
+        ]
 
         self._run_processes([sshfs_proc, ncat_proc])
 
@@ -234,22 +273,35 @@ class Tool(metaclass=ABCMeta):
         """Run the tool from a docker container"""
         wd = self.run_path
         cwd = Path.cwd()
-        docker_args = [f"--rm", "--interactive", "--tty",
-                       f"--workdir={wd}", f"--volume={cwd}:{cwd}", f"--volume={wd}:{wd}"]
+        docker_args = [
+            f"--rm",
+            "--interactive",
+            "--tty",
+            f"--workdir={wd}",
+            f"--volume={cwd}:{cwd}",
+            f"--volume={wd}:{wd}",
+        ]
         if env:
             env_file = wd / f"{executable}_docker.env"
             with open(env_file, "w") as f:
                 f.write(f"\n".join(f"{k}={v}" for k, v in env.items()))
             docker_args.extend(["--env-file", str(env_file)])
 
-        return self._run_process("docker", [
-            "run", *docker_args, docker.image_name, executable, *args], env=None, stdout=stdout, check=check)
+        return self._run_process(
+            "docker",
+            ["run", *docker_args, docker.image_name, executable, *args],
+            env=None,
+            stdout=stdout,
+            check=check,
+        )
 
     # FIXME
     def run_tool(self, executable, args, env=None, stdout=None, check=True):
         if self.settings.remote:
             return self._run_remote(executable, args, env, stdout, check)
         if self.settings.dockerized and self.settings.docker:
-            return self._run_docker(self.settings.docker, executable, args, env, stdout, check)
+            return self._run_docker(
+                self.settings.docker, executable, args, env, stdout, check
+            )
         else:
             return self._run_system(executable, args, env, stdout, check)

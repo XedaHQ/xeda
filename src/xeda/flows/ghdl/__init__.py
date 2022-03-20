@@ -3,6 +3,7 @@ from typing import List, Optional, Union
 from pydantic import Field
 import logging
 import platform
+
 try:
     from typing import Literal
 except ImportError:
@@ -24,29 +25,41 @@ def append_flag(flag_list: List[str], flag: str):
 
 class Ghdl(Tool):
     """GHDL VHDL simulation, synthesis, and linting tool: https://ghdl.readthedocs.io"""
+
     docker_image: Optional[str] = "hdlc/sim:osvb"
     default_executable: Optional[str] = "ghdl"
 
     class Settings(Tool.Settings):
         analysis_flags: List[str] = []
-        elab_flags: List[str] = [
-            '--syn-binding'
-        ]
+        elab_flags: List[str] = ["--syn-binding"]
         warn_flags: List[str] = [
-            '--warn-binding', '--warn-default-binding', '--warn-reserved', '--warn-library',
-            '--warn-vital-generic',
-            '--warn-shared',
-            '--warn-runtime-error', '--warn-body', '--warn-specs',
-            '--warn-unused', '--warn-static',
-            '--warn-parenthesis'
+            "--warn-binding",
+            "--warn-default-binding",
+            "--warn-reserved",
+            "--warn-library",
+            "--warn-vital-generic",
+            "--warn-shared",
+            "--warn-runtime-error",
+            "--warn-body",
+            "--warn-specs",
+            "--warn-unused",
+            "--warn-static",
+            "--warn-parenthesis",
         ]
         werror: bool = Field(
-            False, description="warnings are always considered as errors")
+            False, description="warnings are always considered as errors"
+        )
         elab_werror: bool = Field(
-            False, description="During elaboration, warnings are considered as errors")
-        relaxed: bool = Field(True, description="Slightly relax some rules to be compatible with various other simulators or synthesizers.")
+            False, description="During elaboration, warnings are considered as errors"
+        )
+        relaxed: bool = Field(
+            True,
+            description="Slightly relax some rules to be compatible with various other simulators or synthesizers.",
+        )
         clean: bool = True
-        diagnostics: bool = Field(True, description="Enable both color and source line carret diagnostics.")
+        diagnostics: bool = Field(
+            True, description="Enable both color and source line carret diagnostics."
+        )
         work: Optional[str] = Field(
             None, description="Set the name of the WORK library"
         )
@@ -59,11 +72,7 @@ class Ghdl(Tool):
             stdout=True,
         )
         lines = [line.strip() for line in out.splitlines()]
-        return {
-            'version': lines[0],
-            'compiler': lines[1],
-            'backend': lines[2]
-        }
+        return {"version": lines[0], "compiler": lines[1], "backend": lines[2]}
 
     @staticmethod
     def common_flags(ss, vhdl) -> List[str]:
@@ -71,19 +80,17 @@ class Ghdl(Tool):
         if vhdl.standard:
             cf.append(f"--std={vhdl.standard}")
         if vhdl.synopsys:
-            cf.append('-fsynopsys')
+            cf.append("-fsynopsys")
         if ss.work:
-            cf.append(f'--work={ss.work}')
-        cf += [f'-P{p}' for p in ss.lib_paths]
+            cf.append(f"--work={ss.work}")
+        cf += [f"-P{p}" for p in ss.lib_paths]
         return cf
 
     @staticmethod
     def generics_flags(generics) -> List[str]:
         if not generics:
             return []
-        return [
-            f"-g{k}={v}" for k, v in generics.items()
-        ]
+        return [f"-g{k}={v}" for k, v in generics.items()]
 
     @classmethod
     def get_flags(cls, ss, vhdl, stage: str) -> List[str]:
@@ -97,24 +104,29 @@ class Ghdl(Tool):
         if stage == "remove":
             return common
         if ss.werror:
-            warn_flags += ['--warn-error']
+            warn_flags += ["--warn-error"]
         elif ss.elab_werror:
-            elab_flags += ['--warn-error']
+            elab_flags += ["--warn-error"]
         if ss.relaxed:
-            analysis_flags.extend(
-                ['-frelaxed-rules', '-frelaxed', '--mb-comments'])
-            elab_flags.extend(['-frelaxed'])
+            analysis_flags.extend(["-frelaxed-rules", "-frelaxed", "--mb-comments"])
+            elab_flags.extend(["-frelaxed"])
         if ss.verbose:
-            analysis_flags.append('-v')
-            elab_flags.append('-v')
+            analysis_flags.append("-v")
+            elab_flags.append("-v")
         if ss.diagnostics:
-            elab_flags.extend(['-fcaret-diagnostics', '-fcolor-diagnostics', '-fdiagnostics-show-option'])
+            elab_flags.extend(
+                [
+                    "-fcaret-diagnostics",
+                    "-fcolor-diagnostics",
+                    "-fdiagnostics-show-option",
+                ]
+            )
         if ss.work:
-            elab_flags.append('-v')
+            elab_flags.append("-v")
         if ss.expect_failure:
-            elab_flags.append('--expect-failure')
+            elab_flags.append("--expect-failure")
         if vhdl.synopsys:
-            analysis_flags.append('--ieee=synopsys')
+            analysis_flags.append("--ieee=synopsys")
         if stage == "import" or stage == "analyze":
             return analysis_flags + warn_flags
         elif stage == "make" or stage == "elaborate":
@@ -143,28 +155,27 @@ class Ghdl(Tool):
             if step in ["import", "analyze"]:
                 args += sources
             elif step in ["make", "elaborate"]:
-                if self.info.get('backend', '').lower().startswith("llvm"):
-                    if platform.system() == 'Darwin' and platform.machine() == 'arm64':
-                        args += ['-Wl,-Wl,-no_compact_unwind']
+                if self.info.get("backend", "").lower().startswith("llvm"):
+                    if platform.system() == "Darwin" and platform.machine() == "arm64":
+                        args += ["-Wl,-Wl,-no_compact_unwind"]
                 args += list(top)
             if step == "find-top":
-                out = self.run_tool(
-                    self.default_executable,
-                    [step, *args],
-                    stdout=True
-                )
+                out = self.run_tool(self.default_executable, [step, *args], stdout=True)
                 top_list = out.strip().split()
                 # clunky way of converting to tuple, just to be safe and also keep mypy happy
-                top = () if len(top_list) == 0 else (top_list[0],) if len(top_list) == 1 else (top_list[0], top_list[1])
+                top = (
+                    ()
+                    if len(top_list) == 0
+                    else (top_list[0],)
+                    if len(top_list) == 1
+                    else (top_list[0], top_list[1])
+                )
                 if top:
                     log.info(f"find-top: top-module was set to {top}")
                 else:
                     log.warning(f"find-top: unable to determine the top-module")
             else:
-                self.run_tool(
-                    self.default_executable,
-                    [step, *args]
-                )
+                self.run_tool(self.default_executable, [step, *args])
         return top
 
 
@@ -173,38 +184,43 @@ class GhdlSynth(Ghdl, SynthFlow):
     Convert a VHDL design using 'ghdl --synth'
      (Please see `YosysSynth` (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis)
     """
+
     class Settings(Ghdl.Settings, SynthFlow.Settings):
         vendor_library: Optional[str] = Field(
-            None, description="Any unit from this library is a black box")
+            None, description="Any unit from this library is a black box"
+        )
         no_formal: bool = Field(
-            True, description="Neither synthesize assert nor PSL. Required for yosys+nextpnr flow.")
+            True,
+            description="Neither synthesize assert nor PSL. Required for yosys+nextpnr flow.",
+        )
         no_assert_cover: bool = Field(
-            False, description="Cover PSL assertion activation")
+            False, description="Cover PSL assertion activation"
+        )
         assert_assumes: bool = Field(
-            False, description="Treat all PSL asserts like PSL assumes")
+            False, description="Treat all PSL asserts like PSL assumes"
+        )
         assume_asserts: bool = Field(
-            False, description="Treat all PSL assumes like PSL asserts")
-        out: Optional[Literal['vhdl', 'raw-vhdl', 'verilog', 'dot', 'none',
-                              'raw', 'dump']] = Field(None, description="Type of output to generate")
+            False, description="Treat all PSL assumes like PSL asserts"
+        )
+        out: Optional[
+            Literal["vhdl", "raw-vhdl", "verilog", "dot", "none", "raw", "dump"]
+        ] = Field(None, description="Type of output to generate")
         out_file: Optional[str] = None
 
     def run(self) -> bool:
         design = self.design
         assert isinstance(self.settings, self.Settings)
-        ss: 'GhdlSynth.Settings' = self.settings
-        top = self.elaborate(design.rtl.sources,
-                             design.rtl.top, design.language.vhdl)
+        ss: "GhdlSynth.Settings" = self.settings
+        top = self.elaborate(design.rtl.sources, design.rtl.top, design.language.vhdl)
         args = self.synth_args(ss, design, one_shot_elab=False, top=top)
-        self.run_tool(
-            self.default_executable,
-            ["synth", *args],
-            stdout=ss.out_file
-        )
+        self.run_tool(self.default_executable, ["synth", *args], stdout=ss.out_file)
         self.results.success = True
         return True
 
     @classmethod
-    def synth_args(cls, ss, design: Design, one_shot_elab=True, top: DesignTopType = ()) -> List[str]:
+    def synth_args(
+        cls, ss, design: Design, one_shot_elab=True, top: DesignTopType = ()
+    ) -> List[str]:
         flags = cls.get_flags(ss, design.language.vhdl, "elaborate")
         if ss.vendor_library:
             flags.append(f"--vendor-library={ss.vendor_library}")
@@ -222,39 +238,46 @@ class GhdlSynth(Ghdl, SynthFlow):
         flags.extend(cls.generics_flags(design.rtl.generics))
         if one_shot_elab:
             flags += [str(v) for v in design.rtl.sources if v.type == "vhdl"]
-            flags.append('-e')
+            flags.append("-e")
         if not top:
             top = design.rtl.top
         flags.extend(list(top))
         return flags
 
     def parse_reports(self):
-        return self.results['success']
+        return self.results["success"]
 
 
 class GhdlLint(Ghdl, Flow):
     """Lint VHDL sources using GHDL"""
+
     class Settings(Ghdl.Settings):
         pass
 
 
 class GhdlSim(Ghdl, SimFlow):
     """Simulate a VHDL design using GHDL"""
+
     cocotb_sim_name = "ghdl"
 
     class Settings(Ghdl.Settings, SimFlow.Settings):
-        run_flags: List[str] = [
-            '--ieee-asserts=disable-at-0'
-        ]
+        run_flags: List[str] = ["--ieee-asserts=disable-at-0"]
         optimization_flags: List[str] = Field(
-            ['-O3'], description="Simulation optimization flags")
+            ["-O3"], description="Simulation optimization flags"
+        )
         sdf: Union[bool, None, List[str], str] = Field(
-            None, description="Do VITAL annotation on PATH with SDF file.")
-        wave: Union[bool, None, str] = Field(None, description="Write the waveforms into a GHDL Waveform (GHW) file.")
+            None, description="Do VITAL annotation on PATH with SDF file."
+        )
+        wave: Union[bool, None, str] = Field(
+            None, description="Write the waveforms into a GHDL Waveform (GHW) file."
+        )
         stop_delta: Optional[str] = Field(
-            None, description="Stop the simulation after N delta cycles in the same current time.")
+            None,
+            description="Stop the simulation after N delta cycles in the same current time.",
+        )
         debug: bool = Field(
-            False, description="Enable simulation and runtime debugging flags")
+            False, description="Enable simulation and runtime debugging flags"
+        )
 
     def run(self):
         design = self.design
@@ -273,20 +296,23 @@ class GhdlSim(Ghdl, SimFlow):
                     s = {"file": s}
                 root = s.get("root", self.design.tb.uut)
                 assert root, "neither SDF root nor tb.uut are provided"
-                run_flags.append(
-                    f'--sdf={s.get("delay", "max")}={root}={s["file"]}')
+                run_flags.append(f'--sdf={s.get("delay", "max")}={root}={s["file"]}')
 
         if self.vcd:
-            run_flags.append(f'--vcd={self.vcd}')
-            log.warning(f"Dumping VCD to {self.run_path.relative_to(Path.cwd()) / self.vcd}")
+            run_flags.append(f"--vcd={self.vcd}")
+            log.warning(
+                f"Dumping VCD to {self.run_path.relative_to(Path.cwd()) / self.vcd}"
+            )
         elif ss.wave:
             wave = ss.wave
             if isinstance(wave, bool):
                 wave = design.name
-            if not wave.endswith('.ghw'):
-                wave += '.ghw'
-            run_flags.append(f'--wave={wave}')
-            log.warning(f"Dumping GHW to {self.run_path.relative_to(Path.cwd()) / wave}")
+            if not wave.endswith(".ghw"):
+                wave += ".ghw"
+            run_flags.append(f"--wave={wave}")
+            log.warning(
+                f"Dumping GHW to {self.run_path.relative_to(Path.cwd()) / wave}"
+            )
         vpi = None
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:
@@ -297,18 +323,19 @@ class GhdlSim(Ghdl, SimFlow):
         if vpi:
             run_flags.append(f"--vpi={vpi}")
         if ss.debug:
-            run_flags.extend(['--trace-processes', '--checks', ])
+            run_flags.extend(
+                [
+                    "--trace-processes",
+                    "--checks",
+                ]
+            )
         if ss.stop_time:
-            run_flags.append(f'--stop-time={ss.stop_time}')
+            run_flags.append(f"--stop-time={ss.stop_time}")
         if ss.stop_delta:
-            run_flags.append(f'--stop-delta={ss.stop_delta}')
+            run_flags.append(f"--stop-delta={ss.stop_delta}")
 
         run_flags.extend(self.generics_flags(design.tb.generics))
-        x = self.elaborate(
-            design.sim_sources,
-            design.tb.top,
-            design.language.vhdl
-        )
+        x = self.elaborate(design.sim_sources, design.tb.top, design.language.vhdl)
         print(f"x={x}")
         design.tb.top = x
         status_ok = True
@@ -316,7 +343,7 @@ class GhdlSim(Ghdl, SimFlow):
         self.run_tool(
             self.default_executable,
             ["run", *cf, *design.sim_tops, *run_flags],
-            self.cocotb.env(design)
+            self.cocotb.env(design),
         )
         return status_ok
 
@@ -324,5 +351,5 @@ class GhdlSim(Ghdl, SimFlow):
         status_ok = True
         if self.cocotb and self.design.tb.cocotb:
             status_ok &= self.cocotb.parse_results()
-        self.results['success'] = status_ok
+        self.results["success"] = status_ok
         return status_ok
