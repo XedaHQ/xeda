@@ -7,8 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  mypy:
-    name: CI Tests
+  tox:
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
@@ -24,7 +23,7 @@ jobs:
         run: |
           python -VV
           python -m site
-          python -m pip install --upgrade pip setuptools wheel virtualenv tox tox-gh-actions pytest pytest-cov mypy coverage[toml]
+          python -m pip install --upgrade pip tox tox-gh-actions
 
       - name: "Run tox targets for ${{ matrix.python-version }}"
         run: "python -m tox"

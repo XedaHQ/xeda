@@ -1,5 +1,6 @@
 
-[![CI Tests](https://github.com/XedaHQ/xeda/workflows/CI%20Tests/badge.svg?branch=dev)](https://github.com/XedaHQ/xeda/actions) [![Documentation Status](https://readthedocs.org/projects/xeda/badge/?version=latest)](https://xeda.readthedocs.io/en/latest/?badge=latest) ![visitors](https://page-views.glitch.me/badge?page_id=XedaHQ.xeda)
+[![CI](https://github.com/XedaHQ/xeda/workflows/CI/badge.svg)](https://github.com/XedaHQ/xeda/actions) ![visitors](https://page-views.glitch.me/badge?page_id=XedaHQ.xeda)
+
 
 ![Xeda Logo](logo.svg)
 
@@ -37,53 +38,30 @@ python3 -m pip install -U -e .
 
 
 
-## Xeda Project File
+## Design Description
 
 Xeda design-specific descriptions and settings are organized through project files specified in [TOML](https://toml.io/). Every project contains one or more HDL designs. The default name for the project file is `xedaproject.toml`.
 
-Sample `xedaproject.toml`:
+Sample Xeda design description [file](./examples/vhdl/sqrt/sqrt.toml):
 
 ```toml
-[project]
-name = "Project1"
-description = "My Project with 2 designs"
+name = 'sqrt'
+description = 'Integer Square Root'
+language.vhdl.standard = "2008"
 
-[[design]]
-name = 'Design1'
-[design.rtl]
-sources = [
-    'src_rtl/module1.vhd',
-    'src_rtl/top.v'
-]
-top = 'Top'
-clock = 'clk'
-[design.tb]
-sources = [
-    'top_tb.vhd',
-]
-top = 'TopTB'
+[rtl]
+sources = ['sqrt.vhdl']
+top = 'sqrt'
+clock_port = 'clk'
+parameters = { G_IN_WIDTH = 32 }
+# parameters = { G_IN_WIDTH = 32, G_ITERATIVE = true, G_STR= "abcd", G_BITVECTOR="7'b0101001" }
 
-[[design]]
-name = 'Design2'
-[design.rtl]
-sources = [
-    'src_rtl/module2.v',
-    'src_rtl/top2.vhd'
-]
-top = 'Top2'
-clock = 'clk'
-[design.tb]
-sources = [
-    'cocoTestBench.py',
-]
-top = 'cocoTestBench'
-
+[tb]
+sources = ['tb/tb_sqrt.py']
+cocotb = true
+top = 'tb_sqrt'
 ```
-Flow- or plugin-specific settings can also be stored in design or project sections.
 
-
-- Design-specific settings in the current project file (`xedaproject.toml`)
-- `--flow-settings` command line options
 
 ## Supported Flows
 
