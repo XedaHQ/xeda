@@ -1,7 +1,6 @@
 import logging
 from typing import Any, Dict, Optional, List
 from pydantic import validator, Field, NoneStr
-from pydantic.main import Extra
 
 from ..flow import FPGA, FpgaSynthFlow, XedaBaseModel
 from . import Vivado

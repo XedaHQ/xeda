@@ -1,13 +1,11 @@
 import html
 import logging
 from functools import reduce
-from typing import List
 from xml.etree import ElementTree
 from pathlib import Path
 
 from ...flows.design import Design
 from ...utils import try_convert, backup_existing
-from ...tool import Tool
 from ..flow import Flow
 
 logger = logging.getLogger(__name__)

@@ -278,4 +278,3 @@ class FlowRunner:
 
 class DefaultRunner(FlowRunner):
     """Executes a flow and its dependencies and then reports selected results"""
-    pass

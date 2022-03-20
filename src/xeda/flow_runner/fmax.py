@@ -1,7 +1,5 @@
 import copy
-import os
-from typing import Dict, Any, List
-from types import SimpleNamespace
+from typing import List
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 import random

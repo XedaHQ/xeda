@@ -8,7 +8,7 @@ from munch import Munch
 
 from ...flows.ghdl import GhdlSynth
 from ...tool import Tool
-from ..flow import FPGA, FpgaSynthFlow, SynthFlow
+from ..flow import SynthFlow
 
 log = logging.getLogger(__name__)
 

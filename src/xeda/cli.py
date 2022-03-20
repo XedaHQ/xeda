@@ -25,7 +25,7 @@ from click_help_colors import HelpColorsGroup
 import yaml
 
 from ._version import get_versions
-from .utils import camelcase_to_snakecase, load_class, sanitize_toml
+from .utils import camelcase_to_snakecase, sanitize_toml
 from .debug import DebugLevel
 from .flow_runner import DefaultRunner, merge_overrides, get_flow_class
 from .flows.flow import Flow, FlowFatalException, registered_flows

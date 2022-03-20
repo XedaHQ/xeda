@@ -6,10 +6,8 @@ from typing import Mapping
 from types import SimpleNamespace
 from ..flow import SynthFlow
 import re
-import sys
 import os
 import toml
-from glob import glob
 from ...utils import dict_merge
 
 logger = logging.getLogger(__name__)

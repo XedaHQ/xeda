@@ -1,7 +1,7 @@
 from abc import ABCMeta
 import os
 from typing import List, Optional, Dict, Tuple, Union, Any
-from pydantic import BaseModel, Field, validator, Extra, validate_model, PrivateAttr
+from pydantic import BaseModel, Extra, Field, validate_model, validator
 from pydantic.class_validators import root_validator
 from pydantic.error_wrappers import ValidationError, display_errors
 from pathlib import Path
@@ -268,4 +268,3 @@ class Design(XedaBaseModel):
 
 class InvalidDesign(Exception):
     """Failed to validate Design properties"""
-    pass

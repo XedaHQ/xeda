@@ -1,18 +1,10 @@
 # © 2021 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-import copy
 import logging
-import os
-import math
-import csv
-from pathlib import Path
-import re
-from typing import List
 from xml.etree import ElementTree
 import html
 
-from ..flow import Flow
-from .vivado_sim import VivadoPostsynthSim, VivadoSim
+from .vivado_sim import VivadoPostsynthSim
 from .vivado_synth import VivadoSynth
 from . import Vivado
 

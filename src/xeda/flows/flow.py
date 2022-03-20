@@ -15,7 +15,7 @@ import psutil
 
 from .design import Design, XedaBaseModel
 from ..tool import Tool
-from ..utils import backup_existing, try_convert, unique
+from ..utils import try_convert, unique
 from ..debug import DebugLevel
 from .cocotb import Cocotb
 
@@ -30,17 +30,14 @@ def regex_match(string, pattern: str, ignorecase=False) -> Optional[re.Match]:
 
 class FlowFatalException(Exception):
     """Fatal error"""
-    pass
 
 
 class FlowSettingsError(Exception):
     """Raised when `design` settings are invalid"""
-    pass
 
 
 class NonZeroExit(Exception):
     """Process exited with non-zero return"""
-    pass
 
 
 def final_kill(proc: subprocess.Popen):
@@ -191,7 +188,6 @@ class Flow(Tool, metaclass=ABCMeta):
     @abstractmethod
     def run(self) -> bool:
         """ return False on failure """
-        pass
 
     def parse_reports(self) -> bool:
         assert isinstance(self.results['success'], bool)

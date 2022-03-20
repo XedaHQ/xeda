@@ -1,6 +1,5 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-import re
 from ..flow import SimFlow
 
 

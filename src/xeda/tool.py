@@ -5,7 +5,7 @@ from abc import ABCMeta
 from sys import stderr
 from typing import Any, Callable, Mapping, Optional, Dict, TypeVar, Union
 from xmlrpc.client import Boolean
-from pydantic import Field, Extra
+from pydantic import Field
 from pydantic.types import NoneStr
 from pathlib import Path
 import contextlib
@@ -27,7 +27,6 @@ class NonZeroExitCode(Exception):
         self.command_args = command_args
         self.exit_code = exit_code
         super().__init__(*args)
-    pass
 
 
 class RemoteToolSettings(XedaBaseModel):

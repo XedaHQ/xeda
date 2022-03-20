@@ -2,7 +2,6 @@
 # Xeda ISE Synthesis flow
 # ©2021 Kamyar Mohajerani and contributors
 
-from collections import abc
 import logging
 from typing import Mapping, Union
 from ..flow import FpgaSynthFlow

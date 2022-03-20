@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 from xeda.flows.quartus import parse_csv, try_num
 from . import RESOURCES_DIR
 
