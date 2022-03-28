@@ -259,7 +259,7 @@ class Yosys(SynthFlow):
         skin_file = None
         elk_layout = None
         if ss.netlistsvg:
-            netlistsvg = Tool(executable="netlistsvg")
+            netlistsvg = Tool("netlistsvg")
             rtl_json = self.artifacts.rtl.json
             if rtl_json:
                 svg_file = "rtl.svg"
@@ -278,7 +278,7 @@ class Yosys(SynthFlow):
                     args.extend(["--skin", skin_file])
                 if elk_layout:
                     args.extend(["--layout", elk_layout])
-                self.run("netlistsvg", args)
+                netlistsvg.run(*args)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)

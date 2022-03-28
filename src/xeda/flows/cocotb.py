@@ -59,11 +59,13 @@ class Cocotb(CocotbSettings, Tool):
         so_ext = "so"  # TODO windows?
         if self.version_gte(1, 6):
             so_path = self.run_get_stdout(
-                ["--lib-name-path", "vpi", self.sim_name],
+                "--lib-name-path",
+                "vpi",
+                self.sim_name,
             )
         else:
             so_path = (
-                self.run_get_stdout(["--prefix"])
+                self.run_get_stdout("--prefix")
                 + f"/cocotb/libs/libcocotbvpi_{self.sim_name}.{so_ext}"
             )
 

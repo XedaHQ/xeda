@@ -18,6 +18,8 @@ from typing import (
     Type,
     Union,
 )
+import pkg_resources
+
 from .dataclass import XedaBaseModel
 
 try:
@@ -32,7 +34,6 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore
 
-log = logging.getLogger(__name__)
 
 __all__ = [
     "SDF",
@@ -43,6 +44,8 @@ __all__ = [
     "unique",
     "WorkingDirectory",
 ]
+
+log = logging.getLogger(__name__)
 
 
 class WorkingDirectory(AbstractContextManager[None]):

@@ -25,7 +25,7 @@ import yaml
 from .utils import camelcase_to_snakecase, toml_load
 from .debug import DebugLevel
 from .flow_runner import DefaultRunner, merge_overrides, get_flow_class
-from .flows.flow import Flow, FlowFatalException, FlowSettingsError, registered_flows
+from .flows.flow import Flow, FlowFatalError, FlowSettingsError, registered_flows
 from .tool import NonZeroExitCode, ExecutableNotFound
 from .design import Design, DesignValidationError
 from .console import console
@@ -349,7 +349,7 @@ def run(
     runner = DefaultRunner(xeda_run_dir)
     try:
         runner.run_flow(flow_class, design, flow_overrides)
-    except FlowFatalException as e:
+    except FlowFatalError as e:
         log.critical(
             "Flow %s failed: FlowFatalException %s",
             flow,
@@ -371,15 +371,7 @@ def run(
         )
         exit(1)
     except FlowSettingsError as e:
-        log.critical(
-            "%d error%s validating %s during execution of flow %s%s:\n\n%s",
-            len(e.errors),
-            "s" if len(e.errors) > 1 else "",
-            e.model.__qualname__,
-            e.flow.name,
-            flow if flow != e.flow.name else "",
-            "\n".join(f"{loc}:\n   {msg} \n  " for loc, msg, ctx in e.errors),
-        )
+        log.critical("%s", e)
         if options.debug:
             raise e from None
         exit(1)

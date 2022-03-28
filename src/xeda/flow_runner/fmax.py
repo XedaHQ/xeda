@@ -20,7 +20,7 @@ from . import FlowRunner
 from ..utils import unique
 from ..dataclass import define, field
 from ..design import Design
-from ..flows.flow import Flow, FlowFatalException
+from ..flows.flow import Flow, FlowFatalError
 from ..tool import NonZeroExitCode
 
 
@@ -47,7 +47,7 @@ def run_flow_fmax(arg: Tuple[int, Flow], timeout: Optional[int] = None):
             idx = None
         return idx, flow.results, flow.settings, flow.run_path
 
-    except FlowFatalException as e:
+    except FlowFatalError as e:
         log.warning(
             f"[Run Thread] Fatal exception during flow run in {flow.run_path}: {e}"
         )

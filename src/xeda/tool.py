@@ -23,14 +23,18 @@ except AttributeError:  # Python < 3.7
     nullcontext = nullcontext_
 
 
-class NonZeroExitCode(Exception):
+class ToolException(Exception):
+    """Super-class of all tool exceptions"""
+
+
+class NonZeroExitCode(ToolException):
     def __init__(self, command_args: Any, exit_code: int, *args: object) -> None:
         self.command_args = command_args
         self.exit_code = exit_code
         super().__init__(*args)
 
 
-class ExecutableNotFound(Exception):
+class ExecutableNotFound(ToolException):
     def __init__(
         self, exec: str, tool: str, path: str, *args: Any, **kwargs: Any
     ) -> None:
@@ -81,6 +85,12 @@ class Tool(XedaBaseModeAllowExtra):
     dockerized: bool = Field(
         False, description="Run the tool dockerized", hidden_from_schema=True
     )
+
+    def __init__(self, executable: Optional[str] = None, **kwargs):
+        if executable:
+            assert "executable" not in kwargs, "executable specified twice"
+            kwargs["executable"] = executable
+        super().__init__(**kwargs)
 
     @cached_property
     def _info(self) -> Dict[str, str]:

@@ -7,7 +7,6 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
 from typing import Any, Dict, List, Mapping, Optional, Set, Type, Union
-
 from pathvalidate import sanitize_filename  # type: ignore # pyright: reportPrivateImportUsage=none
 from rich import box, print_json
 from rich.style import Style
@@ -15,14 +14,12 @@ from rich.table import Table
 from rich.text import Text
 
 from ..console import console
-from ..dataclass import asdict, ValidationError, validation_errors
+from ..dataclass import asdict
 from ..design import Design
 from ..flows.flow import (
     Flow,
     FlowDependencyFailure,
     registered_flows,
-    FlowFatalException,
-    FlowSettingsError,
 )
 from ..tool import NonZeroExitCode
 from ..utils import (
@@ -221,12 +218,8 @@ class FlowRunner:
             flow_settings = {}
         elif isinstance(flow_settings, Flow.Settings):
             flow_settings = asdict(flow_settings)
-        try:
-            flow_settings = flow_class.Settings(**flow_settings)
-        except ValidationError as e:
-            raise FlowSettingsError(
-                flow_class, validation_errors(e.errors()), e.model
-            ) from None
+        flow_settings = flow_class.Settings(**flow_settings)
+
         flow_name = flow_class.name
 
         # TODO is this needed anymore?
@@ -265,12 +258,7 @@ class FlowRunner:
             flow.design_hash = design_hash
             flow.flow_hash = flowrun_hash
             flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-            try:
-                flow.init()
-            except ValidationError as e:
-                raise FlowSettingsError(
-                    flow_class, validation_errors(e.errors()), e.model
-                ) from None
+            flow.init()
 
         if flow.dependencies:
             log.debug(

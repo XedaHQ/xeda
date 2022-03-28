@@ -54,8 +54,8 @@ class Vivado(Flow):
         default_args = ["-nojournal", "-mode", "tcl" if debug else "batch"]
         if not debug:
             default_args.append("-notrace")
-        self.vivado = Tool(executable="vivado", default_args=default_args)
-        self.jinja_env.filters["vivado_generics"] = vivado_generics
+        self.vivado = Tool("vivado", default_args=default_args)
+        self.add_template_filter("vivado_generics", vivado_generics)
 
     @staticmethod
     def parse_xml_report(report_xml) -> Optional[Dict[str, Any]]:

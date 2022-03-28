@@ -5,7 +5,8 @@ from pathlib import Path
 
 from xeda import Design, Flow
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import GhdlSim
+from xeda.flows import GhdlSim, Yosys
+from xeda.flows.flow import FPGA
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 
@@ -35,5 +36,12 @@ def test_sqrt() -> None:
     for w in ws:
         assert design.tb
         design.tb.parameters = {**design.tb.parameters, "G_IN_WIDTH": w}
+        os.environ["NUM_TV"] = str(200)
         f: Flow = xeda_runner.run_flow(GhdlSim, design)
         assert f.succeeded, f"test failed for w={w}"
+
+
+def test_sqrt_yosys_synth() -> None:
+    design.tb.parameters["G_IN_WIDTH"] = 32
+    f = xeda_runner.run_flow(Yosys, design, {"fpga": "LFE5U-25F-6BG381C"})
+    assert f.succeeded

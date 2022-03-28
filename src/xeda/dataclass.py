@@ -1,11 +1,8 @@
 from abc import ABCMeta
-from typing import Any, Callable, Dict, List, Optional, Type, Union, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 import pydantic
 import attrs
-from pydantic import Field, validator, Extra, ValidationError
-from pydantic.error_wrappers import display_errors
-from pathlib import Path
-from datetime import datetime
+from pydantic import Field, validator, root_validator, Extra, ValidationError
 import logging
 
 
@@ -14,6 +11,7 @@ __all__ = [
     "XedaBaseModeAllowExtra",
     "Field",
     "validator",
+    "root_validator",
     "Extra",
     "asdict",
     "define",
@@ -25,6 +23,7 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 
+## WIP: interchangable dataclass backend
 def define(maybe_cls: Optional[Type[Any]], **kwargs: Any) -> Any:
     return attrs.define(maybe_cls, **kwargs)
 
@@ -57,7 +56,7 @@ def asdict(inst: Any, filter: Optional[Callable[..., bool]] = None) -> Dict[str,
     if isinstance(inst, pydantic.BaseModel):
         assert filter is None
         return inst.dict()
-    elif True: # FIXME
+    elif True:  # FIXME
         return attrs.asdict(inst, filter=filter)
 
 

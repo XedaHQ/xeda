@@ -7,12 +7,12 @@ sources = ['blinky.v']
 top = 'top'
 clock_port = 'clk_25mhz'
 
-[flows.open_fpga_loader]
-board = 'ulx3s'
+[flows.openfpgaloader]
+board = 'ULX3S_85F'
 clock_period = 40 # 25 MHz
 
-[flows.next_pnr]
-board = 'ulx3s'
+[flows.nextpnr]
+board = 'ULX3S_85F'
 clock_period = 40 # 25 MHz
 
 [flows.yosys]

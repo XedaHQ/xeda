@@ -2,7 +2,6 @@ from abc import ABCMeta, abstractmethod
 import inspect
 from typing import (
     Any,
-    ItemsView,
     Dict,
     List,
     Optional,
@@ -11,7 +10,6 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
-    Sequence,
 )
 import os
 import re
@@ -23,12 +21,18 @@ import logging
 import multiprocessing
 import psutil
 from box import Box
-import pydantic
 
 from ..design import Design
 from ..tool import Tool
 from ..utils import camelcase_to_snakecase, try_convert, unique
-from ..dataclass import validator, Field, XedaBaseModel, define, asdict
+from ..dataclass import (
+    validator,
+    root_validator,
+    Field,
+    XedaBaseModel,
+    ValidationError,
+    validation_errors,
+)
 from ..debug import DebugLevel
 from .cocotb import Cocotb, CocotbSettings
 
@@ -38,10 +42,11 @@ log = logging.getLogger(__name__)
 __all__ = [
     "Flow",
     "FlowSettingsError",
-    "FlowFatalException",
+    "FlowFatalError",
     "FPGA",
     "SimFlow",
     "SynthFlow",
+    "Tool",
 ]
 
 
@@ -116,45 +121,13 @@ class Flow(metaclass=ABCMeta):
                 value = [value]
             return value
 
-    @define
-    class Results:
-        success: bool = False
-        # "Time of the execution of run() in fractional seconds.
-        # Initialized with None and set only after execution has finished."
-        runtime: Optional[float] = None
-
-        artifacts: Dict[
-            str, str
-        ] = {}  # flattened finalized copy of Flow.artifacts TODO
-
-        # dictionary-like API:
-        def __getitem__(self, key: str) -> Any:
-            assert isinstance(key, str)
-            if not hasattr(self, key):
-                raise ValueError()
-            return getattr(self, key)
-
-        def __setitem__(self, key: str, value) -> None:
-            assert isinstance(key, str)
-            asdict(self)[key] = value
-
-        def items(self) -> ItemsView[str, Any]:
-            return asdict(self).items()
-
-        def get(self, key: str, default=None) -> Any:
-            return asdict(self).get(key, default)
-
-        def __contains__(self, item) -> bool:
-            return asdict(self).__contains__(item)
-
-        def update(self, *args, **kwargs) -> None:
-            d = {}
-            if args:
-                d = args[0]
-                assert isinstance(d, dict)
-            d = {**d, **kwargs}
-            for k, v in kwargs.items():
-                self.__setitem__(k, v)
+        def __init__(self, **data: Any) -> None:
+            try:
+                super().__init__(**data)
+            except ValidationError as e:
+                raise FlowSettingsError(
+                    validation_errors(e.errors()), e.model  # type: ignore
+                ) from None
 
     @property
     def succeeded(self) -> bool:
@@ -174,7 +147,6 @@ class Flow(metaclass=ABCMeta):
         This is usually the most appropriate place for initialization task.
         Any dependent flows should be registered here by using add_dependency
         """
-        pass
 
     def add_dependency(
         self, dep_flow_class: Type["Flow"], dep_settings: Settings
@@ -364,105 +336,146 @@ class SimFlow(Flow):
 class FPGA(XedaBaseModel):
     """FPGA target device"""
 
+    # definition order: part > device > vendor > {family, speed, package, etc}
     part: Optional[str] = Field(None, description="full device part identifier")
-    vendor: Optional[str]
     device: Optional[str]
+    vendor: Optional[str]
     family: Optional[str]
+    generation: Optional[str]
+    type: Optional[str]
     speed: Optional[str] = Field(None, description="speed-grade")
     package: Optional[str]
     capacity: Optional[str]
+    pins: Optional[int]
+    grade: Optional[str]
 
-    # @root_validator(pre=True)
-    # def fpga_root_validator(cls, values):
-    #     part = values.get('part')
-    #     device = values.get('device')
-    #     family = values.get('family')
-    #     vendor = values.get('vendor')
-    #     if device:
-    #         if not vendor:
-    #             device = device.lower()
-    #             if device.startswith('lfe'):
-    #                 values['vendor'] = 'lattice'
-    #             elif device.startswith('xc'):
-    #                 values['vendor'] = 'xilinx'
-
-    #     print(f"values={values}")
-    #     raise ValueError('Full part number and/or vendor, family, device, package must be specified')
-
-    @validator("device", pre=True, always=True)
-    def part_validator(cls, value, values):
-        part = values.get("part")
-        if not value and part:
-            # TODO more cheking?
-            sp = part.split("-")
-            value = "-".join(sp[:-1])
-        return value
-
-    def __init__(self, **data) -> None:
+    def __init__(self, *args: str, **data: Any) -> None:
+        if args:
+            if len(args) != 1 or not args[0]:
+                raise ValueError("Only a single 'part' non-keyword argument is valid.")
+            a = args[0]
+            if isinstance(a, str):
+                if "part" in data:
+                    raise ValueError("'part' field already given in keyword arguments.")
+                data["part"] = a
+            elif isinstance(a, dict):
+                if data:
+                    raise ValueError("Both dictionary and keyword arguments preset")
+                data = a
+            else:
+                raise ValueError(f"Argument of type {type(a)} is not supported!")
         super().__init__(**data)
-        return
-        if self.part:
-            self.part = self.part.lower()
-            if not self.device:
-                self.device = self.part.split("-")[0]
-        if self.device:
-            self.device = self.device.lower()
 
-            device = self.device.split("-")
-            print(f"FPGA init device={device}")
-            # exit(1)
-            if self.vendor == "lattice":
-                assert (
-                    len(device) >= 2
-                ), "Lattice device should be in form of fffff-ccF-ppppp"
-                if device[0].startswith("lfe5u"):
-                    print("yes")
-                    # exit(1)
-                    if device[0] == "lfe5um":
-                        self.family = "ecp5"  # With SERDES
-                        self.has_serdes = True
-                    if device[0] == "lfe5um5g":
-                        self.family = "ecp5-5g"
-                    elif device[0] == "lfe5u":
-                        self.family = "ecp5"
-                    self.capacity = device[1][:-1] + "k"
-                    if len(device) == 3:
-                        spg = device[2]
-                        self.speed = spg[0]
-                        package = spg[1:-1]
-                        if package.startswith("bg"):
-                            package = "cabga" + package[2:]
-                        self.package = package
-                        self.grade = spg[-1]
-            elif self.vendor == "xilinx":
-                d = device[0]
-                if d.startswith("xc7"):
-                    self.family = "xc7"
-                elif d.startswith("xcu") and d[3] != "p":
-                    self.family = "xcu"
-                elif d.startswith("xcv") and d[3] != "e":
-                    self.family = "xcv"
-                elif d.startswith("xc3sda"):
-                    self.family = "xc3sda"
-                elif d.startswith("xc2vp"):
-                    self.family = "xc2vp"
-                elif d.startswith("xczu"):
-                    self.family = "xcup"
-                else:
-                    self.family = d[:4]
-                # TODO: more
-            if not self.part and self.device and self.package and self.speed:
-                if self.vendor == "xilinx":
-                    self.part = (self.device + self.package + self.speed).lower()
+    # this is called before all field validators!
+    @root_validator(pre=True)
+    def fpga_root_validator(cls, values):
+        # Intel: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf
+        # Lattice: https://www.latticesemi.com/Support/PartNumberReferenceGuide
+        # Xilinx: https://www.xilinx.com/support/documents/selection-guides/7-series-product-selection-guide.pdf
+        #         https://docs.xilinx.com/v/u/en-US/ds890-ultrascale-overview
+        #         https://www.xilinx.com/support/documents/selection-guides/ultrascale-fpga-product-selection-guide.pdf
+        #         https://www.xilinx.com/support/documents/selection-guides/ultrascale-plus-fpga-product-selection-guide.pdf
+        part = values.get("part")
 
-        # if self.part:
-        #     if self.vendor == 'xilinx':
-        #         if not self.speed:
-        #             self.speed = self.part.split('-')[-1]
-        #         if not self.package:
-        #             sp = self.part.split('-')
-        #             if len(sp) > 2:
-        #                 self.package = sp[1].remove
+        def set_if_not_exist(attr: str, v: Any) -> None:
+            if attr not in values:
+                values[attr] = v
+
+        def set_xc_family(s: str):
+            d = dict(s="spartan", a="artix", k="kintex", v="virtex", z="zynq")
+            s = s.lower()
+            if s in d:
+                set_if_not_exist("family", d[s])
+
+        if part:
+            part = part.strip()
+            values["part"] = part
+            # speed: 6 = slowest, 8 = fastest
+            match_ecp5 = re.match(
+                r"^LFE5(U|UM|UM5G)-(\d+)F-(?P<sp>\d)(?P<pkg>[A-Z]+)(?P<pin>\d+)(?P<gr>[A-Z]?)$",
+                part,
+                flags=re.IGNORECASE,
+            )
+            print(match_ecp5)
+            if match_ecp5:
+                set_if_not_exist("vendor", "lattice")
+                set_if_not_exist("family", "ecp5")
+                set_if_not_exist("type", match_ecp5.group(1).lower())
+                set_if_not_exist("device", "LFE5" + match_ecp5.group(1).upper())
+                set_if_not_exist("capacity", match_ecp5.group(2) + "k")
+                set_if_not_exist("speed", match_ecp5.group("sp"))
+                set_if_not_exist("package", match_ecp5.group("pkg"))
+                set_if_not_exist("pins", int(match_ecp5.group("pin")))
+                set_if_not_exist("grade", match_ecp5.group("gr"))
+                print(values)
+                return values
+            # Commercial Xilinx # Generation # Family # Logic Cells in 1K units # Speed Grade (-1 slowest, L: low-power) # Package Type
+            match_xc7 = re.match(
+                r"^(XC)(?P<g>\d)(?P<f>[A-Z])(?P<lc>\d+)-(?P<s>-L?\d)(?P<pkg>[A-Z][A-Z][A-Z]+)(?P<pin>\d\d+)(?P<gr>[A-Z]?)$",
+                part,
+                flags=re.IGNORECASE,
+            )
+            if match_xc7:
+                set_if_not_exist("vendor", "xilinx")
+                set_if_not_exist("generation", match_xc7.group("g"))
+                set_xc_family(match_xc7.group("f"))
+                lc = match_xc7.group("lc")
+                set_if_not_exist(
+                    "device",
+                    match_xc7.group(1)
+                    + match_xc7.group("g")
+                    + match_xc7.group("f")
+                    + lc,
+                )
+                set_if_not_exist("capacity", lc + "K")
+                set_if_not_exist("package", int(match_xc7.group("pkg")))
+                set_if_not_exist("pins", int(match_xc7.group("pins")))
+                set_if_not_exist("grade", match_xc7.group("gr"))
+                return values
+            match_us = re.match(
+                r"^(XC)(?P<f>[A-Z])(?P<g>[A-Z]+)(?P<lc>\d+)-(?P<s>-L?\d)(?P<pkg>[A-Z][A-Z][A-Z]+)(?P<pin>\d\d+)(?P<gr>[A-Z]?)$",
+                part,
+                flags=re.IGNORECASE,
+            )
+            if match_us:
+                set_if_not_exist("vendor", "xilinx")
+                set_if_not_exist("generation", match_us.group("g"))
+                set_xc_family(match_us.group("f"))
+                lc = match_us.group("lc")
+                set_if_not_exist(
+                    "device",
+                    match_us.group(1) + match_us.group("g") + match_us.group("f") + lc,
+                )
+                set_if_not_exist("capacity", lc + "K")
+                set_if_not_exist("package", int(match_us.group("pkg")))
+                set_if_not_exist("pins", int(match_us.group("pins")))
+                set_if_not_exist("grade", match_us.group("gr"))
+                return values
+            # UltraSCALE+
+            # capacity is index to table, roughly x100K LCs
+            match_usp = re.match(
+                r"^(XC)(?P<f>[A-Z])U(?P<lc>\d+)P-(?P<s>-L?\d)(?P<pkg>[A-Z][A-Z][A-Z]+)(?P<pin>\d\d+)(?P<gr>[A-Z]?)$",
+                part,
+                flags=re.IGNORECASE,
+            )
+            if match_usp:
+                set_if_not_exist("vendor", "xilinx")
+                set_if_not_exist("generation", "usp")
+                set_xc_family(match_usp.group("f"))
+                lc = match_usp.group("lc")
+                set_if_not_exist("capacity", lc)
+                set_if_not_exist(
+                    "device", match_usp.group(1) + match_usp.group("f") + "U" + lc + "P"
+                )
+                set_if_not_exist("package", int(match_usp.group("pkg")))
+                set_if_not_exist("pins", int(match_usp.group("pins")))
+                set_if_not_exist("grade", match_usp.group("gr"))
+                return values
+        elif not values.get("device") and not values.get("vendor"):
+            raise ValueError(
+                "Missing enough information about the FPGA device. Please set the 'part' number and/or device, vendor, family, etc."
+            )
+        return values
 
 
 class TargetTechnology(XedaBaseModel):
@@ -549,25 +562,36 @@ class DseFlow(Flow):
     pass
 
 
-class FlowFatalException(Exception):
-    """Fatal error"""
-
-class FlowDependencyFailure(FlowFatalException):
-    """Fatal error"""
+class FlowException(Exception):
+    """Super-class of all flow exceptions"""
 
 
-class FlowSettingsError(Exception):
-    """Raised when flow settings are invalid"""
+class FlowDependencyFailure(FlowException):
+    """Error during execution of a dependency flow"""
+
+
+class FlowSettingsError(FlowException):
+    """Validation of settings failed"""
 
     def __init__(
         self,
-        flow: Type[Flow],
         errors: List[Tuple[str, str, str]],
         model,
         *args: Any,
-        **kwargs: Any,
     ) -> None:
-        super().__init__(*args, **kwargs)
-        self.flow = flow
+        super().__init__(*args)
         self.errors = errors
         self.model = model
+
+    def __str__(self) -> str:
+        s = "{} error{} validating {}:\n{}".format(
+            len(self.errors),
+            "s" if len(self.errors) > 1 else "",
+            self.model.__qualname__,
+            "\n".join(f"{loc}:\n   {msg} \n  " for loc, msg, ctx in self.errors),
+        )
+        return s
+
+
+class FlowFatalError(FlowException):
+    """Other fatal errors"""

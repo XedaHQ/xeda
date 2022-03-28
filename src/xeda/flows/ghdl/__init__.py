@@ -40,7 +40,7 @@ class GhdlTool(Tool):
 
 
 class Ghdl(Flow):
-    ghdl = GhdlTool()
+    ghdl = GhdlTool()  # pyright: reportGeneralTypeIssues=none
 
     class Settings(Flow.Settings):
         analysis_flags: List[str] = []
@@ -186,7 +186,7 @@ class Ghdl(Flow):
 class GhdlSynth(Ghdl, SynthFlow):
     """
     Convert a VHDL design using 'ghdl --synth'
-     (Please see `YosysSynth` (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis)
+     (Please take a look at 'Yosys' flow (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis targeting FPGAs or ASICs)
     """
 
     class Settings(Ghdl.Settings, SynthFlow.Settings):
