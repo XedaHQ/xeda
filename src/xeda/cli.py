@@ -9,11 +9,9 @@ from pathlib import Path
 import sys
 import logging
 import coloredlogs
-from typing import Sequence
-import toml
+from typing import Optional, Sequence
 import json
 import re
-from pydantic.error_wrappers import ValidationError, display_errors
 import click
 import inspect
 from rich.table import Table
@@ -24,18 +22,15 @@ from click.shell_completion import get_completion_class
 from click_help_colors import HelpColorsGroup
 import yaml
 
-from ._version import get_versions
-from .utils import camelcase_to_snakecase, sanitize_toml
+from .utils import camelcase_to_snakecase, toml_load
 from .debug import DebugLevel
 from .flow_runner import DefaultRunner, merge_overrides, get_flow_class
-from .flows.flow import Flow, FlowFatalException, registered_flows
-from .tool import NonZeroExitCode
-from .flows.design import Design
+from .flows.flow import Flow, FlowFatalException, FlowSettingsError, registered_flows
+from .tool import NonZeroExitCode, ExecutableNotFound
+from .design import Design, DesignValidationError
 from .console import console
 
 log = logging.getLogger()
-
-__version__ = get_versions()["version"]
 
 
 available_flow_names = [camelcase_to_snakecase(f) for f in registered_flows.keys()]
@@ -71,12 +66,13 @@ class ConsoleLogo:
 
 
 def load_xeda(file: Path):
+    ext = file.suffix.lower()
+
+    if ext == ".toml":
+        return toml_load(file)
     with open(file) as f:
-        ext = file.suffix.lower()
         if ext == ".json":
             return json.load(f)
-        elif ext == ".toml":
-            return sanitize_toml(toml.load(f))
         elif ext == ".yaml":
             return yaml.safe_load(f)
         else:
@@ -182,17 +178,15 @@ def setup_logger(log, logdir: Path):
 @click.option("--quiet", is_flag=True, help="Enable quiet mode.")
 @click.option(
     "--debug",
-    show_default=True,
     show_envvar=True,
-    metavar="DEBUG_LEVEL",
-    default=DebugLevel.NONE,
-    type=DebugLevel,  # click.Choice([str(l.value) for l in DebugLevel]),
-    help=f"""
-            Set debug level. DEBUG_LEVEL values corresponds to:
-            {', '.join([f"{l.value}: {l.name}" for l in DebugLevel])}
-        """,
+    is_flag=True,
+    # type=DebugLevel,  # click.Choice([str(l.value) for l in DebugLevel]),
+    # help=f"""
+    #         Set debug level. DEBUG_LEVEL values corresponds to:
+    #         {', '.join([f"{l.value}: {l.name}" for l in DebugLevel])}
+    #     """,
 )
-@click.version_option(__version__)
+@click.version_option(message="Xeda v%(version)s")
 @click.pass_context
 def cli(ctx: click.Context, **kwargs):
     ctx.obj = XedaOptions(**kwargs)
@@ -282,38 +276,41 @@ def cli(ctx: click.Context, **kwargs):
 @click.pass_context
 def run(
     ctx,
-    force_run,
-    flow,
+    force_run: bool,
+    flow: str,
     flow_settings,
-    xeda_run_dir,
-    design_file=None,
-    xedaproject=None,
-    design_name=None,
+    xeda_run_dir: Path,
+    design_file: Optional[str] = None,
+    xedaproject: Optional[str] = None,
+    design_name: Optional[str] = None,
 ):
-    args: XedaOptions = ctx.obj
+    options: XedaOptions = ctx.obj
     # Always run setup_logger with INFO log level
     log.setLevel(logging.INFO)
     setup_logger(log, xeda_run_dir / "Logs")
     # then switch to requested level
     log.setLevel(
-        logging.WARNING if args.quiet else logging.DEBUG if args.debug else logging.INFO
+        logging.WARNING
+        if options.quiet
+        else logging.DEBUG
+        if options.debug
+        else logging.INFO
     )
 
     # FIXME
-    design = {}
-    flows = {}
+    flows_config = {}
     if design_file:
         try:
             design = Design.from_toml(design_file)
-        except ValidationError as e:
-            errors = e.errors()
+        except DesignValidationError as e:
             log.critical(
                 "%d error%s validating design file %s:\n\n%s",
-                len(errors),
-                's' if len(errors) > 1 else '',
+                len(e.errors),
+                "s" if len(e.errors) > 1 else "",
                 design_file,
-                display_errors(errors)
+                "\n".join(f"{loc}:\n   {msg} \n  " for loc, msg, ctx in e.errors),
             )
+            exit(1)
     elif xedaproject:
         toml_path = Path(xedaproject)
         try:
@@ -325,10 +322,11 @@ def run(
                 sys.exit(
                     f"Cannot open project file: {toml_path}. Please run from the project directory with xedaproject.toml or specify the correct path using the --xedaproject flag"
                 )
-        flows = xeda_project.get("flows", {})
+        flows_config = xeda_project.get("flows", {})
         designs = xeda_project["design"]
         if not isinstance(designs, Sequence):
             designs = [designs]
+        design_dict = {}
         if len(designs) == 1:
             design_dict = designs[0]
         elif design_name:
@@ -336,7 +334,7 @@ def run(
                 print(x["name"])
                 if x["name"] == design_name:
                     design_dict = x
-            if not design:
+            if not design_dict:
                 log.critical(
                     f'Design "{design_name}" not found in the current project.'
                 )
@@ -346,26 +344,44 @@ def run(
         sys.exit("No design or project specified!")
     if force_run:
         log.info(f"Forced re-run of {flow}")
-    flow_overrides = merge_overrides(flow_settings, flows.get(flow, {}))
+    flow_overrides = merge_overrides(flow_settings, flows_config.get(flow, {}))
     flow_class = get_flow_class(flow, "xeda.flows", __package__)
     runner = DefaultRunner(xeda_run_dir)
     try:
         runner.run_flow(flow_class, design, flow_overrides)
     except FlowFatalException as e:
-        log.critical("Flow %s failed: FlowFatalException %s", flow, " ".join(str(a) for a in e.args))
+        log.critical(
+            "Flow %s failed: FlowFatalException %s",
+            flow,
+            " ".join(str(a) for a in e.args),
+        )
         exit(1)
     except NonZeroExitCode as e:
-        log.critical("Flow %s failed: NonZeroExitCode %s", flow, " ".join(str(a) for a in e.args))
-        exit(1)
-    except ValidationError as e:
-        errors = e.errors()
         log.critical(
-            "%d error%s validating flow settings for %s:\n\n%s",
-            len(errors),
-            's' if len(errors) > 1 else '',
-            flow,
-            display_errors(errors)
+            "Flow %s failed: NonZeroExitCode %s", flow, " ".join(str(a) for a in e.args)
         )
+        exit(1)
+    except ExecutableNotFound as e:
+        log.critical(
+            "Executable '%s' was not found! (tool:%s, flow:%s, PATH:%s)",
+            e.exec,
+            e.tool,
+            flow,
+            e.path,
+        )
+        exit(1)
+    except FlowSettingsError as e:
+        log.critical(
+            "%d error%s validating %s during execution of flow %s%s:\n\n%s",
+            len(e.errors),
+            "s" if len(e.errors) > 1 else "",
+            e.model.__qualname__,
+            e.flow.name,
+            flow if flow != e.flow.name else "",
+            "\n".join(f"{loc}:\n   {msg} \n  " for loc, msg, ctx in e.errors),
+        )
+        if options.debug:
+            raise e from None
         exit(1)
 
 
@@ -461,8 +477,6 @@ def print_flow_settings(flow, options: XedaOptions):
         for property, property_def in typ_def.get("properties").items():
             get_type(property_def)
     for typ_name, typ_def in list(type_defs.items()):
-        if typ_name in ["ToolSettings"]:
-            continue
         c = "blue"
         table = Table(
             title=f"Type [{c}]{typ_name}[/{c}]",
@@ -486,7 +500,7 @@ def print_flow_settings(flow, options: XedaOptions):
                 and property in Flow.Settings.__fields__.keys()
             ):
                 continue
-            desc = property_def.get("description", property_def.get("title"))
+            desc = property_def.get("description", property_def.get("title", "-"))
             desc = re.sub(r"\s*\.*\s*$", "", desc)
             table.add_row(property, get_type(property_def), desc)
         console.print(table)

@@ -1,9 +1,9 @@
-from enum import IntEnum
+from enum import IntEnum, auto
 
 
 class DebugLevel(IntEnum):
     NONE = 0
-    LOW = 1
-    MEDIUM = 2
-    HIGH = 3
-    HIGHEST = 4
+    LOW = auto()
+    MEDIUM = auto()
+    HIGH = auto()
+    HIGHEST = auto()

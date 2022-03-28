@@ -92,8 +92,8 @@ opt -full -purge
 splitnets {{settings.splitnets|join(" ")}}
 {%- endif %}
 
-puts "$log_prefix Writing stat to {{artifacts.reports.utilization}}"
-tee -q -o {{artifacts.reports.utilization}} stat {%- if settings.fpga and settings.fpga.vendor == "xilinx" %} -tech xilinx {%-elif settings.tech and settings.tech.liberty%} -liberty {{settings.tech.liberty}}  {%- endif %}
+puts "$log_prefix Writing stat to {{artifacts["report"]["utilization"]}}"
+tee -q -o {{artifacts["report"]["utilization"]}} stat {%- if settings.fpga and settings.fpga.vendor == "xilinx" %} -tech xilinx {%-elif settings.tech and settings.tech.liberty%} -liberty {{settings.tech.liberty}}  {%- endif %}
 
 check {% if settings.check_assert -%} -assert {%- endif %}
 
@@ -111,9 +111,9 @@ yosys write_vhdl {{settings.write_vhdl_flags|join(" ")}} {{settings.netlist_vhdl
 {%- endif %}
 
 {% if settings.sta -%}
-puts "$log_prefix Writing timing report to {{artifacts.report.timing}}"
-tee -o {{artifacts.reports.timing}} ltp
-tee -a {{artifacts.reports.timing}} sta
+puts "$log_prefix Writing timing report to {{artifacts["report"]["timing"]}}"
+tee -o {{artifacts["report"]["timing"]}} ltp
+tee -a {{artifacts["report"]["timing"]}} sta
 {%- endif %}
 
 {% if settings.show_netlist -%}

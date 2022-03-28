@@ -1,31 +1,44 @@
-# © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-from typing import List
+import logging
+from typing import List, Literal, Optional
 from ..flow import FpgaSynthFlow
+from ...tool import Tool
+from ...dataclass import validator
+
+log = logging.getLogger(__name__)
 
 
 class DiamondSynth(FpgaSynthFlow):
     class Settings(FpgaSynthFlow.Settings):
         impl_folder: str = "diamond_impl"
         impl_name: str = "Implementation0"
-        syn_cmdline_args: List[str] = []
+        syn_cmdline_args: Optional[List[str]] = None
+        synthesis_engine: Literal["lse", "synplify"] = "lse"
 
-    def run(self):
+        @validator("syn_cmdline_args", pre=True)
+        def validate_syn_cmdline_args(
+            cls, syn_cmdline_args: Optional[List[str]]
+        ) -> List[str]:
+            if syn_cmdline_args is None:
+                syn_cmdline_args = []
+            return syn_cmdline_args
+
+    def run(self) -> None:
+        assert isinstance(self.settings, self.Settings)
         constraint_exts = (
-            ["ldc"]
-            if self.settings.flow["synthesis_engine"] == "lse"
-            else ["sdc", "fdc"]
+            ["ldc"] if self.settings.synthesis_engine == "lse" else ["sdc", "fdc"]
         )
         constraints = [f"constraints.{ext}" for ext in constraint_exts]
         for constraint in constraints:
             self.copy_from_template(constraint)
         script_path = self.copy_from_template(f"synth.tcl")
-        self.run_process("diamondc", [str(script_path)])
+        diamondc = Tool("diamondc")
+        diamondc.run("diamondc", script_path)
 
-    def parse_reports(self):
-        self.results = dict()
-        reports_dir = self.flow_run_dir / "diamond_impl"
-        design_name = self.settings.design["name"]
-        impl_name = self.settings.flow["impl_name"]
+    def parse_reports(self) -> bool:
+        assert isinstance(self.settings, self.Settings)
+        reports_dir = self.run_path / "diamond_impl"
+        design_name = self.design.name
+        impl_name = self.settings.impl_name
 
         period_pat = r"""^\s*Preference:\s+PERIOD\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_period>\d+\.\d+)\s+ns.*HIGH\s+\d+\.\d+\s+ns\s*;\s*
 \s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors?"""
@@ -86,7 +99,7 @@ class DiamondSynth(FpgaSynthFlow):
         forbidden_resources = ["dsp", "bram"]
         for res in forbidden_resources:
             if res in self.results and self.results[res] != 0:
-                self.logger.critical(
+                log.critical(
                     f"Map report shows {self.results[res]} use(s) of forbidden resource {res}."
                 )
                 failed = True
@@ -99,5 +112,4 @@ class DiamondSynth(FpgaSynthFlow):
             or (self.results["_status"].lower() != "completed")
             or (self.results["_timing_errors"] != 0)
         )
-
-        self.results["success"] = not failed
+        return not failed

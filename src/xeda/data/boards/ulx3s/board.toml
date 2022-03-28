@@ -3,9 +3,8 @@ variant = '85F'
 version = '3.0.8'
 [fpga]
 vendor = 'Lattice'
+family = 'ecp5'
 part = 'LFE5U-85F-6BG381C'
 
 [clocks.clk_25mhz]
 freq_mhz = 25.0
-
-

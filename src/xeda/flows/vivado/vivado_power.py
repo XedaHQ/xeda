@@ -1,10 +1,9 @@
-# © 2021 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-
 import logging
+from typing import Any, Dict
 from xml.etree import ElementTree
 import html
 
-from .vivado_sim import VivadoPostsynthSim
+from .vivado_sim import RunConfig, VivadoPostsynthSim
 from .vivado_synth import VivadoSynth
 from . import Vivado
 
@@ -15,11 +14,13 @@ class VivadoPower(Vivado):
     class Settings(Vivado.Settings):
         clock_period: float
         power_report_filename: str = "power_impl_timing.xml"
-        post_synth_sim: VivadoPostsynthSim.Settings = VivadoPostsynthSim.Settings(
-            elab_debug="typical"
+        post_synth_sim: VivadoPostsynthSim.Settings = VivadoPostsynthSim.Settings(  # type: ignore
+            elab_debug="typical",
+            timing_sim=True,
         )
+        saif_filename: str = "impl_timing.saif"
 
-    def init(self):
+    def init(self) -> None:
         ss = self.settings
         assert isinstance(ss, self.Settings)
         # override/sanitize VivadoPostsynthSim dependency settings
@@ -32,46 +33,51 @@ class VivadoPower(Vivado):
         # pss.synth.clocks
         self.add_dependency(VivadoPostsynthSim, pss)
 
-    def run(self):
-        saif_filename: str = "impl_timing.saif"
+    def run(self) -> None:
+
+        # FIXME FIND A CLEANER WAY TO SATISFY MYPY!
+        assert isinstance(self.settings, self.Settings)
         postsynthsim = self.completed_dependencies[0]
+        assert isinstance(postsynthsim, VivadoPostsynthSim)
         postsynthsim_settings = postsynthsim.settings
-        run_configs = postsynthsim_settings.get("run_configs")
+        assert isinstance(postsynthsim_settings, VivadoPostsynthSim.Settings)
+        run_configs = postsynthsim_settings.multirun_configs
+        dep_synth_flow = postsynthsim.completed_dependencies[0]
+        assert isinstance(dep_synth_flow, VivadoSynth)
 
-        def update_saif_path(rc):
-            rc["saif"] = str(postsynthsim.flow_run_dir / rc["saif"])
-            return rc
+        # assert False, "FIXME! not implemented! not working!" # FIXME
+        # def update_saif_path(rc):
+        #     rc["saif"] = str(postsynthsim.run_path / rc["saif"])
+        #     return rc
 
-        if run_configs:
-            run_configs = [update_saif_path(rc) for rc in run_configs]
-        else:
-            run_configs = dict(
-                saif=self.saif_filename, report=self.power_report_filename
-            )
+        # if run_configs:
+        #     run_configs = [update_saif_path(rc) for rc in run_configs]
+        # else:
+        #     run_configs.append(
+        #         RunConfig(
+        #         saif=saif_filename, report=self.settings.power_report_filename
+        #     )
+        #     )
 
-        self.run_configs = run_configs
+        assert self.design.tb
+        assert isinstance(dep_synth_flow.settings, VivadoSynth.Settings)
 
         script_path = self.copy_from_template(
             f"vivado_power.tcl",
-            tb_top=postsynthsim.tb_top,
-            run_configs=self.run_configs,
+            tb_top=self.design.tb.primary_top,
+            run_configs=run_configs,
             checkpoint=str(
-                self.synth_flow.flow_run_dir
-                / VivadoSynth.checkpoints_dir
+                dep_synth_flow.run_path
+                / dep_synth_flow.settings.checkpoints_dir
                 / "post_route.dcp"
             ),
         )
 
-        return self.run_vivado(
-            script_path, stdout_logfile="vivado_postsynth_power_stdout.log"
-        )
+        self.vivado.run("-source", script_path)
 
-    def parse_power_report(self, report_xml):
+    def parse_power_report(self, report_xml) -> Dict[str, Any]:
         tree = ElementTree.parse(report_xml)
-
         results = {}
-        components = {}
-
         for tablerow in tree.findall("./section[@title='Summary']/table/tablerow"):
             tablecells = tablerow.findall("tablecell")
             key, value = (
@@ -89,13 +95,13 @@ class VivadoPower(Vivado):
                 ]
                 key = contents[0]
                 value = contents[1]
-                components[key] = value
-        results["Components Power"] = components
+                results[f"Component Power: {key}"] = value
 
         return results
 
-    def parse_reports(self):
-        report_xml = self.flow_run_dir / self.power_report_filename
+    def parse_reports(self) -> bool:
+        assert isinstance(self.settings, self.Settings)
+        report_xml = self.run_path / self.settings.power_report_filename
         results = self.parse_power_report(report_xml)
-        self.results.success = True  # ???
         self.results.update(**results)
+        return True

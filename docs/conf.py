@@ -14,14 +14,14 @@
 # import sys
 # sys.path.insert(0, os.path.abspath("."))
 
-from xeda import __version__
+from importlib.metadata import version as release_version
 
 # -- Project information -----------------------------------------------------
 
-project = "XEDA"
+project = "xeda"
 copyright = "2022, Kamyar Mohajerani"
 author = "Kamyar Mohajerani"
-version = __version__
+version = release_version("xeda")
 
 master_doc = "index"
 language = "en"

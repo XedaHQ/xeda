@@ -1,18 +1,20 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import validator, Field
 from math import floor
 
-from ..design import DefineType
-from ..flow import SimFlow, XedaBaseModel
-from ..design import DesignSource
+from ...design import DefineType
+from ...utils import SDF
+from ...dataclass import XedaBaseModeAllowExtra
+from ..flow import SimFlow
+from ...design import DesignSource
 from ..vivado import Vivado
 from ..vivado.vivado_synth import VivadoSynth
 
 log = logging.getLogger(__name__)
 
 
-class RunConfig(XedaBaseModel):
+class RunConfig(XedaBaseModeAllowExtra):
     name: Optional[str] = None
     saif: Optional[str] = None
     vcd: Optional[str] = None
@@ -32,12 +34,12 @@ class VivadoSim(Vivado, SimFlow):
         sim_flags: List[str] = []
         elab_debug: Optional[str] = None  # TODO choices: "typical", ...
         multirun_configs: List[RunConfig] = []
-        sdf: Optional[str] = None
+        sdf: SDF = SDF()
         optimization_flags: List[str] = ["-O3"]
         debug_traces: bool = False
         prerun_time: Optional[str] = None
 
-    def run(self):
+    def run(self) -> None:
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
@@ -48,18 +50,19 @@ class VivadoSim(Vivado, SimFlow):
 
         elab_debug = ss.elab_debug
         multirun_configs = ss.multirun_configs
-        if not elab_debug and (ss.debug or saif or self.vcd):
+        if not elab_debug and (ss.debug or saif or ss.vcd):
             elab_debug = "typical"
         if elab_debug:
             elab_flags.append(f"-debug {elab_debug}")
 
+        assert self.design.tb
         generics = self.design.tb.generics
         if not multirun_configs:
             multirun_configs = [
-                RunConfig(saif=saif, generics=generics, vcd=self.vcd, name="default")
+                RunConfig(saif=saif, generics=generics, vcd=ss.vcd, name="default")
             ]
-            if self.vcd:
-                log.info(f"Dumping VCD to {self.run_path / self.vcd}")
+            if ss.vcd:
+                log.info(f"Dumping VCD to {self.run_path / ss.vcd}")
         else:
             for idx, rc in enumerate(multirun_configs):
                 # merge
@@ -69,19 +72,15 @@ class VivadoSim(Vivado, SimFlow):
                 if not rc.name:
                     rc.name = f"run_{idx}"
                 if not rc.vcd:
-                    rc.vcd = (rc.name + "_" + self.vcd) if self.vcd else None
-
-        tb_uut = self.design.tb.uut
-        sdf = ss.sdf
-        if sdf:
-            if not isinstance(sdf, list):
-                sdf = [sdf]
-            for s in sdf:
-                if isinstance(s, str):
-                    s = {"file": s}
-                root = s.get("root", tb_uut)
-                assert root, "neither SDF root nor tb.uut are provided"
-                elab_flags.append(f'-sdf{s.get("delay", "max")} {root}={s["file"]}')
+                    rc.vcd = (rc.name + "_" + ss.vcd) if ss.vcd else None
+        sdf_root = ss.sdf.root
+        if not sdf_root:
+            sdf_root = self.design.tb.uut
+        for delay_type in ("min", "max", "typ"):
+            sdf_file = ss.sdf.dict().get(delay_type)
+            if sdf_file:
+                assert sdf_root, "neither SDF root nor tb.uut are provided"
+                elab_flags.append(f"-sdf{delay_type} {sdf_root}={sdf_file}")
 
         elab_flags.extend([f"-L {l}" for l in ss.lib_paths])
 
@@ -102,7 +101,7 @@ class VivadoSim(Vivado, SimFlow):
             lib_name="work",
             sim_sources=self.design.sim_sources,
         )
-        return self.run_vivado(script_path)
+        self.vivado.run("-source", script_path)
 
 
 class VivadoPostsynthSim(VivadoSim):
@@ -124,22 +123,23 @@ class VivadoPostsynthSim(VivadoSim):
         timing_sim: bool = False
 
         @validator("tb_clock_param", pre=True)
-        def validate_tb_clock_param(cls, value):
+        def validate_tb_clock_param(cls, value: Any) -> Any:
             if isinstance(value, str):
                 value = dict(main_clock=value)
             return value
 
-    def init(self):
+    def init(self) -> None:
         ss = self.settings
-        synth_settings = ss.synth
-        self.add_dependency(VivadoSynth, synth_settings)
+        assert isinstance(ss, self.Settings)
+        self.add_dependency(VivadoSynth, ss.synth)
 
-    def run(self):
-        synth_flow: VivadoSynth = self.completed_dependencies[0]
+    def run(self) -> None:
+        synth_flow = self.completed_dependencies[0]
         assert isinstance(synth_flow, VivadoSynth)
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        synth_settings: VivadoSynth.Settings = synth_flow.settings
+        synth_settings = synth_flow.settings
+        assert isinstance(synth_settings, VivadoSynth.Settings)
         if synth_settings.input_delay is None:
             synth_settings.input_delay = 0.0
         if synth_settings.output_delay is None:
@@ -147,23 +147,22 @@ class VivadoPostsynthSim(VivadoSim):
 
         # FIXME!!! For reasons still unknown, not all strategies lead to correct post-impl simulation
         synth_settings.synth.strategy = "AreaPower"
-
-        synth_results = synth_flow.results
         synth_netlist = synth_flow.artifacts.get("netlist.impl.timesim.v")
-        synth_sdf = synth_flow.artifacts.get("sdf.impl")
 
         self.design.rtl.sources = [DesignSource(synth_flow.run_path / synth_netlist)]
-        self.design.tb.top[1] = "glbl"
+        assert self.design.tb
+        assert self.design.tb.top
+        self.design.tb.top = (self.design.tb.primary_top, "glbl")
 
         if "simprims_ver" not in ss.lib_paths:
             ss.lib_paths.append("simprims_ver")
 
         if ss.timing_sim:
             if not ss.sdf:
-                ss.sdf = synth_sdf
+                ss.sdf = SDF(max=str(synth_flow.artifacts.get("sdf.impl")))
             log.info("Timing simulation using SDF %s", ss.sdf)
 
-        for k, v in ss.tb_clock_param:
+        for k, v in ss.tb_clock_param.items():
             clock = synth_settings.clocks.get(k)
             if clock:
                 self.design.tb.parameters[v] = floor(clock.period * 1000.0)
@@ -179,4 +178,4 @@ class VivadoPostsynthSim(VivadoSim):
             ]
         )
         # run VivadoSim
-        return super().run()
+        super().run()

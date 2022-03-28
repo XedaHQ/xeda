@@ -2,37 +2,27 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
-from pydantic.fields import Field
+from box import Box
 from pydantic import root_validator, validator
-from munch import Munch
+from pydantic.fields import Field
 
 from ...flows.ghdl import GhdlSynth
-from ...tool import Tool
+from ...tool import DockerToolSettings, Tool
 from ..flow import SynthFlow
 
 log = logging.getLogger(__name__)
 
 
-class Yosys(Tool):
-    """Yosys Open SYnthesis Suite: https://yosyshq.net/yosys"""
-
-    docker_image: Optional[str] = "hdlc/impl"
-    default_executable: Optional[str] = "yosys"
-
-    class Settings(Tool.Settings):
-        pass
-
-
-def append_flag(flag_list: List[str], flag: str):
+def append_flag(flag_list: List[str], flag: str) -> List[str]:
     if flag not in flag_list:
         flag_list.append(flag)
     return flag_list
 
 
-class YosysSynth(Yosys, SynthFlow):
+class Yosys(SynthFlow):
     """Synthesize the design using Yosys Open SYnthesis Suite"""
 
-    class Settings(Yosys.Settings, SynthFlow.Settings):
+    class Settings(SynthFlow.Settings):
         log_file: Optional[str] = "yosys.log"
         flatten: bool = Field(True, description="flatten design")
         abc9: bool = Field(True, description="Use abc9")
@@ -105,26 +95,29 @@ class YosysSynth(Yosys, SynthFlow):
         )
 
         @validator("write_verilog_flags", pre=False)
-        def validate_write_verilog_flags(cls, value, values):
+        def validate_write_verilog_flags(cls, value, values):  # type: ignore
             if values.get("debug"):
                 value.append("-norename")
             return value
 
         @validator("verilog_lib", pre=True)
-        def validate_verilog_lib(cls, value, values):
+        def validate_verilog_lib(cls, value, values):  # type: ignore
             if isinstance(value, str):
                 value = [value]
             value = [str(Path(v).resolve(strict=True)) for v in value]
             return value
 
         @validator("splitnets", pre=True)
-        def validate_splitnets(cls, value, values):
-            if isinstance(value, str):
-                value = [value]
-            return [v if not v.strip() or v.startswith("-") else f"-{v}" for v in value]
+        def validate_splitnets(cls, value, values):  # type: ignore
+            if value is not None:
+                if isinstance(value, str):
+                    value = [value]
+                value = [v if not v.strip() or v.startswith("-") else f"-{v}" for v in value]
+            return value
+
 
         @validator("set_attributes", pre=True, always=True)
-        def validate_set_attributes(cls, value, values):
+        def validate_set_attributes(cls, value, values):  # type: ignore
             if value:
                 if isinstance(value, str):
                     if value.endswith(".json"):
@@ -144,9 +137,6 @@ class YosysSynth(Yosys, SynthFlow):
                         except TypeError as e:
                             log.critical(f"JSON TypeError: {e.args}")
                             exit(1)
-                        except Exception as e:
-                            log.critical(f"Exception: {e.msg}")
-                            exit(1)
                     else:
                         assert False
                 for attr, attr_dict in value.items():
@@ -163,21 +153,14 @@ class YosysSynth(Yosys, SynthFlow):
             return value
 
         @root_validator(pre=True)
-        def check_target(cls, values):
+        def check_target(cls, values):  # type: ignore
             assert values.get("fpga") or values.get(
                 "tech"
             ), "ERROR in flows.yosys.settings: No targets specified! Either 'fpga' or 'tech' must be specified."
             return values
 
-    def get_info(self):
-        out = self.run_tool(
-            self.default_executable,
-            ["--version"],
-            stdout=True,
-        )
-        return {"version": out.strip()}
-
-    def init(self):
+    def init(self) -> None:
+        assert isinstance(self.settings, self.Settings)
         # TODO?
         self.stat_report = "utilization.rpt"
         self.timing_report = "timing.rpt"
@@ -186,37 +169,35 @@ class YosysSynth(Yosys, SynthFlow):
         if ss.fpga:
             assert ss.fpga.family or ss.fpga.vendor == "xilinx"
         # TODO use pydantic or dataclass?
-        self.artifacts = {
-            "diagrams": {},
-            "reports": {
-                "utilization": self.stat_report,
-                "timing": self.timing_report,
-            },
-        }
-        # TODO in runner?
-        ar = {}
+        self.artifacts = Box(
+            # non-plural names are preferred for keys, e.g. "digram" instead of "diagrams".
+            diagram={},
+            report=dict(utilization=self.stat_report, timing=self.timing_report),
+            rtl=dict(),
+            netlist=dict(),
+        )
         if ss.rtl_json:
-            ar["json"] = ss.rtl_json
+            self.artifacts.rtl.json = ss.rtl_json
         if ss.rtl_vhdl:
-            ar["vhdl"] = ss.rtl_vhdl
+            self.artifacts.rtl.vhdl = ss.rtl_vhdl
         if ss.rtl_verilog:
-            ar["verilog"] = ss.rtl_verilog
-        if ar:
-            self.artifacts["rtl"] = ar
+            self.artifacts.rtl.verilog = ss.rtl_verilog
         if not ss.stop_after:  # FIXME
-            an = {}
             if ss.netlist_json:
-                an["json"] = ss.netlist_json
+                self.artifacts.netlist.json = ss.netlist_json
             if ss.netlist_vhdl:
-                an["vhdl"] = ss.netlist_vhdl
+                self.artifacts.netlist.vhdl = ss.netlist_vhdl
             if ss.netlist_verilog:
-                an["verilog"] = ss.netlist_verilog
-            if an:
-                self.artifacts["netlist"] = an
+                self.artifacts.netlist.verilog = ss.netlist_verilog
 
-        self.artifacts = Munch.fromDict(self.artifacts)
-
-    def run(self):
+    def run(self) -> None:
+        assert isinstance(self.settings, self.Settings)
+        yosys = Tool(
+            executable="yosys",
+            docker=DockerToolSettings(
+                image_name="hdlc/impl"
+            ),  # pyright: reportGeneralTypeIssues=none
+        )
         ss = self.settings
         if ss.sta:
             ss.flatten = True
@@ -262,7 +243,8 @@ class YosysSynth(Yosys, SynthFlow):
                     append_flag(ss.abc_flags, f"-lut {ss.tech.lut}")
 
         script_path = self.copy_from_template(
-            "yosys.tcl", ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design)
+            "yosys.tcl",
+            ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),
         )
         log.info(f"Yosys script: {self.run_path / script_path}")
         # args = ['-s', script_path]
@@ -271,38 +253,39 @@ class YosysSynth(Yosys, SynthFlow):
             args.extend(["-L", ss.log_file])
         if not ss.verbose:  # reduce noise unless verbose
             args.extend(["-T", "-Q", "-q"])
-        self.results["_tool"] = self.info  # TODO where should this go?
+        self.results["_tool"] = yosys._info  # TODO where should this go?
         log.info(f"Logging yosys output to {ss.log_file}")
-        self.run_tool(self.default_executable, args)
+        yosys.run(*args)
         skin_file = None
         elk_layout = None
         if ss.netlistsvg:
-            rtl_json = self.artifacts.rtl.__dict__.get("json")
+            netlistsvg = Tool(executable="netlistsvg")
+            rtl_json = self.artifacts.rtl.json
             if rtl_json:
                 svg_file = "rtl.svg"
-                self.artifacts.diagrams.netlistsvg_rtl = svg_file
+                self.artifacts.diagram.netlistsvg_rtl = svg_file
                 args = [rtl_json, "-o", svg_file]
                 if skin_file:
                     args.extend(["--skin", skin_file])
                 if elk_layout:
                     args.extend(["--layout", elk_layout])
-                self.run_tool("netlistsvg", args, check=True)  # ??
+                netlistsvg.run(*args)
             if ss.netlist_json and False:
                 svg_file = "netlist.svg"
-                self.artifacts.diagrams["netlistsvg"] = svg_file
+                self.artifacts.diagram["netlistsvg"] = svg_file
                 args = [self.artifacts.netlist.json, "-o", svg_file]
                 if skin_file:
                     args.extend(["--skin", skin_file])
                 if elk_layout:
                     args.extend(["--layout", elk_layout])
-                self.run_tool("netlistsvg", args)
-        return True
+                self.run("netlistsvg", args)
 
-    def parse_reports(self):
+    def parse_reports(self) -> bool:
+        assert isinstance(self.settings, self.Settings)
         if self.settings.fpga:
             if self.settings.fpga.vendor == "xilinx":
                 self.parse_report_regex(
-                    self.artifacts.reports.utilization,
+                    self.artifacts.report.utilization,
                     r"=== design hierarchy ===",
                     r"FDRE\s*(?P<_FDRE>\d+)",
                     r"FDSE\s*(?P<_FDSE>\d+)",
@@ -315,9 +298,8 @@ class YosysSynth(Yosys, SynthFlow):
                 )
             if self.settings.fpga.family == "ecp5":
                 self.parse_report_regex(
-                    self.artifacts.reports.utilization,
+                    self.artifacts.report.utilization,
                     r"TRELLIS_FF\s+(?P<FFs>\d+)",
                     r"LUT4\s+(?P<LUT4>\d+)",
                 )
-        self.results["success"] = True  # FIXME
         return True

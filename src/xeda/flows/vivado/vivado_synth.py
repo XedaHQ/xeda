@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, Optional, List
-from pydantic import validator, Field, NoneStr
+from pydantic import validator, Field
 
 from ..flow import FPGA, FpgaSynthFlow, XedaBaseModel
 from . import Vivado
@@ -239,19 +239,17 @@ xeda_strategies: Dict[str, Dict[str, Any]] = {
 StepsValType = Optional[Dict[str, Any]]
 
 
-def get_steps(run: str) -> List[str]:
-    if run == "synth":
-        return ["synth", "opt"]
-    else:
-        return ["place", "place_opt", "place_opt2", "phys_opt", "phys_opt2", "route"]
-
-
-def xeda_steps(strategy: str, s: str):
+def _vivado_steps(strategy: str, s: str):
+    def get_steps(run: str) -> List[str]:
+        if run == "synth":
+            return ["synth", "opt"]
+        else:
+            return ["place", "place_opt", "place_opt2", "phys_opt", "phys_opt2", "route"]
     return {step: xeda_strategies[strategy].get(step) for step in get_steps(s)}
 
 
 class RunOptions(XedaBaseModel):
-    strategy: NoneStr = None
+    strategy: Optional[str] = None
     steps: Dict[str, StepsValType] = {}
 
 
@@ -290,16 +288,16 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         synth_output_dir = "output"
         checkpoints_dir = "checkpoints"
         synth: RunOptions = RunOptions(
-            strategy="Default", steps=xeda_steps("Default", "synth")
+            strategy="Default", steps=_vivado_steps("Default", "synth")
         )
         impl: RunOptions = RunOptions(
-            strategy="Default", steps=xeda_steps("Default", "impl")
+            strategy="Default", steps=_vivado_steps("Default", "impl")
         )
 
         @validator("synth")
         def validate_synth(cls, v: RunOptions):
             if v.strategy and not v.steps:
-                v.steps = xeda_steps(v.strategy, "synth")
+                v.steps = _vivado_steps(v.strategy, "synth")
             return v
 
         @validator("impl", always=True)
@@ -307,17 +305,19 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             if not v.strategy:
                 v.strategy = values.get("synth", {}).get("strategy")
             if v.strategy and not v.steps:
-                v.steps = xeda_steps(v.strategy, "impl")
+                v.steps = _vivado_steps(v.strategy, "impl")
             return v
 
     def run(self):
         clock_xdc_path = self.copy_from_template(f"clock.xdc")
-        settings = self.settings
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
 
-        if settings.out_of_context:
-            settings.synth.steps["synth"] += {"-mode": "out_of_context"}
+        if ss.out_of_context:
+            if "synth" in ss.synth.steps and ss.synth.steps["synth"] is not None:
+                ss.synth.steps["synth"]["-mode"] = "out_of_context"
 
-        blacklisted_resources = self.settings.blacklisted_resources
+        blacklisted_resources = ss.blacklisted_resources
         if "bram" in blacklisted_resources and "bram_tile" not in blacklisted_resources:
             blacklisted_resources.append("bram_tile")
 
@@ -339,7 +339,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             f"{self.name}.tcl",
             xdc_files=[clock_xdc_path],
         )
-        return self.run_vivado(script_path)
+        self.vivado.run("-source", script_path)
 
     def parse_timing_report(self, reports_dir) -> bool:
         failed = False
@@ -376,7 +376,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         return not failed
 
-    def parse_reports(self):
+    def parse_reports(self) -> bool:
         report_stage = "post_route"
         reports_dir = self.reports_dir / report_stage
 
@@ -409,20 +409,23 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             ("dsp", ["DSP", "DSPs"]),
             ("dsp", ["ARITHMETIC", "DSPs"]),
         ]
-        for k, path in fields:
-            if self.results.get(k) is None:
-                path.append("Used")
-                try:
-                    self.results[k] = self.get_from_path(utilization, path)
-                except KeyError as e:
-                    log.debug(
-                        "property %s in %s not found in the utilization report %s.",
-                        e.args[0] if len(e.args) > 0 else "?",
-                        report_file
-                    )
+        if utilization is not None:
+            for k, path in fields:
+                if self.results.get(k) is None:
+                    path.append("Used")
+                    try:
+                        self.results[k] = self.get_from_path(utilization, path)
+                    except KeyError as e:
+                        log.debug(
+                            "property %s in %s not found in the utilization report %s.",
+                            e.args[0] if len(e.args) > 0 else "?",
+                            report_file
+                        )
 
         self.results["_utilization"] = utilization
 
+        assert isinstance(self.settings, self.Settings)
+        
         if not failed:
             for res in self.settings.blacklisted_resources:
                 res_util = self.results.get(res)
@@ -452,4 +455,4 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             if "_failing_endpoints" in self.results:
                 failed |= self.results["_failing_endpoints"] != 0
 
-        self.results["success"] = not failed
+        return not failed

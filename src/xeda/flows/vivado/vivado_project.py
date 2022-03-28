@@ -37,6 +37,7 @@ class VivadoPrjSynth(VivadoSynth):
         )
 
     def run(self):
+        assert isinstance(self.settings, self.Settings)
         settings = self.settings
         settings.synth.steps = {
             **{
@@ -63,15 +64,15 @@ class VivadoPrjSynth(VivadoSynth):
             )
         else:
             assert (
-                self.settings.clock_period
+                settings.clock_period
             ), "`clock_period` must be specified and be positive value"
-            freq = 1000 / self.settings.clock_period
+            freq = 1000 / settings.clock_period
             log.info(
                 f"clock.port={self.design.rtl.clock_port} clock.frequency={freq:.3f} MHz"
             )
         clock_xdc_path = self.copy_from_template(f"clock.xdc")
 
-        if self.settings.blacklisted_resources:
+        if settings.blacklisted_resources:
             log.info(f"blacklisted_resources: {self.settings.blacklisted_resources}")
 
         # for x in ["synth", "impl"]:
@@ -86,6 +87,9 @@ class VivadoPrjSynth(VivadoSynth):
         #     if strategy:
         #         options[x]["strategy"] = strategy
 
+        if settings.synth.steps["SYNTH_DESIGN"] is None:
+            settings.synth.steps["SYNTH_DESIGN"] = {}
+        assert settings.synth.steps["SYNTH_DESIGN"] is not None
         if "bram_tile" in settings.blacklisted_resources:
             # FIXME also add -max_uram 0 for ultrascale+
             settings.synth.steps["SYNTH_DESIGN"]["MAX_BRAM"] = 0
@@ -96,4 +100,4 @@ class VivadoPrjSynth(VivadoSynth):
         script_path = self.copy_from_template(
             f"vivado_project.tcl", xdc_files=[clock_xdc_path], reports_tcl=reports_tcl
         )
-        return self.run_vivado(script_path)
+        self.vivado.run("-source", script_path)

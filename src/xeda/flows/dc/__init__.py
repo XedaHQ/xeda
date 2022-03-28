@@ -1,16 +1,14 @@
-# © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-
 import logging
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Dict, Mapping
 from types import SimpleNamespace
 from ..flow import SynthFlow
 import re
 import os
-import toml
-from ...utils import dict_merge
+from ...utils import dict_merge, toml_load
+from ...tool import Tool
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 def get_hier(dct, dotted_path, default=None):
@@ -33,44 +31,38 @@ def get_hier(dct, dotted_path, default=None):
 
 
 class Dc(SynthFlow):
+    dc_shell = Tool(executable="dc_shell-xg-t")  # type: ignore
+
+    class Settings(SynthFlow.Settings):
+        adk: str
+
     def run(self):
-        self.nthreads = min(self.nthreads, 16)
-        adk_id = self.settings.flow.get("adk")
-        if not adk_id:
-            self.fatal(f"Flow setting: dc.adk was not specified!")
-        logger.info(f"adk_id={adk_id}")
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        adk_id = ss.adk
         adk_root = Path.home() / "adk"
-        adk_config = {}
+        adk_config: Dict[str, Any] = {}
         for toml_file in adk_root.glob("*.toml"):
-            with open(toml_file) as f:
-                adk_config = dict_merge(adk_config, toml.loads(f.read()), add_keys=True)
+            adk_config = dict_merge(adk_config, toml_load(toml_file), add_keys=True)
 
         adk = get_hier(adk_config, adk_id)
-
+        assert adk is not None
         if not os.path.isabs(adk.path):
             adk.path = os.path.join(str(adk_root), adk.path)
 
-        print(adk)
+        log.debug("adk=%s", adk)
 
         script_path = self.copy_from_template(
             f"run.tcl",
             synth_output_dir="output",
             adk=adk,
         )
+        self.dc_shell.run("-64bit", "-topographical_mode", "-f", script_path)
 
-        self.run_process(
-            "dc_shell-xg-t",
-            ["-64bit", "-topographical_mode", "-f", script_path],
-            stdout_logfile="dc_stdout.log",
-            check=True,
-        )
-
-    def parse_reports(self):
+    def parse_reports(self) -> bool:
         reports_dir = self.reports_dir
-        top_name = self.settings.design["rtl"].get("top", "TOP")
-
+        top_name = self.design.rtl.primary_top
         failed = False
-
         self.parse_report_regex(
             reports_dir / f"{top_name}.mapped.area.rpt",
             r"Number of ports:\s*(?P<num_ports>\d+)",
@@ -189,4 +181,4 @@ class Dc(SynthFlow):
                                         failed = True
             self.results["path_groups"] = path_groups
 
-        self.results["success"] = not failed
+        return not failed

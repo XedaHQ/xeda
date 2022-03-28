@@ -9,17 +9,17 @@ import logging
 import random
 from pydantic import BaseModel, root_validator
 import uuid
-from munch import Munch
+from box import Box
 
 
 class DutReset(BaseModel):
-    port: str = 'rst'
+    port: str = "rst"
     active_high: bool = True
     synchronous: bool = True
 
 
 class DutClock(BaseModel):
-    port: str = 'clk'
+    port: str = "clk"
     period: Tuple[float, str] = (10, "ns")
 
 
@@ -35,33 +35,34 @@ class IoPort(BaseModel):  # data + valid + ready
         def set_if_not_exist(k, v):
             if k not in values:
                 values[k] = v
-        name = values.get('name')
-        data_signal = values.get('data_signal')
+
+        name = values.get("name")
+        data_signal = values.get("data_signal")
         if not name and data_signal:
             name = data_signal if isinstance(data_signal, str) else data_signal[0]
         if name:
-            set_if_not_exist('data_signal', name)
-            set_if_not_exist('valid_signal', name + "_valid")
-            set_if_not_exist('ready_signal', name + "_ready")
+            set_if_not_exist("data_signal", name)
+            set_if_not_exist("valid_signal", name + "_valid")
+            set_if_not_exist("ready_signal", name + "_ready")
         else:
             name = uuid.uuid1()
-        values['name'] = name
+        values["name"] = name
         return values
 
 
 class InPort(IoPort):
     def __init__(self, *args, **kwargs):
-        kwargs['is_output'] = False
+        kwargs["is_output"] = False
         super().__init__(*args, **kwargs)
 
 
 class OutPort(IoPort):
     def __init__(self, *args, **kwargs):
-        kwargs['is_output'] = True
+        kwargs["is_output"] = True
         super().__init__(*args, **kwargs)
 
 
-class TB():
+class TB:
     WAIT_MAX = 100
 
     @dataclass
@@ -72,15 +73,22 @@ class TB():
         _is_output: bool
         _name: str
 
-    def __init__(self, dut, *ports, clock: DutClock = DutClock(), reset: DutReset = DutReset(), debug=False):
+    def __init__(
+        self,
+        dut,
+        *ports,
+        clock: DutClock = DutClock(),
+        reset: DutReset = DutReset(),
+        debug=False,
+    ):
         self.dut = dut
-        self.log = logging.getLogger('cocotb_tb')
+        self.log = logging.getLogger("cocotb_tb")
         self.log.setLevel(logging.DEBUG if debug else logging.INFO)
         self.ports = {
             p.name: self.Port(
-                data={
-                    d: self.dut_attr(d) for d in p.data_signal
-                } if isinstance(p.data_signal, list) else self.dut_attr(p.data_signal),
+                data={d: self.dut_attr(d) for d in p.data_signal}
+                if isinstance(p.data_signal, list)
+                else self.dut_attr(p.data_signal),
                 valid=self.dut_attr(p.valid_signal),
                 ready=self.dut_attr(p.ready_signal),
                 _is_output=p.is_output,
@@ -113,11 +121,10 @@ class TB():
             self.reset_value = 1 if self.reset_cfg.active_high else 0
             self.reset_port.setimmediatevalue(not self.reset_value)
         else:
-            self.log.warning(
-                f"No resets found. Specified reset signal: {reset.port}")
+            self.log.warning(f"No resets found. Specified reset signal: {reset.port}")
 
     def dut_attr(self, attr):
-        return getattr(self.dut, attr, None)
+        return getattr(self.dut, attr)
 
     def get_int_value(self, attr, otherwise=None):
         attr = getattr(self.dut, attr, None)
@@ -131,8 +138,9 @@ class TB():
         units = self.clock_cfg.period[1]
         await Timer(delay, units)
         self.reset_port.value = self.reset_value
-        for _ in range(cycles):
-            await self.clock_edge
+        if self.clock_edge:
+            for _ in range(cycles):
+                await self.clock_edge
         await Timer(delay, units)
         self.reset_port.value = not self.reset_value
 
@@ -163,7 +171,9 @@ class TB():
 
     def put_data(self, port: Port, data):
         if isinstance(port.data, dict):
-            assert isinstance(data, dict), f"put data must be a dict for port {port._name}"
+            assert isinstance(
+                data, dict
+            ), f"put data must be a dict for port {port._name}"
             for k, v in data.items():
                 port.data[k].value = v
         else:
@@ -172,6 +182,7 @@ class TB():
     async def send_input(self, portname, data):
         assert self.clock_edge, "must have clock"
         port = self._lookup_port(portname)
+        assert port
         assert not port._is_output, "port must be input"
         port.valid.value = 1
         self.put_data(port, data)
@@ -185,15 +196,18 @@ class TB():
         port.valid.value = 0
         self.put_rand(port, f=lambda _: 0)
 
-    async def receive_output_seq(self, portname, n) -> List[Union[BinaryValue, Dict[str, BinaryValue]]]:
+    async def receive_output_seq(
+        self, portname, n
+    ) -> List[Union[BinaryValue, Dict[str, BinaryValue]]]:
         o = []
         for i in range(n):
             o.append(await self.receive_output(portname))
         return o
 
-    async def receive_output(self, portname) -> Union[BinaryValue, Munch]:
+    async def receive_output(self, portname) -> Union[BinaryValue, Box]:
         assert self.clock_edge, "must have clock"
         port = self._lookup_port(portname)
+        assert port
         assert port._is_output, "port must be output"
         port.ready.value = 1
         await self.clock_edge
@@ -209,7 +223,7 @@ class TB():
                 data = v.value
                 self.log.debug(f"received {data.hex()} from {k}")
                 data_dict[k] = data
-            return Munch.fromDict(data_dict)
+            return Box(data_dict)
         else:
             data = port.data.value
             self.log.debug(f"received {data.hex()} from {port._name}")
@@ -221,36 +235,30 @@ def to_binstr(v: int, width: int) -> str:
     return "0" * (width - len(b)) + b
 
 
-class CModel():
+class CModel:
     def __init__(self, sources) -> None:
         self.sources = sources
         self.lib = None
         self.ffi = None
+        self.func_prototypes: List[str] = []
 
     def compile(self):
         from cffi import FFI
+
         ffibuilder = FFI()
         # name = 'trivium64'
-        cdefs = """
-        uint64_t trivium64_next();
-        void trivium64_setseed(uint64_t seed, uint64_t seq);
-        """
-
+        cdefs = "\n".join(self.func_prototypes)
         ffibuilder.cdef(cdefs)
+        ffibuilder.set_source(
+            f"_cmodel",
+            cdefs,
+            sources=self.sources,
+            library_dirs=[],
+            #  libraries = []
+        )
 
-        ffibuilder.set_source(f"_cmodel", cdefs,
-                              sources=self.sources,
-                              library_dirs=[],
-                              #  libraries = []
-                              )
-
-        ffibuilder.compile(verbose=True, tmpdir='.')
+        ffibuilder.compile(verbose=True, tmpdir=".")
         from _cmodel import ffi, lib
+
         self.ffi = ffi
         self.lib = lib
-
-    def seed(self, key, iv):
-        self.lib.trivium64_setseed(key, iv)
-
-    def next(self):
-        return self.lib.trivium64_next()

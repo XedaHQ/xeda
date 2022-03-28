@@ -11,6 +11,10 @@ clock_port = 'clk_25mhz'
 board = 'ulx3s'
 clock_period = 40 # 25 MHz
 
+[flows.next_pnr]
+board = 'ulx3s'
+clock_period = 40 # 25 MHz
+
 [flows.yosys]
 fpga.family = 'ecp5'
 clock_period = 40 #

@@ -1,11 +1,12 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from pydantic.fields import Field
 import csv
 import logging
 from ..flow import FpgaSynthFlow
+from ...tool import Tool
 
 log = logging.getLogger(__name__)
 
@@ -112,24 +113,22 @@ class Quartus(FpgaSynthFlow):
             "ALWAYS", "AUTOMATICALLY", "NEVER"
         ] = "ALWAYS"
 
-    def init(self):
-        self.artifacts = {
-            "reports": {
-                "summary": self.reports_dir / "Flow_Summary.csv",
-                "utilization": self.reports_dir
-                / "Fitter"
-                / "Resource_Section"
-                / "Fitter_Resource_Utilization_by_Entity.csv",
-                "timing": {
-                    "*": self.reports_dir / "Timing_Analyzer",
-                    "multicorner_summary": self.reports_dir
-                    / "Timing_Analyzer"
-                    / "Multicorner_Timing_Analysis_Summary.csv",
-                },
-            },
+    def init(self) -> None:
+        self.reports = {
+            "summary": self.reports_dir / "Flow_Summary.csv",
+            "utilization": self.reports_dir
+            / "Fitter"
+            / "Resource_Section"
+            / "Fitter_Resource_Utilization_by_Entity.csv",
+            "timing_dir": self.reports_dir / "Timing_Analyzer",
+            "timing.multicorner_summary": self.reports_dir
+            / "Timing_Analyzer"
+            / "Multicorner_Timing_Analysis_Summary.csv",
         }
+        self.quartus_sh = Tool("quartus_sh")
 
-    def create_project(self, **kwargs):
+    def create_project(self, **kwargs: Any) -> None:
+        assert isinstance(self.settings, self.Settings)
         ss = self.settings
 
         project_settings = {
@@ -175,7 +174,7 @@ class Quartus(FpgaSynthFlow):
             project_settings=project_settings,
             **kwargs,
         )
-        self.run_tool("quartus_sh", ["-t", script_path])
+        self.quartus_sh.run("-t", script_path)
 
         # self.run_process('quartus_sh',
         #                  ['--dse', '-project', self.settings.design['name'], '-nogui', '-concurrent-compiles', '8', '-exploration-space',
@@ -216,21 +215,22 @@ class Quartus(FpgaSynthFlow):
     #     # self.settings.flow['generics_options'] = quartus_generics(self.settings.design["generics"], sim=False)
     #     # self.settings.flow['tb_generics_options'] = quartus_generics(self.settings.design["tb_generics"], sim=True)
 
-    def run(self):
+    # self.run_process('quartus_eda', [prj_name, '--simulation', '--functional', '--tool=modelsim_oem', '--format=verilog'],
+    #                         stdout_logfile='eda_1_stdout.log'
+    #                         )
+
+    def run(self) -> None:
         self.create_project()
         script_path = self.copy_from_template(
             f"compile.tcl", reports_dir=self.reports_dir
         )
-        self.run_tool("quartus_sh", ["-t", str(script_path)])
-        # self.run_process('quartus_eda', [prj_name, '--simulation', '--functional', '--tool=modelsim_oem', '--format=verilog'],
-        #                         stdout_logfile='eda_1_stdout.log'
-        #                         )
+        self.quartus_sh.run("-t", script_path)
 
-    def parse_reports(self):
+    def parse_reports(self) -> bool:
+        assert isinstance(self.settings, self.Settings)
         failed = False
-        reports = self.artifacts.get("reports")
-
-        resources = parse_csv(reports["summary"], id_field=0)
+        reports = self.reports
+        resources = parse_csv(reports["summary"], id_field=None)
         resources = parse_csv(
             reports["utilization"],
             id_field="Compilation Hierarchy Node",
@@ -256,43 +256,41 @@ class Quartus(FpgaSynthFlow):
             ],
         )
 
-        top_resources: dict = resources[self.design.rtl.top]
-        top_resources.setdefault(0)
-        r0 = top_resources.get("LUT-Only LCs")
-        if r0:
-            top_resources["lut"] = r0 + top_resources.get("LUT/Register LCs", 0)
-        r0 = top_resources.get("Register-Only LCs")
-        if r0:
-            top_resources["ff"] = r0 + top_resources.get("LUT/Register LCs", 0)
+        top_resources = resources.get(self.design.rtl.top, {})
+        if top_resources:
+            top_resources.setdefault(0)
+            r0 = top_resources.get("LUT-Only LCs")
+            if r0:
+                top_resources["lut"] = r0 + top_resources.get("LUT/Register LCs", 0)
+            r0 = top_resources.get("Register-Only LCs")
+            if r0:
+                top_resources["ff"] = r0 + top_resources.get("LUT/Register LCs", 0)
 
         self.results.update(top_resources)
 
         # TODO reference for why this timing report is chosen
 
-        timing_reports = reports["timing"]
-        mc_report = timing_reports.get("multicorner_summary")
-        if mc_report:
-            slacks = parse_csv(
-                mc_report,
-                id_field="Clock",
-                field_parser=try_float,
-                id_parser=lambda s: s.strip(),
-                interesting_fields=["Setup", "Hold"],
-            )
-            worst_slacks = slacks["Worst-case Slack"]
-            wns = worst_slacks["Setup"]
-            whs = worst_slacks["Hold"]
-            self.results["wns"] = wns
-            self.results["whs"] = whs
+        mc_report = reports["timing.multicorner_summary"]
 
-            if isinstance(wns, float) or isinstance(wns, int):
-                failed |= wns < 0
-            if isinstance(whs, float) or isinstance(whs, int):
-                failed |= whs < 0
-        else:
-            log.critical("No timing summary report is available")
+        slacks = parse_csv(
+            mc_report,
+            id_field="Clock",
+            field_parser=try_float,
+            id_parser=lambda s: s.strip(),
+            interesting_fields=["Setup", "Hold"],
+        )
+        worst_slacks = slacks["Worst-case Slack"]
+        wns = worst_slacks["Setup"]
+        whs = worst_slacks["Hold"]
+        self.results["wns"] = wns
+        self.results["whs"] = whs
 
-        timing_reports_folder: Path = timing_reports["*"]
+        if isinstance(wns, float) or isinstance(wns, int):
+            failed |= wns < 0
+        if isinstance(whs, float) or isinstance(whs, int):
+            failed |= whs < 0
+
+        timing_reports_folder = Path(reports["timing_dir"])
         max_fmax = 0.0
         for fmax_report in timing_reports_folder.glob(
             "Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"
@@ -321,8 +319,6 @@ class Quartus(FpgaSynthFlow):
                 self.results[f'{clock} Fmax@{":".join(conditions)} (MHz)'] = fmhz
         if max_fmax:
             self.results["Fmax"] = max_fmax
-
-        self.results["success"] = not failed
 
         return not failed
 
@@ -382,7 +378,7 @@ class Quartus(FpgaSynthFlow):
 #             )
 #             self.results[f'fmax_{temp}'] = fmax['clock']['Fmax']
 
-#         self.results['success'] = not failed
+#         return not failed
 
 
 # class QuartusDse(QuartusSynth, DseFlow):

@@ -1,37 +1,76 @@
-from abc import ABCMeta
 import os
-from typing import List, Optional, Dict, Tuple, Union, Any
-from pydantic import BaseModel, Extra, Field, validate_model, validator
-from pydantic.class_validators import root_validator
-from pydantic.error_wrappers import ValidationError, display_errors
+from typing import List, Optional, Dict, Sequence, Tuple, Union, Any
+from pydantic import Extra, Field, validate_model, validator, root_validator
+from pydantic.error_wrappers import ValidationError
 from pathlib import Path
 import logging
 import hashlib
-import toml
-from ..utils import sanitize_toml
+
+from .utils import WorkingDirectory, toml_load
+from .dataclass import XedaBaseModel, validation_errors
 
 log = logging.getLogger(__name__)
 
+__all__ = [
+    "from_toml",
+    "Design",
+    "DesignSource",
+    "FileResource",
+    "VhdlSettings",
+    "LanguageSettings",
+    "Clock",
+]
 
-class XedaBaseModel(BaseModel, metaclass=ABCMeta):
-    class Config:
-        validate_assignment = True
-        extra = Extra.forbid
-        arbitrary_types_allowed = True
+
+def from_toml(
+    design_file: Union[str, os.PathLike],
+    design_root: Union[None, str, os.PathLike] = None,
+) -> "Design":
+    """Load and validate a design description from TOML file"""
+    if not isinstance(design_file, Path):
+        design_file = Path(design_file)
+    design_dict = toml_load(design_file)
+    # Default value for design_root is the folder containing the design description file.
+    if design_root is None:
+        design_root = design_file.parent
+    try:
+        return Design(design_root=design_root, **design_dict)
+    except DesignValidationError as e:
+        raise DesignValidationError(  # add design_file to the emitted exception
+            e.errors, e.data, e.design_root, e.design_name, str(design_file)
+        ) from None
+
+
+class DesignValidationError(Exception):
+    def __init__(
+        self,
+        errors: List[Tuple[str, str, str]],
+        data: Dict[str, Any],
+        design_root: Union[None, str, os.PathLike] = None,
+        design_name: Optional[str] = None,
+        file: Optional[str] = None,
+        *args: object,
+    ) -> None:
+        super().__init__(*args)
+        self.errors = errors  # location, msg, type/context
+        self.data = data
+        self.design_root = design_root
+        self.design_name = design_name
+        self.file = file
 
 
 class FileResource:
     def __init__(
         self,
-        path: Union[str, os.PathLike, Dict[str, str]],
+        path: Union[str, os.PathLike[Any], Dict[str, str]],
         _root_path: Optional[Path] = None,
-        **data,
+        **data: Any,
     ) -> None:
-        self._content_hash = None
+        self._content_hash: Optional[str] = None
         try:
             if isinstance(path, dict):
                 if "file" not in path:
-                    raise Exception(f"Required field `file` is missing.")
+                    raise ValueError("Required field 'file' is missing.")
                 path = path["file"]
             p = Path(path)
             if not p.is_absolute():
@@ -44,23 +83,23 @@ class FileResource:
             raise e
 
     @property
-    def hash(self):
+    def hash(self) -> str:
         """return hash of file content"""
         if self._content_hash is None:
             with open(self.file, "rb") as f:
                 self._content_hash = hashlib.sha256(f.read()).hexdigest()
         return self._content_hash
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         if not isinstance(other, FileResource):
             return False
         return self.hash == other.hash and self.file.samefile(other.file)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         # path is already absolute
-        return hash(tuple(self.hash, str(self.file)))
+        return hash((self.hash, str(self.file)))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.file)
 
     def __repr__(self) -> str:
@@ -70,12 +109,12 @@ class FileResource:
 class DesignSource(FileResource):
     def __init__(
         self,
-        path: str,
-        typ: str = None,
-        standard: str = None,
-        variant: str = None,
+        path: Union[str, os.PathLike[Any], Dict[str, str]],
+        typ: Optional[str] = None,
+        standard: Optional[str] = None,
+        variant: Optional[str] = None,
         _root_path: Optional[Path] = None,
-        **data,
+        **data: Any,
     ) -> None:
         super().__init__(path, _root_path, **data)
 
@@ -98,9 +137,13 @@ class DesignSource(FileResource):
                 standard = standard[2:]
         self.standard = standard
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         # added attributes do not change semantic equality
         return super().__eq__(other)
+
+    def __hash__(self) -> int:
+        # added attributes do not change semantic identity
+        return super().__hash__()
 
 
 DefineType = Any
@@ -108,15 +151,15 @@ DefineType = Any
 # Union[FileResource, int, bool, float, str]
 
 # Tuple -> Tuple[()] (empty tuple), but pydantic 1.9.0 + Python 3.9 typing do not like it
-DesignTopType = Union[Tuple, Tuple[str], Tuple[str, str]]
+# Tuple of 0, 1, or 2 strings:
+Tuple012 = Union[Tuple[str, ...], Tuple[str], Tuple[str, str]]  # xtype: ignore
 
 
-class DVSettings(XedaBaseModel):
+class DVSettings(XedaBaseModel):  # type: ignore
     """Design/Verification settings"""
 
-    # public fields
     sources: List[DesignSource]
-    top: DesignTopType = Field(
+    top: Tuple012 = Field(
         tuple(),
         description="Toplevel module(s) of the design. In addition to the primary toplevel, a secondary toplevel module can also be specified.",
     )
@@ -137,7 +180,7 @@ class DVSettings(XedaBaseModel):
     defines: Dict[str, DefineType] = Field(default=dict())
 
     @root_validator()
-    def the_root_validator(cls, values):
+    def the_root_validator(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         value = values.get("parameters")
         if not value:
             value = values.get("generics")
@@ -150,18 +193,20 @@ class DVSettings(XedaBaseModel):
         return values
 
     @validator("top", pre=True)
-    def top_validator(cls, top) -> DesignTopType:
+    def top_validator(cls, top: Union[None, str, Sequence[str], Tuple012]) -> Tuple012:
         if top:
             if isinstance(top, str):
                 top = (top,)
-            if isinstance(top, list):
+            if isinstance(top, Sequence):
                 assert len(top) <= 2
                 top = tuple(top)
             return top
         return tuple()
 
     @validator("sources", pre=True, always=False)
-    def sources_to_files(cls, sources):
+    def sources_to_files(
+        cls, sources: List[Union[DesignSource, str, os.PathLike, Path, Dict[str, Any]]]
+    ) -> List[DesignSource]:
         return [
             src if isinstance(src, DesignSource) else DesignSource(src)
             for src in sources
@@ -172,7 +217,7 @@ class DVSettings(XedaBaseModel):
         return self.top[0] if self.top else ""
 
 
-class Clock(BaseModel):
+class Clock(XedaBaseModel):
     port: Optional[str]
 
 
@@ -195,10 +240,10 @@ class RtlSettings(DVSettings):
 
 
 class TbSettings(DVSettings):
+    sources: List[DesignSource] = []
     uut: Optional[str] = Field(
         None, description="instance name of the unit under test in the testbench"
     )
-    configuration_specification: Optional[str] = None
     cocotb: bool = Field(False, description="testbench is based on cocotb framework")
 
 
@@ -244,14 +289,30 @@ class Language(XedaBaseModel):
 class Design(XedaBaseModel):
     name: str
     rtl: RtlSettings
-    tb: Optional[TbSettings] = None
+    tb: TbSettings = TbSettings()
     language: Language = Language()
 
     class Config(XedaBaseModel.Config):
         extra = Extra.allow
 
+    def __init__(
+        self,
+        design_root: Union[None, str, os.PathLike] = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        with WorkingDirectory(design_root):
+            try:
+                super().__init__(*args, **kwargs)
+            except ValidationError as e:
+                raise DesignValidationError(
+                    validation_errors(e.errors()), data=kwargs, design_root=design_root
+                ) from None
+
     @property
-    def sim_sources(self):
+    def sim_sources(self) -> List[DesignSource]:
+        if not self.tb:
+            return []
         return self.rtl.sources + [
             src
             for src in self.tb.sources
@@ -260,7 +321,7 @@ class Design(XedaBaseModel):
         ]
 
     @property
-    def sim_tops(self) -> DesignTopType:
+    def sim_tops(self) -> Tuple012:
         if self.tb:
             if self.tb.cocotb and self.rtl.top:
                 return self.rtl.top
@@ -268,38 +329,16 @@ class Design(XedaBaseModel):
                 return self.tb.top
         return ()
 
-    def check(self):  # TODO remove? as not serving a purpose (does it even work?)
+    def check(
+        self,
+    ) -> None:  # TODO remove? as not serving a purpose (does it even work?)
         *_, validation_error = validate_model(self.__class__, self.__dict__)
         if validation_error:
             raise validation_error
 
-    @classmethod
+    @staticmethod
     def from_toml(
-        cls,
         design_file: Union[str, os.PathLike],
         design_root: Union[None, str, os.PathLike] = None,
     ) -> "Design":
-        """Load and validate a design description in TOML fromat"""
-        if not isinstance(design_file, Path):
-            design_file = Path(design_file)
-        toml_dict = toml.load(design_file)
-        design_dict = sanitize_toml(toml_dict)
-        if design_root is None:
-            # Default value for design_root is the folder containing the design description file.
-            design_root = design_file.parent
-        current_wd = Path.cwd()
-        try:
-            os.chdir(design_root)
-            return Design(**design_dict)
-        except ValidationError as e:
-            errors = e.errors()
-            log.critical(
-                f"{len(errors)} error(s) validating design from {design_file}."
-            )
-            raise InvalidDesign(f"\n{display_errors(errors)}\n") from None
-        finally:
-            os.chdir(current_wd)
-
-
-class InvalidDesign(Exception):
-    """Failed to validate Design properties"""
+        return from_toml(design_file, design_root)

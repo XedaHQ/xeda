@@ -4,6 +4,7 @@
 import logging
 from typing import Mapping, Union
 from ..flow import FpgaSynthFlow
+from ...tool import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class IseSynth(FpgaSynthFlow):
             "Report Type": "Verbose Report",
         }
 
-    def run(self):
+    def run(self) -> None:
         xcf_file = self.copy_from_template(f"constraints.xcf")
         ucf_file = self.copy_from_template(f"constraints.ucf")
 
@@ -48,26 +49,21 @@ class IseSynth(FpgaSynthFlow):
             xcf_file=xcf_file,
             ucf_file=ucf_file,
         )
+        xtclsh = Tool("xtclsh")
+        xtclsh.run(script_path)
 
-        self.run_process(
-            "xtclsh",
-            [script_path],
-            initial_step="Starting ISE",
-            stdout_logfile="xeda_ise_stdout.log",
-        )
-
-    def parse_reports(self):
+    def parse_reports(self) -> bool:
         # self.parse_report_regex(self.design.name + ".twr", r'(?P<wns>\-?\d+')
         fail = not self.parse_report_regex(
-            self.design.rtl.top + "_par.xrpt",
+            self.design.rtl.primary_top + "_par.xrpt",
             r'stringID="PAR_SLICES" value="(?P<slice>\-?\d+)"',
             r'stringID="PAR_SLICE_REGISTERS" value="(?P<ff>\-?\d+)"',
             r'stringID="PAR_SLICE_LUTS" value="(?P<lut>\-?\d+)"',
         )
         fail |= not self.parse_report_regex(
-            self.design.rtl.top + ".syr",
+            self.design.rtl.primary_top + ".syr",
             r"Minimum period:\s+(?P<minimum_period>\-?\d+(?:\.\d+)?)ns\s+\(Maximum Frequency: (?P<maximum_frequency>\-?\d+(?:\.\d+)?)MHz\)",
             r"Slack:\s+(?P<wns>\-?\d+(?:\.\d+)?)ns",
         )
 
-        self.results["success"] = not fail and self.results["wns"] > 0
+        return not fail and self.results["wns"] > 0

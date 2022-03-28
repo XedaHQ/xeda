@@ -1,14 +1,17 @@
-import html
+from html import unescape
 import logging
 from functools import reduce
-from xml.etree import ElementTree
 from pathlib import Path
+from typing import Any, Dict, Optional
+from xml.etree import ElementTree
 
-from ...flows.design import Design
-from ...utils import try_convert, backup_existing
+from ...design import Design
+from ...utils import try_convert
 from ..flow import Flow
+from ...tool import Tool
+from ...debug import DebugLevel
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 def vivado_generics(kvdict, sim=False):
@@ -45,44 +48,34 @@ class Vivado(Flow):
     class Settings(Flow.Settings):
         pass
 
-    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
-        super().__init__(flow_settings, design, run_path)
+    def __init__(self, settings: Settings, design: Design, run_path: Path):
+        super().__init__(settings, design, run_path)
+        debug = self.settings.debug > DebugLevel.NONE
+        default_args = ["-nojournal", "-mode", "tcl" if debug else "batch"]
+        if not debug:
+            default_args.append("-notrace")
+        self.vivado = Tool(executable="vivado", default_args=default_args)
         self.jinja_env.filters["vivado_generics"] = vivado_generics
 
-    def run_vivado(self, script_path, stdout_logfile=None):
-        if stdout_logfile is None:
-            stdout_logfile = f"{self.name}_stdout.log"
-        debug = self.settings.debug  # > DebugLevel.NONE
-        vivado_args = [
-            "-nojournal",
-            "-mode",
-            "tcl" if debug else "batch",
-            "-source",
-            str(script_path),
-        ]
-        if not debug:
-            vivado_args.append("-notrace")
-
-        if self.reports_dir and self.reports_dir.exists():
-            backup_existing(self.reports_dir)
-
-        return self.run_tool("vivado", vivado_args)
-
     @staticmethod
-    def parse_xml_report(report_xml):
-        tree = ElementTree.parse(report_xml)
+    def parse_xml_report(report_xml) -> Optional[Dict[str, Any]]:
+        try:
+            tree = ElementTree.parse(report_xml)
+        except ElementTree.ParseError as e:
+            log.critical("Parsing %s failed: %s", report_xml, e.msg)
+            return None
         data = {}
         for section in tree.findall(f"./section"):
-            section_title = section.get("title")
+            section_title = section.get("title", "<section>")
             for table in section.findall("./table"):
                 table_data = {}
                 header = [
-                    html.unescape(col.attrib["contents"]).strip()
+                    unescape(col.attrib["contents"]).strip()
                     for col in table.findall("./tablerow/tableheader")
                 ]
                 for tablerow in table.findall("./tablerow"):
                     cells = [
-                        html.unescape(cell.attrib["contents"]).strip()
+                        unescape(cell.attrib["contents"]).strip()
                         for cell in tablerow.findall("./tablecell")
                     ]
                     if cells:

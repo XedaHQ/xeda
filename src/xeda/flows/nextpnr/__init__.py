@@ -1,122 +1,153 @@
 import logging
-from pathlib import Path
-from typing import Optional
+import re
+from typing import Any, Dict, Literal, Optional
+from pydantic import root_validator
 import pkg_resources
-import toml
-from pydantic import NoneStr
-import os
-from ...flows.yosys import YosysSynth
+
+from ...flows.yosys import Yosys
 from ..flow import FPGA, FpgaSynthFlow
+from ...utils import toml_loads
+from ...tool import Tool
 
 log = logging.getLogger(__name__)
 
 
-def get_board_data(board):
-    board_toml = pkg_resources.resource_string(
+def get_board_data(board: str) -> Optional[Dict[str, Any]]:
+    board_toml_bytes = pkg_resources.resource_string(
         "xeda.data.boards." + board, "board.toml"
     )
-    assert board_toml
-    board_toml = board_toml.decode("utf-8")
-    return toml.loads(board_toml)
+    if board_toml_bytes:
+        board_toml = board_toml_bytes.decode("utf-8")
+        return toml_loads(board_toml)
+    return None
+
+
+class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
+    board: Optional[str] = None
+
+    @root_validator(pre=True)
+    def fpga_validate(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        board_name = values.get("board")
+        fpga = values.get("fpga")
+        if not fpga and board_name:
+            board_data = get_board_data(board_name)
+            if board_data:
+                board_fpga = board_data.get("fpga")
+                log.info("FPGA info for board %s: %s", board_name, str(board_fpga))
+                if board_fpga:
+                    values["fpga"] = FPGA(**board_fpga)
+        return values
 
 
 class NextPnr(FpgaSynthFlow):
-    class Settings(FpgaSynthFlow.Settings):
-        board: NoneStr = None
+    class Settings(WithFpgaBoardSettings):
         lpf_cfg: Optional[str] = None
         clock_period: float
         seed: Optional[int] = None
 
-    def init(self):
+    def init(self) -> None:
+        assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        # board = ss.get('board')
-        # board_data = get_board_data(board)
-        # print(board_data)
-        # fpga_part = board_data['fpga']['part']
         self.add_dependency(
-            YosysSynth,
-            YosysSynth.Settings(
+            Yosys,
+            Yosys.Settings(
                 fpga=ss.fpga,
-                # board=board,  # FIXME
                 clock_period=ss.clock_period,
             ),
         )
 
-    def run(self):
+    def run(self) -> None:
+        assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        yosys_flow: YosysSynth = self.completed_dependencies[0]
-        netlist = yosys_flow.settings.netlist_json
-        if os.path.isabs(netlist):
-            netlist_json = Path(netlist)
-        else:
-            netlist_json = yosys_flow.run_path / netlist
+        yosys_flow = self.completed_dependencies[0]
+        assert isinstance(yosys_flow, Yosys)
+        assert isinstance(yosys_flow.settings, Yosys.Settings)
+        assert yosys_flow.settings.netlist_json
+        netlist_json = yosys_flow.run_path / yosys_flow.settings.netlist_json
+        fpga_family = ss.fpga.family if ss.fpga.family else "generic"
+        # FIXME:
+        # ["generic", "ecp5", "ice40", "nexus", "gowin", "fpga-interchange", "xilinx"]
+        next_pnr = Tool(
+            executable=f"nextpnr-{fpga_family}"
+        )  # pyright: reportGeneralTypeIssues=none
 
-        assert netlist_json.exists(), "netlist json does not exist"
+        assert (
+            netlist_json.exists()
+        ), f"netlist json file {netlist_json} does not exist!"
 
-        board = ss.board
-        fpga = ss.fpga
         lpf_cfg = ss.lpf_cfg
-
-        if board:
-            fpga = FPGA(get_board_data(board)["fpga"]["part"])
+        if not lpf_cfg and ss.board:
             # TODO from toml
             lpf_cfg = pkg_resources.resource_filename(
-                "xeda.data.boards." + board, "board.lpf"
+                "xeda.data.boards." + ss.board, "board.lpf"
             )
-            assert lpf_cfg
-
-        if not isinstance(fpga, FPGA):
-            fpga = FPGA(fpga)
-
-        top = self.design.rtl.top
-
-        pnr_tool = f"nextpnr-{fpga.family}"
+        assert lpf_cfg
 
         freq_mhz = 1000 / ss.clock_period
 
-        pnr_opts = [
+        args = [
             "-q",
             "-l",
-            f"{pnr_tool}.log",
+            "next_pnr.log",
             "--json",
             netlist_json,
-            "--top",
-            top,
             "--freq",
             freq_mhz,
             "--sdf",
-            f"{top}.sdf",
+            f"nextpnr.sdf",
             #   '--routed-svg', 'routed.svg',
             # '--seed'
         ]
+        if self.design.rtl.top:
+            args.extend(["--top", self.design.rtl.top[0]])
         if ss.seed is not None:
-            pnr_opts.extend(["--seed", ss.seed])
-        if fpga.capacity:
-            pnr_opts.extend([f"--{fpga.capacity}"])
-        if not fpga.package:  # TODO
-            fpga.package = "CABGA381"
-        pnr_opts.extend(["--package", fpga.package])
-        if fpga.speed:
-            pnr_opts.extend(["--speed", fpga.speed])
+            args.extend(["--seed", ss.seed])
 
+        package = ss.fpga.package
+        speed = ss.fpga.speed
+        device_type = None
+        if speed:
+            args.extend(["--speed", speed])
+        if ss.fpga.part:
+            part = ss.fpga.part.strip().upper().split("-")
+            if len(part) >= 2 and part[0].startswith("LFE5U"):
+                if not ss.fpga.family:
+                    ss.fpga.family = "ecp5"
+                assert ss.fpga.family == "ecp5"
+                if not ss.fpga.capacity and re.match(r"\d\dF", part[1]):
+                    ss.fpga.capacity = part[1][:2] + "k"
+                if part[0] == "LFE5UM":
+                    device_type = "um"
+                elif part[0] == "LFE5UM5G":
+                    device_type = "um5g"
+            if not package and len(part) >= 3:  # FIXME
+                if part[2][1:-1] == "BG381":
+                    package = "CABGA381"
+        if ss.fpga.capacity:
+            if device_type:
+                args.append(f"--{device_type}-{ss.fpga.capacity}")
+            else:
+                args.append(f"--{ss.fpga.capacity}")
+        if package:
+            args.extend(["--package", package])
         if lpf_cfg:
             # FIXME check what to do if no board
-            pnr_opts += ["--lpf", lpf_cfg, "--textcfg", "config.txt"]
+            args += ["--lpf", lpf_cfg, "--textcfg", "config.txt"]
 
-        self.run_process(pnr_tool, pnr_opts)
-
-    def parse_reports(self):
-        self.results["success"] = True  # FIXME
-        return True
+        next_pnr.run(*args)
 
 
 class OpenFpgaLoader(FpgaSynthFlow):
-    class Settings(FpgaSynthFlow.Settings):
+    ofpga_loader = Tool(executable="openFPGALoader")
+
+    class Settings(WithFpgaBoardSettings):
         board: str
         lpf_cfg: Optional[str] = None
         clock_period: float
+        reset: bool = False
 
-    def init(self):
+    def init(self) -> None:
+        assert isinstance(self.settings, self.Settings)
         ss = self.settings
         self.add_dependency(
             NextPnr,
@@ -125,47 +156,30 @@ class OpenFpgaLoader(FpgaSynthFlow):
             ),
         )
 
-    def run(self):
-        board = self.settings.flow["board"]
-        board_data = get_board_data(board)
-        fpga = FPGA(board_data["fpga"]["part"])
-        bitstream = f"{board}.bit"
-        text_cfg = self.completed_dependencies[0].flow_run_dir / "config.txt"
+    def run(self) -> None:
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        board_name = ss.board
+        bitstream = f"{board_name}.bit"
+        next_pnr = self.completed_dependencies[0]
+        assert isinstance(next_pnr, NextPnr)
+        text_cfg = self.completed_dependencies[0].run_path / "config.txt"
         assert text_cfg.exists()
 
         packer = None
 
-        if fpga.family == "ecp5":  # FIXME from fpga/board
-            packer = "ecppack"
+        if ss.fpga.family == "ecp5":  # FIXME from fpga/board
+            packer = Tool(executable="ecppack")
 
         if packer:
-            self.run_process(packer, [str(text_cfg), bitstream])
-
-        self.run_process(
-            "openFPGALoader", ["--board", board, "--bitstream", bitstream], nolog=True
-        )
-
-    def parse_reports(self):
-        self.results["success"] = True  # FIXME
-        return True
+            packer.run(text_cfg, bitstream)
+        args = ["--board", board_name, "--bitstream", bitstream]
+        if ss.fpga.part:
+            args.extend(["--fpga-part", ss.fpga.part])
+        if ss.reset:
+            args.append("--reset")
+        self.ofpga_loader.run(*args)
 
 
-# class PllWrapperGen(SynthFlow):
-#     def run(self):
-#         flow_settings = self.settings.flow
-
-#         board_data = get_board_data(flow_settings.get('board'))
-
-#         freq_mhz = 1000 / flow_settings['clock_period']
-
-#         board_freq = list(board_data['clocks'].values())[0]  # FIXME
-
-#         pll_module = f'__GEN__PLL'
-#         pll_verilog_filename = f'{pll_module}.v'
-
-#         self.run_process('ecppll', ['-n', pll_module, '--clkin_name', 'in_clk', '--clkin', board_freq,
+#         ('ecppll', ['-n', pll_module, '--clkin_name', 'in_clk', '--clkin', board_freq,
 #                                     '--clkout0_name', 'out_clk', '--clkout0', freq_mhz, '--file', pll_verilog_filename])
-
-#         self.results['generated_design'] = {'rtl': {'top': 'board_top', 'sources': [self.flow_run_dir / pll_verilog_filename] }}
-
-#         self.results['success'] = True

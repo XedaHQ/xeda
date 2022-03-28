@@ -6,7 +6,7 @@ from .ise import IseSynth
 from .quartus import Quartus
 from .ghdl import GhdlSim, GhdlSynth
 from .nextpnr import NextPnr, OpenFpgaLoader
-from .yosys import Yosys, YosysSynth
+from .yosys import Yosys
 from .modelsim import Modelsim
 from .dc import Dc
 from .diamond import DiamondSynth
@@ -21,7 +21,7 @@ __all__ = [
     "GhdlSim",
     "GhdlSynth",
     "Yosys",
-    "YosysSynth",
+    "Yosys",
     "Modelsim",
     "Dc",
     "NextPnr",
