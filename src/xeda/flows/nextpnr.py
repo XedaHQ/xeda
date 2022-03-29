@@ -28,7 +28,6 @@ class Nextpnr(FpgaSynthFlow):
         )
 
         textcfg: Optional[str] = "config.txt"
-        routed_svg: Optional[str] = Field(None, description="")
         out_of_context: bool = Field(
             False,
             description="disable IO buffer insertion and global promotion/routing, for building pre-routed blocks",
@@ -42,6 +41,10 @@ class Nextpnr(FpgaSynthFlow):
         out_json: Optional[str] = None
         sdf: Optional[str] = None
         log_to_file: Optional[str] = None
+        report: Optional[str] = "report.json"
+        detailed_timing_report: bool = True
+        placed_svg: Optional[str] = "placed.svg"
+        routed_svg: Optional[str] = "routed.svg"
 
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -105,7 +108,6 @@ class Nextpnr(FpgaSynthFlow):
             netlist_json,
             "--freq",
             freq_mhz,
-            #   '--routed-svg', 'routed.svg',
         ]
         if self.design.rtl.top:
             args.extend(["--top", self.design.rtl.top[0]])
@@ -164,6 +166,14 @@ class Nextpnr(FpgaSynthFlow):
             args += ["--sdf", ss.sdf]
         if ss.log_to_file:
             args += ["--log", ss.log_to_file]
+        if ss.report:
+            args += ["--report", ss.report]
+        if ss.placed_svg:
+            args += ["--placed-svg", ss.placed_svg]
+        if ss.routed_svg:
+            args += ["--routed-svg", ss.routed_svg]
+        if ss.detailed_timing_report:
+            args.append("--detailed-timing-report")
         if ss.extra_args:
             args += ss.extra_args
         next_pnr.run(*args)
