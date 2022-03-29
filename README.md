@@ -1,5 +1,5 @@
 
-[![CI](https://github.com/XedaHQ/xeda/workflows/CI/badge.svg)](https://github.com/XedaHQ/xeda/actions?query=event%3Apush+branch%3Adev+workflow%3ACI) [![Downloads](https://static.pepy.tech/personalized-badge/xeda?period=total&units=none&left_color=black&right_color=orange&left_text=Downloads)](https://pepy.tech/project/xeda) ![visitors](https://page-views.glitch.me/badge?page_id=XedaHQ.xeda) [![license](https://img.shields.io/github/license/XedaHQ/xeda)](https://github.com/XedaHQ/xeda/blob/master/LICENSE.txt) [![versions](https://img.shields.io/pypi/pyversions/xeda?color=lightgray)](https://pypi.org/project/xedac) ![PyPI](https://img.shields.io/pypi/v/xeda?color=lightgray)
+[![CI](https://github.com/XedaHQ/xeda/workflows/CI/badge.svg)](https://github.com/XedaHQ/xeda/actions?query=event%3Apush+branch%3Adev+workflow%3ACI) [![Downloads](https://static.pepy.tech/personalized-badge/xeda?period=total&units=none&left_color=black&right_color=orange&left_text=Downloads)](https://pepy.tech/project/xeda) [![license](https://img.shields.io/github/license/XedaHQ/xeda)](https://github.com/XedaHQ/xeda/blob/master/LICENSE.txt) [![versions](https://img.shields.io/pypi/pyversions/xeda)](https://pypi.org/project/xedac) ![PyPI](https://img.shields.io/pypi/v/xeda)
 
 
 
