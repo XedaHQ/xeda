@@ -64,6 +64,62 @@ OptionalPath = Union[None, str, os.PathLike[Any]]
 OptionalBoolOrPath = Union[None, bool, str, os.PathLike[Any]]
 
 
+def run_process(
+    executable: str,
+    args: Optional[Sequence[Any]] = None,
+    env: Optional[Dict[str, Any]] = None,
+    stdout: OptionalBoolOrPath = None,
+    check: bool = True,
+    cwd: OptionalPath = None,
+    tool_name: str = "",
+) -> Union[None, str]:
+    if args is None:
+        args = []
+    args = [str(a) for a in args]
+    if env is not None:
+        env = {k: str(v) for k, v in env.items()}
+    log.info(f'Running `{" ".join([executable, *args])}`')
+    if cwd:
+        log.info("cwd=%s", cwd)
+    if stdout and isinstance(stdout, (str, os.PathLike)):
+        stdout = Path(stdout)
+        log.info(f"redirecting stdout to {stdout}")
+        cm = open(stdout, "w")
+    else:
+        cm = nullcontext()
+    with (cm) as f:
+        try:
+            with subprocess.Popen(
+                [executable, *args],
+                cwd=cwd,
+                shell=False,
+                stdout=f if f else subprocess.PIPE if stdout else None,
+                bufsize=1,
+                universal_newlines=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            ) as proc:
+                log.info(f"Started {executable}[{proc.pid}]")
+                if stdout:
+                    if isinstance(stdout, bool):
+                        out, err = proc.communicate(timeout=None)
+                        if check and proc.returncode != 0:
+                            raise NonZeroExitCode(proc.args, proc.returncode)
+                        print(err, file=stderr)
+                        return out.strip()
+                    else:  # FIXME
+                        log.info("Standard output is logged to: %s", stdout)
+                else:
+                    proc.wait()
+        except FileNotFoundError as e:
+            path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
+            raise ExecutableNotFound(e.filename, tool_name, path, *e.args) from None
+    if check and proc.returncode != 0:
+        raise NonZeroExitCode(proc.args, proc.returncode)
+    return None
+
+
 class Tool(XedaBaseModeAllowExtra):
     """abstraction for an EDA tool"""
 
@@ -139,65 +195,6 @@ class Tool(XedaBaseModeAllowExtra):
         """Tool version is greater than or equal to version specified in args"""
         return self._version_is_gte(self._version, args)
 
-    def _run_process(
-        self,
-        executable: str,
-        args: Optional[Sequence[Any]] = None,
-        env: Optional[Dict[str, Any]] = None,
-        stdout: OptionalBoolOrPath = None,
-        check: bool = True,
-        cwd: OptionalPath = None,
-    ) -> Union[None, str]:
-        if args is None:
-            args = []
-        args = [str(a) for a in args]
-        if env is not None:
-            env = {k: str(v) for k, v in env.items()}
-        log.info(f'Running `{" ".join([executable, *args])}`')
-        if cwd:
-            log.info("cwd=%s", cwd)
-        if stdout and isinstance(stdout, (str, os.PathLike)):
-            stdout = Path(stdout)
-            log.info(f"redirecting stdout to {stdout}")
-            cm = open(stdout, "w")
-        else:
-            cm = nullcontext()
-        with (cm) as f:
-            try:
-                with subprocess.Popen(
-                    [executable, *args],
-                    cwd=cwd,
-                    shell=False,
-                    stdout=f if f else subprocess.PIPE if stdout else None,
-                    bufsize=1,
-                    universal_newlines=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    env=env,
-                ) as proc:
-                    log.info(f"Started {executable}[{proc.pid}]")
-                    if stdout:
-                        if isinstance(stdout, bool):
-                            out, err = proc.communicate(timeout=None)
-                            if check and proc.returncode != 0:
-                                raise NonZeroExitCode(proc.args, proc.returncode)
-                            print(err, file=stderr)
-                            return out.strip()
-                        else:  # FIXME
-                            log.info("Standard output is logged to: %s", stdout)
-                    else:
-                        proc.wait()
-            except FileNotFoundError as e:
-                path = (
-                    env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
-                )
-                raise ExecutableNotFound(
-                    e.filename, self.__class__.__name__, path, *e.args
-                ) from None
-        if check and proc.returncode != 0:
-            raise NonZeroExitCode(proc.args, proc.returncode)
-        return None
-
     def _run_processes(
         self, commands: List[List[str]], cwd: OptionalPath = None
     ) -> Union[None, str]:
@@ -231,6 +228,24 @@ class Tool(XedaBaseModeAllowExtra):
                 raise Exception(f"Process exited with return code {p.returncode}")
         return None
 
+    def _run_process(
+        self,
+        args: Optional[Sequence[Any]] = None,
+        env: Optional[Dict[str, Any]] = None,
+        stdout: OptionalBoolOrPath = None,
+        check: bool = True,
+        cwd: OptionalPath = None,
+    ):
+        return run_process(
+            self.executable,
+            args,
+            env=env,
+            stdout=stdout,
+            check=check,
+            cwd=cwd,
+            tool_name=self.__class__.__name__,
+        )
+
     def _run_system(
         self,
         *args: Any,
@@ -242,9 +257,7 @@ class Tool(XedaBaseModeAllowExtra):
         """Run the tool if locally installed on the system and available on the current user's PATH"""
         if env is not None:
             env = {**os.environ, **env}
-        return self._run_process(
-            self.executable, args, env=env, stdout=stdout, check=check, cwd=cwd
-        )
+        return self._run_process(args, env=env, stdout=stdout, check=check, cwd=cwd)
 
     def _run_remote(
         self,
@@ -350,12 +363,13 @@ class Tool(XedaBaseModeAllowExtra):
                 f.write(f"\n".join(f"{k}={v}" for k, v in env.items()))
             docker_args.extend(["--env-file", str(env_file)])
 
-        return self._run_process(
+        return run_process(
             "docker",
             ["run", *docker_args, docker.image_name, self.executable, *args],
             env=None,
             stdout=stdout,
             check=check,
+            tool_name=self.__class__.__name__,
         )
 
     def _run(

@@ -1,10 +1,10 @@
 import logging
 from pathlib import Path
 from typing import Any, Dict, Mapping
-from types import SimpleNamespace
-from ..flow import SynthFlow
+from box import Box
 import re
 import os
+from ..flow import SynthFlow
 from ...utils import dict_merge, toml_load
 from ...tool import Tool
 
@@ -27,7 +27,7 @@ def get_hier(dct, dotted_path, default=None):
     for k, v in dct.items():
         # if not isinstance(v, Mapping):
         merged_leaves[k] = v
-    return SimpleNamespace(**merged_leaves)
+    return Box(merged_leaves)
 
 
 class Dc(SynthFlow):
