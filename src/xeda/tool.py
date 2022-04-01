@@ -7,9 +7,8 @@ from pathlib import Path
 from sys import stderr
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-from .dataclass import Field, XedaBaseModel, XedaBaseModeAllowExtra
-from .utils import unique, cached_property
-from .dataclass import validator
+from .dataclass import Field, XedaBaseModeAllowExtra, XedaBaseModel
+from .utils import cached_property, unique
 
 log = logging.getLogger(__name__)
 
@@ -36,10 +35,10 @@ class NonZeroExitCode(ToolException):
 
 class ExecutableNotFound(ToolException):
     def __init__(
-        self, exec: str, tool: str, path: str, *args: Any, **kwargs: Any
+        self, executable: str, tool: str, path: str, *args: Any, **kwargs: Any
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.exec = exec
+        self.exec = executable
         self.tool = tool
         self.path = path
 
@@ -78,12 +77,12 @@ def run_process(
     args = [str(a) for a in args]
     if env is not None:
         env = {k: str(v) for k, v in env.items()}
-    log.info(f'Running `{" ".join([executable, *args])}`')
+    log.info("Running `%s`", " ".join([executable, *args]))
     if cwd:
         log.info("cwd=%s", cwd)
     if stdout and isinstance(stdout, (str, os.PathLike)):
         stdout = Path(stdout)
-        log.info(f"redirecting stdout to {stdout}")
+        log.info("redirecting stdout to %s", stdout)
         cm = open(stdout, "w")
     else:
         cm = nullcontext()
@@ -100,7 +99,7 @@ def run_process(
                 errors="replace",
                 env=env,
             ) as proc:
-                log.info(f"Started {executable}[{proc.pid}]")
+                log.info("Started %s[%d]", executable, proc.pid)
                 if stdout:
                     if isinstance(stdout, bool):
                         out, err = proc.communicate(timeout=None)
@@ -108,8 +107,7 @@ def run_process(
                             raise NonZeroExitCode(proc.args, proc.returncode)
                         print(err, file=stderr)
                         return out.strip()
-                    else:  # FIXME
-                        log.info("Standard output is logged to: %s", stdout)
+                    log.info("Standard output is logged to: %s", stdout)
                 else:
                     proc.wait()
         except FileNotFoundError as e:
@@ -117,6 +115,40 @@ def run_process(
             raise ExecutableNotFound(e.filename, tool_name, path, *e.args) from None
     if check and proc.returncode != 0:
         raise NonZeroExitCode(proc.args, proc.returncode)
+    return None
+
+
+def _run_processes(
+    commands: List[List[str]], cwd: OptionalPath = None
+) -> Union[None, str]:
+    # if args:
+    #     args = [str(a) for a in args]
+    # if env:
+    #     env = {str(k): str(v) for k, v in env.items()}
+    processes = []
+    for cmd in commands:
+        log.info("Running `%s`", " ".join(cmd))
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            shell=False,
+            #   stdout=subprocess.PIPE if stdout else None,
+            bufsize=1,
+            universal_newlines=True,
+            encoding="utf-8",
+            errors="replace",
+            #   env=env
+        )
+        assert isinstance(proc.args, list)
+        log.info("Started %s[%d]", str(proc.args[0]), proc.pid)
+        processes.append(proc)
+
+    for p in processes:
+        p.wait()
+
+    for p in processes:
+        if p.returncode != 0:
+            raise Exception(f"Process exited with return code {p.returncode}")
     return None
 
 
@@ -150,7 +182,7 @@ class Tool(XedaBaseModeAllowExtra):
 
     @cached_property
     def _info(self) -> Dict[str, str]:
-        log.warning(f"Tool.info is not implemented for {self.__class__.__name__}!")
+        log.warning("Tool.info is not implemented for %s", self.__class__.__name__)
         return {}
 
     @property  # pydantic can't handle cached_property as private
@@ -193,40 +225,7 @@ class Tool(XedaBaseModeAllowExtra):
 
     def version_gte(self, *args: Union[int, str]) -> bool:
         """Tool version is greater than or equal to version specified in args"""
-        return self._version_is_gte(self._version, args)
-
-    def _run_processes(
-        self, commands: List[List[str]], cwd: OptionalPath = None
-    ) -> Union[None, str]:
-        # if args:
-        #     args = [str(a) for a in args]
-        # if env:
-        #     env = {str(k): str(v) for k, v in env.items()}
-        processes = []
-        for cmd in commands:
-            log.info("Running `%s`", " ".join(cmd))
-            proc = subprocess.Popen(
-                cmd,
-                cwd=cwd,
-                shell=False,
-                #   stdout=subprocess.PIPE if stdout else None,
-                bufsize=1,
-                universal_newlines=True,
-                encoding="utf-8",
-                errors="replace",
-                #   env=env
-            )
-            assert isinstance(proc.args, list)
-            log.info("Started %s[%d]", str(proc.args[0]), proc.pid)
-            processes.append(proc)
-
-        for p in processes:
-            p.wait()
-
-        for p in processes:
-            if p.returncode != 0:
-                raise Exception(f"Process exited with return code {p.returncode}")
-        return None
+        return self._version_is_gte(self.version, args)
 
     def _run_process(
         self,
@@ -332,7 +331,7 @@ class Tool(XedaBaseModeAllowExtra):
             "-e",
             "/usr/libexec/sftp-server",
         ]
-        return self._run_processes([sshfs_proc, ncat_proc])
+        return _run_processes([sshfs_proc, ncat_proc])
 
     def _run_docker(
         self,
@@ -387,8 +386,7 @@ class Tool(XedaBaseModeAllowExtra):
             return self._run_docker(
                 self.docker, *args, env=env, stdout=stdout, check=check
             )
-        else:
-            return self._run_system(*args, env=env, stdout=stdout, check=check)
+        return self._run_system(*args, env=env, stdout=stdout, check=check)
 
     def run(self, *args: Any, env: Optional[Dict[str, Any]] = None) -> None:
         self._run(*args, env=env, stdout=None)

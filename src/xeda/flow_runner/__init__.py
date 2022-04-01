@@ -1,35 +1,27 @@
+"""Flow runner"""
 import hashlib
 import importlib
 import logging
 import os
-import re
 import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
-from typing import Any, Dict, List, Mapping, Optional, Set, Type, Union
+from typing import Any, Dict, Mapping, Optional, Set, Type, Union
+
 from pathvalidate import sanitize_filename  # type: ignore # pyright: reportPrivateImportUsage=none
 from rich import box, print_json
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
+from xeda.debug import DebugLevel
+
 from ..console import console
 from ..dataclass import asdict
 from ..design import Design
-from ..flows.flow import (
-    Flow,
-    FlowDependencyFailure,
-    registered_flows,
-)
+from ..flows.flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
-from ..utils import (
-    backup_existing,
-    dict_merge,
-    dump_json,
-    snakecase_to_camelcase,
-    try_convert,
-    WorkingDirectory,
-)
+from ..utils import WorkingDirectory, backup_existing, dump_json, snakecase_to_camelcase
 from ..version import __version__
 
 log = logging.getLogger(__name__)
@@ -40,7 +32,7 @@ def print_results(
     results: Optional[Dict[str, Any]] = None,
     title: Optional[str] = None,
     subset: Optional[Set[str]] = None,
-    skip_if_empty: Optional[Set[str]] = {"artifacts", "reports"},
+    skip_if_empty: Optional[Set[str]] = None,
 ) -> None:
     if results is None:
         results = flow.results
@@ -87,15 +79,18 @@ def print_results(
 def get_flow_class(
     flow_name: str, module_name: str = "xeda.flows", package: str = __package__
 ) -> Type[Flow]:
-    (mod, flow_class) = registered_flows.get(flow_name, (None, None))
+    (_mod, flow_class) = registered_flows.get(flow_name, (None, None))
     if flow_class is None:
         log.warning(
-            f"Flow {flow_name} was not found in registered flows. Trying to load using importlib.import_module"
+            "Flow %s was not found in registered flows. Trying to load using importlib.import_module",
+            flow_name,
         )
         try:
             module = importlib.import_module(module_name)
         except ModuleNotFoundError as e:
-            log.critical(f"Unable to import {module_name} from {package}")
+            log.critical(
+                "Unable to import module %s from package %s", module_name, package
+            )
             raise e from None
         assert (
             module is not None
@@ -104,40 +99,12 @@ def get_flow_class(
         try:
             flow_class = getattr(module, flow_class_name)
         except AttributeError as e:
-            log.critical(f"Unable to find class {flow_class_name} in module {module}")
+            log.critical(
+                "Unable to find class %s in module %s", flow_class_name, module
+            )
             raise e from None
     assert flow_class is not None and issubclass(flow_class, Flow)
     return flow_class
-
-
-def merge_overrides(
-    overrides: Union[str, List[str], Flow.Settings, Dict[str, Any]],
-    settings: Dict[str, Any],
-) -> Dict[str, Any]:
-    if overrides:
-        if isinstance(overrides, str):
-            overrides = re.split(r"\s*,\s*", overrides)
-        if isinstance(overrides, list):
-            for override in overrides:
-                key, val = override.split("=")
-                hier = key.split(".")
-                patch_dict: Dict[str, Any] = dict()
-                tmp = patch_dict
-                for field in hier[:-1]:
-                    tmp[field] = dict()
-                    tmp = tmp[field]
-                tmp[hier[-1]] = try_convert(val, convert_lists=True)
-                settings = dict_merge(settings, patch_dict, True)
-            return settings
-        if isinstance(overrides, Flow.Settings):
-            overrides = overrides.__dict__
-        assert isinstance(
-            overrides, dict
-        ), f"overrides is of unsupported type: {type(overrides)}"
-        log.info(f"Overriding the following flow settings: {overrides}")
-        for k, v in overrides.items():
-            settings[k] = v
-    return settings
 
 
 def semantic_hash(data: Any) -> str:
@@ -158,25 +125,36 @@ def semantic_hash(data: Any) -> str:
 
 
 class FlowRunner:
+    """
+    Manage running flows and their dependencies.
+    1. Instantiate instance of flow class with proper settings assigned (__init__)
+    2. call Flow.init()
+    3. Run all dependency flows (asked by the flow, during Flow.init)
+    3. Run the flow by calling run()
+    4. Run flow's parese_results()
+    5. Evaluate and print the results
+    """
+
     def __init__(
         self,
         xeda_run_dir: Union[str, os.PathLike[Any]] = "xeda_run",
         unique_rundir: bool = False,  # FIXME: rename + test + doc
         debug: bool = False,
         dump_settings_json: bool = True,
-        print_results: bool = True,
+        display_results: bool = True,
         dump_results_json: bool = True,
         run_in_existing_dir: bool = False,  # Not recommended!
     ) -> None:
         if debug:
-            log.setLevel(logging.DEBUG)
+            logging.getLogger().setLevel(logging.DEBUG)
+            log.root.setLevel(logging.DEBUG)
         self.debug = debug
         log.debug("%s xeda_run_dir=%s", self.__class__.__name__, xeda_run_dir)
         xeda_run_dir = Path(xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
         self.xeda_run_dir: Path = xeda_run_dir
         self.unique_rundir: bool = unique_rundir
-        self.print_results: bool = print_results
+        self.display_results: bool = display_results
         self.dump_results_json: bool = dump_results_json
         self.dump_settings_json: bool = dump_settings_json
         self.run_in_existing_dir: bool = run_in_existing_dir
@@ -199,9 +177,6 @@ class FlowRunner:
         run_path: Path = (
             self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
         )
-        if not self.run_in_existing_dir and run_path.exists():
-            backup_existing(run_path)
-        run_path.mkdir(parents=True, exist_ok=True)
         return run_path
 
     def run_flow(
@@ -210,15 +185,33 @@ class FlowRunner:
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
     ) -> Flow:
+        return self._run_flow(flow_class, design, flow_settings, None)
 
+    def _run_flow(
+        self,
+        flow_class: Union[str, Type[Flow]],
+        design: Design,
+        flow_settings: Union[None, Dict[str, Any], Flow.Settings],
+        is_dependency_of: Optional[Flow],
+    ) -> Flow:
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
-        flow_class = flow_class
         if flow_settings is None:
             flow_settings = {}
         elif isinstance(flow_settings, Flow.Settings):
             flow_settings = asdict(flow_settings)
         flow_settings = flow_class.Settings(**flow_settings)
+
+        if isinstance(flow_class, str):
+            flow_class = get_flow_class(flow_class)
+        if flow_settings is None:
+            flow_settings = {}
+        elif isinstance(flow_settings, Flow.Settings):
+            flow_settings = asdict(flow_settings)
+        flow_settings = flow_class.Settings(**flow_settings)
+
+        if self.debug:
+            flow_settings.debug = True  # DebugLevel.HIGH
 
         flow_name = flow_class.name
 
@@ -239,9 +232,14 @@ class FlowRunner:
             design_hash,
             flowrun_hash,
         )
+
+        if not self.run_in_existing_dir and run_path.exists():
+            backup_existing(run_path)
+        run_path.mkdir(parents=True, exist_ok=True)
+
         if self.dump_settings_json:
             settings_json_path = run_path / "settings.json"
-            log.info(f"dumping effective settings to {settings_json_path}")
+            log.info("dumping effective settings to %s", settings_json_path)
             all_settings = dict(
                 design=design,
                 design_hash=design_hash,
@@ -260,31 +258,34 @@ class FlowRunner:
             flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
             flow.init()
 
-        if flow.dependencies:
-            log.debug(
-                "%s dependencies: %s",
-                flow.name,
-                ", ".join(f.name for f, _ in flow.dependencies),
-            )
-            for dep_cls, dep_settings in flow.dependencies:
-                # merge with existing self.flows[dep].settings
-                # NOTE this allows dependency flow to make changes to 'design'
-                completed_dep = self.run_flow(dep_cls, design, dep_settings)
-                if not completed_dep:
-                    log.critical(f"Dependency flow {dep_cls.name} failed")
-                    raise FlowDependencyFailure()  # TODO
-                flow.completed_dependencies.append(completed_dep)
-
+        # flow execution time includes the execution time of its dependencies
         flow.init_time = time.monotonic()
+        for dep_cls, dep_settings in flow.dependencies:
+            # merge with existing self.flows[dep].settings
+            # NOTE this allows dependency flow to make changes to 'design'
+            log.info(
+                "Running dependency: %s (%s.%s)",
+                dep_cls.name,
+                dep_cls.__module__,
+                dep_cls.__qualname__,
+            )
+            completed_dep = self._run_flow(dep_cls, design, dep_settings, flow)
+            if not completed_dep:
+                log.critical("Dependency flow: %s failed!", dep_cls.name)
+                raise FlowDependencyFailure()  # TODO
+            flow.completed_dependencies.append(completed_dep)
+
         flow.results["design"] = flow.design.name
         flow.results["flow"] = flow.name
-
         success = True
+
         with WorkingDirectory(run_path):
             try:
                 flow.run()
             except NonZeroExitCode as e:
-                log.critical(f"Execution of {e.command_args[0]} returned {e.exit_code}")
+                log.critical(
+                    "Execution of %s returned %d", e.command_args[0], e.exit_code
+                )
                 success = False
             if flow.init_time is not None:
                 flow.results.runtime = time.monotonic() - flow.init_time
@@ -292,7 +293,7 @@ class FlowRunner:
                 flow.results.success = flow.parse_reports()
                 success &= flow.results.success
                 if not success:
-                    log.error(f"Failure was reported in the parsed results.")
+                    log.error("Failure was reported in the parsed results.")
         if flow.artifacts:
 
             def default_encoder(x: Any) -> str:
@@ -306,15 +307,19 @@ class FlowRunner:
         if not success:
             flow.results.success = False
             # set success=false if execution failed
-            log.critical(f"{flow.name} failed!")
+            log.critical("%s failed!", flow.name)
 
         if self.dump_results_json:
             results_path = run_path / "results.json"
             dump_json(flow.results, results_path)
-            log.info(f"Results written to {results_path}")
+            log.info("Results written to %s", results_path)
 
-        if self.print_results:
-            print_results(flow, title=f"{flow.name} Results")
+        if self.display_results:
+            print_results(
+                flow,
+                title=f"{flow.name} Results",
+                skip_if_empty={"artifacts", "reports"},
+            )
         return flow
 
 

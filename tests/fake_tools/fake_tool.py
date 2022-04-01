@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
+import inspect
 import logging
+import os
+from pathlib import Path
 from time import sleep
 from typing import Any, Callable, Dict, List, Optional, Set, Union
-from pathlib import Path
-import click
-import inspect
-import os
 from zipfile import ZipFile
+
+import click
 from xeda.utils import XedaBaseModel
 
 log = logging.getLogger()

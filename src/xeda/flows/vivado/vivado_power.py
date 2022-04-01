@@ -1,37 +1,33 @@
+import html
 import logging
 from typing import Any, Dict
 from xml.etree import ElementTree
-import html
 
-from .vivado_sim import RunConfig, VivadoPostsynthSim
-from .vivado_synth import VivadoSynth
 from . import Vivado
+from .vivado_postsynthsim import VivadoPostsynthSim
+from .vivado_custom_synth import VivadoCustomSynth
 
 logger = logging.getLogger(__name__)
 
 
 class VivadoPower(Vivado):
-    class Settings(Vivado.Settings):
-        clock_period: float
+    class Settings(VivadoPostsynthSim.Settings):
         power_report_filename: str = "power_impl_timing.xml"
-        post_synth_sim: VivadoPostsynthSim.Settings = VivadoPostsynthSim.Settings(  # type: ignore
-            elab_debug="typical",
-            timing_sim=True,
-        )
+        elab_debug = "typical"
+        timing_sim = True
         saif_filename: str = "impl_timing.saif"
 
     def init(self) -> None:
         ss = self.settings
         assert isinstance(ss, self.Settings)
         # override/sanitize VivadoPostsynthSim dependency settings
-        pss = ss.post_synth_sim
 
         # FIXME!!! For reasons still unknown, not all strategies lead to correct post-impl simulation
-        pss.synth.synth.strategy = "AreaPower"
-        pss.synth.optimize_power = True
+        # ss.synth.synth.strategy = "AreaPower"
+        ss.synth.optimize_power = True
         # pss.synth.clock_period
         # pss.synth.clocks
-        self.add_dependency(VivadoPostsynthSim, pss)
+        self.add_dependency(VivadoPostsynthSim, ss.copy())
 
     def run(self) -> None:
 
@@ -43,7 +39,7 @@ class VivadoPower(Vivado):
         assert isinstance(postsynthsim_settings, VivadoPostsynthSim.Settings)
         run_configs = postsynthsim_settings.multirun_configs
         dep_synth_flow = postsynthsim.completed_dependencies[0]
-        assert isinstance(dep_synth_flow, VivadoSynth)
+        assert isinstance(dep_synth_flow, VivadoCustomSynth)
 
         # assert False, "FIXME! not implemented! not working!" # FIXME
         # def update_saif_path(rc):
@@ -60,11 +56,10 @@ class VivadoPower(Vivado):
         #     )
 
         assert self.design.tb
-        assert isinstance(dep_synth_flow.settings, VivadoSynth.Settings)
+        assert isinstance(dep_synth_flow.settings, VivadoCustomSynth.Settings)
 
         script_path = self.copy_from_template(
             f"vivado_power.tcl",
-            tb_top=self.design.tb.primary_top,
             run_configs=run_configs,
             checkpoint=str(
                 dep_synth_flow.run_path

@@ -1,13 +1,20 @@
-import os
-from typing import List, Optional, Dict, Sequence, Tuple, Union, Any
-from pydantic import Extra, Field, validate_model, validator, root_validator
-from pydantic.error_wrappers import ValidationError
-from pathlib import Path
-import logging
 import hashlib
+import logging
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from .utils import WorkingDirectory, toml_load
+from pydantic import (  # pylint: disable=no-name-in-module
+    Extra,
+    Field,
+    root_validator,
+    validate_model,
+    validator,
+)
+from pydantic.error_wrappers import ValidationError  # pylint: disable=no-name-in-module
+
 from .dataclass import XedaBaseModel, validation_errors
+from .utils import WorkingDirectory, toml_load
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +44,11 @@ def from_toml(
         return Design(design_root=design_root, **design_dict)
     except DesignValidationError as e:
         raise DesignValidationError(  # add design_file to the emitted exception
-            e.errors, e.data, e.design_root, e.design_name, str(design_file)
+            e.errors,
+            data=e.data,
+            design_root=e.design_root,
+            design_name=e.design_name,
+            file=str(design_file),
         ) from None
 
 
@@ -46,10 +57,10 @@ class DesignValidationError(Exception):
         self,
         errors: List[Tuple[str, str, str]],
         data: Dict[str, Any],
+        *args: object,
         design_root: Union[None, str, os.PathLike] = None,
         design_name: Optional[str] = None,
         file: Optional[str] = None,
-        *args: object,
     ) -> None:
         super().__init__(*args)
         self.errors = errors  # location, msg, type/context
@@ -79,8 +90,8 @@ class FileResource:
                 p = _root_path / p
             self.file = p.resolve(strict=True)
         except FileNotFoundError as e:
-            log.critical(f"Design resource '{path}' does not exist!")
-            raise e
+            log.critical("Design resource '%s' does not exist!", path)
+            raise e from None
 
     @property
     def hash(self) -> str:
@@ -137,11 +148,11 @@ class DesignSource(FileResource):
                 standard = standard[2:]
         self.standard = standard
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: Any) -> bool:  # pylint: disable=useless-super-delegation
         # added attributes do not change semantic equality
         return super().__eq__(other)
 
-    def __hash__(self) -> int:
+    def __hash__(self) -> int:  # pylint: disable=useless-super-delegation
         # added attributes do not change semantic identity
         return super().__hash__()
 
@@ -164,21 +175,22 @@ class DVSettings(XedaBaseModel):  # type: ignore
         description="Toplevel module(s) of the design. In addition to the primary toplevel, a secondary toplevel module can also be specified.",
     )
     generics: Dict[str, DefineType] = Field(
-        default=dict(),
+        default={},
         description="Top-level generics/defines specified as a mapping",
         alias="parameters",
         allow_population_by_field_name=True,
         has_alias=True,
     )  # top defines/generics
     parameters: Dict[str, DefineType] = Field(
-        default=dict(),
+        default={},
         description="Top-level generics/defines specified as a mapping",
         alias="generics",
         allow_population_by_field_name=True,
         has_alias=True,
     )
-    defines: Dict[str, DefineType] = Field(default=dict())
+    defines: Dict[str, DefineType] = Field(default={})
 
+    # pylint: disable=no-self-argument
     @root_validator()
     def the_root_validator(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         value = values.get("parameters")
@@ -207,14 +219,25 @@ class DVSettings(XedaBaseModel):  # type: ignore
     def sources_to_files(
         cls, sources: List[Union[DesignSource, str, os.PathLike, Path, Dict[str, Any]]]
     ) -> List[DesignSource]:
-        return [
-            src if isinstance(src, DesignSource) else DesignSource(src)
-            for src in sources
-        ]
+        ds = []
+        for src in sources:
+            if not isinstance(src, DesignSource):
+                try:
+                    src = DesignSource(src)
+                except FileNotFoundError as e:
+                    raise ValueError(
+                        f"Source file: {src} was not found: {e.strerror} {e.filename}"
+                    ) from None
+            ds.append(src)
+        return ds
 
     @property
-    def primary_top(self) -> str:
-        return self.top[0] if self.top else ""
+    def primary_top(self) -> Optional[str]:
+        return self.top[0] if len(self.top) >= 1 else None
+
+    @property
+    def secondary_top(self) -> Optional[str]:
+        return self.top[1] if len(self.top) >= 2 else None  # type: ignore
 
 
 class Clock(XedaBaseModel):
@@ -265,6 +288,10 @@ class LanguageSettings(XedaBaseModel):
 
     @validator("standard", pre=True)
     def two_digit_standard(cls, standard, values):
+        if isinstance(standard, int):
+            standard = str(standard)
+        elif not isinstance(standard, str):
+            raise ValueError("standard should be of type string")
         if standard and len(standard) == 4:
             if standard.startswith("20") or standard.startswith("19"):
                 standard = standard[2:]
@@ -282,14 +309,14 @@ class VhdlSettings(LanguageSettings):
 
 
 class Language(XedaBaseModel):
-    vhdl: VhdlSettings = VhdlSettings()
-    verilog: LanguageSettings = LanguageSettings()
+    vhdl: VhdlSettings = VhdlSettings()  # type: ignore
+    verilog: LanguageSettings = LanguageSettings()  # type: ignore
 
 
 class Design(XedaBaseModel):
     name: str
     rtl: RtlSettings
-    tb: TbSettings = TbSettings()
+    tb: TbSettings = TbSettings()  # type: ignore
     language: Language = Language()
 
     class Config(XedaBaseModel.Config):
@@ -298,15 +325,14 @@ class Design(XedaBaseModel):
     def __init__(
         self,
         design_root: Union[None, str, os.PathLike] = None,
-        *args: Any,
-        **kwargs: Any,
+        **data: Any,
     ) -> None:
         with WorkingDirectory(design_root):
             try:
-                super().__init__(*args, **kwargs)
+                super().__init__(**data)
             except ValidationError as e:
                 raise DesignValidationError(
-                    validation_errors(e.errors()), data=kwargs, design_root=design_root
+                    validation_errors(e.errors()), data=data, design_root=design_root  # type: ignore
                 ) from None
 
     @property
@@ -316,8 +342,7 @@ class Design(XedaBaseModel):
         return self.rtl.sources + [
             src
             for src in self.tb.sources
-            if src not in self.rtl.sources
-            and (src.type == "vhdl" or src.type == "verilog")
+            if src not in self.rtl.sources and src.type in ("vhdl", "verilog")
         ]
 
     @property
@@ -325,9 +350,9 @@ class Design(XedaBaseModel):
         if self.tb:
             if self.tb.cocotb and self.rtl.top:
                 return self.rtl.top
-            else:
+            if self.tb.top is not None:
                 return self.tb.top
-        return ()
+        return tuple()
 
     def check(
         self,

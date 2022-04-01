@@ -3,3 +3,44 @@ requires = ["setuptools >= 45", "wheel", "setuptools_scm[toml] >= 6.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
+
+[tool.pylint]
+
+[tool.pylint.messages_control]
+max-line-length = 120
+disable = [
+  "line-too-long",
+  "invalid-name",
+  "too-few-public-methods",
+  "unspecified-encoding",
+  "missing-function-docstring",
+  "too-many-instance-attributes",
+  "too-many-statements",
+  "too-many-branches",
+  "too-many-locals",
+  "too-many-arguments",
+  "too-many-nested-blocks",
+  # to be removed:
+  "missing-module-docstring",
+  "unused-argument",
+  "fixme",
+  "f-string-without-interpolation",
+  "wrong-import-order",
+  "missing-class-docstring",
+  "no-self-argument",               # from pydantic validators (classmethod)
+  "no-self-use",                    # from pydantic validators (classmethod)
+]
+[tool.pylint.similarities]
+min-similarity-lines = 10
+
+# Ignore comments when computing similarities.
+ignore-comments = "yes"
+
+# Ignore docstrings when computing similarities.
+ignore-docstrings = "yes"
+
+# Ignore imports when computing similarities.
+ignore-imports = "no"
+
+[tool.pylint.design]
+max-returns = 8

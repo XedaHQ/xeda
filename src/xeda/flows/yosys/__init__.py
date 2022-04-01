@@ -2,10 +2,11 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
-from box import Box
-from pydantic import root_validator, validator
-from pydantic.fields import Field
 
+from box import Box
+
+from ...dataclass import Field, root_validator, validator
+from ...design import Design
 from ...flows.ghdl import GhdlSynth
 from ...tool import DockerToolSettings, Tool
 from ..flow import SynthFlow
@@ -112,9 +113,10 @@ class Yosys(SynthFlow):
             if value is not None:
                 if isinstance(value, str):
                     value = [value]
-                value = [v if not v.strip() or v.startswith("-") else f"-{v}" for v in value]
+                value = [
+                    v if not v.strip() or v.startswith("-") else f"-{v}" for v in value
+                ]
             return value
-
 
         @validator("set_attributes", pre=True, always=True)
         def validate_set_attributes(cls, value, values):  # type: ignore
@@ -129,16 +131,15 @@ class Yosys(SynthFlow):
                                 value = {**json.load(f)}
                                 print(f"converted{attr_file} to {type(value)} \n")
                         except json.JSONDecodeError as e:
-                            # raise e from None
-                            log.critical(
+                            raise ValueError(
                                 f"Decoding of JSON file {attr_file} failed: {e.args}"
-                            )
-                            exit(1)
+                            ) from e
                         except TypeError as e:
-                            log.critical(f"JSON TypeError: {e.args}")
-                            exit(1)
+                            raise ValueError(f"JSON TypeError: {e.args}") from e
                     else:
-                        assert False
+                        raise ValueError(
+                            f"Unsupported extension for JSON file: {value}"
+                        )
                 for attr, attr_dict in value.items():
                     assert attr
                     assert attr_dict, "attr_dict must be a non-empty Dict[str, Any]"
@@ -159,23 +160,24 @@ class Yosys(SynthFlow):
             ), "ERROR in flows.yosys.settings: No targets specified! Either 'fpga' or 'tech' must be specified."
             return values
 
-    def init(self) -> None:
-        assert isinstance(self.settings, self.Settings)
-        # TODO?
+    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
+        super().__init__(flow_settings, design, run_path)
         self.stat_report = "utilization.rpt"
         self.timing_report = "timing.rpt"
-
-        ss = self.settings
-        if ss.fpga:
-            assert ss.fpga.family or ss.fpga.vendor == "xilinx"
-        # TODO use pydantic or dataclass?
         self.artifacts = Box(
             # non-plural names are preferred for keys, e.g. "digram" instead of "diagrams".
             diagram={},
             report=dict(utilization=self.stat_report, timing=self.timing_report),
-            rtl=dict(),
-            netlist=dict(),
+            rtl={},
+            netlist={},
         )
+
+    def init(self) -> None:
+        assert isinstance(self.settings, self.Settings)
+
+        ss = self.settings
+        if ss.fpga:
+            assert ss.fpga.family or ss.fpga.vendor == "xilinx"
         if ss.rtl_json:
             self.artifacts.rtl.json = ss.rtl_json
         if ss.rtl_vhdl:
@@ -246,15 +248,17 @@ class Yosys(SynthFlow):
             "yosys.tcl",
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),
         )
-        log.info(f"Yosys script: {self.run_path / script_path}")
+        log.info(
+            "Yosys script: %s", self.run_path.relative_to(Path.cwd()) / script_path
+        )
         # args = ['-s', script_path]
         args = ["-c", script_path]
         if ss.log_file:
             args.extend(["-L", ss.log_file])
         if not ss.verbose:  # reduce noise unless verbose
             args.extend(["-T", "-Q", "-q"])
-        self.results["_tool"] = yosys._info  # TODO where should this go?
-        log.info(f"Logging yosys output to {ss.log_file}")
+        self.results["_tool"] = yosys.info  # TODO where should this go?
+        log.info("Logging yosys output to %s", ss.log_file)
         yosys.run(*args)
         skin_file = None
         elk_layout = None
@@ -270,7 +274,7 @@ class Yosys(SynthFlow):
                 if elk_layout:
                     args.extend(["--layout", elk_layout])
                 netlistsvg.run(*args)
-            if ss.netlist_json and False:
+            if ss.netlist_json:
                 svg_file = "netlist.svg"
                 self.artifacts.diagram["netlistsvg"] = svg_file
                 args = [self.artifacts.netlist.json, "-o", svg_file]

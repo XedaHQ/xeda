@@ -5,7 +5,7 @@ proc errorExit {errorString} {
 }
 
 set design_name    {{design.name}}
-set snapshot_name  {{design.tb.primary_top}}
+set snapshot_name  snapshot
 
 load_feature simulator
 
@@ -48,7 +48,7 @@ if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standar
 {% for rc in multirun_configs %}
 
 puts "\n===========================( Elaborating design )==========================="
-if { [catch {eval exec xelab -s ${snapshot_name} -L {{lib_name}} {{settings.elab_flags|join(' ')}} ${xelab_flags} {%- for k,v in rc.generics.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in design.sim_tops %} {{lib_name}}.{{top}} {% endfor -%}  } error]} {
+if { [catch {eval exec xelab -s ${snapshot_name} -L {{lib_name}} {%- for l,_ in settings.lib_paths %} -L {{l}} {%- endfor %} {{settings.elab_flags|join(' ')}} ${xelab_flags} {%- for k,v in rc.generics.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in design.tb.top %} {{top}} {%- endfor -%}  } error]} {
     errorExit $error
 }
 
@@ -83,7 +83,7 @@ ptrace on
 {% endif -%}
 
 puts "\n===========================( Running simulation )==========================="
-puts "\n===========================( *ENABLE ECHO* )==========================="
+# puts "\n===========================( *ENABLE ECHO* )==========================="
 {% if settings.prerun_time %}
 puts "Pre-run for {{settings.prerun_time}}"
 if { [catch {eval run {{settings.prerun_time}} } error]} {
@@ -108,7 +108,7 @@ set fin_time [eval current_time]
 
 puts "\[Vivado\] Simulation finished at ${fin_time}"
 
-puts "\n===========================( *DISABLE ECHO* )==========================="
+# puts "\n===========================( *DISABLE ECHO* )==========================="
 {% if rc.vcd %}
 puts "\n===========================( Closing VCD file )==========================="
 flush_vcd

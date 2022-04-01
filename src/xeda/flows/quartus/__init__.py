@@ -1,35 +1,38 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-
-from pathlib import Path
-from typing import Any, Literal, Optional
-from pydantic.fields import Field
+"""Intel Quartus flows"""
 import csv
 import logging
-from ..flow import FpgaSynthFlow
+from pathlib import Path
+from typing import Any, Callable, Literal, Optional, Set
+
+from ...dataclass import Field
 from ...tool import Tool
+from ...types import PathLike
+from ..flow import FpgaSynthFlow
 
 log = logging.getLogger(__name__)
 
+identity = lambda x: x
+
 
 def parse_csv(
-    path,
+    path: PathLike,
     id_field: Optional[str],
-    field_parser=(lambda x: x),
-    id_parser=(lambda x: x),
-    interesting_fields=None,
+    field_parser: Callable[[str], Any] = identity,
+    id_parser: Callable[[str], Any] = identity,
+    interesting_fields: Optional[Set[str]] = None,
 ):
     """Parse TCL-generated CSV file"""
     data = {}
-
     with open(path, newline="") as csvfile:
         if id_field:
             # with header, and some rows of data indexed by id_field
             reader = csv.DictReader(csvfile)
             for row in reader:
                 if interesting_fields is None:
-                    interesting_fields = row.keys()
-                id = id_parser(row[id_field])
-                data[id] = {
+                    interesting_fields = set(row.keys())
+                id_ = id_parser(row[id_field])
+                data[id_] = {
                     k: field_parser(row[k]) for k in interesting_fields if k in row
                 }
         else:
@@ -61,6 +64,8 @@ def try_float(s: str):
 
 class Quartus(FpgaSynthFlow):
     """FPGA synthesis using Intel Quartus"""
+
+    quartus_sh = Tool("quartus_sh")
 
     class Settings(FpgaSynthFlow.Settings):
         # part number (fpga.part) formats are quite complicated.
@@ -125,7 +130,6 @@ class Quartus(FpgaSynthFlow):
             / "Timing_Analyzer"
             / "Multicorner_Timing_Analysis_Summary.csv",
         }
-        self.quartus_sh = Tool("quartus_sh")
 
     def create_project(self, **kwargs: Any) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -167,9 +171,9 @@ class Quartus(FpgaSynthFlow):
             "FLOW_ENABLE_POWER_ANALYZER": True,
         }
 
-        clock_sdc_path = self.copy_from_template(f"clock.sdc")
+        clock_sdc_path = self.copy_from_template("clock.sdc")
         script_path = self.copy_from_template(
-            f"create_project.tcl",
+            "create_project.tcl",
             sdc_files=[clock_sdc_path],
             project_settings=project_settings,
             **kwargs,
@@ -236,7 +240,7 @@ class Quartus(FpgaSynthFlow):
             id_field="Compilation Hierarchy Node",
             field_parser=lambda s: try_num(s.split()[0]),
             id_parser=lambda s: s.strip().lstrip("|"),
-            interesting_fields=[
+            interesting_fields={
                 "Logic Cells",
                 "LUT-Only LCs",
                 "Register-Only LCs",
@@ -253,7 +257,7 @@ class Quartus(FpgaSynthFlow):
                 "Block Memory Bits",
                 "Pins",
                 "I/O Registers",
-            ],
+            },
         )
 
         top_resources = resources.get(self.design.rtl.top, {})
@@ -277,7 +281,7 @@ class Quartus(FpgaSynthFlow):
             id_field="Clock",
             field_parser=try_float,
             id_parser=lambda s: s.strip(),
-            interesting_fields=["Setup", "Hold"],
+            interesting_fields={"Setup", "Hold"},
         )
         worst_slacks = slacks["Worst-case Slack"]
         wns = worst_slacks["Setup"]
@@ -285,9 +289,9 @@ class Quartus(FpgaSynthFlow):
         self.results["wns"] = wns
         self.results["whs"] = whs
 
-        if isinstance(wns, float) or isinstance(wns, int):
+        if isinstance(wns, (int,float)):
             failed |= wns < 0
-        if isinstance(whs, float) or isinstance(whs, int):
+        if isinstance(whs, (int,float)):
             failed |= whs < 0
 
         timing_reports_folder = Path(reports["timing_dir"])
@@ -295,20 +299,20 @@ class Quartus(FpgaSynthFlow):
         for fmax_report in timing_reports_folder.glob(
             "Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"
         ):
-            log.info(f"Parsing timing report: {fmax_report}")
+            log.info("Parsing timing report: %s", fmax_report)
             fmax = parse_csv(
                 fmax_report,
                 id_field="Clock Name",
                 field_parser=lambda s: s.strip().split(),
                 id_parser=lambda s: s.strip(),
-                interesting_fields=["Fmax"],
+                interesting_fields={"Fmax"},
             )
             conditions = (
                 fmax_report.parent.name.lstrip("Slow_").rstrip("_Model").split("_")
             )
             for clock in self.settings.clocks.keys():
                 flst = fmax.get(clock, {}).get("Fmax")
-                assert len(flst) == 2
+                assert flst and len(flst) == 2
                 fmhz = float(flst[0])
                 if flst[1] == "GHz":
                     fmhz *= 1000.0

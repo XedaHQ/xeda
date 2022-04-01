@@ -18,9 +18,8 @@ class Modelsim(SimFlow):
         vsim_opts = []
         tb = self.design.tb
         ss = self.settings
-        if ss.libraries:
-            # TODO are library paths supported?
-            vsim_opts.extend([f"-L {l}" for l in ss.libraries.keys()])
+        # TODO are library paths supported?
+        vsim_opts.extend([f"-L {l}" for l in ss.lib_paths])
         sdf_root = ss.sdf.root if ss.sdf.root else tb.uut
         for dt, f in ss.sdf.delay_items():
             assert sdf_root, "Neither settings.sdf.root or design.tb.uut are provided"

@@ -53,15 +53,17 @@ class IseSynth(FpgaSynthFlow):
         xtclsh.run(script_path)
 
     def parse_reports(self) -> bool:
+        top = self.design.rtl.top[0]
+        assert top
         # self.parse_report_regex(self.design.name + ".twr", r'(?P<wns>\-?\d+')
         fail = not self.parse_report_regex(
-            self.design.rtl.primary_top + "_par.xrpt",
+            top + "_par.xrpt",
             r'stringID="PAR_SLICES" value="(?P<slice>\-?\d+)"',
             r'stringID="PAR_SLICE_REGISTERS" value="(?P<ff>\-?\d+)"',
             r'stringID="PAR_SLICE_LUTS" value="(?P<lut>\-?\d+)"',
         )
         fail |= not self.parse_report_regex(
-            self.design.rtl.primary_top + ".syr",
+            top + ".syr",
             r"Minimum period:\s+(?P<minimum_period>\-?\d+(?:\.\d+)?)ns\s+\(Maximum Frequency: (?P<maximum_frequency>\-?\d+(?:\.\d+)?)MHz\)",
             r"Slack:\s+(?P<wns>\-?\d+(?:\.\d+)?)ns",
         )

@@ -1,10 +1,18 @@
+"""Interchangable dataclass abstraction"""
+import logging
 from abc import ABCMeta
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
-import pydantic
-import attrs
-from pydantic import Field, validator, root_validator, Extra, ValidationError
-import logging
 
+import attrs
+from pydantic import (  # pylint: disable=no-name-in-module
+    BaseConfig,
+    BaseModel,
+    Extra,
+    Field,
+    ValidationError,
+    root_validator,
+    validator,
+)
 
 __all__ = [
     "XedaBaseModel",
@@ -32,7 +40,7 @@ def field(
     default: Any = attrs.NOTHING,
     *,
     description: Optional[str] = None,
-    validator: Optional[Callable[..., None]] = None,
+    validator_: Optional[Callable[..., None]] = None,
     converter: Optional[Callable[..., Any]] = None,
     factory: Optional[Callable[[], Any]] = None,
     on_setattr: Any = None,
@@ -43,7 +51,7 @@ def field(
         metadata = {"description": description}
     return attrs.field(
         default=default,
-        validator=validator,
+        validator=validator_,
         converter=converter,
         factory=factory,
         on_setattr=on_setattr,
@@ -52,16 +60,16 @@ def field(
     )
 
 
-def asdict(inst: Any, filter: Optional[Callable[..., bool]] = None) -> Dict[str, Any]:
-    if isinstance(inst, pydantic.BaseModel):
-        assert filter is None
+def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str, Any]:
+    if isinstance(inst, BaseModel):
+        assert filter_ is None
         return inst.dict()
-    elif True:  # FIXME
-        return attrs.asdict(inst, filter=filter)
+    else:  # FIXME ???
+        return attrs.asdict(inst, filter=filter_)
 
 
-class XedaBaseModel(pydantic.BaseModel):
-    class Config(pydantic.BaseConfig):
+class XedaBaseModel(BaseModel):
+    class Config(BaseConfig):
         validate_assignment = True
         extra = Extra.forbid
         arbitrary_types_allowed = True

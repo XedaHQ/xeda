@@ -7,11 +7,14 @@ from .modelsim import Modelsim
 from .nextpnr import Nextpnr
 from .openfpgaloader import Openfpgaloader
 from .quartus import Quartus
-from .vivado.vivado_project import VivadoPrjSynth
-from .vivado.vivado_sim import VivadoSim
 from .vivado.vivado_synth import VivadoSynth
+from .vivado.vivado_sim import VivadoSim
+from .vivado.vivado_postsynthsim import VivadoPostsynthSim
+from .vivado.vivado_custom_synth import VivadoCustomSynth
 from .yosys import Yosys
-from .yosys import Yosys as YosysSynth  # alias for backwards compatibility
+
+# alias for backwards compatibility
+from .yosys import Yosys as YosysSynth  # pylint: disable=reimported
 
 __all__ = [
     "Dc",
@@ -19,11 +22,12 @@ __all__ = [
     "GhdlSim",
     "GhdlSynth",
     "IseSynth",
-    "VivadoPrjSynth",
     "Modelsim",
     "Nextpnr",
     "Openfpgaloader",
     "Quartus",
+    "VivadoCustomSynth",
+    "VivadoPostsynthSim",
     "VivadoSim",
     "VivadoSynth",
     "Yosys",

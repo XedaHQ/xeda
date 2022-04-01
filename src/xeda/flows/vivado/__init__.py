@@ -1,21 +1,21 @@
-from html import unescape
 import logging
+from abc import ABCMeta
 from functools import reduce
+from html import unescape
 from pathlib import Path
 from typing import Any, Dict, Optional
 from xml.etree import ElementTree
 
-from ...design import Design
-from ...utils import try_convert
-from ..flow import Flow
-from ...tool import Tool
 from ...debug import DebugLevel
+from ...design import Design
+from ...tool import Tool
+from ..flow import Flow
 
 log = logging.getLogger(__name__)
 
 
 def vivado_generics(kvdict, sim=False):
-    def supported_vivado_generic(k, v, sim):
+    def supported_vivado_generic(v, sim):
         if sim:
             return True
         if isinstance(v, int):
@@ -39,12 +39,14 @@ def vivado_generics(kvdict, sim=False):
         [
             f"-generic{'_top' if sim else ''} {k}={vivado_gen_convert(k, v, sim)}"
             for k, v in kvdict.items()
-            if supported_vivado_generic(k, v, sim)
+            if supported_vivado_generic(v, sim)
         ]
     )
 
 
-class Vivado(Flow):
+class Vivado(Flow, metaclass=ABCMeta):
+    """Xilinx (AMD) Vivado FPGA synthesis and simulation flows"""
+
     class Settings(Flow.Settings):
         pass
 
@@ -65,7 +67,7 @@ class Vivado(Flow):
             log.critical("Parsing %s failed: %s", report_xml, e.msg)
             return None
         data = {}
-        for section in tree.findall(f"./section"):
+        for section in tree.findall("./section"):
             section_title = section.get("title", "<section>")
             for table in section.findall("./table"):
                 table_data = {}
@@ -81,9 +83,8 @@ class Vivado(Flow):
                     if cells:
                         # choose 0th element as "index data" (distinct key)
                         cell_data = {h: c for h, c in zip(header[1:], cells[1:]) if c}
-                        cell_key = cells[0]
                         if cell_data:
-                            table_data[cell_key] = try_convert(cell_data, to_str=False)
+                            table_data[cells[0]] = cell_data
                 if table_data:
                     table_title = table.get("title")
                     title = (

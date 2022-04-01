@@ -100,7 +100,9 @@ class DiamondSynth(FpgaSynthFlow):
         for res in forbidden_resources:
             if res in self.results and self.results[res] != 0:
                 log.critical(
-                    f"Map report shows {self.results[res]} use(s) of forbidden resource {res}."
+                    "Map report shows %s use(s) of forbidden resource %s.",
+                    self.results[res],
+                    res,
                 )
                 failed = True
 

@@ -6,7 +6,6 @@ from pathlib import Path
 from xeda import Design, Flow
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Yosys
-from xeda.flows.flow import FPGA
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 

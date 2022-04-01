@@ -44,12 +44,10 @@ proc showWarningsAndErrors {} {
   if {$num_crit_warns > 0} {
     puts "\n===========================( *ENABLE ECHO* )==========================="
     puts "** Number of Critical Warnings:  $num_crit_warns"
-
-
-    if {$::fail_critical_warning} {
-      puts "Exiting due to $num_crit_warns critical warning(s)!"
-      exit 1
-    }
+    {% if settings.fail_critical_warning -%}
+    puts "Exiting due to $num_crit_warns critical warning(s)!"
+    exit 1
+    {%- endif %}
     puts "\n===========================( *DISABLE ECHO* )==========================="
   }
 
@@ -57,6 +55,6 @@ proc showWarningsAndErrors {} {
     puts "** Number of Warnings:           $num_warns"
   }
 
-  puts "\n\n"
+  puts "\n"
 }
 

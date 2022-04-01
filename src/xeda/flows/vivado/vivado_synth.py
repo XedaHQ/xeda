@@ -1,251 +1,15 @@
 import logging
-from typing import Any, Dict, Optional, List
-from pydantic import validator, Field
-
-from ..flow import FPGA, FpgaSynthFlow, XedaBaseModel
-from . import Vivado
+import os
+from pathlib import Path
+from typing import List, Optional, Dict, Any
+from ..vivado import Vivado
+from ..flow import FpgaSynthFlow
+from ...dataclass import Field, XedaBaseModel
 
 log = logging.getLogger(__name__)
 
-# curated options based on experiments and:
-# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug904-vivado-implementation.pdf
-# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug901-vivado-synthesis.pdf
-xeda_strategies: Dict[str, Dict[str, Any]] = {
-    "Debug": {
-        "synth": {
-            "-assert": None,
-            "-debug_log": None,
-            "-flatten_hierarchy": "none",
-            "-keep_equivalent_registers": None,
-            "-no_lc": None,
-            "-fsm_extraction": "off",
-            "-directive": "RuntimeOptimized",
-        },
-        "opt": {"-directive": "RuntimeOptimized"},
-        "place": {"-directive": "RuntimeOptimized"},
-        "place_opt": {},
-        "route": {"-directive": "RuntimeOptimized"},
-        "phys_opt": {"-directive": "RuntimeOptimized"},
-    },
-    "Runtime": {
-        "synth": {"-directive": "RuntimeOptimized"},
-        "opt": {"-directive": "RuntimeOptimized"},
-        "place": {"-directive": "RuntimeOptimized"},
-        "place_opt": {},
-        # with -ultrathreads results are not reproducible!
-        # OR "-no_timing_driven -ultrathreads",
-        "route": {"-directive": "RuntimeOptimized"},
-        "phys_opt": {"-directive": "RuntimeOptimized"},
-    },
-    "Default": {
-        "synth": {"-flatten_hierarchy": "rebuilt", "-directive": "Default"},
-        "opt": {"-directive": "ExploreWithRemap"},
-        "place": {"-directive": "Default"},
-        "place_opt": {},
-        "route": {"-directive": "Default"},
-        "phys_opt": {"-directive": "Default"},
-    },
-    "Timing": {
-        # -mode: default, out_of_context
-        # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
-        # -no_lc: When checked, this option turns off LUT combining
-        # -keep_equivalent_registers -no_lc
-        "synth": {
-            "-flatten_hierarchy": "rebuilt",
-            "-retiming": None,
-            "-directive": "PerformanceOptimized",
-            "-fsm_extraction": "one_hot",
-            #   "-resource_sharing off",
-            #   "-no_lc",
-            "-shreg_min_size": "5",
-            #   "-keep_equivalent_registers "
-        },
-        "opt": {"-directive": "ExploreWithRemap"},
-        "place": {"-directive": "ExtraPostPlacementOpt"},
-        "place_opt": {
-            "-retarget": None,
-            "-propconst": None,
-            "-sweep": None,
-            "-aggressive_remap": None,
-            "-shift_register_opt": None,
-        },
-        "phys_opt": {"-directive": "AggressiveExplore"},
-        "place_opt2": {"-directive": "Explore"},
-        # "route": "-directive NoTimingRelaxation",
-        "route": {"-directive": "AggressiveExplore"},
-    },
-    # "ExtraTimingCongestion": {
-    #     "synth": ["-flatten_hierarchy": "full",
-    #               "-retiming",
-    #               "-directive": "PerformanceOptimized",
-    #               "-fsm_extraction": "one_hot",
-    #               "-resource_sharing off",
-    #               "-shreg_min_size 10",
-    #               "-keep_equivalent_registers",
-    #               ],
-    #     "opt": ["-directive ExploreWithRemap"],
-    #     "place": ["-directive AltSpreadLogic_high"],
-    #     "place_opt": ['-retarget', '-propconst', '-sweep', '-remap', '-muxf_remap', '-aggressive_remap', '-shift_register_opt'],
-    #     "place_opt2": ["-directive Explore"],
-    #     "phys_opt": ["-directive AggressiveExplore"],
-    #     "route": ["-directive AlternateCLBRouting"],
-    # },
-    "ExtraTiming": {
-        "synth": {
-            "-flatten_hierarchy": "full",
-            "-retiming": None,
-            "-directive": "PerformanceOptimized",
-            "-fsm_extraction": "one_hot",
-            "-resource_sharing": "off",
-            #   "-no_lc",
-            "-shreg_min_size": "10",
-            "-keep_equivalent_registers": None,
-        },
-        "opt": {"-directive": "ExploreWithRemap"},
-        "place": {"-directive": "ExtraTimingOpt"},
-        "place_opt": {
-            "-retarget": None,
-            "-propconst": None,
-            "-sweep": None,
-            "-muxf_remap": None,
-            "-aggressive_remap": None,
-            "-shift_register_opt": None,
-        },
-        "place_opt2": {"-directive": "Explore"},
-        "phys_opt": {"-directive": "AggressiveExplore"},
-        "route": {"-directive": "NoTimingRelaxation"},
-    },
-    # "ExtraTimingAltRouting": {
-    #     # -mode: default, out_of_context
-    #     # -flatten_hierarchy: rebuilt, full; equivalent in terms of QoR?
-    #     # -no_lc: When checked, this option turns off LUT combining
-    #     # -keep_equivalent_registers -no_lc
-    #     "synth": ["-flatten_hierarchy full",
-    #               "-retiming",
-    #               "-directive PerformanceOptimized",
-    #               "-fsm_extraction one_hot",
-    #               #   "-resource_sharing off",
-    #               #   "-no_lc",
-    #               "-shreg_min_size 5",
-    #               "-keep_equivalent_registers "
-    #               ],
-    #     "opt": ["-directive ExploreWithRemap"],
-    #     "place": ["-directive ExtraTimingOpt"],
-    #     "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt'],
-    #     "phys_opt": ["-directive AggressiveExplore"],
-    #     # "route": "-directive NoTimingRelaxation",
-    #     "route": ["-directive AlternateCLBRouting"],
-    # },
-    # "Area": {
-    #     # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
-    #     "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", "-directive AreaOptimized_medium"],
-    #     # if no directive: -resynth_seq_area
-    #     "opt": "-directive ExploreArea",
-    #     "place": "-directive Default",
-    #     "place_opt": "-directive ExploreArea",
-    #     # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-    #     #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-    #     # if no directive: -placement_opt
-    #     "phys_opt": "-directive Explore",
-    #     "route": "-directive Explore",
-    # },
-    # "AreaHigh": {
-    #     # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
-    #     "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing on", "-directive AreaOptimized_high"],
-    #     # if no directive: -resynth_seq_area
-    #     "opt": "-directive ExploreArea",
-    #     "place": "-directive Default",
-    #     "place_opt": "-directive ExploreArea",
-    #     # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-    #     #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-    #     # if no directive: -placement_opt
-    #     "phys_opt": "-directive Explore",
-    #     "route": "-directive Explore",
-    # },
-    # "AreaPower": {
-    #     # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
-    #     "synth": ["-flatten_hierarchy full", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto", "-gated_clock_conversion auto", "-directive AreaOptimized_medium"],
-    #     "opt": ["-directive ExploreArea"],
-    #     "place": "-directive Default",
-    #     "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-    #     "place_opt2": ["-directive ExploreArea"],
-    #     # FIXME!!! This is the only option that results in correct post-impl timing sim! Why??!
-    #     "phys_opt": ["-directive AggressiveExplore"],
-    #     "route": ["-directive Explore"],
-    # },
-    # "AreaTiming": {
-    #     "synth": ["-flatten_hierarchy rebuilt", "-retiming"],
-    #     # if no directive: -resynth_seq_area
-    #     "opt": ["-directive ExploreWithRemap"],
-    #     "place": ["-directive ExtraPostPlacementOpt"],
-    #     # "place_opt": ["-directive ExploreArea"],
-    #     "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt', '-dsp_register_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-    #     "place_opt2": ["-directive ExploreArea"],
-    #     # if no directive: -placement_opt
-    #     "phys_opt": "-directive AggressiveExplore",
-    #     "route": "-directive Explore",
-    # },
-    # "AreaExploreWithRemap": {
-    #     "synth": ["-flatten_hierarchy full", "-retiming"],
-    #     # if no directive: -resynth_seq_area
-    #     "opt": "-directive ExploreWithRemap",
-    #     "place": "-directive Default",
-    #     "place_opt": "-directive ExploreWithRemap",
-    #     # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-    #     #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-    #     # if no directive: -placement_opt
-    #     "phys_opt": "-directive Explore",
-    #     "route": "-directive Explore",
-    # },
-    # "AreaExploreWithRemap2": {
-    #     "synth": [],
-    #     # if no directive: -resynth_seq_area
-    #     "opt": "-directive ExploreArea",
-    #     "place": "-directive Default",
-    #     "place_opt": "-directive ExploreWithRemap",
-    #     # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-    #     #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-    #     # if no directive: -placement_opt
-    #     "phys_opt": "-directive Explore",
-    #     "route": "-directive Explore",
-    # },
-    # "AreaExplore": {
-    #     "synth": ["-flatten_hierarchy full"],
-    #     # if no directive: -resynth_seq_area
-    #     "opt": "-directive ExploreArea",
-    #     "place": "-directive Default",
-    #     "place_opt": "-directive ExploreArea",
-    #     # "place_opt": ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-    #     #               '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-    #     # if no directive: -placement_opt
-    #     "phys_opt": "-directive Explore",
-    #     "route": "-directive Explore",
-    # },
-    # "Power": {
-    #     "synth": ["-flatten_hierarchy full", "-gated_clock_conversion auto", "-control_set_opt_threshold 1", "-shreg_min_size 3", "-resource_sharing auto"],
-    #     # if no directive: -resynth_seq_area
-    #     "opt": "-directive ExploreSequentialArea",
-    #     "place": "-directive Default",
-    #     "place_opt": "-directive ExploreSequentialArea",
-    #     # ['-retarget', '-propconst', '-sweep', '-aggressive_remap', '-shift_register_opt',
-    #     #   '-dsp_register_opt', '-bram_power_opt', '-resynth_seq_area', '-merge_equivalent_drivers'],
-    #     # if no directive: -placement_opt
-    #     "phys_opt": "-directive Explore",
-    #     "route": "-directive Explore",
-    # }
-}
-
 
 StepsValType = Optional[Dict[str, Any]]
-
-
-def _vivado_steps(strategy: str, s: str):
-    def get_steps(run: str) -> List[str]:
-        if run == "synth":
-            return ["synth", "opt"]
-        else:
-            return ["place", "place_opt", "place_opt2", "phys_opt", "phys_opt2", "route"]
-    return {step: xeda_strategies[strategy].get(step) for step in get_steps(s)}
 
 
 class RunOptions(XedaBaseModel):
@@ -254,90 +18,114 @@ class RunOptions(XedaBaseModel):
 
 
 class VivadoSynth(Vivado, FpgaSynthFlow):
-    """Synthesize with Xilinx Vivado using a custom flow"""
+    """Synthesize with Xilinx Vivado using a project-based flow"""
 
-    class BaseSettings(FpgaSynthFlow.Settings):
-        fail_critical_warning = False
-        fail_timing = True
+    class Settings(FpgaSynthFlow.Settings):
+        """Settings for Vivado synthesis in project mode"""
+
+        # FIXME implement and verify all
+        synth_output_dir: str = "output"
+        checkpoints_dir: str = "checkpoints"
+        fail_critical_warning = Field(
+            False,
+            description="flow fails if any Critical Warnings are reported by Vivado",
+        )
+        fail_timing = Field(True, description="flow fails if timing is not met")
         optimize_power = False
         optimize_power_postplace = False
-        blacklisted_resources: List[str] = Field(
-            ["latch"],
+        blacklisted_resources: List[str] = Field(  # TODO: remove
+            # ["latch"],
+            [],
             description="list of FPGA resources which are not allowed to be inferred or exist in the results. Valid values: latch, dsp, bram",
         )
         input_delay: Optional[float] = None
         output_delay: Optional[float] = None
-        out_of_context = False
-        write_checkpoint = False
-        write_netlist = False
-        write_bitstream = False
-        synth: RunOptions = RunOptions()
-        impl: RunOptions = RunOptions()
-
-        @validator("fpga")
-        def validate_fpga(cls, v: FPGA):
-            if not v.part:
-                if not v.speed:
-                    v.speed = "-1"
-                if v.device and v.package:
-                    v.part = (v.device + v.package + v.speed).lower()
-            assert v.part, "fpga.part is not known. Please specify more details."
-            return v
-
-    class Settings(BaseSettings):
-        synth_output_dir = "output"
-        checkpoints_dir = "checkpoints"
+        out_of_context: bool = False
+        write_checkpoint: bool = False
+        write_netlist: bool = True
+        write_bitstream: bool = False
+        qor_suggestions: bool = False
         synth: RunOptions = RunOptions(
-            strategy="Default", steps=_vivado_steps("Default", "synth")
+            strategy="Flow_PerfOptimized_high",
+            steps={
+                "SYNTH_DESIGN": {},
+                "OPT_DESIGN": {},
+                "POWER_OPT_DESIGN": {},
+            },
         )
         impl: RunOptions = RunOptions(
-            strategy="Default", steps=_vivado_steps("Default", "impl")
+            strategy="Performance_ExploreWithRemap",
+            steps={
+                "PLACE_DESIGN": {},
+                "POST_PLACE_POWER_OPT_DESIGN": {},
+                "PHYS_OPT_DESIGN": {},
+                "ROUTE_DESIGN": {},
+                "WRITE_BITSTREAM": {},
+            },
         )
-
-        @validator("synth")
-        def validate_synth(cls, v: RunOptions):
-            if v.strategy and not v.steps:
-                v.steps = _vivado_steps(v.strategy, "synth")
-            return v
-
-        @validator("impl", always=True)
-        def validate_impl(cls, v: RunOptions, values):
-            if not v.strategy:
-                v.strategy = values.get("synth", {}).get("strategy")
-            if v.strategy and not v.steps:
-                v.steps = _vivado_steps(v.strategy, "impl")
-            return v
 
     def run(self):
-        clock_xdc_path = self.copy_from_template(f"clock.xdc")
-        ss = self.settings
-        assert isinstance(ss, self.Settings)
+        assert isinstance(self.settings, self.Settings)
+        settings = self.settings
+        for o in [
+            "timesim.min.sdf",
+            "timesim.max.sdf",
+            "timesim.v",
+            "funcsim.vhdl",
+            "xdc",
+        ]:
+            self.artifacts[o] = os.path.join(settings.synth_output_dir, o)
 
-        if ss.out_of_context:
-            if "synth" in ss.synth.steps and ss.synth.steps["synth"] is not None:
-                ss.synth.steps["synth"]["-mode"] = "out_of_context"
+        settings.synth.steps = {
+            **{
+                "SYNTH_DESIGN": {},
+                "OPT_DESIGN": {},
+                "POWER_OPT_DESIGN": {},
+            },
+            **settings.synth.steps,
+        }
+        settings.impl.steps = {
+            **{
+                "PLACE_DESIGN": {},
+                "POST_PLACE_POWER_OPT_DESIGN": {},
+                "PHYS_OPT_DESIGN": {},
+                "ROUTE_DESIGN": {},
+                "WRITE_BITSTREAM": {},
+            },
+            **settings.impl.steps,
+        }
 
-        blacklisted_resources = ss.blacklisted_resources
-        if "bram" in blacklisted_resources and "bram_tile" not in blacklisted_resources:
-            blacklisted_resources.append("bram_tile")
+        if not self.design.rtl.clock_port:
+            log.critical(
+                "No clocks specified for top RTL design. Continuing with synthesis anyways."
+            )
+        else:
+            assert (
+                settings.clock_period
+            ), "`clock_period` must be specified and be positive value"
+            freq = 1000 / settings.clock_period
+            log.info(
+                "clock.port=%s clock.frequency=%.3f MHz",
+                self.design.rtl.clock_port,
+                freq,
+            )
+        clock_xdc_path = self.copy_from_template("clock.xdc")
 
-        self.blacklisted_resources = blacklisted_resources
-        log.info(f"blacklisted_resources: {blacklisted_resources}")
+        if settings.blacklisted_resources:
+            log.info("blacklisted_resources: %s", self.settings.blacklisted_resources)
 
-        # if 'bram_tile' in blacklisted_resources:
-        #     # FIXME also add -max_uram 0 for ultrascale+
-        #     settings.synth.steps['synth'].append('-max_bram 0')
-        # if 'dsp' in blacklisted_resources:
-        #     settings.synth.steps['synth'].append('-max_dsp 0')
+        if settings.synth.steps["SYNTH_DESIGN"] is None:
+            settings.synth.steps["SYNTH_DESIGN"] = {}
+        assert settings.synth.steps["SYNTH_DESIGN"] is not None
+        if "bram_tile" in settings.blacklisted_resources:
+            # FIXME also add -max_uram 0 for ultrascale+
+            settings.synth.steps["SYNTH_DESIGN"]["MAX_BRAM"] = 0
+        if "dsp" in settings.blacklisted_resources:
+            settings.synth.steps["SYNTH_DESIGN"]["MAX_DSP"] = 0
 
-        self.add_template_filter(
-            "flatten_dict",
-            lambda d: " ".join([f"{k} {v}" if v else k for k, v in d.items()]),
-        )
-
+        reports_tcl = self.copy_from_template("vivado_report_helper.tcl")
         script_path = self.copy_from_template(
-            f"{self.name}.tcl",
-            xdc_files=[clock_xdc_path],
+            "vivado_synth.tcl", xdc_files=[clock_xdc_path], reports_tcl=reports_tcl
         )
         self.vivado.run("-source", script_path)
 
@@ -361,24 +149,25 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             )
             if not failed:
                 wns = self.results.get("wns")
-                if isinstance(wns, float) or isinstance(wns, int):
+                if isinstance(wns, (float, int)):
                     if wns < 0:
                         failed = True
                     # see https://support.xilinx.com/s/article/57304?language=en_US
                     # Fmax in Megahertz
                     # Here Fmax refers to: "The maximum frequency a design can run on Hardware in a given implementation
                     # Fmax = 1/(T-WNS), with WNS positive or negative, where T is the target clock period."
-                    clock_period = self.results["clock_period"]
-                    assert isinstance(clock_period, float) or isinstance(
-                        clock_period, int
-                    ), f"clock_period: {clock_period} is not a number"
-                    self.results["Fmax"] = 1000.0 / (clock_period - wns)
+                    if "clock_period" in self.results:
+                        clock_period = self.results["clock_period"]
+                        assert isinstance(
+                            clock_period, (float, int)
+                        ), f"clock_period: {clock_period} is not a number"
+                        self.results["Fmax"] = 1000.0 / (clock_period - wns)
 
         return not failed
 
     def parse_reports(self) -> bool:
-        report_stage = "post_route"
-        reports_dir = self.reports_dir / report_stage
+        report_stage = "route_design"
+        reports_dir = Path("reports") / report_stage
 
         failed = not self.parse_timing_report(reports_dir)
 
@@ -417,15 +206,17 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                         self.results[k] = self.get_from_path(utilization, path)
                     except KeyError as e:
                         log.debug(
-                            "property %s in %s not found in the utilization report %s.",
+                            "determining %s: property %s (in %s) was not found in the utilization report %s.",
+                            k,
                             e.args[0] if len(e.args) > 0 else "?",
-                            report_file
+                            path,
+                            report_file,
                         )
 
         self.results["_utilization"] = utilization
 
         assert isinstance(self.settings, self.Settings)
-        
+
         if not failed:
             for res in self.settings.blacklisted_resources:
                 res_util = self.results.get(res)
@@ -437,14 +228,14 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                                 "%s utilization report lists %s use(s) of blacklisted resource: %s",
                                 report_stage,
                                 res_util,
-                                res
+                                res,
                             )
                             failed = True
                     except ValueError:
                         log.warning(
                             "Unknown utilization value: %s for blacklisted resource %s. Assuming results are not violating the blacklist criteria.",
                             res_util,
-                            res
+                            res,
                         )
 
             # TODO better fail analysis for vivado

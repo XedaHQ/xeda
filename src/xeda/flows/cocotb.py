@@ -69,7 +69,7 @@ class Cocotb(CocotbSettings, Tool):
                 + f"/cocotb/libs/libcocotbvpi_{self.sim_name}.{so_ext}"
             )
 
-        log.info(f"cocotb.vpi_path = {so_path}")
+        log.info("cocotb.vpi_path: %s", so_path)
         return so_path
 
     def env(self, design: Design) -> Dict[str, Any]:
@@ -114,9 +114,9 @@ class Cocotb(CocotbSettings, Tool):
         failed = False
         if xml.errors:
             failed = True
-            log.error(f"Cocotb: {xml.errors} error(s)")
+            log.error("Cocotb: %d error(s)", xml.errors)
         if xml.failures:
             failed = True
-            log.critical(f"Cocotb: {xml.failures} failure(s)")
+            log.critical("Cocotb: %d failure(s)", xml.failures)
 
         return not failed

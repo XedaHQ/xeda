@@ -1,39 +1,27 @@
-from contextlib import AbstractContextManager
 import importlib
 import json
 import logging
 import os
 import re
+from contextlib import AbstractContextManager
+from copy import deepcopy
 from datetime import datetime
+from functools import reduce
 from pathlib import Path
 from types import TracebackType
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Optional,
-    OrderedDict,
-    Tuple,
-    Type,
-    Union,
-)
-import pkg_resources
+from typing import Any, Dict, Iterable, List, Optional, OrderedDict, Tuple, Type, Union
 
 from .dataclass import XedaBaseModel
 
 try:
-    from functools import cached_property
+    from functools import cached_property  # pylint: disable=ungrouped-imports
 except ModuleNotFoundError:
-    from backports.cached_property import cached_property  # type: ignore
-
-    # pyright: reportMissingImports=none,
+    from backports.cached_property import cached_property  # type: ignore # pyright: reportMissingImports=none
 
 try:
-    import tomllib
+    import tomllib  # type: ignore # pyright: reportMissingImports=none
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore
-
 
 __all__ = [
     "SDF",
@@ -109,7 +97,7 @@ def toml_loads(s: str) -> Dict[str, Any]:
 
 def backup_existing(path: Path) -> Optional[Path]:
     if not path.exists():
-        log.warning(f"{path} does not exist for backup!")
+        log.warning("%s does not exist for backup!", path)
         return None
     modifiedTime = os.path.getmtime(path)
     suffix = (
@@ -119,7 +107,9 @@ def backup_existing(path: Path) -> Optional[Path]:
         suffix += path.suffix
     backup_path = path.with_suffix(suffix)
     typ = "file" if path.is_file() else "directory" if path.is_dir() else "???"
-    log.warning(f"Renaming existing {typ} '{path.name}' to '{backup_path.name}'")
+    log.warning(
+        "Renaming existing %s from '%s' to '%s'", typ, path.name, backup_path.name
+    )
     # TODO use shutil.move instead? os.rename vs Path.rename?
     # os.rename(path, backup_path)
     return path.rename(backup_path)
@@ -180,27 +170,31 @@ def load_class(
 
 
 def dict_merge(
-    base_dct: Dict[Any, Any], merge_dct: Dict[Any, Any], add_keys: bool = True
+    base_dict: Dict[Any, Any], merge_dict: Dict[Any, Any], add_new_keys: bool = True
 ) -> Dict[Any, Any]:
-    rtn_dct = base_dct.copy()
-    if add_keys is False:
-        merge_dct = {
-            key: merge_dct[key] for key in set(rtn_dct).intersection(set(merge_dct))
+    """
+    returns content of base_dict merge with content of merge_dict.
+    if add_new_keys=False keys in merge_dict not existing in base_dict are ignored
+    """
+    rtn_dct = deepcopy(base_dict)
+    if add_new_keys is False:
+        merge_dict = {
+            key: merge_dict[key] for key in set(rtn_dct).intersection(set(merge_dict))
         }
 
     rtn_dct.update(
         {
-            key: dict_merge(rtn_dct[key], merge_dct[key], add_keys=add_keys)
-            if isinstance(rtn_dct.get(key), dict) and isinstance(merge_dct[key], dict)
-            else merge_dct[key]
-            for key in merge_dct.keys()
+            key: dict_merge(rtn_dct[key], merge_dict[key], add_new_keys=add_new_keys)
+            if isinstance(rtn_dct.get(key), dict) and isinstance(merge_dict[key], dict)
+            else merge_dict[key]
+            for key in merge_dict
         }
     )
     return rtn_dct
 
 
 def try_convert(
-    s: Any, convert_lists: bool = False, to_str: bool = True
+    s: str, convert_lists: bool = False, to_str: bool = True
 ) -> Union[bool, int, float, str, List[Any]]:
     if s is None:
         return "None"
@@ -214,13 +208,34 @@ def try_convert(
 
     try:
         return int(s)
-    except Exception:
+    except ValueError:
         try:
             return float(s)
-        except Exception:
+        except ValueError:
             s1 = str(s)
             if s1.lower() in ["true", "yes"]:
                 return True
             if s1.lower() in ["false", "no"]:
                 return False
             return s1 if to_str else s
+
+
+def get_hierarchy(dct: Dict[str, Any], path, sep="."):
+    if isinstance(path, str):
+        path = path.split(sep)
+    try:
+        return reduce(dict.__getitem__, path, dct)
+    except ValueError:
+        return None
+
+
+def set_hierarchy(dct: Dict[str, Any], path, value, sep="."):
+    if isinstance(path, str):
+        path = path.split(sep)
+    k = path[0]
+    if len(path) == 1:
+        dct[k] = value
+    else:
+        if k not in dct:
+            dct[k] = {}
+        set_hierarchy(dct[k], path[1:], value, sep)

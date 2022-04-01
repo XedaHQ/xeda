@@ -17,5 +17,4 @@ __all__ = [
 ]
 
 __project__ = "xeda"
-__package__ = "xeda"
 __author__ = "Kamyar Mohajerani"

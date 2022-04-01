@@ -1,11 +1,13 @@
+from abc import ABCMeta
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
-from pydantic import Field
+from pydantic import Field, validator
 import logging
 import platform
 
 try:
-    from typing import Literal
+    from typing import Literal  # pylint: disable=ungrouped-imports
 except ImportError:
     from typing_extensions import Literal  # type: ignore
 
@@ -39,7 +41,9 @@ class GhdlTool(Tool):
         return {"compiler": lines[1], "backend": lines[2]}
 
 
-class Ghdl(Flow):
+class Ghdl(Flow, metaclass=ABCMeta):
+    """VHDL simulation using GHDL"""
+
     ghdl = GhdlTool()  # pyright: reportGeneralTypeIssues=none
 
     class Settings(Flow.Settings):
@@ -129,14 +133,13 @@ class Ghdl(Flow):
                 elab_flags.append("--expect-failure")
             if vhdl.synopsys:
                 analysis_flags.append("--ieee=synopsys")
-            if stage == "import" or stage == "analyze":
+            if stage in ("import", "analyze"):
                 return analysis_flags + warn_flags
-            elif stage == "make" or stage == "elaborate":
+            if stage in ("make", "elaborate"):
                 return elab_flags + warn_flags
-            elif stage == "find-top":
+            if stage in ("find-top"):
                 return find_top_flags
-            else:
-                assert False, "unknown stage!"
+            raise ValueError("unknown stage!")
 
     def elaborate(
         self, sources: List[DesignSource], top: Tuple012, vhdl: VhdlSettings
@@ -158,7 +161,7 @@ class Ghdl(Flow):
             if step in ["import", "analyze"]:
                 args += [str(s) for s in sources]
             elif step in ["make", "elaborate"]:
-                if self.ghdl._info.get("backend", "").lower().startswith("llvm"):
+                if self.ghdl.info.get("backend", "").lower().startswith("llvm"):
                     if platform.system() == "Darwin" and platform.machine() == "arm64":
                         args += ["-Wl,-Wl,-no_compact_unwind"]
                 print(args)
@@ -175,9 +178,9 @@ class Ghdl(Flow):
                     else (top_list[0], top_list[1])
                 )
                 if top:
-                    log.info(f"find-top: top-module was set to {top}")
+                    log.info("find-top: top-module was set to %s", top)
                 else:
-                    log.warning(f"find-top: unable to determine the top-module")
+                    log.warning("find-top: unable to determine the top-module")
             else:
                 self.ghdl.run(step, *args)
         return top
@@ -247,11 +250,11 @@ class GhdlSynth(Ghdl, SynthFlow):
         return flags
 
 
-class GhdlLint(Ghdl, Flow):
-    """Lint VHDL sources using GHDL"""
+# class GhdlLint(Ghdl, Flow):
+#     """Lint VHDL sources using GHDL"""
 
-    class Settings(Ghdl.Settings):
-        pass
+#     class Settings(Ghdl.Settings):
+#         pass
 
 
 class GhdlSim(Ghdl, SimFlow):
@@ -268,7 +271,7 @@ class GhdlSim(Ghdl, SimFlow):
             SDF(),
             description="Do VITAL annotation using SDF files(s). A single string is interpreted as a MAX SDF file.",
         )
-        wave: Union[bool, None, str] = Field(
+        wave: Optional[str] = Field(
             None, description="Write the waveforms into a GHDL Waveform (GHW) file."
         )
         stop_delta: Optional[str] = Field(
@@ -276,6 +279,17 @@ class GhdlSim(Ghdl, SimFlow):
             description="Stop the simulation after N delta cycles in the same current time.",
         )
         # TODO workdir?
+
+        @validator("wave", pre=True)
+        def validate_wave(cls, value):  # pylint: disable=no-self-argument
+            if value is not None:
+                if isinstance(value, bool):
+                    value = "dump.ghw" if value else None
+                else:
+                    assert isinstance(value, str)
+                    if not value.endswith(".ghw"):
+                        value += ".ghw"
+            return value
 
     def run(self) -> None:
         design = self.design
@@ -289,21 +303,19 @@ class GhdlSim(Ghdl, SimFlow):
             if sdf_file:
                 assert sdf_root, "neither SDF root nor tb.uut are provided"
                 run_flags.append(f"--sdf={delay_type}={sdf_root}={sdf_file}")
+
+        def fp(s: str) -> str:
+            if not os.path.isabs(s):
+                return str(self.run_path.relative_to(Path.cwd()) / s)
+            return s
+
         if ss.vcd:
             run_flags.append(f"--vcd={ss.vcd}")
-            log.warning(
-                f"Dumping VCD to {self.run_path.relative_to(Path.cwd()) / ss.vcd}"
-            )
+            log.warning("Dumping VCD to %s", fp(ss.vcd))
         elif ss.wave:
             wave = ss.wave
-            if isinstance(wave, bool):
-                wave = design.name
-            if not wave.endswith(".ghw"):
-                wave += ".ghw"
             run_flags.append(f"--wave={wave}")
-            log.warning(
-                f"Dumping GHW to {self.run_path.relative_to(Path.cwd()) / wave}"
-            )
+            log.warning("Dumping GHW to %s", fp(wave))
         vpi = None
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:

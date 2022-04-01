@@ -5,7 +5,7 @@ from box import Box
 import re
 import os
 from ..flow import SynthFlow
-from ...utils import dict_merge, toml_load
+from ...utils import dict_merge, toml_load, try_convert
 from ...tool import Tool
 
 log = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class Dc(SynthFlow):
         adk_root = Path.home() / "adk"
         adk_config: Dict[str, Any] = {}
         for toml_file in adk_root.glob("*.toml"):
-            adk_config = dict_merge(adk_config, toml_load(toml_file), add_keys=True)
+            adk_config = dict_merge(adk_config, toml_load(toml_file), add_new_keys=True)
 
         adk = get_hier(adk_config, adk_id)
         assert adk is not None
@@ -61,7 +61,7 @@ class Dc(SynthFlow):
 
     def parse_reports(self) -> bool:
         reports_dir = self.reports_dir
-        top_name = self.design.rtl.primary_top
+        top_name = self.design.rtl.top[0]
         failed = False
         self.parse_report_regex(
             reports_dir / f"{top_name}.mapped.area.rpt",
@@ -88,15 +88,6 @@ class Dc(SynthFlow):
 
         reportfile_path = reports_dir / f"{top_name}.mapped.qor.rpt"
 
-        def try_convert(s):
-            s = s.strip()
-            try:
-                return int(s)
-            except:
-                try:
-                    return float(s)
-                except:
-                    return s
 
         def parse_kvs(kvs):
             kvs = re.split(r"\s*\n\s*", kvs)
@@ -129,7 +120,7 @@ class Dc(SynthFlow):
             content = rpt_file.read()
             sections = re.split(r"\n\s*\n", content)
 
-            path_groups = dict()
+            path_groups = {}
             for sec in sections:
                 match = path_group_re.match(sec)
                 if match:

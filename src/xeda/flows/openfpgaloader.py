@@ -1,10 +1,12 @@
 import logging
+from pathlib import Path
 from typing import Optional
 
-from .nextpnr import Nextpnr
-from .flow import FpgaSynthFlow
-from ..tool import Tool
 from ..board import WithFpgaBoardSettings, get_board_data
+from ..design import Design
+from ..tool import Tool
+from .flow import FpgaSynthFlow
+from .nextpnr import Nextpnr
 
 __all__ = ["Openfpgaloader"]
 
@@ -19,6 +21,10 @@ class Openfpgaloader(FpgaSynthFlow):
         reset: bool = False
         cable: Optional[str] = None
 
+    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
+        super().__init__(flow_settings, design, run_path)
+        self.packer: Optional[Tool] = None
+
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
@@ -29,7 +35,6 @@ class Openfpgaloader(FpgaSynthFlow):
                 fpga=ss.fpga, board=ss.board, clock_period=ss.clock_period
             ),  # type: ignore
         )
-        self.packer = None
         if ss.fpga.family == "ecp5":  # FIXME from fpga/board
             self.packer = Tool("ecppack")
 

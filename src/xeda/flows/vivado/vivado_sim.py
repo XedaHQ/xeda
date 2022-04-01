@@ -1,15 +1,11 @@
 import logging
-from typing import Any, Dict, List, Optional
-from pydantic import validator, Field
-from math import floor
+from typing import Dict, List, Optional
 
+from ...dataclass import XedaBaseModeAllowExtra
 from ...design import DefineType
 from ...utils import SDF
-from ...dataclass import XedaBaseModeAllowExtra
 from ..flow import SimFlow
-from ...design import DesignSource
 from ..vivado import Vivado
-from ..vivado.vivado_synth import VivadoSynth
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +58,7 @@ class VivadoSim(Vivado, SimFlow):
                 RunConfig(saif=saif, generics=generics, vcd=ss.vcd, name="default")
             ]
             if ss.vcd:
-                log.info(f"Dumping VCD to {self.run_path / ss.vcd}")
+                log.info("Dumping VCD to %s", self.run_path / ss.vcd)
         else:
             for idx, rc in enumerate(multirun_configs):
                 # merge
@@ -82,8 +78,6 @@ class VivadoSim(Vivado, SimFlow):
                 assert sdf_root, "neither SDF root nor tb.uut are provided"
                 elab_flags.append(f"-sdf{delay_type} {sdf_root}={sdf_file}")
 
-        elab_flags.extend([f"-L {l}" for l in ss.lib_paths])
-
         for ox in ss.optimization_flags:
             if ox not in elab_flags:
                 if ox.startswith("-O") and any(
@@ -102,80 +96,3 @@ class VivadoSim(Vivado, SimFlow):
             sim_sources=self.design.sim_sources,
         )
         self.vivado.run("-source", script_path)
-
-
-class VivadoPostsynthSim(VivadoSim):
-    """
-    Synthesize/implement design and run post-synth/impl simulation on the generated netlist
-    Depends on VivadoSynth
-    """
-
-    class Settings(VivadoSim.Settings):
-        synth: VivadoSynth.Settings
-        tb_clock_param: Dict[str, str] = Field(
-            {},
-            description="""A mapping of 'clock'->'param'. Sets (and overrides) testbanch parameter/generic named 'param'
-                to the value of the the clock period specified for clock named 'clock', converted to nearset smaller integer in *picoseconds*.
-                 In other words 'param' will be set to floor(clock.period * 1000.0).
-                Example: {'main_clock': 'G_PERIOD_PS'}
-            """,
-        )
-        timing_sim: bool = False
-
-        @validator("tb_clock_param", pre=True)
-        def validate_tb_clock_param(cls, value: Any) -> Any:
-            if isinstance(value, str):
-                value = dict(main_clock=value)
-            return value
-
-    def init(self) -> None:
-        ss = self.settings
-        assert isinstance(ss, self.Settings)
-        self.add_dependency(VivadoSynth, ss.synth)
-
-    def run(self) -> None:
-        synth_flow = self.completed_dependencies[0]
-        assert isinstance(synth_flow, VivadoSynth)
-        ss = self.settings
-        assert isinstance(ss, self.Settings)
-        synth_settings = synth_flow.settings
-        assert isinstance(synth_settings, VivadoSynth.Settings)
-        if synth_settings.input_delay is None:
-            synth_settings.input_delay = 0.0
-        if synth_settings.output_delay is None:
-            synth_settings.output_delay = 0.0
-
-        # FIXME!!! For reasons still unknown, not all strategies lead to correct post-impl simulation
-        synth_settings.synth.strategy = "AreaPower"
-        synth_netlist = synth_flow.artifacts.get("netlist.impl.timesim.v")
-
-        self.design.rtl.sources = [DesignSource(synth_flow.run_path / synth_netlist)]
-        assert self.design.tb
-        assert self.design.tb.top
-        self.design.tb.top = (self.design.tb.primary_top, "glbl")
-
-        if "simprims_ver" not in ss.lib_paths:
-            ss.lib_paths.append("simprims_ver")
-
-        if ss.timing_sim:
-            if not ss.sdf:
-                ss.sdf = SDF(max=str(synth_flow.artifacts.get("sdf.impl")))
-            log.info("Timing simulation using SDF %s", ss.sdf)
-
-        for k, v in ss.tb_clock_param.items():
-            clock = synth_settings.clocks.get(k)
-            if clock:
-                self.design.tb.parameters[v] = floor(clock.period * 1000.0)
-
-        ss.elab_flags.extend(
-            [
-                "-maxdelay",
-                "-transport_int_delays",
-                "-pulse_r 0",
-                "-pulse_int_r 0",
-                "-pulse_e 0",
-                "-pulse_int_e 0",
-            ]
-        )
-        # run VivadoSim
-        super().run()

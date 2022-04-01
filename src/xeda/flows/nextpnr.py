@@ -90,7 +90,11 @@ class Nextpnr(FpgaSynthFlow):
                 try:
                     lpf_cfg_path, _ = urlretrieve(lpf)
                 except HTTPError as e:
-                    log.critical(f"Unable to retrive file from {lpf}")
+                    log.critical(
+                        "Unable to retrive file from %s (HTTP Error %d)",
+                        lpf,
+                        e.code,
+                    )
                     raise FlowFatalError("Unable to retreive LPF file") from None
             else:
                 if "name" in board_data:

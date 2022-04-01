@@ -1,39 +1,29 @@
-from abc import ABCMeta, abstractmethod
+"""EDA flow abstraction"""
 import inspect
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-    OrderedDict,
-    Type,
-    Tuple,
-    TypeVar,
-    Union,
-)
-import os
-import re
-from pathlib import Path
-import subprocess
-import jinja2
-from jinja2 import PackageLoader, StrictUndefined, ChoiceLoader
 import logging
 import multiprocessing
+import os
+import re
+from abc import ABCMeta, abstractmethod
+from pathlib import Path
+from typing import Any, Dict, List, Optional, OrderedDict, Tuple, Type, TypeVar, Union
+
+import jinja2
 import psutil
 from box import Box
+from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
 
+from ..dataclass import (
+    Field,
+    ValidationError,
+    XedaBaseModel,
+    root_validator,
+    validation_errors,
+    validator,
+)
 from ..design import Design
 from ..tool import Tool
 from ..utils import camelcase_to_snakecase, try_convert, unique
-from ..dataclass import (
-    validator,
-    root_validator,
-    Field,
-    XedaBaseModel,
-    ValidationError,
-    validation_errors,
-)
-from ..debug import DebugLevel
 from .cocotb import Cocotb, CocotbSettings
 
 log = logging.getLogger(__name__)
@@ -56,16 +46,6 @@ def regex_match(
     if not isinstance(string, str):
         return None
     return re.match(pattern, string, flags=re.I if ignorecase else 0)
-
-
-def final_kill(proc: subprocess.Popen):
-    try:
-        proc.terminate()
-        proc.wait()
-        proc.kill()
-        proc.wait()
-    except:
-        pass
 
 
 def removesuffix(s: str, suffix: str) -> str:
@@ -98,7 +78,8 @@ class Flow(metaclass=ABCMeta):
 
         quiet: bool = Field(False, hidden_from_schema=True)
         verbose: int = Field(0, hidden_from_schema=True)
-        debug: DebugLevel = Field(DebugLevel.NONE.value, hidden_from_schema=True)
+        # debug: DebugLevel = Field(DebugLevel.NONE.value, hidden_from_schema=True)
+        debug: bool = Field(False, hidden_from_schema=True)
         timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
         nthreads: int = Field(
             default_factory=multiprocessing.cpu_count,
@@ -110,24 +91,35 @@ class Flow(metaclass=ABCMeta):
         )
         no_console: bool = Field(False, hidden_from_schema=True)
         reports_dir: str = Field("reports", hidden_from_schema=True)
+        outputs_dir: str = Field("outputs", hidden_from_schema=True)
         clean: bool = False  # TODO remove!
-        lib_paths: List[str] = Field(
-            [], description="Additional directories to add to the library search path"
+        # library_id -> library_path mapping. library_path is optional
+        lib_paths: List[
+            Union[
+                Tuple[str, Union[None, str, os.PathLike]],
+                Tuple[None, Union[str, os.PathLike]],
+            ]
+        ] = Field(
+            [],
+            description="Additional libraries specified as a list of (name, path) tuples. Either name or path can be none. A single string or a list of string is converted to a mapping of library names without paths",
         )
 
         @validator("lib_paths", pre=True)
-        def lib_paths_validator(cls, value):
+        def lib_paths_validator(cls, value):  # pylint: disable=no-self-argument
             if isinstance(value, str):
-                value = [value]
+                value = [(value, None)]
+            elif isinstance(value, (list, tuple)):
+                value = [(x, None) if isinstance(x, str) else x for x in value]
             return value
 
         def __init__(self, **data: Any) -> None:
             try:
+                log.debug("Settings.__init__(): data=%s", data)
                 super().__init__(**data)
             except ValidationError as e:
                 raise FlowSettingsError(
                     validation_errors(e.errors()), e.model  # type: ignore
-                ) from None
+                ) from e
 
     @property
     def succeeded(self) -> bool:
@@ -136,11 +128,10 @@ class Flow(metaclass=ABCMeta):
     def __init_subclass__(cls) -> None:
         cls_name = cls.__name__
         mod_name = cls.__module__
-        log.info(f"registering flow {cls_name} from {mod_name}")
-        if not inspect.isabstract(cls):
-            registered_flows[cls_name] = (mod_name, cls)
-
+        log.info("registering flow %s from %s", cls_name, mod_name)
         cls.name = camelcase_to_snakecase(cls_name)
+        if not inspect.isabstract(cls):
+            registered_flows[cls.name] = (mod_name, cls)
 
     def init(self) -> None:
         """Flow custom initialization stage. At this point, more properties have been set than during __init__
@@ -222,7 +213,7 @@ class Flow(metaclass=ABCMeta):
     def copy_from_template(self, resource_name, **kwargs) -> os.PathLike:
         template = self.jinja_env.get_template(resource_name)
         script_path: Path = self.run_path / resource_name
-        log.debug(f"generating {script_path.resolve()} from template.")
+        log.debug("generating %s from template.", str(script_path.resolve()))
         rendered_content = template.render(
             settings=self.settings,
             design=self.design,
@@ -257,7 +248,9 @@ class Flow(metaclass=ABCMeta):
         # TODO fix debug and verbosity levels!
         if not reportfile_path.exists():
             log.warning(
-                f"File {reportfile_path} does not exist! Most probably the flow run had failed.\n Please check log files in {self.run_path}"
+                "File %s does not exist! Most probably the flow run had failed.\n Please check log files in %s",
+                reportfile_path,
+                self.run_path,
             )
             return False
         with open(reportfile_path) as rpt_file:
@@ -274,31 +267,35 @@ class Flow(metaclass=ABCMeta):
                 match_dict = match.groupdict()
                 for k, v in match_dict.items():
                     self.results[k] = try_convert(v)
-                    log.debug(f"{k}: {self.results.get(k)}")
+                    log.debug("%s: %s", k, self.results.get(k))
                 if sequential:
                     content = content[match.span(0)[1] :]
-                    log.debug(f"len(content)= {len(content)}")
+                    log.debug("len(content)=%d", len(content))
                 return True, content
 
             for pat in [re_pattern, *other_re_patterns]:
                 matched = False
                 if isinstance(pat, list):
-                    log.debug(f"Matching any of: {pat}")
+                    log.debug("Matching any of: %s", pat)
                     for subpat in pat:
                         matched, content = match_pattern(subpat, content)
                 else:
-                    log.debug(f"Matching: {pat}")
+                    log.debug("Matching: %s", pat)
                     matched, content = match_pattern(pat, content)
 
                 if not matched and required:
                     log.critical(
-                        f"Error parsing report file: {rpt_file.name}\n Pattern not matched: {pat}\n"
+                        "Error parsing report file: %s\n Pattern not matched: %s\n",
+                        rpt_file.name,
+                        pat,
                     )
                     return False
         return True
 
 
-class SimFlow(Flow):
+class SimFlow(Flow, metaclass=ABCMeta):
+    """superclass of all simulation flows"""
+
     cocotb_sim_name: Optional[str] = None
 
     class Settings(Flow.Settings):
@@ -308,11 +305,9 @@ class SimFlow(Flow):
             CocotbSettings()
         )  # pyright: reportGeneralTypeIssues=none
         optimization_flags: List[str] = Field([], description="Optimization flags")
-        # library_id -> library_path mapping. library_path is optional
-        libraries: OrderedDict[str, Union[None, str, os.PathLike]] = OrderedDict()
 
         @validator("vcd", pre=True)
-        def validate_vcd(cls, vcd):
+        def validate_vcd(cls, vcd):  # pylint: disable=no-self-argument
             if vcd is not None:
                 if isinstance(vcd, bool):
                     vcd = "dump.vcd" if vcd else None
@@ -364,11 +359,14 @@ class FPGA(XedaBaseModel):
                 data = a
             else:
                 raise ValueError(f"Argument of type {type(a)} is not supported!")
+        log.debug("fpga init! data=%s", data)
         super().__init__(**data)
 
     # this is called before all field validators!
     @root_validator(pre=True)
-    def fpga_root_validator(cls, values):
+    def fpga_root_validator(cls, values):  # pylint: disable=no-self-argument
+        if not values:
+            return values
         # Intel: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf
         # Lattice: https://www.latticesemi.com/Support/PartNumberReferenceGuide
         # Xilinx: https://www.xilinx.com/support/documents/selection-guides/7-series-product-selection-guide.pdf
@@ -396,7 +394,6 @@ class FPGA(XedaBaseModel):
                 part,
                 flags=re.IGNORECASE,
             )
-            print(match_ecp5)
             if match_ecp5:
                 set_if_not_exist("vendor", "lattice")
                 set_if_not_exist("family", "ecp5")
@@ -407,7 +404,6 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("package", match_ecp5.group("pkg"))
                 set_if_not_exist("pins", int(match_ecp5.group("pin")))
                 set_if_not_exist("grade", match_ecp5.group("gr"))
-                print(values)
                 return values
             # Commercial Xilinx # Generation # Family # Logic Cells in 1K units # Speed Grade (-1 slowest, L: low-power) # Package Type
             match_xc7 = re.match(
@@ -487,15 +483,20 @@ class TargetTechnology(XedaBaseModel):
 
 class PhysicalClock(XedaBaseModel):
     name: Optional[str] = None
-    period: float = Field(description="period (nanoseconds)")
-    rise: float = Field(0.0, description="rise time (nanoseconds)")
-    fall: float = Field(0.0, description="fall time (nanoseconds)")
-    uncertainty: Optional[float] = Field(None, description="clock uncertainty")
+    period: float = Field(
+        description="Clock Period (in nanoseconds). Either (and only one of) 'period' OR 'freq' have to be specified."
+    )
+    freq: float = Field(
+        description="Clock frequency (in MegaHertz). Either (and only one of) 'period' OR 'freq' have to be specified."
+    )
+    rise: float = Field(0.0, description="Rise time (nanoseconds)")
+    fall: float = Field(0.0, description="Rall time (nanoseconds)")
+    uncertainty: Optional[float] = Field(None, description="Clock uncertainty")
     skew: Optional[float] = Field(None, description="skew")
     port: Optional[str] = Field(None, description="associated design port")
 
     @validator("fall", always=True)
-    def fall_validate(cls, value, values):
+    def fall_validate(cls, value, values):  # pylint: disable=no-self-argument
         if not value:
             value = round(values.get("period", 0.0) / 2.0, 3)
         return value
@@ -508,8 +509,31 @@ class PhysicalClock(XedaBaseModel):
     def freq_mhz(self) -> float:
         return 1000.0 / self.period
 
+    @root_validator(pre=True, skip_on_failure=True)
+    @classmethod
+    def root_validate_phys_clock(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        log.debug("%s root_validator values=%s", cls.__name__, values)
+        freq = values.get("freq")
+        if "period" in values:
+            period = float(values["period"])
+            if freq and abs(float(freq) * period - 1000.0) > 0.001:
+                raise ValueError(
+                    f"Both freq and period cannot be specified at the same time period={values.get('period')} freq={values.get('freq')}"
+                )
+            values["freq"] = 1000.0 / values["period"]
+        else:
+            if freq:
+                values["period"] = 1000.0 / float(freq)
+            else:
+                raise ValueError("Neither freq or period were specified")
+        if not values.get("name"):
+            values["name"] = "main_clock"
+        return values
 
-class SynthFlow(Flow):
+
+class SynthFlow(Flow, metaclass=ABCMeta):
+    """Superclass of all synthesis flows"""
+
     class Settings(Flow.Settings):
         """base Synthesis flow settings"""
 
@@ -517,9 +541,13 @@ class SynthFlow(Flow):
             None, description="target clock period in nanoseconds"
         )
         clocks: Dict[str, PhysicalClock] = {}
+        fpga: Optional[FPGA] = None
+        tech: Optional[TargetTechnology] = None
+        blacklisted_resources: Optional[List[str]]
 
         @validator("clocks", always=True)
-        def clocks_validate(cls, value, values):
+        @classmethod
+        def clocks_validate(cls, value, values):  # pylint: disable=no-self-argument
             clock_period = values.get("clock_period")
             if not value and clock_period:
                 value = {
@@ -527,39 +555,65 @@ class SynthFlow(Flow):
                 }
             return value
 
-        fpga: Optional[FPGA] = None
-        tech: Optional[TargetTechnology] = None
-        blacklisted_resources: Optional[List[str]]
+        @root_validator()
+        @classmethod
+        def synthflow_settings_root_validator(cls, values):
+            clocks = values.get("clocks")
+            if clocks and "main_clock" in clocks and not values.get("clock_period"):
+                main_clock = clocks["main_clock"]
+                assert isinstance(main_clock, PhysicalClock)
+                values["clock_period"] = main_clock.period
+            return values
 
     def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
-        design_clocks = design.rtl.clocks
         for clock_name, physical_clock in flow_settings.clocks.items():
             if not physical_clock.port:
-                try:
-                    physical_clock.port = design_clocks[clock_name].port
-                    flow_settings.clocks[clock_name] = physical_clock
-                except LookupError as e:
-                    log.critical(
-                        f"Physical clock {clock_name} has no corresponding clock port in design.rtl"
+                if clock_name not in design.rtl.clocks:
+                    raise FlowSettingsError(
+                        [
+                            (
+                                None,
+                                f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c for c in design.rtl.clocks)}",
+                                None,
+                            )
+                        ],
+                        self.Settings,
                     )
-                    raise e from None
+                physical_clock.port = design.rtl.clocks[clock_name].port
+                flow_settings.clocks[clock_name] = physical_clock
+        for clock_name, clock in design.rtl.clocks.items():
+            if clock_name not in flow_settings.clocks:
+                raise FlowSettingsError(
+                    [
+                        (
+                            None,
+                            f"No clock period or frequency was specified for clock: '{clock_name}' (clock port: '{clock.port})'",
+                            None,
+                        )
+                    ],
+                    self.Settings,
+                )
         super().__init__(flow_settings, design, run_path)
 
 
-class FpgaSynthFlow(SynthFlow):
+class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
+    """Superclass of all FPGA synthesis flows"""
+
     class Settings(SynthFlow.Settings):
         """base FPGA Synthesis flow settings"""
 
         fpga: FPGA
 
 
-class AsicSynthFlow(SynthFlow):
+class AsicSynthFlow(SynthFlow, metaclass=ABCMeta):
+    """Superclass of all ASIC synthesis flows"""
+
     class Settings(SynthFlow.Settings):
         """base ASIC Synthesis flow settings"""
 
 
-class DseFlow(Flow):
-    pass
+class DseFlow(Flow, metaclass=ABCMeta):
+    """Superclass of all design-space exploration flows"""
 
 
 class FlowException(Exception):
@@ -575,7 +629,9 @@ class FlowSettingsError(FlowException):
 
     def __init__(
         self,
-        errors: List[Tuple[str, str, str]],
+        errors: List[
+            Tuple[Optional[str], str, Optional[str]]
+        ],  # (location, message, type/context)
         model,
         *args: Any,
     ) -> None:
@@ -588,7 +644,10 @@ class FlowSettingsError(FlowException):
             len(self.errors),
             "s" if len(self.errors) > 1 else "",
             self.model.__qualname__,
-            "\n".join(f"{loc}:\n   {msg} \n  " for loc, msg, ctx in self.errors),
+            "\n".join(
+                "{}{}\n".format(f"{loc}:\n   " if loc else "", msg)
+                for loc, msg, ctx in self.errors
+            ),
         )
         return s
 
