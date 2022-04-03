@@ -1,3 +1,3 @@
 cocotb>=1.6.2
 coverage>=6.3
-cffi
+cffi>=1.15
