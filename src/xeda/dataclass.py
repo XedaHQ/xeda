@@ -4,15 +4,16 @@ from abc import ABCMeta
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 import attrs
-from pydantic import (  # pylint: disable=no-name-in-module
-    BaseConfig,
-    BaseModel,
+# pylint: disable=no-name-in-module
+from pydantic import ( # pylint: disable=no-name-in-module
+    BaseConfig,  # pylint: disable=no-name-in-module
+    BaseModel, # pylint: disable=no-name-in-module
     Extra,
     Field,
     ValidationError,
     root_validator,
     validator,
-)
+) # pylint: disable=no-name-in-module
 
 __all__ = [
     "XedaBaseModel",
@@ -64,8 +65,7 @@ def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str
     if isinstance(inst, BaseModel):
         assert filter_ is None
         return inst.dict()
-    else:  # FIXME ???
-        return attrs.asdict(inst, filter=filter_)
+    return attrs.asdict(inst, filter=filter_)
 
 
 class XedaBaseModel(BaseModel):

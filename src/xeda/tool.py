@@ -118,9 +118,8 @@ def run_process(
     return None
 
 
-def _run_processes(
-    commands: List[List[str]], cwd: OptionalPath = None
-) -> Union[None, str]:
+def _run_processes(commands: List[List[str]], cwd: OptionalPath = None) -> None:
+    """Run a list commands to completion. Throws if any of them did not execute and exit normally"""
     # if args:
     #     args = [str(a) for a in args]
     # if env:
@@ -128,7 +127,7 @@ def _run_processes(
     processes = []
     for cmd in commands:
         log.info("Running `%s`", " ".join(cmd))
-        proc = subprocess.Popen(
+        with subprocess.Popen(
             cmd,
             cwd=cwd,
             shell=False,
@@ -138,10 +137,10 @@ def _run_processes(
             encoding="utf-8",
             errors="replace",
             #   env=env
-        )
-        assert isinstance(proc.args, list)
-        log.info("Started %s[%d]", str(proc.args[0]), proc.pid)
-        processes.append(proc)
+        ) as proc:
+            assert isinstance(proc.args, list)
+            log.info("Started %s[%d]", str(proc.args[0]), proc.pid)
+            processes.append(proc)
 
     for p in processes:
         p.wait()
@@ -149,7 +148,6 @@ def _run_processes(
     for p in processes:
         if p.returncode != 0:
             raise Exception(f"Process exited with return code {p.returncode}")
-    return None
 
 
 class Tool(XedaBaseModeAllowExtra):
@@ -265,7 +263,7 @@ class Tool(XedaBaseModeAllowExtra):
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
         cwd: OptionalPath = None,
-    ) -> Union[None, str]:
+    ) -> None:
         # FIXME NOT WORKING
         # FIXME: env
         # if env is not None:
@@ -331,7 +329,7 @@ class Tool(XedaBaseModeAllowExtra):
             "-e",
             "/usr/libexec/sftp-server",
         ]
-        return _run_processes([sshfs_proc, ncat_proc])
+        _run_processes([sshfs_proc, ncat_proc])
 
     def _run_docker(
         self,
@@ -381,7 +379,8 @@ class Tool(XedaBaseModeAllowExtra):
         if self.default_args:
             args = tuple(unique(self.default_args + list(args)))
         if self.remote:
-            return self._run_remote(*args, env=env, stdout=stdout, check=check)
+            self._run_remote(*args, env=env, stdout=stdout, check=check)
+            return None
         if self.dockerized and self.docker:
             return self._run_docker(
                 self.docker, *args, env=env, stdout=stdout, check=check

@@ -4,14 +4,14 @@ import random
 from box import Box
 from cocolight import InPort, OutPort, TB
 
-input = InPort(data_signal="radicand")
-output = OutPort(data_signal=["root", "root_remainder"])
+in_bus = InPort(data_signal="radicand")
+out_bus = OutPort(data_signal=["root", "root_remainder"])
 
 
 class SqrtTb(TB):
     async def verify(self, rad: int):
-        await self.send_input(input, rad)
-        out = await self.receive_output(output)
+        await self.send_input(in_bus, rad)
+        out = await self.receive_output(out_bus)
         # print(out)
         assert isinstance(out, Box)
         root = int(out.root)
@@ -23,7 +23,7 @@ class SqrtTb(TB):
 
 @cocotb.test
 async def test_sqrt_corners(dut):
-    tb = SqrtTb(dut, input, output)
+    tb = SqrtTb(dut, in_bus, out_bus)
     await tb.reset()
     # get bound parameters/generics from the simulator
     G_IN_WIDTH = tb.get_int_value("G_IN_WIDTH")
@@ -42,7 +42,7 @@ NUM_TV = int(os.environ.get("NUM_TV", 2000))
 
 @cocotb.test
 async def test_sqrt(dut, num_tests: int = NUM_TV):
-    tb = SqrtTb(dut, input, output)
+    tb = SqrtTb(dut, in_bus, out_bus)
     await tb.reset()
     # get bound parameters/generics from the simulator
     G_IN_WIDTH = tb.get_int_value("G_IN_WIDTH")

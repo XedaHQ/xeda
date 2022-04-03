@@ -5,7 +5,16 @@ import logging
 import os
 from pathlib import Path
 from time import sleep
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Union,
+    runtime_checkable,
+)
 from zipfile import ZipFile
 
 import click
@@ -16,47 +25,76 @@ log = logging.getLogger()
 RESOURCE_DIR = Path(__file__).parent.absolute() / "resource"
 
 
-class FakeTool(XedaBaseModel):
-    name: str
-    executables: Set[str]
-    version: str
-    version_template: str
-    vendor: str
-    help_options: list
-    version_options: list
-    # params: Dict[
-    #     Union[str, Tuple[str, ...]], Union[None, Type, List[str], Dict[str, Any]]
-    # ] = {}  # param_decls -> attrs
-    argument: dict = {}  # Dict[str, Optional[Dict[str, Any]]] = {}
+def write_file(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(data, bytes):
+        with open(path, "wb") as f:
+            f.write(data)
+    else:
+        if data is None:
+            data = []
+        with open(path, "w") as f:
+            if isinstance(data, list):
+                f.writelines(data)
+            else:
+                f.write(data)
 
-    @property
-    def version_banner(self):
-        return inspect.cleandoc(self.version_template.format(**(self.dict())))
 
-    def execute(self, *args, **kwargs) -> int:
+@runtime_checkable
+class Executer(Protocol):
+    def __call__(self, **kwargs: Any) -> int:
+        ...
+
+
+class WriteFile(Executer):
+    def __init__(
+        self,
+        path: Union[str, os.PathLike],
+        data: Union[None, List[str], str, bytes] = None,
+    ) -> None:
+        if not isinstance(path, Path):
+            path = Path(path)
+        self.path = path
+        self.data = data
+
+    def __call__(self, **kwargs) -> int:
+        write_file(self.path, self.data)
         return 0
 
-    def generate_file(
-        self, path: Path, data: Union[None, List[str], str, bytes] = None
-    ):
-        if not path.parent.exists():
+
+class TouchFiles(Executer):
+    def __init__(self, *paths: Union[str, os.PathLike]) -> None:
+        self.paths = paths
+
+    def __call__(self, **kwargs) -> int:
+        for path in self.paths:
+            path = Path(path)
             path.parent.mkdir(parents=True, exist_ok=True)
-        if isinstance(data, bytes):
-            with open(path, "wb") as f:
-                f.write(data)
-        else:
-            if data is None:
-                data = []
-            with open(path, "w") as f:
-                if isinstance(data, list):
-                    f.writelines(data)
-                else:
-                    f.write(data)
+            path.touch(exist_ok=True)
+        return 0
+
+
+class FakeTool(XedaBaseModel):
+    version: Optional[str] = None
+    version_template: Optional[str] = None
+    vendor: Optional[str] = None
+    help_options: list = ["--help"]
+    version_options: list = ["--version"]
+    options: dict = {}  # param_decls -> attrs
+    arguments: dict = {}  # Dict[str, Optional[Dict[str, Any]]] = {}
+    execute_: Executer = lambda **_kwargs: 0
+
+    @property
+    def version_banner(self) -> str:
+        if self.version_template:
+            return inspect.cleandoc(self.version_template.format(**(self.dict())))
+        return "unknown"
+
+    def execute(self, **kwargs) -> int:
+        return self.execute_(**kwargs)
 
 
 class FakeVivado(FakeTool):
-    name = "Vivado"
-    executables: Set[str] = {"vivado"}
     vendor = "Xilinx, Inc."
     version = "v2021.2"
     version_template = """Vivado {version} (64-bit)
@@ -66,34 +104,42 @@ class FakeVivado(FakeTool):
     """
     help_options = ["-help"]
     version_options = ["-version"]
-    params = {
+    options = {
         "-mode": ["gui", "tcl", "batch"],
-        "-init": str,
-        "-source": str,
+        "-init": dict(type=click.Path(exists=True)),
+        "-source": dict(type=click.Path(exists=True)),
         "-verbose": None,
         "-nojournal": None,
         "-notrace": None,
         "-nolog": None,
     }
-    argument = {"project": dict(required=False)}
+    arguments = {"project": dict(required=False)}
 
-    def execute(self, *args, **kwargs):
+    def execute(self, **kwargs):
         print("cwd =", Path.cwd())
         tcl = kwargs.get("source")
-        assert tcl
-        tcl = Path(tcl)
-        assert tcl.exists()
-        sleep(0.3)
-        with ZipFile(RESOURCE_DIR / "fake_vivado_reports") as zf:
-            for file in zf.namelist():
-                if os.path.isdir(file):
-                    continue
-                with zf.open(file) as rf:
-                    data = rf.read()
-                    self.generate_file(Path("reports") / "post_route" / file, data)
+        if tcl:
+            sleep(0.3)
+            with ZipFile(RESOURCE_DIR / "fake_vivado_reports") as zf:
+                for file in zf.namelist():
+                    if os.path.isdir(file):
+                        continue
+                    with zf.open(file) as rf:
+                        data = rf.read()
+                        write_file(Path("reports") / "route_design" / file, data)
 
 
-fake_tools: Dict[str, FakeTool] = dict(vivado=FakeVivado())
+fake_tools: Dict[str, FakeTool] = dict(
+    vivado=FakeVivado(),  # type: ignore
+    quartus_sh=FakeTool(
+        options={"-t": dict(type=click.Path(exists=True), required=True)},
+        execute_=TouchFiles(
+            "reports/Flow_Summary.csv",
+            "reports/Fitter/Resource_Section/Fitter_Resource_Utilization_by_Entity.csv",
+            "reports/Timing_Analyzer/Multicorner_Timing_Analysis_Summary.csv",
+        ),
+    ),
+)
 
 symlink_name = Path(__file__).stem
 
@@ -115,11 +161,11 @@ def fake_tool_options(fake_tool: Optional[FakeTool]) -> FC:
                 *fake_tool.version_options,
                 message=fake_tool.version_banner,
             )(f)
-            for arg, attrs in fake_tool.argument.items():
+            for arg, attrs in fake_tool.arguments.items():
                 if attrs is None:
                     attrs = {}
                 f = click.argument(arg, **attrs)(f)
-            for param_decls, param_attrs in fake_tool.params.items():
+            for param_decls, param_attrs in fake_tool.options.items():
                 if isinstance(param_decls, str):
                     param_decls = (param_decls,)
                 if param_attrs is None:
@@ -138,7 +184,7 @@ def fake_tool_options(fake_tool: Optional[FakeTool]) -> FC:
 @click.pass_context
 def cli(ctx: click.Context, **kwargs):
     if tool:
-        print(f"Fake {tool.name} {kwargs} args:{ctx.args}")
+        print(f"Fake {ctx.info_name} {kwargs} args:{ctx.args}")
         tool.execute(**kwargs)
 
 

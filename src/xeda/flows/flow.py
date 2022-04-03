@@ -6,7 +6,7 @@ import os
 import re
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, OrderedDict, Tuple, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import jinja2
 import psutil
@@ -640,7 +640,8 @@ class FlowSettingsError(FlowException):
         self.model = model
 
     def __str__(self) -> str:
-        s = "{} error{} validating {}:\n{}".format(
+        return "{}: {} error{} validating {}:\n{}".format(
+            self.__class__.__qualname__,
             len(self.errors),
             "s" if len(self.errors) > 1 else "",
             self.model.__qualname__,
@@ -649,7 +650,6 @@ class FlowSettingsError(FlowException):
                 for loc, msg, ctx in self.errors
             ),
         )
-        return s
 
 
 class FlowFatalError(FlowException):

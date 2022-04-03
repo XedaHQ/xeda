@@ -10,15 +10,26 @@ jobs:
   tox:
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      GHDL_PLUGIN_MODULE: ghdl
+
     strategy:
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: ["3.7", "3.8", "3.9", "3.10", "3.11"]
+
     steps:
-      - uses: "actions/checkout@v2"
+      - run: sudo apt update -qq
+
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - uses: docker://gcr.io/hdl-containers/impl
+
       - uses: actions/setup-python@v2
         with:
           python-version: "${{ matrix.python-version }}"
+
       - name: "Install dependencies"
         run: |
           python -VV

@@ -1,21 +1,20 @@
-from abc import ABCMeta
-import os
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-from pydantic import Field, validator
 import logging
+import os
 import platform
+from abc import ABCMeta
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 try:
     from typing import Literal  # pylint: disable=ungrouped-imports
 except ImportError:
     from typing_extensions import Literal  # type: ignore
 
-
-from ..flow import Flow, SimFlow, SynthFlow
-from ...design import Design, Tuple012, DesignSource, VhdlSettings
+from ...dataclass import Field, validator
+from ...design import Design, DesignSource, Tuple012, VhdlSettings
 from ...tool import DockerToolSettings, Tool
 from ...utils import SDF
+from ..flow import Flow, SimFlow, SynthFlow
 
 log = logging.getLogger(__name__)
 

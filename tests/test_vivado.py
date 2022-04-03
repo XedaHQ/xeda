@@ -1,6 +1,7 @@
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoSynth
@@ -9,19 +10,18 @@ from xeda.flows.flow import FPGA
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
-# sys.path.insert(0, TESTS_DIR)
 
 
-def test_vivado_prj_template() -> None:
+def test_vivado_synth_template() -> None:
     path = RESOURCES_DIR / "design0/design0.toml"
     assert path.exists()
     design = Design.from_toml(RESOURCES_DIR / "design0/design0.toml")
     settings = VivadoSynth.Settings(fpga=FPGA(part="abcd"), clock_period=5.5)  # type: ignore
-    run_dir = Path.cwd() / "vivado_prj_run"
+    run_dir = Path.cwd() / "vivado_synth_run"
     run_dir.mkdir(exist_ok=True)
     flow = VivadoSynth(settings, design, run_dir)  # type: ignore
     tcl_file = flow.copy_from_template(
-        "vivado_project.tcl", xdc_files=[], reports_tcl="reports_tcl"
+        "vivado_synth.tcl", xdc_files=[], reports_tcl="reports_tcl"
     )
     with open(run_dir / tcl_file) as f:
         vivado_tcl = f.read()
@@ -48,12 +48,10 @@ def test_vivado_synth_py() -> None:
         flow = xeda_runner.run_flow(VivadoSynth, design, settings)
         settings_json = flow.run_path / "settings.json"
         results_json = flow.run_path / "results.json"
-        # print(flow.results)
-        # assert flow.results["wns"] == 0.046
         assert settings_json.exists()
         assert results_json.exists()
         assert flow.succeeded
-        assert 0.3 < flow.results.runtime
+        assert 0.3 < flow.results.runtime  # type: ignore
 
 
 if __name__ == "__main__":

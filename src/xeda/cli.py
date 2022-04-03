@@ -26,7 +26,8 @@ from .cli_utils import Mutex, OptionEatAll, XedaHelpGroup, settings_to_dict
 from .console import console
 from .design import Design, DesignValidationError
 from .flow_runner import DefaultRunner, get_flow_class
-from .flows.flow import Flow, FlowFatalError, FlowSettingsError, registered_flows
+from .flows.flow import (Flow, FlowFatalError, FlowSettingsError,
+                         registered_flows)
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import toml_load
 
@@ -41,12 +42,11 @@ def load_xeda(file: Path):
     with open(file) as f:
         if ext == ".json":
             return json.load(f)
-        elif ext == ".yaml":
+        if ext == ".yaml":
             return yaml.safe_load(f)
-        else:
-            sys.exit(
-                f"File {file} has unknown extension {ext}. Currently supported formats are TOML (.toml) and JSON (.json)"
-            )
+        sys.exit(
+            f"File {file} has unknown extension {ext}. Currently supported formats are TOML (.toml) and JSON (.json)"
+        )
 
 
 def load_design_from_toml(design_file) -> Design:
@@ -229,13 +229,7 @@ def run(
         try:
             design = Design.from_toml(design_file)
         except DesignValidationError as e:
-            log.critical(
-                "%d error%s validating design file %s:\n\n%s",
-                len(e.errors),
-                "s" if len(e.errors) > 1 else "",
-                design_file,
-                "\n".join(f"{loc}:\n   {msg} \n  " for loc, msg, ctx in e.errors),
-            )
+            log.critical("%s", e)
             sys.exit(1)
     elif xedaproject:
         toml_path = Path(xedaproject)

@@ -86,8 +86,7 @@ class OptionEatAll(click.Option):
                             break
                     if done:
                         break
-                    else:
-                        value_list.append(state.rargs.pop(0))
+                    value_list.append(state.rargs.pop(0))
             else:
                 # grab everything remaining
                 value_list += state.rargs
@@ -169,12 +168,11 @@ def settings_to_dict(
             key, val = sp
             set_hierarchy(res, key, try_convert(val, convert_lists=True))
         return res
-    elif isinstance(settings, Flow.Settings):
+    if isinstance(settings, Flow.Settings):
         return asdict(settings)
-    elif isinstance(settings, dict):
+    if isinstance(settings, dict):
         return settings
-    else:
-        raise TypeError(f"overrides is of unsupported type: {type(settings)}")
+    raise TypeError(f"overrides is of unsupported type: {type(settings)}")
 
 
 # xdg_home = os.environ.get('XDG_DATA_HOME', os.path.join(

@@ -1,10 +1,11 @@
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-from ..vivado import Vivado
-from ..flow import FpgaSynthFlow
+from typing import Any, Dict, List, Optional
+
 from ...dataclass import Field, XedaBaseModel
+from ..flow import FpgaSynthFlow
+from ..vivado import Vivado
 
 log = logging.getLogger(__name__)
 

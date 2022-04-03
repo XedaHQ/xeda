@@ -2,24 +2,22 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 
-from pydantic import (  # pylint: disable=no-name-in-module
+from .dataclass import (
     Extra,
     Field,
+    ValidationError,
+    XedaBaseModel,
     root_validator,
-    validate_model,
+    validation_errors,
     validator,
 )
-from pydantic.error_wrappers import ValidationError  # pylint: disable=no-name-in-module
-
-from .dataclass import XedaBaseModel, validation_errors
 from .utils import WorkingDirectory, toml_load
 
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "from_toml",
     "Design",
     "DesignSource",
     "FileResource",
@@ -27,29 +25,6 @@ __all__ = [
     "LanguageSettings",
     "Clock",
 ]
-
-
-def from_toml(
-    design_file: Union[str, os.PathLike],
-    design_root: Union[None, str, os.PathLike] = None,
-) -> "Design":
-    """Load and validate a design description from TOML file"""
-    if not isinstance(design_file, Path):
-        design_file = Path(design_file)
-    design_dict = toml_load(design_file)
-    # Default value for design_root is the folder containing the design description file.
-    if design_root is None:
-        design_root = design_file.parent
-    try:
-        return Design(design_root=design_root, **design_dict)
-    except DesignValidationError as e:
-        raise DesignValidationError(  # add design_file to the emitted exception
-            e.errors,
-            data=e.data,
-            design_root=e.design_root,
-            design_name=e.design_name,
-            file=str(design_file),
-        ) from None
 
 
 class DesignValidationError(Exception):
@@ -68,6 +43,19 @@ class DesignValidationError(Exception):
         self.design_root = design_root
         self.design_name = design_name
         self.file = file
+
+    def __str__(self) -> str:
+        name = self.design_name or self.data.get("name")
+        return "{}: {} error{} validating design{}:\n{}".format(
+            self.__class__.__qualname__,
+            len(self.errors),
+            "s" if len(self.errors) > 1 else "",
+            f" {name}" if name else "",
+            "\n".join(
+                "{}{} ({})\n".format(f"{loc}:\n   " if loc else "", msg, ctx)
+                for loc, msg, ctx in self.errors
+            ),
+        )
 
 
 class FileResource:
@@ -208,11 +196,10 @@ class DVSettings(XedaBaseModel):  # type: ignore
     def top_validator(cls, top: Union[None, str, Sequence[str], Tuple012]) -> Tuple012:
         if top:
             if isinstance(top, str):
-                top = (top,)
-            if isinstance(top, Sequence):
+                return (top,)
+            if isinstance(top, (tuple, list, Sequence)):
                 assert len(top) <= 2
-                top = tuple(top)
-            return top
+                return tuple(top)
         return tuple()
 
     @validator("sources", pre=True, always=False)
@@ -354,16 +341,28 @@ class Design(XedaBaseModel):
                 return self.tb.top
         return tuple()
 
-    def check(
-        self,
-    ) -> None:  # TODO remove? as not serving a purpose (does it even work?)
-        *_, validation_error = validate_model(self.__class__, self.__dict__)
-        if validation_error:
-            raise validation_error
+    T = TypeVar("T", bound="Design")
 
-    @staticmethod
+    @classmethod
     def from_toml(
+        cls: Type[T],
         design_file: Union[str, os.PathLike],
         design_root: Union[None, str, os.PathLike] = None,
-    ) -> "Design":
-        return from_toml(design_file, design_root)
+    ) -> T:
+        """Load and validate a design description from TOML file"""
+        if not isinstance(design_file, Path):
+            design_file = Path(design_file)
+        design_dict = toml_load(design_file)
+        # Default value for design_root is the folder containing the design description file.
+        if design_root is None:
+            design_root = design_file.parent
+        try:
+            return cls(design_root=design_root, **design_dict)
+        except DesignValidationError as e:
+            raise DesignValidationError(  # add design_file to the emitted exception
+                e.errors,
+                data=e.data,
+                design_root=e.design_root,
+                design_name=e.design_name,
+                file=str(design_file),
+            ) from e

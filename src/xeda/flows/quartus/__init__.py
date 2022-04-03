@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional, Set
 
+from xeda.utils import try_convert
+
 from ...dataclass import Field
 from ...tool import Tool
 from ...types import PathLike
@@ -283,16 +285,20 @@ class Quartus(FpgaSynthFlow):
             id_parser=lambda s: s.strip(),
             interesting_fields={"Setup", "Hold"},
         )
-        worst_slacks = slacks["Worst-case Slack"]
-        wns = worst_slacks["Setup"]
-        whs = worst_slacks["Hold"]
-        self.results["wns"] = wns
-        self.results["whs"] = whs
-
-        if isinstance(wns, (int,float)):
-            failed |= wns < 0
-        if isinstance(whs, (int,float)):
-            failed |= whs < 0
+        worst_slacks = slacks.get("Worst-case Slack")
+        if worst_slacks:
+            wns = worst_slacks.get("Setup")
+            whs = worst_slacks.get("Hold")
+            if wns is not None:
+                wns = try_convert(wns)
+                self.results["wns"] = wns
+                if isinstance(wns, (int, float)):
+                    failed |= wns < 0
+            if whs is not None:
+                whs = try_convert(whs)
+                self.results["whs"] = whs
+                if isinstance(whs, (int, float)):
+                    failed |= whs < 0
 
         timing_reports_folder = Path(reports["timing_dir"])
         max_fmax = 0.0

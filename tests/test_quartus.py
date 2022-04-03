@@ -1,9 +1,17 @@
 """test Intel Quartus flow"""
 import os
+import tempfile
+from pathlib import Path
 
+from xeda import Design
+from xeda.flow_runner import DefaultRunner
+from xeda.flows import Quartus
+from xeda.flows.flow import FPGA
 from xeda.flows.quartus import parse_csv, try_num
 
-from . import RESOURCES_DIR
+TESTS_DIR = Path(__file__).parent.absolute()
+RESOURCES_DIR = TESTS_DIR / "resources"
+EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
 
 def test_parse_csv():
@@ -81,16 +89,19 @@ def test_parse_csv_no_header():
     }
 
 
-# Python program to explain os.cpu_count() method
-
-# importing os module
-
-
-# Get the number of CPUs
-# in the system using
-# os.cpu_count() method
-cpuCount = os.cpu_count()
-
-# Print the number of
-# CPUs in the system
-print("Number of CPUs in the system:", cpuCount)
+def test_quartus_synth_py() -> None:
+    path = RESOURCES_DIR / "design0/design0.toml"
+    # Append to PATH so if the actual tool exists, would take precedences.
+    os.environ["PATH"] += os.pathsep + os.path.join(TESTS_DIR, "fake_tools")
+    assert path.exists()
+    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock_period=6)
+    with tempfile.TemporaryDirectory() as run_dir:
+        print("Xeda run dir: ", run_dir)
+        xeda_runner = DefaultRunner(run_dir, debug=True)
+        flow = xeda_runner.run_flow(Quartus, design, settings)
+        settings_json = flow.run_path / "settings.json"
+        results_json = flow.run_path / "results.json"
+        assert settings_json.exists()
+        assert results_json.exists()
+        assert flow.succeeded

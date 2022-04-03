@@ -6,7 +6,7 @@ import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
-from typing import Any, Dict, Mapping, Optional, Set, Type, Union
+from typing import Any, Dict, Mapping, Optional, Set, Type, Union, Tuple
 
 from pathvalidate import sanitize_filename  # type: ignore # pyright: reportPrivateImportUsage=none
 from rich import box, print_json
@@ -49,7 +49,7 @@ def print_results(
     for k, v in results.items():
         if skip_if_empty and k in skip_if_empty and not v:
             continue
-        elif v is not None and not k.startswith("_"):
+        if v is not None and not k.startswith("_"):
             if k == "success":
                 text = "OK :heavy_check_mark-text:" if v else "FAILED :cross_mark-text:"
                 color = "green" if v else "red"
@@ -111,12 +111,11 @@ def semantic_hash(data: Any) -> str:
     def sorted_dict_str(data: Any) -> Any:
         if isinstance(data, Mapping):
             return {k: sorted_dict_str(data[k]) for k in sorted(data.keys())}
-        elif isinstance(data, list):
+        if isinstance(data, list):
             return [sorted_dict_str(val) for val in data]
-        elif hasattr(data, "__dict__"):
+        if hasattr(data, "__dict__"):
             return sorted_dict_str(data.__dict__)
-        else:
-            return str(data)
+        return str(data)
 
     def get_digest(b: bytes) -> str:
         return hashlib.sha1(b).hexdigest()[:16]
@@ -185,15 +184,15 @@ class FlowRunner:
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
     ) -> Flow:
-        return self._run_flow(flow_class, design, flow_settings, None)
+        return self._run_flow(flow_class, design, flow_settings, None)[-1]
 
     def _run_flow(
         self,
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings],
-        is_dependency_of: Optional[Flow],
-    ) -> Flow:
+        depender: Optional[Flow],
+    ) -> Tuple[Flow, ...]:
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
         if flow_settings is None:
@@ -201,23 +200,10 @@ class FlowRunner:
         elif isinstance(flow_settings, Flow.Settings):
             flow_settings = asdict(flow_settings)
         flow_settings = flow_class.Settings(**flow_settings)
-
-        if isinstance(flow_class, str):
-            flow_class = get_flow_class(flow_class)
-        if flow_settings is None:
-            flow_settings = {}
-        elif isinstance(flow_settings, Flow.Settings):
-            flow_settings = asdict(flow_settings)
-        flow_settings = flow_class.Settings(**flow_settings)
-
         if self.debug:
-            flow_settings.debug = True  # DebugLevel.HIGH
+            flow_settings.debug = True
 
         flow_name = flow_class.name
-
-        # TODO is this needed anymore?
-        design.check()
-
         design_hash = semantic_hash(design)
         flowrun_hash = semantic_hash(
             dict(
@@ -269,11 +255,11 @@ class FlowRunner:
                 dep_cls.__module__,
                 dep_cls.__qualname__,
             )
-            completed_dep = self._run_flow(dep_cls, design, dep_settings, flow)
+            completed_dep = self._run_flow(dep_cls, design, dep_settings, depender=flow)
             if not completed_dep:
                 log.critical("Dependency flow: %s failed!", dep_cls.name)
                 raise FlowDependencyFailure()  # TODO
-            flow.completed_dependencies.append(completed_dep)
+            flow.completed_dependencies.extend(completed_dep)
 
         flow.results["design"] = flow.design.name
         flow.results["flow"] = flow.name
@@ -320,7 +306,7 @@ class FlowRunner:
                 title=f"{flow.name} Results",
                 skip_if_empty={"artifacts", "reports"},
             )
-        return flow
+        return (*flow.completed_dependencies, flow)
 
 
 class DefaultRunner(FlowRunner):
