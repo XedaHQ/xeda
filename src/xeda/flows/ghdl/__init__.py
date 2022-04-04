@@ -12,7 +12,7 @@ except ImportError:
 
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, Tuple012, VhdlSettings
-from ...tool import DockerToolSettings, Tool
+from ...tool import DockerSettings, Tool
 from ...utils import SDF
 from ..flow import Flow, SimFlow, SynthFlow
 
@@ -28,7 +28,7 @@ def append_flag(flag_list: List[str], flag: str) -> List[str]:
 class GhdlTool(Tool):
     """GHDL VHDL simulation, synthesis, and linting tool: https://ghdl.readthedocs.io"""
 
-    docker = DockerToolSettings(image_name="hdlc/sim:osvb")
+    docker = DockerSettings(image="hdlc/sim:osvb")
     executable = "ghdl"
 
     def get_info(self) -> Dict[str, str]:

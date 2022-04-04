@@ -5,7 +5,7 @@ from xml.etree import ElementTree
 
 from . import Vivado
 from .vivado_postsynthsim import VivadoPostsynthSim
-from .vivado_custom_synth import VivadoCustomSynth
+from .vivado_alt_synth import VivadoAltSynth
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class VivadoPower(Vivado):
         assert isinstance(postsynthsim_settings, VivadoPostsynthSim.Settings)
         run_configs = postsynthsim_settings.multirun_configs
         dep_synth_flow = postsynthsim.completed_dependencies[0]
-        assert isinstance(dep_synth_flow, VivadoCustomSynth)
+        assert isinstance(dep_synth_flow, VivadoAltSynth)
 
         # assert False, "FIXME! not implemented! not working!" # FIXME
         # def update_saif_path(rc):
@@ -56,7 +56,7 @@ class VivadoPower(Vivado):
         #     )
 
         assert self.design.tb
-        assert isinstance(dep_synth_flow.settings, VivadoCustomSynth.Settings)
+        assert isinstance(dep_synth_flow.settings, VivadoAltSynth.Settings)
 
         script_path = self.copy_from_template(
             f"vivado_power.tcl",

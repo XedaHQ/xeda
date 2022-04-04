@@ -1,8 +1,7 @@
 import logging
-from typing import Dict, List, Optional
+from typing import List, Optional
 
-from ...dataclass import XedaBaseModeAllowExtra
-from ...design import DefineType
+from ...dataclass import Field
 from ...utils import SDF
 from ..flow import SimFlow
 from ..vivado import Vivado
@@ -10,11 +9,7 @@ from ..vivado import Vivado
 log = logging.getLogger(__name__)
 
 
-class RunConfig(XedaBaseModeAllowExtra):
-    name: Optional[str] = None
-    saif: Optional[str] = None
-    vcd: Optional[str] = None
-    generics: Dict[str, DefineType] = {}
+# FIXME: Does not return error when simulation is finished with a failure assertion
 
 
 class VivadoSim(Vivado, SimFlow):
@@ -23,17 +18,21 @@ class VivadoSim(Vivado, SimFlow):
     # TODO change this?
     # Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
 
-    class Settings(SimFlow.Settings, Vivado.Settings):
+    class Settings(Vivado.Settings, SimFlow.Settings):
         saif: Optional[str] = None
         elab_flags: List[str] = ["-relax"]
         analyze_flags: List[str] = ["-relax"]
         sim_flags: List[str] = []
         elab_debug: Optional[str] = None  # TODO choices: "typical", ...
-        multirun_configs: List[RunConfig] = []
         sdf: SDF = SDF()
-        optimization_flags: List[str] = ["-O3"]
+        optimization_flags: List[str] = []  # ["-O3"]
         debug_traces: bool = False
         prerun_time: Optional[str] = None
+        work_lib: str = "work"
+        initialize_zeros: bool = Field(
+            False, description="Initialize all signals with zero"
+        )
+        xelab_log: Optional[str] = "xeda_xelab.log"
 
     def run(self) -> None:
         ss = self.settings
@@ -41,58 +40,23 @@ class VivadoSim(Vivado, SimFlow):
 
         saif = ss.saif
 
-        elab_flags = ss.elab_flags
-        elab_flags.append(f'-mt {"off" if ss.debug else ss.nthreads}')
+        ss.elab_flags.append(f'-mt {"off" if ss.debug else ss.nthreads}')
 
         elab_debug = ss.elab_debug
-        multirun_configs = ss.multirun_configs
         if not elab_debug and (ss.debug or saif or ss.vcd):
             elab_debug = "typical"
         if elab_debug:
-            elab_flags.append(f"-debug {elab_debug}")
+            ss.elab_flags.append(f"-debug {elab_debug}")
 
         assert self.design.tb
-        generics = self.design.tb.generics
-        if not multirun_configs:
-            multirun_configs = [
-                RunConfig(saif=saif, generics=generics, vcd=ss.vcd, name="default")
-            ]
-            if ss.vcd:
-                log.info("Dumping VCD to %s", self.run_path / ss.vcd)
-        else:
-            for idx, rc in enumerate(multirun_configs):
-                # merge
-                rc.generics = {**generics, **rc.generics}
-                if not rc.saif:
-                    rc.saif = saif
-                if not rc.name:
-                    rc.name = f"run_{idx}"
-                if not rc.vcd:
-                    rc.vcd = (rc.name + "_" + ss.vcd) if ss.vcd else None
+        if ss.vcd:
+            log.info("Dumping VCD to %s", self.run_path / ss.vcd)
         sdf_root = ss.sdf.root
         if not sdf_root:
             sdf_root = self.design.tb.uut
-        for delay_type in ("min", "max", "typ"):
-            sdf_file = ss.sdf.dict().get(delay_type)
-            if sdf_file:
-                assert sdf_root, "neither SDF root nor tb.uut are provided"
-                elab_flags.append(f"-sdf{delay_type} {sdf_root}={sdf_file}")
+        for delay_type, sdf_file in ss.sdf.delay_items():
+            assert sdf_root, "neither SDF root nor tb.uut are provided"
+            ss.elab_flags.append(f"-sdf{delay_type} {sdf_root}={sdf_file}")
 
-        for ox in ss.optimization_flags:
-            if ox not in elab_flags:
-                if ox.startswith("-O") and any(
-                    map(lambda s: s.startswith("-O"), elab_flags)
-                ):
-                    continue
-                elab_flags.append(ox)
-
-        script_path = self.copy_from_template(
-            f"vivado_sim.tcl",
-            multirun_configs=multirun_configs,
-            initialize_zeros=False,
-            sim_tops=self.design.sim_tops,
-            tb_top=self.design.tb.top,
-            lib_name="work",
-            sim_sources=self.design.sim_sources,
-        )
+        script_path = self.copy_from_template("vivado_sim.tcl")
         self.vivado.run("-source", script_path)

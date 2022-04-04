@@ -10,3 +10,4 @@ clock_port = 'clock'
 [tb]
 sources = ['pipelined_adder_tb.vhdl']
 top = 'pipelined_adder_tb'
+uut = 'uut'

@@ -1,4 +1,5 @@
 """EDA flow abstraction"""
+from __future__ import annotations
 import inspect
 import logging
 import multiprocessing
@@ -6,7 +7,8 @@ import os
 import re
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
+
 
 import jinja2
 import psutil
@@ -63,9 +65,6 @@ registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
 
-FlowType = TypeVar("FlowType", bound="Flow")
-FlowSettingsType = TypeVar("FlowSettingsType", bound="Flow.Settings")
-
 
 class Flow(metaclass=ABCMeta):
     """A flow may run one or more tools and is associated with a single set of settings and a single design.
@@ -93,16 +92,20 @@ class Flow(metaclass=ABCMeta):
         reports_dir: str = Field("reports", hidden_from_schema=True)
         outputs_dir: str = Field("outputs", hidden_from_schema=True)
         clean: bool = False  # TODO remove!
-        # library_id -> library_path mapping. library_path is optional
         lib_paths: List[
             Union[
-                Tuple[str, Union[None, str, os.PathLike]],
-                Tuple[None, Union[str, os.PathLike]],
+                Tuple[
+                    str,  # library name/identifier
+                    Union[None, str, Path],  # optional library path
+                ],
+                Tuple[None, Union[str, Path]],  # or just the path
+                # both name and path can't be None
             ]
         ] = Field(
             [],
             description="Additional libraries specified as a list of (name, path) tuples. Either name or path can be none. A single string or a list of string is converted to a mapping of library names without paths",
         )
+        dockerized: bool = Field(False, description="Run tools from docker")
 
         @validator("lib_paths", pre=True)
         def lib_paths_validator(cls, value):  # pylint: disable=no-self-argument
@@ -170,7 +173,7 @@ class Flow(metaclass=ABCMeta):
             undefined=StrictUndefined,
         )
 
-    def __init__(self, settings: Settings, design: Design, run_path: Path):
+    def __init__(self: Flow, settings: Flow.Settings, design: Design, run_path: Path):
         self.run_path = run_path
         self.settings = settings
         assert isinstance(self.settings, self.Settings)
@@ -190,7 +193,7 @@ class Flow(metaclass=ABCMeta):
         # TODO deprecate and use self.reports
         self.reports_dir = run_path / self.settings.reports_dir
         self.reports_dir.mkdir(exist_ok=True)
-        self.results = Box(
+        self.results: Box = Box(
             success=False,
             # "Time of the execution of run() in fractional seconds.
             # Initialized with None and set only after execution has finished."

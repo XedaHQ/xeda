@@ -1,6 +1,7 @@
 """test Intel Quartus flow"""
 import os
 import tempfile
+import logging
 from pathlib import Path
 
 from xeda import Design
@@ -13,6 +14,11 @@ TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
+
+log = logging.getLogger(__name__)
+
+log.root.setLevel(logging.DEBUG)
+log.setLevel(logging.DEBUG)
 
 def test_parse_csv():
     resources = parse_csv(
@@ -95,7 +101,7 @@ def test_quartus_synth_py() -> None:
     os.environ["PATH"] += os.pathsep + os.path.join(TESTS_DIR, "fake_tools")
     assert path.exists()
     design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
-    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock_period=6)
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock_period=6, dockerized=True)
     with tempfile.TemporaryDirectory() as run_dir:
         print("Xeda run dir: ", run_dir)
         xeda_runner = DefaultRunner(run_dir, debug=True)
@@ -105,3 +111,7 @@ def test_quartus_synth_py() -> None:
         assert settings_json.exists()
         assert results_json.exists()
         assert flow.succeeded
+
+
+if __name__ == "__main__":
+    test_quartus_synth_py() 

@@ -8,7 +8,7 @@ from typing import Any, Callable, Literal, Optional, Set
 from xeda.utils import try_convert
 
 from ...dataclass import Field
-from ...tool import Tool
+from ...tool import DockerSettings, Tool
 from ...types import PathLike
 from ..flow import FpgaSynthFlow
 
@@ -67,7 +67,7 @@ def try_float(s: str):
 class Quartus(FpgaSynthFlow):
     """FPGA synthesis using Intel Quartus"""
 
-    quartus_sh = Tool("quartus_sh")
+    quartus_sh = Tool(executable="quartus_sh", docker=DockerSettings(image="chriz2600/quartus-lite", tag="21.1.0"))
 
     class Settings(FpgaSynthFlow.Settings):
         # part number (fpga.part) formats are quite complicated.
@@ -132,6 +132,9 @@ class Quartus(FpgaSynthFlow):
             / "Timing_Analyzer"
             / "Multicorner_Timing_Analysis_Summary.csv",
         }
+        # FIXME
+        if self.quartus_sh.docker:
+            self.quartus_sh.docker.enabled = self.settings.dockerized
 
     def create_project(self, **kwargs: Any) -> None:
         assert isinstance(self.settings, self.Settings)

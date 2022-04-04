@@ -21,7 +21,7 @@ class RunOptions(XedaBaseModel):
 class VivadoSynth(Vivado, FpgaSynthFlow):
     """Synthesize with Xilinx Vivado using a project-based flow"""
 
-    class Settings(FpgaSynthFlow.Settings):
+    class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         """Settings for Vivado synthesis in project mode"""
 
         # FIXME implement and verify all

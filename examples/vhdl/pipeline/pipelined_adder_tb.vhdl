@@ -4,8 +4,8 @@ use ieee.numeric_std.all;
 
 entity pipelined_adder_tb is
   generic(
-    G_CLOCK_PERIOD_PS   : positive := 10_000;
-    G_WAIT_PRE_RESET_NS : positive := 200
+    G_CLOCK_PERIOD_PS   : positive := 15_000;
+    G_WAIT_PRE_RESET_NS : positive := 100
   );
 end pipelined_adder_tb;
 
@@ -31,13 +31,11 @@ architecture TB of pipelined_adder_tb is
   end component;
   constant clock_period : time := G_CLOCK_PERIOD_PS * ps;
 
-  signal in_ready, in_valid   : std_logic;
-  signal out_ready, out_valid : std_logic;
-  signal clock, reset         : std_logic;
-  signal stop_clock           : boolean := FALSE;
-  signal reset_done           : boolean := False;
-  signal a, b                 : std_logic_vector(W - 1 downto 0);
-  signal s                    : std_logic_vector(W downto 0);
+  signal in_ready, out_valid               : std_logic;
+  signal clock, reset, in_valid, out_ready : std_logic := '0';
+  signal stop_clock, reset_done            : boolean   := FALSE;
+  signal a, b                              : std_logic_vector(W - 1 downto 0);
+  signal s                                 : std_logic_vector(W downto 0);
 
   type test_vector is record
     a, b : std_logic_vector(W - 1 downto 0);
@@ -71,10 +69,9 @@ begin
   -- generate clock
   CLOCK_PROCESS : process
   begin
+    clock <= '0';
     if not stop_clock then
-      clock <= '1';
-      wait for clock_period / 2;
-      clock <= '0';
+      clock <= not clock;
       wait for clock_period / 2;
     else
       wait;
@@ -83,10 +80,12 @@ begin
 
   RESET_PROCESS : process
   begin
-    wait for G_WAIT_PRE_RESET_NS * ns;
-    reset      <= '1';
-    wait for 2 * clock_period;
     reset      <= '0';
+    wait for G_WAIT_PRE_RESET_NS * ns;
+    wait until falling_edge(clock);
+    reset      <= '1';
+    wait for clock_period;
+    reset      <= not reset;
     wait until rising_edge(clock);
     report "RESET DONE" severity note;
     reset_done <= True;

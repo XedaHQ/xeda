@@ -22,6 +22,16 @@ except AttributeError:  # Python < 3.7
     nullcontext = nullcontext_
 
 
+__all__ = [
+    "ToolException",
+    "NonZeroExitCode",
+    "ExecutableNotFound",
+    "DockerSettings",
+    "Tool",
+    "run_process",
+]
+
+
 class ToolException(Exception):
     """Super-class of all tool exceptions"""
 
@@ -43,7 +53,8 @@ class ExecutableNotFound(ToolException):
         self.path = path
 
 
-class RemoteToolSettings(XedaBaseModel):
+class RemoteSettings(XedaBaseModel):
+    enabled: bool = False
     junest_path: str  # FIXME REMOVE
     junest_method: str = "ns"
     junest_mounts: Dict[str, str] = {}
@@ -52,11 +63,12 @@ class RemoteToolSettings(XedaBaseModel):
     port: int = 22
 
 
-class DockerToolSettings(XedaBaseModel):
+class DockerSettings(XedaBaseModel):
+    enabled: bool = False
     executable: Optional[str] = None
-    image_name: str = Field(description="Docker image name")
-    image_tag: Optional[str] = Field(None, description="Docker image tag")
-    image_registry: Optional[str] = Field(None, description="Docker image registry")
+    image: str = Field(description="Docker image name")
+    tag: str = Field("latest", description="Docker image tag")
+    registry: Optional[str] = Field(None, description="Docker image registry")
 
 
 OptionalPath = Union[None, str, os.PathLike[Any]]
@@ -78,6 +90,7 @@ def run_process(
     if env is not None:
         env = {k: str(v) for k, v in env.items()}
     log.info("Running `%s`", " ".join([executable, *args]))
+    print("Running ", " ".join([executable, *args]))
     if cwd:
         log.info("cwd=%s", cwd)
     if stdout and isinstance(stdout, (str, os.PathLike)):
@@ -157,8 +170,8 @@ class Tool(XedaBaseModeAllowExtra):
     minimum_version: Union[None, Tuple[Union[int, str], ...]] = None
     default_args: Optional[List[str]] = None
 
-    remote: Optional[RemoteToolSettings] = Field(None, hidden_from_schema=True)
-    docker: Optional[DockerToolSettings] = Field(None, hidden_from_schema=True)
+    remote: Optional[RemoteSettings] = Field(None, hidden_from_schema=True)
+    docker: Optional[DockerSettings] = Field(None, hidden_from_schema=True)
     log_stdout: bool = Field(
         False, description="Log stdout to a file", hidden_from_schema=True
     )
@@ -167,9 +180,6 @@ class Tool(XedaBaseModeAllowExtra):
     )
     bin_path: str = Field(
         None, description="Path to the tool binary", hidden_from_schema=True
-    )
-    dockerized: bool = Field(
-        False, description="Run the tool dockerized", hidden_from_schema=True
     )
 
     def __init__(self, executable: Optional[str] = None, **kwargs):
@@ -333,7 +343,7 @@ class Tool(XedaBaseModeAllowExtra):
 
     def _run_docker(
         self,
-        docker: DockerToolSettings,
+        docker: DockerSettings,
         *args: Any,
         env: Optional[Dict[str, Any]] = None,
         stdout: OptionalBoolOrPath = None,
@@ -360,9 +370,10 @@ class Tool(XedaBaseModeAllowExtra):
                 f.write(f"\n".join(f"{k}={v}" for k, v in env.items()))
             docker_args.extend(["--env-file", str(env_file)])
 
+        executable = docker.executable or self.executable
         return run_process(
             "docker",
-            ["run", *docker_args, docker.image_name, self.executable, *args],
+            ["run", *docker_args, f"{docker.image}:{docker.tag}", executable, *args],
             env=None,
             stdout=stdout,
             check=check,
@@ -378,10 +389,10 @@ class Tool(XedaBaseModeAllowExtra):
     ) -> Union[None, str]:
         if self.default_args:
             args = tuple(unique(self.default_args + list(args)))
-        if self.remote:
+        if self.remote and self.remote.enabled:
             self._run_remote(*args, env=env, stdout=stdout, check=check)
             return None
-        if self.dockerized and self.docker:
+        if self.docker and self.docker.enabled:
             return self._run_docker(
                 self.docker, *args, env=env, stdout=stdout, check=check
             )

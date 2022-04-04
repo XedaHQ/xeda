@@ -252,8 +252,8 @@ def _vivado_steps(strategy: str, s: str):
     return {step: xeda_strategies[strategy].get(step) for step in steps}
 
 
-class VivadoCustomSynth(Vivado, FpgaSynthFlow):
-    """Synthesize with Xilinx Vivado using a custom flow"""
+class VivadoAltSynth(Vivado, FpgaSynthFlow):
+    """Synthesize with Xilinx Vivado using an alternative TCL-based flow"""
 
     class Settings(VivadoSynth.Settings):
         synth: RunOptions = RunOptions(
@@ -306,7 +306,7 @@ class VivadoCustomSynth(Vivado, FpgaSynthFlow):
         )
 
         script_path = self.copy_from_template(
-            "vivado_custom_synth.tcl",
+            "vivado_alt_synth.tcl",
             xdc_files=[clock_xdc_path],
         )
         self.vivado.run("-source", script_path)

@@ -1,5 +1,7 @@
 """Utilities for command line interface"""
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import logging
+import sys
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 import click
 from click_help_colors import HelpColorsGroup
@@ -7,18 +9,23 @@ from overrides import overrides
 
 from .console import console
 from .dataclass import asdict
+from .flow_runner import FlowNotFoundError, get_flow_class
 from .flows.flow import Flow
 from .utils import set_hierarchy, try_convert
 
 __all__ = [
-    "Mutex",
+    "ClickMutex",
     "OptionEatAll",
     "ConsoleLogo",
     "XedaHelpGroup",
+    "discover_flow_class",
 ]
 
 
-class Mutex(click.Option):
+log = logging.getLogger(__name__)
+
+
+class ClickMutex(click.Option):
     """Mutual exclusion of options"""
 
     def __init__(self, *args, **kwargs):
@@ -197,3 +204,14 @@ def settings_to_dict(
 # else:
 #     with open(eager_completion, "w") as f:
 #         f.write(source_line + os.linesep)
+
+
+def discover_flow_class(flow: str) -> Type[Flow]:
+    try:
+        return get_flow_class(flow, "xeda.flows", __package__)
+    except FlowNotFoundError:
+        log.critical(
+            "Flow %s is not known to Xeda. Please make sure the name is correctly specified.",
+            flow,
+        )
+        sys.exit(1)

@@ -1,20 +1,21 @@
 """Flow runner"""
 import hashlib
 import importlib
+import json
 import logging
 import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
-from typing import Any, Dict, Mapping, Optional, Set, Type, Union, Tuple
+from typing import Any, Dict, Mapping, Optional, Set, Tuple, Type, Union
+from box import Box
 
 from pathvalidate import sanitize_filename  # type: ignore # pyright: reportPrivateImportUsage=none
+
 from rich import box, print_json
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
-
-from xeda.debug import DebugLevel
 
 from ..console import console
 from ..dataclass import asdict
@@ -23,6 +24,14 @@ from ..flows.flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
 from ..utils import WorkingDirectory, backup_existing, dump_json, snakecase_to_camelcase
 from ..version import __version__
+
+__all__ = [
+    "get_flow_class",
+    "FlowNotFoundError",
+    "FlowRunner",
+    "DefaultRunner",
+    "print_results",
+]
 
 log = logging.getLogger(__name__)
 
@@ -76,10 +85,14 @@ def print_results(
     console.print(table)
 
 
+class FlowNotFoundError(Exception):
+    pass
+
+
 def get_flow_class(
     flow_name: str, module_name: str = "xeda.flows", package: str = __package__
 ) -> Type[Flow]:
-    (_mod, flow_class) = registered_flows.get(flow_name, (None, None))
+    _mod, flow_class = registered_flows.get(flow_name, (None, None))
     if flow_class is None:
         log.warning(
             "Flow %s was not found in registered flows. Trying to load using importlib.import_module",
@@ -88,39 +101,35 @@ def get_flow_class(
         try:
             module = importlib.import_module(module_name)
         except ModuleNotFoundError as e:
-            log.critical(
-                "Unable to import module %s from package %s", module_name, package
-            )
-            raise e from None
-        assert (
-            module is not None
-        ), f"Failed to load module {module_name} from package {package}"
+            raise FlowNotFoundError() from e
         flow_class_name = snakecase_to_camelcase(flow_name)
-        try:
-            flow_class = getattr(module, flow_class_name)
-        except AttributeError as e:
-            log.critical(
-                "Unable to find class %s in module %s", flow_class_name, module
-            )
-            raise e from None
-    assert flow_class is not None and issubclass(flow_class, Flow)
+        if module:
+            try:
+                flow_class = getattr(module, flow_class_name)
+            except AttributeError:
+                pass
+        if not flow_class or not issubclass(flow_class, Flow):
+            raise FlowNotFoundError()
     return flow_class
 
 
-def semantic_hash(data: Any) -> str:
-    def sorted_dict_str(data: Any) -> Any:
-        if isinstance(data, Mapping):
-            return {k: sorted_dict_str(data[k]) for k in sorted(data.keys())}
+def _semantic_hash(data: Any, debug=False) -> str:
+    def _sorted_dict_str(data: Any) -> Any:
+        if isinstance(data, (dict, Mapping)):
+            return {k: _sorted_dict_str(data[k]) for k in sorted(data.keys())}
         if isinstance(data, list):
-            return [sorted_dict_str(val) for val in data]
+            return [_sorted_dict_str(val) for val in data]
         if hasattr(data, "__dict__"):
-            return sorted_dict_str(data.__dict__)
+            return _sorted_dict_str(data.__dict__)
         return str(data)
 
-    def get_digest(b: bytes) -> str:
+    def _get_digest(b: bytes) -> str:
         return hashlib.sha1(b).hexdigest()[:16]
 
-    return get_digest(bytes(repr(sorted_dict_str(data)), "UTF-8"))
+    r = repr(_sorted_dict_str(data))
+    if debug:
+        print("\nSEMANTIC_HASH:", r)
+    return _get_digest(bytes(r, "UTF-8"))
 
 
 class FlowRunner:
@@ -137,12 +146,12 @@ class FlowRunner:
     def __init__(
         self,
         xeda_run_dir: Union[str, os.PathLike[Any]] = "xeda_run",
-        unique_rundir: bool = False,  # FIXME: rename + test + doc
         debug: bool = False,
         dump_settings_json: bool = True,
         display_results: bool = True,
         dump_results_json: bool = True,
-        run_in_existing_dir: bool = False,  # Not recommended!
+        cached_dependencies: bool = False,  # do not run dependencies if previous run results exist. Uses flow run_dir names including design and flow.settings hashes
+        run_in_existing_dir: bool = False,  # DO NOT USE! Only for development!
     ) -> None:
         if debug:
             logging.getLogger().setLevel(logging.DEBUG)
@@ -152,7 +161,7 @@ class FlowRunner:
         xeda_run_dir = Path(xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
         self.xeda_run_dir: Path = xeda_run_dir
-        self.unique_rundir: bool = unique_rundir
+        self.cached_dependencies: bool = cached_dependencies
         self.display_results: bool = display_results
         self.dump_results_json: bool = dump_results_json
         self.dump_settings_json: bool = dump_settings_json
@@ -167,7 +176,7 @@ class FlowRunner:
     ) -> Path:
         design_subdir = design_name
         flow_subdir = flow_name
-        if self.unique_rundir:
+        if self.cached_dependencies:
             if design_hash:
                 design_subdir += f"_{design_hash}"
             if flowrun_hash:
@@ -193,6 +202,10 @@ class FlowRunner:
         flow_settings: Union[None, Dict[str, Any], Flow.Settings],
         depender: Optional[Flow],
     ) -> Tuple[Flow, ...]:
+        if self.run_in_existing_dir:
+            log.error(
+                "run_in_existing_dir should only be used during Xeda's development!"
+            )
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
         if flow_settings is None:
@@ -204,13 +217,15 @@ class FlowRunner:
             flow_settings.debug = True
 
         flow_name = flow_class.name
-        design_hash = semantic_hash(design)
-        flowrun_hash = semantic_hash(
+        # GOTCHA: design contains tb settings even for simulation flows
+        # removing tb from hash for sim flows creates a mismatch for different flows of the same design
+        design_hash = _semantic_hash(design)
+        flowrun_hash = _semantic_hash(
             dict(
                 flow_name=flow_name,
                 flow_settings=flow_settings,
                 xeda_version=__version__,
-            )
+            ),
         )
         run_path = self._get_flow_run_path(
             design.name,
@@ -219,22 +234,60 @@ class FlowRunner:
             flowrun_hash,
         )
 
-        if not self.run_in_existing_dir and run_path.exists():
-            backup_existing(run_path)
-        run_path.mkdir(parents=True, exist_ok=True)
+        settings_json = run_path / "settings.json"
+        results_json = run_path / "results.json"
 
-        if self.dump_settings_json:
-            settings_json_path = run_path / "settings.json"
-            log.info("dumping effective settings to %s", settings_json_path)
-            all_settings = dict(
-                design=design,
-                design_hash=design_hash,
-                flow_name=flow_name,
-                flow_settings=flow_settings,
-                xeda_version=__version__,
-                flowrun_hash=flowrun_hash,
-            )
-            dump_json(all_settings, settings_json_path)
+        previous_results = None
+        if (
+            depender
+            and self.cached_dependencies
+            and run_path.exists()
+            and settings_json.exists()
+            and results_json.exists()
+        ):
+            prev_results, prev_settings = None, None
+            try:
+                with open(settings_json) as f:
+                    prev_settings = json.load(f)
+                with open(results_json) as f:
+                    prev_results = json.load(f)
+            except TypeError:
+                pass
+            except ValueError:
+                pass
+            if prev_results and prev_results.get("success") and prev_settings:
+                if (
+                    prev_settings.get("flow_name") == flow_name
+                    and prev_settings.get("design_hash") == design_hash
+                    and prev_settings.get("flowrun_hash") == flowrun_hash
+                ):
+                    previous_results = prev_results
+                else:
+                    log.warning(
+                        "%s does not contain the expected settings", prev_settings
+                    )
+            else:
+                log.warning(
+                    "Could not find valid results/settings from a previous run in %s",
+                    run_path,
+                )
+
+        if not previous_results:
+            if not self.run_in_existing_dir and run_path.exists():
+                backup_existing(run_path)
+            run_path.mkdir(parents=True)
+
+            if self.dump_settings_json:
+                log.info("dumping effective settings to %s", settings_json)
+                all_settings = dict(
+                    design=design,
+                    design_hash=design_hash,
+                    flow_name=flow_name,
+                    flow_settings=flow_settings,
+                    xeda_version=__version__,
+                    flowrun_hash=flowrun_hash,
+                )
+                dump_json(all_settings, settings_json)
 
         with WorkingDirectory(run_path):
             log.debug("Instantiating flow from %s", flow_class)
@@ -242,10 +295,10 @@ class FlowRunner:
             flow.design_hash = design_hash
             flow.flow_hash = flowrun_hash
             flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+            # flow execution time includes init() as well as execution of all its dependency flows
+            flow.init_time = time.monotonic()
             flow.init()
 
-        # flow execution time includes the execution time of its dependencies
-        flow.init_time = time.monotonic()
         for dep_cls, dep_settings in flow.dependencies:
             # merge with existing self.flows[dep].settings
             # NOTE this allows dependency flow to make changes to 'design'
@@ -265,26 +318,31 @@ class FlowRunner:
         flow.results["flow"] = flow.name
         success = True
 
-        with WorkingDirectory(run_path):
-            try:
-                flow.run()
-            except NonZeroExitCode as e:
-                log.critical(
-                    "Execution of %s returned %d", e.command_args[0], e.exit_code
-                )
-                success = False
-            if flow.init_time is not None:
-                flow.results.runtime = time.monotonic() - flow.init_time
-            if success:
-                flow.results.success = flow.parse_reports()
-                success &= flow.results.success
-                if not success:
-                    log.error("Failure was reported in the parsed results.")
+        if previous_results:
+            log.warning("Using previous run results and artifacts from %s", run_path)
+            flow.results = previous_results
+        else:
+            with WorkingDirectory(run_path):
+                try:
+                    flow.run()
+                except NonZeroExitCode as e:
+                    log.critical(
+                        "Execution of %s returned %d", e.command_args[0], e.exit_code
+                    )
+                    success = False
+                if flow.init_time is not None:
+                    flow.results.runtime = time.monotonic() - flow.init_time
+                if success:
+                    flow.results.success = flow.parse_reports()
+                    success &= flow.results.success
+                    if not success:
+                        log.error("Failure was reported in the parsed results.")
+
         if flow.artifacts:
 
             def default_encoder(x: Any) -> str:
-                if isinstance(x, PosixPath):
-                    return str(x.relative_to(flow.run_path))
+                if isinstance(x, (PosixPath, os.PathLike)):
+                    return str(os.path.relpath(x, flow.run_path))
                 return str(x)
 
             print(f"Generated artifacts in {flow.run_path}:")  # FIXME
@@ -296,9 +354,8 @@ class FlowRunner:
             log.critical("%s failed!", flow.name)
 
         if self.dump_results_json:
-            results_path = run_path / "results.json"
-            dump_json(flow.results, results_path)
-            log.info("Results written to %s", results_path)
+            dump_json(flow.results, results_json)
+            log.info("Results written to %s", results_json)
 
         if self.display_results:
             print_results(

@@ -80,9 +80,10 @@ class SDF(XedaBaseModel):
 
     def delay_items(self) -> Iterable[Tuple[str, Union[str, None]]]:
         """returns an iterable of (delay_type, sdf_file)"""
-        return (
+        return tuple(
             (delay_type, self.dict().get(delay_type))
             for delay_type in ("min", "max", "typ")
+            if self.dict().get(delay_type)
         )
 
 
@@ -115,11 +116,10 @@ def backup_existing(path: Path) -> Optional[Path]:
     return path.rename(backup_path)
 
 
-def dump_json(data: object, path: Path) -> None:
-    if path.exists():
+def dump_json(data: object, path: Path, backup_previous: bool = True) -> None:
+    if path.exists() and backup_previous:
         backup_existing(path)
-
-    assert not path.exists(), "Old file still exists!"
+        assert not path.exists(), "Old file still exists!"
 
     with open(path, "w") as outfile:
         json.dump(

@@ -1,10 +1,10 @@
-# Xeda ISE Synthesis flow
-# ©2021 Kamyar Mohajerani and contributors
-
+"""Xilinx ISE Synthesis flow"""
 import logging
 from typing import Mapping, Union
-from ..flow import FpgaSynthFlow
+
 from ...tool import Tool
+from ...utils import try_convert
+from ..flow import FpgaSynthFlow
 
 logger = logging.getLogger(__name__)
 
@@ -67,5 +67,7 @@ class IseSynth(FpgaSynthFlow):
             r"Minimum period:\s+(?P<minimum_period>\-?\d+(?:\.\d+)?)ns\s+\(Maximum Frequency: (?P<maximum_frequency>\-?\d+(?:\.\d+)?)MHz\)",
             r"Slack:\s+(?P<wns>\-?\d+(?:\.\d+)?)ns",
         )
-
-        return not fail and self.results["wns"] > 0
+        if "wns" in self.results:
+            wns = try_convert(self.results["wns"])
+            fail |= not isinstance(wns, (float, int)) or wns < 0
+        return not fail

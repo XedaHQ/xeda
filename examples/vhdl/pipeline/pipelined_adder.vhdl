@@ -53,15 +53,25 @@ begin
          if reset = '1' then
             valid_pipe <= (others => '0');
          else
-            if readies(0) then
-               valid_pipe(0) <= valids(0);
-               l0_a          <= in_a;
-               l0_b          <= in_b;
-            end if;
-            if readies(1) then
-               valid_pipe(1) <= valids(1);
-               l1_s          <= std_logic_vector(unsigned('0' & l0_a) + unsigned(l0_b));
-            end if;
+            for i in 0 to DEPTH - 1 loop
+               if readies(i) then
+                  valid_pipe(i) <= valids(i);
+               end if;
+            end loop;
+         end if;
+      end if;
+   end process;
+
+   process(clock)
+   begin
+      if rising_edge(clock) then
+         -- Update logic for each stage: 
+         if readies(0) then
+            l0_a <= in_a;
+            l0_b <= in_b;
+         end if;
+         if readies(1) then
+            l1_s <= std_logic_vector(unsigned('0' & l0_a) + unsigned(l0_b));
          end if;
       end if;
    end process;

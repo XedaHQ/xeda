@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from collections import defaultdict
 import inspect
 import logging
 import os
@@ -139,11 +140,12 @@ fake_tools: Dict[str, FakeTool] = dict(
             "reports/Timing_Analyzer/Multicorner_Timing_Analysis_Summary.csv",
         ),
     ),
+    xtclsh=FakeTool(),
 )
 
 symlink_name = Path(__file__).stem
 
-tool = fake_tools.get(symlink_name)
+tool = fake_tools.get(symlink_name, FakeTool())
 
 
 FC = Callable[..., Any]
@@ -184,9 +186,9 @@ def fake_tool_options(fake_tool: Optional[FakeTool]) -> FC:
 @click.pass_context
 def cli(ctx: click.Context, **kwargs):
     if tool:
-        print(f"Fake {ctx.info_name} {kwargs} args:{ctx.args}")
+        print(f"Fake {ctx.info_name} kwargs:{kwargs} args:{ctx.args}")
         tool.execute(**kwargs)
 
 
 if __name__ == "__main__":
-    cli()
+    cli()  # pylint: disable=no-value-for-parameter

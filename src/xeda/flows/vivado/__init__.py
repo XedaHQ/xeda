@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from xml.etree import ElementTree
 
-from ...debug import DebugLevel
+
+from ...dataclass import Field
 from ...design import Design
 from ...tool import Tool
 from ..flow import Flow
@@ -48,13 +49,19 @@ class Vivado(Flow, metaclass=ABCMeta):
     """Xilinx (AMD) Vivado FPGA synthesis and simulation flows"""
 
     class Settings(Flow.Settings):
-        pass
+        tcl_shell: bool = Field(
+            False,
+            description="Drop to interactive TCL shell after Vivado finishes running a flow script",
+        )
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         super().__init__(settings, design, run_path)
-        debug = self.settings.debug > DebugLevel.NONE
-        default_args = ["-nojournal", "-mode", "tcl" if debug else "batch"]
-        if not debug:
+        default_args = [
+            "-nojournal",
+            "-mode",
+            "tcl" if settings.tcl_shell else "batch",
+        ]
+        if not self.settings.debug:
             default_args.append("-notrace")
         self.vivado = Tool("vivado", default_args=default_args)
         self.add_template_filter("vivado_generics", vivado_generics)

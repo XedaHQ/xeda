@@ -10,7 +10,7 @@ from .quartus import Quartus
 from .vivado.vivado_synth import VivadoSynth
 from .vivado.vivado_sim import VivadoSim
 from .vivado.vivado_postsynthsim import VivadoPostsynthSim
-from .vivado.vivado_custom_synth import VivadoCustomSynth
+from .vivado.vivado_alt_synth import VivadoAltSynth
 from .yosys import Yosys
 
 # alias for backwards compatibility
@@ -26,7 +26,7 @@ __all__ = [
     "Nextpnr",
     "Openfpgaloader",
     "Quartus",
-    "VivadoCustomSynth",
+    "VivadoAltSynth",
     "VivadoPostsynthSim",
     "VivadoSim",
     "VivadoSynth",

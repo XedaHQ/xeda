@@ -22,16 +22,21 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
-from .cli_utils import Mutex, OptionEatAll, XedaHelpGroup, settings_to_dict
+from .cli_utils import (
+    ClickMutex,
+    OptionEatAll,
+    XedaHelpGroup,
+    discover_flow_class, # pylint: disable=no-name-in-module
+    settings_to_dict,
+)
 from .console import console
 from .design import Design, DesignValidationError
-from .flow_runner import DefaultRunner, get_flow_class
-from .flows.flow import (Flow, FlowFatalError, FlowSettingsError,
-                         registered_flows)
+from .flow_runner import DefaultRunner
+from .flows.flow import Flow, FlowFatalError, FlowSettingsError, registered_flows
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import toml_load
 
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 
 def load_xeda(file: Path):
@@ -79,18 +84,17 @@ class XedaOptions:
     debug: bool = False
 
 
-def setup_logger(logdir: Path):
-    coloredlogs.install(None, fmt="%(asctime)s %(levelname)s %(message)s", logger=log)
-    logdir.mkdir(exist_ok=True, parents=True)
+def log_to_file(logdir: Path):
     timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
+    logdir.mkdir(exist_ok=True, parents=True)
     logfile = logdir / f"xeda_{timestamp}.log"
     log.info("Logging to %s", logfile)
+    fileHandler = logging.FileHandler(logfile)
     logFormatter = logging.Formatter(
         "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s"
     )
-    fileHandler = logging.FileHandler(logfile)
     fileHandler.setFormatter(logFormatter)
-    log.addHandler(fileHandler)
+    log.root.addHandler(fileHandler)
 
 
 @click.group(cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
@@ -110,6 +114,17 @@ def setup_logger(logdir: Path):
 @click.pass_context
 def cli(ctx: click.Context, **kwargs):
     ctx.obj = XedaOptions(**kwargs)
+
+    log.setLevel(
+        logging.WARNING
+        if ctx.obj.quiet
+        else logging.DEBUG
+        if ctx.obj.debug
+        else logging.INFO
+    )
+    coloredlogs.install(
+        None, fmt="%(asctime)s %(levelname)s %(message)s", logger=log.root
+    )
 
 
 @cli.command(
@@ -139,10 +154,21 @@ def cli(ctx: click.Context, **kwargs):
     show_envvar=True,
 )
 @click.option(
-    "--force-run",
+    "--cached-dependencies",
     is_flag=True,
-    help="Force re-run of flow and all dependencies, even if they are already up-to-date",
+    help="Don't run dependency flows if a previous successfull run on the same design and flow settings exists.",
 )
+@click.option(
+    "--run_in_existing_dir",
+    is_flag=True,
+    help="DO NOT USE!",
+    hidden=True,
+)
+# @click.option(
+#     "--force-run",
+#     is_flag=True,
+#     help="Force re-run of flow and all dependencies, even if they are already up-to-date",
+# )
 @click.option(
     "--xedaproject",
     type=click.Path(
@@ -155,13 +181,13 @@ def cli(ctx: click.Context, **kwargs):
         allow_dash=False,
         path_type=Path,
     ),
-    cls=Mutex,
+    cls=ClickMutex,
     mutually_exclusive_with=["design_file"],
     help="Path to Xeda project file.",
 )
 @click.option(
     "--design-name",
-    cls=Mutex,
+    cls=ClickMutex,
     mutually_exclusive_with=["design_file"],
     help="Specify design.name in case multiple designs are available in a xedaproject.",
 )
@@ -178,7 +204,7 @@ def cli(ctx: click.Context, **kwargs):
         allow_dash=False,
         path_type=Path,
     ),
-    cls=Mutex,
+    cls=ClickMutex,
     mutually_exclusive_with=["xedaproject"],
     help="Path to Xeda design file containing the description of a single design.",
 )
@@ -199,7 +225,9 @@ def cli(ctx: click.Context, **kwargs):
 def run(
     ctx=None,
     flow: Optional[str] = None,
-    force_run: bool = False,
+    cached_dependencies: bool = False,
+    run_in_existing_dir: bool = False,
+    # force_run: bool = False,
     xeda_run_dir: Optional[Path] = None,
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
@@ -209,19 +237,9 @@ def run(
     assert ctx
     assert ctx.obj
     options: XedaOptions = ctx.obj
-    # Always run setup_logger with INFO log level
-    log.setLevel(logging.INFO)
     assert xeda_run_dir
     assert flow
-    setup_logger(xeda_run_dir / "Logs")
-    # then switch to requested level
-    log.setLevel(
-        logging.WARNING
-        if options.quiet
-        else logging.DEBUG
-        if options.debug
-        else logging.INFO
-    )
+    log_to_file(xeda_run_dir / "Logs")
 
     # FIXME
     flows_config = {}
@@ -262,14 +280,19 @@ def run(
         design = Design(design_root=toml_path.parent, **design_dict)
     else:
         sys.exit("No design or project specified!")
-    if force_run:
-        log.warning("Forced re-run of %s", flow)
+    # if force_run:
+    #     log.warning("Forced re-run of %s", flow)
     log.debug("CLI flow_settings=%s", flow_settings)
     flow_overrides = settings_to_dict(flow_settings)
     log.debug("flow_overrides=%s", flow_overrides)
     flow_overrides = {**flows_config.get(flow, {}), **flow_overrides}
-    flow_class = get_flow_class(flow, "xeda.flows", __package__)
-    runner = DefaultRunner(xeda_run_dir, debug=options.debug)
+    flow_class = discover_flow_class(flow)
+    runner = DefaultRunner(
+        xeda_run_dir,
+        debug=options.debug,
+        cached_dependencies=cached_dependencies,
+        run_in_existing_dir=run_in_existing_dir,
+    )
     try:
         runner.run_flow(flow_class, design, flow_overrides)
     except FlowFatalError as e:
@@ -327,7 +350,7 @@ def list_flows():
 
 
 def print_flow_settings(flow, options: XedaOptions):
-    flow_class = get_flow_class(flow, "xeda.flows", __package__)
+    flow_class = discover_flow_class(flow)
     schema = flow_class.Settings.schema(by_alias=True)
     type_defs = {}
 
@@ -484,7 +507,7 @@ SHELLS = {
 @click.option(
     "--stdout",
     is_flag=True,
-    cls=Mutex,
+    cls=ClickMutex,
     help="""Produce the shell completion script and output it to the standard output.\n
     Example usage:\n
          $ xeda completion zsh --stdout  > $HOME/.zsh/completion/_xeda\n
