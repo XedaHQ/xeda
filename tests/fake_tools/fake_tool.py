@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from collections import defaultdict
 import inspect
 import logging
 import os
@@ -52,11 +51,13 @@ class WriteFile(Executer):
         self,
         path: Union[str, os.PathLike],
         data: Union[None, List[str], str, bytes] = None,
+        **kwargs: Any,
     ) -> None:
         if not isinstance(path, Path):
             path = Path(path)
         self.path = path
         self.data = data
+        super().__init__(**kwargs)
 
     def __call__(self, **kwargs) -> int:
         write_file(self.path, self.data)
@@ -64,8 +65,9 @@ class WriteFile(Executer):
 
 
 class TouchFiles(Executer):
-    def __init__(self, *paths: Union[str, os.PathLike]) -> None:
+    def __init__(self, *paths: Union[str, os.PathLike], **kwargs) -> None:
         self.paths = paths
+        super().__init__(**kwargs)
 
     def __call__(self, **kwargs) -> int:
         for path in self.paths:
@@ -140,7 +142,9 @@ fake_tools: Dict[str, FakeTool] = dict(
             "reports/Timing_Analyzer/Multicorner_Timing_Analysis_Summary.csv",
         ),
     ),
-    xtclsh=FakeTool(),
+    xtclsh=FakeTool(
+        arguments={"script": dict(required=False, type=click.Path(exists=True))}
+    ),
 )
 
 symlink_name = Path(__file__).stem

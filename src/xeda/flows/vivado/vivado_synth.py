@@ -25,7 +25,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         """Settings for Vivado synthesis in project mode"""
 
         # FIXME implement and verify all
-        synth_output_dir: str = "output"
         checkpoints_dir: str = "checkpoints"
         fail_critical_warning = Field(
             False,
@@ -75,7 +74,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             "funcsim.vhdl",
             "xdc",
         ]:
-            self.artifacts[o] = os.path.join(settings.synth_output_dir, o)
+            self.artifacts[o] = os.path.join(settings.outputs_dir, o)
 
         settings.synth.steps = {
             **{

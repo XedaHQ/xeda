@@ -158,10 +158,6 @@ class DVSettings(XedaBaseModel):  # type: ignore
     """Design/Verification settings"""
 
     sources: List[DesignSource]
-    top: Tuple012 = Field(
-        tuple(),
-        description="Toplevel module(s) of the design. In addition to the primary toplevel, a secondary toplevel module can also be specified.",
-    )
     generics: Dict[str, DefineType] = Field(
         default={},
         description="Top-level generics/defines specified as a mapping",
@@ -192,16 +188,6 @@ class DVSettings(XedaBaseModel):  # type: ignore
             values["parameters"] = value
         return values
 
-    @validator("top", pre=True)
-    def top_validator(cls, top: Union[None, str, Sequence[str], Tuple012]) -> Tuple012:
-        if top:
-            if isinstance(top, str):
-                return (top,)
-            if isinstance(top, (tuple, list, Sequence)):
-                assert len(top) <= 2
-                return tuple(top)
-        return tuple()
-
     @validator("sources", pre=True, always=False)
     def sources_to_files(
         cls, sources: List[Union[DesignSource, str, os.PathLike, Path, Dict[str, Any]]]
@@ -218,20 +204,15 @@ class DVSettings(XedaBaseModel):  # type: ignore
             ds.append(src)
         return ds
 
-    @property
-    def primary_top(self) -> Optional[str]:
-        return self.top[0] if len(self.top) >= 1 else None
-
-    @property
-    def secondary_top(self) -> Optional[str]:
-        return self.top[1] if len(self.top) >= 2 else None  # type: ignore
-
 
 class Clock(XedaBaseModel):
     port: Optional[str]
 
 
 class RtlSettings(DVSettings):
+    top: str = Field(
+        description="Toplevel RTL module/entity",
+    )
     clock: Clock = Clock(port=None)  # TODO rename to primary_clock?
     clocks: Dict[str, Clock] = {}
     clock_port: Optional[str] = None  # TODO remove?
@@ -250,11 +231,25 @@ class RtlSettings(DVSettings):
 
 
 class TbSettings(DVSettings):
+    top: Tuple012 = Field(
+        tuple(),
+        description="Toplevel testbench module(s), specified as a tuple of strings. In addition to the primary toplevel, a secondary toplevel module can also be specified.",
+    )
     sources: List[DesignSource] = []
     uut: Optional[str] = Field(
         None, description="instance name of the unit under test in the testbench"
     )
     cocotb: bool = Field(False, description="testbench is based on cocotb framework")
+
+    @validator("top", pre=True)
+    def top_validator(cls, top: Union[None, str, Sequence[str], Tuple012]) -> Tuple012:
+        if top:
+            if isinstance(top, str):
+                return (top,)
+            if isinstance(top, (tuple, list, Sequence)):
+                assert len(top) <= 2
+                return tuple(top)
+        return tuple()
 
 
 class LanguageSettings(XedaBaseModel):
@@ -336,7 +331,7 @@ class Design(XedaBaseModel):
     def sim_tops(self) -> Tuple012:
         if self.tb:
             if self.tb.cocotb and self.rtl.top:
-                return self.rtl.top
+                return (self.rtl.top,)
             if self.tb.top is not None:
                 return self.tb.top
         return tuple()

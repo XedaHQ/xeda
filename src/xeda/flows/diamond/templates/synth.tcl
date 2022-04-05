@@ -111,9 +111,7 @@ prj_strgy set_value -strategy custom_strategy {par_cmdline_args=-exp nbrMaxRunTi
 
 prj_strgy set custom_strategy
 
-
-
-prj_impl option top {{design.rtl.primary_top}}
+{% if design.rtl.top -%} prj_impl option top {{design.rtl.top}} {%- endif %}
 
 prj_syn set {{settings.synthesis_engine}}
 

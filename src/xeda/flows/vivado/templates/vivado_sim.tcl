@@ -84,7 +84,7 @@ if { [catch {eval run {{settings.prerun_time}} } error]} {
 
 {% if settings.saif -%}
 puts "Adding nets to be logged in SAIF"
-log_saif [get_objects -r -filter { type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } /{{design.tb.primary_top}}/{{design.tb.uut}}/*]
+log_saif [get_objects -r -filter { type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } /{{design.tb.top[0]}}/{{design.tb.uut}}/*]
 {%- endif %}
 
 if { [catch {eval run {% if settings.stop_time -%} {{settings.stop_time}} {% else -%} all {%- endif %} } error]} {

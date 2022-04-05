@@ -3,7 +3,7 @@ import os
 import platform
 from abc import ABCMeta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 try:
     from typing import Literal  # pylint: disable=ungrouped-imports
@@ -12,7 +12,7 @@ except ImportError:
 
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, Tuple012, VhdlSettings
-from ...tool import DockerSettings, Tool
+from ...tool import Docker, Tool
 from ...utils import SDF
 from ..flow import Flow, SimFlow, SynthFlow
 
@@ -28,7 +28,7 @@ def append_flag(flag_list: List[str], flag: str) -> List[str]:
 class GhdlTool(Tool):
     """GHDL VHDL simulation, synthesis, and linting tool: https://ghdl.readthedocs.io"""
 
-    docker = DockerSettings(image="hdlc/sim:osvb")
+    docker = Docker(image="hdlc/sim:osvb")
     executable = "ghdl"
 
     def get_info(self) -> Dict[str, str]:
@@ -141,11 +141,13 @@ class Ghdl(Flow, metaclass=ABCMeta):
             raise ValueError("unknown stage!")
 
     def elaborate(
-        self, sources: List[DesignSource], top: Tuple012, vhdl: VhdlSettings
+        self, sources: List[DesignSource], top: Union[str, Tuple012], vhdl: VhdlSettings
     ) -> Tuple012:
         """returns top(s) as a list"""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        if isinstance(top, str):
+            top = (top,)
         steps = ["import", "make"]
         if ss.clean:
             steps.insert(0, "remove")
@@ -244,7 +246,7 @@ class GhdlSynth(Ghdl, SynthFlow):
             flags += [str(v) for v in design.rtl.sources if v.type == "vhdl"]
             flags.append("-e")
         if not top:
-            top = design.rtl.top
+            top = (design.rtl.top,)
         flags.extend(list(top))
         return flags
 

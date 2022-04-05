@@ -1,5 +1,6 @@
 """EDA flow abstraction"""
 from __future__ import annotations
+
 import inspect
 import logging
 import multiprocessing
@@ -7,8 +8,7 @@ import os
 import re
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
-
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import jinja2
 import psutil
@@ -64,6 +64,9 @@ registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
 
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
+
+
+T = TypeVar("T", bound="Flow")
 
 
 class Flow(metaclass=ABCMeta):
@@ -173,10 +176,10 @@ class Flow(metaclass=ABCMeta):
             undefined=StrictUndefined,
         )
 
-    def __init__(self: Flow, settings: Flow.Settings, design: Design, run_path: Path):
+    def __init__(self, settings: Settings, design: Design, run_path: Path):
         self.run_path = run_path
         self.settings = settings
-        assert isinstance(self.settings, self.Settings)
+        # assert isinstance(self.settings, self.Settings)
         self.design: Design = design
 
         self.init_time: Optional[float] = None
@@ -204,6 +207,15 @@ class Flow(metaclass=ABCMeta):
         self.add_template_test("match", regex_match)
         self.dependencies: List[Tuple[Type[Flow], Flow.Settings]] = []
         self.completed_dependencies: List[Flow] = []
+
+    def pop_dependency(self, typ: Type[T]) -> Flow:
+        assert inspect.isclass(typ) and issubclass(typ, Flow)
+        for i in range(len(self.completed_dependencies) - 1, -1, -1):
+            if isinstance(self.completed_dependencies[i], typ):
+                dep = self.completed_dependencies.pop(i)
+                assert isinstance(dep, typ)
+                return dep
+        raise ValueError(f"No {typ.__name__} found in completed_dependencies")
 
     @abstractmethod
     def run(self) -> None:

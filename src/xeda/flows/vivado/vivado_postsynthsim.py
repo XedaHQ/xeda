@@ -21,26 +21,6 @@ class VivadoPostsynthSim(VivadoSim):
         synth: VivadoSynth.Settings
         timing_sim: bool = False
         enforce_io_delay: bool = True
-        # FIXME remove!
-        # Handling simulation clock does not need to be managed by xeda, it's impossible to generalize in any useful way
-        # and probably should be handled by user scripts for their specific usecase
-        # tb_clock_param: Dict[str, str] = Field(
-        #     {},
-        #     description="""A mapping of 'clock'->'param'. Sets (and overrides) testbanch parameter/generic named 'param'
-        #         to the value of the the clock period specified for clock named 'clock', converted to nearset smaller integer in *picoseconds*.
-        #         In other words 'param' will be set to floor(clock.period * 1000.0).
-        #         If specified as a single string PARAM, it will automatically converted to {'main_clock': PARAM}.
-        #
-        #         Example: {'main_clock': 'G_PERIOD_PS'}
-        #         Example: 'G_PERIOD_PS'                 # same result as the above example
-        #     """,
-        # )
-        # @validator("tb_clock_param", pre=True)
-        # @classmethod
-        # def validate_tb_clock_param(cls, value: Any) -> Any:
-        #     if isinstance(value, str):
-        #         value = dict(main_clock=value)
-        #     return value
 
     def init(self) -> None:
         ss = self.settings
@@ -52,9 +32,6 @@ class VivadoPostsynthSim(VivadoSim):
                 ss.synth.input_delay = 0.0
             if ss.synth.output_delay is None:
                 ss.synth.output_delay = 0.0
-
-        # FIXME!!! For reasons still unknown, not all strategies lead to correct post-impl simulation
-        # ss.synth.synth.strategy = "AreaPower"
         self.add_dependency(VivadoSynth, ss.synth)
 
     def run(self) -> None:
@@ -62,13 +39,6 @@ class VivadoPostsynthSim(VivadoSim):
         assert isinstance(synth_flow, VivadoSynth)
         ss = self.settings
         assert isinstance(ss, self.Settings)
-
-        # netlist_artifact = "impl.timesim.v"
-        # synth_netlist = synth_flow.artifacts.get(netlist_artifact)
-        # if not synth_netlist:
-        #     raise FlowFatalError(
-        #         f"{synth_flow.name} did not register artifact {netlist_artifact}"
-        #     )
 
         artifacts_path = (
             synth_flow.run_path / synth_flow.settings.outputs_dir / "route_design"

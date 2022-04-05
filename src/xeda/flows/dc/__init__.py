@@ -54,14 +54,13 @@ class Dc(SynthFlow):
 
         script_path = self.copy_from_template(
             f"run.tcl",
-            synth_output_dir="output",
             adk=adk,
         )
         self.dc_shell.run("-64bit", "-topographical_mode", "-f", script_path)
 
     def parse_reports(self) -> bool:
         reports_dir = self.reports_dir
-        top_name = self.design.rtl.top[0]
+        top_name = self.design.rtl.top
         failed = False
         self.parse_report_regex(
             reports_dir / f"{top_name}.mapped.area.rpt",

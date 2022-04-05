@@ -8,7 +8,7 @@ from typing import Any, Callable, Literal, Optional, Set
 from xeda.utils import try_convert
 
 from ...dataclass import Field
-from ...tool import DockerSettings, Tool
+from ...tool import Docker, Tool
 from ...types import PathLike
 from ..flow import FpgaSynthFlow
 
@@ -32,7 +32,7 @@ def parse_csv(
             reader = csv.DictReader(csvfile)
             for row in reader:
                 if interesting_fields is None:
-                    interesting_fields = set(row.keys())
+                    interesting_fields = set(row)
                 id_ = id_parser(row[id_field])
                 data[id_] = {
                     k: field_parser(row[k]) for k in interesting_fields if k in row
@@ -67,7 +67,15 @@ def try_float(s: str):
 class Quartus(FpgaSynthFlow):
     """FPGA synthesis using Intel Quartus"""
 
-    quartus_sh = Tool(executable="quartus_sh", docker=DockerSettings(image="chriz2600/quartus-lite", tag="21.1.0"))
+    quartus_sh = Tool(
+        executable="quartus_sh",
+        docker=Docker(
+            command=["quartus_wrapper", "quartus_sh"],
+            image="chriz2600/quartus-lite",
+            tag="20.1.0",
+            platform="linux/amd64",
+        ),  # type: ignore
+    )
 
     class Settings(FpgaSynthFlow.Settings):
         # part number (fpga.part) formats are quite complicated.
@@ -132,9 +140,20 @@ class Quartus(FpgaSynthFlow):
             / "Timing_Analyzer"
             / "Multicorner_Timing_Analysis_Summary.csv",
         }
-        # FIXME
+        # FIXME only a proof of concept. Tool instantiation/invocation needs to change!
         if self.quartus_sh.docker:
             self.quartus_sh.docker.enabled = self.settings.dockerized
+            # FIXME
+            for src in self.design.rtl.sources:
+                p = str(src.file.parent.resolve())
+                self.quartus_sh.docker.mounts[p] = p
+            if self.settings.dockerized and self.quartus_sh.docker.nproc:
+                self.settings.ncpus = min(
+                    self.settings.ncpus, self.quartus_sh.docker.nproc
+                )
+                self.settings.nthreads = min(
+                    self.settings.nthreads, self.quartus_sh.docker.nproc
+                )
 
     def create_project(self, **kwargs: Any) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -240,32 +259,38 @@ class Quartus(FpgaSynthFlow):
         failed = False
         reports = self.reports
         resources = parse_csv(reports["summary"], id_field=None)
+        utilization_report = Path(reports["utilization"])
+        assert utilization_report.exists()
+        print("utilization_report:", utilization_report)
         resources = parse_csv(
-            reports["utilization"],
+            utilization_report,
             id_field="Compilation Hierarchy Node",
             field_parser=lambda s: try_num(s.split()[0]),
             id_parser=lambda s: s.strip().lstrip("|"),
-            interesting_fields={
-                "Logic Cells",
-                "LUT-Only LCs",
-                "Register-Only LCs",
-                "LUT/Register LCs",
-                "Dedicated Logic Registers",
-                "ALMs needed [=A-B+C]",
-                "Combinational ALUTs",
-                "ALMs used for memory",
-                "Memory Bits",
-                "M10Ks",
-                "M9Ks",
-                "DSP Elements",
-                "DSP Blocks",
-                "Block Memory Bits",
-                "Pins",
-                "I/O Registers",
-            },
+            # interesting_fields={
+            #     "Logic Cells",
+            #     "LUT-Only LCs",
+            #     "Register-Only LCs",
+            #     "LUT/Register LCs",
+            #     "Dedicated Logic Registers",
+            #     "ALMs needed [=A-B+C]",
+            #     "Combinational ALUTs",
+            #     "ALMs used for memory",
+            #     "Memory Bits",
+            #     "M10Ks",
+            #     "M9Ks",
+            #     "DSP Elements",
+            #     "DSP Blocks",
+            #     "DSP 9x9",
+            #     "DSP 18x18"
+            #     "Block Memory Bits",
+            #     "Pins",
+            #     "I/O Registers",
+            # },
         )
 
         top_resources = resources.get(self.design.rtl.top, {})
+        print("top_resources:", top_resources)
         if top_resources:
             top_resources.setdefault(0)
             r0 = top_resources.get("LUT-Only LCs")

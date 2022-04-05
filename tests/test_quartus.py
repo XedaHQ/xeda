@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 log.root.setLevel(logging.DEBUG)
 log.setLevel(logging.DEBUG)
 
+
 def test_parse_csv():
     resources = parse_csv(
         RESOURCES_DIR / "Fitter_Resource_Utilization_by_Entity.csv",
@@ -72,6 +73,17 @@ def test_parse_csv():
     }
 
 
+def _test_parse_reports():
+    root_dir = Path("/Users/kamyar/src/xeda/examples/vhdl/pipeline")
+    design = Design.from_toml(root_dir / "pipelined_adder.toml")
+    run_path = root_dir / "xeda_run/pipelined_adder/quartus"
+    settings = Quartus.Settings(fpga={"part": "10CL016YU256C6G"}, clock_period=15)
+    flow = Quartus(settings, design, run_path=run_path)
+    flow.init()
+    flow.parse_reports()
+    print(flow.results)
+
+
 def test_parse_csv_no_header():
     parsed = parse_csv(RESOURCES_DIR / "Flow_Summary.csv", None)
     assert parsed == {
@@ -95,13 +107,22 @@ def test_parse_csv_no_header():
     }
 
 
+def prepend_to_path(path):
+    current_path = os.environ.get("PATH", "").split(os.pathsep)
+    current_path.insert(0, str(path))
+    os.environ["PATH"] = os.pathsep.join(current_path)
+
+
 def test_quartus_synth_py() -> None:
     path = RESOURCES_DIR / "design0/design0.toml"
     # Append to PATH so if the actual tool exists, would take precedences.
-    os.environ["PATH"] += os.pathsep + os.path.join(TESTS_DIR, "fake_tools")
+    dockerized = True
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        prepend_to_path(TESTS_DIR / "fake_tools")
+        dockerized = False
     assert path.exists()
     design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
-    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock_period=6, dockerized=True)
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock_period=6, dockerized=dockerized)
     with tempfile.TemporaryDirectory() as run_dir:
         print("Xeda run dir: ", run_dir)
         xeda_runner = DefaultRunner(run_dir, debug=True)
@@ -114,4 +135,5 @@ def test_quartus_synth_py() -> None:
 
 
 if __name__ == "__main__":
-    test_quartus_synth_py() 
+    _test_parse_reports()
+    # test_quartus_synth_py()

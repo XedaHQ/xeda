@@ -114,7 +114,7 @@ class Nextpnr(FpgaSynthFlow):
             freq_mhz,
         ]
         if self.design.rtl.top:
-            args.extend(["--top", self.design.rtl.top[0]])
+            args.extend(["--top", self.design.rtl.top])
         if ss.seed is not None:
             args.extend(["--seed", ss.seed])
 

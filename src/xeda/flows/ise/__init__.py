@@ -53,7 +53,7 @@ class IseSynth(FpgaSynthFlow):
         xtclsh.run(script_path)
 
     def parse_reports(self) -> bool:
-        top = self.design.rtl.top[0]
+        top = self.design.rtl.top
         assert top
         # self.parse_report_regex(self.design.name + ".twr", r'(?P<wns>\-?\d+')
         fail = not self.parse_report_regex(

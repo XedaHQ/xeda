@@ -8,7 +8,7 @@ from box import Box
 from ...dataclass import Field, root_validator, validator
 from ...design import Design
 from ...flows.ghdl import GhdlSynth
-from ...tool import DockerSettings, Tool
+from ...tool import Docker, Tool
 from ..flow import SynthFlow
 
 log = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ class Yosys(SynthFlow):
         assert isinstance(self.settings, self.Settings)
         yosys = Tool(
             executable="yosys",
-            docker=DockerSettings(
+            docker=Docker(
                 image="hdlc/impl"
             ),  # pyright: reportGeneralTypeIssues=none
         )

@@ -134,7 +134,7 @@ def cli(ctx: click.Context, **kwargs):
     no_args_is_help=False,
 )
 @click.argument(
-    "flow", metavar="FLOW_NAME", type=click.Choice(list(registered_flows.keys()))
+    "flow", metavar="FLOW_NAME", type=click.Choice(sorted(list(registered_flows)))
 )
 @click.option(
     "--xeda-run-dir",
@@ -223,8 +223,8 @@ def cli(ctx: click.Context, **kwargs):
 )  # pylint: disable=C0116:missing-function-docstring
 @click.pass_context
 def run(
-    ctx=None,
-    flow: Optional[str] = None,
+    ctx: click.Context,
+    flow: str,
     cached_dependencies: bool = False,
     run_in_existing_dir: bool = False,
     # force_run: bool = False,
@@ -235,13 +235,10 @@ def run(
     flow_settings: Optional[Tuple[str, ...]] = None,
 ):
     assert ctx
-    assert ctx.obj
-    options: XedaOptions = ctx.obj
+    options: XedaOptions = ctx.obj or XedaOptions()
     assert xeda_run_dir
-    assert flow
     log_to_file(xeda_run_dir / "Logs")
-
-    # FIXME
+    # TODO get default flow configs?
     flows_config = {}
     if design_file:
         try:
@@ -264,12 +261,12 @@ def run(
         designs = xeda_project["design"]
         if not isinstance(designs, Sequence):
             designs = [designs]
+        log.info("Available designs: %s", ", ".join(d.get("name", "<NO_NAME>") for  d in designs))
         design_dict = {}
         if len(designs) == 1:
             design_dict = designs[0]
         elif design_name:
             for x in designs:
-                print(x["name"])
                 if x["name"] == design_name:
                     design_dict = x
             if not design_dict:
@@ -280,11 +277,8 @@ def run(
         design = Design(design_root=toml_path.parent, **design_dict)
     else:
         sys.exit("No design or project specified!")
-    # if force_run:
-    #     log.warning("Forced re-run of %s", flow)
-    log.debug("CLI flow_settings=%s", flow_settings)
     flow_overrides = settings_to_dict(flow_settings)
-    log.debug("flow_overrides=%s", flow_overrides)
+    log.debug("flow_overrides: %s", flow_overrides)
     flow_overrides = {**flows_config.get(flow, {}), **flow_overrides}
     flow_class = discover_flow_class(flow)
     runner = DefaultRunner(
@@ -337,7 +331,7 @@ def list_flows():
     table.add_column("Description")
     table.add_column("Class", style="dim")
     super_flow_doc = inspect.getdoc(Flow)
-    for cls_name, (_mod, cls) in registered_flows.items():
+    for cls_name, (_mod, cls) in sorted(registered_flows.items()):
         doc = inspect.getdoc(cls)
         if doc == super_flow_doc:
             doc = "<no description>"

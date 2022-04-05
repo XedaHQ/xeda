@@ -20,7 +20,7 @@ puts "\n==============================( Adding RTL Sources )====================
 xfile add {{src.file}} -copy
 {%- endfor %}
 
-project set top {{design.rtl.primary_top}}
+project set top {{design.rtl.top}}
 
 puts "\n==============================( Adding Constraint Files )================================"
 if { [catch  { xfile add {{ucf_file}} -copy }] } {

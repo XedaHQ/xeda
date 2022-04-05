@@ -5,9 +5,10 @@ import re
 import subprocess
 from pathlib import Path
 from sys import stderr
+import sys
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-from .dataclass import Field, XedaBaseModeAllowExtra, XedaBaseModel
+from .dataclass import Field, XedaBaseModeAllowExtra, XedaBaseModel, validator
 from .utils import cached_property, unique
 
 log = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ __all__ = [
     "ToolException",
     "NonZeroExitCode",
     "ExecutableNotFound",
-    "DockerSettings",
+    "Docker",
     "Tool",
     "run_process",
 ]
@@ -63,16 +64,100 @@ class RemoteSettings(XedaBaseModel):
     port: int = 22
 
 
-class DockerSettings(XedaBaseModel):
+OptionalPath = Union[None, str, os.PathLike[Any]]
+OptionalBoolOrPath = Union[None, bool, str, os.PathLike[Any]]
+
+
+class Docker(XedaBaseModel):
     enabled: bool = False
-    executable: Optional[str] = None
+    command: List[str] = []
+    platform: Optional[str]
     image: str = Field(description="Docker image name")
     tag: str = Field("latest", description="Docker image tag")
     registry: Optional[str] = Field(None, description="Docker image registry")
+    mounts: Dict[str, str] = {}
 
+    # TODO this is only for a Linux container
+    @cached_property
+    def _cpuinfo(self) -> List[List[str]]:
+        ret = self._run_docker("cat", "/proc/cpuinfo", stdout=True)
+        assert ret
+        return [x.split("\n") for x in re.split(r"\n\s*\n", ret, re.MULTILINE)]
 
-OptionalPath = Union[None, str, os.PathLike[Any]]
-OptionalBoolOrPath = Union[None, bool, str, os.PathLike[Any]]
+    @property
+    def cpuinfo(self) -> List[List[str]]:
+        return self._cpuinfo
+
+    @property
+    def nproc(self) -> Optional[int]:
+        return len(self._cpuinfo)
+
+    @property
+    def name(self) -> str:
+        return self.command[0] if self.command else "_"
+
+    def run(
+        self,
+        *args: Any,
+        env: Optional[Dict[str, Any]] = None,
+        stdout: OptionalBoolOrPath = None,
+        check: bool = True,
+        root_dir: OptionalPath = None,
+    ) -> Union[None, str]:
+        """Run the tool from a docker container"""
+        cpuinfo_file = Path(".cpuinfo").resolve()
+        with open(cpuinfo_file, "w") as f:
+            for proc in self.cpuinfo:
+                for line in proc:
+                    assert isinstance(line, str)
+                    if line.startswith("Features"):
+                        line += " sse sse2"
+                    f.write(line + "\n")
+                f.write("\n")
+
+        self.mounts[str(cpuinfo_file)] = "/proc/cpuinfo"
+        return self._run_docker(
+            *self.command, *args, env=env, stdout=stdout, check=check, root_dir=root_dir
+        )
+
+    def _run_docker(
+        self,
+        *args: Any,
+        env: Optional[Dict[str, Any]] = None,
+        stdout: OptionalBoolOrPath = None,
+        check: bool = True,
+        root_dir: OptionalPath = None,
+    ) -> Union[None, str]:
+        cwd = Path.cwd()
+        wd = root_dir if root_dir else cwd
+        if not isinstance(wd, Path):
+            wd = Path(wd)
+        docker_args = [
+            "--rm",
+            f"--workdir={wd}",
+        ]
+        self.mounts[str(wd)] = str(wd)
+        self.mounts[str(cwd)] = str(cwd)
+        if not stdout and sys.stdout.isatty():
+            docker_args += ["--tty", "--interactive"]
+        if self.platform:
+            docker_args += ["--platform", self.platform]
+        for k, v in self.mounts.items():
+            docker_args.append(f"--volume={k}:{v}")
+        if env:
+            env_file = wd / f".{self.name}_docker.env"
+            with open(env_file, "w") as f:
+                f.write(f"\n".join(f"{k}={v}" for k, v in env.items()))
+            docker_args.extend(["--env-file", str(env_file)])
+
+        return run_process(
+            "docker",
+            ["run", *docker_args, f"{self.image}:{self.tag}", *args],
+            env=None,
+            stdout=stdout,
+            check=check,
+            tool_name=self.name,
+        )
 
 
 def run_process(
@@ -131,6 +216,25 @@ def run_process(
     return None
 
 
+def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
+    with open(file, "w") as f:
+        for i in range(ncores):
+            cpuinfo: Dict[str, Any] = {
+                "processor": i,
+                "vendor_id": "GenuineIntel",
+                "family": 6,
+                "model": 60,
+                "core id": i,
+                "cpu cores": ncores,
+                "fpu": "yes",
+                "model name": "Intel(R) Core(TM) i7-4790K CPU @ 4.00GHz",
+                "flags": "fpu vme tsc msr pae mce cx8 mmx fxsr sse sse2 avx2",
+            }
+            for k, v in cpuinfo.items():
+                ws = "\\t" * (1 if len(k) >= 8 else 2)
+                f.write(f"{k}{ws}: {v}")
+
+
 def _run_processes(commands: List[List[str]], cwd: OptionalPath = None) -> None:
     """Run a list commands to completion. Throws if any of them did not execute and exit normally"""
     # if args:
@@ -171,7 +275,7 @@ class Tool(XedaBaseModeAllowExtra):
     default_args: Optional[List[str]] = None
 
     remote: Optional[RemoteSettings] = Field(None, hidden_from_schema=True)
-    docker: Optional[DockerSettings] = Field(None, hidden_from_schema=True)
+    docker: Optional[Docker] = Field(None, hidden_from_schema=True)
     log_stdout: bool = Field(
         False, description="Log stdout to a file", hidden_from_schema=True
     )
@@ -187,6 +291,12 @@ class Tool(XedaBaseModeAllowExtra):
             assert "executable" not in kwargs, "executable specified twice"
             kwargs["executable"] = executable
         super().__init__(**kwargs)
+
+    @validator("docker", pre=True, always=True)
+    def validate_docker(cls, value, values):
+        if value and not value.command:
+            value.command = [values.get("executable")]
+        return value
 
     @cached_property
     def _info(self) -> Dict[str, str]:
@@ -274,8 +384,8 @@ class Tool(XedaBaseModeAllowExtra):
         check: bool = True,
         cwd: OptionalPath = None,
     ) -> None:
-        # FIXME NOT WORKING
-        # FIXME: env
+        # FIXME remote execution is broken
+        #
         # if env is not None:
         # env = {**os.environ, **env}
         assert self.remote, "tool.remote settings not available!"
@@ -341,45 +451,6 @@ class Tool(XedaBaseModeAllowExtra):
         ]
         _run_processes([sshfs_proc, ncat_proc])
 
-    def _run_docker(
-        self,
-        docker: DockerSettings,
-        *args: Any,
-        env: Optional[Dict[str, Any]] = None,
-        stdout: OptionalBoolOrPath = None,
-        check: bool = True,
-        root_dir: OptionalPath = None,
-    ) -> Union[None, str]:
-        """Run the tool from a docker container"""
-        cwd = Path.cwd()
-        wd = root_dir if root_dir else cwd
-        if not isinstance(wd, Path):
-            wd = Path(wd)
-        docker_args = [
-            f"--rm",
-            "--interactive",
-            "--tty",
-            f"--workdir={wd}",
-            f"--volume={wd}:{wd}",
-        ]
-        if root_dir:
-            docker_args.append(f"--volume={cwd}:{cwd}")
-        if env:
-            env_file = wd / f"{self.executable}_docker.env"
-            with open(env_file, "w") as f:
-                f.write(f"\n".join(f"{k}={v}" for k, v in env.items()))
-            docker_args.extend(["--env-file", str(env_file)])
-
-        executable = docker.executable or self.executable
-        return run_process(
-            "docker",
-            ["run", *docker_args, f"{docker.image}:{docker.tag}", executable, *args],
-            env=None,
-            stdout=stdout,
-            check=check,
-            tool_name=self.__class__.__name__,
-        )
-
     def _run(
         self,
         *args: Any,
@@ -393,9 +464,7 @@ class Tool(XedaBaseModeAllowExtra):
             self._run_remote(*args, env=env, stdout=stdout, check=check)
             return None
         if self.docker and self.docker.enabled:
-            return self._run_docker(
-                self.docker, *args, env=env, stdout=stdout, check=check
-            )
+            return self.docker.run(*args, env=env, stdout=stdout, check=check)
         return self._run_system(*args, env=env, stdout=stdout, check=check)
 
     def run(self, *args: Any, env: Optional[Dict[str, Any]] = None) -> None:

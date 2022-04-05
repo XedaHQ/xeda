@@ -27,7 +27,7 @@ class Vcs(SimFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        with open("synopsys_sim.setup", "w") as f:
+        with open("synopsys_sim.setup", "w", encoding="utf-8") as f:
             f.writelines(
                 [
                     "WORK  > default",

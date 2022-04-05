@@ -1,5 +1,5 @@
 set design_name           {{design.name}}
-set top                   {{design.rtl.primary_top}}
+set top                   {{design.rtl.top}}
 set fpga_part             {{settings.fpga.part}}
 {%- if settings.debug %}
 foreach key [array names quartus] {

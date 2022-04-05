@@ -38,12 +38,9 @@ class VivadoSim(Vivado, SimFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
-        saif = ss.saif
-
         ss.elab_flags.append(f'-mt {"off" if ss.debug else ss.nthreads}')
-
         elab_debug = ss.elab_debug
-        if not elab_debug and (ss.debug or saif or ss.vcd):
+        if not elab_debug and (ss.debug or ss.saif or ss.vcd):
             elab_debug = "typical"
         if elab_debug:
             ss.elab_flags.append(f"-debug {elab_debug}")
