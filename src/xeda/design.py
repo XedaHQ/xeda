@@ -61,7 +61,7 @@ class DesignValidationError(Exception):
 class FileResource:
     def __init__(
         self,
-        path: Union[str, os.PathLike[Any], Dict[str, str]],
+        path: Union[str, os.PathLike, Dict[str, str]],
         _root_path: Optional[Path] = None,
         **data: Any,
     ) -> None:
@@ -108,7 +108,7 @@ class FileResource:
 class DesignSource(FileResource):
     def __init__(
         self,
-        path: Union[str, os.PathLike[Any], Dict[str, str]],
+        path: Union[str, os.PathLike, Dict[str, str]],
         typ: Optional[str] = None,
         standard: Optional[str] = None,
         variant: Optional[str] = None,

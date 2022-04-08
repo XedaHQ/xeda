@@ -65,8 +65,8 @@ class RemoteSettings(XedaBaseModel):
     port: int = 22
 
 
-OptionalPath = Union[None, str, os.PathLike[Any]]
-OptionalBoolOrPath = Union[None, bool, str, os.PathLike[Any]]
+OptionalPath = Union[None, str, os.PathLike]
+OptionalBoolOrPath = Union[None, bool, str, os.PathLike]
 
 
 class Docker(XedaBaseModel):

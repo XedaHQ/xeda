@@ -33,8 +33,8 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 
-class WorkingDirectory(AbstractContextManager[None]):
-    def __init__(self, wd: Union[None, str, os.PathLike[Any]]):
+class WorkingDirectory(AbstractContextManager):
+    def __init__(self, wd: Union[None, str, os.PathLike]):
         self.prev_wd: Optional[Path] = None
         if wd is not None and not isinstance(wd, Path):
             wd = Path(wd)

@@ -145,7 +145,7 @@ class FlowRunner:
 
     def __init__(
         self,
-        xeda_run_dir: Union[str, os.PathLike[Any]] = "xeda_run",
+        xeda_run_dir: Union[str, os.PathLike] = "xeda_run",
         debug: bool = False,
         dump_settings_json: bool = True,
         display_results: bool = True,
