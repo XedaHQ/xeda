@@ -132,9 +132,6 @@ def dump_json(data: object, path: Path, backup_previous: bool = True) -> None:
 
 def unique(lst: List[Any]) -> List[Any]:
     """uniquify list while preserving order"""
-    # compatible with Python 3.6 ???
-    # seen = set()
-    # return [x for x in lst if x not in seen and not seen.add(x)]
     return list(OrderedDict.fromkeys(lst))
 
 

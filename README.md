@@ -18,7 +18,7 @@ For further details, visit the [Xeda's documentations](http://xeda.rtfd.io/) (Wo
 
 ## Installation
 
-Requires Python >= 3.6.9
+Requires Python >= 3.8
 
 - Install from GitHub's master branch (recommended during alpha development):
 ```

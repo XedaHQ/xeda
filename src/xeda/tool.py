@@ -6,21 +6,22 @@ import subprocess
 from pathlib import Path
 from sys import stderr
 import sys
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    ContextManager,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 from .dataclass import Field, XedaBaseModeAllowExtra, XedaBaseModel, validator
 from .utils import cached_property, unique
 
 log = logging.getLogger(__name__)
-
-try:
-    nullcontext: Callable[..., Any] = contextlib.nullcontext
-except AttributeError:  # Python < 3.7
-
-    def nullcontext_(a=None):  # type: ignore
-        return contextlib.contextmanager(lambda: (x for x in [a]))()
-
-    nullcontext = nullcontext_
 
 
 __all__ = [
@@ -181,9 +182,9 @@ def run_process(
     if stdout and isinstance(stdout, (str, os.PathLike)):
         stdout = Path(stdout)
         log.info("redirecting stdout to %s", stdout)
-        cm = open(stdout, "w")
+        cm: ContextManager = open(stdout, "w")
     else:
-        cm = nullcontext()
+        cm = contextlib.nullcontext()
     with (cm) as f:
         try:
             with subprocess.Popen(
