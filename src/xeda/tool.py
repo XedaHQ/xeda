@@ -3,20 +3,10 @@ import logging
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from sys import stderr
-import sys
-from typing import (
-    Any,
-    Callable,
-    ContextManager,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-)
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from .dataclass import Field, XedaBaseModeAllowExtra, XedaBaseModel, validator
 from .utils import cached_property, unique
@@ -182,10 +172,15 @@ def run_process(
     if stdout and isinstance(stdout, (str, os.PathLike)):
         stdout = Path(stdout)
         log.info("redirecting stdout to %s", stdout)
-        cm: ContextManager = open(stdout, "w")
+
+        def cm_call():
+            assert stdout
+            return open(stdout, "w")
+
+        cm = cm_call
     else:
-        cm = contextlib.nullcontext()
-    with (cm) as f:
+        cm = contextlib.nullcontext
+    with cm() as f:
         try:
             with subprocess.Popen(
                 [executable, *args],
