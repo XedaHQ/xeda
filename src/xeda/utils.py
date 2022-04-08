@@ -6,6 +6,7 @@ import re
 from contextlib import AbstractContextManager
 from copy import deepcopy
 from datetime import datetime
+from functools import cached_property  # pylint: disable=ungrouped-imports
 from functools import reduce
 from pathlib import Path
 from types import TracebackType
@@ -14,13 +15,9 @@ from typing import Any, Dict, Iterable, List, Optional, OrderedDict, Tuple, Type
 from .dataclass import XedaBaseModel
 
 try:
-    from functools import cached_property  # pylint: disable=ungrouped-imports
-except ModuleNotFoundError:
-    from backports.cached_property import cached_property  # type: ignore # pyright: reportMissingImports=none
-
-try:
     import tomllib  # type: ignore # pyright: reportMissingImports=none
 except ModuleNotFoundError:
+    # python_version < "3.11":
     import tomli as tomllib  # type: ignore
 
 __all__ = [

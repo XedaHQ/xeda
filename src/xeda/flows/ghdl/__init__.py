@@ -3,12 +3,7 @@ import os
 import platform
 from abc import ABCMeta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-
-try:
-    from typing import Literal  # pylint: disable=ungrouped-imports
-except ImportError:
-    from typing_extensions import Literal  # type: ignore
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, Tuple012, VhdlSettings
