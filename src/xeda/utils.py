@@ -188,30 +188,36 @@ def dict_merge(
 
 
 def try_convert(
-    s: str, convert_lists: bool = False, to_str: bool = True
-) -> Union[bool, int, float, str, List[Any]]:
+    s: Any, convert_lists: bool = False
+) -> Union[bool, int, float, str, List[Union[bool, int, float, str, List[Any]]]]:
     if s is None:
         return "None"
-    if isinstance(s, str):  # always?
+    if isinstance(s, str):
+        s = s.strip()
+        assert isinstance(s, str)
         if s.startswith('"') or s.startswith("'"):
             return s.strip("\"'")
         if convert_lists and s.startswith("[") and s.endswith("]"):
             s = re.sub(r"\s+", "", s)
-            return [try_convert(e) for e in s.strip("][").split(",")]
+            return try_convert(list(s.strip("][").split(",")))
         # Should NOT convert dict, set, etc!
-
+        if re.match(r"^\d+$", s):
+            return int(s)
+        if s.lower() in ["true", "yes"]:
+            return True
+        if s.lower() in ["false", "no"]:
+            return False
+        return s
+    if isinstance(s, (int, float, bool)):
+        return s
+    if isinstance(s, (tuple)):
+        s = list(s)
+    if isinstance(s, (list)):
+        return [try_convert(e) for e in s]
     try:
-        return int(s)
+        return float(s)
     except ValueError:
-        try:
-            return float(s)
-        except ValueError:
-            s1 = str(s)
-            if s1.lower() in ["true", "yes"]:
-                return True
-            if s1.lower() in ["false", "no"]:
-                return False
-            return s1 if to_str else s
+        return str(s)
 
 
 def get_hierarchy(dct: Dict[str, Any], path, sep="."):

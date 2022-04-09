@@ -3,7 +3,7 @@
 import csv
 import logging
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, Set
+from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from xeda.utils import try_convert
 
@@ -23,9 +23,9 @@ def parse_csv(
     field_parser: Callable[[str], Any] = identity,
     id_parser: Callable[[str], Any] = identity,
     interesting_fields: Optional[Set[str]] = None,
-):
+) -> Dict[str, Any]:
     """Parse TCL-generated CSV file"""
-    data = {}
+    data: Dict[str, Any] = {}
     with open(path, newline="") as csvfile:
         if id_field:
             # with header, and some rows of data indexed by id_field
@@ -33,15 +33,20 @@ def parse_csv(
             for row in reader:
                 if interesting_fields is None:
                     interesting_fields = set(row)
-                id_ = id_parser(row[id_field])
-                data[id_] = {
-                    k: field_parser(row[k]) for k in interesting_fields if k in row
-                }
+                row_id = row.get(id_field)
+                if row_id:
+                    data[id_parser(row_id)] = {
+                        k: field_parser(row[k]) for k in interesting_fields if k in row
+                    }
+                else:
+                    log.critical("ID field %s not found in row (%s)", id_field, row)
         else:
             # no header, key/value pairs on each line
             for lrow in csv.reader(csvfile):
-                if len(lrow) == 2:
-                    data[id_parser(lrow[0])] = field_parser(lrow[1])
+                if len(lrow) >= 2:
+                    data[id_parser(lrow[0])] = field_parser(",".join(lrow[1:]))
+                else:
+                    log.critical("Line is not in key,value format: %s", lrow)
     return data
 
 
@@ -259,9 +264,9 @@ class Quartus(FpgaSynthFlow):
         failed = False
         reports = self.reports
         resources = parse_csv(reports["summary"], id_field=None)
+        self.results.update(resources)
         utilization_report = Path(reports["utilization"])
         assert utilization_report.exists()
-        print("utilization_report:", utilization_report)
         resources = parse_csv(
             utilization_report,
             id_field="Compilation Hierarchy Node",
@@ -289,18 +294,15 @@ class Quartus(FpgaSynthFlow):
             # },
         )
 
-        top_resources = resources.get(self.design.rtl.top, {})
-        print("top_resources:", top_resources)
+        top_resources = resources.get(self.design.rtl.top)
         if top_resources:
             top_resources.setdefault(0)
-            r0 = top_resources.get("LUT-Only LCs")
-            if r0:
-                top_resources["lut"] = r0 + top_resources.get("LUT/Register LCs", 0)
-            r0 = top_resources.get("Register-Only LCs")
-            if r0:
-                top_resources["ff"] = r0 + top_resources.get("LUT/Register LCs", 0)
-
-        self.results.update(top_resources)
+            lut_only = top_resources.get("LUT-Only LCs", 0)
+            lut_reg = top_resources.get("LUT/Register LCs", 0)
+            top_resources["lut"] = lut_only + lut_reg
+            reg_only = top_resources.get("Register-Only LCs", 0)
+            top_resources["ff"] = reg_only + lut_reg
+            self.results.update(top_resources)
 
         # TODO reference for why this timing report is chosen
 
@@ -313,9 +315,12 @@ class Quartus(FpgaSynthFlow):
             id_parser=lambda s: s.strip(),
             interesting_fields={"Setup", "Hold"},
         )
+        print("slacks:", slacks)
         worst_slacks = slacks.get("Worst-case Slack")
+        print("worst_slacks:", worst_slacks)
         if worst_slacks:
             wns = worst_slacks.get("Setup")
+            print("wns:", wns)
             whs = worst_slacks.get("Hold")
             if wns is not None:
                 wns = try_convert(wns)
@@ -361,64 +366,6 @@ class Quartus(FpgaSynthFlow):
         return not failed
 
 
-# class QuartusPower(QuartusSynth, SimFlow):
-#     def run(self):
-#         self.create_project(vcd=self.settings.flow.get('vcd'))
-#         script_path = self.copy_from_template(f'compile.tcl')
-#         self.run_process('quartus_sh',
-#                          ['-t', str(script_path)],
-#                          stdout_logfile='compile_stdout.log'
-#                          )
-
-#     def parse_reports(self):
-#         failed = False
-
-#         resources = parse_csv(
-#             self.reports_dir / 'Fitter' / 'Resource_Section' / 'Fitter_Resource_Utilization_by_Entity.csv',
-#             id_field='Compilation Hierarchy Node',
-#             field_parser=lambda s: int(s.split()[0]),
-#             id_parser=lambda s: s.strip()[1:],
-#             interesting_fields=['Logic Cells', 'Memory Bits', 'M9Ks', 'DSP Elements',
-#                                 'LUT-Only LCs',	'Register-Only LCs', 'LUT/Register LCs']
-#         )
-
-#         top_resources = resources[self.settings.design['top']]
-
-#         top_resources['lut'] = top_resources['LUT-Only LCs'] + top_resources['LUT/Register LCs']
-#         top_resources['ff'] = top_resources['Register-Only LCs'] + top_resources['LUT/Register LCs']
-
-#         self.results.update(top_resources)
-
-#         # TODO is this the most reliable timing report?
-#         slacks = parse_csv(
-#             self.reports_dir / 'Timing_Analyzer' / 'Multicorner_Timing_Analysis_Summary.csv',
-#             id_field='Clock',
-#             field_parser=lambda s: float(s.strip()),
-#             id_parser=lambda s: s.strip(),
-#             interesting_fields=['Setup', 'Hold']
-#         )
-#         worst_slacks = slacks['Worst-case Slack']
-#         wns = worst_slacks['Setup']
-#         whs = worst_slacks['Hold']
-#         self.results['wns'] = wns
-#         self.results['whs'] = whs
-
-#         failed |= wns < 0 or whs < 0
-
-#         for temp in ['85C', '0C']:
-#             fmax = parse_csv(
-#                 self.reports_dir / 'Timing_Analyzer' /
-#                 f'Slow_1200mV_{temp}_Model' / f'Slow_1200mV_{temp}_Model_Fmax_Summary.csv',
-#                 id_field='Clock Name',
-#                 field_parser=lambda s: s.strip().split(),
-#                 id_parser=lambda s: s.strip(),
-#                 interesting_fields=['Fmax']
-#             )
-#             self.results[f'fmax_{temp}'] = fmax['clock']['Fmax']
-
-#         return not failed
-
-
 # class QuartusDse(QuartusSynth, DseFlow):
 #     def run(self):
 #         self.create_project()
@@ -444,11 +391,6 @@ class Quartus(FpgaSynthFlow):
 #                          initial_step="Running Quartus DSE",
 #                          )
 
-#     def parse_reports(self):
-#         'quartus_dse_report.json'
-#         pass
-
-
 # DES:
 
 # Available exploration spaces for this family are:
@@ -466,8 +408,3 @@ class Quartus(FpgaSynthFlow):
 # "Optimize for Negative Slack and Failing Paths"
 # "Optimize for Average Period"
 # "Optimize for Quality of Fit"
-
-
-# -run-power ?
-
-#
