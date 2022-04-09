@@ -13,7 +13,7 @@ jobs:
       run: |
          sudo apt -qq update
     - uses: actions/checkout@v3
-    - name: Set up Python
+    - name: Set up 🐍
       uses: actions/setup-python@v3
       with:
         python-version: '3.x'
@@ -21,7 +21,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install build
-    - name: Build 🐍 package
+    - name: Build package
       run: python -m build
     - name: Publish xeda 📦 to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1.5
