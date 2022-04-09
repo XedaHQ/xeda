@@ -139,7 +139,7 @@ class FlowRunner:
     2. call Flow.init()
     3. Run all dependency flows (asked by the flow, during Flow.init)
     3. Run the flow by calling run()
-    4. Run flow's parese_results()
+    4. Run flow's parse_results()
     5. Evaluate and print the results
     """
 
