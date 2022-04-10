@@ -15,6 +15,3 @@ __all__ = [
     "SynthFlow",
     "FPGA",
 ]
-
-__project__ = "xeda"
-__author__ = "Kamyar Mohajerani"

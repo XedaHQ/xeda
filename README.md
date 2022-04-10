@@ -72,10 +72,10 @@ A `Flow` is a collection of steps performed by one or several tools. A Xeda `Flo
   - `quartus`: FPGA synthesis and implementation flow
 - Lattice Diamond
   - `diamond_synth`: FPGA synthesis and implementation flow
-- Mentor ModelSim
+- Mentor (Siemens) [ModelSim](https://eda.sw.siemens.com/en-US/ic/modelsim/)
   - `modelsim` RTL and netlist simulation
-- [openFPGAloader](https://github.com/trabucayre/openFPGALoader): Open-source and multi-platform universal utility for programming FPGAs. Compatible with many boards, cables and FPGA from major manufacturers.
 - [nextpnr](https://github.com/YosysHQ/nextpnr) portable FPGA place and route tool
+- [openFPGAloader](https://github.com/trabucayre/openFPGALoader): Open-source and multi-platform universal utility for programming FPGAs. Compatible with many boards, cables and FPGA from major manufacturers.
 - Synopsys Design Compiler
 - Synopsys VCS simulator
 - Xilinx (AMD) [Vivado](https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html) Design Suite

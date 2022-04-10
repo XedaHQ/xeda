@@ -215,7 +215,7 @@ def cli(ctx: click.Context, **kwargs):
     type=tuple,
     cls=OptionEatAll,
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
-    Example: --settings clock_period=2.345 mpl.strategy=Debug
+    Example: --settings clock_period=2.345 impl.strategy=Debug
     """
     #  examples: # FIXME move to docs
     # - xeda vivado_sim --flow-settings stop_time=100us
