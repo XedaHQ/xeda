@@ -20,7 +20,7 @@ use ieee.numeric_std.all;
 
 entity sqrt is
     generic(
-        G_IN_WIDTH : positive           --@ Input width
+        G_IN_WIDTH : positive := 8           --@ Input width
     );
 
     port(

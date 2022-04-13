@@ -53,7 +53,7 @@ class Dc(SynthFlow):
         log.debug("adk=%s", adk)
 
         script_path = self.copy_from_template(
-            f"run.tcl",
+            "run.tcl",
             adk=adk,
         )
         self.dc_shell.run("-64bit", "-topographical_mode", "-f", script_path)
@@ -86,7 +86,6 @@ class Dc(SynthFlow):
         )
 
         reportfile_path = reports_dir / f"{top_name}.mapped.qor.rpt"
-
 
         def parse_kvs(kvs):
             kvs = re.split(r"\s*\n\s*", kvs)

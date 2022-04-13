@@ -37,8 +37,8 @@ class IseSynth(FpgaSynthFlow):
         }
 
     def run(self) -> None:
-        xcf_file = self.copy_from_template(f"constraints.xcf")
-        ucf_file = self.copy_from_template(f"constraints.ucf")
+        xcf_file = self.copy_from_template("constraints.xcf")
+        ucf_file = self.copy_from_template("constraints.ucf")
 
         self.add_template_filter(
             "quote_str", lambda v: f'"{v}"' if isinstance(v, str) else v

@@ -86,7 +86,7 @@ def _test_parse_reports():
 
 def test_parse_csv_no_header():
     parsed = parse_csv(RESOURCES_DIR / "Flow_Summary.csv", None)
-    assert parsed == {
+    expected = {
         "Flow Status": "Successful - Tue Mar  1 11:10:35 2022",
         "Quartus Prime Version": "21.1.0 Build 842 10/21/2021 SJ Lite Edition",
         "Revision Name": "pipelined_adder",
@@ -105,6 +105,9 @@ def test_parse_csv_no_header():
         "Total PLLs": "0 / 7 ( 0 % )",
         "Total DLLs": "0 / 3 ( 0 % )",
     }
+
+    for k, v in expected.items():
+        assert parsed[k] == v
 
 
 def prepend_to_path(path):

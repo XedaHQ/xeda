@@ -251,15 +251,15 @@ class Flow(metaclass=ABCMeta):
 
     def parse_report_regex(
         self,
-        reportfile_path,
-        re_pattern,
-        *other_re_patterns,
-        dotall=True,
-        required=False,
-        sequential=False,
+        reportfile_path: Union[str, os.PathLike],
+        re_pattern: Union[str, List[str]],
+        *other_re_patterns: Union[str, List[str]],
+        dotall: bool = True,
+        required: bool = False,
+        sequential: bool = False,
     ) -> bool:
-        if isinstance(reportfile_path, str):
-            reportfile_path = self.run_path / reportfile_path
+        if not isinstance(reportfile_path, Path):
+            reportfile_path = Path(reportfile_path)
         # TODO fix debug and verbosity levels!
         if not reportfile_path.exists():
             log.warning(
@@ -334,10 +334,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         super().__init__(settings, design, run_path)
-
         assert isinstance(self.settings, self.Settings)
         self.cocotb: Optional[Cocotb] = (
-            Cocotb(**self.settings.cocotb.dict(), sim_name=self.cocotb_sim_name)
+            Cocotb(
+                **self.settings.cocotb.dict(),
+                sim_name=self.cocotb_sim_name,
+            )
             if self.cocotb_sim_name
             else None
         )

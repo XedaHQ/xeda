@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 45", "wheel", "setuptools_scm[toml] >= 6.2"]
+requires = ["setuptools >= 61", "wheel", "setuptools_scm[toml] >= 6.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
@@ -7,9 +7,7 @@ build-backend = "setuptools.build_meta"
 [tool.pylint]
 
 [tool.pylint.master]
-ignore-paths = [
-  "src/xeda/plugins/lwc/.*",
-]
+ignore-paths = ["src/xeda/plugins/lwc/.*"]
 
 [tool.pylint.messages_control]
 max-line-length = 120
@@ -49,3 +47,44 @@ ignore-imports = "no"
 
 [tool.pylint.design]
 max-returns = 8
+
+[tool.bandit]
+skips = [
+  "B701",
+  "B101:assert_used",
+  "B404:blacklist",   # subprocess module
+  "B314",
+]
+# exclude = []
+
+[tool.flakeheaven.plugins]
+# include everything in pyflakes except F401
+# pyflakes = ["+*", "-F401"]
+pyflakes = ["+*"]
+pycodestyle = [
+  "+*",
+  "-E501", # line too long
+  "-E203",
+  "-E231", # whitespace before/after ':'
+  "-C812", # missing trailing comma
+  "-W503", # line break before binary operator 
+]
+# enable only codes from S100 to S199
+# flake8-bandit = ["-*", "+S1??"]
+flake8-bandit = [
+  "+*",
+  "-S603",
+  "-S404", # subprocess
+  "-S405", 
+  "-S314", # xml.etree.ElementTree.parse
+  "-S101", # asserts
+  "-S311", # random crypto
+  "-S701", # jinja2 autoescape
+  "-S310", # urllib open URL
+]
+# enable everything that starts from `flake8-`
+"flake8-*" = ["+*"]
+# explicitly disable plugin
+flake8-docstrings = ["-*"]
+flake8-quotes = ["-*"]
+flake8-commas = ["-*"]

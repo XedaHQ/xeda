@@ -22,13 +22,8 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
-from .cli_utils import (
-    ClickMutex,
-    OptionEatAll,
-    XedaHelpGroup,
-    discover_flow_class, # pylint: disable=no-name-in-module
-    settings_to_dict,
-)
+from .cli_utils import discover_flow_class  # pylint: disable=no-name-in-module
+from .cli_utils import ClickMutex, OptionEatAll, XedaHelpGroup, settings_to_dict
 from .console import console
 from .design import Design, DesignValidationError
 from .flow_runner import DefaultRunner
@@ -261,7 +256,10 @@ def run(
         designs = xeda_project["design"]
         if not isinstance(designs, Sequence):
             designs = [designs]
-        log.info("Available designs: %s", ", ".join(d.get("name", "<NO_NAME>") for  d in designs))
+        log.info(
+            "Available designs: %s",
+            ", ".join(d.get("name", "<NO_NAME>") for d in designs),
+        )
         design_dict = {}
         if len(designs) == 1:
             design_dict = designs[0]

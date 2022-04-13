@@ -30,7 +30,7 @@ class DiamondSynth(FpgaSynthFlow):
         constraints = [f"constraints.{ext}" for ext in constraint_exts]
         for constraint in constraints:
             self.copy_from_template(constraint)
-        script_path = self.copy_from_template(f"synth.tcl")
+        script_path = self.copy_from_template("synth.tcl")
         diamondc = Tool("diamondc")
         diamondc.run("diamondc", script_path)
 

@@ -145,11 +145,13 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 r"(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<_ths_failing_endpoints>\d+)\s+(?P<_ths_total_endpoints>\d+)\s+",
                 ##
                 r"Clock Summary[\s\|\-]+^\s*Clock\s+.*$[^\w]+(\w*)\s+(\{.*\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)",
-                required=True,
+                required=False,
             )
-            if not failed:
-                wns = self.results.get("wns")
-                if isinstance(wns, (float, int)):
+            wns = self.results.get("wns")
+            if wns:
+                if not isinstance(wns, (float, int)):
+                    log.critical("Parse value for `WNS` is %s (%s)", wns, type(wns))
+                else:
                     if wns < 0:
                         failed = True
                     # see https://support.xilinx.com/s/article/57304?language=en_US

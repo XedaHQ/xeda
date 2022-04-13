@@ -19,7 +19,7 @@ class Modelsim(SimFlow):
         tb = self.design.tb
         ss = self.settings
         # TODO are library paths supported?
-        vsim_opts.extend([f"-L {l}" for l in ss.lib_paths])
+        vsim_opts.extend([f"-L {lib_name}" for lib_name in ss.lib_paths])
         sdf_root = ss.sdf.root if ss.sdf.root else tb.uut
         for dt, f in ss.sdf.delay_items():
             assert sdf_root, "Neither settings.sdf.root or design.tb.uut are provided"
@@ -28,7 +28,7 @@ class Modelsim(SimFlow):
         tb_generics_opts = " ".join([f"-g{k}={v}" for k, v in tb.parameters.items()])
 
         script_path = self.copy_from_template(
-            f"run.tcl",
+            "run.tcl",
             generics_options=tb_generics_opts,
             vcom_opts=" ".join(vcom_options),
             vlog_opts=" ".join(vlog_options),

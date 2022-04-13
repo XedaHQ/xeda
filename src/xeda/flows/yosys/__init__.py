@@ -125,11 +125,9 @@ class Yosys(SynthFlow):
                     if value.endswith(".json"):
                         attr_file = Path(value)
                         try:
-                            print(f"opening {attr_file}...")
+                            log.info("Parsing %s as JSON file", attr_file)
                             with open(attr_file) as f:
-                                print(f"loading as json")
                                 value = {**json.load(f)}
-                                print(f"converted{attr_file} to {type(value)} \n")
                         except json.JSONDecodeError as e:
                             raise ValueError(
                                 f"Decoding of JSON file {attr_file} failed: {e.args}"

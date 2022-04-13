@@ -138,7 +138,7 @@ class Docker(XedaBaseModel):
         if env:
             env_file = wd / f".{self.name}_docker.env"
             with open(env_file, "w") as f:
-                f.write(f"\n".join(f"{k}={v}" for k, v in env.items()))
+                f.write("\n".join(f"{k}={v}" for k, v in env.items()))
             docker_args.extend(["--env-file", str(env_file)])
 
         return run_process(
@@ -166,7 +166,6 @@ def run_process(
     if env is not None:
         env = {k: str(v) for k, v in env.items()}
     log.info("Running `%s`", " ".join([executable, *args]))
-    print("Running ", " ".join([executable, *args]))
     if cwd:
         log.info("cwd=%s", cwd)
     if stdout and isinstance(stdout, (str, os.PathLike)):
@@ -199,7 +198,8 @@ def run_process(
                         out, err = proc.communicate(timeout=None)
                         if check and proc.returncode != 0:
                             raise NonZeroExitCode(proc.args, proc.returncode)
-                        print(err, file=stderr)
+                        if err:
+                            print(err, file=stderr)
                         return out.strip()
                     log.info("Standard output is logged to: %s", stdout)
                 else:

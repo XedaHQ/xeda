@@ -91,7 +91,13 @@ class Ghdl(Flow, metaclass=ABCMeta):
         def generics_flags(generics: Optional[Dict[str, Any]]) -> List[str]:
             if not generics:
                 return []
-            return [f"-g{k}={v}" for k, v in generics.items()]
+
+            def conv(v):
+                if isinstance(v, bool):
+                    return str(v).lower()
+                return v
+
+            return [f"-g{k}={conv(v)}" for k, v in generics.items()]
 
         def get_flags(self, vhdl: VhdlSettings, stage: str) -> List[str]:
             common = self.common_flags(vhdl)
@@ -228,13 +234,13 @@ class GhdlSynth(Ghdl, SynthFlow):
         if ss.out:
             flags.append(f"--out={ss.out}")
         if ss.no_formal:
-            flags.append(f"--no-formal")
+            flags.append("--no-formal")
         if ss.no_assert_cover:
-            flags.append(f"--no-assert-cover")
+            flags.append("--no-assert-cover")
         if ss.assert_assumes:
-            flags.append(f"--assert-assumes")
+            flags.append("--assert-assumes")
         if ss.assume_asserts:
-            flags.append(f"--assume-asserts")
+            flags.append("--assume-asserts")
 
         flags.extend(ss.generics_flags(design.rtl.generics))
         if one_shot_elab:
@@ -347,6 +353,7 @@ class GhdlSim(Ghdl, SimFlow):
 
     def parse_reports(self) -> bool:
         success = True
+        # TODO move
         if self.cocotb and self.design.tb and self.design.tb.cocotb:
-            success &= self.cocotb.parse_results()
+            success &= self.cocotb.add_results(self.results)
         return success

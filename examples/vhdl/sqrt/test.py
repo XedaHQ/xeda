@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
 import os
-import subprocess
-import sys
 from pathlib import Path
 
 from xeda import Design, Flow
@@ -10,18 +8,6 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Yosys
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
-
-subprocess.check_call(
-    [
-        sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "-U",
-        "-r",
-        SCRIPT_DIR / "tb-requirements.txt",
-    ]
-)
 
 design = Design.from_toml(SCRIPT_DIR / "sqrt.toml")
 xeda_runner = DefaultRunner()
@@ -37,14 +23,17 @@ def test_sqrt() -> None:
     for w in ws:
         assert design.tb
         design.tb.parameters = {**design.tb.parameters, "G_IN_WIDTH": w}
-        os.environ["NUM_TV"] = str(200)
+        os.environ["NUM_TV"] = str(100)
         f: Flow = xeda_runner.run_flow(GhdlSim, design)
-        assert f.succeeded, f"test failed for w={w}"
+        if not f.succeeded:
+            raise AssertionError(f"test failed for w={w}")
 
 
 def test_sqrt_yosys_synth() -> None:
     design.tb.parameters["G_IN_WIDTH"] = 32
-    f = xeda_runner.run_flow(Yosys, design, {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock_period": 10.0})
+    f = xeda_runner.run_flow(
+        Yosys, design, {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock_period": 10.0}
+    )
     assert f.succeeded
 
 

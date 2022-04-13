@@ -4,16 +4,17 @@ from abc import ABCMeta
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 import attrs
+
 # pylint: disable=no-name-in-module
-from pydantic import ( # pylint: disable=no-name-in-module
+from pydantic import (  # pylint: disable=no-name-in-module
     BaseConfig,  # pylint: disable=no-name-in-module
-    BaseModel, # pylint: disable=no-name-in-module
+    BaseModel,  # pylint: disable=no-name-in-module
     Extra,
     Field,
     ValidationError,
     root_validator,
     validator,
-) # pylint: disable=no-name-in-module
+)  # pylint: disable=no-name-in-module
 
 __all__ = [
     "XedaBaseModel",
@@ -32,7 +33,7 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 
-## WIP: interchangable dataclass backend
+# WIP: interchangable dataclass backend
 def define(maybe_cls: Optional[Type[Any]], **kwargs: Any) -> Any:
     return attrs.define(maybe_cls, **kwargs)
 

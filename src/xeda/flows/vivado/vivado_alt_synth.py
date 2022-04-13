@@ -280,7 +280,7 @@ class VivadoAltSynth(Vivado, FpgaSynthFlow):
             return v
 
     def run(self):
-        clock_xdc_path = self.copy_from_template(f"clock.xdc")
+        clock_xdc_path = self.copy_from_template("clock.xdc")
         ss = self.settings
         assert isinstance(ss, self.Settings)
 

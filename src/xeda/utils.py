@@ -6,8 +6,7 @@ import re
 from contextlib import AbstractContextManager
 from copy import deepcopy
 from datetime import datetime
-from functools import cached_property  # pylint: disable=ungrouped-imports
-from functools import reduce
+from functools import cached_property, reduce
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Dict, Iterable, List, Optional, OrderedDict, Tuple, Type, Union
@@ -207,6 +206,10 @@ def try_convert(
             return True
         if s.lower() in ["false", "no"]:
             return False
+        try:
+            return float(s)
+        except ValueError:
+            pass
         return s
     if isinstance(s, (int, float, bool)):
         return s
@@ -214,10 +217,7 @@ def try_convert(
         s = list(s)
     if isinstance(s, (list)):
         return [try_convert(e) for e in s]
-    try:
-        return float(s)
-    except ValueError:
-        return str(s)
+    return str(s)
 
 
 def get_hierarchy(dct: Dict[str, Any], path, sep="."):

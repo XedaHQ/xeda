@@ -8,8 +8,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
 from typing import Any, Dict, Mapping, Optional, Set, Tuple, Type, Union
-from box import Box
 
+# fmt: off
 from pathvalidate import sanitize_filename  # type: ignore # pyright: reportPrivateImportUsage=none
 
 from rich import box, print_json
@@ -124,7 +124,7 @@ def _semantic_hash(data: Any, debug=False) -> str:
         return str(data)
 
     def _get_digest(b: bytes) -> str:
-        return hashlib.sha1(b).hexdigest()[:16]
+        return hashlib.sha256(b).hexdigest()[:16]
 
     r = repr(_sorted_dict_str(data))
     if debug:

@@ -13,6 +13,7 @@ EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
 os.environ["PATH"] += os.pathsep + os.path.join(TESTS_DIR, "fake_tools")
 
+
 def test_ise_synth_py() -> None:
     path = RESOURCES_DIR / "design0/design0.toml"
     # Append to PATH so if the actual tool exists, would take precedences.

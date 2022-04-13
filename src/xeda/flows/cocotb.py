@@ -1,5 +1,7 @@
 import logging
 import os
+from functools import cached_property
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from junitparser import JUnitXml
@@ -13,7 +15,7 @@ log = logging.getLogger(__name__)
 
 class CocotbSettings(XedaBaseModel):
     coverage: bool = Field(
-        True, description="Collect coverage data if supported by simulation tool."
+        False, description="Collect coverage data if supported by simulation tool."
     )
     reduced_log_fmt: bool = Field(
         True, description="Display shorter log lines in the terminal."
@@ -89,34 +91,67 @@ class Cocotb(CocotbSettings, Tool):
             ret = {
                 "MODULE": coco_module,
                 "TOPLEVEL": top,  # TODO
-                "TOPLEVEL_LANG": "vhdl",
                 "COCOTB_REDUCED_LOG_FMT": int(self.reduced_log_fmt),
                 "PYTHONPATH": os.pathsep.join(ppath),
                 "COCOTB_RESULTS_FILE": self.results_xml,
-                "COVERAGE": self.coverage,
                 "COCOTB_RESOLVE_X": self.resolve_x,
             }
+            if self.coverage:
+                ret["COVERAGE"] = 1
             if self.testcase:
                 ret["TESTCASE"] = ",".join(self.testcase)
             if self.random_seed is not None:
                 ret["RANDOM_SEED"] = self.random_seed
             if self.gpi_extra:
                 ret["GPI_EXTRA"] = ",".join(self.gpi_extra)
+            log.info("Cocotb env: %s", ret)
         return ret
+
+    @cached_property
+    def _results(self):
+        results_xml = self.results_xml
+        if not Path(results_xml).exists():
+            return JUnitXml()
+        return JUnitXml.fromfile(results_xml)
 
     @property
     def results(self):
-        results_xml = self.results_xml
-        return JUnitXml.fromfile(results_xml)
+        return self._results
 
-    def parse_results(self) -> bool:
+    @property
+    def result_testcases(self):
+        for ts in self.results:
+            if ts is not None:
+                for tc in ts:
+                    if tc is not None:
+                        yield {
+                            "name": tc.name,
+                            "result": str(tc),
+                            "classname": tc.classname,
+                            "time": round(tc.time, 3),
+                        }
+
+    def add_results(
+        self, flow_results: Dict[str, Any], prefix: str = "cocotb."
+    ) -> bool:
+        """adds cocotb results to parent flow's results. returns success status"""
         xml = self.results
+        flow_results[prefix + "tests"] = xml.tests
+        flow_results[prefix + "errors"] = xml.errors
+        flow_results[prefix + "failures"] = xml.failures
+        flow_results[prefix + "skipped"] = xml.skipped
+        flow_results[prefix + "time"] = xml.time
         failed = False
+        if not xml.tests:
+            failed = True
+            log.error("No tests were discovered")
         if xml.errors:
             failed = True
             log.error("Cocotb: %d error(s)", xml.errors)
         if xml.failures:
             failed = True
             log.critical("Cocotb: %d failure(s)", xml.failures)
+        if failed:
+            flow_results["success"] = False
 
         return not failed

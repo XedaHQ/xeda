@@ -14,7 +14,9 @@ from ..flow import FpgaSynthFlow
 
 log = logging.getLogger(__name__)
 
-identity = lambda x: x
+
+def identity(x: Any) -> Any:
+    return x
 
 
 def parse_csv(
@@ -120,7 +122,7 @@ class Quartus(FpgaSynthFlow):
         placement_effort_multiplier: float = Field(
             2.0,
             description="""
-        A logic option that controls how much time the Fitter spends in placement. 
+        A logic option that controls how much time the Fitter spends in placement.
         The default value is 1.0 and legal values must be greater than 0 and can be non-integer values.
         Values between 0 and 1 can reduce fitting time, but also can reduce placement quality and design performance.
         Values greater than 1 increase placement time and placement quality, but may reduce routing time for designs with routing congestion.
@@ -255,7 +257,7 @@ class Quartus(FpgaSynthFlow):
     def run(self) -> None:
         self.create_project()
         script_path = self.copy_from_template(
-            f"compile.tcl", reports_dir=self.reports_dir
+            "compile.tcl", reports_dir=self.reports_dir
         )
         self.quartus_sh.run("-t", script_path)
 
