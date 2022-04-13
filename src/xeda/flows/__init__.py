@@ -10,6 +10,7 @@ from .quartus import Quartus
 from .vivado.vivado_synth import VivadoSynth
 from .vivado.vivado_sim import VivadoSim
 from .vivado.vivado_postsynthsim import VivadoPostsynthSim
+from .vivado.vivado_power import VivadoPower
 from .vivado.vivado_alt_synth import VivadoAltSynth
 from .yosys import Yosys
 
@@ -28,6 +29,7 @@ __all__ = [
     "Quartus",
     "VivadoAltSynth",
     "VivadoPostsynthSim",
+    "VivadoPower",
     "VivadoSim",
     "VivadoSynth",
     "Yosys",
