@@ -334,9 +334,9 @@ class FlowRunner:
                     flow.results.runtime = time.monotonic() - flow.init_time
                 try:
                     success &= flow.parse_reports()
-                except Exception as e: # TODO # pylint: disable=broad-except
-                    log.critical("parse_reports raise exception: %s", e)
-                    if success: # if so far so good this is a bug!
+                except Exception as e:  # pylint: disable=broad-except
+                    log.critical("parse_reports throw an exception: %s", e)
+                    if success:  # if so far so good this is a bug!
                         raise e from None
                     success = False
                 if not success:
