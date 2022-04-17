@@ -360,4 +360,4 @@ class Design(XedaBaseModel):
                 design_root=e.design_root,
                 design_name=e.design_name,
                 file=str(design_file),
-            ) from e
+            ) from None

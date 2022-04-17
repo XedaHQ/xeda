@@ -2,22 +2,54 @@ import logging
 import os
 import platform
 from abc import ABCMeta
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
+from varname import argname
+
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, Tuple012, VhdlSettings
+from ...gtkwave import gen_gtkw
 from ...tool import Docker, Tool
-from ...utils import SDF
-from ..flow import Flow, SimFlow, SynthFlow
+from ...utils import SDF, common_root
+from ..flow import Flow, FlowSettingsError, SimFlow, SynthFlow
 
 log = logging.getLogger(__name__)
 
 
-def append_flag(flag_list: List[str], flag: str) -> List[str]:
-    if flag not in flag_list:
-        flag_list.append(flag)
-    return flag_list
+def _get_wave_opt_signals(wave_opt_file, extra_top=None):
+    signals = []
+    with open(wave_opt_file, "r") as f:
+        for line in f.read().splitlines():
+            line = line.strip()
+            if line.startswith("/"):
+                sig = line[1:].split("/")
+                if extra_top:
+                    sig.insert(0, extra_top)
+                signals.append(sig)
+    root_group = common_root(signals)
+    return signals, root_group
+
+
+def setting_flag(variable: Any, assign=True) -> List[str]:
+    """skip if none"""
+    if variable is None:
+        return []
+    var_name = argname("variable")
+    if not isinstance(variable, (list, tuple)):
+        variable = [variable]
+    flags = []
+    for v in variable:
+        if v:
+            flag = "--" + (var_name.replace("_", "-"))
+            if isinstance(v, bool):
+                flags.append(flag)
+            elif assign:
+                flags.append(flag + "=" + str(v))
+            else:
+                flags += [flag, v]
+    return flags
 
 
 class GhdlTool(Tool):
@@ -26,13 +58,21 @@ class GhdlTool(Tool):
     docker = Docker(image="hdlc/sim:osvb")
     executable = "ghdl"
 
-    def get_info(self) -> Dict[str, str]:
+    @cached_property
+    def _info(self) -> Dict[str, str]:
         out = self.run_get_stdout(
-            self.executable,
-            ["--version"],
+            "--version",
         )
         lines = [line.strip() for line in out.splitlines()]
-        return {"compiler": lines[1], "backend": lines[2]}
+        if len(lines) < 3:
+            return {}
+        self._version = tuple(lines[0].split("."))
+
+        return {
+            "version": ".".join(self.version),
+            "compiler": lines[1],
+            "backend": lines[2],
+        }
 
 
 class Ghdl(Flow, metaclass=ABCMeta):
@@ -166,7 +206,6 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 if self.ghdl.info.get("backend", "").lower().startswith("llvm"):
                     if platform.system() == "Darwin" and platform.machine() == "arm64":
                         args += ["-Wl,-Wl,-no_compact_unwind"]
-                print(args)
                 args += list(top)
             if step == "find-top":
                 out = self.ghdl.run_get_stdout(step, *args)
@@ -229,18 +268,12 @@ class GhdlSynth(Ghdl, SynthFlow):
         ss: Settings, design: Design, one_shot_elab: bool = True, top: Tuple012 = ()
     ) -> List[str]:
         flags = ss.get_flags(design.language.vhdl, "elaborate")
-        if ss.vendor_library:
-            flags.append(f"--vendor-library={ss.vendor_library}")
-        if ss.out:
-            flags.append(f"--out={ss.out}")
-        if ss.no_formal:
-            flags.append("--no-formal")
-        if ss.no_assert_cover:
-            flags.append("--no-assert-cover")
-        if ss.assert_assumes:
-            flags.append("--assert-assumes")
-        if ss.assume_asserts:
-            flags.append("--assume-asserts")
+        flags += setting_flag(ss.vendor_library)
+        flags += setting_flag(ss.out)
+        flags += setting_flag(ss.no_formal)
+        flags += setting_flag(ss.no_assert_cover)
+        flags += setting_flag(ss.assert_assumes)
+        flags += setting_flag(ss.assume_asserts)
 
         flags.extend(ss.generics_flags(design.rtl.generics))
         if one_shot_elab:
@@ -265,10 +298,12 @@ class GhdlSim(Ghdl, SimFlow):
     cocotb_sim_name = "ghdl"
 
     class Settings(Ghdl.Settings, SimFlow.Settings):
-        run_flags: List[str] = ["--ieee-asserts=disable-at-0"]
+        run_flags: List[str] = []
         optimization_flags: List[str] = Field(
             ["-O3"], description="Simulation optimization flags"
         )
+        asserts: Optional[Literal["disable", "disable-at-0"]] = None
+        ieee_asserts: Optional[Literal["disable", "disable-at-0"]] = "disable-at-0"
         sdf: SDF = Field(
             SDF(),
             description="Do VITAL annotation using SDF files(s). A single string is interpreted as a MAX SDF file.",
@@ -276,21 +311,48 @@ class GhdlSim(Ghdl, SimFlow):
         wave: Optional[str] = Field(
             None, description="Write the waveforms into a GHDL Waveform (GHW) file."
         )
+        read_wave_opt: Optional[str] = Field(
+            None,
+            description="Filter signals to be dumped to the wave file according to the wave option file provided.",
+        )
+        write_wave_opt: Optional[str] = Field(
+            None,
+            description="Creates a wave option file with all the signals of the design. Overwrites the file if it already exists.",
+        )
+        fst: Optional[str] = Field(
+            None, description="Write the waveforms into an _fst_ file."
+        )
         stop_delta: Optional[str] = Field(
             None,
             description="Stop the simulation after N delta cycles in the same current time.",
         )
+        disp_tree: Optional[Literal["inst", "proc", "port"]] = Field(
+            None,
+            description="Display the design hierarchy as a tree of instantiated design entities. See GHDL documentation for more details.",
+        )
+        vpi: Union[None, str, List[str]] = Field(
+            None,
+            description="Load VPI library (or multiple libraries)",
+        )
         # TODO workdir?
 
-        @validator("wave", pre=True)
-        def validate_wave(cls, value):  # pylint: disable=no-self-argument
+        @validator("wave", "fst", pre=True)
+        def validate_wave(cls, value, field):  # pylint: disable=no-self-argument
             if value is not None:
+                ext = (
+                    ".ghw"
+                    if field.name == "wave"
+                    else ".fst"
+                    if field.name == "fst"
+                    else ""
+                )
                 if isinstance(value, bool):
-                    value = "dump.ghw" if value else None
+                    value = "dump" + ext if value else None
                 else:
-                    assert isinstance(value, str)
-                    if not value.endswith(".ghw"):
-                        value += ".ghw"
+                    if not isinstance(value, str):
+                        value = str(value)
+                    if not value.endswith(ext):
+                        value += ext
             return value
 
     def run(self) -> None:
@@ -306,27 +368,59 @@ class GhdlSim(Ghdl, SimFlow):
                 assert sdf_root, "neither SDF root nor tb.uut are provided"
                 run_flags.append(f"--sdf={delay_type}={sdf_root}={sdf_file}")
 
-        def fp(s: str) -> str:
+        def fp(s: Union[str, os.PathLike]) -> str:
             if not os.path.isabs(s):
                 return str(self.run_path.relative_to(Path.cwd()) / s)
-            return s
+            return str(s)
 
         if ss.vcd:
-            run_flags.append(f"--vcd={ss.vcd}")
+            if ss.vcd.endswith((".gz", ".vcdgz")):
+                run_flags.append(f"--vcdgz={ss.vcd}")
+            else:
+                run_flags.append(f"--vcd={ss.vcd}")
             log.warning("Dumping VCD to %s", fp(ss.vcd))
-        elif ss.wave:
-            wave = ss.wave
-            run_flags.append(f"--wave={wave}")
-            log.warning("Dumping GHW to %s", fp(wave))
-        vpi = None
+        if ss.fst:
+            run_flags += setting_flag(ss.fst)
+            log.warning("Dumping fst to %s", fp(ss.fst))
+        if ss.wave:
+            run_flags += setting_flag(ss.wave)
+            log.warning("Dumping GHW to %s", fp(ss.wave))
+
+        if ss.wave or ss.vcd or ss.fst:
+            if not ss.read_wave_opt and not ss.write_wave_opt:
+                ss.write_wave_opt = "wave.opt"
+
+        if ss.write_wave_opt:
+            p = Path(ss.write_wave_opt)
+            if p.exists():
+                log.warning("Deleting existing wave option file: %s", p)
+                p.unlink()
+        run_flags += setting_flag(ss.write_wave_opt)
+        if ss.read_wave_opt:
+            if not Path(ss.read_wave_opt).exists():  # TODO move to validation
+                raise FlowSettingsError(
+                    [
+                        (
+                            "read_wave_opt",
+                            f"File {ss.read_wave_opt} does not exist",
+                            None,
+                        )
+                    ],
+                    self.Settings,
+                )
+        run_flags += setting_flag(ss.read_wave_opt)
+        run_flags += setting_flag(ss.disp_tree)
+        run_flags += setting_flag(ss.asserts)
+        run_flags += setting_flag(ss.ieee_asserts)
+
+        vpi = [] if ss.vpi is None else [ss.vpi] if isinstance(ss.vpi, str) else ss.vpi
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:
-            vpi = self.cocotb.vpi_path()
+            vpi += self.cocotb.vpi_path()
             # tb_generics = list(design.tb.generics)  # TODO pass to cocotb?
             design.tb.generics = design.rtl.generics
+        run_flags += setting_flag(vpi)
 
-        if vpi:
-            run_flags.append(f"--vpi={vpi}")
         if ss.debug:
             run_flags.extend(
                 [
@@ -334,12 +428,12 @@ class GhdlSim(Ghdl, SimFlow):
                     "--checks",
                 ]
             )
-        if ss.stop_time:
-            run_flags.append(f"--stop-time={ss.stop_time}")
-        if ss.stop_delta:
-            run_flags.append(f"--stop-delta={ss.stop_delta}")
+
+        run_flags += setting_flag(ss.stop_time)
+        run_flags += setting_flag(ss.stop_delta)
 
         run_flags.extend(ss.generics_flags(design.tb.generics))
+
         x = self.elaborate(design.sim_sources, design.tb.top, design.language.vhdl)
         design.tb.top = x
         assert self.cocotb
@@ -353,6 +447,20 @@ class GhdlSim(Ghdl, SimFlow):
 
     def parse_reports(self) -> bool:
         success = True
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+
+        dump_file = ss.wave or ss.vcd or ss.fst
+        if dump_file:
+            print("dump_file=", dump_file)
+            opt_file = ss.read_wave_opt or ss.write_wave_opt
+            extra_top = "top" if ss.wave else None
+            signals, root_group = _get_wave_opt_signals(opt_file, extra_top)
+            if dump_file == ss.fst:  # fst removes the common hierarchy
+                signals = [s[len(root_group) :] for s in signals]
+                root_group = []
+            gen_gtkw(dump_file, signals, root_group)
+
         # TODO move
         if self.cocotb and self.design.tb and self.design.tb.cocotb:
             success &= self.cocotb.add_results(self.results)

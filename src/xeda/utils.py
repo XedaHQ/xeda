@@ -9,7 +9,18 @@ from datetime import datetime
 from functools import cached_property, reduce
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Dict, Iterable, List, Optional, OrderedDict, Tuple, Type, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    OrderedDict,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from .dataclass import XedaBaseModel
 
@@ -30,6 +41,9 @@ __all__ = [
 ]
 
 log = logging.getLogger(__name__)
+
+
+T = TypeVar("T")
 
 
 class WorkingDirectory(AbstractContextManager):
@@ -239,3 +253,28 @@ def set_hierarchy(dct: Dict[str, Any], path, value, sep="."):
         if k not in dct:
             dct[k] = {}
         set_hierarchy(dct[k], path[1:], value, sep)
+
+
+def append_flag(flag_list: List[str], flag: str) -> List[str]:
+    if flag not in flag_list:
+        flag_list.append(flag)
+    return flag_list
+
+
+def common_root(signals: List[List[T]]) -> List[T]:
+    longest: Optional[List[T]] = None
+    for sig in signals:
+        if not sig:
+            continue
+        if longest is None:
+            longest = sig[:-1]
+            continue
+        new_len = min(len(longest), len(sig))
+        longest = longest[:new_len]
+        if not longest:
+            break
+        for i in range(new_len):
+            if sig[i] != longest[i]:
+                longest = longest[:i]
+                break
+    return longest if longest else []

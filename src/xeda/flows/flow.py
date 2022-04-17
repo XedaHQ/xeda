@@ -125,7 +125,7 @@ class Flow(metaclass=ABCMeta):
             except ValidationError as e:
                 raise FlowSettingsError(
                     validation_errors(e.errors()), e.model  # type: ignore
-                ) from e
+                ) from None
 
     @property
     def succeeded(self) -> bool:
@@ -324,11 +324,11 @@ class SimFlow(Flow, metaclass=ABCMeta):
         @validator("vcd", pre=True)
         def validate_vcd(cls, vcd):  # pylint: disable=no-self-argument
             if vcd is not None:
-                if isinstance(vcd, bool):
+                if isinstance(vcd, bool) or not vcd:
                     vcd = "dump.vcd" if vcd else None
                 else:
                     assert isinstance(vcd, str)
-                    if not vcd.endswith(".vcd"):
+                    if vcd[1:].count(".") == 0:  # if it doesn't have an extension
                         vcd += ".vcd"
             return vcd
 

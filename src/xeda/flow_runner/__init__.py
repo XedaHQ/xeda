@@ -139,7 +139,7 @@ class FlowRunner:
     2. call Flow.init()
     3. Run all dependency flows (asked by the flow, during Flow.init)
     3. Run the flow by calling run()
-    4. Run flow's parse_results()
+    4. Run flow's parse_reports() ## TODO parse_reports will be renamed
     5. Evaluate and print the results
     """
 
@@ -332,14 +332,18 @@ class FlowRunner:
                     success = False
                 if flow.init_time is not None:
                     flow.results.runtime = time.monotonic() - flow.init_time
-                if success:
-                    flow.results.success = flow.parse_reports()
-                    success &= flow.results.success
-                    if not success:
-                        log.error("Failure was reported in the parsed results.")
+                try:
+                    success &= flow.parse_reports()
+                except Exception as e: # TODO # pylint: disable=broad-except
+                    log.critical("parse_reports raise exception: %s", e)
+                    if success: # if so far so good this is a bug!
+                        raise e from None
+                    success = False
+                if not success:
+                    log.error("Failure was reported in the parsed results.")
+                flow.results.success = success
 
         if flow.artifacts:
-
             def default_encoder(x: Any) -> str:
                 if isinstance(x, (PosixPath, os.PathLike)):
                     return str(os.path.relpath(x, flow.run_path))
@@ -348,8 +352,8 @@ class FlowRunner:
             print(f"Generated artifacts in {flow.run_path}:")  # FIXME
             print_json(data=flow.artifacts, default=default_encoder)  # FIXME
 
+        flow.results.success = success
         if not success:
-            flow.results.success = False
             # set success=false if execution failed
             log.critical("%s failed!", flow.name)
 
