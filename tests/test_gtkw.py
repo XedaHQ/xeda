@@ -2,8 +2,11 @@ from pathlib import Path
 from xeda.flows.ghdl import gen_gtkw, _get_wave_opt_signals, common_root
 
 
+TESTS_DIR = Path(__file__).parent.absolute()
+RESOURCES_DIR = TESTS_DIR / "resources"
+
 def test_gen_gtkw():
-    opt_file = "wave.opt"
+    opt_file = RESOURCES_DIR / "wave.opt"
     dump_file = "debug.ghw"
     extra_top = "top"
 
