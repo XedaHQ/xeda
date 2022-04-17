@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 
+import logging
 import os
 from pathlib import Path
 
 from xeda import Design, Flow
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Yosys
+from xeda.tool import ExecutableNotFound
+
+log = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 
@@ -31,10 +35,13 @@ def test_sqrt() -> None:
 
 def test_sqrt_yosys_synth() -> None:
     design.tb.parameters["G_IN_WIDTH"] = 32
-    f = xeda_runner.run_flow(
-        Yosys, design, {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock_period": 10.0}
-    )
-    assert f.succeeded
+    try:
+        f = xeda_runner.run_flow(
+            Yosys, design, {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock_period": 10.0}
+        )
+        assert f.succeeded
+    except ExecutableNotFound:
+        log.critical("Yosys executable not found")
 
 
 if __name__ == "__main__":

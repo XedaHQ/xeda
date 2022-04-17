@@ -13,31 +13,27 @@ jobs:
         python-version: ["3.8", "3.9", "3.10"]
 
     runs-on: ubuntu-latest
-    env:
-      GHDL_PLUGIN_MODULE: ghdl
-      CONTAINER_ENGINE: docker
+
     steps:
+      - uses: ghdl/setup-ghdl-ci@nightly
+        with:
+          backend: llvm
 
-    - uses: actions/checkout@v2
-      with:
-        submodules: true
-        fetch-depth: 0
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+          fetch-depth: 0
 
-    - name: Pull container images
-      run: |
-        docker pull gcr.io/hdl-containers/ghdl
-        docker pull gcr.io/hdl-containers/impl
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: "${{ matrix.python-version }}"
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
-      with:
-        python-version: "${{ matrix.python-version }}"
+      - name: Install dependencies
+        run: |
+          python -VV
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade tox tox-gh-actions
 
-    - name: Install dependencies
-      run: |
-        python -VV
-        python -m pip install --upgrade pip
-        python -m pip install --upgrade tox tox-gh-actions
-
-    - name: "Run tox targets for ${{ matrix.python-version }}"
-      run: "python -m tox"
+      - name: "Run tox targets for ${{ matrix.python-version }}"
+        run: "python -m tox"

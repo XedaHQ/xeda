@@ -413,10 +413,10 @@ class GhdlSim(Ghdl, SimFlow):
         run_flags += setting_flag(ss.asserts)
         run_flags += setting_flag(ss.ieee_asserts)
 
-        vpi = [] if ss.vpi is None else [ss.vpi] if isinstance(ss.vpi, str) else ss.vpi
+        vpi = [] if ss.vpi is None else [ss.vpi] if not isinstance(ss.vpi, (list, tuple)) else list(ss.vpi)
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:
-            vpi += self.cocotb.vpi_path()
+            vpi.append(self.cocotb.vpi_path())
             # tb_generics = list(design.tb.generics)  # TODO pass to cocotb?
             design.tb.generics = design.rtl.generics
         run_flags += setting_flag(vpi)
