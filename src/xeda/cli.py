@@ -241,8 +241,15 @@ def run(
         except DesignValidationError as e:
             log.critical("%s", e)
             sys.exit(1)
-    elif xedaproject:
-        toml_path = Path(xedaproject)
+    else:
+        if not xedaproject:
+            toml_path = Path.cwd() / "xedaproject.toml"
+            if not toml_path.exists():
+                sys.exit(
+                    "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
+                )
+        else:
+            toml_path = Path(xedaproject)
         try:
             xeda_project = load_xeda(toml_path)
         except FileNotFoundError:
@@ -273,8 +280,7 @@ def run(
                 )
                 sys.exit(1)
         design = Design(design_root=toml_path.parent, **design_dict)
-    else:
-        sys.exit("No design or project specified!")
+
     flow_overrides = settings_to_dict(flow_settings)
     log.debug("flow_overrides: %s", flow_overrides)
     flow_overrides = {**flows_config.get(flow, {}), **flow_overrides}
