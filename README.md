@@ -78,12 +78,12 @@ A `Flow` is a collection of steps performed by one or several tools. A Xeda `Flo
 - [openFPGAloader](https://github.com/trabucayre/openFPGALoader): Open-source and multi-platform universal utility for programming FPGAs. Compatible with many boards, cables and FPGA from major manufacturers.
 - Synopsys Design Compiler
 - Synopsys VCS simulator
-- Xilinx (AMD) [Vivado](https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html) Design Suite
+- AMD-Xilinx [Vivado](https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html) Design Suite
     - `vivado_synth`: FPGA synthesis and implementation.
     - `vivado_sim`: functional simulation of RTL design
     - `vivado_postsynthsim`: Post-implementation functional and timing simulation and power analysis
     - `vivado_power`: Post-implementation power estimation based on post-implementation timing simulation with real-world target testvectors
-- Xilinx (AMD) [ISE](https://www.xilinx.com/products/design-tools/ise-design-suite.html) Design Suite
+- AMD-Xilinx [ISE](https://www.xilinx.com/products/design-tools/ise-design-suite.html) Design Suite
 - [Yosys](https://github.com/YosysHQ/yosys) Open SYnthesis Suite
 
 

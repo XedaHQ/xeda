@@ -1,15 +1,13 @@
-# © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 """Intel Quartus flows"""
 import csv
 import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional, Set
 
-from xeda.utils import try_convert
-
 from ...dataclass import Field
 from ...tool import Docker, Tool
 from ...types import PathLike
+from ...utils import try_convert
 from ..flow import FpgaSynthFlow
 
 log = logging.getLogger(__name__)
@@ -136,6 +134,7 @@ class Quartus(FpgaSynthFlow):
         ] = "ALWAYS"
 
     def init(self) -> None:
+        self.reports_dir.mkdir(exist_ok=True)
         self.reports = {
             "summary": self.reports_dir / "Flow_Summary.csv",
             "utilization": self.reports_dir

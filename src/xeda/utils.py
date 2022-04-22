@@ -1,3 +1,4 @@
+"utility functions and classes"
 import importlib
 import json
 import logging
@@ -22,6 +23,11 @@ from typing import (
     Union,
 )
 
+from typeguard.importhook import install_import_hook
+
+
+from varname import argname
+
 from .dataclass import XedaBaseModel
 
 try:
@@ -29,6 +35,9 @@ try:
 except ModuleNotFoundError:
     # python_version < "3.11":
     import tomli as tomllib  # type: ignore
+
+
+install_import_hook("xeda")
 
 __all__ = [
     "SDF",
@@ -278,3 +287,25 @@ def common_root(signals: List[List[T]]) -> List[T]:
                 longest = longest[:i]
                 break
     return longest if longest else []
+
+
+def setting_flag(variable: Any, assign=True, name=None) -> List[str]:
+    """skip if none"""
+    if variable is None or (not variable and isinstance(variable, (str))):
+        return []
+    if not name:
+        name = argname("variable")
+    assert isinstance(name, str)
+    if not isinstance(variable, (list, tuple)):
+        variable = [variable]
+    flags = []
+    for v in variable:
+        if v:
+            flag = "--" + (name.replace("_", "-"))
+            if isinstance(v, bool):
+                flags.append(flag)
+            elif assign:
+                flags.append(flag + "=" + str(v))
+            else:
+                flags += [flag, v]
+    return flags

@@ -1,12 +1,14 @@
 import logging
+import os
+import re
 from pathlib import Path
 from typing import Any, Dict, Mapping
+
 from box import Box
-import re
-import os
-from ..flow import SynthFlow
-from ...utils import dict_merge, toml_load, try_convert
+
 from ...tool import Tool
+from ...utils import dict_merge, toml_load, try_convert
+from ..flow import AsicSynthFlow
 
 log = logging.getLogger(__name__)
 
@@ -30,10 +32,10 @@ def get_hier(dct, dotted_path, default=None):
     return Box(merged_leaves)
 
 
-class Dc(SynthFlow):
+class Dc(AsicSynthFlow):
     dc_shell = Tool(executable="dc_shell-xg-t")  # type: ignore
 
-    class Settings(SynthFlow.Settings):
+    class Settings(AsicSynthFlow.Settings):
         adk: str
 
     def run(self):
@@ -58,8 +60,12 @@ class Dc(SynthFlow):
         )
         self.dc_shell.run("-64bit", "-topographical_mode", "-f", script_path)
 
+    def init(self) -> None:
+        self.reports_dir.mkdir(exist_ok=True)
+
     def parse_reports(self) -> bool:
         reports_dir = self.reports_dir
+
         top_name = self.design.rtl.top
         failed = False
         self.parse_report_regex(

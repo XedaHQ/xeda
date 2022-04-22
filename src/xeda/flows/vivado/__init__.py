@@ -63,7 +63,15 @@ class Vivado(Flow, metaclass=ABCMeta):
         ]
         if not self.settings.debug:
             default_args.append("-notrace")
-        self.vivado = Tool("vivado", default_args=default_args, docker=Docker(image="pwang7/vivado_ubuntu", tag="standard-2021.2", enabled=self.settings.dockerized))
+        self.vivado = Tool(
+            "vivado",
+            default_args=default_args,
+            docker=Docker(
+                image="pwang7/vivado_ubuntu",
+                tag="standard-2021.2",
+                enabled=self.settings.dockerized,
+            ),
+        )
         self.add_template_filter("vivado_generics", vivado_generics)
 
     @staticmethod

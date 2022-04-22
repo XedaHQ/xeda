@@ -6,13 +6,11 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from varname import argname
-
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, Tuple012, VhdlSettings
 from ...gtkwave import gen_gtkw
 from ...tool import Docker, Tool
-from ...utils import SDF, common_root
+from ...utils import SDF, common_root, setting_flag
 from ..flow import Flow, FlowSettingsError, SimFlow, SynthFlow
 
 log = logging.getLogger(__name__)
@@ -30,26 +28,6 @@ def _get_wave_opt_signals(wave_opt_file, extra_top=None):
                 signals.append(sig)
     root_group = common_root(signals)
     return signals, root_group
-
-
-def setting_flag(variable: Any, assign=True) -> List[str]:
-    """skip if none"""
-    if variable is None:
-        return []
-    var_name = argname("variable")
-    if not isinstance(variable, (list, tuple)):
-        variable = [variable]
-    flags = []
-    for v in variable:
-        if v:
-            flag = "--" + (var_name.replace("_", "-"))
-            if isinstance(v, bool):
-                flags.append(flag)
-            elif assign:
-                flags.append(flag + "=" + str(v))
-            else:
-                flags += [flag, v]
-    return flags
 
 
 class GhdlTool(Tool):
@@ -279,9 +257,12 @@ class GhdlSynth(Ghdl, SynthFlow):
         if one_shot_elab:
             flags += [str(v) for v in design.rtl.sources if v.type == "vhdl"]
             flags.append("-e")
-        if not top:
-            top = (design.rtl.top,)
-        flags.extend(list(top))
+        if (
+            design.rtl.sources[-1].type == "vhdl"
+        ):  # add top if last source (top source) is VHDL
+            if not top:
+                top = (design.rtl.top,)
+            flags.extend(list(top))
         return flags
 
 
@@ -413,7 +394,13 @@ class GhdlSim(Ghdl, SimFlow):
         run_flags += setting_flag(ss.asserts)
         run_flags += setting_flag(ss.ieee_asserts)
 
-        vpi = [] if ss.vpi is None else [ss.vpi] if not isinstance(ss.vpi, (list, tuple)) else list(ss.vpi)
+        vpi = (
+            []
+            if ss.vpi is None
+            else [ss.vpi]
+            if not isinstance(ss.vpi, (list, tuple))
+            else list(ss.vpi)
+        )
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:
             vpi.append(self.cocotb.vpi_path())
@@ -452,7 +439,7 @@ class GhdlSim(Ghdl, SimFlow):
 
         dump_file = ss.wave or ss.vcd or ss.fst
         if dump_file:
-            print("dump_file=", dump_file)
+            log.debug("Generating GtkWave save-file form dump_file=%s", dump_file)
             opt_file = ss.read_wave_opt or ss.write_wave_opt
             extra_top = "top" if ss.wave else None
             signals, root_group = _get_wave_opt_signals(opt_file, extra_top)

@@ -25,13 +25,7 @@ read_liberty {{settings.read_liberty_flags|join(" ")}} {{settings.tech.liberty}}
 read_verilog -lib {{src}}
 {%- endfor %}
 
-
-
-{%if true-%}
-prep{%if settings.flatten%} -flatten{%endif%}{%if design.rtl.top %} -top {{design.rtl.top}}{% else %} -auto-top{%endif%}
-{%else-%}
-hierarchy -check {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %}
-{%-endif%}
+hierarchy -nodefaults -check {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %}
 
 check -initdrv -assert
 {%- for attr,attr_dict in settings.set_attributes.items() %}
@@ -41,6 +35,7 @@ setattr -set {{attr}} {{value}} {{path}}
 {%- endfor %}
 
 {% if settings.rtl_json -%}
+prep {%- if settings.flatten %} -flatten {%- endif %} {%-if design.rtl.top %} -top {{design.rtl.top}} {% else %} -auto-top {%- endif %}
 puts "$log_prefix Writing JSON {{settings.rtl_json}}"
 write_json {{settings.rtl_json}}
 {%- endif %}

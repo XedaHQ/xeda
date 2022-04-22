@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Optional, List, Union
 from urllib.request import urlretrieve
 from urllib.parse import urlparse
@@ -8,7 +7,8 @@ from urllib.error import HTTPError
 from .yosys import Yosys
 from .flow import FlowFatalError, FpgaSynthFlow
 from ..tool import Tool
-from ..dataclass import Field
+from ..utils import setting_flag
+from ..dataclass import Field, XedaBaseModel, validator
 from ..board import WithFpgaBoardSettings, get_board_file_path, get_board_data
 
 __all__ = ["Nextpnr"]
@@ -16,12 +16,81 @@ __all__ = ["Nextpnr"]
 log = logging.getLogger(__name__)
 
 
+class EcpPLL(Tool):
+    class Clock(XedaBaseModel):
+        name: Optional[str] = None
+        mhz: float = Field(gt=0, description="frequency in MHz")
+        phase: Optional[float] = None
+
+    executable = "ecppll"
+    module: str = "ecp5pll"
+    reset: bool = False
+    standby: bool = False
+    highres: bool = False
+    internal_feedback: bool = False
+    internal_feedback_wake: bool = False
+    clkin: Union[Clock, float] = 25.0
+    clkouts: List[Union[Clock, float]]
+    file: Optional[str] = None
+
+    @classmethod
+    def _fix_clock(cls, clock, out_clk=None) -> Clock:
+        if isinstance(clock, float):
+            clock = cls.Clock(mhz=clock)
+        if not clock.name:
+            clock.name = "clk_i" if out_clk is None else f"clk_o_{out_clk}"
+        return clock
+
+    @validator("clkin", always=True)  # type: ignore
+    def _validate_clockin(cls, value):
+        return cls._fix_clock(value)
+
+    @validator("clkouts", always=True)  # type: ignore
+    def _validate_clockouts(cls, value):
+        new_value = []
+        for i, v in enumerate(value):
+            new_value.append(cls._fix_clock(v, i))
+        return new_value
+
+    @validator("file", always=True)
+    def _validate_outfile(cls, value, values):
+        if not value:
+            value = values["module"] + ".v"
+        return value
+
+    def generate(self):
+        def s(f: float) -> str:
+            return f"{f:0.03f}"
+
+        args = setting_flag(self.module)
+        args += setting_flag(self.file)
+        args += ["--clkin_name", self.clkin.name]  # type: ignore # pylint: disable=no-member
+        args += ["--clkin", s(self.clkin.mhz)]  # type: ignore # pylint: disable=no-member
+        if not 1 <= len(self.clkouts) <= 4:
+            raise ValueError("At least 1 and at most 4 output clocks can be specified")
+        for i, clk in enumerate(self.clkouts):
+            assert isinstance(clk, self.Clock) and clk.name
+            args += [f"--clkout{i}_name", clk.name]
+            args += [f"--clkout{i}", s(clk.mhz)]
+            if clk.phase:
+                if i > 0:
+                    args += [f"--phase{i}", s(clk.phase)]
+                else:
+                    raise ValueError(
+                        "First output clock cannot have a phase difference!"
+                    )
+        args += setting_flag(self.highres)
+        args += setting_flag(self.standby)
+        args += setting_flag(self.internal_feedback)
+        self.run(*args)
+
+
 class Nextpnr(FpgaSynthFlow):
     class Settings(WithFpgaBoardSettings):
+        verbose: bool = False
         lpf_cfg: Optional[str] = None
-        clock_period: float
         seed: Optional[int] = None
-        random_seed: bool = False
+        randomize_seed: bool = False
         timing_allow_fail: bool = False
         ignore_loops: bool = Field(
             False, description="ignore combinational loops in timing analysis"
@@ -36,25 +105,41 @@ class Nextpnr(FpgaSynthFlow):
             False,
             description="don't require LPF file(s) to constrain all IOs",
         )
-        extra_args: Optional[List[str]] = None
-        py_script: Union[None, str, os.PathLike] = None
-        out_json: Optional[str] = None
+        extra_args: List[str] = []
+        py_script: Optional[str] = None
+        write: Optional[str] = None
         sdf: Optional[str] = None
-        log_to_file: Optional[str] = None
+        log: Optional[str] = "nextpnr.log"
         report: Optional[str] = "report.json"
-        detailed_timing_report: bool = True
-        placed_svg: Optional[str] = "placed.svg"
-        routed_svg: Optional[str] = "routed.svg"
+        detailed_timing_report: bool = False  # buggy and likely to segfault
+        placed_svg: Optional[str] = None  # "placed.svg"
+        routed_svg: Optional[str] = None  # "routed.svg"
+        parallel_refine: bool = False
+        yosys: Optional[Yosys.Settings] = None
+
+        @validator("yosys", always=True, pre=False)
+        def _validate_yosys(cls, value, values):
+            clocks = values.get("clocks")
+            fpga = values.get("fpga")
+            if value is None:
+                value = Yosys.Settings(
+                    fpga=fpga,
+                    clocks=clocks,
+                )  # pyright: reportGeneralTypeIssues=none
+            else:
+                if not isinstance(value, Yosys.Settings):
+                    value = Yosys.Settings(**value)
+                value.fpga = fpga
+                value.clocks = clocks
+            return value
 
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        assert ss.yosys is not None
         self.add_dependency(
             Yosys,
-            Yosys.Settings(
-                fpga=ss.fpga,
-                clock_period=ss.clock_period,
-            ),  # pyright: reportGeneralTypeIssues=none
+            ss.yosys,
         )
 
     def run(self) -> None:
@@ -77,22 +162,21 @@ class Nextpnr(FpgaSynthFlow):
         }, "unsupported fpga family"
         next_pnr = Tool(f"nextpnr-{fpga_family}")
 
-        assert (
-            netlist_json.exists()
-        ), f"netlist json file {netlist_json} does not exist!"
+        if not netlist_json.exists():
+            raise FlowFatalError(f"netlist json file {netlist_json} does not exist!")
 
-        lpf_cfg_path = ss.lpf_cfg
+        lpf = ss.lpf_cfg
         board_data = get_board_data(ss.board)
-        if not lpf_cfg_path and board_data and "lpf" in board_data:
-            lpf = board_data["lpf"]
-            r = urlparse(lpf)
+        if not lpf and board_data and "lpf" in board_data:
+            uri = board_data["lpf"]
+            r = urlparse(uri)
             if r.scheme and r.netloc:
                 try:
-                    lpf_cfg_path, _ = urlretrieve(lpf)
+                    lpf, _ = urlretrieve(uri)
                 except HTTPError as e:
                     log.critical(
                         "Unable to retrive file from %s (HTTP Error %d)",
-                        lpf,
+                        uri,
                         e.code,
                     )
                     raise FlowFatalError("Unable to retreive LPF file") from None
@@ -101,28 +185,30 @@ class Nextpnr(FpgaSynthFlow):
                     board_name = board_data["name"]
                 else:
                     board_name = ss.board
-                lpf_cfg_path = get_board_file_path(f"{board_name}.lpf")
-        assert lpf_cfg_path
+                lpf = get_board_file_path(f"{board_name}.lpf")
 
-        freq_mhz = 1000 / ss.clock_period
-
-        args = [
-            "-q",
-            "--json",
-            netlist_json,
-            "--freq",
-            freq_mhz,
-        ]
-        if self.design.rtl.top:
-            args.extend(["--top", self.design.rtl.top])
-        if ss.seed is not None:
-            args.extend(["--seed", ss.seed])
-
+        args = setting_flag(netlist_json, name="json")
+        args += setting_flag(ss.clock_period and (1000 / ss.clock_period), name="freq")
+        args += setting_flag(lpf)
+        args += setting_flag(self.design.rtl.top)
+        args += setting_flag(ss.seed)
+        args += setting_flag(ss.fpga.speed)
+        if ss.fpga.capacity:
+            device_type = ss.fpga.type
+            if device_type and device_type.lower() != "u":
+                args.append(f"--{device_type}-{ss.fpga.capacity}")
+            else:
+                args.append(f"--{ss.fpga.capacity}")
+        args += setting_flag(ss.out_of_context)
+        args += setting_flag(ss.lpf_allow_unconstrained)
+        args += setting_flag(ss.debug)
+        args += setting_flag(ss.verbose)
+        args += setting_flag(ss.quiet)
+        args += setting_flag(ss.randomize_seed)
+        args += setting_flag(ss.timing_allow_fail)
+        args += setting_flag(ss.ignore_loops)
+        args += setting_flag(ss.py_script, name="run")
         package = ss.fpga.package
-        speed = ss.fpga.speed
-        device_type = ss.fpga.type
-        if speed:
-            args.extend(["--speed", speed])
         if ss.fpga.vendor and ss.fpga.vendor.lower() == "lattice":
             if package:
                 package = package.upper()
@@ -132,52 +218,18 @@ class Nextpnr(FpgaSynthFlow):
                     package = "CSFBGA"
                 assert ss.fpga.pins
                 package += str(ss.fpga.pins)
-        if ss.fpga.capacity:
-            if device_type and device_type.lower() != "u":
-                args.append(f"--{device_type}-{ss.fpga.capacity}")
-            else:
-                args.append(f"--{ss.fpga.capacity}")
-        if ss.out_of_context:
-            args.append("--out-of-context")
-        if ss.lpf_allow_unconstrained:
-            args.append("--lpf-allow-unconstrained")
-        if ss.debug:
-            args.append("--debug")
-        if ss.verbose:
-            args.append("--verbose")
-        if ss.quiet:
-            args.append("--quiet")
-        if ss.random_seed:
-            args.append("--randomize-seed")
-        if ss.timing_allow_fail:
-            args.append("--timing-allow-fail")
-        if ss.ignore_loops:
-            args.append("--ignore-loops")
-        if ss.py_script:
-            args += ["--run", ss.py_script]
-        if package:
-            args += ["--package", package]
-        if lpf_cfg_path:
-            # FIXME check what to do if no board
-            args += ["--lpf", lpf_cfg_path]
-        if ss.textcfg:
-            args += ["--textcfg", ss.textcfg]
-        if ss.out_json:
-            args += ["--write", ss.out_json]
-        if ss.nthreads:
-            args += ["--threads", ss.nthreads]
-        if ss.sdf:
-            args += ["--sdf", ss.sdf]
-        if ss.log_to_file:
-            args += ["--log", ss.log_to_file]
-        if ss.report:
-            args += ["--report", ss.report]
-        if ss.placed_svg:
-            args += ["--placed-svg", ss.placed_svg]
-        if ss.routed_svg:
-            args += ["--routed-svg", ss.routed_svg]
-        if ss.detailed_timing_report:
-            args.append("--detailed-timing-report")
+        args += setting_flag(package)
+        args += setting_flag(lpf)
+        args += setting_flag(ss.textcfg)
+        args += setting_flag(ss.write)
+        args += setting_flag(ss.nthreads, name="threads")
+        args += setting_flag(ss.sdf)
+        args += setting_flag(ss.log)
+        args += setting_flag(ss.report)
+        args += setting_flag(ss.placed_svg)
+        args += setting_flag(ss.routed_svg)
+        args += setting_flag(ss.detailed_timing_report)
+        args += setting_flag(ss.parallel_refine)
         if ss.extra_args:
             args += ss.extra_args
         next_pnr.run(*args)

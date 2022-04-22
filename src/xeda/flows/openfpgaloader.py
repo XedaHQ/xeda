@@ -4,6 +4,7 @@ from typing import Optional
 
 from ..board import WithFpgaBoardSettings, get_board_data
 from ..design import Design
+from ..dataclass import validator
 from ..tool import Tool
 from .flow import FpgaSynthFlow
 from .nextpnr import Nextpnr
@@ -20,6 +21,22 @@ class Openfpgaloader(FpgaSynthFlow):
         clock_period: float
         reset: bool = False
         cable: Optional[str] = None
+        nextpnr: Optional[Nextpnr.Settings] = None
+
+        @validator("nextpnr", always=True, pre=True)
+        def _validate_nextpnr(cls, value, values):
+            clocks = values.get("clocks")
+            fpga = values.get("fpga")
+            board = values.get("board")
+            if value is None:
+                value = {}
+            if isinstance(value, Nextpnr.Settings):
+                value = value.dict()
+            assert isinstance(value, (dict)), f"not a dict: {value}"
+            value["fpga"] = fpga
+            value["board"] = board
+            value["clocks"] = clocks
+            return Nextpnr.Settings(**value)
 
     def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
         super().__init__(flow_settings, design, run_path)
@@ -28,13 +45,8 @@ class Openfpgaloader(FpgaSynthFlow):
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        assert ss.fpga
-        self.add_dependency(
-            Nextpnr,
-            Nextpnr.Settings(
-                fpga=ss.fpga, board=ss.board, clock_period=ss.clock_period
-            ),  # type: ignore
-        )
+        assert ss.nextpnr is not None
+        self.add_dependency(Nextpnr, ss.nextpnr)
         if ss.fpga.family == "ecp5":  # FIXME from fpga/board
             self.packer = Tool("ecppack")
 

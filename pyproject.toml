@@ -3,6 +3,7 @@ name = "xeda"
 description = "Cross EDA Abstraction and Automation"
 readme = "README.md"
 requires-python = ">=3.8"
+dynamic = ["version", "entry-points"]
 license = { file = "LICENSE.txt" }
 keywords = [
   "EDA",
@@ -33,26 +34,31 @@ classifiers = [
   "Topic :: Utilities",
 ]
 dependencies = [
+  # core
   "jinja2 >= 3",
-  "coloredlogs >= 15.0.1",
-  "numpy >= 1.19.5",
-  "pebble >= 4.6.3",
-  "numpy >= 1.19.5",
+  "pydantic >= 1.8.2",                       # dataclass
   "tomli >= 1.1.0; python_version < '3.11'",
-  "pydantic >= 1.8.2",
-  "attrs ~= 21.4",
-  "rich >= 11.2.0,<13",
-  "pathvalidate >= 2.5.0",
   "python-box[]~=6.0",
-  "psutil >= 5.9.0,<6.0",
-  "junitparser >= 2.4.2,<3",
-  "pyyaml >= 5.3",
+  # experimental core
+  "attrs ~= 21.4",         # dataclass alternative
+  "pyyaml >= 5.3",         # alternative design/project format (TODO, currently CLI only)
+  "typeguard >= 2.13",
+  "varname >= 0.8",
+  "overrides >= 0.1",
+  "pathvalidate >= 2.5.0",
+  # console/CLI
   "click ~= 8.1",
   "click_help_colors >= 0.9.1",
-  "overrides >= 0.1",
-  "varname >= 0.8",
+  "coloredlogs >= 15.0.1",
+  "rich >= 11.2.0,<13",
+  # experimental CLI
+  "simple_term_menu>=1.4",
+  # misc, experimental
+  "numpy >= 1.19.5",
+  "pebble >= 4.6.3",
+  "psutil >= 5.9.0,<6.0",
+  "junitparser >= 2.4.2,<3",
   "pyvcd >= 0.3",
-  "typeguard >= 2.13",
 ]
 
 [project.optional-dependencies]
@@ -64,8 +70,8 @@ repository = "https://github.com/XedaHQ/xeda.git"
 changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
 # documentation = "..."
 
-[project.entry-points]
-xeda = "xeda:cli.cli"
+# [project.entry-points.console-scripts]
+# xeda = "xeda:cli.cli"
 
 [build-system]
 requires = ["setuptools >= 61", "wheel", "setuptools_scm[toml] >= 6.2"]

@@ -9,7 +9,7 @@ from ...dataclass import Field, root_validator, validator
 from ...design import Design
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
-from ..flow import SynthFlow
+from ..flow import AsicSynthFlow, FpgaSynthFlow, SynthFlow
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ def append_flag(flag_list: List[str], flag: str) -> List[str]:
 class Yosys(SynthFlow):
     """Synthesize the design using Yosys Open SYnthesis Suite"""
 
-    class Settings(SynthFlow.Settings):
+    class Settings(FpgaSynthFlow.Settings, AsicSynthFlow.Settings):
         log_file: Optional[str] = "yosys.log"
         flatten: bool = Field(True, description="flatten design")
         abc9: bool = Field(True, description="Use abc9")
@@ -70,9 +70,9 @@ class Yosys(SynthFlow):
         netlist_verilog: Optional[str] = "netlist.v"
         netlist_vhdl: Optional[str] = None  # "netlist.vhdl"
         netlist_json: Optional[str] = "netlist.json"
-        rtl_verilog: Optional[str] = "rtl.v"
+        rtl_verilog: Optional[str] = None # "rtl.v"
         rtl_vhdl: Optional[str] = None  # "rtl.vhdl"
-        rtl_json: Optional[str] = "rtl.json"
+        rtl_json: Optional[str] = None # "rtl.json"
         show_rtl: bool = False
         show_rtl_flags: List[str] = [
             "-stretch",
@@ -90,10 +90,6 @@ class Yosys(SynthFlow):
         splitnets: Optional[List[str]] = None  # ['-driver']
         set_attributes: Dict[str, Dict[str, Any]] = {}
         stop_after: Optional[Literal["rtl"]]
-        netlistsvg: Optional[str] = Field(
-            None,
-            description="Generate a netlist SVG by runnning 'netlistsvg' (netlistsvg needs to be installed)",
-        )
 
         @validator("write_verilog_flags", pre=False)
         def validate_write_verilog_flags(cls, value, values):  # type: ignore
@@ -194,9 +190,7 @@ class Yosys(SynthFlow):
         assert isinstance(self.settings, self.Settings)
         yosys = Tool(
             executable="yosys",
-            docker=Docker(
-                image="hdlc/impl"
-            ),  # pyright: reportGeneralTypeIssues=none
+            docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
         )
         ss = self.settings
         if ss.sta:
@@ -258,29 +252,6 @@ class Yosys(SynthFlow):
         self.results["_tool"] = yosys.info  # TODO where should this go?
         log.info("Logging yosys output to %s", ss.log_file)
         yosys.run(*args)
-        skin_file = None
-        elk_layout = None
-        if ss.netlistsvg:
-            netlistsvg = Tool("netlistsvg")
-            rtl_json = self.artifacts.rtl.json
-            if rtl_json:
-                svg_file = "rtl.svg"
-                self.artifacts.diagram.netlistsvg_rtl = svg_file
-                args = [rtl_json, "-o", svg_file]
-                if skin_file:
-                    args.extend(["--skin", skin_file])
-                if elk_layout:
-                    args.extend(["--layout", elk_layout])
-                netlistsvg.run(*args)
-            if ss.netlist_json:
-                svg_file = "netlist.svg"
-                self.artifacts.diagram["netlistsvg"] = svg_file
-                args = [self.artifacts.netlist.json, "-o", svg_file]
-                if skin_file:
-                    args.extend(["--skin", skin_file])
-                if elk_layout:
-                    args.extend(["--layout", elk_layout])
-                netlistsvg.run(*args)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)

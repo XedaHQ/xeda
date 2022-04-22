@@ -7,7 +7,7 @@ import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
-from typing import Any, Dict, Mapping, Optional, Set, Tuple, Type, Union
+from typing import Any, Dict, Mapping, Optional, Set, Type, Union
 
 # fmt: off
 from pathvalidate import sanitize_filename  # type: ignore # pyright: reportPrivateImportUsage=none
@@ -154,7 +154,7 @@ class FlowRunner:
         run_in_existing_dir: bool = False,  # DO NOT USE! Only for development!
     ) -> None:
         if debug:
-            logging.getLogger().setLevel(logging.DEBUG)
+            log.setLevel(logging.DEBUG)
             log.root.setLevel(logging.DEBUG)
         self.debug = debug
         log.debug("%s xeda_run_dir=%s", self.__class__.__name__, xeda_run_dir)
@@ -193,7 +193,7 @@ class FlowRunner:
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
     ) -> Flow:
-        return self._run_flow(flow_class, design, flow_settings, None)[-1]
+        return self._run_flow(flow_class, design, flow_settings, None)
 
     def _run_flow(
         self,
@@ -201,7 +201,7 @@ class FlowRunner:
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings],
         depender: Optional[Flow],
-    ) -> Tuple[Flow, ...]:
+    ) -> Flow:
         if self.run_in_existing_dir:
             log.error(
                 "run_in_existing_dir should only be used during Xeda's development!"
@@ -212,6 +212,8 @@ class FlowRunner:
             flow_settings = {}
         elif isinstance(flow_settings, Flow.Settings):
             flow_settings = asdict(flow_settings)
+        if self.debug:
+            print("flow_settings: ", flow_settings)
         flow_settings = flow_class.Settings(**flow_settings)
         if self.debug:
             flow_settings.debug = True
@@ -309,10 +311,10 @@ class FlowRunner:
                 dep_cls.__qualname__,
             )
             completed_dep = self._run_flow(dep_cls, design, dep_settings, depender=flow)
-            if not completed_dep:
+            if not completed_dep.succeeded:
                 log.critical("Dependency flow: %s failed!", dep_cls.name)
-                raise FlowDependencyFailure()  # TODO
-            flow.completed_dependencies.extend(completed_dep)
+                raise FlowDependencyFailure()
+            flow.completed_dependencies.append(completed_dep)
 
         flow.results["design"] = flow.design.name
         flow.results["flow"] = flow.name
@@ -343,7 +345,7 @@ class FlowRunner:
                     log.error("Failure was reported in the parsed results.")
                 flow.results.success = success
 
-        if flow.artifacts:
+        if flow.artifacts and flow.succeeded:
             def default_encoder(x: Any) -> str:
                 if isinstance(x, (PosixPath, os.PathLike)):
                     return str(os.path.relpath(x, flow.run_path))
@@ -367,7 +369,7 @@ class FlowRunner:
                 title=f"{flow.name} Results",
                 skip_if_empty={"artifacts", "reports"},
             )
-        return (*flow.completed_dependencies, flow)
+        return flow
 
 
 class DefaultRunner(FlowRunner):

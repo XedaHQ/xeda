@@ -1,11 +1,18 @@
 """Utilities for command line interface"""
 import logging
+import re
 import sys
+from dataclasses import dataclass
+from functools import reduce
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 import click
 from click_help_colors import HelpColorsGroup
 from overrides import overrides
+from rich import box
+from rich.style import Style
+from rich.table import Table
+from rich.text import Text
 
 from .console import console
 from .dataclass import asdict
@@ -23,6 +30,13 @@ __all__ = [
 
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class XedaOptions:
+    verbose: bool = False
+    quiet: bool = False
+    debug: bool = False
 
 
 class ClickMutex(click.Option):
@@ -180,6 +194,116 @@ def settings_to_dict(
     if isinstance(settings, dict):
         return settings
     raise TypeError(f"overrides is of unsupported type: {type(settings)}")
+
+
+def print_flow_settings(flow, options: XedaOptions):
+    flow_class = discover_flow_class(flow)
+    schema = flow_class.Settings.schema(by_alias=True)
+    type_defs = {}
+
+    def get_type(field):
+        if isinstance(field, (list, tuple)):
+            return Text("|".join(str(get_type(f)) for f in field))
+        typ = field.get("type")
+        ref = field.get("$ref")
+        if typ is None and ref:
+            typ = ref.split("/")[-1]
+            typ_def = schema.get("definitions", {}).get(typ)
+            if typ not in type_defs:
+                type_defs[typ] = typ_def
+            elif type_defs[typ] != typ_def:
+                log.critical(
+                    "type definition for %s changed!\nPrevious def:\n %s new def:\n %s",
+                    typ,
+                    type_defs[typ],
+                    typ_def,
+                )
+            return Text(typ, style="blue")
+        additional = field.get("additionalProperties")
+        if typ == "object" and additional:
+            return Text(f"Dict[string -> {get_type(additional)}]")
+
+        if typ == "array":
+            items = field.get("items")
+            if items:
+                return Text(f"array[{get_type(items)}]")
+
+        def join_types(lst, joiner, style="red"):
+            return reduce(
+                lambda x, y: x + Text(joiner, style) + y, (get_type(t) for t in lst)
+            )
+
+        allof = field.get("allOf")
+        if allof:
+            return join_types(allof, "+")
+        anyOf = field.get("anyOf")
+        if anyOf:
+            return join_types(anyOf, " or ")
+        return Text(typ)
+
+    table = Table(
+        title=f"{flow} settings",
+        show_header=True,
+        header_style="bold yellow",
+        title_style=Style(frame=True, bold=True),
+        box=box.HEAVY_HEAD,
+        show_lines=True,
+    )
+    table.add_column("Property", header_style="bold green", style="bold")
+    table.add_column("Type", max_width=32)
+    table.add_column("Default", max_width=42)
+    table.add_column("Description")
+
+    def fmt_default(v: Any) -> str:
+        if isinstance(v, str):
+            return f'"{v}"'
+        if isinstance(v, bool):
+            return str(v).lower()
+        return str(v)
+
+    for name, field in schema.get("properties", {}).items():
+        if name in ["results"] or name in Flow.Settings.__fields__.keys():
+            continue
+        required = name in schema.get("required", [])
+        desc: str = field.get("description", "")
+        typ = get_type(field)
+        req_or_def = (
+            "[red]<required>[/red]" if required else fmt_default(field.get("default"))
+        )
+        table.add_row(name, typ, req_or_def, desc)
+    console.print(table)
+
+    for typ_name, typ_def in list(type_defs.items()):
+        for prop, prop_def in typ_def.get("properties").items():
+            get_type(prop_def)
+    for typ_name, typ_def in list(type_defs.items()):
+        c = "blue"
+        table = Table(
+            title=f"Type [{c}]{typ_name}[/{c}]",
+            show_header=True,
+            header_style="bold green",
+            title_style=Style(frame=True, bold=True),
+            box=box.SQUARE_DOUBLE_HEAD,
+            show_lines=True,
+        )
+        if options.debug:
+            console.print(f"Type: {typ_name}")
+            console.print_json(data=typ_def)
+        table.add_column("property")
+        table.add_column("type")
+        table.add_column("description")
+        for prop, prop_def in typ_def.get("properties").items():
+            if prop_def.get("hidden_from_schema"):
+                continue
+            if (
+                typ_name.endswith("__Settings")
+                and prop in Flow.Settings.__fields__.keys()
+            ):
+                continue
+            desc = prop_def.get("description", prop_def.get("title", "-"))
+            desc = re.sub(r"\s*\.*\s*$", "", desc)
+            table.add_row(prop, get_type(prop_def), desc)
+        console.print(table)
 
 
 # xdg_home = os.environ.get('XDG_DATA_HOME', os.path.join(

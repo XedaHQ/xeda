@@ -54,15 +54,17 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
     custom_boards_file: Optional[str] = None
 
     @root_validator(pre=True)
-    def fpga_validate(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def _fpga_validate(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         board_name = values.get("board")
+        log.debug("_fpga_validate! board_name=%s", board_name)
         fpga = values.get("fpga")
         if not fpga and board_name:
             board_data = get_board_data(board_name)
             if board_data:
-                print("here4!", board_data)
                 board_fpga = board_data.get("fpga")
                 log.info("FPGA info for board %s: %s", board_name, str(board_fpga))
                 if board_fpga:
-                    values["fpga"] = FPGA(board_fpga)
+                    if isinstance(board_fpga, str):
+                        board_fpga = {"part": board_fpga}
+                    values["fpga"] = FPGA(**board_fpga)
         return values

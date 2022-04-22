@@ -5,11 +5,8 @@ import json
 import logging
 import multiprocessing
 import os
-import re
 import sys
-from dataclasses import dataclass
 from datetime import datetime
-from functools import reduce
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
@@ -20,14 +17,27 @@ from click.shell_completion import get_completion_class
 from rich import box
 from rich.style import Style
 from rich.table import Table
-from rich.text import Text
+from simple_term_menu import TerminalMenu
 
-from .cli_utils import discover_flow_class  # pylint: disable=no-name-in-module
-from .cli_utils import ClickMutex, OptionEatAll, XedaHelpGroup, settings_to_dict
+from .cli_utils import (
+    ClickMutex,
+    OptionEatAll,
+    XedaHelpGroup,
+    XedaOptions,
+    discover_flow_class,
+    print_flow_settings,
+    settings_to_dict,
+)
 from .console import console
 from .design import Design, DesignValidationError
 from .flow_runner import DefaultRunner
-from .flows.flow import Flow, FlowFatalError, FlowSettingsError, registered_flows
+from .flows.flow import (
+    Flow,
+    FlowException,
+    FlowFatalError,
+    FlowSettingsError,
+    registered_flows,
+)
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import toml_load
 
@@ -72,13 +82,6 @@ CONTEXT_SETTINGS = dict(
 )
 
 
-@dataclass
-class XedaOptions:
-    verbose: bool = False
-    quiet: bool = False
-    debug: bool = False
-
-
 def log_to_file(logdir: Path):
     timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
     logdir.mkdir(exist_ok=True, parents=True)
@@ -109,14 +112,16 @@ def log_to_file(logdir: Path):
 @click.pass_context
 def cli(ctx: click.Context, **kwargs):
     ctx.obj = XedaOptions(**kwargs)
-
-    log.setLevel(
+    log_level = (
         logging.WARNING
         if ctx.obj.quiet
         else logging.DEBUG
         if ctx.obj.debug
         else logging.INFO
     )
+    print("log_level:", logging.getLevelName(log_level))
+    log.root.setLevel(log_level)
+
     coloredlogs.install(
         None, fmt="%(asctime)s %(levelname)s %(message)s", logger=log.root
     )
@@ -263,23 +268,48 @@ def run(
         designs = xeda_project["design"]
         if not isinstance(designs, Sequence):
             designs = [designs]
+        design_names = [str(d.get("name")) for d in designs]
         log.info(
             "Available designs: %s",
-            ", ".join(d.get("name", "<NO_NAME>") for d in designs),
+            ", ".join(design_names),
         )
         design_dict = {}
         if len(designs) == 1:
             design_dict = designs[0]
         elif design_name:
-            for x in designs:
-                if x["name"] == design_name:
-                    design_dict = x
-            if not design_dict:
+            try:
+                design_dict = designs[design_names.index(design_name)]
+            except ValueError:
                 log.critical(
-                    'Design "%s" not found in the current project.', design_name
+                    'Design "%s" not found in %s. Available designs are: %s',
+                    design_name,
+                    xedaproject,
+                    ", ".join(design_names),
                 )
                 sys.exit(1)
-        design = Design(design_root=toml_path.parent, **design_dict)
+        else:
+            if console.is_interactive:
+                terminal_menu = TerminalMenu(
+                    design_names, title="Please select a design: "
+                )
+                idx = terminal_menu.show()
+                if idx is None or not isinstance(idx, int) or idx < 0:
+                    sys.exit("Invalid design choice!")
+                design_dict = designs[idx]
+            else:
+                design_name = click.prompt(
+                    "Please enter design name: ", type=click.Choice(design_names)
+                )
+                if not design_name or design_name not in design_names:
+                    sys.exit("Invalid design name!")
+                design_dict = designs[design_names.index(design_name)]
+        if not design_dict:
+            sys.exit("No design was selected.")
+        try:
+            design = Design(design_root=toml_path.parent, **design_dict)
+        except DesignValidationError as e:
+            log.critical("%s", e)
+            sys.exit(1)
 
     flow_overrides = settings_to_dict(flow_settings)
     log.debug("flow_overrides: %s", flow_overrides)
@@ -319,6 +349,11 @@ def run(
         if options.debug:
             raise e from None
         sys.exit(1)
+    except FlowException as e:  # any flow exception
+        log.critical("%s", e)
+        if options.debug:
+            raise e from None
+        sys.exit(1)
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
@@ -347,107 +382,13 @@ def list_flows():
     console.print(table)
 
 
-def print_flow_settings(flow, options: XedaOptions):
-    flow_class = discover_flow_class(flow)
-    schema = flow_class.Settings.schema(by_alias=True)
-    type_defs = {}
-
-    def get_type(field):
-        typ = field.get("type")
-        ref = field.get("$ref")
-        if typ is None and ref:
-            typ = ref.split("/")[-1]
-            typ_def = schema.get("definitions", {}).get(typ)
-            if typ not in type_defs:
-                type_defs[typ] = typ_def
-            elif type_defs[typ] != typ_def:
-                log.critical(
-                    "type definition for %s changed!\nPrevious def:\n %s new def:\n %s",
-                    typ,
-                    type_defs[typ],
-                    typ_def,
-                )
-            return Text(typ, style="blue")
-        additional = field.get("additionalProperties")
-        if typ == "object" and additional:
-            return Text(f"Dict[string -> {additional.get('type')}]")
-
-        def join_types(lst, joiner, style="red"):
-            return reduce(
-                lambda x, y: x + Text(joiner, style) + y, (get_type(t) for t in lst)
-            )
-
-        allof = field.get("allOf")
-        if allof:
-            return join_types(allof, "+")
-        anyOf = field.get("anyOf")
-        if anyOf:
-            return join_types(anyOf, " or ")
-        return Text(typ)
-
-    table = Table(
-        title=f"{flow} settings",
-        show_header=True,
-        header_style="bold yellow",
-        title_style=Style(frame=True, bold=True),
-        box=box.HEAVY_HEAD,
-        show_lines=True,
-    )
-    table.add_column("Property", header_style="bold green", style="bold")
-    table.add_column("Type", max_width=32)
-    table.add_column("Default", max_width=42)
-    table.add_column("Description")
-
-    for name, field in schema.get("properties", {}).items():
-        if name in ["results"] or name in Flow.Settings.__fields__.keys():
-            continue
-        required = name in schema.get("required", [])
-        desc: str = field.get("description", "")
-        typ = get_type(field)
-        default = field.get("default")
-        req_or_def = "[red]<required>[/red]" if required else str(default)
-        table.add_row(name, typ, req_or_def, desc)
-    console.print(table)
-
-    for typ_name, typ_def in list(type_defs.items()):
-        for prop, prop_def in typ_def.get("properties").items():
-            get_type(prop_def)
-    for typ_name, typ_def in list(type_defs.items()):
-        c = "blue"
-        table = Table(
-            title=f"Type [{c}]{typ_name}[/{c}]",
-            show_header=True,
-            header_style="bold green",
-            title_style=Style(frame=True, bold=True),
-            box=box.SQUARE_DOUBLE_HEAD,
-            show_lines=True,
-        )
-        if options.debug:
-            console.print(f"Type: {typ_name}")
-            console.print_json(data=typ_def)
-        table.add_column("property")
-        table.add_column("type")
-        table.add_column("description")
-        for prop, prop_def in typ_def.get("properties").items():
-            if prop_def.get("hidden_from_schema"):
-                continue
-            if (
-                typ_name.endswith("__Settings")
-                and prop in Flow.Settings.__fields__.keys()
-            ):
-                continue
-            desc = prop_def.get("description", prop_def.get("title", "-"))
-            desc = re.sub(r"\s*\.*\s*$", "", desc)
-            table.add_row(prop, get_type(prop_def), desc)
-        console.print(table)
-
-
 @cli.command(
     context_settings=CONTEXT_SETTINGS, short_help="List flow settings information"
 )
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
+    type=click.Choice(sorted(list(registered_flows))),
     required=True,
 )
 @click.pass_context
