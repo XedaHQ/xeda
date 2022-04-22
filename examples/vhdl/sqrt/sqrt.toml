@@ -1,0 +1,15 @@
+name = "sqrt"
+description = "Integer Square Root"
+language.vhdl.standard = "2008"
+
+[rtl]
+sources = ["sqrt.vhdl"]
+top = "sqrt"
+clock_port = "clk"
+parameters = { G_IN_WIDTH = 32 }
+# parameters = { G_IN_WIDTH = 32, G_ITERATIVE = true, G_STR= "abcd", G_BITVECTOR="7'b0101001" }
+
+[tb]
+sources = ["tb_sqrt.py"]
+cocotb = true
+# top = "tb_sqrt"  # FIXME

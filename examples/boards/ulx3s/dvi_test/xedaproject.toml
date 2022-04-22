@@ -1,0 +1,30 @@
+[design]
+
+name = "dvi_test"
+
+[design.language]
+vhdl.standard = 2008
+
+[design.rtl]
+sources = [
+    "utils_pkg.vhdl",
+    "vga.vhd",
+    "vga2dvid.vhd",
+    "tmds_encoder.vhd",
+    "ecp5pll.vhdl",
+    "top_vgatest.vhd",
+]
+top = "top_vgatest"
+
+clock_port = "clk_25mhz"
+
+[flows.nextpnr]
+board = "ULX3S_85F"
+clock_period = 40   # 25 MHz
+detailed_timing_report = false # nextpnr BUG, o/w crashes
+
+[flows.openfpgaloader]
+board = "ULX3S_85F"
+clock_period = 40   # 25 MHz
+nextpnr.detailed_timing_report = false
+nextpnr.timing_allow_fail = true

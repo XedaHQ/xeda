@@ -1,0 +1,5 @@
+## board name _ variant _ version (no dots or otherwise surround with double quotes)
+[ULX3S_85F]
+name = 'ulx3s'
+fpga.part = 'LFE5U-85F-6BG381C'
+lpf = 'https://raw.githubusercontent.com/emard/ulx3s/master/doc/constraints/ulx3s_v20.lpf'

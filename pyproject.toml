@@ -1,0 +1,165 @@
+[project]
+name = "xeda"
+description = "Cross EDA Abstraction and Automation"
+readme = "README.md"
+requires-python = ">=3.8"
+dynamic = ["version", "entry-points"]
+license = { file = "LICENSE.txt" }
+keywords = [
+  "EDA",
+  "Electronic",
+  "Design",
+  "Automation",
+  "Tool",
+  "Synthesis",
+  "Simulation",
+  "Simulator",
+  "Verification",
+  "Hardware",
+  "Verilog",
+  "VHDL",
+  "FPGA",
+  "ASIC",
+]
+authors = [ #
+  { name = "Kamyar Mohajerani" },
+  { email = "kammoh@gmail.com" },
+]
+classifiers = [
+  "Programming Language :: Python",
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: Apache Software License",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+  "Topic :: Utilities",
+]
+dependencies = [
+  # core
+  "jinja2 >= 3",
+  "pydantic >= 1.8.2",                       # dataclass
+  "tomli >= 1.1.0; python_version < '3.11'",
+  "python-box[] ~= 6.0",
+  # experimental core
+  "attrs ~= 21.4",         # dataclass alternative
+  "pyyaml >= 5.3",         # alternative design/project format (TODO, currently CLI only)
+  "typeguard >= 2.13",
+  "varname >= 0.8",
+  "overrides >= 0.1",
+  "pathvalidate >= 2.5.0",
+  # console/CLI
+  "click ~= 8.1",
+  "click_help_colors >= 0.9.1",
+  "coloredlogs >= 15.0.1",
+  "rich >= 11.2.0, <13",
+  # experimental CLI
+  "simple_term_menu>=1.4",
+  # misc, experimental
+  "numpy >= 1.19.5",
+  "pebble >= 4.6.3",
+  "psutil >= 5.9.0, <6.0",
+  "junitparser >= 2.4.2, <3",
+  "pyvcd >= 0.3",
+]
+
+[project.optional-dependencies]
+test = ["pytest > 7", "pytest-cov"]
+
+[project.urls]
+homepage = "https://github.com/XedaHQ/xeda"
+repository = "https://github.com/XedaHQ/xeda.git"
+changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
+# documentation = "..."
+
+# [project.entry-points.console-scripts]
+# xeda = "xeda:cli.cli"
+
+[build-system]
+requires = ["setuptools >= 61", "wheel", "setuptools_scm[toml] >= 6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+
+[tool.pylint]
+
+[tool.pylint.master]
+ignore-paths = ["src/xeda/plugins/lwc/.*"]
+
+[tool.pylint.messages_control]
+max-line-length = 120
+disable = [
+  "line-too-long",
+  "invalid-name",
+  "too-few-public-methods",
+  "unspecified-encoding",
+  "missing-function-docstring",
+  "too-many-instance-attributes",
+  "too-many-statements",
+  "too-many-branches",
+  "too-many-locals",
+  "too-many-arguments",
+  "too-many-nested-blocks",
+  # to be removed:
+  "missing-module-docstring",
+  "unused-argument",
+  "fixme",
+  "f-string-without-interpolation",
+  "wrong-import-order",
+  "missing-class-docstring",
+  "no-self-argument",               # from pydantic validators (classmethod)
+  "no-self-use",                    # from pydantic validators (classmethod)
+]
+[tool.pylint.similarities]
+min-similarity-lines = 10
+
+# Ignore comments when computing similarities.
+ignore-comments = "yes"
+
+# Ignore docstrings when computing similarities.
+ignore-docstrings = "yes"
+
+# Ignore imports when computing similarities.
+ignore-imports = "no"
+
+[tool.pylint.design]
+max-returns = 8
+
+[tool.bandit]
+skips = [
+  "B701",
+  "B101:assert_used",
+  "B404:blacklist",   # subprocess module
+  "B314",
+]
+# exclude = []
+
+[tool.flakeheaven.plugins]
+# include everything in pyflakes except F401
+# pyflakes = ["+*", "-F401"]
+pyflakes = ["+*"]
+pycodestyle = [
+  "+*",
+  "-E501", # line too long
+  "-E203",
+  "-E231", # whitespace before/after ':'
+  "-C812", # missing trailing comma
+  "-W503", # line break before binary operator 
+]
+# enable only codes from S100 to S199
+# flake8-bandit = ["-*", "+S1??"]
+flake8-bandit = [
+  "+*",
+  "-S603",
+  "-S404", # subprocess
+  "-S405",
+  "-S314", # xml.etree.ElementTree.parse
+  "-S101", # asserts
+  "-S311", # random crypto
+  "-S701", # jinja2 autoescape
+  "-S310", # urllib open URL
+]
+# enable everything that starts from `flake8-`
+"flake8-*" = ["+*"]
+# explicitly disable plugin
+flake8-docstrings = ["-*"]
+flake8-quotes = ["-*"]
+flake8-commas = ["-*"]

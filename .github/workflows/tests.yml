@@ -1,0 +1,39 @@
+name: CI
+on:
+  push:
+    branches: ["master", "dev"]
+  pull_request:
+    branches: ["master", "dev"]
+  workflow_dispatch:
+
+jobs:
+  tox:
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10"]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: ghdl/setup-ghdl-ci@nightly
+        with:
+          backend: llvm
+
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: "${{ matrix.python-version }}"
+
+      - name: Install dependencies
+        run: |
+          python -VV
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade tox tox-gh-actions
+
+      - name: "Run tox targets for ${{ matrix.python-version }}"
+        run: "python -m tox"

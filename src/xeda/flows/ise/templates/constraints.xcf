@@ -1,0 +1,2 @@
+NET "{{design.rtl.clock_port}}" TNM_NET = "{{design.rtl.clock_port}}";
+TIMESPEC "TS{{design.rtl.clock_port}}" = PERIOD "{{design.rtl.clock_port}}" {{settings.clock_period}} ns HIGH 50%;

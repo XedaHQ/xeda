@@ -1,0 +1,14 @@
+name = 'design0'
+description = 'test'
+language.vhdl.standard = "2008"
+
+[rtl]
+sources = ['../test.v'] # by default relative paths are relative to the location of the TOML file, unless overridden by the "design_root" field
+top = 'design0'
+clock_port = 'clk'
+parameters = { G_IN_WIDTH = 32, G_ITERATIVE = true, G_STR= "abcd", G_BITVECTOR="7'b0101001" }
+
+# [tb]
+# sources = []
+# cocotb = true
+# # top = 'tb_sqrt'

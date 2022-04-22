@@ -1,0 +1,13 @@
+name = 'pipelined_adder'
+description = 'Example VHDL design'
+language.vhdl.standard = 2008
+
+[rtl]
+sources = ['pipelined_adder.vhdl']
+top = 'pipelined_adder'
+clock_port = 'clock'
+
+[tb]
+sources = ['pipelined_adder_tb.vhdl']
+top = 'pipelined_adder_tb'
+uut = 'uut'
