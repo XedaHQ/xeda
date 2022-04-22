@@ -1,23 +1,24 @@
 # © 2022 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 """Xeda Command-line interface"""
+from __future__ import annotations
+
 import inspect
-import json
 import logging
 import multiprocessing
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Tuple
 
 import click
 import coloredlogs
-import yaml
 from click.shell_completion import get_completion_class
 from rich import box
 from rich.style import Style
 from rich.table import Table
 from simple_term_menu import TerminalMenu
+from typeguard.importhook import install_import_hook
 
 from .cli_utils import (
     ClickMutex,
@@ -39,24 +40,11 @@ from .flows.flow import (
     registered_flows,
 )
 from .tool import ExecutableNotFound, NonZeroExitCode
-from .utils import toml_load
+from .xedaproject import XedaProject
+
+install_import_hook("xeda")
 
 log = logging.getLogger(__name__)
-
-
-def load_xeda(file: Path):
-    ext = file.suffix.lower()
-
-    if ext == ".toml":
-        return toml_load(file)
-    with open(file) as f:
-        if ext == ".json":
-            return json.load(f)
-        if ext == ".yaml":
-            return yaml.safe_load(f)
-        sys.exit(
-            f"File {file} has unknown extension {ext}. Currently supported formats are TOML (.toml) and JSON (.json)"
-        )
 
 
 def load_design_from_toml(design_file) -> Design:
@@ -98,16 +86,7 @@ def log_to_file(logdir: Path):
 @click.group(cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
 @click.option("--verbose", is_flag=True, help="Enables verbose mode.")
 @click.option("--quiet", is_flag=True, help="Enable quiet mode.")
-@click.option(
-    "--debug",
-    show_envvar=True,
-    is_flag=True,
-    # type=DebugLevel,  # click.Choice([str(l.value) for l in DebugLevel]),
-    # help=f"""
-    #         Set debug level. DEBUG_LEVEL values corresponds to:
-    #         {', '.join([f"{l.value}: {l.name}" for l in DebugLevel])}
-    #     """,
-)
+@click.option("--debug", show_envvar=True, is_flag=True)
 @click.version_option(message="Xeda v%(version)s")
 @click.pass_context
 def cli(ctx: click.Context, **kwargs):
@@ -248,68 +227,56 @@ def run(
             sys.exit(1)
     else:
         if not xedaproject:
-            toml_path = Path.cwd() / "xedaproject.toml"
-            if not toml_path.exists():
+            xedaproject = "xedaproject.toml"
+            if not Path(xedaproject).exists():
                 sys.exit(
                     "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
                 )
-        else:
-            toml_path = Path(xedaproject)
         try:
-            xeda_project = load_xeda(toml_path)
+            xeda_project = XedaProject.from_file(xedaproject)
+        except DesignValidationError as e:
+            log.critical("%s", e)
+            sys.exit(1)
         except FileNotFoundError:
-            try:
-                xeda_project = load_xeda(toml_path.parent / (toml_path.stem + ".json"))
-            except FileNotFoundError:
-                sys.exit(
-                    f"Cannot open project file: {toml_path}. Please run from the project directory with xedaproject.toml or specify the correct path using the --xedaproject flag"
-                )
-        flows_config = xeda_project.get("flows", {})
-        designs = xeda_project["design"]
-        if not isinstance(designs, Sequence):
-            designs = [designs]
-        design_names = [str(d.get("name")) for d in designs]
+            sys.exit(
+                f"Cannot open project file: {xedaproject}. Please run from the project directory with xedaproject.toml or specify the correct path using the --xedaproject flag"
+            )
+        flows_config = xeda_project.flows
+        designs = xeda_project.designs
+        assert isinstance(xeda_project.design_names, list)  # type checker
         log.info(
-            "Available designs: %s",
-            ", ".join(design_names),
+            "Available designs in xedaproject: %s",
+            ", ".join(xeda_project.design_names),
         )
-        design_dict = {}
-        if len(designs) == 1:
-            design_dict = designs[0]
-        elif design_name:
-            try:
-                design_dict = designs[design_names.index(design_name)]
-            except ValueError:
+        design = xeda_project.get_design(design_name)
+        if design_name:
+            if not design:
                 log.critical(
                     'Design "%s" not found in %s. Available designs are: %s',
                     design_name,
                     xedaproject,
-                    ", ".join(design_names),
+                    ", ".join(xeda_project.design_names),
                 )
                 sys.exit(1)
         else:
             if console.is_interactive:
                 terminal_menu = TerminalMenu(
-                    design_names, title="Please select a design: "
+                    xeda_project.design_names, title="Please select a design: "
                 )
                 idx = terminal_menu.show()
                 if idx is None or not isinstance(idx, int) or idx < 0:
                     sys.exit("Invalid design choice!")
-                design_dict = designs[idx]
+                design = designs[idx]
             else:
                 design_name = click.prompt(
-                    "Please enter design name: ", type=click.Choice(design_names)
+                    "Please enter design name: ",
+                    type=click.Choice(xeda_project.design_names),
                 )
-                if not design_name or design_name not in design_names:
+                if not design_name or design_name not in xeda_project.design_names:
                     sys.exit("Invalid design name!")
-                design_dict = designs[design_names.index(design_name)]
-        if not design_dict:
-            sys.exit("No design was selected.")
-        try:
-            design = Design(design_root=toml_path.parent, **design_dict)
-        except DesignValidationError as e:
-            log.critical("%s", e)
-            sys.exit(1)
+                design = xeda_project.get_design(design_name)
+        if not design:
+            sys.exit("[ERROR] design is empty?!")
 
     flow_overrides = settings_to_dict(flow_settings)
     log.debug("flow_overrides: %s", flow_overrides)

@@ -1,24 +1,27 @@
 """Interchangable dataclass abstraction"""
+from __future__ import annotations
+
 import logging
 from abc import ABCMeta
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
 
 import attrs
 
 # pylint: disable=no-name-in-module
-from pydantic import (  # pylint: disable=no-name-in-module
-    BaseConfig,  # pylint: disable=no-name-in-module
-    BaseModel,  # pylint: disable=no-name-in-module
+from pydantic import (
+    BaseModel,
+    BaseConfig,
     Extra,
     Field,
     ValidationError,
     root_validator,
     validator,
-)  # pylint: disable=no-name-in-module
+)
 
 __all__ = [
     "XedaBaseModel",
     "XedaBaseModeAllowExtra",
+    "xeda_model",  # decorator
     "Field",
     "validator",
     "root_validator",
@@ -101,3 +104,25 @@ def validation_errors(errors: List[Dict[str, Any]]) -> List[Tuple[str, str, str]
         )
         for e in errors
     ]
+
+
+T = TypeVar("T", bound=object)
+
+
+def xeda_model(
+    maybe_class: Optional[Type[T]] = None, /, *, allow_extra: bool = False
+) -> Type[T]:
+    """decorator replacement for dataclasses"""
+    # This is a WIP
+    # FIXME: does not work with classes with inheritance
+
+    def wrap(clz: Type[T]) -> Type[T]:
+        base_model: Type[BaseModel] = (
+            XedaBaseModeAllowExtra if allow_extra else XedaBaseModel
+        )
+        bases = (clz,) if issubclass(clz, base_model) else (clz, base_model)
+        eclz = type(clz.__name__, bases, dict(clz.__dict__))
+
+        return eclz
+
+    return wrap if maybe_class is None else wrap(maybe_class)  # type: ignore

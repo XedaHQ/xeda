@@ -10,7 +10,7 @@ from pathlib import Path, PosixPath
 from typing import Any, Dict, Mapping, Optional, Set, Type, Union
 
 # fmt: off
-from pathvalidate import sanitize_filename  # type: ignore # pyright: reportPrivateImportUsage=none
+from pathvalidate import sanitize_filename  # pyright: reportPrivateImportUsage=none
 
 from rich import box, print_json
 from rich.style import Style

@@ -235,10 +235,10 @@ def print_flow_settings(flow, options: XedaOptions):
 
         allof = field.get("allOf")
         if allof:
-            return join_types(allof, "+")
+            return join_types(allof, " & ")  # intersection
         anyOf = field.get("anyOf")
         if anyOf:
-            return join_types(anyOf, " or ")
+            return join_types(anyOf, " | ")  # union
         return Text(typ)
 
     table = Table(

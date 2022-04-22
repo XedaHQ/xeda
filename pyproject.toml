@@ -38,7 +38,7 @@ dependencies = [
   "jinja2 >= 3",
   "pydantic >= 1.8.2",                       # dataclass
   "tomli >= 1.1.0; python_version < '3.11'",
-  "python-box[]~=6.0",
+  "python-box[] ~= 6.0",
   # experimental core
   "attrs ~= 21.4",         # dataclass alternative
   "pyyaml >= 5.3",         # alternative design/project format (TODO, currently CLI only)
@@ -50,14 +50,14 @@ dependencies = [
   "click ~= 8.1",
   "click_help_colors >= 0.9.1",
   "coloredlogs >= 15.0.1",
-  "rich >= 11.2.0,<13",
+  "rich >= 11.2.0, <13",
   # experimental CLI
   "simple_term_menu>=1.4",
   # misc, experimental
   "numpy >= 1.19.5",
   "pebble >= 4.6.3",
-  "psutil >= 5.9.0,<6.0",
-  "junitparser >= 2.4.2,<3",
+  "psutil >= 5.9.0, <6.0",
+  "junitparser >= 2.4.2, <3",
   "pyvcd >= 0.3",
 ]
 

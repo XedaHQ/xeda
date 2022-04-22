@@ -70,9 +70,9 @@ class Yosys(SynthFlow):
         netlist_verilog: Optional[str] = "netlist.v"
         netlist_vhdl: Optional[str] = None  # "netlist.vhdl"
         netlist_json: Optional[str] = "netlist.json"
-        rtl_verilog: Optional[str] = None # "rtl.v"
+        rtl_verilog: Optional[str] = None  # "rtl.v"
         rtl_vhdl: Optional[str] = None  # "rtl.vhdl"
-        rtl_json: Optional[str] = None # "rtl.json"
+        rtl_json: Optional[str] = None  # "rtl.json"
         show_rtl: bool = False
         show_rtl_flags: List[str] = [
             "-stretch",
