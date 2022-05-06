@@ -12,20 +12,24 @@ set_param general.maxThreads {{settings.nthreads}}
 puts "\n=====================( Read Design Files and Constraints )====================="
 {% for src in design.rtl.sources -%}
 {% if src.type == 'systemverilog' -%}
+{# Force Whitespace #}
 puts "Reading SystemVerilog file {{src.file}}"
 if { [catch {eval read_verilog -sv {{src.file}} } myError]} {
     errorExit $myError
 }
+{# Force Whitespace #}
 {%- elif src.type == 'verilog' %}
 puts "Reading Verilog file {{src.file}}"
 if { [catch {eval read_verilog {{src.file}} } myError]} {
     errorExit $myError
 }
+{# Force Whitespace #}
 {%- elif src.type == 'vhdl' %}
 puts "Reading VHDL file {{src.file}}"
 if { [catch {eval read_vhdl {% if design.language.vhdl.standard == "08" or design.language.vhdl.standard == "2008" %} -vhdl2008 {%- endif %} {{src.file}} } myError]} {
     errorExit $myError
 }
+{# Force Whitespace #}
 {%- endif %}
 {%- endfor %}
 
