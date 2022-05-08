@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import logging
 import os
@@ -206,31 +208,43 @@ class DVSettings(XedaBaseModel):  # type: ignore
 
 
 class Clock(XedaBaseModel):
-    port: Optional[str]
+    port: str
 
 
 class RtlSettings(DVSettings):
+    """design.rtl"""
+
     top: str = Field(
         description="Toplevel RTL module/entity",
     )
-    clock: Clock = Clock(port=None)  # TODO rename to primary_clock?
+    clock: Optional[Clock] = None  # TODO rename to primary_clock?
     clocks: Dict[str, Clock] = {}
     clock_port: Optional[str] = None  # TODO remove?
 
     @root_validator(pre=False)
-    def rtl_settings_validate(cls, values):
+    def rtl_settings_validate(cls, values):  # pylint: disable=no-self-argument
+        """copy equivalent clock fields (backward compatibility)"""
         clock = values.get("clock")
         clock_port = values.get("clock_port")
-        if not clock.port:
-            clock.port = clock_port
-        if not clock_port:
+        clocks = values.get("clocks")
+        # only one should be specified
+        assert clock is None or clock_port is None
+        assert clock is None or not clocks
+        assert clock_port is None or not clocks
+
+        if clock_port and not clock:
+            clock = Clock(port=clock_port)
+            values["clock"] = clock
+        if clock and not clock_port:
             values["clock_port"] = clock.port
-        if not values.get("clocks"):
+        if clock and not clocks:
             values["clocks"] = {"main_clock": clock}
         return values
 
 
 class TbSettings(DVSettings):
+    """design.tb"""
+
     top: Tuple012 = Field(
         tuple(),
         description="Toplevel testbench module(s), specified as a tuple of strings. In addition to the primary toplevel, a secondary toplevel module can also be specified.",

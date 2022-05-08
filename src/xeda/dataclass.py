@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import types
 from abc import ABCMeta
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
 
@@ -9,8 +10,8 @@ import attrs
 
 # pylint: disable=no-name-in-module
 from pydantic import (
-    BaseModel,
     BaseConfig,
+    BaseModel,
     Extra,
     Field,
     ValidationError,
@@ -106,22 +107,32 @@ def validation_errors(errors: List[Dict[str, Any]]) -> List[Tuple[str, str, str]
     ]
 
 
-T = TypeVar("T", bound=object)
+_T = TypeVar("_T", bound=object)
 
 
-def xeda_model(
-    maybe_class: Optional[Type[T]] = None, /, *, allow_extra: bool = False
-) -> Type[T]:
+# FIXME: experimental/broken! Do not use!
+def xeda_model(maybe_class: Optional[Type[_T]] = None, /, *, allow_extra: bool = False):
     """decorator replacement for dataclasses"""
     # This is a WIP
     # FIXME: does not work with classes with inheritance
 
-    def wrap(clz: Type[T]) -> Type[T]:
-        base_model: Type[BaseModel] = (
-            XedaBaseModeAllowExtra if allow_extra else XedaBaseModel
-        )
-        bases = (clz,) if issubclass(clz, base_model) else (clz, base_model)
-        eclz = type(clz.__name__, bases, dict(clz.__dict__))
+    def wrap(clz: Type[_T]) -> Type[_T]:
+
+        return attrs.define(slots=False)(clz)
+        base_model = BaseModel
+        # : Type[BaseModel] =
+        # (
+        # XedaBaseModeAllowExtra if allow_extra else XedaBaseModel
+        # )
+        self_name = clz.__name__
+        # bases = (clz,) if issubclass(clz, base_model) else (clz, base_model)
+        bases = () if issubclass(clz, base_model) else (base_model,)
+        # fields = {}
+        # kwds = copy(dict(clz.__dict__))
+        kwds = {"designs": list, "flows": list}
+        eclz = types.new_class(self_name, bases, kwds)  # , dict(clz.__dict__))
+
+        # setattr(eclz, "__init__", init)
 
         return eclz
 

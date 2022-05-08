@@ -40,8 +40,9 @@ dependencies = [
   "tomli >= 1.1.0; python_version < '3.11'",
   "python-box[] ~= 6.0",
   # experimental core
-  "attrs ~= 21.4",         # dataclass alternative
-  "pyyaml >= 5.3",         # alternative design/project format (TODO, currently CLI only)
+  "attrs >= 21.4",         # lightweight dataclass alternative
+  "attrs_strict >= 1.0",         # strict type validation for attrs
+  "pyyaml >= 5.4",         # alternative design/project format (TODO, currently CLI only)
   "typeguard >= 2.13",
   "varname >= 0.8",
   "overrides >= 0.1",

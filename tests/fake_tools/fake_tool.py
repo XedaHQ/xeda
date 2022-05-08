@@ -18,7 +18,8 @@ from typing import (
 from zipfile import ZipFile
 
 import click
-from xeda.utils import XedaBaseModel
+
+from xeda.dataclass import asdict, XedaBaseModel
 
 log = logging.getLogger()
 
@@ -76,7 +77,6 @@ class TouchFiles(Executer):
             path.touch(exist_ok=True)
         return 0
 
-
 class FakeTool(XedaBaseModel):
     version: Optional[str] = None
     version_template: Optional[str] = None
@@ -90,7 +90,7 @@ class FakeTool(XedaBaseModel):
     @property
     def version_banner(self) -> str:
         if self.version_template:
-            return inspect.cleandoc(self.version_template.format(**(self.dict())))
+            return inspect.cleandoc(self.version_template.format(**(asdict(self))))
         return "unknown"
 
     def execute(self, **kwargs) -> int:
@@ -101,9 +101,9 @@ class FakeVivado(FakeTool):
     vendor = "Xilinx, Inc."
     version = "v2021.2"
     version_template = """Vivado {version} (64-bit)
-        SW Build 3367213 on Tue Oct 19 02:47:39 MDT 2021
-        IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021
-        Copyright 1986-2021 {vendor} All Rights Reserved.
+        SW Build 1234567 on Tue Oct 11 01:23:45 MDT 2021
+        IP Build 1234567 on Thu Oct 22 01:23:45 MDT 2021
+        Copyright 1900-2021 {vendor} All Rights Reserved.
     """
     help_options = ["-help"]
     version_options = ["-version"]
@@ -157,6 +157,7 @@ FC = Callable[..., Any]
 
 def fake_tool_options(fake_tool: Optional[FakeTool]) -> FC:
     def decorator(f: FC) -> FC:
+        print(f"fake_tool={fake_tool}")
         if fake_tool:
             f = click.group(
                 invoke_without_command=True,

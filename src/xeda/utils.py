@@ -23,9 +23,8 @@ from typing import (
     Union,
 )
 
+
 from typeguard.importhook import install_import_hook
-
-
 from varname import argname
 
 from .dataclass import XedaBaseModel
@@ -44,6 +43,7 @@ __all__ = [
     # utility functions
     "toml_load",
     "toml_loads",
+    "tomllib",
     "cached_property",
     "unique",
     "WorkingDirectory",
@@ -52,7 +52,7 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 
-T = TypeVar("T")
+_T = TypeVar("_T")
 
 
 class WorkingDirectory(AbstractContextManager):
@@ -91,18 +91,21 @@ class SDF(XedaBaseModel):
     max: Optional[str] = None
     typ: Optional[str] = None
 
-    def __init__(self, *args: str, **data: str) -> None:
-        if args:
-            assert len(args) == 1 and isinstance(args[0], str), "only 1 str argument"
-            data["max"] = args[0]
-        super().__init__(**data)
+    # def __init__(self, *args: str, **data: str) -> None:
+    #     if args:
+    #         assert len(args) == 1 and isinstance(args[0], str), "only 1 str argument"
+    #         data["max"] = args[0]
+    #     super().__init__(**data)
+
+    def __attrs_post_init__(self):
+        pass
 
     def delay_items(self) -> Iterable[Tuple[str, Union[str, None]]]:
         """returns an iterable of (delay_type, sdf_file)"""
         return tuple(
-            (delay_type, self.dict().get(delay_type))
+            (delay_type, getattr(self, delay_type))
             for delay_type in ("min", "max", "typ")
-            if self.dict().get(delay_type)
+            if getattr(self, delay_type)
         )
 
 
@@ -270,8 +273,8 @@ def append_flag(flag_list: List[str], flag: str) -> List[str]:
     return flag_list
 
 
-def common_root(signals: List[List[T]]) -> List[T]:
-    longest: Optional[List[T]] = None
+def common_root(signals: List[List[_T]]) -> List[_T]:
+    longest: Optional[List[_T]] = None
     for sig in signals:
         if not sig:
             continue

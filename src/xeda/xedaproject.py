@@ -5,18 +5,20 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+import attrs
 import yaml
+from attrs_strict import type_validator
 
-from .dataclass import XedaBaseModel
 from .design import Design
-from .utils import WorkingDirectory, toml_load
+from .utils import WorkingDirectory, tomllib
 
 
-class XedaProject(XedaBaseModel):
+@attrs.define(slots=False)
+class XedaProject:
     # validate to concrete Designs to verify the whole xedaproject
     designs: List[Design]
     # keep raw dict as flows are dynamically discovered
-    flows: Dict[str, dict] = {}
+    flows: Dict[str, dict] = attrs.field(default={}, validator=type_validator())
 
     @classmethod
     def from_file(cls, file: Union[str, os.PathLike, Path]):
@@ -24,25 +26,25 @@ class XedaProject(XedaBaseModel):
         if not isinstance(file, Path):
             file = Path(file)
         ext = file.suffix.lower()
-        if ext == ".toml":
-            data = toml_load(file)
-        else:
-            with open(file) as f:
-                if ext == ".json":
-                    data = json.load(f)
-                elif ext == ".yaml":
-                    data = yaml.safe_load(f)
-                else:
-                    raise ValueError(
-                        f"File {file} has unknown extension {ext}. Supported formats are TOML, JSON, and YAML."
-                    )
+        with open(file, "rb" if ext == ".toml" else "r") as f:
+            if ext == ".toml":
+                data = tomllib.load(f)
+            elif ext == ".json":
+                data = json.load(f)
+            elif ext == ".yaml":
+                data = yaml.safe_load(f)
+            else:
+                raise ValueError(
+                    f"File {file} has unknown extension {ext}. Supported formats are TOML, JSON, and YAML."
+                )
         if not isinstance(data, dict) or not data:
             raise ValueError("Invalid xedaproject!")
         designs = data.get("design") or data.get("designs")
         if not designs:
             raise ValueError("No designs found in the xedaproject file!")
 
-        flows = data.get("flow") or data.get("flows")
+        flows = data.get("flow") or data.get("flows", {})
+        assert isinstance(flows, dict)
         with WorkingDirectory(file.parent):
             return cls(designs=designs, flows=flows)
 

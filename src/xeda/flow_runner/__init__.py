@@ -60,9 +60,11 @@ def print_results(
             continue
         if v is not None and not k.startswith("_"):
             if k == "success":
-                text = "OK :heavy_check_mark-text:" if v else "FAILED :cross_mark-text:"
-                color = "green" if v else "red"
-                table.add_row("Status", text, style=Style(color=color))
+                # text = "OK :heavy_check_mark-text:" if v else "FAILED :cross_mark-text:"
+
+                # color = "green" if v else "red"
+                # table.add_row("Status", text, style=Style(color=color))
+                table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]")
                 continue
             if subset and k not in subset:
                 continue
