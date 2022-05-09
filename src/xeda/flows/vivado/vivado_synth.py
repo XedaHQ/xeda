@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ...dataclass import Field, XedaBaseModel
+from ...dataclass import Field, XedaBaseModel, validator
 from ..flow import FpgaSynthFlow
 from ..vivado import Vivado
 
@@ -63,6 +63,12 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 "WRITE_BITSTREAM": {},
             },
         )
+
+        @validator("fpga")
+        def _validate_fpga(cls, value):
+            if not value or not value.part:
+                raise ValueError("FPGA.part must be specified")
+            return value
 
     def run(self):
         assert isinstance(self.settings, self.Settings)

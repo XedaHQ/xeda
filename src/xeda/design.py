@@ -190,12 +190,10 @@ class DVSettings(XedaBaseModel):  # type: ignore
             values["parameters"] = value
         return values
 
-    @validator("sources", pre=True, always=False)
-    def sources_to_files(
-        cls, sources: List[Union[DesignSource, str, os.PathLike, Path, Dict[str, Any]]]
-    ) -> List[DesignSource]:
+    @validator("sources", pre=True, always=True)
+    def sources_to_files(cls, value):
         ds = []
-        for src in sources:
+        for src in value:
             if not isinstance(src, DesignSource):
                 try:
                     src = DesignSource(src)
@@ -227,10 +225,6 @@ class RtlSettings(DVSettings):
         clock = values.get("clock")
         clock_port = values.get("clock_port")
         clocks = values.get("clocks")
-        # only one should be specified
-        assert clock is None or clock_port is None
-        assert clock is None or not clocks
-        assert clock_port is None or not clocks
 
         if clock_port and not clock:
             clock = Clock(port=clock_port)
