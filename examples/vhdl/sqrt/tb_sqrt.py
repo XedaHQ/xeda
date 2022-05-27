@@ -12,17 +12,16 @@ DEBUG = bool(os.environ.get("DEBUG", False))
 class SqrtTb(ValidReadyTb):
     def __init__(self, dut: DUT, debug: bool = DEBUG):
         super().__init__(dut, DutClock("clk"), DutReset("rst"), debug)
-        self.in_bus = self.driver("radicand", data_suffix=None)
-        self.out_bus = self.monitor("root", data_suffix=[None, "remainder"])
+        self.in_bus = self.driver("in", data_suffix="data")
+        self.out_bus = self.monitor("out", data_suffix=["data_root", "data_rem"])
 
     async def verify(self, rad: int):
         stimulus = cocotb.start_soon(self.in_bus.enqueue(rad))
         out = await self.out_bus.dequeue()
         await stimulus
 
-        assert isinstance(out, Box)
-        root = int(out[None])
-        remainder = int(out.remainder)
+        root = int(out.data_root)
+        remainder = int(out.data_rem)
 
         assert rad == root**2 + remainder, f"{rad} !=  {root} ** 2 + {remainder}"
         assert rad < (root + 1) ** 2, "returned root was smaller than expected"

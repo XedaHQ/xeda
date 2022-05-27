@@ -1,5 +1,5 @@
 name = "sqrt"
-description = "Integer Square Root"
+description = "Iterative computation of square-root of an integer"
 language.vhdl.standard = "2008"
 
 [rtl]

@@ -20,19 +20,19 @@ use ieee.numeric_std.all;
 
 entity sqrt is
     generic(
-        G_IN_WIDTH : positive := 8           --@ Input width
+        G_IN_WIDTH : positive := 8      --@ Input width
     );
 
     port(
-        clk            : in  std_logic;
-        rst            : in  std_logic;
-        radicand       : in  std_logic_vector(G_IN_WIDTH - 1 downto 0);
-        radicand_valid : in  std_logic;
-        radicand_ready : out std_logic;
-        root           : out std_logic_vector((G_IN_WIDTH + 1) / 2 - 1 downto 0);
-        root_remainder : out std_logic_vector((G_IN_WIDTH + 1) / 2 downto 0);
-        root_valid     : out std_logic;
-        root_ready     : in  std_logic
+        clk           : in  std_logic;
+        rst           : in  std_logic;
+        in_data       : in  std_logic_vector(G_IN_WIDTH - 1 downto 0);
+        in_valid      : in  std_logic;
+        in_ready      : out std_logic;
+        out_data_root : out std_logic_vector((G_IN_WIDTH + 1) / 2 - 1 downto 0);
+        out_data_rem  : out std_logic_vector((G_IN_WIDTH + 1) / 2 downto 0);
+        out_valid     : out std_logic;
+        out_ready     : in  std_logic
     );
 end entity sqrt;
 
@@ -65,21 +65,21 @@ architecture RTL of sqrt is
     signal test_res     : unsigned(W + 1 downto 0);
     signal test_res_msb : std_logic;
 begin
-    test_res       <= acc - (q & "01");
-    test_res_msb   <= test_res(test_res'length - 1);
-    root           <= std_logic_vector(resize(q, root'length));
-    root_remainder <= std_logic_vector(acc(root_remainder'length + 1 downto 2));
+    test_res      <= acc - (q & "01");
+    test_res_msb  <= test_res(test_res'length - 1);
+    out_data_root <= std_logic_vector(resize(q, out_data_root'length));
+    out_data_rem  <= std_logic_vector(acc(out_data_rem'length + 1 downto 2));
 
     process(all)
     begin
-        radicand_ready <= '0';
-        root_valid     <= '0';
+        in_ready  <= '0';
+        out_valid <= '0';
         case state is
             when S_IDLE =>
-                radicand_ready <= '1';
+                in_ready <= '1';
             when S_BUSY =>
             when S_DONE =>
-                root_valid <= '1';
+                out_valid <= '1';
         end case;
     end process;
 
@@ -91,12 +91,12 @@ begin
             else
                 case state is
                     when S_IDLE =>
-                        if radicand_valid = '1' then
+                        if in_valid = '1' then
                             counter <= (others => '0');
                             q       <= (others => '0');
                             -- (acc, x) <= resize(unsigned(radicand), 2 * W);
-                            x       <= unsigned(radicand(W - 3 downto 0));
-                            acc     <= resize(unsigned(radicand(radicand'length - 1 downto W - 2)), W + 2);
+                            x       <= unsigned(in_data(W - 3 downto 0));
+                            acc     <= resize(unsigned(in_data(in_data'length - 1 downto W - 2)), W + 2);
                             state   <= S_BUSY;
                         end if;
                     when S_BUSY =>
@@ -114,7 +114,7 @@ begin
                             state <= S_DONE;
                         end if;
                     when S_DONE =>
-                        if root_ready then
+                        if out_ready then
                             state <= S_IDLE;
                         end if;
                 end case;
