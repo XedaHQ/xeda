@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 
@@ -65,14 +66,13 @@ class FileResource:
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
         _root_path: Optional[Path] = None,
-        **data: Any,
     ) -> None:
-        self._content_hash: Optional[str] = None
         try:
             if isinstance(path, dict):
                 if "file" not in path:
                     raise ValueError("Required field 'file' is missing.")
                 path = path["file"]
+            self._path = path
             p = Path(path)
             if not p.is_absolute():
                 if not _root_path:
@@ -83,13 +83,11 @@ class FileResource:
             log.critical("Design resource '%s' does not exist!", path)
             raise e from None
 
-    @property
+    @cached_property
     def hash(self) -> str:
         """return hash of file content"""
-        if self._content_hash is None:
-            with open(self.file, "rb") as f:
-                self._content_hash = hashlib.sha256(f.read()).hexdigest()
-        return self._content_hash
+        with open(self.file, "rb") as f:
+            return hashlib.sha3_256(f.read()).hexdigest()
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, FileResource):
@@ -369,3 +367,29 @@ class Design(XedaBaseModel):
                 design_name=e.design_name,
                 file=str(design_file),
             ) from None
+
+    @property
+    def rtl_fingerprint(self) -> dict:
+        return {
+            "sources": {str(src._path): src.hash for src in self.rtl.sources},
+            "parameters": {p: str(v) for p, v in self.rtl.parameters.items()},
+        }
+
+    @property
+    def rtl_hash(self) -> str:
+        # assumptions:
+        #  - source file names/paths do not matter
+        #  - order of sources does not matter
+        #       -> alphabetically sort all file hashes
+        hashes = list(sorted(src.hash for src in self.rtl.sources))
+        param_strs = [f"{p}={v}" for p, v in self.rtl.parameters.items()]
+        r = bytes(", ".join(hashes + param_strs), "utf-8")
+        return hashlib.sha3_256(r).hexdigest()
+
+
+    @property
+    def tb_hash(self) -> str:
+        hashes = list(sorted(src.hash for src in self.tb.sources))
+        param_strs = [f"{p}={v}" for p, v in self.tb.parameters.items()]
+        r = bytes(", ".join(hashes + param_strs), "utf-8")
+        return hashlib.sha3_256(r).hexdigest()

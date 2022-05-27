@@ -115,7 +115,7 @@ def get_flow_class(
     return flow_class
 
 
-def _semantic_hash(data: Any, debug=False) -> str:
+def _semantic_hash(data: Any) -> str:
     def _sorted_dict_str(data: Any) -> Any:
         if isinstance(data, (dict, Mapping)):
             return {k: _sorted_dict_str(data[k]) for k in sorted(data.keys())}
@@ -125,13 +125,8 @@ def _semantic_hash(data: Any, debug=False) -> str:
             return _sorted_dict_str(data.__dict__)
         return str(data)
 
-    def _get_digest(b: bytes) -> str:
-        return hashlib.sha256(b).hexdigest()[:16]
-
     r = repr(_sorted_dict_str(data))
-    if debug:
-        print("\nSEMANTIC_HASH:", r)
-    return _get_digest(bytes(r, "UTF-8"))
+    return hashlib.sha3_256(bytes(r, "UTF-8")).hexdigest()
 
 
 class FlowRunner:
@@ -180,9 +175,9 @@ class FlowRunner:
         flow_subdir = flow_name
         if self.cached_dependencies:
             if design_hash:
-                design_subdir += f"_{design_hash}"
+                design_subdir += f"_{design_hash[:16]}"
             if flowrun_hash:
-                flow_subdir += f"_{flowrun_hash}"
+                flow_subdir += f"_{flowrun_hash[:16]}"
 
         run_path: Path = (
             self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
@@ -286,6 +281,8 @@ class FlowRunner:
                 all_settings = dict(
                     design=design,
                     design_hash=design_hash,
+                    rtl_fingerprint=design.rtl_fingerprint,
+                    rtl_hash=design.rtl_hash,
                     flow_name=flow_name,
                     flow_settings=flow_settings,
                     xeda_version=__version__,

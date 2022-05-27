@@ -135,7 +135,8 @@ def cli(ctx: click.Context, **kwargs):
 @click.option(
     "--cached-dependencies",
     is_flag=True,
-    help="Don't run dependency flows if a previous successfull run on the same design and flow settings exists.",
+    default=True,
+    help="Don't run dependency flows if a previous successfull run on the same design and flow settings exists. Generated directory names will contain a hash of design and/or flow settings.",
 )
 @click.option(
     "--run_in_existing_dir",
@@ -204,7 +205,7 @@ def cli(ctx: click.Context, **kwargs):
 def run(
     ctx: click.Context,
     flow: str,
-    cached_dependencies: bool = False,
+    cached_dependencies: bool,
     run_in_existing_dir: bool = False,
     # force_run: bool = False,
     xeda_run_dir: Optional[Path] = None,

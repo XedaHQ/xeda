@@ -33,37 +33,10 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
   "Topic :: Utilities",
 ]
-dependencies = [
-  # core
-  "jinja2 >= 3",
-  "pydantic >= 1.8.2",                       # dataclass
-  "tomli >= 1.1.0; python_version < '3.11'",
-  "python-box[] ~= 6.0",
-  # experimental core
-  "attrs >= 21.4",         # lightweight dataclass alternative
-  "attrs_strict >= 1.0",         # strict type validation for attrs
-  "pyyaml >= 5.4",         # alternative design/project format (TODO, currently CLI only)
-  "typeguard >= 2.13",
-  "varname >= 0.8",
-  "overrides >= 0.1",
-  "pathvalidate >= 2.5.0",
-  # console/CLI
-  "click ~= 8.1",
-  "click_help_colors >= 0.9.1",
-  "coloredlogs >= 15.0.1",
-  "rich >= 11.2.0, <13",
-  # experimental CLI
-  "simple_term_menu>=1.4",
-  # misc, experimental
-  "numpy >= 1.19.5",
-  "pebble >= 4.6.3",
-  "psutil >= 5.9.0, <6.0",
-  "junitparser >= 2.4.2, <3",
-  "pyvcd >= 0.3",
-]
 
-[project.optional-dependencies]
-test = ["pytest > 7", "pytest-cov"]
+# currently does not work with setuptools
+# dependencies = []
+# [project.optional-dependencies]
 
 [project.urls]
 homepage = "https://github.com/XedaHQ/xeda"

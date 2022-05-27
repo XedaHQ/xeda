@@ -306,30 +306,6 @@ def print_flow_settings(flow, options: XedaOptions):
         console.print(table)
 
 
-# xdg_home = os.environ.get('XDG_DATA_HOME', os.path.join(
-#     os.environ.get('HOME', str(Path.home())), '.local', 'share'))
-# completion_user_dir = os.environ.get(
-#     'BASH_COMPLETION_USER_DIR', os.path.join(xdg_home, 'bash-completion'))
-# dir = Path(completion_user_dir)
-# if not dir.exists():
-#     dir.mkdir(parents=True)
-# completion_file = dir / 'xeda'
-# with open(completion_file, 'w') as f:
-#     f.write(completion)
-# eager_completion = Path.home() / '.bash_completion'
-# source_line = f'. {completion_file} # added by xeda'
-# if eager_completion.exists():
-#     with open(eager_completion, "r+") as f:
-#         for line in f:
-#             if source_line in line:
-#                 break
-#         else:  # else-for "completion clause"
-#             f.write(source_line + os.linesep)
-# else:
-#     with open(eager_completion, "w") as f:
-#         f.write(source_line + os.linesep)
-
-
 def discover_flow_class(flow: str) -> Type[Flow]:
     try:
         return get_flow_class(flow, "xeda.flows", __package__)
