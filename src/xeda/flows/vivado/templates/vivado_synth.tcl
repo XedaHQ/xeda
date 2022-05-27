@@ -11,7 +11,7 @@ set_param general.maxThreads {{settings.nthreads}}
 
 puts "\n=====================( Read Design Files and Constraints )====================="
 {% for src in design.rtl.sources -%}
-{% if src.type == 'systemverilog' -%}
+{%- if src.type == 'systemverilog' %}
 puts "Reading SystemVerilog file {{src.file}}"
 if { [catch {eval read_verilog -sv {{src.file}} } myError]} {
     errorExit $myError
