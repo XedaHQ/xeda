@@ -13,7 +13,7 @@ from .design import Design
 from .utils import WorkingDirectory, tomllib
 
 
-@attrs.define(slots=False)
+@attrs.define
 class XedaProject:
     # validate to concrete Designs to verify the whole xedaproject
     designs: List[Design]
@@ -40,16 +40,22 @@ class XedaProject:
         if not isinstance(data, dict) or not data:
             raise ValueError("Invalid xedaproject!")
         designs = data.get("design") or data.get("designs")
+        if not isinstance(designs, list):
+            designs = [designs]
         if not designs:
             raise ValueError("No designs found in the xedaproject file!")
 
         flows = data.get("flow") or data.get("flows", {})
         assert isinstance(flows, dict)
         with WorkingDirectory(file.parent):
-            return cls(designs=designs, flows=flows)
+            return cls(
+                designs=[Design(**d) for d in designs if isinstance(d, dict)],
+                flows=flows,
+            )
 
     @property
     def design_names(self) -> List[str]:
+        print(f"self.designs: {self.designs}")
         return [d.name for d in self.designs]
 
     def get_design(self, name: Optional[str] = None) -> Optional[Design]:
