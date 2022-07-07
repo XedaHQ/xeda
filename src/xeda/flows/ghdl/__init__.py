@@ -406,6 +406,8 @@ class GhdlSim(Ghdl, SimFlow):
             vpi.append(self.cocotb.vpi_path())
             # tb_generics = list(design.tb.generics)  # TODO pass to cocotb?
             design.tb.generics = design.rtl.generics
+            if not design.tb.top:
+                design.tb.top = (design.rtl.top,)
         run_flags += setting_flag(vpi)
 
         if ss.debug:
@@ -421,8 +423,9 @@ class GhdlSim(Ghdl, SimFlow):
 
         run_flags.extend(ss.generics_flags(design.tb.generics))
 
-        x = self.elaborate(design.sim_sources, design.tb.top, design.language.vhdl)
-        design.tb.top = x
+        design.tb.top = self.elaborate(
+            design.sim_sources, design.tb.top, design.language.vhdl
+        )
         assert self.cocotb
         self.ghdl.run(
             "run",
