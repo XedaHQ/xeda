@@ -18,7 +18,7 @@ class XedaProject:
     # validate to concrete Designs to verify the whole xedaproject
     designs: List[Design]
     # keep raw dict as flows are dynamically discovered
-    flows: Dict[str, dict] = attrs.field(default={}, validator=type_validator())
+    flows: Dict[str, dict] # = attrs.field(default={}, validator=type_validator())
 
     @classmethod
     def from_file(cls, file: Union[str, os.PathLike, Path]):
@@ -55,7 +55,6 @@ class XedaProject:
 
     @property
     def design_names(self) -> List[str]:
-        print(f"self.designs: {self.designs}")
         return [d.name for d in self.designs]
 
     def get_design(self, name: Optional[str] = None) -> Optional[Design]:

@@ -1,5 +1,6 @@
 import re
 import logging
+from sys import stderr
 from typing import Any, Optional
 
 from .dataclass import Field, XedaBaseModel, root_validator
@@ -74,7 +75,7 @@ class FPGA(XedaBaseModel):
             values["part"] = part
             # speed: 6 = slowest, 8 = fastest
             match_ecp5 = re.match(
-                r"^LFE5(U|UM|UM5G)-(\d+)F-(?P<sp>\d)(?P<pkg>[A-Z]+)(?P<pin>\d+)(?P<gr>[A-Z]?)$",
+                r"^LFE5(U|UM|UM5G)-(\d+)F-(?P<sp>\d)(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>[A-Z]?)$",
                 part,
                 flags=re.IGNORECASE,
             )
@@ -86,19 +87,22 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("capacity", match_ecp5.group(2) + "k")
                 set_if_not_exist("speed", match_ecp5.group("sp"))
                 set_if_not_exist("package", match_ecp5.group("pkg"))
-                set_if_not_exist("pins", int(match_ecp5.group("pin")))
+                set_if_not_exist("pins", int(match_ecp5.group("pins")))
                 set_if_not_exist("grade", match_ecp5.group("gr"))
                 return values
             # Commercial Xilinx # Generation # Family # Logic Cells in 1K units # Speed Grade (-1 slowest, L: low-power) # Package Type
             match_xc7 = re.match(
-                r"^(XC)(?P<g>\d)(?P<f>[A-Z])(?P<lc>\d+)-(?P<s>-L?\d)(?P<pkg>[A-Z][A-Z][A-Z]+)(?P<pin>\d\d+)(?P<gr>[A-Z]?)$",
+                r"^(XC)(?P<g>\d)(?P<f>[A-Z])(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",
                 part,
                 flags=re.IGNORECASE,
             )
+            print(f"_fpga_root_validator: values={values} match_xc7={match_xc7}", file = stderr)
+            if match_xc7:
+                print(f"_fpga_root_validator: matches={match_xc7.groupdict() }", file = stderr)
             if match_xc7:
                 set_if_not_exist("vendor", "xilinx")
                 set_if_not_exist("generation", match_xc7.group("g"))
-                set_xc_family(match_xc7.group("f"))
+                set_xc_family(match_xc7.group("f") + "-7")
                 lc = match_xc7.group("lc")
                 set_if_not_exist(
                     "device",
@@ -108,19 +112,19 @@ class FPGA(XedaBaseModel):
                     + lc,
                 )
                 set_if_not_exist("capacity", lc + "K")
-                set_if_not_exist("package", int(match_xc7.group("pkg")))
+                set_if_not_exist("package", match_xc7.group("pkg"))
                 set_if_not_exist("pins", int(match_xc7.group("pins")))
                 set_if_not_exist("grade", match_xc7.group("gr"))
                 return values
             match_us = re.match(
-                r"^(XC)(?P<f>[A-Z])(?P<g>[A-Z]+)(?P<lc>\d+)-(?P<s>-L?\d)(?P<pkg>[A-Z][A-Z][A-Z]+)(?P<pin>\d\d+)(?P<gr>[A-Z]?)$",
+                r"^(XC)(?P<f>[A-Z])(?P<g>[A-Z]+)(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z][A-Z][A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",
                 part,
                 flags=re.IGNORECASE,
             )
             if match_us:
                 set_if_not_exist("vendor", "xilinx")
                 set_if_not_exist("generation", match_us.group("g"))
-                set_xc_family(match_us.group("f"))
+                set_xc_family(match_us.group("f") + "-us")
                 lc = match_us.group("lc")
                 set_if_not_exist(
                     "device",
@@ -134,14 +138,14 @@ class FPGA(XedaBaseModel):
             # UltraSCALE+
             # capacity is index to table, roughly x100K LCs
             match_usp = re.match(
-                r"^(XC)(?P<f>[A-Z])U(?P<lc>\d+)P-(?P<s>-L?\d)(?P<pkg>[A-Z][A-Z][A-Z]+)(?P<pin>\d\d+)(?P<gr>[A-Z]?)$",
+                r"^(XC)(?P<f>[A-Z])U(?P<lc>\d+)P-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",
                 part,
                 flags=re.IGNORECASE,
             )
             if match_usp:
                 set_if_not_exist("vendor", "xilinx")
                 set_if_not_exist("generation", "usp")
-                set_xc_family(match_usp.group("f"))
+                set_xc_family(match_usp.group("f") + "-usp")
                 lc = match_usp.group("lc")
                 set_if_not_exist("capacity", lc)
                 set_if_not_exist(
