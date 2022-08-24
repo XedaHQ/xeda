@@ -79,7 +79,9 @@ class XedaBaseModel(BaseModel):
         validate_assignment = True
         extra = Extra.forbid
         arbitrary_types_allowed = True
-        keep_untouched = (cached_property,) # https://github.com/samuelcolvin/pydantic/issues/1241
+        keep_untouched = (
+            cached_property,
+        )  # https://github.com/samuelcolvin/pydantic/issues/1241
         use_enum_values = True
 
     # def validate(self):

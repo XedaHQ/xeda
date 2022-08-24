@@ -48,8 +48,7 @@ class Yosys(SynthFlow):
         read_verilog_flags: List[str] = [
             "-noautowire",
         ]
-        read_systemverilog_flags: List[str] = [
-        ]
+        read_systemverilog_flags: List[str] = []
         read_liberty_flags: List[str] = []
         synth_flags: List[str] = []
         abc_flags: List[str] = []
@@ -172,9 +171,7 @@ class Yosys(SynthFlow):
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
 
-        yosys_family_name = {
-            "artix-7" : "xc7"
-        }
+        yosys_family_name = {"artix-7": "xc7"}
 
         ss = self.settings
         if ss.fpga:

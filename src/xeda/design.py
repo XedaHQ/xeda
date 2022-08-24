@@ -84,7 +84,7 @@ class FileResource:
             raise e from None
 
     @cached_property
-    def hash(self) -> str:
+    def content_hash(self) -> str:
         """return hash of file content"""
         with open(self.file, "rb") as f:
             return hashlib.sha3_256(f.read()).hexdigest()
@@ -92,11 +92,13 @@ class FileResource:
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, FileResource):
             return False
-        return self.hash == other.hash and self.file.samefile(other.file)
+        return self.content_hash == other.content_hash and self.file.samefile(
+            other.file
+        )
 
     def __hash__(self) -> int:
         # path is already absolute
-        return hash((self.hash, str(self.file)))
+        return hash((self.content_hash, str(self.file)))
 
     def __str__(self) -> str:
         return str(self.file)
@@ -368,10 +370,10 @@ class Design(XedaBaseModel):
                 file=str(design_file),
             ) from None
 
-    @property
-    def rtl_fingerprint(self) -> dict:
+    @cached_property
+    def rtl_fingerprint(self) -> dict[str, dict[str, str]]:
         return {
-            "sources": {str(src._path): src.hash for src in self.rtl.sources},
+            "sources": {str(src._path): src.content_hash for src in self.rtl.sources},
             "parameters": {p: str(v) for p, v in self.rtl.parameters.items()},
         }
 
@@ -380,15 +382,16 @@ class Design(XedaBaseModel):
         # assumptions:
         #  - source file names/paths do not matter
         #  - order of sources does not matter
-        #       -> alphabetically sort all file hashes
-        hashes = list(sorted(src.hash for src in self.rtl.sources))
-        param_strs = [f"{p}={v}" for p, v in self.rtl.parameters.items()]
+        #       -> alphabetically sort all file _hashes_
+        #  - order of parameters does not matter
+        hashes = list(sorted(self.rtl_fingerprint["sources"].values()))
+        param_strs = [f"{p}={v}" for p, v in sorted(self.rtl.parameters.items())]
         r = bytes(", ".join(hashes + param_strs), "utf-8")
         return hashlib.sha3_256(r).hexdigest()
 
-    @property
+    @cached_property
     def tb_hash(self) -> str:
-        hashes = list(sorted(src.hash for src in self.tb.sources))
+        hashes = list(sorted(src.content_hash for src in self.tb.sources))
         param_strs = [f"{p}={v}" for p, v in self.tb.parameters.items()]
         r = bytes(", ".join(hashes + param_strs), "utf-8")
         return hashlib.sha3_256(r).hexdigest()

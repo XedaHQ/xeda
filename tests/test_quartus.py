@@ -77,7 +77,7 @@ def _test_parse_reports():
     root_dir = Path("/Users/kamyar/src/xeda/examples/vhdl/pipeline")
     design = Design.from_toml(root_dir / "pipelined_adder.toml")
     run_path = root_dir / "xeda_run/pipelined_adder/quartus"
-    settings = Quartus.Settings(fpga={"part": "10CL016YU256C6G"}, clock_period=15)
+    settings = Quartus.Settings(fpga={"part": "10CL016YU256C6G"}, clock_period=15)  # type: ignore
     flow = Quartus(settings, design, run_path=run_path)
     flow.init()
     flow.parse_reports()

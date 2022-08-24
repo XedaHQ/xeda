@@ -252,13 +252,13 @@ def run(
         design = xeda_project.get_design(design_name)
         if not design:
             if design_name:
-                    log.critical(
-                        'Design "%s" not found in %s. Available designs are: %s',
-                        design_name,
-                        xedaproject,
-                        ", ".join(xeda_project.design_names),
-                    )
-                    sys.exit(1)
+                log.critical(
+                    'Design "%s" not found in %s. Available designs are: %s',
+                    design_name,
+                    xedaproject,
+                    ", ".join(xeda_project.design_names),
+                )
+                sys.exit(1)
             else:
                 if console.is_interactive:
                     terminal_menu = TerminalMenu(

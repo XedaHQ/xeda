@@ -217,8 +217,14 @@ class FlowRunner:
 
         flow_name = flow_class.name
         # GOTCHA: design contains tb settings even for simulation flows
-        # removing tb from hash for sim flows creates a mismatch for different flows of the same design
-        design_hash = _semantic_hash(design)
+        # OTOH removing tb from hash for sim flows creates a mismatch for different flows of the same design
+        design_hash = _semantic_hash(
+            dict(
+                # design=design, 
+                rtl_hash=design.rtl_hash, ## TODO WHY?!!
+                tb_hash=design.tb_hash
+            )
+        )
         flowrun_hash = _semantic_hash(
             dict(
                 flow_name=flow_name,

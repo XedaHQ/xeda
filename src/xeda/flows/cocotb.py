@@ -78,7 +78,9 @@ class Cocotb(CocotbSettings, Tool):
         ret = {}
         if design.tb.cocotb:
             if design.tb is None or not design.tb.sources:
-                raise ValueError("'design.tb.cocotb' is true, but 'design.tb.sources' is empty.")
+                raise ValueError(
+                    "'design.tb.cocotb' is true, but 'design.tb.sources' is empty."
+                )
             assert design.tb.top, "tb.top was not set by the parent SimFlow"
             coco_module = design.tb.sources[0].file.stem
             tb_top_path = design.tb.sources[0].file.parent
