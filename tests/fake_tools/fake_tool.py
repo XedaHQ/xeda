@@ -16,9 +16,7 @@ from typing import (
     runtime_checkable,
 )
 from zipfile import ZipFile
-
 import click
-
 from xeda.dataclass import asdict, XedaBaseModel
 
 log = logging.getLogger()
@@ -76,6 +74,7 @@ class TouchFiles(Executer):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch(exist_ok=True)
         return 0
+
 
 class FakeTool(XedaBaseModel):
     version: Optional[str] = None

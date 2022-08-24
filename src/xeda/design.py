@@ -375,7 +375,7 @@ class Design(XedaBaseModel):
             "parameters": {p: str(v) for p, v in self.rtl.parameters.items()},
         }
 
-    @property
+    @cached_property
     def rtl_hash(self) -> str:
         # assumptions:
         #  - source file names/paths do not matter
@@ -385,7 +385,6 @@ class Design(XedaBaseModel):
         param_strs = [f"{p}={v}" for p, v in self.rtl.parameters.items()]
         r = bytes(", ".join(hashes + param_strs), "utf-8")
         return hashlib.sha3_256(r).hexdigest()
-
 
     @property
     def tb_hash(self) -> str:

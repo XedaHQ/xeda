@@ -80,6 +80,11 @@ class FPGA(XedaBaseModel):
                 flags=re.IGNORECASE,
             )
             if match_ecp5:
+                log.debug(
+                    "Lattice ECP5 attributes extracted from part# (%s): %s",
+                    part,
+                    match_ecp5.groupdict(),
+                )
                 set_if_not_exist("vendor", "lattice")
                 set_if_not_exist("family", "ecp5")
                 set_if_not_exist("type", match_ecp5.group(1).lower())
@@ -96,10 +101,12 @@ class FPGA(XedaBaseModel):
                 part,
                 flags=re.IGNORECASE,
             )
-            print(f"_fpga_root_validator: values={values} match_xc7={match_xc7}", file = stderr)
             if match_xc7:
-                print(f"_fpga_root_validator: matches={match_xc7.groupdict() }", file = stderr)
-            if match_xc7:
+                log.debug(
+                    "Xilinx/AMD series-7 attributes extracted from part# (%s): %s",
+                    part,
+                    match_xc7.groupdict(),
+                )
                 set_if_not_exist("vendor", "xilinx")
                 set_if_not_exist("generation", match_xc7.group("g"))
                 set_xc_family(match_xc7.group("f") + "-7")
@@ -122,6 +129,11 @@ class FPGA(XedaBaseModel):
                 flags=re.IGNORECASE,
             )
             if match_us:
+                log.debug(
+                    "Xilinx/AMD Ultrascale attributes extracted from part# (%s): %s",
+                    part,
+                    match_us.groupdict(),
+                )
                 set_if_not_exist("vendor", "xilinx")
                 set_if_not_exist("generation", match_us.group("g"))
                 set_xc_family(match_us.group("f") + "-us")
@@ -143,6 +155,11 @@ class FPGA(XedaBaseModel):
                 flags=re.IGNORECASE,
             )
             if match_usp:
+                log.debug(
+                    "Xilinx/AMD Ultrascale+ attributes extracted from part# (%s): %s",
+                    part,
+                    match_usp.groupdict(),
+                )
                 set_if_not_exist("vendor", "xilinx")
                 set_if_not_exist("generation", "usp")
                 set_xc_family(match_usp.group("f") + "-usp")

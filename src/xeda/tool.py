@@ -295,15 +295,8 @@ class Tool(XedaBaseModeAllowExtra):
         return value
 
     @cached_property
-    def _info(self) -> Dict[str, str]:
-        log.warning("Tool.info is not implemented for %s", self.__class__.__name__)
-        return {}
-
-    @property  # pydantic can't handle cached_property as private
     def info(self) -> Dict[str, str]:
-        inf = self._info
-        inf["version"] = ".".join(self.version)
-        return inf
+        return {"version": ".".join(self.version)}
 
     @cached_property
     def _version(self) -> Tuple[str, ...]:

@@ -48,6 +48,8 @@ class Yosys(SynthFlow):
         read_verilog_flags: List[str] = [
             "-noautowire",
         ]
+        read_systemverilog_flags: List[str] = [
+        ]
         read_liberty_flags: List[str] = []
         synth_flags: List[str] = []
         abc_flags: List[str] = []
@@ -90,6 +92,7 @@ class Yosys(SynthFlow):
         splitnets: Optional[List[str]] = None  # ['-driver']
         set_attributes: Dict[str, Dict[str, Any]] = {}
         stop_after: Optional[Literal["rtl"]]
+        plugins: List[str] = ["systemverilog"]
 
         @validator("write_verilog_flags", pre=False)
         def validate_write_verilog_flags(cls, value, values):  # type: ignore
