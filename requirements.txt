@@ -47,7 +47,7 @@ psutil==5.9.1
     # via xeda (setup.cfg)
 pure-eval==0.2.2
     # via varname
-pydantic==1.9.1
+pydantic==1.9.2
     # via xeda (setup.cfg)
 pygments==2.12.0
     # via rich
