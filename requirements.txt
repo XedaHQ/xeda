@@ -4,7 +4,7 @@
 #
 #    pip-compile setup.cfg
 #
-asttokens==2.0.5
+asttokens==2.0.8
     # via varname
 attrs==21.4.0
     # via
