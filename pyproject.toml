@@ -48,7 +48,7 @@ changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
 # xeda = "xeda:cli.cli"
 
 [build-system]
-requires = ["setuptools >= 61", "wheel", "setuptools_scm[toml] >= 6.2"]
+requires = ["setuptools>=61", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
