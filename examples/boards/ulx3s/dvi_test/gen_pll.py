@@ -9,4 +9,4 @@ log.root.setLevel(logging.DEBUG)
 f_pixel = 25.0
 
 if __name__ == "__main__":
-    EcpPLL(clkouts=[600]).generate() # type: ignore
+    EcpPLL(clkouts=[600]).generate()  # type: ignore

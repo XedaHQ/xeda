@@ -2,7 +2,6 @@ import os
 import random
 
 import cocotb
-from box import Box
 from cocolight import DUT, DutClock, DutReset, ValidReadyTb, cocotest
 
 NUM_TV = int(os.environ.get("NUM_TV", 2000))

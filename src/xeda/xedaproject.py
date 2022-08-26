@@ -7,7 +7,6 @@ from typing import Dict, List, Optional, Union
 
 import attrs
 import yaml
-from attrs_strict import type_validator
 
 from .design import Design
 from .utils import WorkingDirectory, tomllib
