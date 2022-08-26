@@ -246,12 +246,12 @@ class GhdlSynth(Ghdl, SynthFlow):
         ss: Settings, design: Design, one_shot_elab: bool = True, top: Tuple012 = ()
     ) -> List[str]:
         flags = ss.get_flags(design.language.vhdl, "elaborate")
-        flags += setting_flag(ss.vendor_library)
-        flags += setting_flag(ss.out)
-        flags += setting_flag(ss.no_formal)
-        flags += setting_flag(ss.no_assert_cover)
-        flags += setting_flag(ss.assert_assumes)
-        flags += setting_flag(ss.assume_asserts)
+        flags += setting_flag(ss.vendor_library, name="vendor_library")
+        flags += setting_flag(ss.out, name="out")
+        flags += setting_flag(ss.no_formal, name="no_formal")
+        flags += setting_flag(ss.no_assert_cover, name="no_assert_cover")
+        flags += setting_flag(ss.assert_assumes, name="assert_assumes")
+        flags += setting_flag(ss.assume_asserts, name="assume_asserts")
 
         flags.extend(ss.generics_flags(design.rtl.generics))
         if one_shot_elab:
@@ -361,10 +361,10 @@ class GhdlSim(Ghdl, SimFlow):
                 run_flags.append(f"--vcd={ss.vcd}")
             log.warning("Dumping VCD to %s", fp(ss.vcd))
         if ss.fst:
-            run_flags += setting_flag(ss.fst)
+            run_flags += setting_flag(ss.fst, name="fst")
             log.warning("Dumping fst to %s", fp(ss.fst))
         if ss.wave:
-            run_flags += setting_flag(ss.wave)
+            run_flags += setting_flag(ss.wave, name="wave")
             log.warning("Dumping GHW to %s", fp(ss.wave))
 
         if ss.wave or ss.vcd or ss.fst:
@@ -376,7 +376,7 @@ class GhdlSim(Ghdl, SimFlow):
             if p.exists():
                 log.warning("Deleting existing wave option file: %s", p)
                 p.unlink()
-        run_flags += setting_flag(ss.write_wave_opt)
+        run_flags += setting_flag(ss.write_wave_opt, name="write_wave_opt")
         if ss.read_wave_opt:
             if not Path(ss.read_wave_opt).exists():  # TODO move to validation
                 raise FlowSettingsError(
@@ -389,10 +389,10 @@ class GhdlSim(Ghdl, SimFlow):
                     ],
                     self.Settings,
                 )
-        run_flags += setting_flag(ss.read_wave_opt)
-        run_flags += setting_flag(ss.disp_tree)
-        run_flags += setting_flag(ss.asserts)
-        run_flags += setting_flag(ss.ieee_asserts)
+        run_flags += setting_flag(ss.read_wave_opt, name="read_wave_opt")
+        run_flags += setting_flag(ss.disp_tree, name="disp_tree")
+        run_flags += setting_flag(ss.asserts, name="asserts")
+        run_flags += setting_flag(ss.ieee_asserts, name="ieee_asserts")
 
         vpi = (
             []
@@ -408,7 +408,7 @@ class GhdlSim(Ghdl, SimFlow):
             design.tb.generics = design.rtl.generics
             if not design.tb.top:
                 design.tb.top = (design.rtl.top,)
-        run_flags += setting_flag(vpi)
+        run_flags += setting_flag(vpi, name="vpi")
 
         if ss.debug:
             run_flags.extend(
@@ -418,8 +418,8 @@ class GhdlSim(Ghdl, SimFlow):
                 ]
             )
 
-        run_flags += setting_flag(ss.stop_time)
-        run_flags += setting_flag(ss.stop_delta)
+        run_flags += setting_flag(ss.stop_time, name="stop_time")
+        run_flags += setting_flag(ss.stop_delta, name="stop_delta")
 
         run_flags.extend(ss.generics_flags(design.tb.generics))
 

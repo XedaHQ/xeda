@@ -26,7 +26,10 @@ authors = [ #
   { email = "kammoh@gmail.com" },
 ]
 classifiers = [
-  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Development Status :: 4 - Beta",
   "License :: OSI Approved :: Apache Software License",
   "Intended Audience :: Science/Research",
@@ -48,7 +51,7 @@ changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
 # xeda = "xeda:cli.cli"
 
 [build-system]
-requires = ["setuptools >= 61", "wheel", "setuptools_scm[toml] >= 6.2"]
+requires = ["setuptools>=61", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
