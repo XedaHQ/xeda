@@ -35,7 +35,7 @@ humanfriendly==10.0
     # via coloredlogs
 jinja2==3.1.2
     # via xeda (setup.cfg)
-junitparser==2.7.0
+junitparser==2.8.0
     # via xeda (setup.cfg)
 markupsafe==2.1.1
     # via jinja2
