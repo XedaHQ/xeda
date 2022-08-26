@@ -57,7 +57,7 @@ pyvcd==0.3.0
     # via xeda (setup.cfg)
 pyyaml==6.0
     # via xeda (setup.cfg)
-rich==12.4.4
+rich==12.5.1
     # via xeda (setup.cfg)
 simple-term-menu==1.5.0
     # via xeda (setup.cfg)
