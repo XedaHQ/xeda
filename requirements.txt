@@ -71,5 +71,5 @@ typing-extensions==4.3.0
     # via pydantic
 typing-utils==0.1.0
     # via overrides
-varname==0.8.3
+varname==0.9.0
     # via xeda (setup.cfg)
