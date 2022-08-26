@@ -39,7 +39,7 @@ junitparser==2.7.0
     # via xeda (setup.cfg)
 markupsafe==2.1.1
     # via jinja2
-overrides==6.1.0
+overrides==6.2.0
     # via xeda (setup.cfg)
 pathvalidate==2.5.0
     # via xeda (setup.cfg)
