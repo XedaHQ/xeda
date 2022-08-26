@@ -41,7 +41,7 @@ markupsafe==2.1.1
     # via jinja2
 overrides==6.1.0
     # via xeda (setup.cfg)
-pathvalidate==2.5.0
+pathvalidate==2.5.2
     # via xeda (setup.cfg)
 psutil==5.9.1
     # via xeda (setup.cfg)
