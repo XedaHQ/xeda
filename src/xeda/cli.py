@@ -9,7 +9,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import click
 import coloredlogs
@@ -382,7 +382,7 @@ def dse(ctx, flow, max_cpus):  # pylint: disable=unused-argument
     """Design-space exploration (e.g. fmax)"""
 
 
-SHELLS = {
+SHELLS: dict[str, dict[str, Any]] = {
     "bash": {
         "eval_file": "~/.bashrc",
         "eval": 'eval "$(_XEDA_COMPLETE=bash_source xeda)"',
@@ -435,6 +435,7 @@ def completion(_ctx: click.Context, stdout, shell=None):
             console.print(
                 f"[yellow]WARNING:[/] Current default shell ([bold]{os_default_shell}[/]) is different from the specified shell [bold]{shell}[/b]"
             )
+    assert shell is not None
     if stdout:
         completion_class = get_completion_class(shell)
         if completion_class:
@@ -443,12 +444,13 @@ def completion(_ctx: click.Context, stdout, shell=None):
             )
             print(complete.source())
     else:
+        shell_desc = SHELLS.get(shell, {})
         console.print(
             f"""
     Make sure 'xeda' executable is properly installed and is accessible through the shell's PATH.
         [yellow]$ xeda --version[/]
-    Add the following line to [magenta underline]{SHELLS[shell]['eval_file']}[/]:
-        {SHELLS[shell]['eval']}
+    Add the following line to [magenta underline]{shell_desc.get('eval_file')}[/]:
+        {shell_desc.get('eval')}
             """,
             highlight=False,
         )
