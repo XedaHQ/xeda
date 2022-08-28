@@ -37,7 +37,7 @@ class GhdlTool(Tool):
     executable = "ghdl"
 
     @cached_property
-    def _info(self) -> Dict[str, str]:
+    def info(self) -> Dict[str, str]:
         out = self.run_get_stdout(
             "--version",
         )
@@ -414,7 +414,11 @@ class GhdlSim(Ghdl, SimFlow):
             run_flags.extend(
                 [
                     "--trace-processes",
+                    "--trace-signals",
                     "--checks",
+                    "--disp-sig-types",
+                    "--stats",
+                    "--dump-rti",
                 ]
             )
 
