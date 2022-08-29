@@ -1,9 +1,5 @@
 name: Upload 📦 to PyPI
-on: 
-  push:
-    branches:
-      - main
-      - dev
+on: push
 jobs:
   deploy:
     runs-on: ubuntu-latest
