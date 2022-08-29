@@ -134,7 +134,6 @@ def cli(ctx: click.Context, **kwargs):
 )
 @click.option(
     "--cached-dependencies",
-    is_flag=True,
     default=True,
     help="Don't run dependency flows if a previous successfull run on the same design and flow settings exists. Generated directory names will contain a hash of design and/or flow settings.",
 )
