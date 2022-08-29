@@ -3,13 +3,9 @@ import logging
 from typing import Any, Dict
 from xml.etree import ElementTree
 
-from xeda.flows.flow import Flow, SimFlow
-from xeda.flows.vivado.vivado_sim import VivadoSim
-
-from ...dataclass import Field
+from .vivado_sim import VivadoSim
 from .vivado_postsynthsim import VivadoPostsynthSim
 from .vivado_synth import VivadoSynth
-from ..vivado import Vivado
 
 logger = logging.getLogger(__name__)
 
