@@ -78,7 +78,7 @@ class Vivado(Flow, metaclass=ABCMeta):
     def parse_xml_report(report_xml) -> Optional[Dict[str, Any]]:
         try:
             tree = ElementTree.parse(report_xml)
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             log.critical("File %s not found.", report_xml)
             return None
         except ElementTree.ParseError as e:
