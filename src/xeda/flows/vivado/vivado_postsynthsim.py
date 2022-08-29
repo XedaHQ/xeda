@@ -1,9 +1,11 @@
 import logging
+from typing import Optional
 
 from xeda.flows.flow import FlowFatalError
 
 from ...design import DesignSource, RtlSettings
 from ...utils import SDF
+from ...dataclass import Field
 from .vivado_sim import VivadoSim
 from .vivado_synth import VivadoSynth
 
@@ -20,16 +22,31 @@ class VivadoPostsynthSim(VivadoSim):
     class Settings(VivadoSim.Settings):
         synth: VivadoSynth.Settings
         timing_sim: bool = False
-        enforce_io_delay: bool = True
+        enforce_io_delay: Optional[bool] = Field(
+            description="Force default I/O delays if no I/O delay is given"
+        )
 
     def init(self) -> None:
         ss = self.settings
         assert isinstance(ss, self.Settings)
+        if ss.timing_sim and ss.enforce_io_delay is None:
+            ss.enforce_io_delay = True
+
         if ss.enforce_io_delay:
-            # Force 0 I/O delay if no I/O delay is given
-            # This seems to be required to meet timing
+            # Assuming ideal outputs i.e. output_delay = 0.0
+            # To meet hold time, all inputs should remain stable for t_h after clock edge.
+            # A common method to ensure that is to set a delay equal to a fraction the clock period for all inputs in the simulation testbench.
+            # The delay should be set to be higher than t_h, but OTOH should not increase the critical path delay.
+            # Fractions of 1/4 to 1/2 of clock period are commonly used.
+            # We assume such a delay is appropriately present in the testbench, and add a corresponding input delay constraint to make sure the input path max-delay (setup time) is met as well.
+
             if ss.synth.input_delay is None:
-                ss.synth.input_delay = 0.0
+                input_delay = 0.0
+                # need to explicitly set synth.input_delay if this input is being captured by a different clock
+                main_clock = ss.synth.clocks.get("main_clock")
+                if main_clock:
+                    input_delay = 0.25 * main_clock.period
+                ss.synth.input_delay = input_delay
             if ss.synth.output_delay is None:
                 ss.synth.output_delay = 0.0
         self.add_dependency(VivadoSynth, ss.synth)

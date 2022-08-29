@@ -25,7 +25,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         """Settings for Vivado synthesis in project mode"""
 
         # FIXME implement and verify all
-        checkpoints_dir: str = "checkpoints"
         fail_critical_warning = Field(
             False,
             description="flow fails if any Critical Warnings are reported by Vivado",

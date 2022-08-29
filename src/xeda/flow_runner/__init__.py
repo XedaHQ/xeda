@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
 from typing import Any, Dict, Mapping, Optional, Set, Type, Union
+from box import Box
 
 # fmt: off
 from pathvalidate import sanitize_filename  # pyright: reportPrivateImportUsage=none
@@ -266,7 +267,7 @@ class FlowRunner:
                     and prev_settings.get("design_hash") == design_hash
                     and prev_settings.get("flowrun_hash") == flowrun_hash
                 ):
-                    previous_results = prev_results
+                    previous_results = Box(prev_results)
                 else:
                     log.warning(
                         "%s does not contain the expected settings", prev_settings
@@ -327,7 +328,7 @@ class FlowRunner:
 
         if previous_results:
             log.warning("Using previous run results and artifacts from %s", run_path)
-            flow.results = previous_results
+            flow.results.update(**previous_results)
         else:
             with WorkingDirectory(run_path):
                 try:
@@ -359,7 +360,6 @@ class FlowRunner:
             print(f"Generated artifacts in {flow.run_path}:")  # FIXME
             print_json(data=flow.artifacts, default=default_encoder)  # FIXME
 
-        flow.results.success = success
         if not success:
             # set success=false if execution failed
             log.critical("%s failed!", flow.name)
