@@ -29,8 +29,8 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         fail_critical_warning = Field(
             False,
             description="flow fails if any Critical Warnings are reported by Vivado",
-        )
-        fail_timing = Field(True, description="flow fails if timing is not met")
+        )  # type: ignore
+        fail_timing = Field(True, description="flow fails if timing is not met")  # type: ignore
         optimize_power = False
         optimize_power_postplace = False
         blacklisted_resources: List[str] = Field(  # TODO: remove
@@ -220,8 +220,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                             path,
                             report_file,
                         )
-
-        self.results["_utilization"] = utilization
+            self.results["_utilization"] = utilization
 
         assert isinstance(self.settings, self.Settings)
 

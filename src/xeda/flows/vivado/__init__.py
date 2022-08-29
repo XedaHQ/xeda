@@ -70,7 +70,7 @@ class Vivado(Flow, metaclass=ABCMeta):
                 image="pwang7/vivado_ubuntu",
                 tag="standard-2021.2",
                 enabled=self.settings.dockerized,
-            ),
+            ),  # type: ignore
         )
         self.add_template_filter("vivado_generics", vivado_generics)
 
@@ -78,6 +78,9 @@ class Vivado(Flow, metaclass=ABCMeta):
     def parse_xml_report(report_xml) -> Optional[Dict[str, Any]]:
         try:
             tree = ElementTree.parse(report_xml)
+        except FileNotFoundError as e:
+            log.critical("File %s not found.", report_xml)
+            return None
         except ElementTree.ParseError as e:
             log.critical("Parsing %s failed: %s", report_xml, e.msg)
             return None
