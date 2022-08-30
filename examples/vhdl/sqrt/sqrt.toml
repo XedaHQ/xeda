@@ -13,3 +13,11 @@ parameters = { G_IN_WIDTH = 32 }
 sources = ["tb_sqrt.py"]
 cocotb = true
 # top = "tb_sqrt"  # FIXME
+
+[flows.vivado_synth]
+fpga.part = 'xc7a12tcsg325-1'
+clock_period = 5.0
+
+[flows.vivado_alt_synth]
+fpga.part = 'xc7a12tcsg325-1'
+clock_period = 5.0

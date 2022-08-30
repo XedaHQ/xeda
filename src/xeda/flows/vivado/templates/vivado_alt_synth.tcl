@@ -7,7 +7,7 @@ set nthreads              {{settings.nthreads}}
 set fail_critical_warning {{settings.fail_critical_warning}}
 
 set reports_dir           {{settings.reports_dir}}
-set settings.outputs_dir  {{settings.settings.outputs_dir}}
+set settings.outputs_dir  {{settings.outputs_dir}}
 set checkpoints_dir       {{settings.checkpoints_dir}}
 set fpga_part             {{settings.fpga.part}}
 
@@ -56,20 +56,17 @@ puts "Targeting device: $fpga_part"
 set vhdl_std_opt [expr {$vhdl_std == "08" ?  "-vhdl2008": ""}];
 
 {% for src in design.rtl.sources %}
-{%- if src.type == 'verilog' %}
-{%- if src.variant == 'systemverilog' %}
+{%- if src.type == 'systemverilog' %}
 puts "Reading SystemVerilog file {{src.file}}"
 if { [catch {eval read_verilog -sv {{src.file}} } myError]} {
     errorExit $myError
 }
-{% else %}
+{% elif src.type == 'verilog' %}
 puts "Reading Verilog file {{src.file}}"
 if { [catch {eval read_verilog {{src.file}} } myError]} {
     errorExit $myError
 }
-{%- endif %}
-{%- endif %}
-{% if src.type == 'vhdl' -%}
+{% elif src.type == 'vhdl' -%}
 puts "Reading VHDL file {{src.file}} ${vhdl_std_opt}"
 if { [catch {eval read_vhdl ${vhdl_std_opt} {{src.file}} } myError]} {
     errorExit $myError
@@ -80,6 +77,7 @@ if { [catch {eval read_vhdl ${vhdl_std_opt} {{src.file}} } myError]} {
 # TODO: Skip saving some artifects in case timing not met or synthesis failed for any reason
 
 {% for xdc_file in xdc_files -%}
+puts "Reading XDC file {{xdc_file}}"
 read_xdc {{xdc_file}}
 {% endfor %}
 
@@ -195,9 +193,9 @@ if {[string is double -strict $timing_slack]} {
         exit 1
     {% endif %}
     }
-} 
+}
 
-{%- if settings.write_netlist -%}
+{% if settings.write_netlist %}
 puts "\n==========================( Writing Netlist and SDF )============================="
 write_sdf -mode timesim -process_corner slow -force -file ${settings.outputs_dir}/impl_timesim.sdf
 # should match sdf
