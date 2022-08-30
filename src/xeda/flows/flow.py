@@ -108,6 +108,7 @@ class Flow(metaclass=ABCMeta):
         )
         no_console: bool = Field(False, hidden_from_schema=True)
         reports_dir: str = Field("reports", hidden_from_schema=True)
+        checkpoints_dir: str = Field("checkpoints", hidden_from_schema=True)
         outputs_dir: str = Field("outputs", hidden_from_schema=True)
         clean: bool = False  # TODO remove!
         lib_paths: List[
