@@ -73,7 +73,7 @@ class Docker(XedaBaseModel):
     def cpuinfo(self) -> Optional[List[List[str]]]:
         try:
             ret = self._run_docker("cat", "/proc/cpuinfo", stdout=True)
-        except Exception as e:
+        except Exception:
             return None
         assert ret is not None
         return [x.split("\n") for x in re.split(r"\n\s*\n", ret, re.MULTILINE)]
@@ -117,7 +117,7 @@ class Docker(XedaBaseModel):
         env: Optional[Dict[str, Any]] = None,
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
-        root_dir: OptionalPath,
+        root_dir: OptionalPath = None,
     ) -> Union[None, str]:
         cwd = Path.cwd()
         docker_args = [
