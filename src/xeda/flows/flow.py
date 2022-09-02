@@ -142,6 +142,11 @@ class Flow(metaclass=ABCMeta):
                     validation_errors(e.errors()), e.model, e.json()  # type: ignore
                 ) from e
 
+    def run_tool(self, tool: Tool):
+        """run a tool"""
+        tool.design_root = self.design_root
+        tool.run()
+
     @property
     def succeeded(self) -> bool:
         return self.results.success
@@ -196,6 +201,7 @@ class Flow(metaclass=ABCMeta):
         self.settings = settings
         # assert isinstance(self.settings, self.Settings)
         self.design: Design = design
+        self.design_root = design._design_root
 
         self.init_time: Optional[float] = None
         self.timestamp: Optional[str] = None
