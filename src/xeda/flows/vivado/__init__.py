@@ -68,9 +68,11 @@ class Vivado(Flow, metaclass=ABCMeta):
             default_args=default_args,
             docker=Docker(
                 image="siliconbootcamp/xilinx-vivado",
+                command=["/tools/Xilinx/Vivado/2021.1/bin/vivado"],
                 tag="stable",
                 enabled=self.settings.dockerized,
             ),  # type: ignore
+            design_root=self.design_root,
         )
         self.add_template_filter("vivado_generics", vivado_generics)
 
