@@ -95,17 +95,13 @@ class XedaBaseModeAllowExtra(XedaBaseModel, metaclass=ABCMeta):
         extra = Extra.allow
 
 
-def error_type_and_context(error: Dict[str, Any]) -> str:
-    ctx = error.get("ctx", {})
-    return str(error.get("type")) + "".join(f"; {k}={v}" for k, v in ctx.items())
-
-
-def validation_errors(errors: List[Dict[str, Any]]) -> List[Tuple[str, str, str]]:
+def validation_errors(errors: List[Dict[str, Any]]) -> List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]]:
     return [
         (
             " -> ".join(str(loc) for loc in e.get("loc", [])),
-            e.get("msg", "???"),
-            error_type_and_context(e),
+            e.get("msg"),
+            "".join(f"; {k}={v}" for k, v in e.get("ctx", {}).items()),
+            e.get("type"),
         )
         for e in errors
     ]
