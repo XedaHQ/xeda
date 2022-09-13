@@ -98,7 +98,6 @@ def cli(ctx: click.Context, **kwargs):
         if ctx.obj.debug
         else logging.INFO
     )
-    print("log_level:", logging.getLevelName(log_level))
     log.root.setLevel(log_level)
 
     coloredlogs.install(

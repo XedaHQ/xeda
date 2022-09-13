@@ -57,8 +57,8 @@ set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
 set_property generic {% raw -%} { {%- endraw -%} {{ k }}={{ x }} {%- raw -%} } {%- endraw %} [current_fileset]
 {% endfor -%}
 
-#{# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_2/ug912-vivado-properties.pdf #}
-#{# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_2/ug835-vivado-tcl-commands.pdf #}
+#{# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
+#{# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug835-vivado-tcl-commands.pdf #}
 {% for step,options in settings.synth.steps.items() -%}
 {% for name,value in options.items() -%}
 {% if value is mapping %}
@@ -97,7 +97,10 @@ wait_on_run synth_1
 # renamed to wait_on_runs in Vivado 2021.2?!!
 
 puts "\n===========================( Running Implementation )=========================="
-launch_runs impl_1 -jobs {{settings.nthreads}} {%- if not settings.write_bitstream %} -to_step route_design {%- endif %}
+launch_runs impl_1 -jobs {{settings.nthreads}} {%- if not settings.bitstream %} -to_step route_design {%- endif %}
 wait_on_run impl_1
 
+{%- if settings.bitstream %}
+write_bitstream -verbose -force settings.bitstream
+{%- end if %}
 puts "\n====================================( DONE )==================================="

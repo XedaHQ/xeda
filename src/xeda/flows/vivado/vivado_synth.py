@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
 from ..flow import FpgaSynthFlow
@@ -42,18 +42,24 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         out_of_context: bool = False
         write_checkpoint: bool = False
         write_netlist: bool = True
-        write_bitstream: bool = False
+        bitstream: Union[None, str, os.PathLike] = None
         qor_suggestions: bool = False
+        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
         synth: RunOptions = RunOptions(
-            strategy="Flow_PerfOptimized_high",
+            # strategy="Flow_PerfOptimized_high", # no LUT combining, fanout limit: 400
+            strategy="Flow_AlternateRoutability",
             steps={
                 "SYNTH_DESIGN": {},
                 "OPT_DESIGN": {},
                 "POWER_OPT_DESIGN": {},
             },
         )
+        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug904-vivado-implementation.pdf
         impl: RunOptions = RunOptions(
-            strategy="Performance_ExploreWithRemap",
+            # strategy="Performance_ExploreWithRemap",
+            # strategy="Flow_RunPostRoutePhysOpt",
+            # strategy="Flow_RunPhysOpt",
+            strategy="Performance_ExtraTimingOpt",
             steps={
                 "PLACE_DESIGN": {},
                 "POST_PLACE_POWER_OPT_DESIGN": {},
@@ -61,6 +67,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 "ROUTE_DESIGN": {},
                 "WRITE_BITSTREAM": {},
             },
+        )
+        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug903-vivado-using-constraints.pdf
+        xdc_files: List[Union[str, os.PathLike, Path]] = Field(
+            [], description="List of XDC constraint files."
         )
 
         @validator("fpga")
@@ -129,8 +139,11 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             settings.synth.steps["SYNTH_DESIGN"]["MAX_DSP"] = 0
 
         reports_tcl = self.copy_from_template("vivado_report_helper.tcl")
+
+        xdc_files = settings.xdc_files
+        xdc_files.append(clock_xdc_path)
         script_path = self.copy_from_template(
-            "vivado_synth.tcl", xdc_files=[clock_xdc_path], reports_tcl=reports_tcl
+            "vivado_synth.tcl", xdc_files=xdc_files, reports_tcl=reports_tcl
         )
         self.vivado.run("-source", script_path)
 
@@ -224,31 +237,33 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
 
         if not failed:
-            for res in self.settings.blacklisted_resources:
-                res_util = self.results.get(res)
+            for resource in self.settings.blacklisted_resources:
+                res_util = self.results.get(resource)
                 if res_util is not None:
                     try:
-                        res_util = int(res_util)
+                        res_util = int(res_util)  # type: ignore
                         if res_util > 0:
                             log.critical(
                                 "%s utilization report lists %s use(s) of blacklisted resource: %s",
                                 report_stage,
                                 res_util,
-                                res,
+                                resource,
                             )
                             failed = True
                     except ValueError:
                         log.warning(
                             "Unknown utilization value: %s for blacklisted resource %s. Assuming results are not violating the blacklist criteria.",
                             res_util,
-                            res,
+                            resource,
                         )
 
             # TODO better fail analysis for vivado
-            if "wns" in self.results:
-                failed |= self.results["wns"] < 0
-            if "whs" in self.results:
-                failed |= self.results["whs"] < 0
+            wns = self.results.get("wns")
+            if wns is not None and isinstance(wns, (float, int, str)):
+                failed |= float(wns) < 0.0
+            whs = self.results.get("whs")
+            if whs is not None and isinstance(whs, (float, int, str)):
+                failed |= float(whs) < 0.0
             if "_failing_endpoints" in self.results:
                 failed |= self.results["_failing_endpoints"] != 0
 
