@@ -247,7 +247,7 @@ class Flow(metaclass=ABCMeta):
         log.info("No parse_reports action for %s", self.name)
         return True
 
-    def copy_from_template(self, resource_name, **kwargs) -> os.PathLike:
+    def copy_from_template(self, resource_name, **kwargs) -> Path:
         template = self.jinja_env.get_template(resource_name)
         script_path: Path = self.run_path / resource_name
         log.debug("generating %s from template.", str(script_path.resolve()))
@@ -328,6 +328,15 @@ class Flow(metaclass=ABCMeta):
                     )
                     return False
         return True
+
+    def normalize_path_to_design_root(
+        self, path: Union[str, os.PathLike, Path]
+    ) -> Path:
+        if not isinstance(path, Path):
+            path = Path(path)
+        if self.design._design_root and not path.is_absolute():
+            path = self.design._design_root / path
+        return path
 
 
 class SimFlow(Flow, metaclass=ABCMeta):

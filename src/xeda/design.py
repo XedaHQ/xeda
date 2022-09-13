@@ -83,6 +83,10 @@ class FileResource:
             log.critical("Design resource '%s' does not exist!", path)
             raise e from None
 
+    @property
+    def path(self) -> Path:
+        return self.file
+
     @cached_property
     def content_hash(self) -> str:
         """return hash of file content"""
@@ -121,15 +125,19 @@ class DesignSource(FileResource):
 
         def type_from_suffix(path: Path) -> Tuple[Optional[str], Optional[str]]:
             type_variants_map = {
-                ("vhdl", variant): ["vhd", "vhdl"],
-                ("verilog", variant): ["v"],
-                ("systemverilog", variant): ["sv"],
-                ("bsv", variant): ["bsv"],
-                ("bs", variant): ["bs"],
+                ("vhdl", None): ["vhd", "vhdl"],
+                ("verilog", None): ["v"],
+                ("systemverilog", None): ["sv"],
+                ("bluespec", "bsv"): ["bsv"],
+                ("bluespec", "bh"): ["bs", "bh"],
+                ("xdc", None): ["xdc"],
+                ("sdc", None): ["sdc"],
+                ("tcl", None): ["tcl"],
+                ("chisel", None): ["sc"],
             }
-            for h, suffixes in type_variants_map.items():
+            for (typ, vari), suffixes in type_variants_map.items():
                 if path.suffix[1:] in suffixes:
-                    return h
+                    return (typ, vari)
             return None, None
 
         self.type, self.variant = (typ, variant) if typ else type_from_suffix(self.file)

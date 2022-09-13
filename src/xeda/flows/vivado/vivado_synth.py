@@ -140,8 +140,13 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         reports_tcl = self.copy_from_template("vivado_report_helper.tcl")
 
-        xdc_files = settings.xdc_files
+        xdc_files = [p.file for p in self.design.rtl.sources if p.type == "xdc"]
+        xdc_files += [self.normalize_path_to_design_root(p) for p in settings.xdc_files]
+        assert (
+            clock_xdc_path not in xdc_files
+        ), f"XDC file {xdc_files} was already included."
         xdc_files.append(clock_xdc_path)
+
         script_path = self.copy_from_template(
             "vivado_synth.tcl", xdc_files=xdc_files, reports_tcl=reports_tcl
         )
