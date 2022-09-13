@@ -308,6 +308,7 @@ class Design(XedaBaseModel):
     rtl: RtlSettings
     tb: TbSettings = TbSettings()  # type: ignore
     language: Language = Language()
+    _design_root: Optional[Path] = None
 
     class Config(XedaBaseModel.Config):
         extra = Extra.allow
@@ -317,6 +318,14 @@ class Design(XedaBaseModel):
         design_root: Union[None, str, os.PathLike] = None,
         **data: Any,
     ) -> None:
+        if not design_root:
+            design_root = data.get("_design_root", Path.cwd())
+        assert design_root
+        if not isinstance(design_root, Path):
+            design_root = Path(design_root)
+        if not data.get("_design_root"):
+            data["_design_root"] = design_root
+
         with WorkingDirectory(design_root):
             try:
                 super().__init__(**data)

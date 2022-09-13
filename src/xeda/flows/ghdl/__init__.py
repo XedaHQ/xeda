@@ -385,6 +385,7 @@ class GhdlSim(Ghdl, SimFlow):
                             "read_wave_opt",
                             f"File {ss.read_wave_opt} does not exist",
                             None,
+                            None,
                         )
                     ],
                     self.Settings,

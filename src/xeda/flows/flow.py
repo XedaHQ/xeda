@@ -139,8 +139,13 @@ class Flow(metaclass=ABCMeta):
                 super().__init__(**data)
             except ValidationError as e:
                 raise FlowSettingsError(
-                    validation_errors(e.errors()), e.model  # type: ignore
+                    validation_errors(e.errors()), e.model, e.json()  # type: ignore
                 ) from e
+
+    def run_tool(self, tool: Tool):
+        """run a tool"""
+        tool.design_root = self.design_root
+        tool.run()
 
     @property
     def succeeded(self) -> bool:
@@ -196,6 +201,7 @@ class Flow(metaclass=ABCMeta):
         self.settings = settings
         # assert isinstance(self.settings, self.Settings)
         self.design: Design = design
+        self.design_root = design._design_root
 
         self.init_time: Optional[float] = None
         self.timestamp: Optional[str] = None
@@ -223,11 +229,13 @@ class Flow(metaclass=ABCMeta):
         self.completed_dependencies: List[Flow] = []
 
     def pop_dependency(self, typ: Type[T]) -> Flow:
-        assert inspect.isclass(typ) and issubclass(typ, Flow)
+        assert inspect.isclass(typ) and issubclass(
+            typ, Flow
+        ), f"{typ} is not a subclass of Flow"
         for i in range(len(self.completed_dependencies) - 1, -1, -1):
             if isinstance(self.completed_dependencies[i], typ):
                 dep = self.completed_dependencies.pop(i)
-                assert isinstance(dep, typ)
+                assert isinstance(dep, typ), f"Dependency: {dep} is not of type {typ}"
                 return dep
         raise ValueError(f"No {typ.__name__} found in completed_dependencies")
 
@@ -341,14 +349,16 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 if isinstance(vcd, bool) or not vcd:
                     vcd = "dump.vcd" if vcd else None
                 else:
-                    assert isinstance(vcd, str)
+                    assert isinstance(vcd, str), "`vcd` file name should be string"
                     if vcd[1:].count(".") == 0:  # if it doesn't have an extension
                         vcd += ".vcd"
             return vcd
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         super().__init__(settings, design, run_path)
-        assert isinstance(self.settings, self.Settings)
+        assert isinstance(
+            self.settings, self.Settings
+        ), "self.settings is not an instance of self.Settings class"
         self.cocotb: Optional[Cocotb] = (
             Cocotb(
                 **self.settings.cocotb.dict(),
@@ -442,7 +452,12 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             clocks = values.get("clocks")
             if clocks and "main_clock" in clocks and not values.get("clock_period"):
                 main_clock = clocks["main_clock"]
-                assert isinstance(main_clock, PhysicalClock)
+                if not isinstance(main_clock, PhysicalClock):
+                    if isinstance(main_clock, dict):
+                        main_clock = PhysicalClock(**main_clock)
+                assert isinstance(
+                    main_clock, PhysicalClock
+                ), "Specified clock for `main_clock` is neither a PhysicalClock or dict"
                 values["clock_period"] = main_clock.period
             return values
 
@@ -455,6 +470,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                             (
                                 None,
                                 f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c for c in design.rtl.clocks)}",
+                                None,
                                 None,
                             )
                         ],
@@ -469,6 +485,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                         (
                             None,
                             f"No clock period or frequency was specified for clock: '{clock_name}' (clock port: '{clock.port})'",
+                            None,
                             None,
                         )
                     ],
@@ -513,8 +530,8 @@ class FlowSettingsError(FlowException):
     def __init__(
         self,
         errors: List[
-            Tuple[Optional[str], str, Optional[str]]
-        ],  # (location, message, type/context)
+            Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]
+        ],  # (location, message, context, type)
         model,
         *args: Any,
     ) -> None:
@@ -529,8 +546,13 @@ class FlowSettingsError(FlowException):
             "s" if len(self.errors) > 1 else "",
             self.model.__qualname__,
             "\n".join(
-                "{}{}\n".format(f"{loc}:\n   " if loc else "", msg)
-                for loc, msg, ctx in self.errors
+                "{}{}{}{}\n".format(
+                    f"{loc}:\n   " if loc else "",
+                    msg,
+                    f"\ntype: {typ}" if typ else "",
+                    f"\ncontext: {ctx}" if ctx else "",
+                )
+                for loc, msg, ctx, typ in self.errors
             ),
         )
 

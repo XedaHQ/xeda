@@ -98,7 +98,6 @@ def cli(ctx: click.Context, **kwargs):
         if ctx.obj.debug
         else logging.INFO
     )
-    print("log_level:", logging.getLevelName(log_level))
     log.root.setLevel(log_level)
 
     coloredlogs.install(
@@ -160,14 +159,14 @@ def cli(ctx: click.Context, **kwargs):
         allow_dash=False,
         path_type=Path,
     ),
-    cls=ClickMutex,
-    mutually_exclusive_with=["design_file"],
+    # cls=ClickMutex,
+    # mutually_exclusive_with=["design_file"],
     help="Path to Xeda project file.",
 )
 @click.option(
     "--design-name",
-    cls=ClickMutex,
-    mutually_exclusive_with=["design_file"],
+    # cls=ClickMutex,
+    # mutually_exclusive_with=["design_file"],
     help="Specify design.name in case multiple designs are available in a xedaproject.",
 )
 @click.option(
@@ -183,8 +182,8 @@ def cli(ctx: click.Context, **kwargs):
         allow_dash=False,
         path_type=Path,
     ),
-    cls=ClickMutex,
-    mutually_exclusive_with=["xedaproject"],
+    # cls=ClickMutex,
+    # mutually_exclusive_with=["xedaproject"],
     help="Path to Xeda design file containing the description of a single design.",
 )
 @click.option(
@@ -217,21 +216,12 @@ def run(
     options: XedaOptions = ctx.obj or XedaOptions()
     assert xeda_run_dir
     log_to_file(xeda_run_dir / "Logs")
-    # TODO get default flow configs?
+    # get default flow configs from xedaproject even if a design-file is specified
+    xeda_project = None
     flows_config = {}
-    if design_file:
-        try:
-            design = Design.from_toml(design_file)
-        except DesignValidationError as e:
-            log.critical("%s", e)
-            sys.exit(1)
-    else:
-        if not xedaproject:
-            xedaproject = "xedaproject.toml"
-            if not Path(xedaproject).exists():
-                sys.exit(
-                    "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
-                )
+    if not xedaproject:
+        xedaproject = "xedaproject.toml"
+    if Path(xedaproject).exists():
         try:
             xeda_project = XedaProject.from_file(xedaproject)
         except DesignValidationError as e:
@@ -239,9 +229,20 @@ def run(
             sys.exit(1)
         except FileNotFoundError:
             sys.exit(
-                f"Cannot open project file: {xedaproject}. Please run from the project directory with xedaproject.toml or specify the correct path using the --xedaproject flag"
+                f"Cannot open project file: {xedaproject}. Try specifing the correct path using the --xedaproject <path-to-file>."
             )
         flows_config = xeda_project.flows
+    if design_file:
+        try:
+            design = Design.from_toml(design_file)
+        except DesignValidationError as e:
+            log.critical("%s", e)
+            sys.exit(1)
+    else:
+        if not xeda_project:
+            sys.exit(
+                "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
+            )
         designs = xeda_project.designs
         assert isinstance(xeda_project.design_names, list)  # type checker
         log.info(
