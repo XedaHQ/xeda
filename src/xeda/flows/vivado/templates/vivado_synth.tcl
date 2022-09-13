@@ -102,5 +102,5 @@ wait_on_run impl_1
 
 {%- if settings.bitstream %}
 write_bitstream -verbose -force settings.bitstream
-{%- end if %}
+{%- endif %}
 puts "\n====================================( DONE )==================================="
