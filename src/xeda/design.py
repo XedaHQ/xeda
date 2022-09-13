@@ -33,7 +33,7 @@ __all__ = [
 class DesignValidationError(Exception):
     def __init__(
         self,
-        errors: List[Tuple[str, str, str]],
+        errors: List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]],
         data: Dict[str, Any],
         *args: object,
         design_root: Union[None, str, os.PathLike] = None,
@@ -56,7 +56,7 @@ class DesignValidationError(Exception):
             f" {name}" if name else "",
             "\n".join(
                 "{}{} ({})\n".format(f"{loc}:\n   " if loc else "", msg, ctx)
-                for loc, msg, ctx in self.errors
+                for loc, msg, ctx, typ in self.errors
             ),
         )
 
