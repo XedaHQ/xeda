@@ -42,7 +42,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         out_of_context: bool = False
         write_checkpoint: bool = False
         write_netlist: bool = True
-        bitstream: Union[None, str, os.PathLike] = None
+        bitstream: Union[None, str, Path] = None
         qor_suggestions: bool = False
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
         synth: RunOptions = RunOptions(
@@ -69,7 +69,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             },
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug903-vivado-using-constraints.pdf
-        xdc_files: List[Union[str, os.PathLike, Path]] = Field(
+        xdc_files: List[Union[str, Path]] = Field(
             [], description="List of XDC constraint files."
         )
 
