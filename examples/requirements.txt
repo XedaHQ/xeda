@@ -1,3 +1,3 @@
-git+https://github.com/cocotb/cocotb.git#egg=cocotb;python_version>"3.10"
-cocotb>=1.7;python_version<="3.10"
+git+https://github.com/cocotb/cocotb.git#egg=cocotb;python_version>="3.11"
+cocotb>=1.7;python_version<"3.11"
 cocolight>=0.0.3

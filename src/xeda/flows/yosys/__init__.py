@@ -1,6 +1,7 @@
 import json
 import logging
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Literal, Optional
 
 from box import Box
@@ -158,7 +159,15 @@ class Yosys(SynthFlow):
 
     def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
         super().__init__(flow_settings, design, run_path)
-        self.stat_report = "utilization.rpt"
+
+        assert isinstance(self.settings, self.Settings)
+        self.yosys = Tool(
+            executable="yosys",
+            docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
+        )
+        self.stat_report = (
+            "utilization.json" if self.yosys.version_gte(0, 12) else "utilization.rpt"
+        )
         self.timing_report = "timing.rpt"
         self.artifacts = Box(
             # non-plural names are preferred for keys, e.g. "digram" instead of "diagrams".
@@ -194,10 +203,6 @@ class Yosys(SynthFlow):
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
-        yosys = Tool(
-            executable="yosys",
-            docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
-        )
         ss = self.settings
         if ss.sta:
             ss.flatten = True
@@ -255,31 +260,61 @@ class Yosys(SynthFlow):
             args.extend(["-L", ss.log_file])
         if not ss.verbose:  # reduce noise unless verbose
             args.extend(["-T", "-Q", "-q"])
-        self.results["_tool"] = yosys.info  # TODO where should this go?
+        self.results["_tool"] = self.yosys.info  # TODO where should this go?
         log.info("Logging yosys output to %s", ss.log_file)
-        yosys.run(*args)
+        self.yosys.run(*args)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
-        if self.settings.fpga:
-            if self.settings.fpga.vendor == "xilinx":
-                self.parse_report_regex(
-                    self.artifacts.report.utilization,
-                    r"=+\s*design hierarchy\s*=+",
-                    r"DSP48(E\d+)?\s*(?P<DSP48>\d+)",
-                    r"FDRE\s*(?P<_FDRE>\d+)",
-                    r"FDSE\s*(?P<_FDSE>\d+)",
-                    r"number of LCs:\s*(?P<Estimated_LCs>\d+)",
-                    sequential=True,
-                    required=False,
+        if self.artifacts.report.utilization.endswith(".json"):
+            try:
+                with open(self.artifacts.report.utilization, "r") as f:
+                    content = f.read()
+                i = content.find("{") # yosys bug
+                if i >= 0:
+                    content = content[i:]
+                utilization = json.loads(content)
+                mod_util = utilization.get("modules")
+                if mod_util:
+                    self.results["module_utilization"] = mod_util
+                design_util = utilization.get("design")
+                if design_util:
+                    num_cells_by_type = design_util.get("num_cells_by_type")
+                    if num_cells_by_type:
+                        design_util = {
+                            **{
+                                k: v
+                                for k, v in design_util.items()
+                                if k != "num_cells_by_type"
+                            },
+                            **num_cells_by_type,
+                        }
+                    self.results["design_utilization"] = design_util
+
+            except json.decoder.JSONDecodeError as e:
+                log.error(
+                    "Failed to decode JSON %s: %s", self.artifacts.report.utilization, e
                 )
-                self.results["FFs"] = int(self.results.get("_FDRE", 0)) + int(
-                    self.results.get("_FDSE", 0)
-                )
-            if self.settings.fpga.family == "ecp5":
-                self.parse_report_regex(
-                    self.artifacts.report.utilization,
-                    r"TRELLIS_FF\s+(?P<FFs>\d+)",
-                    r"LUT4\s+(?P<LUT4>\d+)",
-                )
+        else:
+            if self.settings.fpga:
+                if self.settings.fpga.vendor == "xilinx":
+                    self.parse_report_regex(
+                        self.artifacts.report.utilization,
+                        r"=+\s*design hierarchy\s*=+",
+                        r"DSP48(E\d+)?\s*(?P<DSP48>\d+)",
+                        r"FDRE\s*(?P<_FDRE>\d+)",
+                        r"FDSE\s*(?P<_FDSE>\d+)",
+                        r"number of LCs:\s*(?P<Estimated_LCs>\d+)",
+                        sequential=True,
+                        required=False,
+                    )
+                    self.results["FFs"] = int(self.results.get("_FDRE", 0)) + int(
+                        self.results.get("_FDSE", 0)
+                    )
+                if self.settings.fpga.family == "ecp5":
+                    self.parse_report_regex(
+                        self.artifacts.report.utilization,
+                        r"TRELLIS_FF\s+(?P<FFs>\d+)",
+                        r"LUT4\s+(?P<LUT4>\d+)",
+                    )
         return True

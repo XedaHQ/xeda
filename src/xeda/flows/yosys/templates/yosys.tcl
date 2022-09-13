@@ -107,7 +107,7 @@ yosys splitnets {{settings.splitnets|join(" ")}}
 {%- endif %}
 
 puts "$log_prefix Writing stat to {{artifacts["report"]["utilization"]}}"
-yosys tee -q -o {{artifacts["report"]["utilization"]}} stat {%- if settings.fpga and settings.fpga.vendor == "xilinx" %} -tech xilinx {%-elif settings.tech and settings.tech.liberty%} -liberty {{settings.tech.liberty}}  {%- endif %}
+yosys tee -9 -q -o {{artifacts["report"]["utilization"]}} stat {%- if artifacts["report"]["utilization"].endswith(".json") %} -json {%- endif %} {%- if settings.fpga and settings.fpga.vendor == "xilinx" %} -tech xilinx {%-elif settings.tech and settings.tech.liberty%} -cmos -liberty {{settings.tech.liberty}} {%- endif %}
 
 yosys check {% if settings.check_assert -%} -assert {%- endif %}
 

@@ -311,20 +311,33 @@ class Tool(XedaBaseModeAllowExtra):
         return self._version
 
     @staticmethod
-    def _version_is_gte(v1: Tuple[str, ...], v2: Tuple[Union[int, str], ...]) -> bool:
-        """version v1 is greater than or equal to v2"""
-        for tv_s, sv_s in zip(v2, v1):
+    def _version_is_gte(
+        tool_version: Tuple[str, ...], required_version: Tuple[Union[int, str], ...]
+    ) -> bool:
+        """check if `tool_version` is greater than or equal to `required_version`"""
+        log.debug(f"[gte] {tool_version}  ?  {required_version}")
+        for tool_part, req_part in zip(tool_version, required_version):
             try:
-                tv = int(tv_s)
+                req_part_val = int(req_part)
             except ValueError:
-                tv = -1
+                req_part_val = -1
             try:
-                sv = int(sv_s)
+                tool_part_val = int(tool_part)
             except ValueError:
-                sv = -1
-            if sv < tv:
+                match = re.match(r"(\d+)[+.-\._](\w+)", tool_part)
+                if match:
+                    tool_part = match.group(1)
+                    try:
+                        tool_part_val = int(tool_part)
+                        assert req_part_val > -1
+                        return tool_part_val >= req_part_val
+                    except ValueError:
+                        pass
+                tool_part_val = -1
+
+            if tool_part_val < req_part_val:  # if equal, continue
                 return False
-            if sv > tv:
+            if tool_part_val > req_part_val:  # if equal, continue
                 return True
         return True
 

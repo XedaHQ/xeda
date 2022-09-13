@@ -75,12 +75,20 @@ def print_results(
             if k == "flow":
                 table.add_row("Flow Name", Text(v), style=Style(dim=True))
                 continue
-            if k == "runtime":
+            if k == "runtime" and isinstance(v, (float, int)):
                 table.add_row(
                     "Running Time",
                     str(timedelta(seconds=round(v))),
                     style=Style(dim=True),
                 )
+            if isinstance(v, (dict,)):
+                table.add_row(k + ":", "", style=Style(bold=True))
+                for xk, xv in v.items():
+                    if isinstance(xv, dict):
+                        xv = json.dumps(xv, indent=1)
+                    else:
+                        xv = str(xv)
+                    table.add_row(Text(" " + xk), str(xv))
                 continue
             if isinstance(v, float):
                 v = f"{v:.3f}"
