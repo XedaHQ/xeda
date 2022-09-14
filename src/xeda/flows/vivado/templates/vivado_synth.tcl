@@ -36,19 +36,19 @@ read_xdc {{xdc_file}}
 set_property top {{design.rtl.top}} [get_fileset sources_1]
 
 set avail_synth_strategies [join [list_property_value strategy [get_runs synth_1] ] " "]
-puts "available synthesis strategies: $avail_synth_strategies"
+puts "\n Available synthesis strategies:\n  $avail_synth_strategies\n"
 
 {% if settings.synth.strategy %}
-puts "setting synthesis strategy to {{settings.synth.strategy}}"
+puts "Using {{settings.synth.strategy}} strategy for synthesis."
 set_property strategy {{settings.synth.strategy}} [get_runs synth_1]
 {% endif %}
 
 
 set avail_impl_strategies [join [list_property_value strategy [get_runs impl_1] ] " "]
-puts "available implementation strategies: $avail_impl_strategies"
+puts "\n Available implementation strategies:\n  $avail_impl_strategies\n"
 
 {% if settings.impl.strategy -%}
-puts "setting implementation strategy to {{settings.impl.strategy}}"
+puts "Using {{settings.impl.strategy}} strategy for implementation."
 set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
 {% endif -%}
 
@@ -97,10 +97,7 @@ wait_on_run synth_1
 # renamed to wait_on_runs in Vivado 2021.2?!!
 
 puts "\n===========================( Running Implementation )=========================="
-launch_runs impl_1 -jobs {{settings.nthreads}} {%- if not settings.bitstream %} -to_step route_design {%- endif %}
+launch_runs impl_1 -jobs {{settings.nthreads}} {%- if not settings.write_bitstream %} -to_step route_design {%- endif %}
 wait_on_run impl_1
 
-{%- if settings.bitstream %}
-write_bitstream -verbose -force settings.bitstream
-{%- endif %}
 puts "\n====================================( DONE )==================================="
