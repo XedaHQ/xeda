@@ -113,20 +113,11 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             **settings.impl.steps,
         }
 
-        if not self.design.rtl.clock_port:
+        if not self.design.rtl.clocks:
             log.critical(
                 "No clocks specified for top RTL design. Continuing with synthesis anyways."
             )
-        else:
-            assert (
-                settings.clock_period
-            ), "`clock_period` must be specified and be positive value"
-            freq = 1000 / settings.clock_period
-            log.info(
-                "clock.port=%s clock.frequency=%.3f MHz",
-                self.design.rtl.clock_port,
-                freq,
-            )
+
         clock_xdc_path = self.copy_from_template("clock.xdc")
 
         if settings.blacklisted_resources:

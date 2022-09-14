@@ -43,7 +43,7 @@ if {$ACTIVE_STEP == "route_design"} {
 
     {%- if settings.write_bitstream %}
     puts "\n=================================( Writing bitstream )==================================="
-    write_bitstream -verbose -force {{design.rtl.top}}.bit
+    write_bitstream -force {{design.rtl.top}}.bit
     {%- endif %}
 }
 
