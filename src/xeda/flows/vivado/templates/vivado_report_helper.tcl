@@ -17,17 +17,18 @@ if {$ACTIVE_STEP == "route_design"} {
     set timing_slack [get_property SLACK [get_timing_paths]]
     puts "Final timing slack: $timing_slack ns"
 
-{% if settings.qor_suggestions -%}
-report_qor_suggestions -quiet -max_strategies 5 -file [file join ${reports_dir} qor_suggestions.rpt] 
-write_qor_suggestions -quiet -strategy_dir  ./strategy_suggestions -force ./qor_suggestions.rqs
-{%- endif %}
+    {%- if settings.qor_suggestions %}
+    report_qor_suggestions -quiet -max_strategies 5 -file [file join ${reports_dir} qor_suggestions.rpt] 
+    write_qor_suggestions -quiet -strategy_dir  ./strategy_suggestions -force ./qor_suggestions.rqs
+    {%- endif %}
+
     if {$timing_slack < 0} {
         puts "\n===========================( *ENABLE ECHO* )==========================="
         puts "ERROR: Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
         puts "\n===========================( *DISABLE ECHO* )==========================="
         
-        {% if settings.fail_timing -%}
-        exit  1
+        {%- if settings.fail_timing %}
+        exit 1
         {%- endif %}
     }
 
@@ -39,6 +40,11 @@ write_qor_suggestions -quiet -strategy_dir  ./strategy_suggestions -force ./qor_
     write_xdc -no_fixed_only -force ${outputs_dir}/impl.xdc
     {# # write_verilog -mode timesim -sdf_anno false -include_xilinx_libs -write_all_overrides -force -file ${outputs_dir}/impl_timesim_inlined.v #}
     {# # write_verilog -mode funcsim -force ${outputs_dir}/funcsim_noxlib.v #}
+
+    {%- if settings.write_bitstream %}
+    puts "\n=================================( Writing bitstream )==================================="
+    write_bitstream -verbose -force {{design.rtl.top}}.bit
+    {%- endif %}
 }
 
 puts "\n==========================( Finished $ACTIVE_STEP reports )============================"
