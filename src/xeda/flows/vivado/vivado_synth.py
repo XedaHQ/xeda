@@ -1,9 +1,12 @@
+from collections import OrderedDict
+import itertools
 import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
+from ...utils import HierDict, parse_xml
 from ..flow import FpgaSynthFlow
 from ..vivado import Vivado
 
@@ -196,6 +199,12 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         failed = not self.parse_timing_report(reports_dir)
 
+        hier_util = parse_hier_util(reports_dir / "hierarchical_utilization.xml")
+        if hier_util:
+            self.results["_hierarchical_utilization"] = hier_util
+        else:
+            log.error("Parsing hierarchical utilization failed!")
+
         report_file = reports_dir / "utilization.xml"
         utilization = self.parse_xml_report(report_file)
         # ordered dict
@@ -273,3 +282,92 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 failed |= self.results["_failing_endpoints"] != 0
 
         return not failed
+
+
+def parse_hier_util(
+    report: Union[Path, os.PathLike, str], skip_zero_or_empty=True
+) -> Optional[HierDict]:
+    """parse hierarchical utilization report"""
+    table = parse_xml(
+        report,
+        tags_blacklist=["class", "style", "halign", "width"],
+        skip_empty_children=True,
+    )
+
+    tr = table["RptDoc"]["section"]["table"]["tablerow"]  # type: ignore
+    hdr = tr[0]["tableheader"]  # type: ignore
+    headers: List[str] = [h["@contents"] for h in hdr]  # type: ignore
+    rows: List[HierDict] = tr[1:]  # type: ignore
+
+    select_headers: Optional[List[str]] = None
+    skip_headers = ["Logic LUTs"]
+    skip_headers.append("Instance")
+    if select_headers is None:
+        select_headers = [h for h in headers if h not in skip_headers]
+    assert select_headers is not None
+    # select_modules = None
+    # all_modules = [e["tablecell"][0]["@contents"].strip() for e in rows]
+    # if select_modules is None:
+    #     select_modules = all_modules
+    # top_module = all_modules[0]
+
+    # print(select_modules)
+    # print(node_prop_d)
+    # exit(1)
+    # node_modname_d = OrderedDict()
+
+    def leading_ws(s: str) -> int:
+        return sum(1 for _ in itertools.takewhile(str.isspace, s))
+
+    def conv_val(v):
+        for t in (int, float):
+            try:
+                return t(v)
+            except ValueError:
+                continue
+        return v
+
+    def add_hier(d, cur_ws=0, i=0, parent=None) -> int:
+        cur_dict = d
+        cur_mod = parent
+        while i < len(rows):
+            row = rows[i]
+            cells = row["tablecell"]
+            assert cells
+            lcontents = [cell["@contents"] for cell in cells]  # type: ignore
+            inst_name = lcontents[0]
+            assert inst_name
+            inst_ws = leading_ws(inst_name)
+
+            if inst_ws > cur_ws:  # or (ins.startswith("(") and ins.endswith(")")):
+                x = "@children"
+                if x not in cur_dict:
+                    cur_dict[x] = OrderedDict()
+                i = add_hier(cur_dict[x], inst_ws, i, cur_mod)
+                continue
+
+            if inst_ws < cur_ws:
+                return i  # pop
+
+            key_name = inst_name.strip()
+            if key_name not in d:
+                d[key_name] = OrderedDict()
+            cur_dict = d[key_name]
+            cur_dict.update(
+                OrderedDict(
+                    (k, vv)
+                    for k, v in zip(headers, lcontents)
+                    if k in select_headers  # type: ignore
+                    and ((vv := conv_val(v)) or not skip_zero_or_empty)
+                )
+            )
+            if parent:
+                cur_dict["@parent"] = parent
+            cur_mod = key_name
+            i += 1
+        return i
+
+    util_dict: OrderedDict[str, Any] = OrderedDict()
+    add_hier(util_dict)
+
+    return util_dict

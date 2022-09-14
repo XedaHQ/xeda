@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+from collections import defaultdict
 from contextlib import AbstractContextManager
 from copy import deepcopy
 from datetime import datetime
@@ -22,9 +23,9 @@ from typing import (
     TypeVar,
     Union,
 )
+from xml.etree import ElementTree
 
-
-from typeguard.importhook import install_import_hook
+# from typeguard.importhook import install_import_hook
 from varname import argname
 
 from .dataclass import XedaBaseModel
@@ -36,7 +37,7 @@ except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore
 
 
-install_import_hook("xeda")
+# install_import_hook("xeda")
 
 __all__ = [
     "SDF",
@@ -312,3 +313,54 @@ def setting_flag(variable: Any, assign=True, name=None) -> List[str]:
             else:
                 flags += [flag, v]
     return flags
+
+
+HierDict = Dict[str, Union[None, str, Dict[str, Any]]]
+
+
+def parse_xml(
+    report_xml: Union[Path, os.PathLike, str],
+    tags_whitelist: Optional[List[str]] = None,
+    tags_blacklist: Optional[List[str]] = None,
+    skip_empty_children: bool = True,
+) -> Optional[HierDict]:
+    def etree_to_dict_rec(
+        t: ElementTree.Element,
+    ) -> HierDict:
+        d: HierDict = {t.tag: {} if t.attrib else None}
+        children = list(t)
+        if children:
+            dd = defaultdict(list)
+            for dc in map(etree_to_dict_rec, children):
+                for k, v in dc.items():
+                    if skip_empty_children and isinstance(v, dict) and not v:
+                        continue
+                    dd[k].append(v)
+            d = {t.tag: {k: v[0] if len(v) == 1 else v for k, v in dd.items()}}
+        if t.attrib:
+            tag = t.tag
+            d[tag].update(  # type: ignore
+                ("@" + k, v)
+                for k, v in t.attrib.items()
+                if (tags_blacklist is None or k not in tags_blacklist)
+                and (tags_whitelist is None or k in tags_whitelist)
+            )
+        if t.text:
+            text = t.text.strip()
+            if children or t.attrib:
+                if text:
+                    d[t.tag]["#text"] = text  # type: ignore
+            else:
+                d[t.tag] = text
+        return d
+
+    try:
+        tree = ElementTree.parse(report_xml)
+    except FileNotFoundError:
+        log.critical("File %s not found.", report_xml)
+        return None
+    except ElementTree.ParseError as e:
+        log.critical("Parsing %s failed: %s", report_xml, e.msg)
+        return None
+    root = tree.getroot()
+    return etree_to_dict_rec(root)

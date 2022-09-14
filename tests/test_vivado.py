@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -6,6 +7,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoSynth
 from xeda.flows.flow import FPGA
+from xeda.flows.vivado.vivado_synth import parse_hier_util
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -54,5 +56,14 @@ def test_vivado_synth_py() -> None:
         assert 0.3 < flow.results.runtime  # type: ignore
 
 
+def test_parse_hier_util() -> None:
+    d = parse_hier_util("tests/resources/vivado_synth/hierarchical_utilization.xml")
+    # print(json.dumps(d, indent=2))
+    with open("hier.json", "w") as f:
+        json.dump(d, f, indent=4)
+    assert d
+
+
 if __name__ == "__main__":
-    test_vivado_synth_py()
+    # test_vivado_synth_py()
+    test_parse_hier_util()
