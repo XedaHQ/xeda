@@ -52,10 +52,9 @@ puts "Using {{settings.impl.strategy}} strategy for implementation."
 set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
 {% endif -%}
 
-{% for k,v in design.rtl.parameters.items() -%}
-{% set x = ("1'b%d" % v) if v is boolean else v if v is not string else v if v is match("\\d+'b[01]+") else "\\\"" + v + "\\\"" -%}
-set_property generic {% raw -%} { {%- endraw -%} {{ k }}={{ x }} {%- raw -%} } {%- endraw %} [current_fileset]
-{% endfor -%}
+{% if generics -%}
+set_property generic {% raw -%} { {%- endraw -%} {{generics}} {%- raw -%} } {%- endraw %} [current_fileset]
+{% endif -%}
 
 #{# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
 #{# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug835-vivado-tcl-commands.pdf #}

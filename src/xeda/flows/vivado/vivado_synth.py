@@ -1,8 +1,10 @@
 from collections import OrderedDict
 import itertools
+import json
 import logging
 import os
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
@@ -141,8 +143,19 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         ), f"XDC file {xdc_files} was already included."
         xdc_files.append(clock_xdc_path)
 
+        generics = []
+        for k, v in self.design.rtl.parameters.items():
+            if isinstance(v, bool):
+                v = f"1'b{v}"
+            elif isinstance(v, str) and not re.match(r"\d+'b[01]+", v):
+                v = '\\"' + v + '\\"'
+            generics.append(f"{k}={v}")
+
         script_path = self.copy_from_template(
-            "vivado_synth.tcl", xdc_files=xdc_files, reports_tcl=reports_tcl
+            "vivado_synth.tcl",
+            xdc_files=xdc_files,
+            reports_tcl=reports_tcl,
+            generics=" ".join(generics),
         )
         self.vivado.run("-source", script_path)
 
@@ -192,6 +205,8 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         hier_util = parse_hier_util(reports_dir / "hierarchical_utilization.xml")
         if hier_util:
+            with open(reports_dir / "hierarchical_utilization.json", "w") as f:
+                json.dump(hier_util, f)
             self.results["_hierarchical_utilization"] = hier_util
         else:
             log.error("Parsing hierarchical utilization failed!")
@@ -276,7 +291,9 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
 
 def parse_hier_util(
-    report: Union[Path, os.PathLike, str], skip_zero_or_empty=True
+    report: Union[Path, os.PathLike, str],
+    skip_zero_or_empty=True,
+    skip_headers=None,
 ) -> Optional[HierDict]:
     """parse hierarchical utilization report"""
     table = parse_xml(
@@ -291,21 +308,12 @@ def parse_hier_util(
     rows: List[HierDict] = tr[1:]  # type: ignore
 
     select_headers: Optional[List[str]] = None
-    skip_headers = ["Logic LUTs"]
+    if skip_headers is None:
+        skip_headers = ["Logic LUTs"]
     skip_headers.append("Instance")
     if select_headers is None:
         select_headers = [h for h in headers if h not in skip_headers]
     assert select_headers is not None
-    # select_modules = None
-    # all_modules = [e["tablecell"][0]["@contents"].strip() for e in rows]
-    # if select_modules is None:
-    #     select_modules = all_modules
-    # top_module = all_modules[0]
-
-    # print(select_modules)
-    # print(node_prop_d)
-    # exit(1)
-    # node_modname_d = OrderedDict()
 
     def leading_ws(s: str) -> int:
         return sum(1 for _ in itertools.takewhile(str.isspace, s))
@@ -330,7 +338,7 @@ def parse_hier_util(
             assert inst_name
             inst_ws = leading_ws(inst_name)
 
-            if inst_ws > cur_ws:  # or (ins.startswith("(") and ins.endswith(")")):
+            if inst_ws > cur_ws:
                 x = "@children"
                 if x not in cur_dict:
                     cur_dict[x] = OrderedDict()
@@ -352,8 +360,8 @@ def parse_hier_util(
                     and ((vv := conv_val(v)) or not skip_zero_or_empty)
                 )
             )
-            if parent:
-                cur_dict["@parent"] = parent
+            # if parent:
+            #     cur_dict["@parent"] = parent
             cur_mod = key_name
             i += 1
         return i
