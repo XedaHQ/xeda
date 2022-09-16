@@ -6,7 +6,7 @@ import os
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 import git
 from git.repo import Repo
@@ -340,28 +340,48 @@ class DesignReference(XedaBaseModel):
     def fetch(self):
         if self.base_uri:
             uri = urlparse(self.base_uri)
-            local_dir = Path.cwd()
+            # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
+            local_dir = Path.cwd() / ".xeda_dependencies"
             log.info("Dependency URI: %s", uri)
             uri_path = uri.path
             if uri.netloc and uri_path:
                 if uri_path.startswith("/"):
                     uri_path = uri_path.lstrip("/")
-                clone_dir = local_dir / ".xeda_dependencies" / uri.netloc / uri_path
+                clone_dir = local_dir / uri.netloc / uri_path
+                branch = None
+                commit = None
+                if uri.fragment:
+                    branch = uri.fragment
+                if uri.query:
+                    query = parse_qs(uri.query)
+                    cmt = query.get("commit")
+                    if cmt:
+                        commit = cmt
+                print(branch, commit)
                 repo = None
-                log.info("clone_dir=%s", clone_dir)
                 if clone_dir.exists():
                     log.info("Local git directory %s already exists.", clone_dir)
                     try:
                         repo = Repo(clone_dir)
                         assert repo.git_dir
                         log.info("updating existing git repository at %s", clone_dir)
-                        repo.remotes.origin.pull()  # TODO remote
+                        repo.remotes.origin.fetch()
                     except git.InvalidGitRepositoryError:  # type: ignore
                         log.warning("Path %s is not a valid git repository.", clone_dir)
                 if repo is None:
-                    repo = Repo.clone_from(self.base_uri, clone_dir, depth=1)
+                    repo = Repo.clone_from(
+                        uri._replace(fragment="", query="").geturl(),
+                        clone_dir,
+                        depth=1,
+                        branch=branch,
+                    )
+                if commit:
+                    log.info("Checking commit: %s", commit)
+                    repo.git.checkout(commit)
+                elif branch:
+                    repo.git.checkout(branch)
             else:
-                clone_dir = local_dir / ("xeda_" + self.base_uri)
+                clone_dir = local_dir / self.base_uri
             toml_path = clone_dir / self.design_file
         else:
             toml_path = Path(self.design_file)
