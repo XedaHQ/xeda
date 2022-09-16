@@ -244,6 +244,11 @@ def run(
                 "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
             )
         designs = xeda_project.designs
+        if not designs:
+            log.critical(
+                "There are no designs in the xedaproject file. You can specify a single design description using `--design-file` argument."
+            )
+            sys.exit(1)
         assert isinstance(xeda_project.design_names, list)  # type checker
         log.info(
             "Available designs in xedaproject: %s",
@@ -260,24 +265,32 @@ def run(
                 )
                 sys.exit(1)
             else:
-                if console.is_interactive:
-                    terminal_menu = TerminalMenu(
-                        xeda_project.design_names, title="Please select a design: "
-                    )
-                    idx = terminal_menu.show()
-                    if idx is None or not isinstance(idx, int) or idx < 0:
-                        sys.exit("Invalid design choice!")
-                    design = designs[idx]
-                else:
-                    design_name = click.prompt(
-                        "Please enter design name: ",
-                        type=click.Choice(xeda_project.design_names),
-                    )
-                    if not design_name or design_name not in xeda_project.design_names:
-                        sys.exit("Invalid design name!")
-                    design = xeda_project.get_design(design_name)
+                if len(designs) == 1:
+                    design = designs[1]
+
+                    if console.is_interactive:
+                        terminal_menu = TerminalMenu(
+                            xeda_project.design_names, title="Please select a design: "
+                        )
+                        idx = terminal_menu.show()
+                        if idx is None or not isinstance(idx, int) or idx < 0:
+                            sys.exit("Invalid design choice!")
+                        design = designs[idx]
+                    else:
+                        design_name = click.prompt(
+                            "Please enter design name: ",
+                            type=click.Choice(xeda_project.design_names),
+                        )
+                        if (
+                            not design_name
+                            or design_name not in xeda_project.design_names
+                        ):
+                            sys.exit("Invalid design name!")
+                        design = xeda_project.get_design(design_name)
             if not design:
-                sys.exit("[ERROR] design is empty?!")
+                sys.exit(
+                    "[ERROR] no design was specified and none were automatically discovered."
+                )
 
     flow_overrides = settings_to_dict(flow_settings)
     log.debug("flow_overrides: %s", flow_overrides)
