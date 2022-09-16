@@ -343,8 +343,9 @@ class DesignReference(XedaBaseModel):
             # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
             local_dir = Path.cwd() / ".xeda_dependencies"
             log.info("Dependency URI: %s", uri)
-            if uri.scheme and uri.scheme.startswith("git+"):
-                uri = uri._replace(scheme=uri.scheme.removeprefix("git+"))
+            git_prefix = "git+"
+            if uri.scheme and uri.scheme.startswith(git_prefix):
+                uri = uri._replace(scheme=uri.scheme[len(git_prefix) :])
             uri_path = uri.path
             if uri.netloc and uri_path:
                 branch = None
