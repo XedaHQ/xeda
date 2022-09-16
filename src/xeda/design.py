@@ -66,19 +66,34 @@ class FileResource:
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
         _root_path: Optional[Path] = None,
+        resolve=True,
     ) -> None:
+        """
+        A file resource
+        file: existing file, its existence is checked during validation
+        path:
+        """
         try:
             if isinstance(path, dict):
-                if "file" not in path:
-                    raise ValueError("Required field 'file' is missing.")
-                path = path["file"]
-            self._path = path
-            p = Path(path)
-            if not p.is_absolute():
+                path_value = path.get("path")
+                if path_value:
+                    resolve = False  # override resolve
+                file_value = path.get("file")
+                if path_value and file_value:
+                    raise ValueError("'file' and 'path' are mutually exclusive.")
+                path_value = path_value or file_value
+                if not path_value:
+                    raise ValueError(
+                        "Either 'file' (existing file) or 'path' (unchecked path) must be set for a FireResource."
+                    )
+                path = path_value
+            path = Path(path)
+            self._specified_path = path  # keep a copy of path, as specified by user, without resolving or convertint to an absolute path
+            if not path.is_absolute():
                 if not _root_path:
                     _root_path = Path.cwd()
-                p = _root_path / p
-            self.file = p.resolve(strict=True)
+                path = _root_path / path
+            self.file = path.resolve(strict=True) if resolve else path.absolute()
         except FileNotFoundError as e:
             log.critical("Design resource '%s' does not exist!", path)
             raise e from None
@@ -192,7 +207,7 @@ class DVSettings(XedaBaseModel):  # type: ignore
             value = values.get("generics")
         if value:
             for k, v in value.items():
-                if isinstance(v, dict) and "file" in v:
+                if isinstance(v, dict) and ("file" in v or "path" in v):
                     value[k] = FileResource(v).__str__()
             values["generics"] = value
             values["parameters"] = value
@@ -390,7 +405,9 @@ class Design(XedaBaseModel):
     @cached_property
     def rtl_fingerprint(self) -> dict[str, dict[str, str]]:
         return {
-            "sources": {str(src._path): src.content_hash for src in self.rtl.sources},
+            "sources": {
+                str(src._specified_path): src.content_hash for src in self.rtl.sources
+            },
             "parameters": {p: str(v) for p, v in self.rtl.parameters.items()},
         }
 
