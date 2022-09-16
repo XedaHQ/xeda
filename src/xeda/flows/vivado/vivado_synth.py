@@ -35,8 +35,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             description="flow fails if any Critical Warnings are reported by Vivado",
         )  # type: ignore
         fail_timing = Field(True, description="flow fails if timing is not met")  # type: ignore
-        optimize_power = False
-        optimize_power_postplace = False
         blacklisted_resources: List[str] = Field(  # TODO: remove
             # ["latch"],
             [],
