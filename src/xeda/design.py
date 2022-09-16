@@ -357,20 +357,26 @@ class DesignReference(XedaBaseModel):
                     cmt = query.get("commit")
                     if cmt:
                         commit = cmt
-                print(branch, commit)
                 repo = None
                 if clone_dir.exists():
                     log.info("Local git directory %s already exists.", clone_dir)
                     try:
                         repo = Repo(clone_dir)
                         assert repo.git_dir
-                        log.info("updating existing git repository at %s", clone_dir)
+                        log.info("Updating existing git repository at %s", clone_dir)
                         repo.remotes.origin.fetch()
                     except git.InvalidGitRepositoryError:  # type: ignore
                         log.warning("Path %s is not a valid git repository.", clone_dir)
                 if repo is None:
+                    git_url = uri._replace(fragment="", query="").geturl()
+                    log.info(
+                        "Cloning GIT repository url:%s branch:%s commit:%s",
+                        git_url,
+                        branch,
+                        commit,
+                    )
                     repo = Repo.clone_from(
-                        uri._replace(fragment="", query="").geturl(),
+                        git_url,
                         clone_dir,
                         depth=1,
                         branch=branch,
