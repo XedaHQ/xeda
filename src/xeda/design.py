@@ -345,9 +345,6 @@ class DesignReference(XedaBaseModel):
             log.info("Dependency URI: %s", uri)
             uri_path = uri.path
             if uri.netloc and uri_path:
-                if uri_path.startswith("/"):
-                    uri_path = uri_path.lstrip("/")
-                clone_dir = local_dir / uri.netloc / uri_path
                 branch = None
                 commit = None
                 if uri.fragment:
@@ -356,7 +353,14 @@ class DesignReference(XedaBaseModel):
                     query = parse_qs(uri.query)
                     cmt = query.get("commit")
                     if cmt:
-                        commit = cmt
+                        commit = cmt[-1]  # last arg
+                if commit:
+                    uri_path += "@" + commit
+                elif branch:
+                    uri_path += "#" + branch
+                if uri_path.startswith("/"):
+                    uri_path = uri_path.lstrip("/")
+                clone_dir = local_dir / uri.netloc / uri_path
                 repo = None
                 if clone_dir.exists():
                     log.info("Local git directory %s already exists.", clone_dir)
