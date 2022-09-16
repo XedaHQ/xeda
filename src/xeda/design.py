@@ -343,6 +343,8 @@ class DesignReference(XedaBaseModel):
             # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
             local_dir = Path.cwd() / ".xeda_dependencies"
             log.info("Dependency URI: %s", uri)
+            if uri.scheme and uri.scheme.startswith("git+"):
+                uri = uri._replace(scheme=uri.scheme.removeprefix("git+"))
             uri_path = uri.path
             if uri.netloc and uri_path:
                 branch = None
@@ -374,7 +376,7 @@ class DesignReference(XedaBaseModel):
                 if repo is None:
                     git_url = uri._replace(fragment="", query="").geturl()
                     log.info(
-                        "Cloning GIT repository url:%s branch:%s commit:%s",
+                        "Cloning git repository url:%s branch:%s commit:%s",
                         git_url,
                         branch,
                         commit,
