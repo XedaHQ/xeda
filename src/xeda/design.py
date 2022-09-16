@@ -6,6 +6,10 @@ import os
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+from urllib.parse import urlparse
+
+import git
+from git.repo import Repo
 
 from .dataclass import (
     Extra,
@@ -326,8 +330,48 @@ class Language(XedaBaseModel):
     verilog: LanguageSettings = LanguageSettings()  # type: ignore
 
 
+class DesignReference(XedaBaseModel):
+    name: Optional[str] = None
+    design_root: Union[None, str, os.PathLike] = None
+    base_uri: Union[None, str] = None
+    design_file: str
+    rtl_pos: int = 0
+
+    def fetch(self):
+        if self.base_uri:
+            uri = urlparse(self.base_uri)
+            local_dir = Path.cwd()
+            log.info("Dependency URI: %s", uri)
+            uri_path = uri.path
+            if uri.netloc and uri_path:
+                if uri_path.startswith("/"):
+                    uri_path = uri_path.lstrip("/")
+                clone_dir = local_dir / ".xeda_dependencies" / uri.netloc / uri_path
+                repo = None
+                log.info("clone_dir=%s", clone_dir)
+                if clone_dir.exists():
+                    log.info("Local git directory %s already exists.", clone_dir)
+                    try:
+                        repo = Repo(clone_dir)
+                        assert repo.git_dir
+                        log.info("updating existing git repository at %s", clone_dir)
+                        repo.remotes.origin.pull()  # TODO remote
+                    except git.InvalidGitRepositoryError:  # type: ignore
+                        log.warning("Path %s is not a valid git repository.", clone_dir)
+                if repo is None:
+                    repo = Repo.clone_from(self.base_uri, clone_dir, depth=1)
+            else:
+                clone_dir = local_dir / ("xeda_" + self.base_uri)
+            toml_path = clone_dir / self.design_file
+        else:
+            toml_path = Path(self.design_file)
+        assert toml_path.exists(), f"file {toml_path} does not exist!"
+        return Design.from_toml(toml_path, design_root=self.design_root)
+
+
 class Design(XedaBaseModel):
     name: str
+    dependencies: List[DesignReference] = []
     rtl: RtlSettings
     tb: TbSettings = TbSettings()  # type: ignore
     language: Language = Language()
@@ -356,6 +400,12 @@ class Design(XedaBaseModel):
                 raise DesignValidationError(
                     validation_errors(e.errors()), data=data, design_root=design_root  # type: ignore
                 ) from None
+
+            for dep in self.dependencies:
+                dep_design = dep.fetch()
+                log.info("adding dependency sources from %s", dep_design.name)
+                pos = dep.rtl_pos
+                self.rtl.sources[pos:pos] = dep_design.rtl.sources
 
     @property
     def sim_sources(self) -> List[DesignSource]:
