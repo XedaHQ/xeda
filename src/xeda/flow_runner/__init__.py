@@ -70,9 +70,11 @@ def print_results(
             if subset and k not in subset:
                 continue
             if k == "design":
+                assert isinstance(v, str)
                 table.add_row("Design Name", Text(v), style=Style(dim=True))
                 continue
             if k == "flow":
+                assert isinstance(v, str)
                 table.add_row("Flow Name", Text(v), style=Style(dim=True))
                 continue
             if k == "runtime" and isinstance(v, (float, int)):

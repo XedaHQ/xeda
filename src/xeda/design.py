@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import logging
 import os
 from functools import cached_property
@@ -331,75 +332,130 @@ class Language(XedaBaseModel):
 
 
 class DesignReference(XedaBaseModel):
+    uri: str
     name: Optional[str] = None
-    design_root: Union[None, str, os.PathLike] = None
-    base_uri: Union[None, str] = None
-    design_file: str
+    scheme: Optional[str] = None
     rtl_pos: int = 0
+    local_cache: Path = Path.cwd() / ".xeda_dependencies"
 
-    def fetch(self):
-        if self.base_uri:
-            uri = urlparse(self.base_uri)
-            # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
-            local_dir = Path.cwd() / ".xeda_dependencies"
-            log.info("Dependency URI: %s", uri)
-            git_prefix = "git+"
-            if uri.scheme and uri.scheme.startswith(git_prefix):
-                uri = uri._replace(scheme=uri.scheme[len(git_prefix) :])
-            uri_path = uri.path
-            if uri.netloc and uri_path:
-                branch = None
-                commit = None
-                if uri.fragment:
-                    branch = uri.fragment
-                if uri.query:
-                    query = parse_qs(uri.query)
-                    cmt = query.get("commit")
-                    if cmt:
-                        commit = cmt[-1]  # last arg
-                if commit:
-                    uri_path += "@" + commit
-                elif branch:
-                    uri_path += "#" + branch
-                if uri_path.startswith("/"):
-                    uri_path = uri_path.lstrip("/")
-                clone_dir = local_dir / uri.netloc / uri_path
-                repo = None
-                if clone_dir.exists():
-                    log.info("Local git directory %s already exists.", clone_dir)
-                    try:
-                        repo = Repo(clone_dir)
-                        assert repo.git_dir
-                        log.info("Updating existing git repository at %s", clone_dir)
-                        repo.remotes.origin.fetch()
-                    except git.InvalidGitRepositoryError:  # type: ignore
-                        log.warning("Path %s is not a valid git repository.", clone_dir)
-                if repo is None:
-                    git_url = uri._replace(fragment="", query="").geturl()
-                    log.info(
-                        "Cloning git repository url:%s branch:%s commit:%s",
-                        git_url,
-                        branch,
-                        commit,
-                    )
-                    repo = Repo.clone_from(
-                        git_url,
-                        clone_dir,
-                        depth=1,
-                        branch=branch,
-                    )
-                if commit:
-                    log.info("Checking commit: %s", commit)
-                    repo.git.checkout(commit)
-                elif branch:
-                    repo.git.checkout(branch)
-            else:
-                clone_dir = local_dir / self.base_uri
-            toml_path = clone_dir / self.design_file
-        else:
-            toml_path = Path(self.design_file)
+    @staticmethod
+    def from_url(uri_str: str) -> DesignReference:
+        git_prefix = "git+"
+        if uri_str.startswith(git_prefix):
+            uri_str = uri_str[len(git_prefix) :]
+            return GitReference.from_url(uri_str)
+
+        return DesignReference(uri=uri_str)
+
+    def _design_from_toml(self, toml_path: Path) -> Design:
         assert toml_path.exists(), f"file {toml_path} does not exist!"
-        return Design.from_toml(toml_path, design_root=self.design_root)
+        return Design.from_toml(toml_path)
+
+    def fetch_design(self) -> Design:
+        toml_path = Path(self.uri)
+        return self._design_from_toml(toml_path)
+
+
+class GitReference(DesignReference):
+    """
+    uri: [https,git,...]://<hostname>[:port]/path/to/repo.git[?[branch=mybranch],[commit=mycommit]]#path/to/design_file.toml
+    example:
+        https://github.com/GMUCERG/TinyJAMBU-SCA.git?branch=dev#./TinyJAMBU-DOM1-v1.toml
+    """
+
+    repo_url: str
+    design_file: str
+    commit: Optional[str] = None
+    branch: Optional[str] = None
+    clone_dir: Optional[Path] = None
+
+    @validator("clone_dir", pre=True, always=True)
+    def validate_clone_dir(cls, value, values):
+        repo_url = values.get("repo_url")
+        if not value and repo_url:
+            uri = urlparse(repo_url)
+            uri_path = uri.path.lstrip("/.")
+            assert uri.netloc and uri_path, "invalid URL"
+            commit = values.get("commit")
+            branch = values.get("branch")
+            if commit:
+                uri_path += "@" + commit
+            elif branch:
+                uri_path += "#" + branch
+            local_cache = values.get("local_cache")
+            if local_cache:
+                return Path(local_cache) / uri.netloc / uri_path
+        return value
+
+    @staticmethod
+    def from_url(uri_str: str) -> GitReference:
+        # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
+        uri = urlparse(uri_str)
+        assert uri.scheme and uri.netloc, "invalid git URL"
+        # git design file path should be relative to root
+        design_file_path = uri.fragment.lstrip("/.")  # Removes /, ../, etc.
+        if not design_file_path:
+            raise ValueError(
+                inspect.cleandoc(
+                    """path to design_file must be specified using URL fragment (#...), e.g.,
+                https://github.com/user/repo.git#sub_dir1/design_file2.toml when design file is
+                'sub_dir1/design_file2.toml' relative to the the repository's root."""
+                )
+            )
+        branch = None
+        commit = None
+        if uri.query:
+            query = parse_qs(uri.query)
+            br = query.get("branch")
+            if br:
+                branch = br[-1]
+            cmt = query.get("commit")
+            if cmt:
+                commit = cmt[-1]  # last arg
+        repo_url = uri._replace(fragment="", query="").geturl()
+
+        return GitReference(
+            uri=uri_str,
+            repo_url=repo_url,
+            design_file=design_file_path,
+            branch=branch,
+            commit=commit,
+        )
+
+    def fetch_design(self) -> Design:
+        assert self.clone_dir, "clone_dir not set"
+        repo = None
+        if self.clone_dir.exists():
+            log.info("Local git directory %s already exists.", self.clone_dir)
+            try:
+                repo = Repo(self.clone_dir)
+                assert repo.git_dir
+                log.info("Updating existing git repository at %s", self.clone_dir)
+                repo.remotes.origin.fetch()
+            except git.InvalidGitRepositoryError:  # type: ignore
+                log.warning("Path %s is not a valid git repository.", self.clone_dir)
+        if repo is None:
+            log.info(
+                "Cloning git repository url:%s branch:%s commit:%s",
+                self.repo_url,
+                self.branch,
+                self.commit,
+            )
+            repo = Repo.clone_from(
+                self.repo_url,
+                self.clone_dir,
+                depth=1,
+                branch=self.branch,
+            )
+        if self.commit:
+            log.info("Checking out commit: %s", self.commit)
+            repo.git.checkout(self.commit)
+        elif self.branch:
+            log.info("Checking out branch: %s", self.branch)
+            repo.git.checkout(self.branch)
+
+        toml_path = self.clone_dir / self.design_file
+        return Design.from_toml(toml_path, design_root=self.clone_dir)
 
 
 class Design(XedaBaseModel):
@@ -409,6 +465,14 @@ class Design(XedaBaseModel):
     tb: TbSettings = TbSettings()  # type: ignore
     language: Language = Language()
     _design_root: Optional[Path] = None
+
+    @validator("dependencies", pre=True, always=True)
+    def validate_dependencies_from_str(cls, value):
+        if value and isinstance(value, list):
+            value = [
+                DesignReference.from_url(v) if isinstance(v, str) else v for v in value
+            ]
+        return value
 
     class Config(XedaBaseModel.Config):
         extra = Extra.allow
@@ -435,7 +499,7 @@ class Design(XedaBaseModel):
                 ) from None
 
             for dep in self.dependencies:
-                dep_design = dep.fetch()
+                dep_design = dep.fetch_design()
                 log.info("adding dependency sources from %s", dep_design.name)
                 pos = dep.rtl_pos
                 self.rtl.sources[pos:pos] = dep_design.rtl.sources

@@ -7,7 +7,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoSynth
 from xeda.flows.flow import FPGA
-from xeda.flows.vivado.vivado_synth import parse_hier_util
+from xeda.flows.vivado.vivado_synth import parse_hier_util, vivado_synth_generics
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -23,15 +23,15 @@ def test_vivado_synth_template() -> None:
     run_dir.mkdir(exist_ok=True)
     flow = VivadoSynth(settings, design, run_dir)  # type: ignore
     tcl_file = flow.copy_from_template(
-        "vivado_synth.tcl", xdc_files=[], reports_tcl="reports_tcl"
+        "vivado_synth.tcl",
+        xdc_files=[],
+        reports_tcl="reports_tcl",
+        generics=" ".join(vivado_synth_generics(design)),
     )
     with open(run_dir / tcl_file) as f:
         vivado_tcl = f.read()
     expected_lines = [
-        "set_property generic {G_IN_WIDTH=32} [current_fileset]",
-        "set_property generic {G_ITERATIVE=1'b1} [current_fileset]",
-        'set_property generic {G_STR=\\"abcd\\"} [current_fileset]',
-        "set_property generic {G_BITVECTOR=7'b0101001} [current_fileset]",
+        """set_property generic {G_IN_WIDTH=32 G_ITERATIVE=1'b1 G_STR=\\"abcd\\" G_BITVECTOR=7'b0101001} [current_fileset]""",
     ]
     for line in expected_lines:
         assert line in vivado_tcl

@@ -8,6 +8,7 @@ import re
 from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
+from ...design import Design
 from ...utils import HierDict, parse_xml
 from ..flow import FpgaSynthFlow
 from ..vivado import Vivado
@@ -16,6 +17,17 @@ log = logging.getLogger(__name__)
 
 
 StepsValType = Optional[Dict[str, Any]]
+
+
+def vivado_synth_generics(design: Design) -> List[str]:
+    generics = []
+    for k, v in design.rtl.parameters.items():
+        if isinstance(v, bool):
+            v = f"1'b{int(v)}"
+        elif isinstance(v, str) and not re.match(r"\d+'b[01]+", v):
+            v = '\\"' + v + '\\"'
+        generics.append(f"{k}={v}")
+    return generics
 
 
 class RunOptions(XedaBaseModel):
@@ -141,19 +153,11 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         ), f"XDC file {xdc_files} was already included."
         xdc_files.append(clock_xdc_path)
 
-        generics = []
-        for k, v in self.design.rtl.parameters.items():
-            if isinstance(v, bool):
-                v = f"1'b{v}"
-            elif isinstance(v, str) and not re.match(r"\d+'b[01]+", v):
-                v = '\\"' + v + '\\"'
-            generics.append(f"{k}={v}")
-
         script_path = self.copy_from_template(
             "vivado_synth.tcl",
             xdc_files=xdc_files,
             reports_tcl=reports_tcl,
-            generics=" ".join(generics),
+            generics=" ".join(vivado_synth_generics(self.design)),
         )
         self.vivado.run("-source", script_path)
 

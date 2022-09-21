@@ -1,7 +1,6 @@
 import json
 import logging
 from pathlib import Path
-import re
 from typing import Any, Dict, List, Literal, Optional
 
 from box import Box
@@ -270,7 +269,7 @@ class Yosys(SynthFlow):
             try:
                 with open(self.artifacts.report.utilization, "r") as f:
                     content = f.read()
-                i = content.find("{") # yosys bug
+                i = content.find("{")  # yosys bug
                 if i >= 0:
                     content = content[i:]
                 utilization = json.loads(content)
