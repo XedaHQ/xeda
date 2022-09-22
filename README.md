@@ -40,21 +40,25 @@ Xeda design-specific descriptions and settings are organized through project fil
 Sample Xeda design description [file](./examples/vhdl/sqrt/sqrt.toml):
 
 ```toml
-name = 'sqrt'
-description = 'Integer Square Root'
+name = "sqrt"
+description = "Iterative computation of square-root of an integer"
 language.vhdl.standard = "2008"
 
 [rtl]
-sources = ['sqrt.vhdl']
-top = 'sqrt'
-clock_port = 'clk'
+sources = ["sqrt.vhdl"]
+top = "sqrt"
+clock_port = "clk"
 parameters = { G_IN_WIDTH = 32 }
 # parameters = { G_IN_WIDTH = 32, G_ITERATIVE = true, G_STR= "abcd", G_BITVECTOR="7'b0101001" }
 
 [tb]
-sources = ['tb/tb_sqrt.py']
+sources = ["tb_sqrt.py"]
 cocotb = true
-top = 'tb_sqrt'
+# top = "tb_sqrt"  # FIXME
+
+[flows.vivado_synth]
+fpga.part = 'xc7a12tcsg325-1'
+clock_period = 5.0
 ```
 
 ## Flows
