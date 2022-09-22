@@ -298,10 +298,11 @@ xeda_strategies: Dict[str, Dict[str, Any]] = {
 
 def _vivado_steps(strategy: str, s: str):
     if s == "synth":
-        steps = ["synth", "opt"]
+        steps = ["synth", "opt", "power_opt"]
     else:
         steps = [
             "place",
+            "power_opt",
             "place_opt",
             "place_opt2",
             "phys_opt",
@@ -322,14 +323,12 @@ class VivadoAltSynth(Vivado, FpgaSynthFlow):
             strategy="Default", steps=_vivado_steps("Default", "impl")
         )
 
-        # pylint: disable=no-self-argument,no-self-use
         @validator("synth")
         def validate_synth(cls, v: RunOptions):
             if v.strategy and not v.steps:
                 v.steps = _vivado_steps(v.strategy, "synth")
             return v
 
-        # pylint: disable=no-self-argument,no-self-use
         @validator("impl", always=True)
         def validate_impl(cls, v: RunOptions, values):
             if not v.strategy:

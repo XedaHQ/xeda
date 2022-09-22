@@ -91,40 +91,42 @@ set_property DONT_TOUCH true [get_cells -hier * ]
 showWarningsAndErrors
 
 
-{% if settings.synth.steps.opt != None -%}
+{%- if settings.synth.steps.opt != None %}
 puts "\n==============================( Optimize Design )================================"
 eval opt_design {{settings.synth.steps.opt|flatten_dict}}
-{% endif %}
+{%- endif %}
 
-{% if settings.write_checkpoint -%}
+{%- if settings.write_checkpoint %}
 write_checkpoint -force ${checkpoints_dir}/post_synth
-{% endif %}
+{%- endif %}
 report_timing_summary -file ${reports_dir}/post_synth/timing_summary.rpt
 report_utilization -hierarchical -force -file ${reports_dir}/post_synth/hierarchical_utilization.rpt
 # reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
 # report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 
-{% if settings.optimize_power and not settings.optimize_power_postplace -%}
+{# post-synth and post-place power optimization steps are mutually exclusive! #}
+{# TODO: check this is still the case with the most recent versions of Vivado #}
+{%- if settings.synth.steps.power_opt and not settings.impl.steps.power_opt %}
 puts "\n===============================( Post-synth Power Optimization )================================"
 # this is more effective than Post-placement Power Optimization but can hurt timing
 eval power_opt_design
 report_power_opt -file ${reports_dir}/post_synth/power_optimization.rpt
 showWarningsAndErrors
-{% endif %}
+{%- endif %}
 
 puts "\n================================( Place Design )================================="
 eval place_design {{settings.impl.steps.place|flatten_dict}}
 showWarningsAndErrors
 
 
-{% if settings.optimize_power_postplace %}
+{%- if settings.settings.impl.steps.power_opt %}
 puts "\n===============================( Post-placement Power Optimization )================================"
 eval power_opt_design
 report_power_opt -file ${reports_dir}/post_place/post_place_power_optimization.rpt
 showWarningsAndErrors
-{% endif %}
+{%- endif %}
 
-{% if settings.impl.steps.place_opt != None -%}
+{%- if settings.impl.steps.place_opt != None -%}
 puts "\n==============================( Post-place optimization )================================"
 eval opt_design {{settings.impl.steps.place_opt|flatten_dict}}
 
@@ -167,20 +169,21 @@ write_checkpoint -force ${checkpoints_dir}/post_route
 {% endif %}
 
 puts "\n==============================( Writing Reports )================================"
-report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file ${reports_dir}/post_route/timing_summary.rpt
-report_timing  -no_header -input_pins  -unique_pins -sort_by group -max_paths 100 -path_type full -delay_type min_max -file ${reports_dir}/post_route/timing.rpt
-reportCriticalPaths ${reports_dir}/post_route/critpath_report.csv
-## report_clock_utilization           -force -file ${reports_dir}/post_route/clock_utilization.rpt
-report_utilization                 -force -file ${reports_dir}/post_route/utilization.rpt
-report_utilization                 -force -file ${reports_dir}/post_route/utilization.xml -format xml
-report_utilization -hierarchical   -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
-report_utilization -hierarchical   -force -file ${reports_dir}/post_route/hierarchical_utilization.rpt
-## report_utilization -hierarchical   -force -file ${reports_dir}/post_route/hierarchical_utilization.xml -format xml
-report_power                       -file ${reports_dir}/post_route/power.rpt
-report_drc                         -file ${reports_dir}/post_route/drc.rpt
-## report_ram_utilization             -file ${reports_dir}/post_route/ram_utilization.rpt -append
-report_methodology                 -file ${reports_dir}/post_route/methodology.rpt
-## report_qor_suggestions -force      -file ${reports_dir}/post_route/qor_suggestions.rpt
+set rep_dir [file join ${reports_dir} post_route]
+report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file [file join ${rep_dir} timing_summary.rpt]
+report_timing         -no_header -input_pins  -unique_pins -sort_by group -max_paths 100 -path_type full -delay_type min_max -file [file join ${rep_dir} timing.rpt]
+reportCriticalPaths                [file join ${rep_dir} critpath_report.csv]
+report_clock_utilization           -force -file [file join ${rep_dir} clock_utilization.rpt]
+report_utilization                 -force -file [file join ${rep_dir} utilization.rpt]
+report_utilization -hierarchical   -force -file [file join ${rep_dir} hierarchical_utilization.rpt]
+report_utilization                 -force -file [file join ${rep_dir} utilization.xml] -format xml
+report_utilization -hierarchical   -force -file [file join ${rep_dir} hierarchical_utilization.xml] -format xml
+report_power                       -force -file [file join ${rep_dir} power.rpt]
+report_drc                         -force -file [file join ${rep_dir} drc.rpt]
+report_methodology                 -force -file [file join ${rep_dir} methodology.rpt]
+{%- if settings.qor_suggestions %}
+report_qor_suggestions             -force -file [file join ${rep_dir} qor_suggestions.rpt]
+{%- endif %}
 
 set timing_slack [get_property SLACK [get_timing_paths]]
 
