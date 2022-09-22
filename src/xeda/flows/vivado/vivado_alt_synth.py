@@ -296,7 +296,7 @@ xeda_strategies: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _vivado_steps(strategy: str, s: str):
+def _vivado_steps(strategy: str, s: str) -> Dict[str, Any]:
     if s == "synth":
         steps = ["synth", "opt", "power_opt"]
     else:
@@ -332,9 +332,11 @@ class VivadoAltSynth(Vivado, FpgaSynthFlow):
         @validator("impl", always=True)
         def validate_impl(cls, v: RunOptions, values):
             if not v.strategy:
-                v.strategy = values.get("synth", {}).get("strategy")
-            if v.strategy and not v.steps:
-                v.steps = _vivado_steps(v.strategy, "impl")
+                synth = values.get("synth")
+                if synth:
+                    v.strategy = synth.strategy
+            if v.strategy:
+                v.steps = {**_vivado_steps(v.strategy, "impl"), **v.steps}
             return v
 
     def run(self):
@@ -360,7 +362,7 @@ class VivadoAltSynth(Vivado, FpgaSynthFlow):
 
         self.add_template_filter(
             "flatten_dict",
-            lambda d: " ".join([f"{k} {v}" if v else k for k, v in d.items()]),
+            lambda d: " ".join([f"{k} {v}" if v is not None else k for k, v in d.items()]),
         )
 
         script_path = self.copy_from_template(
