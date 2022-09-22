@@ -375,13 +375,13 @@ class GitReference(DesignReference):
         if not value and repo_url:
             uri = urlparse(repo_url)
             uri_path = uri.path.lstrip("/.")
-            assert uri.netloc and uri_path, "invalid URL"
+            assert uri.netloc, "invalid URL"
             commit = values.get("commit")
             branch = values.get("branch")
             if commit:
-                uri_path += "@" + commit
+                uri_path += "_commit=" + commit
             elif branch:
-                uri_path += "#" + branch
+                uri_path += "_" + branch
             local_cache = values.get("local_cache")
             if local_cache:
                 return Path(local_cache) / uri.netloc / uri_path
@@ -426,14 +426,15 @@ class GitReference(DesignReference):
         assert self.clone_dir, "clone_dir not set"
         repo = None
         if self.clone_dir.exists():
-            log.info("Local git directory %s already exists.", self.clone_dir)
             try:
                 repo = Repo(self.clone_dir)
                 assert repo.git_dir
                 log.info("Updating existing git repository at %s", self.clone_dir)
                 repo.remotes.origin.fetch()
+                if not self.commit:
+                    repo.git.pull()
             except git.InvalidGitRepositoryError:  # type: ignore
-                log.warning("Path %s is not a valid git repository.", self.clone_dir)
+                log.error("Path %s is not a valid git repository.", self.clone_dir)
         if repo is None:
             log.info(
                 "Cloning git repository url:%s branch:%s commit:%s",
@@ -447,6 +448,7 @@ class GitReference(DesignReference):
                 depth=1,
                 branch=self.branch,
             )
+        assert repo is not None
         if self.commit:
             log.info("Checking out commit: %s", self.commit)
             repo.git.checkout(self.commit)
