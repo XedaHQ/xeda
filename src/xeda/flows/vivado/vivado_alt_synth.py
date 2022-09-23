@@ -362,7 +362,9 @@ class VivadoAltSynth(Vivado, FpgaSynthFlow):
 
         self.add_template_filter(
             "flatten_dict",
-            lambda d: " ".join([f"{k} {v}" if v is not None else k for k, v in d.items()]),
+            lambda d: " ".join(
+                [f"{k} {v}" if v is not None else k for k, v in d.items()]
+            ),
         )
 
         script_path = self.copy_from_template(

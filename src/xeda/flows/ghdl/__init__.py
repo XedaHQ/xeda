@@ -1,3 +1,5 @@
+from html import entities
+import inspect
 import logging
 import os
 import platform
@@ -160,9 +162,12 @@ class Ghdl(Flow, metaclass=ABCMeta):
             raise ValueError("unknown stage!")
 
     def elaborate(
-        self, sources: List[DesignSource], top: Union[str, Tuple012], vhdl: VhdlSettings
+        self,
+        sources: List[DesignSource],
+        top: Union[None, str, Tuple012],
+        vhdl: VhdlSettings,
     ) -> Tuple012:
-        """returns top(s) as a list"""
+        """returns top(s) as a Tuple012"""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if isinstance(top, str):
@@ -181,6 +186,8 @@ class Ghdl(Flow, metaclass=ABCMeta):
             if step in ["import", "analyze"]:
                 args += [str(s) for s in sources]
             elif step in ["make", "elaborate"]:
+                if not top:
+                    raise Exception("Unable to determine the `top` entity")
                 if self.ghdl.info.get("backend", "").lower().startswith("llvm"):
                     if platform.system() == "Darwin" and platform.machine() == "arm64":
                         args += ["-Wl,-Wl,-no_compact_unwind"]
@@ -197,11 +204,33 @@ class Ghdl(Flow, metaclass=ABCMeta):
                     else (top_list[0], top_list[1])
                 )
                 if top:
-                    log.info("find-top: top-module was set to %s", top)
+                    log.info("[ghdl:find-top] `top` entity was set to %s", top)
                 else:
-                    log.warning("find-top: unable to determine the top-module")
+                    find_out = self.ghdl.run_get_stdout(
+                        "-f", *[str(s) for s in sources]
+                    )
+                    entities: List[str] = []
+                    for line in find_out.split("\n"):
+                        sp = line.split()
+                        if len(sp) >= 2 and sp[0] == "entity":
+                            entities.append(sp[1])
+                    log.info("discovered entities: %s", ", ".join(entities))
+                    if entities:
+                        top = (entities[-1],)
+                        log.warning(
+                            "[ghdl:find-top] `top` entity was set to %s", top[0]
+                        )
+                    else:
+                        log.error(
+                            inspect.cleandoc(
+                                """[ghdl:find-top] Unable to determine the `top` entity.
+                                Please specify `tb.top` (for simulation) and/or `rtl.top` (for synthesis) in the design description."""
+                            )
+                        )
             else:
                 self.ghdl.run(step, *args)
+        if top is None:
+            top = tuple()
         return top
 
 
@@ -260,7 +289,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         if (
             design.rtl.sources[-1].type == "vhdl"
         ):  # add top if last source (top source) is VHDL
-            if not top:
+            if not top and design.rtl.top:
                 top = (design.rtl.top,)
             flags.extend(list(top))
         return flags
@@ -407,7 +436,7 @@ class GhdlSim(Ghdl, SimFlow):
             vpi.append(self.cocotb.vpi_path())
             # tb_generics = list(design.tb.generics)  # TODO pass to cocotb?
             design.tb.generics = design.rtl.generics
-            if not design.tb.top:
+            if not design.tb.top and design.rtl.top:
                 design.tb.top = (design.rtl.top,)
         run_flags += setting_flag(vpi, name="vpi")
 

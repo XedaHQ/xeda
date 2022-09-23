@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "Design",
+    "DesignValidationError",
     "DesignSource",
     "FileResource",
     "VhdlSettings",
@@ -240,7 +241,7 @@ class Clock(XedaBaseModel):
 class RtlSettings(DVSettings):
     """design.rtl"""
 
-    top: str = Field(
+    top: Optional[str] = Field(
         description="Toplevel RTL module/entity",
     )
     clock: Optional[Clock] = None  # TODO rename to primary_clock?
@@ -333,8 +334,6 @@ class Language(XedaBaseModel):
 
 class DesignReference(XedaBaseModel):
     uri: str
-    name: Optional[str] = None
-    scheme: Optional[str] = None
     rtl_pos: int = 0
     local_cache: Path = Path.cwd() / ".xeda_dependencies"
 
@@ -538,7 +537,10 @@ class Design(XedaBaseModel):
             design_file = Path(design_file)
         design_dict = toml_load(design_file)
         if "name" not in design_dict:
-            log.warning("Design `name` not specified! Infering design name %s as from `design_file`.", design_file.stem)
+            log.warning(
+                "Design `name` not specified! Infering design name %s as from `design_file`.",
+                design_file.stem,
+            )
             design_dict["name"] = design_file.stem
         # Default value for design_root is the folder containing the design description file.
         if design_root is None:
