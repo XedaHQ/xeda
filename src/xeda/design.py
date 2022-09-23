@@ -537,6 +537,9 @@ class Design(XedaBaseModel):
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
         design_dict = toml_load(design_file)
+        if "name" not in design_dict:
+            log.warning("Design `name` not specified! Infering design name %s as from `design_file`.", design_file.stem)
+            design_dict["name"] = design_file.stem
         # Default value for design_root is the folder containing the design description file.
         if design_root is None:
             design_root = design_file.parent
