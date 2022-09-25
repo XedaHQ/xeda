@@ -12,10 +12,7 @@ from .vivado.vivado_sim import VivadoSim
 from .vivado.vivado_postsynthsim import VivadoPostsynthSim
 from .vivado.vivado_power import VivadoPower
 from .vivado.vivado_alt_synth import VivadoAltSynth
-from .yosys import Yosys
-
-# alias for backwards compatibility
-from .yosys import Yosys as YosysSynth  # pylint: disable=reimported
+from .yosys import YosysSim, YosysSynth
 
 __all__ = [
     "Dc",
@@ -32,6 +29,6 @@ __all__ = [
     "VivadoPower",
     "VivadoSim",
     "VivadoSynth",
-    "Yosys",
-    "YosysSynth",
+    "YosysSim",
+    "VivadoSynth",
 ]

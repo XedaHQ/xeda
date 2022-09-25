@@ -1,4 +1,5 @@
 from __future__ import annotations
+from enum import Enum, auto
 
 import hashlib
 import inspect
@@ -30,6 +31,7 @@ __all__ = [
     "DesignValidationError",
     "DesignSource",
     "FileResource",
+    "SourceType",
     "VhdlSettings",
     "LanguageSettings",
     "Clock",
@@ -132,6 +134,29 @@ class FileResource:
         return "FileResource:" + self.__str__()
 
 
+class SourceType(str, Enum):
+    Bluespec = auto()
+    Chisel = auto()
+    Cpp = auto()
+    Sdc = auto()
+    SystemVerilog = auto()
+    Tcl = auto()
+    Verilog = auto()
+    Vhdl = auto()
+    Xdc = auto()
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __eq__(self, __x: object) -> bool:
+        if isinstance(__x, str) and not isinstance(self, SourceType):
+            # return self.name == __x
+            return self.name.lower() == __x.lower()
+        return super().__eq__(__x)
+
+    def __hash__(self) -> int:
+        return super().__hash__()
+
 class DesignSource(FileResource):
     def __init__(
         self,
@@ -146,15 +171,16 @@ class DesignSource(FileResource):
 
         def type_from_suffix(path: Path) -> Tuple[Optional[str], Optional[str]]:
             type_variants_map = {
-                ("vhdl", None): ["vhd", "vhdl"],
-                ("verilog", None): ["v"],
-                ("systemverilog", None): ["sv"],
-                ("bluespec", "bsv"): ["bsv"],
-                ("bluespec", "bh"): ["bs", "bh"],
-                ("xdc", None): ["xdc"],
-                ("sdc", None): ["sdc"],
-                ("tcl", None): ["tcl"],
-                ("chisel", None): ["sc"],
+                (SourceType.Chisel, None): ["sc"],
+                (SourceType.Cpp, None): ["cc", "cpp", "cxx"],
+                (SourceType.Vhdl, None): ["vhd", "vhdl"],
+                (SourceType.Verilog, None): ["v"],
+                (SourceType.SystemVerilog, None): ["sv"],
+                (SourceType.Bluespec, "bsv"): ["bsv"],
+                (SourceType.Bluespec, "bh"): ["bs", "bh"],
+                (SourceType.Xdc, None): ["xdc"],
+                (SourceType.Sdc, None): ["sdc"],
+                (SourceType.Tcl, None): ["tcl"],
             }
             for (typ, vari), suffixes in type_variants_map.items():
                 if path.suffix[1:] in suffixes:
@@ -505,15 +531,20 @@ class Design(XedaBaseModel):
                 pos = dep.rtl_pos
                 self.rtl.sources[pos:pos] = dep_design.rtl.sources
 
-    @property
-    def sim_sources(self) -> List[DesignSource]:
+    def sim_sources_of_type(self, *source_types) -> List[DesignSource]:
         if not self.tb:
             return []
-        return self.rtl.sources + [
-            src
-            for src in self.tb.sources
-            if src not in self.rtl.sources and src.type in ("vhdl", "verilog")
+
+        sources = self.rtl.sources + [
+            src for src in self.tb.sources if src not in self.rtl.sources
         ]
+        return [src for src in sources if src.type in source_types]
+
+    @property
+    def sim_sources(self) -> List[DesignSource]:
+        return self.sim_sources_of_type(
+            SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl
+        )
 
     @property
     def sim_tops(self) -> Tuple012:

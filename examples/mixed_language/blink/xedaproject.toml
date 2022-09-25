@@ -1,0 +1,15 @@
+[[design]]
+name = "blink"
+
+[design.rtl]
+sources = [
+    "blink.sv"
+]
+
+[design.tb]
+sources =[
+    "blink_tb.cpp"
+]
+
+[flows.yosys]
+cxxrtl.filename = "blink.cpp"
