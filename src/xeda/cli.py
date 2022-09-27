@@ -267,7 +267,7 @@ def run(
             else:
                 if len(designs) == 1:
                     design = designs[1]
-
+                else:
                     if console.is_interactive:
                         terminal_menu = TerminalMenu(
                             xeda_project.design_names, title="Please select a design: "
