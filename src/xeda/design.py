@@ -244,24 +244,36 @@ class RtlSettings(DVSettings):
     top: Optional[str] = Field(
         description="Toplevel RTL module/entity",
     )
-    clock: Optional[Clock] = None  # TODO rename to primary_clock?
+    # preferred way to specify a design's clock ports:
     clocks: Dict[str, Clock] = {}
+
+    # short-hand alternatives for a signle clock designs:
+    clock: Optional[Clock] = None  # TODO rename to primary_clock?
     clock_port: Optional[str] = None  # TODO remove?
 
     @root_validator(pre=False)
     def rtl_settings_validate(cls, values):  # pylint: disable=no-self-argument
         """copy equivalent clock fields (backward compatibility)"""
+        print("RtlSettings root validator")
         clock = values.get("clock")
         clock_port = values.get("clock_port")
         clocks = values.get("clocks")
 
-        if clock_port and not clock:
-            clock = Clock(port=clock_port)
+        if not clock:
+            if clock_port:
+                clock = Clock(port=clock_port)
+            elif len(clocks) == 1:
+                clock = list(clocks.values())[0]
+        if clock:
+            if not clock_port:
+                clock_port = clock.port
+            if not clocks:
+                clocks = {"main_clock": clock}
             values["clock"] = clock
-        if clock and not clock_port:
-            values["clock_port"] = clock.port
-        if clock and not clocks:
-            values["clocks"] = {"main_clock": clock}
+        if clocks:
+            values["clocks"] = clocks
+        if clock_port:
+            values["clock_port"] = clock_port
         return values
 
 
@@ -503,7 +515,19 @@ class Design(XedaBaseModel):
                 dep_design = dep.fetch_design()
                 log.info("adding dependency sources from %s", dep_design.name)
                 pos = dep.rtl_pos
-                self.rtl.sources[pos:pos] = dep_design.rtl.sources
+                if pos == -1:  # -1 means append 'after' the last element
+                    self.rtl.sources.extend(dep_design.rtl.sources)
+                    if not self.rtl.top and dep_design.rtl.top:
+                        self.rtl.top = dep_design.rtl.top
+                    if not self.rtl.parameters and dep_design.rtl.parameters:
+                        self.rtl.parameters = dep_design.rtl.parameters
+                    if not self.rtl.clocks and dep_design.rtl.clocks:
+                        print(dep_design.rtl.clocks)
+                        self.rtl.clocks = dep_design.rtl.clocks
+                else:
+                    if pos < 0:
+                        pos += 1  # afterwards: pos=-2 means the position 'before' the last element
+                    self.rtl.sources[pos:pos] = dep_design.rtl.sources
 
     @property
     def sim_sources(self) -> List[DesignSource]:
