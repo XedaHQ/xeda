@@ -207,7 +207,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
                     log.info("[ghdl:find-top] `top` entity was set to %s", top)
                 else:
                     find_out = self.ghdl.run_get_stdout(
-                        "-f", *[str(s) for s in sources]
+                        "-f", *args, *[str(s) for s in sources]
                     )
                     entities: List[str] = []
                     for line in find_out.split("\n"):

@@ -143,10 +143,10 @@ class Flow(metaclass=ABCMeta):
                     validation_errors(e.errors()), e.model, e.json()  # type: ignore
                 ) from e
 
-    def run_tool(self, tool: Tool):
+    def run_tool(self, tool: Tool, *args: Any, env: Optional[Dict[str, Any]] = None):
         """run a tool"""
         tool.design_root = self.design_root
-        tool.run()
+        tool.run(*args, env=env)
 
     @property
     def succeeded(self) -> bool:
@@ -173,7 +173,10 @@ class Flow(metaclass=ABCMeta):
 
     @classmethod
     def _create_jinja_env(
-        cls, extra_modules: Optional[List[str]] = None
+        cls,
+        extra_modules: Optional[List[str]] = None,
+        trim_blocks=False,
+        lstrip_blocks=False,
     ) -> jinja2.Environment:
         if extra_modules is None:
             extra_modules = []
@@ -195,6 +198,8 @@ class Flow(metaclass=ABCMeta):
             loader=ChoiceLoader(loaderChoices),
             autoescape=False,
             undefined=StrictUndefined,
+            trim_blocks=trim_blocks,
+            lstrip_blocks=lstrip_blocks,
         )
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
@@ -248,8 +253,12 @@ class Flow(metaclass=ABCMeta):
         log.info("No parse_reports action for %s", self.name)
         return True
 
-    def copy_from_template(self, resource_name, **kwargs) -> Path:
+    def copy_from_template(
+        self, resource_name, lstrip_blocks=False, trim_blocks=False, **kwargs
+    ) -> Path:
         template = self.jinja_env.get_template(resource_name)
+        template.environment.lstrip_blocks = lstrip_blocks
+        template.environment.trim_blocks = trim_blocks
         script_path: Path = self.run_path / resource_name
         log.debug("generating %s from template.", str(script_path.resolve()))
         rendered_content = template.render(

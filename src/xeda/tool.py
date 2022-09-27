@@ -162,7 +162,7 @@ def run_process(
     args = [str(a) for a in args]
     if env is not None:
         env = {k: str(v) for k, v in env.items()}
-    log.info("Running `%s`", " ".join([executable, *args]))
+    log.info("Running `%s`", " ".join(map(lambda x: str(x), [executable, *args])))
     if cwd:
         log.info("cwd=%s", cwd)
     if stdout and isinstance(stdout, (str, os.PathLike)):
@@ -484,3 +484,7 @@ class Tool(XedaBaseModeAllowExtra):
         env: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._run(*args, env=env, stdout=stdout)
+
+
+    def update(self, **kwargs) -> 'Tool':
+        return self.copy(update=kwargs)
