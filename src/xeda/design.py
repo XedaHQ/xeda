@@ -149,6 +149,7 @@ class SourceType(str, Enum):
         return self.name
 
 
+
 class DesignSource(FileResource):
     def __init__(
         self,
@@ -362,9 +363,18 @@ class Language(XedaBaseModel):
     verilog: LanguageSettings = LanguageSettings()  # type: ignore
 
 
+class RtlDep(XedaBaseModel):
+    pos: int = 0
+
+
+class TbDep(XedaBaseModel):
+    pos: int = 0
+
+
 class DesignReference(XedaBaseModel):
     uri: str
-    rtl_pos: int = 0
+    rtl: RtlDep = RtlDep()
+    tb: TbDep = TbDep()
     local_cache: Path = Path.cwd() / ".xeda_dependencies"
 
     @staticmethod
@@ -532,7 +542,7 @@ class Design(XedaBaseModel):
             for dep in self.dependencies:
                 dep_design = dep.fetch_design()
                 log.info("adding dependency sources from %s", dep_design.name)
-                pos = dep.rtl_pos
+                pos = dep.rtl.pos
                 if pos == -1:  # -1 means append 'after' the last element
                     self.rtl.sources.extend(dep_design.rtl.sources)
                     if not self.rtl.top and dep_design.rtl.top:
