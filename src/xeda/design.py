@@ -149,7 +149,6 @@ class SourceType(str, Enum):
         return self.name
 
 
-
 class DesignSource(FileResource):
     def __init__(
         self,
