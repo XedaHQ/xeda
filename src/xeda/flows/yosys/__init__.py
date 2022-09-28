@@ -58,7 +58,7 @@ class Yosys(Flow):
         verilog_lib: List[str] = []
         splitnets: Optional[List[str]] = None  # ['-driver']
         set_attributes: Dict[str, Dict[str, Any]] = {}
-        plugins: List[str] = ["systemverilog"]
+        plugins: List[str] = []  # ["systemverilog"]
         prep: Optional[List[str]] = None
         write_vhdl_flags: List[str] = [
             # '-norename',
@@ -156,7 +156,7 @@ class YosysSynth(Yosys, SynthFlow):
     """Synthesize the design using Yosys Open SYnthesis Suite"""
 
     class Settings(Yosys.Settings, FpgaSynthFlow.Settings, AsicSynthFlow.Settings):
-        fpga: Optional[FPGA] = None
+        fpga: Optional[FPGA] = None  # type: ignore
         abc9: bool = Field(True, description="Use abc9")
         retime: bool = Field(False, description="Enable flip-flop retiming")
         nobram: bool = Field(False, description="Do not map to block RAM cells")
@@ -230,7 +230,7 @@ class YosysSynth(Yosys, SynthFlow):
             docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
         )
         self.stat_report = (
-            "utilization.json" if self.yosys.version_gte(0, 12) else "utilization.rpt"
+            "utilization.json" if self.yosys.version_gte(0, 21) else "utilization.rpt"
         )
         self.timing_report = "timing.rpt"
         self.artifacts = Box(
@@ -311,7 +311,7 @@ class YosysSynth(Yosys, SynthFlow):
                     append_flag(ss.abc_flags, f"-lut {ss.tech.lut}")
 
         script_path = self.copy_from_template(
-            "yosys.tcl",
+            "yosys_synth.tcl",
             lstrip_blocks=True,
             trim_blocks=True,
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),

@@ -25,7 +25,7 @@ class VivadoSim(Vivado, SimFlow):
         sim_flags: List[str] = []
         elab_debug: Optional[str] = None  # TODO choices: "typical", ...
         sdf: SDF = SDF()
-        optimization_flags: List[str] = []  # ["-O3"]
+        optimization_flags: List[str] = ["-O3"]
         debug_traces: bool = False
         prerun_time: Optional[str] = None
         work_lib: str = "work"

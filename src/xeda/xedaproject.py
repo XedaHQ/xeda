@@ -47,7 +47,7 @@ class XedaProject:
         flows = data.get("flow") or data.get("flows", {})
         assert isinstance(flows, dict)
         with WorkingDirectory(file.parent):
-            return cls(
+            return cls(  # type: ignore
                 designs=[Design(**d) for d in designs if isinstance(d, dict)],
                 flows=flows,
             )

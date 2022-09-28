@@ -29,6 +29,7 @@ __all__ = [
     "VivadoPower",
     "VivadoSim",
     "VivadoSynth",
-    "YosysSim",
     "VivadoSynth",
+    "YosysSim",
+    "YosysSynth",
 ]

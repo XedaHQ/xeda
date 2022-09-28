@@ -32,7 +32,7 @@ set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
 {%- endif %}
 
 {%- for src in design.rtl.sources %}
-set_global_assignment -name {% if src.type == "verilog" and src.variant == "systemverilog" -%} SYSTEMVERILOG {%- else -%} {{src.type|upper}} {%- endif -%}_FILE {{src.file}}
+set_global_assignment -name {{src.type.name|upper}}_FILE {{src.file}}
 {%- endfor %}
 
 {%- for k,v in design.rtl.parameters.items() %}

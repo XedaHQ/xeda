@@ -140,16 +140,13 @@ set hdlin_vhdl_std 1993
 {%- endif %}
 
 {% for src in design.rtl.sources %}
-{%- if src.type == 'verilog' %}
-{%- if src.variant == 'systemverilog' %}
-puts "\n===========================( Analyzing SystemVerilog file {{src.file}} )==========================="
-if { ![analyze -format sverilog {{src.file}}] } { exit 1 }
-{% else %}
+{%- if src.type.name == "Verilog" %}
 puts "\n===========================( Analyzing Verilog file {{src.file}} )==========================="
 if { ![analyze -format verilog {{src.file}}] } { exit 1 }
-{% endif %}
-{% endif %}
-{% if src.type == 'vhdl' %}
+{%- elif src.type.name == "SystemVerilog" %}
+puts "\n===========================( Analyzing SystemVerilog file {{src.file}} )==========================="
+if { ![analyze -format sverilog {{src.file}}] } { exit 1 }
+{%- elif src.type.name == "Vhdl" %}
 puts "\n===========================( Analyzing VHDL file {{src.file}} )==========================="
 if { ![analyze -format vhdl {{src.file}}] } { exit 1 }
 {% endif %}

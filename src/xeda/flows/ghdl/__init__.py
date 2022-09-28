@@ -1,4 +1,3 @@
-from html import entities
 import inspect
 import logging
 import os
@@ -9,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, validator
-from ...design import Design, DesignSource, Tuple012, VhdlSettings
+from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
 from ...gtkwave import gen_gtkw
 from ...tool import Docker, Tool
 from ...utils import SDF, common_root, setting_flag
@@ -284,10 +283,10 @@ class GhdlSynth(Ghdl, SynthFlow):
 
         flags.extend(ss.generics_flags(design.rtl.generics))
         if one_shot_elab:
-            flags += [str(v) for v in design.rtl.sources if v.type == "vhdl"]
+            flags += [str(v) for v in design.rtl.sources if v.type == SourceType.Vhdl]
             flags.append("-e")
         if (
-            design.rtl.sources[-1].type == "vhdl"
+            design.rtl.sources[-1].type == SourceType.Vhdl
         ):  # add top if last source (top source) is VHDL
             if not top and design.rtl.top:
                 top = (design.rtl.top,)

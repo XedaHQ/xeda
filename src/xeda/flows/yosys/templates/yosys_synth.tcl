@@ -6,7 +6,7 @@ set log_prefix "yosys> "
 yosys plugin -i {{plugin}}
 {%- endfor %}
 
-{%- set sv_files = design.rtl.sources | selectattr("type", "equalto", "SystemVerilog") | list %}
+{%- set sv_files = design.rtl.sources | selectattr("type.name", "==", "SystemVerilog") | list %}
 
 {# defered loading of systemverilog files #}
 {%- set systemverilog_plugin_defered = sv_files and "systemverilog" in settings.plugins %}
@@ -30,7 +30,7 @@ yosys plugin -i {{plugin}}
 yosys read_systemverilog -link
 {% endif %}
 
-{%- set vhdl_files = design.rtl.sources | selectattr("type", "equalto", "Vhdl") | list %}
+{%- set vhdl_files = design.rtl.sources | selectattr("type.name", "==", "Vhdl") | list %}
 {%- if vhdl_files %}
     puts "$log_prefix Reading VHDL files: {{vhdl_files|join(" ")}}"
     yosys plugin -i ghdl
@@ -78,11 +78,7 @@ yosys write_vhdl {{settings.rtl_vhdl}}
 yosys show -prefix rtl_show -format dot {{settings.show_rtl_flags|join(" ")}}
 {%- endif %}
 
-{%- if settings.cxxrtl %}
-    puts "$log_prefix  Writing CXXRTL {{settings.cxxrtl.filename}}"
-    yosys write_cxxrtl {%- if settings.cxxrtl.header %} -header {%- endif %} {%- if settings.cxxrtl.opt is not none %} -O{{settings.cxxrtl.opt}} {%- endif %} {{settings.cxxrtl.filename}}
-{%- elif settings.stop_after != "rtl" %}
-
+{%- if settings.stop_after != "rtl" %}
 {%- if settings.fpga %}
     puts "$log_prefix Running FPGA synthesis for device {{settings.fpga}}"
     {%- if settings.fpga.vendor == "xilinx" %}

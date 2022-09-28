@@ -294,7 +294,7 @@ class Quartus(FpgaSynthFlow):
             #     "I/O Registers",
             # },
         )
-
+        assert self.design.rtl.top
         top_resources = resources.get(self.design.rtl.top)
         if top_resources:
             top_resources.setdefault(0)

@@ -485,6 +485,5 @@ class Tool(XedaBaseModeAllowExtra):
     ) -> None:
         self._run(*args, env=env, stdout=stdout)
 
-
-    def update(self, **kwargs) -> 'Tool':
+    def update(self, **kwargs) -> "Tool":
         return self.copy(update=kwargs)

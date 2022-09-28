@@ -148,14 +148,6 @@ class SourceType(str, Enum):
     def __str__(self) -> str:
         return self.name
 
-    def __eq__(self, __x: object) -> bool:
-        if isinstance(__x, str) and not isinstance(self, SourceType):
-            # return self.name == __x
-            return self.name.lower() == __x.lower()
-        return super().__eq__(__x)
-
-    def __hash__(self) -> int:
-        return super().__hash__()
 
 class DesignSource(FileResource):
     def __init__(
@@ -169,7 +161,7 @@ class DesignSource(FileResource):
     ) -> None:
         super().__init__(path, _root_path, **data)
 
-        def type_from_suffix(path: Path) -> Tuple[Optional[str], Optional[str]]:
+        def type_from_suffix(path: Path) -> Tuple[Optional[SourceType], Optional[str]]:
             type_variants_map = {
                 (SourceType.Chisel, None): ["sc"],
                 (SourceType.Cpp, None): ["cc", "cpp", "cxx"],
@@ -558,11 +550,11 @@ class Design(XedaBaseModel):
     def sim_sources_of_type(self, *source_types) -> List[DesignSource]:
         if not self.tb:
             return []
-
+        source_types_str = [str(st).lower() for st in source_types]
         sources = self.rtl.sources + [
             src for src in self.tb.sources if src not in self.rtl.sources
         ]
-        return [src for src in sources if src.type in source_types]
+        return [src for src in sources if str(src.type).lower() in source_types_str]
 
     @property
     def sim_sources(self) -> List[DesignSource]:
