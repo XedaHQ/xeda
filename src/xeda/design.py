@@ -224,7 +224,7 @@ class DVSettings(XedaBaseModel):  # type: ignore
     defines: Dict[str, DefineType] = Field(default={})
 
     # pylint: disable=no-self-argument
-    @root_validator()
+    @root_validator(pre=True)
     def the_root_validator(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         value = values.get("parameters")
         if not value:
@@ -232,7 +232,7 @@ class DVSettings(XedaBaseModel):  # type: ignore
         if value:
             for k, v in value.items():
                 if isinstance(v, dict) and ("file" in v or "path" in v):
-                    value[k] = FileResource(v).__str__()
+                    value[k] = str(FileResource(v))
             values["generics"] = value
             values["parameters"] = value
         return values
@@ -272,7 +272,6 @@ class RtlSettings(DVSettings):
     @root_validator(pre=False)
     def rtl_settings_validate(cls, values):  # pylint: disable=no-self-argument
         """copy equivalent clock fields (backward compatibility)"""
-        print("RtlSettings root validator")
         clock = values.get("clock")
         clock_port = values.get("clock_port")
         clocks = values.get("clocks")
@@ -495,7 +494,7 @@ class GitReference(DesignReference):
             repo.git.checkout(self.branch)
 
         toml_path = self.clone_dir / self.design_file
-        return Design.from_toml(toml_path, design_root=self.clone_dir)
+        return Design.from_toml(toml_path)
 
 
 class Design(XedaBaseModel):
