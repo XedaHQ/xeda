@@ -376,21 +376,26 @@ class DesignReference(XedaBaseModel):
     local_cache: Path = Path.cwd() / ".xeda_dependencies"
 
     @staticmethod
-    def from_url(uri_str: str) -> DesignReference:
-        git_prefix = "git+"
-        if uri_str.startswith(git_prefix):
-            uri_str = uri_str[len(git_prefix) :]
-            return GitReference.from_url(uri_str)
-
-        return DesignReference(uri=uri_str)
-
-    def _design_from_toml(self, toml_path: Path) -> Design:
-        assert toml_path.exists(), f"file {toml_path} does not exist!"
-        return Design.from_toml(toml_path)
+    def from_data(data) -> DesignReference:
+        print("from_data", data)
+        if isinstance(data, str):
+            data = dict(uri=data)
+        if "uri" in data:
+            uri_str = data["uri"]
+            GIT_PREFIX = "git+"
+            if uri_str.startswith(GIT_PREFIX):
+                uri_str = uri_str[len(GIT_PREFIX) :]
+                data["uri"] = uri_str
+                return GitReference(**data)
+        if "repo_url" in data:
+            return GitReference(**data)
+        print("DesignReference from -> ", data)
+        return DesignReference(**data)
 
     def fetch_design(self) -> Design:
         toml_path = Path(self.uri)
-        return self._design_from_toml(toml_path)
+        assert toml_path.exists(), f"file {toml_path} does not exist!"
+        return Design.from_toml(toml_path)
 
 
 class GitReference(DesignReference):
@@ -424,39 +429,41 @@ class GitReference(DesignReference):
                 return Path(local_cache) / uri.netloc / uri_path
         return value
 
-    @staticmethod
-    def from_url(uri_str: str) -> GitReference:
-        # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
-        uri = urlparse(uri_str)
-        assert uri.scheme and uri.netloc, "invalid git URL"
-        # git design file path should be relative to root
-        design_file_path = uri.fragment.lstrip("/.")  # Removes /, ../, etc.
-        if not design_file_path:
-            raise ValueError(
-                inspect.cleandoc(
-                    """path to design_file must be specified using URL fragment (#...), e.g.,
-                https://github.com/user/repo.git#sub_dir1/design_file2.toml when design file is
-                'sub_dir1/design_file2.toml' relative to the the repository's root."""
+    @root_validator(pre=True)
+    def validate_repo(cls, values):
+        if "uri" in values:
+            uri_str = values["uri"]
+            # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
+            uri = urlparse(uri_str)
+            assert uri.scheme and uri.netloc, "invalid git URL"
+            # git design file path should be relative to root
+            design_file_path = uri.fragment.lstrip("/.")  # Removes /, ../, etc.
+            if not design_file_path:
+                raise ValueError(
+                    inspect.cleandoc(
+                        """path to design_file must be specified using URL fragment (#...), e.g.,
+                    https://github.com/user/repo.git#sub_dir1/design_file2.toml when design file is
+                    'sub_dir1/design_file2.toml' relative to the the repository's root."""
+                    )
                 )
-            )
-        branch = None
-        commit = None
-        if uri.query:
-            query = parse_qs(uri.query)
-            br = query.get("branch")
-            if br:
-                branch = br[-1]
-            cmt = query.get("commit")
-            if cmt:
-                commit = cmt[-1]  # last arg
-        repo_url = uri._replace(fragment="", query="").geturl()
+            branch = None
+            commit = None
+            if uri.query:
+                query = parse_qs(uri.query)
+                br = query.get("branch")
+                if br:
+                    branch = br[-1]
+                cmt = query.get("commit")
+                if cmt:
+                    commit = cmt[-1]  # last arg
+            repo_url = uri._replace(fragment="", query="").geturl()
 
-        return GitReference(
-            uri=uri_str,
+        return dict(
             repo_url=repo_url,
             design_file=design_file_path,
             branch=branch,
             commit=commit,
+            **values,
         )
 
     def fetch_design(self) -> Design:
@@ -508,9 +515,7 @@ class Design(XedaBaseModel):
     @validator("dependencies", pre=True, always=True)
     def validate_dependencies_from_str(cls, value):
         if value and isinstance(value, list):
-            value = [
-                DesignReference.from_url(v) if isinstance(v, str) else v for v in value
-            ]
+            value = [DesignReference.from_data(v) for v in value]
         return value
 
     class Config(XedaBaseModel.Config):
@@ -548,7 +553,6 @@ class Design(XedaBaseModel):
                     if not self.rtl.parameters and dep_design.rtl.parameters:
                         self.rtl.parameters = dep_design.rtl.parameters
                     if not self.rtl.clocks and dep_design.rtl.clocks:
-                        print(dep_design.rtl.clocks)
                         self.rtl.clocks = dep_design.rtl.clocks
                 else:
                     if pos < 0:
@@ -557,7 +561,7 @@ class Design(XedaBaseModel):
                 if not self.tb.sources and dep_design.tb.sources:
                     self.tb.sources = dep_design.tb.sources
                 if not self.tb.top and dep_design.tb.top:
-                    self.tb.sources = dep_design.tb.sources
+                    self.tb.top = dep_design.tb.top
 
     def sim_sources_of_type(self, *source_types) -> List[DesignSource]:
         if not self.tb:
