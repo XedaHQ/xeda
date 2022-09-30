@@ -377,7 +377,6 @@ class DesignReference(XedaBaseModel):
 
     @staticmethod
     def from_data(data) -> DesignReference:
-        print("from_data", data)
         if isinstance(data, str):
             data = dict(uri=data)
         if "uri" in data:
@@ -389,7 +388,6 @@ class DesignReference(XedaBaseModel):
                 return GitReference(**data)
         if "repo_url" in data:
             return GitReference(**data)
-        print("DesignReference from -> ", data)
         return DesignReference(**data)
 
     def fetch_design(self) -> Design:
