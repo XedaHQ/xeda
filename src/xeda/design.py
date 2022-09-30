@@ -554,6 +554,10 @@ class Design(XedaBaseModel):
                     if pos < 0:
                         pos += 1  # afterwards: pos=-2 means the position 'before' the last element
                     self.rtl.sources[pos:pos] = dep_design.rtl.sources
+                if not self.tb.sources and dep_design.tb.sources:
+                    self.tb.sources = dep_design.tb.sources
+                if not self.tb.top and dep_design.tb.top:
+                    self.tb.sources = dep_design.tb.sources
 
     def sim_sources_of_type(self, *source_types) -> List[DesignSource]:
         if not self.tb:
