@@ -46,6 +46,7 @@ class VivadoSim(Vivado, SimFlow):
             ss.elab_flags.append(f"-debug {elab_debug}")
 
         assert self.design.tb
+        assert self.design.sim_tops, "tb.top was not specified"
         if ss.vcd:
             log.info("Dumping VCD to %s", self.run_path / ss.vcd)
         sdf_root = ss.sdf.root
