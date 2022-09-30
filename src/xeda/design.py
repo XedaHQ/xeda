@@ -601,7 +601,7 @@ class Design(XedaBaseModel):
         design_dict = toml_load(design_file)
         if "name" not in design_dict:
             log.warning(
-                "Design `name` not specified! Infering design name %s as from `design_file`.",
+                "'design.name' not specified! Inferring design name %s from design filename.",
                 design_file.stem,
             )
             design_dict["name"] = design_file.stem
