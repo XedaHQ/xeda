@@ -585,6 +585,11 @@ class Design(XedaBaseModel):
                 return self.tb.top
         return tuple()
 
+    @property
+    def root_path(self) -> Path:
+        assert self._design_root, "design_root is not set!"
+        return self._design_root
+
     T = TypeVar("T", bound="Design")
 
     @classmethod
