@@ -60,7 +60,8 @@ open_saif {{settings.saif}}
 puts "\n===========================( Setting up VCD )==========================="
 open_vcd {{settings.vcd}}
 ## Vivado (tested on 2020.1) crashes if using * and shared/protected variables are present
-log_vcd [get_objects -r -filter { type == variable || type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } /*]
+## log_vcd [get_objects -r -filter { type == variable || type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } /*]
+log_vcd {%- if settings.quiet %} -quiet {%- elif settings.verbose %} -verbose {%- endif %} {%- if settings.vcd_level %} -level {{settings.vcd_level}} {%- endif %} {{settings.vcd_scope}}
 {%- endif %}
 {%- if settings.debug_traces %}
 ltrace on

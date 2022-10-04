@@ -33,6 +33,8 @@ class VivadoSim(Vivado, SimFlow):
             False, description="Initialize all signals with zero"
         )
         xelab_log: Optional[str] = "xeda_xelab.log"
+        vcd_scope: str = ""
+        vcd_level: int = 0  # default 0: dump all values in vcd_scope
 
     def run(self) -> None:
         ss = self.settings
