@@ -83,6 +83,7 @@ class XedaBaseModel(BaseModel):
             cached_property,
         )  # https://github.com/samuelcolvin/pydantic/issues/1241
         use_enum_values = True
+        allow_population_by_field_name = True
 
     # def validate(self):
     #     *_, validation_error = validate_model(self.__class__, self.__dict__)

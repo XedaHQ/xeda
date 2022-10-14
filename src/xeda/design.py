@@ -211,14 +211,12 @@ class DVSettings(XedaBaseModel):  # type: ignore
         default={},
         description="Top-level generics/defines specified as a mapping",
         alias="parameters",
-        allow_population_by_field_name=True,
         has_alias=True,
     )  # top defines/generics
     parameters: Dict[str, DefineType] = Field(
         default={},
         description="Top-level generics/defines specified as a mapping",
         alias="generics",
-        allow_population_by_field_name=True,
         has_alias=True,
     )
     defines: Dict[str, DefineType] = Field(default={})
@@ -324,14 +322,12 @@ class LanguageSettings(XedaBaseModel):
         description="Standard version",
         alias="version",
         has_alias=True,
-        allow_population_by_field_name=True,
     )
     version: Optional[str] = Field(
         None,
         description="Standard version",
         alias="standard",
         has_alias=True,
-        allow_population_by_field_name=True,
     )
 
     @validator("standard", pre=True)
