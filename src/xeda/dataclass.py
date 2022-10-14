@@ -85,11 +85,6 @@ class XedaBaseModel(BaseModel):
         use_enum_values = True
         allow_population_by_field_name = True
 
-    # def validate(self):
-    #     *_, validation_error = validate_model(self.__class__, self.__dict__)
-    #     if validation_error:
-    #         raise validation_error
-
 
 class XedaBaseModeAllowExtra(XedaBaseModel, metaclass=ABCMeta):
     class Config(XedaBaseModel.Config):
