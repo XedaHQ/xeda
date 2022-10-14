@@ -1,10 +1,12 @@
+import json
 import logging
+from pathlib import Path
 from typing import Any, Dict
 
 from ...dataclass import validator
 from ..flow import FpgaSynthFlow
 from . import Vivado
-from .vivado_synth import RunOptions, VivadoSynth
+from .vivado_synth import RunOptions, VivadoSynth, parse_hier_util
 
 log = logging.getLogger(__name__)
 
@@ -312,7 +314,7 @@ def _vivado_steps(strategy: str, s: str) -> Dict[str, Any]:
     return {step: xeda_strategies[strategy].get(step) for step in steps}
 
 
-class VivadoAltSynth(Vivado, FpgaSynthFlow):
+class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     """Synthesize with Xilinx Vivado using an alternative TCL-based flow"""
 
     class Settings(VivadoSynth.Settings):
@@ -349,10 +351,13 @@ class VivadoAltSynth(Vivado, FpgaSynthFlow):
                 ss.synth.steps["synth"]["-mode"] = "out_of_context"
 
         blacklisted_resources = ss.blacklisted_resources
-        if "bram" in blacklisted_resources and "bram_tile" not in blacklisted_resources:
-            blacklisted_resources.append("bram_tile")
-
-        log.info("blacklisted_resources: %s", blacklisted_resources)
+        if blacklisted_resources:
+            if (
+                "bram" in blacklisted_resources
+                and "bram_tile" not in blacklisted_resources
+            ):
+                blacklisted_resources.append("bram_tile")
+            log.info("blacklisted_resources: %s", blacklisted_resources)
 
         # if 'bram_tile' in blacklisted_resources:
         #     # FIXME also add -max_uram 0 for ultrascale+

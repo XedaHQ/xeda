@@ -19,7 +19,6 @@ file mkdir ${settings.outputs_dir}
 file mkdir ${reports_dir}
 file mkdir [file join ${reports_dir} post_synth]
 file mkdir [file join ${reports_dir} post_place]
-file mkdir [file join ${reports_dir} post_route]
 file mkdir ${checkpoints_dir}
 
 # suppress some warning messages
@@ -166,8 +165,11 @@ write_checkpoint -force ${checkpoints_dir}/post_route
 {%- endif %}
 
 puts "\n==============================( Writing Reports )================================"
-set rep_dir [file join ${reports_dir} post_route]
-report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file [file join ${rep_dir} timing_summary.rpt]
+set rep_dir [file join ${reports_dir} route_design]
+file mkdir ${rep_dir}
+
+set timing_summary_file [file join ${rep_dir} timing_summary.rpt]
+report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file ${timing_summary_file}
 report_timing         -no_header -input_pins  -unique_pins -sort_by group -max_paths 100 -path_type full -delay_type min_max -file [file join ${rep_dir} timing.rpt]
 reportCriticalPaths                [file join ${rep_dir} critpath_report.csv]
 report_utilization                 -file [file join ${rep_dir} utilization.rpt]
@@ -191,7 +193,7 @@ if {[string is double -strict $timing_slack]} {
     puts "Final timing slack: $timing_slack ns"
 
     if {[string is double -strict $timing_slack] && ($timing_slack < 0)} {
-        puts "ERROR: Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
+        puts "ERROR: Failed to meet timing by $timing_slack, see ${timing_summary_file} for details"
     {% if settings.fail_timing -%}
         exit 1
     {% endif %}

@@ -203,8 +203,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         return not failed
 
     def parse_reports(self) -> bool:
-        report_stage = "route_design"
-        reports_dir = Path("reports") / report_stage
+        reports_dir = Path(self.settings.reports_dir) / "route_design"
 
         failed = not self.parse_timing_report(reports_dir)
 
@@ -269,8 +268,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                         res_util = int(res_util)  # type: ignore
                         if res_util > 0:
                             log.critical(
-                                "%s utilization report lists %s use(s) of blacklisted resource: %s",
-                                report_stage,
+                                "utilization report lists %s use(s) of blacklisted resource: %s",
                                 res_util,
                                 resource,
                             )
