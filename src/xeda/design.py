@@ -425,6 +425,10 @@ class GitReference(DesignReference):
 
     @root_validator(pre=True)
     def validate_repo(cls, values):
+        repo_url = None
+        design_file_path = None
+        branch = None
+        commit = None
         if "uri" in values:
             uri_str = values["uri"]
             # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
@@ -440,8 +444,6 @@ class GitReference(DesignReference):
                     'sub_dir1/design_file2.toml' relative to the the repository's root."""
                     )
                 )
-            branch = None
-            commit = None
             if uri.query:
                 query = parse_qs(uri.query)
                 br = query.get("branch")
@@ -497,6 +499,8 @@ class GitReference(DesignReference):
         toml_path = self.clone_dir / self.design_file
         return Design.from_toml(toml_path)
 
+
+DesignType = TypeVar("DesignType", bound="Design")
 
 class Design(XedaBaseModel):
     name: str
@@ -586,14 +590,13 @@ class Design(XedaBaseModel):
         assert self._design_root, "design_root is not set!"
         return self._design_root
 
-    T = TypeVar("T", bound="Design")
 
     @classmethod
     def from_toml(
-        cls: Type[T],
+        cls: Type[DesignType],
         design_file: Union[str, os.PathLike],
         design_root: Union[None, str, os.PathLike] = None,
-    ) -> T:
+    ) -> DesignType:
         """Load and validate a design description from TOML file"""
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
