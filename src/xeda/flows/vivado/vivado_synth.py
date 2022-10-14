@@ -56,9 +56,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         output_delay: Optional[float] = None
         out_of_context: bool = False
         write_checkpoint: bool = False
-        write_netlist: bool = True
+        write_netlist: bool = False
         write_bitstream: bool = False
-        qor_suggestions: bool = False
+        extra_reports: bool = False
+        qor_suggestions: bool = True
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
         synth: RunOptions = RunOptions(
             # strategy="Flow_PerfOptimized_high", # no LUT combining, fanout limit: 400

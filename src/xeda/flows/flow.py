@@ -64,13 +64,6 @@ def removeprefix(s: str, suffix: str) -> str:
 registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
 
 
-class Results(Box):
-    """Flow results"""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-
-
 DictStrPath = Dict[str, Union[str, os.PathLike]]
 
 T = TypeVar("T", bound="Flow")
@@ -148,6 +141,12 @@ class Flow(metaclass=ABCMeta):
                 raise FlowSettingsError(
                     validation_errors(e.errors()), e.model, e.json()  # type: ignore
                 ) from e
+
+    class Results(Box):
+        """Flow results"""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
 
     def run_tool(self, tool: Tool, *args: Any, env: Optional[Dict[str, Any]] = None):
         """run a tool"""
@@ -228,7 +227,7 @@ class Flow(metaclass=ABCMeta):
         self.reports: DictStrPath = {}
         # TODO deprecate and use self.reports
         self.reports_dir = run_path / self.settings.reports_dir
-        self.results: Results = Results(
+        self.results = self.Results(
             success=False,
             # "Time of the execution of run() in fractional seconds.
             # Initialized with None and set only after execution has finished."
@@ -436,14 +435,14 @@ class PhysicalClock(XedaBaseModel):
         freq = values.get("freq")
         if "period" in values:
             period = float(values["period"])
-            if freq and abs(float(freq) * period - 1000.0) > 0.001:
-                raise ValueError(
-                    f"Both freq and period cannot be specified at the same time period={values.get('period')} freq={values.get('freq')}"
+            if freq is not None and abs(float(freq) * period - 1000.0) >= 0.001:
+                log.debug(
+                    f"Mismatching 'freq' and 'period' values were specified. Setting 'freq' from 'period' value."
                 )
             values["freq"] = 1000.0 / values["period"]
         else:
             if freq:
-                values["period"] = 1000.0 / float(freq)
+                values["period"] = round(1000.0 / float(freq), 3)
             else:
                 raise ValueError("Neither freq or period were specified")
         if not values.get("name"):
@@ -472,18 +471,39 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                 }
             return value
 
+        @validator("clock_period", pre=True, always=True)
+        def clock_period_validate(
+            cls, value, values
+        ):  # pylint: disable=no-self-argument
+            clocks = values.get("clocks")
+            if not value and clocks:
+                if "main_clock" in clocks:
+                    value = clocks["main_clock"].period
+                else:
+                    value = list(clocks.values())[0].period
+            return value
+
         @root_validator(pre=True)
         def synthflow_settings_root_validator(cls, values):
+            """
+            if we only have 1 clock OR a clock named main_clock:
+                clock_period value takes priority for that particular value and overrides that clock's period
+            """
             clocks = values.get("clocks")
-            if clocks and "main_clock" in clocks and not values.get("clock_period"):
-                main_clock = clocks["main_clock"]
-                if not isinstance(main_clock, PhysicalClock):
-                    if isinstance(main_clock, dict):
-                        main_clock = PhysicalClock(**main_clock)
-                assert isinstance(
-                    main_clock, PhysicalClock
-                ), "Specified clock for `main_clock` is neither a PhysicalClock or dict"
-                values["clock_period"] = main_clock.period
+            clock_period = values.get("clock_period")
+            main_clock_name = "main_clock"
+            if clocks and (len(clocks) == 1 or main_clock_name in clocks):
+                if "main_clock" in clocks:
+                    main_clock = clocks["main_clock"]
+                else:
+                    main_clock = (clocks.values())[0]
+                    main_clock_name = (clocks.keys())[0]
+                if isinstance(main_clock, PhysicalClock):
+                    main_clock = dict(main_clock)
+                if clock_period is not None:
+                    log.debug("Setting main_clock period to %s", clock_period)
+                    main_clock["period"] = clock_period
+                clocks[main_clock_name] = PhysicalClock(**main_clock)
             return values
 
     def __init__(self, flow_settings: Settings, design: Design, run_path: Path):

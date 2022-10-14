@@ -267,7 +267,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         ss = self.settings
         top = self.elaborate(design.rtl.sources, design.rtl.top, design.language.vhdl)
         args = self.synth_args(ss, design, one_shot_elab=False, top=top)
-        self.ghdl.run_stdout_to_file("synth", *args, stdout=ss.out_file)
+        self.ghdl.run_stdout_to_file("synth", *args, redirect_to=ss.out_file)
 
     @staticmethod
     def synth_args(

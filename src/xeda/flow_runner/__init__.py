@@ -4,6 +4,7 @@ import importlib
 import json
 import logging
 import os
+import shutil
 import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
@@ -170,11 +171,13 @@ class FlowLauncher:
         dump_results_json: bool = True,
         cached_dependencies: bool = True,
         run_in_existing_dir: bool = False,  # DO NOT USE! Only for development!
+        cleanup: bool = False,
     ) -> None:
         if debug:
             log.setLevel(logging.DEBUG)
             log.root.setLevel(logging.DEBUG)
         self.debug = debug
+        self.cleanup = cleanup
         log.debug("%s xeda_run_dir=%s", self.__class__.__name__, xeda_run_dir)
         xeda_run_dir = Path(xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
@@ -200,7 +203,9 @@ class FlowLauncher:
             if flowrun_hash:
                 flow_subdir += f"_{flowrun_hash[:16]}"
 
-        run_path: Path = self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
+        run_path: Path = (
+            self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
+        )
         return run_path
 
     def launch_flow(
@@ -387,6 +392,11 @@ class FlowLauncher:
                 title=f"{flow.name} Results",
                 skip_if_empty={"artifacts", "reports"},
             )
+        if self.cleanup:
+            log.warning("removing flow run path %s", flow.run_path)
+            def on_rmtree_error(*args):
+                log.error("Error while removing %s: %s", flow.run_path, args)
+            shutil.rmtree(flow.run_path, onerror=on_rmtree_error)
         return flow
 
     def run_flow(
@@ -406,8 +416,11 @@ class DefaultRunner(FlowRunner):
     """Executes a flow and its dependencies and then reports selected results"""
 
 
-def add_file_logger(logdir: Path):
-    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
+def add_file_logger(logdir: Path, timestamp: Union[None, str, datetime] = None):
+    if timestamp is None:
+        timestamp = datetime.now()
+    if not isinstance(timestamp, str):
+        timestamp = timestamp.strftime("%Y-%m-%d-%H%M%S%f")[:-3]
     logdir.mkdir(exist_ok=True, parents=True)
     logfile = logdir / f"xeda_{timestamp}.log"
     log.info("Logging to %s", logfile)
@@ -483,8 +496,12 @@ def prepare(
     if design_file:
         try:
             design = Design.from_toml(design_file)
-            toml_dict = toml_load(design_file)
-            flows_settings = {**flows_settings, **toml_dict.get("flows", {}), **toml_dict.get("flow", {})}
+            dd = asdict(design)
+            flows_settings = {
+                **flows_settings,
+                **dd.get("flows", {}),
+                **dd.get("flow", {}),
+            }
         except DesignValidationError as e:
             log.critical("%s", e)
             return None, None, flows_settings

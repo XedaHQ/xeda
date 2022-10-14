@@ -170,16 +170,19 @@ set rep_dir [file join ${reports_dir} post_route]
 report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file [file join ${rep_dir} timing_summary.rpt]
 report_timing         -no_header -input_pins  -unique_pins -sort_by group -max_paths 100 -path_type full -delay_type min_max -file [file join ${rep_dir} timing.rpt]
 reportCriticalPaths                [file join ${rep_dir} critpath_report.csv]
-report_clock_utilization           -force -file [file join ${rep_dir} clock_utilization.rpt]
-report_utilization                 -force -file [file join ${rep_dir} utilization.rpt]
-report_utilization -hierarchical   -force -file [file join ${rep_dir} hierarchical_utilization.rpt]
-report_utilization                 -force -file [file join ${rep_dir} utilization.xml] -format xml
-report_utilization -hierarchical   -force -file [file join ${rep_dir} hierarchical_utilization.xml] -format xml
-report_power                       -force -file [file join ${rep_dir} power.rpt]
-report_drc                         -force -file [file join ${rep_dir} drc.rpt]
-report_methodology                 -force -file [file join ${rep_dir} methodology.rpt]
+report_utilization                 -file [file join ${rep_dir} utilization.rpt]
+report_utilization                 -file [file join ${rep_dir} utilization.xml] -format xml
+report_utilization -hierarchical   -file [file join ${rep_dir} hierarchical_utilization.xml] -format xml
+
+{%- if settings.extra_reports %}
+report_clock_utilization           -file [file join ${rep_dir} clock_utilization.rpt]
+report_power                       -file [file join ${rep_dir} power.rpt]
+report_drc                         -file [file join ${rep_dir} drc.rpt]
+report_methodology                 -file [file join ${rep_dir} methodology.rpt]
+{%- endif %}
+
 {%- if settings.qor_suggestions %}
-report_qor_suggestions             -force -file [file join ${rep_dir} qor_suggestions.rpt]
+report_qor_suggestions             -file [file join ${rep_dir} qor_suggestions.rpt]
 {%- endif %}
 
 set timing_slack [get_property SLACK [get_timing_paths]]

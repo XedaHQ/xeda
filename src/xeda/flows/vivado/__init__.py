@@ -1,9 +1,10 @@
 import logging
 from abc import ABCMeta
-from functools import reduce
+from functools import cached_property, reduce
 from html import unescape
 from pathlib import Path
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, Optional, Tuple
 from xml.etree import ElementTree
 
 from ...dataclass import Field
@@ -44,6 +45,25 @@ def vivado_generics(kvdict, sim=False):
     )
 
 
+class VivadoTool(Tool):
+    executable = "vivado"
+    docker = Docker(
+        image="siliconbootcamp/xilinx-vivado",
+        command=["/tools/Xilinx/Vivado/2021.1/bin/vivado"],
+        tag="stable",
+    )  # type: ignore
+
+    @cached_property
+    def version(self) -> Tuple[str, ...]:
+        out = self.run_get_stdout(
+            "-version",
+        )
+        assert isinstance(out, str)
+        so = re.split(r"\s+", out)
+        version_string = so[1] if len(so) > 1 else so[0] if len(so) > 0 else ""
+        return tuple(version_string.split("."))
+
+
 class Vivado(Flow, metaclass=ABCMeta):
     """Xilinx (AMD) Vivado FPGA synthesis and simulation flows"""
 
@@ -52,27 +72,31 @@ class Vivado(Flow, metaclass=ABCMeta):
             False,
             description="Drop to interactive TCL shell after Vivado finishes running a flow script",
         )
+        no_log: bool = False
+        redirect_stdout: Optional[Path] = None
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         super().__init__(settings, design, run_path)
+        assert isinstance(self.settings, self.Settings)
         default_args = [
             "-nojournal",
             "-mode",
-            "tcl" if settings.tcl_shell else "batch",
+            "tcl" if self.settings.tcl_shell else "batch",
         ]
         if not self.settings.debug:
             default_args.append("-notrace")
-        self.vivado = Tool(
-            "vivado",
+        if self.settings.verbose:
+            default_args.append("-verbose")
+        if self.settings.no_log:
+            default_args.append("-nolog")
+        self.vivado = VivadoTool(
             default_args=default_args,
-            docker=Docker(
-                image="siliconbootcamp/xilinx-vivado",
-                command=["/tools/Xilinx/Vivado/2021.1/bin/vivado"],
-                tag="stable",
-                enabled=self.settings.dockerized,
-            ),  # type: ignore
             design_root=self.design_root,
-        )
+        )  # type: ignore
+        if self.vivado.docker:
+            self.vivado.docker.enabled = self.settings.dockerized
+        self.vivado.redirect_stdout = self.settings.redirect_stdout
+        self.results.tools = [self.vivado.info]
         self.add_template_filter("vivado_generics", vivado_generics)
 
     @staticmethod

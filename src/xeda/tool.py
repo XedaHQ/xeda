@@ -167,8 +167,6 @@ def run_process(
         log.info("cwd=%s", cwd)
     if stdout and isinstance(stdout, (str, os.PathLike)):
         stdout = Path(stdout)
-        log.info("redirecting stdout to %s", stdout)
-
         def cm_call():
             assert stdout
             return open(stdout, "w")
@@ -190,17 +188,32 @@ def run_process(
                 env=env,
             ) as proc:
                 log.info("Started %s[%d]", executable, proc.pid)
-                if stdout:
-                    if isinstance(stdout, bool):
-                        out, err = proc.communicate(timeout=None)
-                        if check and proc.returncode != 0:
-                            raise NonZeroExitCode(proc.args, proc.returncode)
-                        if err:
-                            print(err, file=stderr)
-                        return out.strip()
-                    log.info("Standard output is logged to: %s", stdout)
-                else:
+                try:
+                    if stdout:
+                        if isinstance(stdout, bool):
+                            out, err = proc.communicate(timeout=None)
+                            if check and proc.returncode != 0:
+                                raise NonZeroExitCode(proc.args, proc.returncode)
+                            if err:
+                                print(err, file=stderr)
+                            return out.strip()
+                        else:
+                            log.info("Standard output is redirected to: %s", os.path.abspath(stdout))
                     proc.wait()
+                except KeyboardInterrupt as e:
+                    try:
+                        # log.warning(
+                        #     "[Tool] Received KeyboardInterrupt! Terminating %s(pid=%s)",
+                        #     executable,
+                        #     proc.pid,
+                        # )
+                        proc.terminate()
+                    except OSError as e2:
+                        log.warning("Terminate failed: %s", e2)
+                    finally:
+                        proc.wait()
+                        raise e from None
+
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
             raise ExecutableNotFound(e.filename, tool_name, path, *e.args) from None
@@ -267,17 +280,12 @@ class Tool(XedaBaseModeAllowExtra):
     minimum_version: Union[None, Tuple[Union[int, str], ...]] = None
     default_args: Optional[List[str]] = None
 
-    remote: Optional[RemoteSettings] = Field(None, hidden_from_schema=True)
-    docker: Optional[Docker] = Field(None, hidden_from_schema=True)
-    log_stdout: bool = Field(
-        False, description="Log stdout to a file", hidden_from_schema=True
+    remote: Optional[RemoteSettings] = Field(None)
+    docker: Optional[Docker] = Field(None)
+    redirect_stdout: Optional[Path] = Field(
+        None, description="Redirect stdout to a file"
     )
-    log_stderr: bool = Field(
-        False, description="Log stderr to a file", hidden_from_schema=True
-    )
-    bin_path: str = Field(
-        None, description="Path to the tool binary", hidden_from_schema=True
-    )
+    bin_path: str = Field(None, description="Path to the tool binary")
     design_root: Optional[Path] = None
 
     def __init__(self, executable: Optional[str] = None, **kwargs):
@@ -294,10 +302,10 @@ class Tool(XedaBaseModeAllowExtra):
 
     @cached_property
     def info(self) -> Dict[str, str]:
-        return {"version": ".".join(self.version)}
+        return {"executable": self.executable, "version": ".".join(self.version)}
 
     @cached_property
-    def _version(self) -> Tuple[str, ...]:
+    def version(self) -> Tuple[str, ...]:
         out = self.run_get_stdout(
             "--version",
         )
@@ -305,10 +313,6 @@ class Tool(XedaBaseModeAllowExtra):
         so = re.split(r"\s+", out)
         version_string = so[1] if len(so) > 1 else so[0] if len(so) > 0 else ""
         return tuple(version_string.split("."))
-
-    @property
-    def version(self) -> Tuple[str, ...]:
-        return self._version
 
     @staticmethod
     def _version_is_gte(
@@ -451,13 +455,15 @@ class Tool(XedaBaseModeAllowExtra):
         ]
         _run_processes([sshfs_proc, ncat_proc])
 
-    def _run(
+    def run(
         self,
         *args: Any,
         env: Optional[Dict[str, Any]] = None,
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
     ) -> Union[None, str]:
+        if not stdout and self.redirect_stdout:
+            stdout = self.redirect_stdout
         if self.default_args:
             args = tuple(unique(self.default_args + list(args)))
         if self.remote and self.remote.enabled:
@@ -469,21 +475,18 @@ class Tool(XedaBaseModeAllowExtra):
             )
         return self._run_system(*args, env=env, stdout=stdout, check=check)
 
-    def run(self, *args: Any, env: Optional[Dict[str, Any]] = None) -> None:
-        self._run(*args, env=env, stdout=None)
-
     def run_get_stdout(self, *args: Any, env: Optional[Dict[str, Any]] = None) -> str:
-        out = self._run(*args, env=env, stdout=True)
+        out = self.run(*args, env=env, stdout=True)
         assert isinstance(out, str)
         return out
 
     def run_stdout_to_file(
         self,
         *args: Any,
-        stdout: OptionalBoolOrPath,
+        redirect_to: Path,
         env: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self._run(*args, env=env, stdout=stdout)
+        self.run(*args, env=env, stdout=redirect_to)
 
     def update(self, **kwargs) -> "Tool":
         return self.copy(update=kwargs)

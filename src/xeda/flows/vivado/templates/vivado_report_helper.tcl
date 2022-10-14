@@ -32,19 +32,19 @@ if {$ACTIVE_STEP == "route_design"} {
         {%- endif %}
     }
 
-    puts "\n==========================( Writing netlists and SDF files )============================="
+    {%- if settings.write_netlist -%}
+    puts "\n==========================( Writing netlists and SDF )=========================="
     write_verilog -mode timesim -sdf_anno false -force -file ${outputs_dir}/timesim.v
     write_sdf -mode timesim -process_corner slow -force -file ${outputs_dir}/timesim.min.sdf
     write_sdf -mode timesim -process_corner fast -force -file ${outputs_dir}/timesim.max.sdf
     write_vhdl -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${outputs_dir}/funcsim.vhdl
     write_xdc -no_fixed_only -force ${outputs_dir}/impl.xdc
-    {# # write_verilog -mode timesim -sdf_anno false -include_xilinx_libs -write_all_overrides -force -file ${outputs_dir}/impl_timesim_inlined.v #}
-    {# # write_verilog -mode funcsim -force ${outputs_dir}/funcsim_noxlib.v #}
+    {%- endif %}
 
     {%- if settings.write_bitstream %}
-    puts "\n=================================( Writing bitstream )==================================="
+    puts "\n===========================( Writing bitstream )================================="
     write_bitstream -force {{design.rtl.top}}.bit
     {%- endif %}
 }
 
-puts "\n==========================( Finished $ACTIVE_STEP reports )============================"
+puts "\n=======================( Finished $ACTIVE_STEP reports )========================"

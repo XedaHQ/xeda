@@ -49,6 +49,7 @@ class VivadoPostsynthSim(VivadoSim):
                 ss.synth.input_delay = input_delay
             if ss.synth.output_delay is None:
                 ss.synth.output_delay = 0.0
+            ss.synth.write_netlist = True
         self.add_dependency(VivadoSynth, ss.synth)
 
     def run(self) -> None:

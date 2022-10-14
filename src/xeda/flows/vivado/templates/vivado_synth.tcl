@@ -85,15 +85,15 @@ set_property STEPS.{{step}}.{{name}} {{value}} [get_runs impl_1]
 add_files -fileset utils_1 -norecurse [pwd]/{{reports_tcl}}
 set_property STEPS.ROUTE_DESIGN.TCL.POST [pwd]/{{reports_tcl}} [get_runs impl_1]
 
-create_report_config -report_type report_utilization -report_name post_opt_report        -steps opt_design   -runs [get_runs impl_1] -options {-format xml}
-create_report_config -report_type report_utilization -report_name post_opt_hier_report   -steps opt_design   -runs [get_runs impl_1] -options {-hierarchical -format xml}
-create_report_config -report_type report_utilization -report_name post_route_report      -steps route_design -runs [get_runs impl_1] -options {-format xml}
-create_report_config -report_type report_utilization -report_name post_route_hier_report -steps route_design -runs [get_runs impl_1] -options {-hierarchical -format xml}
+# create_report_config -report_type report_utilization -report_name post_opt_report        -steps opt_design   -runs [get_runs impl_1] -options {-format xml}
+# create_report_config -report_type report_utilization -report_name post_opt_hier_report   -steps opt_design   -runs [get_runs impl_1] -options {-hierarchical -format xml}
+# create_report_config -report_type report_utilization -report_name post_route_report      -steps route_design -runs [get_runs impl_1] -options {-format xml}
+# create_report_config -report_type report_utilization -report_name post_route_hier_report -steps route_design -runs [get_runs impl_1] -options {-hierarchical -format xml}
 
 puts "\n=============================( Running Synthesis )============================="
 launch_runs synth_1 -jobs {{settings.nthreads}}
 wait_on_run synth_1
-# renamed to wait_on_runs in Vivado 2021.2?!!
+# renamed to wait_on_runs in Vivado 2021.2
 
 puts "\n===========================( Running Implementation )=========================="
 launch_runs impl_1 -jobs {{settings.nthreads}} {%- if not settings.write_bitstream %} -to_step route_design {%- endif %}

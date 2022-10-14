@@ -1,8 +1,8 @@
 import logging
 from typing import Any, Dict
 
-from ..flow import FpgaSynthFlow
 from ...dataclass import validator
+from ..flow import FpgaSynthFlow
 from . import Vivado
 from .vivado_synth import RunOptions, VivadoSynth
 
