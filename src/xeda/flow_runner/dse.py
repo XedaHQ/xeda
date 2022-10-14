@@ -261,7 +261,7 @@ class FmaxOptimizer(Optimizer):
         if best_freq is None or freq >= best_freq:
             if best_freq and freq > best_freq:
                 impr = freq - best_freq
-                log.info("New best frequency: %.2fMHz Improvement:%.2f %s", freq, impr)
+                log.info("New best frequency: %.2fMHz Improvement:%.2f", freq, impr)
             self.best = outcome
             self.improved_idx = idx
             return True
