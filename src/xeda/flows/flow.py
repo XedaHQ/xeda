@@ -10,11 +10,11 @@ from abc import ABCMeta, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
-from typeguard import typechecked
 import jinja2
 import psutil
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
+from typeguard import typechecked
 
 from ..dataclass import (
     Field,
@@ -25,8 +25,8 @@ from ..dataclass import (
     validator,
 )
 from ..design import Design
-from ..tool import Tool
 from ..fpga import FPGA
+from ..tool import Tool
 from ..utils import camelcase_to_snakecase, try_convert, unique
 from .cocotb import Cocotb, CocotbSettings
 
@@ -64,8 +64,14 @@ def removeprefix(s: str, suffix: str) -> str:
 registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
 
 
-DictStrPath = Dict[str, Union[str, os.PathLike]]
+class Results(Box):
+    """Flow results"""
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+
+
+DictStrPath = Dict[str, Union[str, os.PathLike]]
 
 T = TypeVar("T", bound="Flow")
 
@@ -222,7 +228,7 @@ class Flow(metaclass=ABCMeta):
         self.reports: DictStrPath = {}
         # TODO deprecate and use self.reports
         self.reports_dir = run_path / self.settings.reports_dir
-        self.results: Box = Box(
+        self.results: Results = Results(
             success=False,
             # "Time of the execution of run() in fractional seconds.
             # Initialized with None and set only after execution has finished."

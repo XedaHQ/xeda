@@ -1,10 +1,10 @@
-from collections import OrderedDict
 import itertools
 import json
 import logging
 import os
-from pathlib import Path
 import re
+from collections import OrderedDict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
@@ -138,7 +138,9 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         if settings.synth.steps["SYNTH_DESIGN"] is None:
             settings.synth.steps["SYNTH_DESIGN"] = {}
         assert settings.synth.steps["SYNTH_DESIGN"] is not None
-        if "bram_tile" in settings.blacklisted_resources:
+        if any(
+            item in settings.blacklisted_resources for item in ("bram_tile", "bram")
+        ):
             # FIXME also add -max_uram 0 for ultrascale+
             settings.synth.steps["SYNTH_DESIGN"]["MAX_BRAM"] = 0
         if "dsp" in settings.blacklisted_resources:
@@ -303,6 +305,8 @@ def parse_hier_util(
         tags_blacklist=["class", "style", "halign", "width"],
         skip_empty_children=True,
     )
+    if table is None:
+        return None
 
     tr = table["RptDoc"]["section"]["table"]["tablerow"]  # type: ignore
     hdr = tr[0]["tableheader"]  # type: ignore

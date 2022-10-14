@@ -7,24 +7,31 @@ import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
-from typing import Any, Dict, Mapping, Optional, Set, Type, Union
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
+
 from box import Box
-
-# fmt: off
 from pathvalidate import sanitize_filename  # pyright: reportPrivateImportUsage=none
-
 from rich import box, print_json
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
 from ..console import console
-from ..dataclass import asdict
-from ..design import Design
+from ..dataclass import asdict, define
+from ..design import Design, DesignValidationError
 from ..flows.flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
-from ..utils import WorkingDirectory, backup_existing, dump_json, snakecase_to_camelcase
+from ..utils import (
+    WorkingDirectory,
+    backup_existing,
+    dump_json,
+    set_hierarchy,
+    snakecase_to_camelcase,
+    toml_load,
+    try_convert,
+)
 from ..version import __version__
+from ..xedaproject import XedaProject
 
 __all__ = [
     "get_flow_class",
@@ -38,14 +45,15 @@ log = logging.getLogger(__name__)
 
 
 def print_results(
-    flow: Flow,
+    flow: Optional[Flow] = None,
     results: Optional[Dict[str, Any]] = None,
     title: Optional[str] = None,
-    subset: Optional[Set[str]] = None,
+    subset: Union[None, List[str], Set[str]] = None,
     skip_if_empty: Optional[Set[str]] = None,
 ) -> None:
-    if results is None:
+    if results is None and flow:
         results = flow.results
+    assert results is not None, "results is None"
     console.print()
     table = Table(
         title=title,
@@ -65,7 +73,9 @@ def print_results(
 
                 # color = "green" if v else "red"
                 # table.add_row("Status", text, style=Style(color=color))
-                table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]")
+                table.add_row(
+                    "Status", "[green]OK[/green]" if v else "[red]FAILED[/red]"
+                )
                 continue
             if subset and k not in subset:
                 continue
@@ -140,7 +150,7 @@ def _semantic_hash(data: Any) -> str:
     return hashlib.sha3_256(bytes(r, "UTF-8")).hexdigest()
 
 
-class FlowRunner:
+class FlowLauncher:
     """
     Manage running flows and their dependencies.
     1. Instantiate instance of flow class with proper settings assigned (__init__)
@@ -158,7 +168,7 @@ class FlowRunner:
         dump_settings_json: bool = True,
         display_results: bool = True,
         dump_results_json: bool = True,
-        cached_dependencies: bool = False,  # do not run dependencies if previous run results exist. Uses flow run_dir names including design and flow.settings hashes
+        cached_dependencies: bool = True,
         run_in_existing_dir: bool = False,  # DO NOT USE! Only for development!
     ) -> None:
         if debug:
@@ -175,7 +185,7 @@ class FlowRunner:
         self.dump_settings_json: bool = dump_settings_json
         self.run_in_existing_dir: bool = run_in_existing_dir
 
-    def _get_flow_run_path(
+    def get_flow_run_path(
         self,
         design_name: str,
         flow_name: str,
@@ -190,25 +200,15 @@ class FlowRunner:
             if flowrun_hash:
                 flow_subdir += f"_{flowrun_hash[:16]}"
 
-        run_path: Path = (
-            self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
-        )
+        run_path: Path = self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
         return run_path
 
-    def run_flow(
-        self,
-        flow_class: Union[str, Type[Flow]],
-        design: Design,
-        flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
-    ) -> Flow:
-        return self._run_flow(flow_class, design, flow_settings, None)
-
-    def _run_flow(
+    def launch_flow(
         self,
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings],
-        depender: Optional[Flow],
+        depender: Optional[Flow] = None,
     ) -> Flow:
         if self.run_in_existing_dir:
             log.error(
@@ -233,7 +233,7 @@ class FlowRunner:
             dict(
                 # design=design,
                 rtl_hash=design.rtl_hash,  # TODO WHY?!!
-                tb_hash=design.tb_hash
+                tb_hash=design.tb_hash,
             )
         )
         flowrun_hash = _semantic_hash(
@@ -243,7 +243,7 @@ class FlowRunner:
                 xeda_version=__version__,
             ),
         )
-        run_path = self._get_flow_run_path(
+        run_path = self.get_flow_run_path(
             design.name,
             flow_name,
             design_hash,
@@ -326,7 +326,9 @@ class FlowRunner:
                 dep_cls.__module__,
                 dep_cls.__qualname__,
             )
-            completed_dep = self._run_flow(dep_cls, design, dep_settings, depender=flow)
+            completed_dep = self.launch_flow(
+                dep_cls, design, dep_settings, depender=flow
+            )
             if not completed_dep.succeeded:
                 log.critical("Dependency flow: %s failed!", dep_cls.name)
                 raise FlowDependencyFailure()
@@ -362,6 +364,7 @@ class FlowRunner:
                 flow.results.success = success
 
         if flow.artifacts and flow.succeeded:
+
             def default_encoder(x: Any) -> str:
                 if isinstance(x, (PosixPath, os.PathLike)):
                     return str(os.path.relpath(x, flow.run_path))
@@ -386,6 +389,143 @@ class FlowRunner:
             )
         return flow
 
+    def run_flow(
+        self,
+        flow_class: Union[str, Type[Flow]],
+        design: Design,
+        flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
+    ) -> Optional[Flow]:
+        return self.launch_flow(flow_class, design, flow_settings, depender=None)
+
+
+class FlowRunner(FlowLauncher):
+    """alias for FlowLauncher"""
+
 
 class DefaultRunner(FlowRunner):
     """Executes a flow and its dependencies and then reports selected results"""
+
+
+def add_file_logger(logdir: Path):
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
+    logdir.mkdir(exist_ok=True, parents=True)
+    logfile = logdir / f"xeda_{timestamp}.log"
+    log.info("Logging to %s", logfile)
+    fileHandler = logging.FileHandler(logfile)
+    logFormatter = logging.Formatter(
+        "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s"
+    )
+    fileHandler.setFormatter(logFormatter)
+    log.root.addHandler(fileHandler)
+
+
+@define
+class XedaOptions:
+    verbose: bool = False
+    quiet: bool = False
+    debug: bool = False
+
+
+# DictStrHier = Dict[str, "StrOrDictStrHier"]
+DictStrHier = Dict[str, Any]
+StrOrDictStrHier = Union[str, DictStrHier]
+
+
+def settings_to_dict(
+    settings: Union[
+        None, List[str], Tuple[str, ...], Dict[str, StrOrDictStrHier], Flow.Settings
+    ],
+) -> Dict[str, Any]:
+    if not settings:
+        return {}
+    if isinstance(settings, (tuple, list)):
+        res: DictStrHier = {}
+        for override in settings:
+            sp = override.split("=")
+            if len(sp) != 2:
+                raise ValueError("Settings should be in KEY=VALUE format!")
+            key, val = sp
+            set_hierarchy(res, key, try_convert(val, convert_lists=True))
+        return res
+    if isinstance(settings, Flow.Settings):
+        return asdict(settings)
+    if isinstance(settings, dict):
+        return settings
+    raise TypeError(f"overrides is of unsupported type: {type(settings)}")
+
+
+def prepare(
+    flow: str,
+    xedaproject: Optional[str] = None,
+    design_name: Optional[str] = None,
+    design_file: Union[None, str, os.PathLike] = None,
+    flow_settings: Union[List[str], None] = None,
+    select_design_in_project=None,
+) -> Tuple[Optional[Design], Optional[Type[Flow]], Dict[str, Any]]:
+    # get default flow configs from xedaproject even if a design-file is specified
+    xeda_project = None
+    flows_settings: Dict[str, Any] = {}
+    design: Optional[Design] = None
+    if not xedaproject:
+        xedaproject = "xedaproject.toml"
+    if Path(xedaproject).exists():
+        try:
+            xeda_project = XedaProject.from_file(xedaproject)
+        except DesignValidationError as e:
+            log.critical("%s", e)
+            return None, None, flows_settings
+        except FileNotFoundError:
+            log.critical(
+                f"Cannot open project file: {xedaproject}. Try specifing the correct path using the --xedaproject <path-to-file>."
+            )
+            return None, None, flows_settings
+        flows_settings = xeda_project.flows
+    if design_file:
+        try:
+            design = Design.from_toml(design_file)
+            toml_dict = toml_load(design_file)
+            flows_settings = {**flows_settings, **toml_dict.get("flows", {}), **toml_dict.get("flow", {})}
+        except DesignValidationError as e:
+            log.critical("%s", e)
+            return None, None, flows_settings
+    else:
+        if not xeda_project:
+            log.critical(
+                "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
+            )
+            return None, None, flows_settings
+        if not xeda_project.designs:
+            log.critical(
+                "There are no designs in the xedaproject file. You can specify a single design description using `--design-file` argument."
+            )
+            return None, None, flows_settings
+        assert isinstance(xeda_project.design_names, list)  # type checker
+        log.info(
+            "Available designs in xedaproject: %s",
+            ", ".join(xeda_project.design_names),
+        )
+        design = xeda_project.get_design(design_name)
+        if not design:
+            if design_name:
+                log.critical(
+                    'Design "%s" not found in %s. Available designs are: %s',
+                    design_name,
+                    xedaproject,
+                    ", ".join(xeda_project.design_names),
+                )
+                return None, None, flows_settings
+            else:
+                if len(xeda_project.designs) == 1:
+                    design = xeda_project.designs[1]
+                elif select_design_in_project:
+                    design = select_design_in_project(xeda_project, design_name)
+            if not design:
+                log.critical(
+                    "[ERROR] no design was specified and none were automatically discovered."
+                )
+                return None, None, flows_settings
+    flow_overrides = settings_to_dict(flow_settings)
+    log.debug("flow_overrides: %s", flow_overrides)
+    flows_settings = {**flows_settings.get(flow, {}), **flow_overrides}
+    flow_class = get_flow_class(flow)
+    return design, flow_class, flows_settings

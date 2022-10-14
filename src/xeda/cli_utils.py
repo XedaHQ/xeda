@@ -2,9 +2,8 @@
 import logging
 import re
 import sys
-from dataclasses import dataclass
 from functools import reduce
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Optional, Tuple, Type, Union
 
 import click
 from click_help_colors import HelpColorsGroup
@@ -13,30 +12,23 @@ from rich import box
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
+from simple_term_menu import TerminalMenu
 
 from .console import console
-from .dataclass import asdict
-from .flow_runner import FlowNotFoundError, get_flow_class
+from .design import Design
+from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
 from .flows.flow import Flow
-from .utils import set_hierarchy, try_convert
+from .xedaproject import XedaProject
 
 __all__ = [
     "ClickMutex",
     "OptionEatAll",
     "ConsoleLogo",
     "XedaHelpGroup",
-    "discover_flow_class",
 ]
 
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class XedaOptions:
-    verbose: bool = False
-    quiet: bool = False
-    debug: bool = False
 
 
 class ClickMutex(click.Option):
@@ -168,34 +160,6 @@ class XedaHelpGroup(HelpColorsGroup):
         super().format_usage(ctx, formatter)
 
 
-# DictStrHier = Dict[str, "StrOrDictStrHier"]
-DictStrHier = Dict[str, Any]
-StrOrDictStrHier = Union[str, DictStrHier]
-
-
-def settings_to_dict(
-    settings: Union[
-        None, List[str], Tuple[str, ...], Dict[str, StrOrDictStrHier], Flow.Settings
-    ],
-) -> Dict[str, Any]:
-    if not settings:
-        return {}
-    if isinstance(settings, (tuple, list)):
-        res: DictStrHier = {}
-        for override in settings:
-            sp = override.split("=")
-            if len(sp) != 2:
-                raise ValueError("Settings should be in KEY=VALUE format!")
-            key, val = sp
-            set_hierarchy(res, key, try_convert(val, convert_lists=True))
-        return res
-    if isinstance(settings, Flow.Settings):
-        return asdict(settings)
-    if isinstance(settings, dict):
-        return settings
-    raise TypeError(f"overrides is of unsupported type: {type(settings)}")
-
-
 def print_flow_settings(flow, options: XedaOptions):
     flow_class = discover_flow_class(flow)
     schema = flow_class.Settings.schema(by_alias=True)
@@ -308,10 +272,33 @@ def print_flow_settings(flow, options: XedaOptions):
 
 def discover_flow_class(flow: str) -> Type[Flow]:
     try:
-        return get_flow_class(flow, "xeda.flows", __package__)
+        return get_flow_class(flow)
     except FlowNotFoundError:
         log.critical(
             "Flow %s is not known to Xeda. Please make sure the name is correctly specified.",
             flow,
         )
         sys.exit(1)
+
+
+def select_design_in_project(
+    xeda_project: XedaProject, design_name: Optional[str] = None
+) -> Optional[Design]:
+    if console.is_interactive:
+        terminal_menu = TerminalMenu(
+            xeda_project.design_names, title="Please select a design: "
+        )
+        idx = terminal_menu.show()
+        if idx is None or not isinstance(idx, int) or idx < 0:
+            log.critical("Invalid design choice!")
+            return None
+        return xeda_project.designs[idx]
+    else:
+        design_name = click.prompt(
+            "Please enter design name: ",
+            type=click.Choice(xeda_project.design_names),
+        )
+        if not design_name or design_name not in xeda_project.design_names:
+            log.critical("Invalid design name!")
+            return None
+        return xeda_project.get_design(design_name)

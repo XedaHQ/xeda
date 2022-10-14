@@ -15,8 +15,8 @@ cocotb = true
 # top = "tb_sqrt"  # FIXME
 
 [flows.vivado_synth]
-fpga.part = 'xc7a12tcsg325-1'
-clock_period = 5.0
+fpga.part = "xc7a100tftg256-2L"
+clock_period = 10.0
 
 [flows.vivado_alt_synth]
 fpga.part = 'xc7a12tcsg325-1'

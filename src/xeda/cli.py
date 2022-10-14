@@ -7,7 +7,6 @@ import logging
 import multiprocessing
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
@@ -17,21 +16,19 @@ from click.shell_completion import get_completion_class
 from rich import box
 from rich.style import Style
 from rich.table import Table
-from simple_term_menu import TerminalMenu
 from typeguard.importhook import install_import_hook
 
 from .cli_utils import (
     ClickMutex,
     OptionEatAll,
     XedaHelpGroup,
-    XedaOptions,
-    discover_flow_class,
     print_flow_settings,
-    settings_to_dict,
+    select_design_in_project,
 )
 from .console import console
-from .design import Design, DesignValidationError
-from .flow_runner import DefaultRunner
+from .design import Design
+from .flow_runner import DefaultRunner, XedaOptions, add_file_logger, prepare
+from .flow_runner.dse import Dse, FmaxOptimizer
 from .flows.flow import (
     Flow,
     FlowException,
@@ -40,7 +37,6 @@ from .flows.flow import (
     registered_flows,
 )
 from .tool import ExecutableNotFound, NonZeroExitCode
-from .xedaproject import XedaProject
 
 install_import_hook("xeda")
 
@@ -68,19 +64,6 @@ CONTEXT_SETTINGS = dict(
     help_option_names=["--help", "-h"],
     max_content_width=console.width,
 )
-
-
-def log_to_file(logdir: Path):
-    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-    logdir.mkdir(exist_ok=True, parents=True)
-    logfile = logdir / f"xeda_{timestamp}.log"
-    log.info("Logging to %s", logfile)
-    fileHandler = logging.FileHandler(logfile)
-    logFormatter = logging.Formatter(
-        "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s"
-    )
-    fileHandler.setFormatter(logFormatter)
-    log.root.addHandler(fileHandler)
 
 
 @click.group(cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
@@ -198,112 +181,49 @@ def cli(ctx: click.Context, **kwargs):
     #  examples: # FIXME move to docs
     # - xeda vivado_sim --flow-settings stop_time=100us
     # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock_period=2.345
-)  # pylint: disable=C0116:missing-function-docstring
+)
 @click.pass_context
 def run(
     ctx: click.Context,
     flow: str,
     cached_dependencies: bool,
+    flow_settings: Tuple[str, ...],
     run_in_existing_dir: bool = False,
     # force_run: bool = False,
     xeda_run_dir: Optional[Path] = None,
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     design_file: Optional[str] = None,
-    flow_settings: Optional[Tuple[str, ...]] = None,
 ):
+    """`run` command"""
     assert ctx
     options: XedaOptions = ctx.obj or XedaOptions()
     assert xeda_run_dir
-    log_to_file(xeda_run_dir / "Logs")
-    # get default flow configs from xedaproject even if a design-file is specified
-    xeda_project = None
-    flows_config = {}
-    if not xedaproject:
-        xedaproject = "xedaproject.toml"
-    if Path(xedaproject).exists():
-        try:
-            xeda_project = XedaProject.from_file(xedaproject)
-        except DesignValidationError as e:
-            log.critical("%s", e)
-            sys.exit(1)
-        except FileNotFoundError:
-            sys.exit(
-                f"Cannot open project file: {xedaproject}. Try specifing the correct path using the --xedaproject <path-to-file>."
-            )
-        flows_config = xeda_project.flows
-    if design_file:
-        try:
-            design = Design.from_toml(design_file)
-        except DesignValidationError as e:
-            log.critical("%s", e)
-            sys.exit(1)
-    else:
-        if not xeda_project:
-            sys.exit(
-                "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
-            )
-        designs = xeda_project.designs
-        if not designs:
-            log.critical(
-                "There are no designs in the xedaproject file. You can specify a single design description using `--design-file` argument."
-            )
-            sys.exit(1)
-        assert isinstance(xeda_project.design_names, list)  # type checker
-        log.info(
-            "Available designs in xedaproject: %s",
-            ", ".join(xeda_project.design_names),
-        )
-        design = xeda_project.get_design(design_name)
-        if not design:
-            if design_name:
-                log.critical(
-                    'Design "%s" not found in %s. Available designs are: %s',
-                    design_name,
-                    xedaproject,
-                    ", ".join(xeda_project.design_names),
-                )
-                sys.exit(1)
-            else:
-                if len(designs) == 1:
-                    design = designs[1]
-                else:
-                    if console.is_interactive:
-                        terminal_menu = TerminalMenu(
-                            xeda_project.design_names, title="Please select a design: "
-                        )
-                        idx = terminal_menu.show()
-                        if idx is None or not isinstance(idx, int) or idx < 0:
-                            sys.exit("Invalid design choice!")
-                        design = designs[idx]
-                    else:
-                        design_name = click.prompt(
-                            "Please enter design name: ",
-                            type=click.Choice(xeda_project.design_names),
-                        )
-                        if (
-                            not design_name
-                            or design_name not in xeda_project.design_names
-                        ):
-                            sys.exit("Invalid design name!")
-                        design = xeda_project.get_design(design_name)
-            if not design:
-                sys.exit(
-                    "[ERROR] no design was specified and none were automatically discovered."
-                )
 
-    flow_overrides = settings_to_dict(flow_settings)
-    log.debug("flow_overrides: %s", flow_overrides)
-    flow_overrides = {**flows_config.get(flow, {}), **flow_overrides}
-    flow_class = discover_flow_class(flow)
-    runner = DefaultRunner(
-        xeda_run_dir,
-        debug=options.debug,
-        cached_dependencies=cached_dependencies,
-        run_in_existing_dir=run_in_existing_dir,
+    log_to_file = True
+    if not xeda_run_dir:
+        xeda_run_dir = Path.cwd() / "xeda_run"
+    if log_to_file:
+        add_file_logger(xeda_run_dir / "Logs")
+
+    design, flow_class, accum_flow_settings = prepare(
+        flow,
+        xedaproject=xedaproject,
+        design_name=design_name,
+        design_file=design_file,
+        flow_settings=list(flow_settings) if flow_settings else None,
+        select_design_in_project=select_design_in_project,
     )
+    if not design or not flow_class:
+        sys.exit(1)
     try:
-        runner.run_flow(flow_class, design, flow_overrides)
+        launcher = DefaultRunner(
+            xeda_run_dir,
+            debug=options.debug,
+            cached_dependencies=cached_dependencies,
+            run_in_existing_dir=run_in_existing_dir,
+        )
+        launcher.run_flow(flow_class, design, accum_flow_settings)
     except FlowFatalError as e:
         log.critical(
             "Flow %s failed: FlowFatalException %s",
@@ -379,20 +299,142 @@ def list_settings(ctx: click.Context, flow):
 
 @cli.command(
     context_settings=CONTEXT_SETTINGS,
-    short_help="Design-space exploration: run several instances of a flow to find optimal parameters and results",
+    short_help="Run DSE",
+    help="Design-space exploration: run several instances of a flow to find optimal parameters and results",
+    no_args_is_help=False,
 )
-@click.argument("flow")
 @click.option(
-    "--max-cpus",
-    default=max(1, multiprocessing.cpu_count()),
+    "--max-workers",
+    default=max(2, multiprocessing.cpu_count() / 2),
     type=int,
-    help="Maximum total number of logical CPU cores to use.",
+    help="Maximum number of concurrent flow executions.",
     show_default=True,
     show_envvar=True,
 )
+@click.argument(
+    "flow", metavar="FLOW_NAME", type=click.Choice(sorted(list(registered_flows)))
+)
+@click.option(
+    "--xeda-run-dir",
+    type=click.Path(
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        readable=True,
+        resolve_path=True,
+        allow_dash=True,
+        path_type=Path,
+    ),
+    envvar="XEDA_RUN_DIR",
+    help="Parent folder for execution of xeda commands.",
+    default="xeda_run",
+    show_default=True,
+)
+@click.option(
+    "--xedaproject",
+    type=click.Path(
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        writable=False,
+        readable=True,
+        resolve_path=True,
+        allow_dash=False,
+        path_type=Path,
+    ),
+    # cls=ClickMutex,
+    # mutually_exclusive_with=["design_file"],
+    help="Path to Xeda project file.",
+)
+@click.option(
+    "--design-name",
+    # cls=ClickMutex,
+    # mutually_exclusive_with=["design_file"],
+    help="Specify design.name in case multiple designs are available in a xedaproject.",
+)
+@click.option(
+    "--design-file",
+    "--design",
+    type=click.Path(
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        writable=False,
+        readable=True,
+        resolve_path=True,
+        allow_dash=False,
+        path_type=Path,
+    ),
+    help="Path to Xeda design file containing the description of a single design.",
+)
+@click.option(
+    "--init_freq_low",
+    type=float,
+    default=20,
+)
+@click.option(
+    "--init_freq_high",
+    type=float,
+    default=200,
+)
+@click.option(
+    "--max_luts",
+    type=int,
+    default=None,
+)
+@click.option(
+    "--flow-settings",
+    "--settings",
+    metavar="KEY=VALUE...",
+    type=tuple,
+    cls=OptionEatAll,
+    default=tuple(),
+    help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
+    Example: --settings clock_period=2.345 impl.strategy=Debug
+    """
+    #  examples: # FIXME move to docs
+    # - xeda vivado_sim --flow-settings stop_time=100us
+    # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock_period=2.345
+)
 @click.pass_context
-def dse(ctx, flow, max_cpus):  # pylint: disable=unused-argument
+def dse(
+    ctx: click.Context,
+    flow: str,
+    max_workers: int,
+    init_freq_low: float,
+    init_freq_high: float,
+    max_luts: int,
+    flow_settings: Tuple[str, ...],
+    xeda_run_dir: Optional[Path],
+    xedaproject: Optional[str] = None,
+    design_name: Optional[str] = None,
+    design_file: Optional[str] = None,
+):
     """Design-space exploration (e.g. fmax)"""
+    options: XedaOptions = ctx.obj or XedaOptions()
+
+    if not xeda_run_dir:
+        xeda_run_dir = Path.cwd() / "xeda_run_fmax"
+    add_file_logger(xeda_run_dir / "Logs")
+
+    design, flow_class, accum_flow_settings = prepare(
+        flow,
+        xedaproject=xedaproject,
+        design_name=design_name,
+        design_file=design_file,
+        flow_settings=list(flow_settings),
+        select_design_in_project=select_design_in_project,
+    )
+    optimizer = FmaxOptimizer(
+        max_workers=max_workers,
+        init_freq_low=init_freq_low,
+        init_freq_high=init_freq_high,
+        max_luts=max_luts,
+    )
+    if not design or not flow_class:
+        sys.exit(1)
+    dse = Dse(optimizer=optimizer)
+    dse.run_flow(flow_class, design, accum_flow_settings)
 
 
 SHELLS: dict[str, dict[str, Any]] = {
