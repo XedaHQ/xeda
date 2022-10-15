@@ -28,7 +28,6 @@ from ..utils import (
     dump_json,
     set_hierarchy,
     snakecase_to_camelcase,
-    toml_load,
     try_convert,
 )
 from ..version import __version__
@@ -394,8 +393,10 @@ class FlowLauncher:
             )
         if self.cleanup:
             log.warning("removing flow run path %s", flow.run_path)
+
             def on_rmtree_error(*args):
                 log.error("Error while removing %s: %s", flow.run_path, args)
+
             shutil.rmtree(flow.run_path, onerror=on_rmtree_error)
         return flow
 

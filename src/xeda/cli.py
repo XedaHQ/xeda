@@ -411,7 +411,7 @@ def dse(
     design_file: Optional[str] = None,
 ):
     """Design-space exploration (e.g. fmax)"""
-    options: XedaOptions = ctx.obj or XedaOptions()
+    # options: XedaOptions = ctx.obj or XedaOptions()
 
     if not xeda_run_dir:
         xeda_run_dir = Path.cwd() / "xeda_run_fmax"

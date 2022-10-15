@@ -37,7 +37,9 @@ def test_sqrt_yosys_synth() -> None:
     design.tb.parameters["G_IN_WIDTH"] = 32
     try:
         f = xeda_runner.run_flow(
-            YosysSynth, design, {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock_period": 10.0}
+            YosysSynth,
+            design,
+            {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock_period": 10.0},
         )
         assert f.succeeded
     except ExecutableNotFound:

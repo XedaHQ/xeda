@@ -1,13 +1,9 @@
-import json
 import logging
-from pathlib import Path
 from typing import Any, Dict
 
 from ...dataclass import validator
-from ...utils import unique
 from ..flow import FpgaSynthFlow
-from . import Vivado
-from .vivado_synth import RunOptions, VivadoSynth, parse_hier_util
+from .vivado_synth import RunOptions, VivadoSynth
 
 log = logging.getLogger(__name__)
 

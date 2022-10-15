@@ -167,7 +167,9 @@ def run_process(
     log.info("Running `%s`", " ".join(map(lambda x: str(x), [executable, *args])))
     if cwd:
         log.info("cwd=%s", cwd)
-    if stdout and isinstance(stdout, (str, os.PathLike)):
+    if stdout and isinstance(stdout, bool):
+        use_cr = False
+    if not use_cr and stdout and isinstance(stdout, (str, os.PathLike)):
         stdout = Path(stdout)
 
         def cm_call():
@@ -182,9 +184,10 @@ def run_process(
         if check:
             valid_exit_codes = [0]
         command_runner(
-            [executable, *args], valid_exit_codes=valid_exit_codes,
+            [executable, *args],
+            valid_exit_codes=valid_exit_codes,
             live_output=True,
-            stdout=stdout
+            stdout=stdout,
         )
     else:
         with cm() as f:
@@ -206,9 +209,7 @@ def run_process(
                             if isinstance(stdout, bool):
                                 out, err = proc.communicate(timeout=None)
                                 if check and proc.returncode != 0:
-                                    raise NonZeroExitCode(
-                                        proc.args, proc.returncode
-                                    )
+                                    raise NonZeroExitCode(proc.args, proc.returncode)
                                 if err:
                                     print(err, file=stderr)
                                 return out.strip()
@@ -235,13 +236,9 @@ def run_process(
                     raise NonZeroExitCode(proc.args, proc.returncode)
             except FileNotFoundError as e:
                 path = (
-                    env["PATH"]
-                    if env and "PATH" in env
-                    else os.environ.get("PATH", "")
+                    env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
                 )
-                raise ExecutableNotFound(
-                    e.filename, tool_name, path, *e.args
-                ) from None
+                raise ExecutableNotFound(e.filename, tool_name, path, *e.args) from None
     return None
 
 
@@ -310,7 +307,6 @@ class Tool(XedaBaseModeAllowExtra):
     )
     bin_path: str = Field(None, description="Path to the tool binary")
     design_root: Optional[Path] = None
-    use_cr: bool = True  # experimental: use command_runner
 
     def __init__(self, executable: Optional[str] = None, **kwargs):
         if executable:
@@ -381,7 +377,8 @@ class Tool(XedaBaseModeAllowExtra):
         check: bool = True,
         cwd: OptionalPath = None,
     ):
-        use_cr = self.use_cr and (not stdout or not isinstance(stdout, bool))
+        # FIXME broken
+        # use_cr = self.use_cr and (not stdout or not isinstance(stdout, bool))
         return run_process(
             self.executable,
             args,
@@ -390,7 +387,7 @@ class Tool(XedaBaseModeAllowExtra):
             check=check,
             cwd=cwd,
             tool_name=self.__class__.__name__,
-            use_cr=use_cr,
+            use_cr=False,
         )
 
     def _run_system(

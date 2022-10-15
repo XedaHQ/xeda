@@ -1,9 +1,9 @@
 import logging
+import re
 from abc import ABCMeta
 from functools import cached_property, reduce
 from html import unescape
 from pathlib import Path
-import re
 from typing import Any, Dict, Optional, Tuple
 from xml.etree import ElementTree
 
@@ -73,7 +73,6 @@ class Vivado(Flow, metaclass=ABCMeta):
             description="Drop to interactive TCL shell after Vivado finishes running a flow script",
         )
         no_log: bool = False
-        redirect_stdout: Optional[Path] = None
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         super().__init__(settings, design, run_path)
@@ -95,7 +94,8 @@ class Vivado(Flow, metaclass=ABCMeta):
         )  # type: ignore
         if self.vivado.docker:
             self.vivado.docker.enabled = self.settings.dockerized
-        self.vivado.redirect_stdout = self.settings.redirect_stdout
+        if self.settings.redirect_stdout:
+            self.vivado.redirect_stdout = Path(f"{self.name}_stdout.log")
         self.results.tools = [self.vivado.info]
         self.add_template_filter("vivado_generics", vivado_generics)
 

@@ -83,6 +83,9 @@ class Flow(metaclass=ABCMeta):
         # debug: DebugLevel = Field(DebugLevel.NONE.value, hidden_from_schema=True)
         debug: bool = Field(False)
         quiet: bool = Field(True)
+        redirect_stdout: bool = Field(
+            False, description="Redirect stdout from execution of tools to files."
+        )
 
         @validator("verbose", pre=True, always=True)
         def _validate_verbose(cls, value):
@@ -437,7 +440,7 @@ class PhysicalClock(XedaBaseModel):
             period = float(values["period"])
             if freq is not None and abs(float(freq) * period - 1000.0) >= 0.001:
                 log.debug(
-                    f"Mismatching 'freq' and 'period' values were specified. Setting 'freq' from 'period' value."
+                    "Mismatching 'freq' and 'period' values were specified. Setting 'freq' from 'period' value."
                 )
             values["freq"] = 1000.0 / values["period"]
         else:

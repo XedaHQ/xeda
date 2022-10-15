@@ -502,6 +502,7 @@ class GitReference(DesignReference):
 
 DesignType = TypeVar("DesignType", bound="Design")
 
+
 class Design(XedaBaseModel):
     name: str
     dependencies: List[DesignReference] = []
@@ -589,7 +590,6 @@ class Design(XedaBaseModel):
     def root_path(self) -> Path:
         assert self._design_root, "design_root is not set!"
         return self._design_root
-
 
     @classmethod
     def from_toml(

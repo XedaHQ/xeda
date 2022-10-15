@@ -7,7 +7,6 @@ import traceback
 from concurrent.futures import CancelledError, TimeoutError
 from copy import deepcopy
 from datetime import datetime
-from math import ceil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
@@ -68,19 +67,30 @@ class FmaxOptimizer(Optimizer):
         init_freq_low: float
         init_freq_high: float
         max_luts: Optional[int] = None
-        strategies: Dict[str, Union[List[str], Tuple[List[str], List[str]]]] = {
-            "vivado_synth": [
-                (
-                    [],
-                    []
-                )
-            ],
-            "vivado_alt_synth": [
-                "ExtraTimingCongestion",
-                "ExtraTimingAltRouting",
-                "ExtraTiming",
-                # "Timing",
-            ],
+        strategies: Dict[str, Dict[str, List[str]]] = {
+            "vivado_synth": {
+                # synthesis:
+                "synth": [
+                    "Flow_AlternateRoutability",
+                    "Flow_PerfThresholdCarry",
+                    "Flow_RuntimeOptimized",
+                    "Flow_PerfOptimized_high",
+                ],
+                "impl": [
+                    "Performance_NetDelay_low",
+                    "",
+                    ##
+                    "Performance_NetDelay_high",
+                ],
+            },
+            "vivado_alt_synth": {
+                "synth": [
+                    "ExtraTimingCongestion",
+                    "ExtraTimingAltRouting",
+                    "ExtraTiming",
+                    # "Timing",
+                ],
+            },
         }
 
         @validator("init_freq_high")
@@ -290,9 +300,9 @@ class Executioner:
         except FlowFatalError as e:
             log.warning(f"[Run Thread] Fatal exception during flow: {e}")
             traceback.print_exc()
-            log.warning(f"[Run Thread] Continuing")
+            log.warning("[Run Thread] Continuing")
         except KeyboardInterrupt as e:
-            log.exception(f"[Run Thread] KeyboardInterrupt received during flow")
+            log.exception("[Run Thread] KeyboardInterrupt received during flow")
             raise e
         except NonZeroExitCode as e:
             log.warning(f"[Run Thread] {e}")
@@ -332,7 +342,7 @@ class Dse(FlowLauncher):
 
         # TODO adaptive tweeking of timeout?
         proc_timeout_seconds = optimizer.settings.timeout
-        log.info(f"[Dse] Timeout set to: {proc_timeout_seconds} seconds.")
+        log.info(f"[DSE] Timeout set to: {proc_timeout_seconds} seconds.")
 
         error_retries = 0
         num_iterations = 0
@@ -357,7 +367,7 @@ class Dse(FlowLauncher):
             except FlowSettingsError as e:
                 log.error("%s", e)
                 exit(1)
-        base_settings.redirect_stdout = "vivado_stdout.log"
+        base_settings.redirect_stdout = True
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
         add_file_logger(Path.cwd(), timestamp)
         best_json_path = (
@@ -398,7 +408,7 @@ class Dse(FlowLauncher):
                                 if flow:
                                     # flow_run_dirs.append(flow.run_path)
                                     if flow.results.success:
-                                        optimizer.process_outcome(flow, idx)  ## FIXME
+                                        optimizer.process_outcome(flow, idx)  # FIXME
                                         error_retries = 0
                                         r = {
                                             k: flow.results.get(k) for k in results_sub
