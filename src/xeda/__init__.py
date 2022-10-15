@@ -1,7 +1,7 @@
-from . import cli, design, flows, flow_runner
-from .version import __version__
+from . import cli, design, flow_runner, flows, tool
 from .design import Design
-from .flows.flow import Flow, SimFlow, SynthFlow, FPGA
+from .flows.flow import FPGA, Flow, SimFlow, SynthFlow
+from .version import __version__
 
 __all__ = [
     "__version__",
@@ -14,4 +14,5 @@ __all__ = [
     "SimFlow",
     "SynthFlow",
     "FPGA",
+    "tool",
 ]

@@ -1,4 +1,3 @@
-from datetime import datetime
 import json
 import logging
 import os
@@ -7,13 +6,14 @@ import time
 import traceback
 from concurrent.futures import CancelledError, TimeoutError
 from copy import deepcopy
+from datetime import datetime
 from math import ceil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
+from attr import define
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
-from attr import define
 
 from ..dataclass import XedaBaseModel, validator
 from ..design import Design
@@ -38,7 +38,7 @@ class Optimizer:
         max_workers: int = 8  # >= 2
         timeout: int = 3600  # in seconds
         resolution: float = 0.2
-        delta_increment: float = 0.1
+        delta_increment: float = 0.005
 
     def __init__(self, **kwargs) -> None:
         self.settings = self.Settings(**kwargs)
@@ -68,6 +68,20 @@ class FmaxOptimizer(Optimizer):
         init_freq_low: float
         init_freq_high: float
         max_luts: Optional[int] = None
+        strategies: Dict[str, Union[List[str], Tuple[List[str], List[str]]]] = {
+            "vivado_synth": [
+                (
+                    [],
+                    []
+                )
+            ],
+            "vivado_alt_synth": [
+                "ExtraTimingCongestion",
+                "ExtraTimingAltRouting",
+                "ExtraTiming",
+                # "Timing",
+            ],
+        }
 
         @validator("init_freq_high")
         def validate_init_freq(cls, value, values):
@@ -79,9 +93,9 @@ class FmaxOptimizer(Optimizer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.no_improvements = 0
+        self.no_improvements: int = 0
         self.prev_frequencies = []
-        self.freq_step = 0
+        self.freq_step: float = 0.0
 
         self.previously_tried_frequencies = set()
         # can be different due to rounding errors, TODO only keep track of periods?
@@ -89,7 +103,7 @@ class FmaxOptimizer(Optimizer):
         assert isinstance(self.settings, self.Settings)
         self.hi_freq = self.settings.init_freq_high
         self.lo_freq = self.settings.init_freq_low
-        self.num_iterations = 0
+        self.num_iterations: int = 0
 
     @property
     def best_freq(self):
@@ -101,62 +115,42 @@ class FmaxOptimizer(Optimizer):
             return True
         resolution = self.settings.resolution
         max_workers = self.settings.max_workers
-        prev_frequencies = self.prev_frequencies
         delta_increment = self.settings.delta_increment
 
         best_freq = self.best_freq
 
-        if not best_freq or self.improved_idx is None:
+        if self.improved_idx is None:
             self.no_improvements += 1
-            if self.no_improvements > 4:
-                log.info(
-                    f"Stopping no viable frequencies found after {self.no_improvements} iterations."
-                )
-                return False
-            log.info(f"No improvements during this iteration.")
-            if not best_freq:
-                self.hi_freq = self.lo_freq + resolution
-                shrink_factor = 0.7 + self.no_improvements
-                self.lo_freq /= shrink_factor
-            else:
-                if (
-                    self.no_improvements > 2
-                    and self.freq_step < self.no_improvements * resolution
+            if not best_freq and self.no_improvements > 2:
+                if self.no_improvements > 4 or (
+                    not best_freq
+                    and (
+                        self.hi_freq < max_workers
+                        or self.freq_step < self.no_improvements * resolution
+                    )
                 ):
                     log.info(
-                        f"Stopping as there were no improvements in {self.no_improvements} consecutive iterations."
+                        f"Stopping no successful results after {self.no_improvements} iterations."
                     )
                     return False
-                self.hi_freq = best_freq + 1.5 * max(
-                    self.freq_step, 1 + max_workers * resolution
-                )
-                self.lo_freq = (self.lo_freq + best_freq) / 2
+        if not best_freq:
+            self.hi_freq = self.lo_freq - delta_increment
+            if self.hi_freq <= resolution:
+                log.warning("hi_freq < resolution")
+                return False
+            self.lo_freq = self.hi_freq / (0.7 + self.no_improvements)
         else:
-            self.lo_freq = (
-                best_freq + delta_increment + delta_increment * random.random()
-            )
+            # both best_freq and self.improved_idx != None
+            # reset no_improvements
             self.no_improvements = 0
-            # last or one before last
-            if (
-                self.improved_idx >= (len(prev_frequencies) // 2)
-                or prev_frequencies[-1] - best_freq <= self.freq_step
-            ):
-                min_plausible_period = (ONE_THOUSAND / best_freq) - 0.001
-                lo_point_choice = (
-                    prev_frequencies[1]
-                    if len(prev_frequencies) > 4
-                    else prev_frequencies[0]
-                )
-                self.hi_freq = max(
-                    best_freq + min(max_workers * 1.0, best_freq - lo_point_choice),
-                    ceil(ONE_THOUSAND / min_plausible_period),
-                )
+            # set lo_freq to a bit above lo_freq
+            self.lo_freq = best_freq + delta_increment
+            # if best freq
+            if best_freq >= self.hi_freq:
+                self.hi_freq = self.lo_freq + max(1, self.freq_step) * (max_workers + 1)
             else:
-                self.hi_freq = (self.hi_freq + best_freq + self.freq_step) / 2
+                self.hi_freq = (self.hi_freq + best_freq + max(1, self.freq_step)) / 2
 
-            self.hi_freq += 1
-
-        self.hi_freq = ceil(self.hi_freq)
         return True
 
     def next_batch(self, base_settings: Flow.Settings):
@@ -178,6 +172,7 @@ class FmaxOptimizer(Optimizer):
                 self.hi_freq,
                 self.settings.max_workers,
             )
+            self.freq_step = freq_step
 
             if freq_step < self.settings.resolution / 2:
                 log.info(f"Stopping: freq_step={freq_step} is below the limit")
@@ -231,7 +226,6 @@ class FmaxOptimizer(Optimizer):
             batch_settings.append(settings)
 
         self.improved_idx = None
-        self.prev_frequencies = frequencies
         if batch_settings:
             self.num_iterations += 1
         return batch_settings
@@ -266,7 +260,9 @@ class FmaxOptimizer(Optimizer):
             self.improved_idx = idx
             return True
         else:
-            log.info("Got lower Fmax: %.2f than the current best: %.2s", freq, best_freq)
+            log.info(
+                "Got lower Fmax: %.2f than the current best: %.2s", freq, best_freq
+            )
         return False
 
 

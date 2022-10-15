@@ -8,6 +8,7 @@ from pathlib import Path
 from sys import stderr
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+from .command_runner import command_runner
 from .dataclass import Field, XedaBaseModeAllowExtra, XedaBaseModel, validator
 from .utils import cached_property, unique
 
@@ -156,6 +157,7 @@ def run_process(
     check: bool = True,
     cwd: OptionalPath = None,
     tool_name: str = "",
+    use_cr: bool = False,
 ) -> Union[None, str]:
     if args is None:
         args = []
@@ -167,6 +169,7 @@ def run_process(
         log.info("cwd=%s", cwd)
     if stdout and isinstance(stdout, (str, os.PathLike)):
         stdout = Path(stdout)
+
         def cm_call():
             assert stdout
             return open(stdout, "w")
@@ -174,51 +177,71 @@ def run_process(
         cm = cm_call
     else:
         cm = contextlib.nullcontext
-    with cm() as f:
-        try:
-            with subprocess.Popen(
-                [executable, *args],
-                cwd=cwd,
-                shell=False,
-                stdout=f if f else subprocess.PIPE if stdout else None,
-                bufsize=1,
-                universal_newlines=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-            ) as proc:
-                log.info("Started %s[%d]", executable, proc.pid)
-                try:
-                    if stdout:
-                        if isinstance(stdout, bool):
-                            out, err = proc.communicate(timeout=None)
-                            if check and proc.returncode != 0:
-                                raise NonZeroExitCode(proc.args, proc.returncode)
-                            if err:
-                                print(err, file=stderr)
-                            return out.strip()
-                        else:
-                            log.info("Standard output is redirected to: %s", os.path.abspath(stdout))
-                    proc.wait()
-                except KeyboardInterrupt as e:
+    if use_cr:
+        valid_exit_codes = None
+        if check:
+            valid_exit_codes = [0]
+        command_runner(
+            [executable, *args], valid_exit_codes=valid_exit_codes,
+            live_output=True,
+            stdout=stdout
+        )
+    else:
+        with cm() as f:
+            try:
+                with subprocess.Popen(
+                    [executable, *args],
+                    cwd=cwd,
+                    shell=False,
+                    stdout=f if f else subprocess.PIPE if stdout else None,
+                    bufsize=1,
+                    universal_newlines=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=env,
+                ) as proc:
+                    log.info("Started %s[%d]", executable, proc.pid)
                     try:
-                        # log.warning(
-                        #     "[Tool] Received KeyboardInterrupt! Terminating %s(pid=%s)",
-                        #     executable,
-                        #     proc.pid,
-                        # )
-                        proc.terminate()
-                    except OSError as e2:
-                        log.warning("Terminate failed: %s", e2)
-                    finally:
+                        if stdout:
+                            if isinstance(stdout, bool):
+                                out, err = proc.communicate(timeout=None)
+                                if check and proc.returncode != 0:
+                                    raise NonZeroExitCode(
+                                        proc.args, proc.returncode
+                                    )
+                                if err:
+                                    print(err, file=stderr)
+                                return out.strip()
+                            else:
+                                log.info(
+                                    "Standard output is redirected to: %s",
+                                    os.path.abspath(stdout),
+                                )
                         proc.wait()
-                        raise e from None
-
-        except FileNotFoundError as e:
-            path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
-            raise ExecutableNotFound(e.filename, tool_name, path, *e.args) from None
-    if check and proc.returncode != 0:
-        raise NonZeroExitCode(proc.args, proc.returncode)
+                    except KeyboardInterrupt as e:
+                        try:
+                            # log.warning(
+                            #     "[Tool] Received KeyboardInterrupt! Terminating %s(pid=%s)",
+                            #     executable,
+                            #     proc.pid,
+                            # )
+                            proc.terminate()
+                        except OSError as e2:
+                            log.warning("Terminate failed: %s", e2)
+                        finally:
+                            proc.wait()
+                            raise e from None
+                if check and proc.returncode != 0:
+                    raise NonZeroExitCode(proc.args, proc.returncode)
+            except FileNotFoundError as e:
+                path = (
+                    env["PATH"]
+                    if env and "PATH" in env
+                    else os.environ.get("PATH", "")
+                )
+                raise ExecutableNotFound(
+                    e.filename, tool_name, path, *e.args
+                ) from None
     return None
 
 
@@ -287,6 +310,7 @@ class Tool(XedaBaseModeAllowExtra):
     )
     bin_path: str = Field(None, description="Path to the tool binary")
     design_root: Optional[Path] = None
+    use_cr: bool = True  # experimental: use command_runner
 
     def __init__(self, executable: Optional[str] = None, **kwargs):
         if executable:
@@ -357,6 +381,7 @@ class Tool(XedaBaseModeAllowExtra):
         check: bool = True,
         cwd: OptionalPath = None,
     ):
+        use_cr = self.use_cr and (not stdout or not isinstance(stdout, bool))
         return run_process(
             self.executable,
             args,
@@ -365,6 +390,7 @@ class Tool(XedaBaseModeAllowExtra):
             check=check,
             cwd=cwd,
             tool_name=self.__class__.__name__,
+            use_cr=use_cr,
         )
 
     def _run_system(

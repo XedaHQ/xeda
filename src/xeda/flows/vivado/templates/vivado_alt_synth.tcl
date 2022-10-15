@@ -206,12 +206,11 @@ if {[string is double -strict $timing_slack]} {
 
 {%- if settings.write_netlist %}
 puts "\n==========================( Writing Netlist and SDF )============================="
+write_verilog -mode funcsim -force ${settings.outputs_dir}/impl_funcsim.v
 write_sdf -mode timesim -process_corner slow -force -file ${settings.outputs_dir}/impl_timesim.sdf
 # should match sdf
 write_verilog -mode timesim -sdf_anno false -force -file ${settings.outputs_dir}/impl_timesim.v
-##    write_verilog -mode timesim -sdf_anno false -include_xilinx_libs -write_all_overrides -force -file ${settings.outputs_dir}/impl_timesim_inlined.v
-##    write_verilog -mode funcsim -force ${settings.outputs_dir}/impl_funcsim_noxlib.v
-##    write_vhdl    -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${settings.outputs_dir}/impl_funcsim.vhd
+##    write_vhdl    -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${settings.outputs_dir}/impl_funcsim_xlib.vhd
 write_xdc -no_fixed_only -force ${settings.outputs_dir}/impl.xdc
 {%- endif %}
 
