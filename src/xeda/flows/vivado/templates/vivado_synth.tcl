@@ -9,6 +9,10 @@ set vhdl_std              {{design.language.vhdl.standard}}
 
 set_param general.maxThreads {{settings.nthreads}}
 
+
+# Disable warning: "Parallel synthesis criteria is not met"
+set_msg_config -id "\[Synth 8-7080\]" -suppress
+
 puts "\n=====================( Read Design Files and Constraints )====================="
 {% for src in design.rtl.sources -%}
 {%- if src.type.name == "Verilog" %}

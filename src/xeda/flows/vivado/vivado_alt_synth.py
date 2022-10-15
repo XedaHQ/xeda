@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from ...dataclass import validator
+from ...utils import unique
 from ..flow import FpgaSynthFlow
 from . import Vivado
 from .vivado_synth import RunOptions, VivadoSynth, parse_hier_util
@@ -311,38 +312,32 @@ def _vivado_steps(strategy: str, s: str) -> Dict[str, Any]:
             "phys_opt2",
             "route",
         ]
-    return {step: xeda_strategies[strategy].get(step) for step in steps}
+
+    recipe = xeda_strategies.get(strategy)
+    assert recipe is not None, f"Unknown strategy: {strategy}"
+    return {step: recipe.get(step) for step in steps if step is not None}
 
 
 class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     """Synthesize with Xilinx Vivado using an alternative TCL-based flow"""
 
     class Settings(VivadoSynth.Settings):
-        synth: RunOptions = RunOptions(
-            strategy="Default", steps=_vivado_steps("Default", "synth")
-        )
-        impl: RunOptions = RunOptions(
-            strategy="Default", steps=_vivado_steps("Default", "impl")
-        )
+        synth: RunOptions = RunOptions(strategy="Default")
+        impl: RunOptions = RunOptions(strategy="Default")
 
-        @validator("synth")
-        def validate_synth(cls, v: RunOptions):
-            if v.strategy and not v.steps:
-                v.steps = _vivado_steps(v.strategy, "synth")
-            return v
-
-        @validator("impl", always=True)
-        def validate_impl(cls, v: RunOptions, values):
-            if not v.strategy:
+        @validator("synth", "impl", always=True)
+        def validate_synth(cls, value, values, field):
+            if field.name == "impl" and not value.strategy and not value.steps:
                 synth = values.get("synth")
-                if synth:
-                    v.strategy = synth.strategy
-            if v.strategy:
-                v.steps = {**_vivado_steps(v.strategy, "impl"), **v.steps}
-            return v
+                value.strategy = synth.strategy
+            if value.strategy:
+                value.steps = {
+                    **_vivado_steps(value.strategy, field.name),
+                    **value.steps,
+                }
+            return value
 
     def run(self):
-        clock_xdc_path = self.copy_from_template("clock.xdc")
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
@@ -350,30 +345,36 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             if "synth" in ss.synth.steps and ss.synth.steps["synth"] is not None:
                 ss.synth.steps["synth"]["-mode"] = "out_of_context"
 
-        blacklisted_resources = ss.blacklisted_resources
-        if blacklisted_resources:
-            if (
-                "bram" in blacklisted_resources
-                and "bram_tile" not in blacklisted_resources
-            ):
-                blacklisted_resources.append("bram_tile")
-            log.info("blacklisted_resources: %s", blacklisted_resources)
+        # always need a synth step?
+        synth_steps = ss.synth.steps.get("synth")
+        if synth_steps is None:
+            synth_steps = {}
+        if any(x in ss.blacklisted_resources for x in ("bram_tile", "bram")):
+            # FIXME also add "-max_uram 0", only for UltraScale+ devices
+            synth_steps["-max_bram"] = 0
+        if "dsp" in ss.blacklisted_resources:
+            synth_steps["-max_dsp"] = 0
+        ss.synth.steps["synth"] = synth_steps
 
-        # if 'bram_tile' in blacklisted_resources:
-        #     # FIXME also add -max_uram 0 for ultrascale+
-        #     settings.synth.steps['synth'].append('-max_bram 0')
-        # if 'dsp' in blacklisted_resources:
-        #     settings.synth.steps['synth'].append('-max_dsp 0')
+        def flatten_dict(d):
+            return " ".join([f"{k} {v}" if v is not None else k for k, v in d.items()])
+
+        def steps_to_str(steps):
+            return "\n " + "\n ".join(
+                f"{name}: {flatten_dict(step)}" for name, step in steps.items() if step
+            )
+
+        log.info("Synthesis steps:%s", steps_to_str(ss.synth.steps))
+        log.info("Implementation steps:%s", steps_to_str(ss.impl.steps))
 
         self.add_template_filter(
             "flatten_dict",
-            lambda d: " ".join(
-                [f"{k} {v}" if v is not None else k for k, v in d.items()]
-            ),
+            flatten_dict,
         )
-
+        clock_xdc_path = self.copy_from_template("clock.xdc")
         script_path = self.copy_from_template(
             "vivado_alt_synth.tcl",
             xdc_files=[clock_xdc_path],
         )
+
         self.vivado.run("-source", script_path)

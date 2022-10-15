@@ -27,14 +27,18 @@ set_msg_config -id "\[Synth 8-350\]" -suppress
 # info do synthesis
 set_msg_config -id "\[Synth 8-256\]" -suppress
 set_msg_config -id "\[Synth 8-638\]" -suppress
+
+# Parallel synthesis criteria is not met
+set_msg_config -id "\[Synth 8-7080\]" -suppress
+
 # BRAM mapped to LUT due to optimization
-set_msg_config -id "\[Synth 8-3969\]" -suppress
-# BRAM with no output register
-set_msg_config -id "\[Synth 8-4480\]" -suppress
-# DSP without input pipelining
-set_msg_config -id "\[Drc 23-20\]" -suppress
+# set_msg_config -id "\[Synth 8-3969\]" -suppress
+# # BRAM with no output register
+# set_msg_config -id "\[Synth 8-4480\]" -suppress
+# # DSP without input pipelining
+# set_msg_config -id "\[Drc 23-20\]" -suppress
 # Update IP version
-set_msg_config -id "\[Netlist 29-345\]" -suppress   
+# set_msg_config -id "\[Netlist 29-345\]" -suppress   
 
 set_param tcl.collectionResultDisplayLimit 0
 set parts [get_parts]

@@ -20,4 +20,6 @@ clock_period = 5.0
 
 [flows.vivado_alt_synth]
 fpga.part = "xc7a100tftg256-2L"
+synth.strategy = "ExtraTimingCongestion"
+impl.strategy = "AreaExploreWithRemap"
 clock_period = 5.0
