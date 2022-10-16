@@ -2,13 +2,14 @@ import json
 import logging
 import os
 import random
+import shutil
 import time
 import traceback
 from concurrent.futures import CancelledError, TimeoutError
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, ItemsView, List, Optional, Tuple, Type, Union
 
 from attr import define
 from pebble.common import ProcessExpired
@@ -18,7 +19,7 @@ from ..dataclass import XedaBaseModel, validator
 from ..design import Design
 from ..flows.flow import Flow, FlowFatalError, FlowSettingsError, SynthFlow
 from ..tool import NonZeroExitCode
-from ..utils import unique
+from ..utils import Timer, dump_json, unique
 from . import FlowLauncher, add_file_logger, get_flow_class, print_results
 
 log = logging.getLogger(__name__)
@@ -37,19 +38,23 @@ class Optimizer:
         max_workers: int = 8  # >= 2
         timeout: int = 3600  # in seconds
         resolution: float = 0.2
-        delta_increment: float = 0.005
+        delta_increment: float = 0.001
 
     def __init__(self, **kwargs) -> None:
+        self.base_settings: Flow.Settings = Flow.Settings()
+        self.flow_class: Optional[Type[Flow]] = None
+        self.variations: Dict[str, List[str]] = {}
+
         self.settings = self.Settings(**kwargs)
         self.improved_idx: Optional[int] = None
 
         self.best: Optional[FlowOutcome] = None
 
-    def next_batch(self, base_settings: Flow.Settings) -> List[Dict[str, Any]]:
-        return []
+    def next_batch(self) -> Union[None, List[Flow.Settings], List[Dict[str, Any]]]:
+        ...
 
     def process_outcome(self, outcome: FlowOutcome, idx: int) -> bool:
-        return False
+        ...
 
 
 ONE_THOUSAND = 1000.0
@@ -58,8 +63,42 @@ ONE_THOUSAND = 1000.0
 def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
     if n < 2:
         return [b], 0
-    step = (float(b) - a) / (n - 1)
+    step = (b - a) / (n - 1)
     return [step * i + a for i in range(n)], step
+
+
+flow_settings_variations: Dict[str, Dict[str, List[str]]] = {
+    "vivado_synth": {
+        # synthesis:
+        "synth.strategy": [
+            "Flow_AlternateRoutability",
+            "Flow_PerfThresholdCarry",
+            "Flow_PerfOptimized_high",
+            "Flow_RuntimeOptimized",
+        ],
+        "impl.strategy": [
+            "Flow_RunPostRoutePhysOpt",  ## fast
+            "Performance_ExtraTimingOpt",
+            "Flow_RunPhysOpt",  ## fast
+            "Performance_NetDelay_low",
+            # "Flow_RuntimeOptimized", ## fast
+            ##
+            "Performance_Explore",
+            "Performance_NetDelay_high",  # slow
+            "Performance_ExplorePostRoutePhysOpt",  # slow
+            "Performance_Retiming",
+            "Performance_RefinePlacement",
+        ],
+    },
+    "vivado_alt_synth": {
+        "synth.strategy": [
+            "ExtraTimingCongestion",
+            "ExtraTimingAltRouting",
+            "ExtraTiming",
+            # "Timing",
+        ],
+    },
+}
 
 
 class FmaxOptimizer(Optimizer):
@@ -67,31 +106,6 @@ class FmaxOptimizer(Optimizer):
         init_freq_low: float
         init_freq_high: float
         max_luts: Optional[int] = None
-        strategies: Dict[str, Dict[str, List[str]]] = {
-            "vivado_synth": {
-                # synthesis:
-                "synth": [
-                    "Flow_AlternateRoutability",
-                    "Flow_PerfThresholdCarry",
-                    "Flow_RuntimeOptimized",
-                    "Flow_PerfOptimized_high",
-                ],
-                "impl": [
-                    "Performance_NetDelay_low",
-                    "",
-                    ##
-                    "Performance_NetDelay_high",
-                ],
-            },
-            "vivado_alt_synth": {
-                "synth": [
-                    "ExtraTimingCongestion",
-                    "ExtraTimingAltRouting",
-                    "ExtraTiming",
-                    # "Timing",
-                ],
-            },
-        }
 
         @validator("init_freq_high")
         def validate_init_freq(cls, value, values):
@@ -106,8 +120,8 @@ class FmaxOptimizer(Optimizer):
         self.no_improvements: int = 0
         self.prev_frequencies = []
         self.freq_step: float = 0.0
+        self.num_variations = 0
 
-        self.previously_tried_frequencies = set()
         # can be different due to rounding errors, TODO only keep track of periods?
         self.previously_tried_periods = set()
         assert isinstance(self.settings, self.Settings)
@@ -116,86 +130,105 @@ class FmaxOptimizer(Optimizer):
         self.num_iterations: int = 0
 
     @property
-    def best_freq(self):
-        return float(self.best.results.get("Fmax")) if self.best else None
+    def best_freq(self) -> Optional[float]:
+        return self.best.results.get("Fmax") if self.best else None
 
     def update_bounds(self) -> bool:
-        """update low and high bounds based on previous results"""
+        """
+        update low and high bounds based on previous results
+        It's called _before_ calculation of each iteration batch
+        """
         if self.num_iterations == 0:  # first time
             return True
         resolution = self.settings.resolution
         max_workers = self.settings.max_workers
         delta_increment = self.settings.delta_increment
 
+        max_failed_iters = 4
+        max_failed_iters_with_best = 2
+
         best_freq = self.best_freq
+
+        if self.hi_freq - self.lo_freq < resolution:
+            if best_freq or self.no_improvements > 1:
+                return False
 
         if self.improved_idx is None:
             self.no_improvements += 1
-            if not best_freq and self.no_improvements > 2:
-                if self.no_improvements > 4 or (
-                    not best_freq
-                    and (
-                        self.hi_freq < max_workers
-                        or self.freq_step < self.no_improvements * resolution
-                    )
-                ):
+            if self.no_improvements > max_failed_iters:
+                log.info(
+                    "Stopping after %d unsuccessfull iterations (max_failed_iters=%d)",
+                    self.no_improvements,
+                    max_failed_iters,
+                )
+                return False
+            if best_freq:
+                self.num_variations = min(max_workers, self.num_variations + 1)
+                log.info("Increased num_variations to %d", self.num_variations)
+                if self.no_improvements > max_failed_iters_with_best:
                     log.info(
-                        f"Stopping no successful results after {self.no_improvements} iterations."
+                        f"no_improvements={self.no_improvements} > max_failed_iters_with_best({max_failed_iters_with_best})"
                     )
                     return False
-        if not best_freq:
-            self.hi_freq = self.lo_freq - delta_increment
-            if self.hi_freq <= resolution:
-                log.warning("hi_freq < resolution")
-                return False
-            self.lo_freq = self.hi_freq / (0.7 + self.no_improvements)
+            else:
+                self.hi_freq = self.lo_freq - delta_increment
+                if self.hi_freq <= resolution:
+                    log.warning("hi_freq < resolution")
+                    return False
+                self.lo_freq = self.hi_freq / (0.7 + self.no_improvements)
         else:
-            # both best_freq and self.improved_idx != None
+            # sanity check, best_freq was set before in case of a successful run
+            assert (
+                best_freq
+            ), f"best_freq was None, while improved_idx={self.improved_idx}"
+
             # reset no_improvements
             self.no_improvements = 0
+
             # set lo_freq to a bit above lo_freq
             self.lo_freq = best_freq + delta_increment
             # if best freq
             if best_freq >= self.hi_freq:
-                self.hi_freq = self.lo_freq + max(1, self.freq_step) * (max_workers + 1)
+                self.hi_freq = self.lo_freq + max(1, self.freq_step + resolution) * (
+                    max_workers + 1
+                )
             else:
-                self.hi_freq = (self.hi_freq + best_freq + max(1, self.freq_step)) / 2
-
+                self.hi_freq = (
+                    self.hi_freq + best_freq + max(1, self.freq_step)
+                ) / 2 + delta_increment
         return True
 
-    def next_batch(self, base_settings: Flow.Settings):
+    def next_batch(self) -> Union[None, List[Flow.Settings], List[Dict[str, Any]]]:
+        # param
+        min_freq_step = self.settings.resolution / 4
+
         if not self.update_bounds():
             return None
-
-        assert isinstance(base_settings, SynthFlow.Settings)
 
         if self.hi_freq - self.lo_freq < self.settings.resolution:
             return None
 
-        best_freq = self.best_freq
-
         batch_settings = []
+
+        max_finder_retries = 5
+
         finder_retries = 0
+
+        n = self.settings.max_workers
+        if self.num_variations:
+            log.info("Generating %d variations", self.num_variations)
+            n = n // self.num_variations
         while True:
             frequencies, freq_step = linspace(
                 self.lo_freq,
                 self.hi_freq,
-                self.settings.max_workers,
+                n,
             )
             self.freq_step = freq_step
 
-            if freq_step < self.settings.resolution / 2:
+            if self.freq_step < min_freq_step:
                 log.info(f"Stopping: freq_step={freq_step} is below the limit")
                 return None
-
-            frequencies = unique(
-                [
-                    # filter tried frequency and round to picosecond accuracy
-                    ONE_THOUSAND / round(ONE_THOUSAND / f, 3)
-                    for f in frequencies
-                    if f not in self.previously_tried_frequencies
-                ]
-            )
 
             clock_periods_to_try = []
             frequencies_unique = []
@@ -206,34 +239,43 @@ class FmaxOptimizer(Optimizer):
                     frequencies_unique.append(freq)
             frequencies = frequencies_unique
 
-            min_required = (
-                (self.settings.max_workers - max(2, self.settings.max_workers / 4))
-                if finder_retries > 20
-                else self.settings.max_workers
-            )
-
-            if len(frequencies) >= max(1, min_required):
+            if len(frequencies) >= n:
                 break
-            self.hi_freq += random.random() * self.settings.delta_increment
-            low = best_freq if best_freq else self.lo_freq
-            min_lo_freq = (
-                low + self.settings.delta_increment if self.best else self.lo_freq
-            )
-            self.lo_freq = max(min_lo_freq, self.lo_freq - 0.1 * random.random())
+
+            if finder_retries > max_finder_retries:
+                log.error("finder failed!")
+                return None
+
             finder_retries += 1
+            delta = finder_retries * random.random() + self.settings.delta_increment
+            if self.best_freq:
+                self.hi_freq += delta + n * random.random()
+            else:
+                self.lo_freq = max(0, self.lo_freq - delta)
 
-        log.info(
-            f"[Fmax] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies]}"
-        )
-
-        # TODO Just keep clock_periods!
-        self.previously_tried_frequencies.update(frequencies)
         self.previously_tried_periods.update(clock_periods_to_try)
 
-        for clock_period in clock_periods_to_try:
-            settings = deepcopy(base_settings)
-            settings.clock_period = clock_period
-            batch_settings.append(settings)
+        log.info(
+            f"[DSE] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies]}"
+        )
+
+        assert isinstance(self.base_settings, SynthFlow.Settings)
+
+        if self.flow_class:
+            assert isinstance(self.base_settings, self.flow_class.Settings)
+
+        def rand_choice(lst, mx):
+            mx = min(len(lst), mx)
+            return random.choice(lst[:mx])
+
+        base_settings = dict(self.base_settings)
+        for i in range(max(1, self.num_variations)):
+            for clock_period in clock_periods_to_try:
+                vv = {}
+                if self.num_variations:
+                    vv = {k: rand_choice(v, i + 2) for k, v in self.variations.items()}
+                settings = {**base_settings, "clock_period": clock_period, **vv}
+                batch_settings.append(settings)
 
         self.improved_idx = None
         if batch_settings:
@@ -243,9 +285,13 @@ class FmaxOptimizer(Optimizer):
     def process_outcome(self, outcome: FlowOutcome, idx: int) -> bool:
         """returns True if this was the best result so far"""
         assert isinstance(self.settings, self.Settings)
+
+        if not outcome.results.success:
+            return False
+
         freq_str = outcome.results.get("Fmax")
         if freq_str is None:
-            log.warning("Fmax was none!")
+            log.warning("Fmax was None!")
             return False
         freq = float(freq_str)
 
@@ -262,12 +308,15 @@ class FmaxOptimizer(Optimizer):
                 return False
 
         best_freq = self.best_freq
-        if best_freq is None or freq >= best_freq:
-            if best_freq and freq > best_freq:
-                impr = freq - best_freq
-                log.info("New best frequency: %.2fMHz Improvement:%.2f", freq, impr)
+        if best_freq and freq > best_freq:
+            impr = freq - best_freq
+            log.info("New best frequency: %.2f MHz  Improvement:%.2f MHz", freq, impr)
+        if best_freq is None or freq > best_freq:
             self.best = outcome
+            self.base_settings = outcome.settings
             self.improved_idx = idx
+            if self.num_variations and idx > self.settings.max_workers // 2:
+                self.num_variations = max(1, self.num_variations - 1)
             return True
         else:
             log.info(
@@ -282,7 +331,9 @@ class Executioner:
         self.design = design
         self.flow_class = flow_class
 
-    def __call__(self, args: Tuple[int, Dict[str, Any]]):
+    def __call__(
+        self, args: Tuple[int, Dict[str, Any]]
+    ) -> Tuple[Optional[FlowOutcome], int]:
         idx, flow_settings = args
         try:
             flow = self.launcher.launch_flow(
@@ -314,7 +365,7 @@ class Executioner:
 class Dse(FlowLauncher):
     def __init__(
         self,
-        optimizer: Optimizer,
+        optimizer: Union[str, Optimizer],
         xeda_run_dir: Union[str, os.PathLike] = "xeda_run_dse",
     ) -> None:
         super().__init__(
@@ -327,6 +378,11 @@ class Dse(FlowLauncher):
             run_in_existing_dir=False,
             cleanup=False,
         )
+        if isinstance(optimizer, str):
+            if optimizer == "fmax":
+                optimizer = FmaxOptimizer()
+            else:
+                raise Exception(f"Unknown optimizer: {optimizer}")
         self.optimizer: Optimizer = optimizer
 
     def run_flow(
@@ -334,21 +390,26 @@ class Dse(FlowLauncher):
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
+        cleanup_nonoptimal_runs: bool = True,
     ):
-        log.debug(f"run_flow {flow_class}")
+        timer = Timer()
 
-        start_time = time.monotonic()
         optimizer = self.optimizer
 
-        # TODO adaptive tweeking of timeout?
-        proc_timeout_seconds = optimizer.settings.timeout
-        log.info(f"[DSE] Timeout set to: {proc_timeout_seconds} seconds.")
-
-        error_retries = 0
+        unsuccessfull_iters = 0
         num_iterations = 0
         future = None
         pool = None
-        results_sub = ["Fmax", "lut", "ff", "slice"]
+
+        results_sub = [
+            "Fmax",
+            "lut",
+            "ff",
+            "slice",
+            "latch",
+            "bram_tile",
+            "dsp",
+        ]
 
         successful_results: List[Dict[str, Any]] = []
         executioner = Executioner(self, design, flow_class)
@@ -368,6 +429,11 @@ class Dse(FlowLauncher):
                 log.error("%s", e)
                 exit(1)
         base_settings.redirect_stdout = True
+
+        optimizer.flow_class = flow_class
+        optimizer.base_settings = base_settings
+        optimizer.variations = flow_settings_variations[flow_class.name]
+
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
         add_file_logger(Path.cwd(), timestamp)
         best_json_path = (
@@ -376,46 +442,54 @@ class Dse(FlowLauncher):
         log.info("Final results will be saved to: %s", best_json_path)
         max_workers = optimizer.settings.max_workers
         log.info("max_workers=%d", max_workers)
+
+        iterate = True
         try:
-            log.info("results will be ")
             with ProcessPool(max_workers=max_workers) as pool:
-                while True:
-                    settings_to_try = optimizer.next_batch(base_settings)
+                while iterate:
+                    settings_to_try = optimizer.next_batch()
                     if not settings_to_try:
                         break
 
                     future = pool.map(
                         executioner,
                         enumerate(settings_to_try),
-                        timeout=proc_timeout_seconds,
+                        timeout=optimizer.settings.timeout,
                     )
 
+                    have_success = False
+                    improved = False
                     try:
                         iterator = future.result()
                         if not iterator:
-                            log.error("iterator is None! Retrying")
-                            if error_retries < 4:
-                                error_retries += 1
-                                continue  # retry
-                            else:
-                                log.error("error_retries > MAX, exiting")
-                                break
+                            log.error("Process result iterator is None!")
+                            break
                         while True:
                             try:
-                                # flow: Optional[Flow]
                                 idx: int
-                                flow, idx = next(iterator)
-                                if flow:
-                                    # flow_run_dirs.append(flow.run_path)
-                                    if flow.results.success:
-                                        optimizer.process_outcome(flow, idx)  # FIXME
-                                        error_retries = 0
-                                        r = {
-                                            k: flow.results.get(k) for k in results_sub
-                                        }
-                                        successful_results.append(r)
+                                outcome: FlowOutcome
+                                outcome, idx = next(iterator)
+                                if outcome is None:
+                                    log.error("Flow outcome is None!")
+                                    iterate = False
+                                    continue
+                                improved = optimizer.process_outcome(outcome, idx)
+                                if cleanup_nonoptimal_runs and not improved:
+                                    if outcome.run_path and outcome.run_path.exists():
+                                        log.debug(
+                                            "Deleting non-improved run directory: %s",
+                                            outcome.run_path,
+                                        )
+                                        shutil.rmtree(
+                                            outcome.run_path, ignore_errors=True
+                                        )
+                                        outcome.run_path = None
+                                if outcome.results.success:
+                                    have_success = True
+                                    r = {k: outcome.results.get(k) for k in results_sub}
+                                    successful_results.append(r)
                             except StopIteration:
-                                break  # inner while True
+                                break  # next(iterator) finished
                             except TimeoutError as e:
                                 log.critical(
                                     f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks."
@@ -424,39 +498,40 @@ class Dse(FlowLauncher):
                             except ProcessExpired as e:
                                 log.critical(f"{e}. Exit code: {e.exitcode}")
                     except CancelledError:
-                        log.warning("[Fmax] CancelledError")
-                    except KeyboardInterrupt:
+                        log.warning("[DSE] CancelledError")
+                    except KeyboardInterrupt as e:
                         pool.stop()
                         pool.join()
-                        raise
+                        raise e from None
 
-                    log.info(f"[Fmax] End of iteration #{num_iterations}")
-                    log.info(
-                        f"[Fmax] Execution Time so far: {int(time.monotonic() - start_time) // 60} minute(s)"
-                    )
+                    if not have_success:
+                        unsuccessfull_iters += 1
+
                     num_iterations += 1
+                    log.info(f"[DSE] End of iteration #{num_iterations}")
+                    log.info(f"[DSE] Execution time so far: {timer.timedelta}")
+                    if improved:
+                        log.info(f"Writing current best result to {best_json_path}")
+                        if have_success:
+                            dump_json(
+                                dict(
+                                    best=optimizer.best,
+                                    successful_results=successful_results,
+                                    total_time=timer.timedelta,
+                                    # flow_run_dirs=flow_run_dirs,
+                                ),
+                                best_json_path,
+                                backup_previous=False,
+                            )
                     if optimizer.best:
                         print_results(
                             results=optimizer.best.results,
                             title="Best so far",
                             subset=results_sub,
+                            skip_if_false=True,
                         )
-
-                        log.info(f"Writing current best result to {best_json_path}")
-
-                        with open(best_json_path, "w") as f:
-                            json.dump(
-                                dict(
-                                    best=optimizer.best,
-                                    successful_results=successful_results,
-                                    # flow_run_dirs=flow_run_dirs,
-                                ),
-                                f,
-                                default=lambda x: x.__dict__
-                                if hasattr(x, "__dict__")
-                                else str(x),
-                                indent=4,
-                            )
+                    else:
+                        log.info("No results to report.")
 
         except KeyboardInterrupt:
             log.exception("Received Keyboard Interrupt")
@@ -477,31 +552,25 @@ class Dse(FlowLauncher):
             if pool:
                 pool.close()
                 pool.join()
-            runtime = int(time.monotonic() - start_time)
             if optimizer.best:
                 print_results(
                     results=optimizer.best.results,
                     title="Best Results",
                     subset=results_sub,
                 )
-
-                log.info(f"Writing best result to {best_json_path}")
-
-                with open(best_json_path, "w") as f:
-                    json.dump(
-                        dict(
-                            best=optimizer.best,
-                            successful_results=successful_results,
-                            # flow_run_dirs=flow_run_dirs,
-                        ),
-                        f,
-                        default=lambda x: x.__dict__
-                        if hasattr(x, "__dict__")
-                        else str(x),
-                        indent=4,
-                    )
+                log.info(f"Best result are written to {best_json_path}")
+                # dump_json(
+                #     dict(
+                #         best=optimizer.best,
+                #         successful_results=successful_results,
+                #         total_time_minutes=timer.minutes,
+                #         # flow_run_dirs=flow_run_dirs,
+                #     ),
+                #     best_json_path,
+                #     backup_previous=False,
+                # )
             else:
                 log.warning("No successful results.")
-            log.info(f"[Fmax] Total Execution Time: {runtime} minute(s)")
-            log.info(f"[Fmax] Total Iterations: {num_iterations}")
+            log.info(f"[DSE] Total Execution Time: {timer.timedelta}")
+            log.info(f"[DSE] Total Iterations: {num_iterations}")
         return optimizer.best

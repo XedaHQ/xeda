@@ -1,15 +1,15 @@
 import logging
-from typing import Optional, List, Union
-from urllib.request import urlretrieve
-from urllib.parse import urlparse
+from typing import List, Optional, Union
 from urllib.error import HTTPError
+from urllib.parse import urlparse
+from urllib.request import urlretrieve
 
-from .yosys import YosysSynth
-from .flow import FlowFatalError, FpgaSynthFlow
+from ..board import WithFpgaBoardSettings, get_board_data, get_board_file_path
+from ..dataclass import Field, XedaBaseModel, validator
 from ..tool import Tool
 from ..utils import setting_flag
-from ..dataclass import Field, XedaBaseModel, validator
-from ..board import WithFpgaBoardSettings, get_board_file_path, get_board_data
+from .flow import FlowFatalError, FpgaSynthFlow
+from .yosys import YosysSynth
 
 __all__ = ["Nextpnr"]
 

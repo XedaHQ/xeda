@@ -1,3 +1,5 @@
+# type: ignore
+
 """
 A cleaned-up, trimmed-down, adaptation of [command_runner](https://github.com/netinvent/command_runner)
 BSD 3-Clause License
@@ -34,6 +36,9 @@ except ImportError:
     pass
 
 logger = getLogger(__name__)
+
+
+__all__ = ["command_runner"]
 
 
 class InterruptGetOutput(BaseException):
@@ -262,7 +267,6 @@ def command_runner(
     # subprocess.CREATE_NO_WINDOW was added in Python 3.7 for Windows OS only
     if (
         windows_no_window
-        and sys.version_info[0] >= 3
         and sys.version_info[1] >= 7
         and os.name == "nt"
     ):
@@ -344,8 +348,8 @@ def command_runner(
 
         # We also need to check that stream has readline, in case we're writing to files instead of PIPE
 
-        # Another magnificient python 2.7 fix
-        # So we need to convert sentinel_char which would be unicode because of unicode_litterals
+        # Another magnificent python 2.7 fix
+        # So we need to convert sentinel_char which would be unicode because of unicode_literals
         # to str which is the output format from stream.readline()
 
         if hasattr(stream, "readline"):
@@ -626,39 +630,19 @@ def command_runner(
         # Finally, we won't use encoding & errors arguments for Popen
         # since it would defeat the idea of binary pipe reading in live mode
 
-        # Python >= 3.3 has SubProcessError(TimeoutExpired) class
-        # Python >= 3.6 has encoding & error arguments
-        # universal_newlines=True makes netstat command fail under windows
-        # timeout does not work under Python 2.7 with subprocess32 < 3.5
-        # decoder may be cp437 or unicode_escape for dos commands or utf-8 for powershell
-        # Disabling pylint error for the same reason as above
-        # pylint: disable=E1123
-        if sys.version_info >= (3, 6):
-            process = subprocess.Popen(
-                command,
-                stdout=_stdout,
-                stderr=_stderr,
-                shell=shell,
-                universal_newlines=universal_newlines,
-                encoding=encoding if encoding is not False else None,
-                errors=errors if encoding is not False else None,
-                creationflags=creationflags,
-                bufsize=bufsize,  # 1 = line buffered
-                close_fds=close_fds,
-                **kwargs
-            )
-        else:
-            process = subprocess.Popen(
-                command,
-                stdout=_stdout,
-                stderr=_stderr,
-                shell=shell,
-                universal_newlines=universal_newlines,
-                creationflags=creationflags,
-                bufsize=bufsize,
-                close_fds=close_fds,
-                **kwargs
-            )
+        process = subprocess.Popen(
+            command,
+            stdout=_stdout,
+            stderr=_stderr,
+            shell=shell,
+            universal_newlines=universal_newlines,
+            encoding=encoding if encoding is not False else None,
+            errors=errors if encoding is not False else None,
+            creationflags=creationflags,
+            bufsize=bufsize,  # 1 = line buffered
+            close_fds=close_fds,
+            **kwargs
+        )
 
         try:
             # let's return process information if callback was given
@@ -723,16 +707,6 @@ def command_runner(
         logger.error(output_stdout)
     except FileNotFoundError as exc:
         message = 'Command "{}" failed, file not found: {}'.format(
-            command, to_encoding(exc.__str__(), error_encoding, errors)
-        )
-        logger.error(message)
-        if stdout_destination == "file":
-            _stdout.write(message.encode(error_encoding, errors=errors))
-        exit_code, output_stdout = (-253, message)
-    # On python 2.7, OSError is also raised when file is not found (no FileNotFoundError)
-    # pylint: disable=W0705 (duplicate-except)
-    except (OSError, IOError) as exc:
-        message = 'Command "{}" failed because of OS: {}'.format(
             command, to_encoding(exc.__str__(), error_encoding, errors)
         )
         logger.error(message)

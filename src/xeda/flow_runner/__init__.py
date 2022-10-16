@@ -8,7 +8,7 @@ import shutil
 import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
-from typing import Any, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Type, Union
 
 from box import Box
 from pathvalidate import sanitize_filename  # pyright: reportPrivateImportUsage=none
@@ -48,8 +48,8 @@ def print_results(
     flow: Optional[Flow] = None,
     results: Optional[Dict[str, Any]] = None,
     title: Optional[str] = None,
-    subset: Union[None, List[str], Set[str]] = None,
-    skip_if_empty: Optional[Set[str]] = None,
+    subset: Optional[Iterable[str]] = None,
+    skip_if_false: Union[None, bool, Iterable[str]] = None,
 ) -> None:
     if results is None and flow:
         results = flow.results
@@ -65,7 +65,7 @@ def print_results(
     table.add_column(style="bold", no_wrap=True)
     table.add_column(justify="right")
     for k, v in results.items():
-        if skip_if_empty and k in skip_if_empty and not v:
+        if skip_if_false and (skip_if_false is True or k in skip_if_false) and not v:
             continue
         if v is not None and not k.startswith("_"):
             if k == "success":
@@ -389,7 +389,7 @@ class FlowLauncher:
             print_results(
                 flow,
                 title=f"{flow.name} Results",
-                skip_if_empty={"artifacts", "reports"},
+                skip_if_false={"artifacts", "reports"},
             )
         if self.cleanup:
             log.warning("removing flow run path %s", flow.run_path)

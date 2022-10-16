@@ -98,14 +98,15 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
-        for o in [
-            "timesim.min.sdf",
-            "timesim.max.sdf",
-            "timesim.v",
-            "funcsim.vhdl",
-            "xdc",
-        ]:
-            self.artifacts[o] = os.path.join(settings.outputs_dir, o)
+        if settings.write_netlist:
+            for o in [
+                "timesim.min.sdf",
+                "timesim.max.sdf",
+                "timesim.v",
+                "funcsim.vhdl",
+                "xdc",
+            ]:
+                self.artifacts[o] = os.path.join(settings.outputs_dir, o)
 
         settings.synth.steps = {
             **{

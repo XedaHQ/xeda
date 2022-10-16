@@ -1,5 +1,6 @@
-from importlib.metadata import version, PackageNotFoundError
-from pkg_resources import get_distribution, DistributionNotFound
+from importlib.metadata import PackageNotFoundError, version
+
+from pkg_resources import DistributionNotFound, get_distribution
 
 try:
     __version__ = version("xeda")

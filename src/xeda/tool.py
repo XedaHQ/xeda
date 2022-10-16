@@ -8,7 +8,7 @@ from pathlib import Path
 from sys import stderr
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from .command_runner import command_runner
+from .command_runner import command_runner  # type: ignore
 from .dataclass import Field, XedaBaseModeAllowExtra, XedaBaseModel, validator
 from .utils import cached_property, unique
 

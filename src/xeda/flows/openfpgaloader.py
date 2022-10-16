@@ -3,8 +3,8 @@ from pathlib import Path
 from typing import Optional
 
 from ..board import WithFpgaBoardSettings, get_board_data
-from ..design import Design
 from ..dataclass import validator
+from ..design import Design
 from ..tool import Tool
 from .flow import FpgaSynthFlow
 from .nextpnr import Nextpnr

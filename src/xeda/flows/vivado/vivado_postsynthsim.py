@@ -3,9 +3,9 @@ from typing import Optional
 
 from xeda.flows.flow import FlowFatalError
 
+from ...dataclass import Field
 from ...design import DesignSource, RtlSettings
 from ...utils import SDF
-from ...dataclass import Field
 from .vivado_sim import VivadoSim
 from .vivado_synth import VivadoSynth
 

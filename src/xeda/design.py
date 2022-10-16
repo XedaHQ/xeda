@@ -1,14 +1,14 @@
 from __future__ import annotations
-from enum import Enum, auto
 
 import hashlib
 import inspect
 import logging
 import os
+from enum import Enum, auto
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 import git
 from git.repo import Repo

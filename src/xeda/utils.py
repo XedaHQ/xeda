@@ -4,10 +4,11 @@ import json
 import logging
 import os
 import re
+import time
 from collections import defaultdict
 from contextlib import AbstractContextManager
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import cached_property, reduce
 from pathlib import Path
 from types import TracebackType
@@ -139,7 +140,9 @@ def backup_existing(path: Path) -> Optional[Path]:
     return path.rename(backup_path)
 
 
-def dump_json(data: object, path: Path, backup_previous: bool = True) -> None:
+def dump_json(
+    data: object, path: Path, backup_previous: bool = True, indent: int = 4
+) -> None:
     if path.exists() and backup_previous:
         backup_existing(path)
         assert not path.exists(), "Old file still exists!"
@@ -149,12 +152,12 @@ def dump_json(data: object, path: Path, backup_previous: bool = True) -> None:
             data,
             outfile,
             default=lambda x: x.__dict__ if hasattr(x, "__dict__") else str(x),
-            indent=4,
+            indent=indent,
         )
 
 
 def unique(lst: List[Any]) -> List[Any]:
-    """uniquify list while preserving order"""
+    """returns unique elements of the list in their original order (first occurrence)."""
     return list(OrderedDict.fromkeys(lst))
 
 
@@ -364,3 +367,36 @@ def parse_xml(
         return None
     root = tree.getroot()
     return etree_to_dict_rec(root)
+
+
+class Timer:
+    def __init__(self, hi_res: bool = False) -> None:
+        self.hi_res = hi_res
+        self.time_func = time.monotonic_ns if hi_res else time.monotonic
+        self.start_time = self.time_func()
+
+    def delta(self):
+        return self.time_func() - self.start_time
+
+    @property
+    def nanoseconds(self) -> int:
+        d = self.delta()
+        return int(d if self.hi_res else d * 1000_000_000)
+
+    @property
+    def seconds(self) -> int:
+        if self.hi_res:
+            return self.nanoseconds // 1000_000_000
+        return int(self.delta())
+
+    @property
+    def minutes(self) -> int:
+        return self.seconds // 60
+
+    @property
+    def hours(self) -> int:
+        return self.minutes // 60
+
+    @property
+    def timedelta(self):
+        return timedelta(seconds=self.seconds)

@@ -10,7 +10,7 @@ from ...design import Design, SourceType
 from ...flows.ghdl import GhdlSynth
 from ...fpga import FPGA
 from ...tool import Docker, Tool
-from ..flow import AsicSynthFlow, FpgaSynthFlow, SynthFlow, SimFlow, Flow
+from ..flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow
 
 log = logging.getLogger(__name__)
 

@@ -1,8 +1,9 @@
-from copy import deepcopy
 import logging
+from copy import deepcopy
 from typing import List, Optional
-from .flow import SimFlow
+
 from ..tool import Tool
+from .flow import SimFlow
 
 log = logging.getLogger(__name__)
 

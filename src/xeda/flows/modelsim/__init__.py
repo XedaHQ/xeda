@@ -1,9 +1,10 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
 from typing import Optional
+
+from ...tool import Tool
 from ...utils import SDF
 from ..flow import SimFlow
-from ...tool import Tool
 
 
 class Modelsim(SimFlow):

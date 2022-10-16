@@ -1,17 +1,12 @@
 import logging
-from typing import (
-    Any,
-    Dict,
-    Union,
-    Optional,
-)
-import pkg_resources
 import os
+from typing import Any, Dict, Optional, Union
 
-from .utils import toml_loads, toml_load
+import pkg_resources
+
 from .dataclass import root_validator
-from .flows.flow import FpgaSynthFlow, FPGA
-
+from .flows.flow import FPGA, FpgaSynthFlow
+from .utils import toml_load, toml_loads
 
 __all__ = [
     "get_board_file_path",

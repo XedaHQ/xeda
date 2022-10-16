@@ -3,8 +3,8 @@ import logging
 from typing import Any, Dict
 from xml.etree import ElementTree
 
-from .vivado_sim import VivadoSim
 from .vivado_postsynthsim import VivadoPostsynthSim
+from .vivado_sim import VivadoSim
 from .vivado_synth import VivadoSynth
 
 logger = logging.getLogger(__name__)

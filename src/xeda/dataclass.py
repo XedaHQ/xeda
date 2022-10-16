@@ -1,10 +1,10 @@
 """Interchangable dataclass abstraction"""
 from __future__ import annotations
-from functools import cached_property
 
 import logging
 import types
 from abc import ABCMeta
+from functools import cached_property
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
 
 import attrs
