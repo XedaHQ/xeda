@@ -3,13 +3,12 @@ import logging
 import os
 import random
 import shutil
-import time
 import traceback
 from concurrent.futures import CancelledError, TimeoutError
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, ItemsView, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 from attr import define
 from pebble.common import ProcessExpired
@@ -19,7 +18,7 @@ from ..dataclass import XedaBaseModel, validator
 from ..design import Design
 from ..flows.flow import Flow, FlowFatalError, FlowSettingsError, SynthFlow
 from ..tool import NonZeroExitCode
-from ..utils import Timer, dump_json, unique
+from ..utils import Timer, dump_json
 from . import (
     FlowLauncher,
     add_file_logger,
@@ -177,7 +176,7 @@ class FmaxOptimizer(Optimizer):
                     )
                     return False
             else:
-                self.hi_freq = self.lo_freq - delta_increment
+                self.hi_freq = self.lo_freq - resolution
                 if self.hi_freq <= resolution:
                     log.warning("hi_freq < resolution")
                     return False
@@ -195,13 +194,11 @@ class FmaxOptimizer(Optimizer):
             self.lo_freq = best_freq + delta_increment
             # if best freq
             if best_freq >= self.hi_freq:
-                self.hi_freq = self.lo_freq + max(1, self.freq_step + resolution) * (
-                    max_workers + 1
-                )
+                self.hi_freq += self.freq_step * max_workers
+                log.info("incrementing hi_freq to %0.2f", self.hi_freq)
             else:
-                self.hi_freq = (
-                    self.hi_freq + best_freq + max(1, self.freq_step)
-                ) / 2 + delta_increment
+                self.hi_freq = (self.hi_freq + best_freq) / 2 + resolution
+                log.info("decrementing hi_freq to %0.2f", self.hi_freq)
         return True
 
     def next_batch(self) -> Union[None, List[Flow.Settings], List[Dict[str, Any]]]:
@@ -209,9 +206,6 @@ class FmaxOptimizer(Optimizer):
         min_freq_step = self.settings.resolution / 4
 
         if not self.update_bounds():
-            return None
-
-        if self.hi_freq - self.lo_freq < self.settings.resolution:
             return None
 
         batch_settings = []
@@ -225,27 +219,37 @@ class FmaxOptimizer(Optimizer):
             log.info("Generating %d variations", self.num_variations)
             n = n // self.num_variations
         while True:
-            frequencies, freq_step = linspace(
+            if self.hi_freq <= 0 or self.lo_freq < 0:
+                return None
+            if self.hi_freq - self.lo_freq < self.settings.resolution:
+                return None
+            freq_candidates, freq_step = linspace(
                 self.lo_freq,
                 self.hi_freq,
                 n,
             )
             self.freq_step = freq_step
+            log.info(
+                "[try %d] lo_freq=%0.2f, hi_freq=%0.2f, freq_step=%0.2f",
+                finder_retries,
+                self.lo_freq,
+                self.hi_freq,
+                freq_step,
+            )
 
             if self.freq_step < min_freq_step:
                 log.info(f"Stopping: freq_step={freq_step} is below the limit")
                 return None
 
             clock_periods_to_try = []
-            frequencies_unique = []
-            for freq in frequencies:
+            frequencies = []
+            for freq in freq_candidates:
                 clock_period = round(ONE_THOUSAND / freq, 3)
                 if clock_period not in self.previously_tried_periods:
                     clock_periods_to_try.append(clock_period)
-                    frequencies_unique.append(freq)
-            frequencies = frequencies_unique
+                    frequencies.append(freq)
 
-            if len(frequencies) >= n:
+            if len(clock_periods_to_try) >= n - 1:
                 break
 
             if finder_retries > max_finder_retries:
@@ -255,17 +259,20 @@ class FmaxOptimizer(Optimizer):
             finder_retries += 1
             delta = finder_retries * random.random() + self.settings.delta_increment
             if self.best_freq:
-                self.hi_freq += delta + n * random.random()
+                self.hi_freq += delta + n * (random.random() * self.settings.resolution)
+                log.warning("finder increased hi_freq to %0.2f", self.hi_freq)
             else:
+                self.hi_freq -= delta
                 self.lo_freq = max(0, self.lo_freq - delta)
+                log.warning(
+                    "finder updated range to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq
+                )
 
         self.previously_tried_periods.update(clock_periods_to_try)
 
         log.info(
             f"[DSE] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies]}"
         )
-
-        assert isinstance(self.base_settings, SynthFlow.Settings)
 
         if self.flow_class:
             assert isinstance(self.base_settings, self.flow_class.Settings)
@@ -318,6 +325,7 @@ class FmaxOptimizer(Optimizer):
         if best_freq and freq > best_freq:
             impr = freq - best_freq
             log.info("New best frequency: %.2f MHz  Improvement:%.2f MHz", freq, impr)
+
         if best_freq is None or freq > best_freq:
             self.best = outcome
             self.base_settings = outcome.settings
@@ -329,7 +337,7 @@ class FmaxOptimizer(Optimizer):
             log.info(
                 "Got lower Fmax: %.2f than the current best: %.2s", freq, best_freq
             )
-        return False
+            return False
 
 
 class Executioner:
@@ -436,7 +444,6 @@ class Dse(FlowLauncher):
             {k: v[0] for k, v in optimizer.variations.items() if v},
             expand_dict_keys=True,
         )
-        print(base_variation)
         flow_settings = {**flow_settings, **base_variation}
 
         try:
@@ -491,14 +498,13 @@ class Dse(FlowLauncher):
                                     continue
                                 improved = optimizer.process_outcome(outcome, idx)
                                 if cleanup_nonoptimal_runs and not improved:
-                                    if outcome.run_path and outcome.run_path.exists():
+                                    p = outcome.run_path
+                                    if p and p.exists():
                                         log.debug(
                                             "Deleting non-improved run directory: %s",
-                                            outcome.run_path,
+                                            p,
                                         )
-                                        shutil.rmtree(
-                                            outcome.run_path, ignore_errors=True
-                                        )
+                                        shutil.rmtree(p, ignore_errors=True)
                                         outcome.run_path = None
                                 if outcome.results.success:
                                     have_success = True
