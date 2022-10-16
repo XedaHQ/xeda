@@ -4,7 +4,7 @@ from abc import ABCMeta
 from functools import cached_property, reduce
 from html import unescape
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree
 
 from ...dataclass import Field
@@ -73,6 +73,9 @@ class Vivado(Flow, metaclass=ABCMeta):
             description="Drop to interactive TCL shell after Vivado finishes running a flow script",
         )
         no_log: bool = False
+        suppress_msgs: List[str] = [
+            "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found in run
+        ]
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         super().__init__(settings, design, run_path)

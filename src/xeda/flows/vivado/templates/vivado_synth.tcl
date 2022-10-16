@@ -9,16 +9,12 @@ set vhdl_std              {{design.language.vhdl.standard}}
 
 set_param general.maxThreads {{settings.nthreads}}
 
-
-# Disable warning: "Parallel synthesis criteria is not met"
-set_msg_config -id "\[Synth 8-7080\]" -suppress
-
-# Auto Incremental Compile:: No reference checkpoint was found in run
-set_msg_config -id "\[Vivado 812-7122\]" -suppress
-
+{%- for msg in settings.suppress_msgs %}
+set_msg_config -id "\[{{msg}}\]" -suppress
+{%- endfor %}
 
 puts "\n=====================( Read Design Files and Constraints )====================="
-{% for src in design.rtl.sources -%}
+{%- for src in design.rtl.sources %}
 {%- if src.type.name == "Verilog" %}
 puts "Reading Verilog file {{src.file}}"
 if { [catch {eval read_verilog {{src.file}} } myError]} {
@@ -55,40 +51,40 @@ set_property strategy {{settings.synth.strategy}} [get_runs synth_1]
 set avail_impl_strategies [join [list_property_value strategy [get_runs impl_1] ] " "]
 puts "\n Available implementation strategies:\n  $avail_impl_strategies\n"
 
-{% if settings.impl.strategy -%}
+{%- if settings.impl.strategy %}
 puts "Using {{settings.impl.strategy}} strategy for implementation."
 set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
-{% endif -%}
+{%- endif %}
 
-{% if generics -%}
+{%- if generics %}
 set_property generic {% raw -%} { {%- endraw -%} {{generics}} {%- raw -%} } {%- endraw %} [current_fileset]
-{% endif -%}
+{%- endif %}
 
 #{# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
 #{# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug835-vivado-tcl-commands.pdf #}
-{% for step,options in settings.synth.steps.items() -%}
-{% for name,value in options.items() -%}
-{% if value is mapping %}
-{% for k,v in value.items() %}
+{%- for step,options in settings.synth.steps.items() %}
+{%- for name,value in options.items() %}
+{%- if value is mapping %}
+{%- for k,v in value.items() %}
 set_property STEPS.{{step}}.{{name}}.{{k}} {{v}} [get_runs synth_1]
-{% endfor -%}
-{% else %}
+{%- endfor %}
+{%- else %}
 set_property STEPS.{{step}}.{{name}} {{value}} [get_runs synth_1]
-{% endif %}
-{% endfor -%}
-{% endfor -%}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
 
-{% for step,options in settings.impl.steps.items() -%}
-{% for name,value in options.items() -%}
-{% if value is mapping %}
-{% for k,v in value.items() %}
+{%- for step,options in settings.impl.steps.items() %}
+{%- for name,value in options.items() %}
+{%- if value is mapping %}
+{%- for k,v in value.items() %}
 set_property STEPS.{{step}}.{{name}}.{{k}} {{v}} [get_runs impl_1]
-{% endfor -%}
-{% else %}
+{%- endfor %}
+{%- else %}
 set_property STEPS.{{step}}.{{name}} {{value}} [get_runs impl_1]
-{% endif %}
-{% endfor -%}
-{% endfor -%}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
 
 add_files -fileset utils_1 -norecurse [pwd]/{{reports_tcl}}
 set_property STEPS.ROUTE_DESIGN.TCL.POST [pwd]/{{reports_tcl}} [get_runs impl_1]

@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from ...dataclass import validator
 from ..flow import FpgaSynthFlow
@@ -332,6 +332,18 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
                     **value.steps,
                 }
             return value
+
+        suppress_msgs: List[str] = [
+            "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
+            "Synth 8-7080",  # "Parallel synthesis criteria is not met"
+            "Synth 8-350",  # warning partial connection
+            "Synth 8-256",  # info do synthesis
+            "Synth 8-638",
+            # "Synth 8-3969", # BRAM mapped to LUT due to optimization
+            # "Synth 8-4480", # BRAM with no output register
+            # "Drc 23-20",  # DSP without input pipelining
+            # "Netlist 29-345",  # Update IP version
+        ]
 
     def run(self):
         ss = self.settings

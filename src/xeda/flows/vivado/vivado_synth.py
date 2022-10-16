@@ -88,6 +88,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         xdc_files: List[Union[str, Path]] = Field(
             [], description="List of XDC constraint files."
         )
+        suppress_msgs: List[str] = [
+            "Synth 8-7080",  # "Parallel synthesis criteria is not met"
+            "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
+        ]
 
         @validator("fpga")
         def _validate_fpga(cls, value):
