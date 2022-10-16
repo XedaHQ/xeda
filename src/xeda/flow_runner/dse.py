@@ -20,7 +20,13 @@ from ..design import Design
 from ..flows.flow import Flow, FlowFatalError, FlowSettingsError, SynthFlow
 from ..tool import NonZeroExitCode
 from ..utils import Timer, dump_json, unique
-from . import FlowLauncher, add_file_logger, get_flow_class, print_results
+from . import (
+    FlowLauncher,
+    add_file_logger,
+    get_flow_class,
+    print_results,
+    settings_to_dict,
+)
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +75,7 @@ def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
 
 flow_settings_variations: Dict[str, Dict[str, List[str]]] = {
     "vivado_synth": {
-        # synthesis:
+        "synth.steps.synth_design.args.flatten_hierarchy": ["full"],
         "synth.strategy": [
             "Flow_AlternateRoutability",
             "Flow_PerfThresholdCarry",
@@ -120,7 +126,7 @@ class FmaxOptimizer(Optimizer):
         self.no_improvements: int = 0
         self.prev_frequencies = []
         self.freq_step: float = 0.0
-        self.num_variations = 0
+        self.num_variations = 1
 
         # can be different due to rounding errors, TODO only keep track of periods?
         self.previously_tried_periods = set()
@@ -215,7 +221,7 @@ class FmaxOptimizer(Optimizer):
         finder_retries = 0
 
         n = self.settings.max_workers
-        if self.num_variations:
+        if self.num_variations > 1:
             log.info("Generating %d variations", self.num_variations)
             n = n // self.num_variations
         while True:
@@ -269,11 +275,12 @@ class FmaxOptimizer(Optimizer):
             return random.choice(lst[:mx])
 
         base_settings = dict(self.base_settings)
-        for i in range(max(1, self.num_variations)):
+        for i in range(self.num_variations):
             for clock_period in clock_periods_to_try:
-                vv = {}
-                if self.num_variations:
-                    vv = {k: rand_choice(v, i + 2) for k, v in self.variations.items()}
+                vv = settings_to_dict(
+                    {k: rand_choice(v, i + 1) for k, v in self.variations.items()},
+                    expand_dict_keys=True,
+                )
                 settings = {**base_settings, "clock_period": clock_period, **vv}
                 batch_settings.append(settings)
 
@@ -315,8 +322,8 @@ class FmaxOptimizer(Optimizer):
             self.best = outcome
             self.base_settings = outcome.settings
             self.improved_idx = idx
-            if self.num_variations and idx > self.settings.max_workers // 2:
-                self.num_variations = max(1, self.num_variations - 1)
+            if self.num_variations > 1 and idx > self.settings.max_workers // 2:
+                self.num_variations -= 1
             return True
         else:
             log.info(
@@ -421,18 +428,27 @@ class Dse(FlowLauncher):
             flow_settings = {}
 
         if isinstance(flow_settings, Flow.Settings):
-            base_settings = flow_settings
-        else:
-            try:
-                base_settings = flow_class.Settings(**flow_settings)
-            except FlowSettingsError as e:
-                log.error("%s", e)
-                exit(1)
+            flow_settings = dict(flow_settings)
+
+        optimizer.variations = flow_settings_variations[flow_class.name]
+
+        base_variation = settings_to_dict(
+            {k: v[0] for k, v in optimizer.variations.items() if v},
+            expand_dict_keys=True,
+        )
+        print(base_variation)
+        flow_settings = {**flow_settings, **base_variation}
+
+        try:
+            base_settings = flow_class.Settings(**flow_settings)
+        except FlowSettingsError as e:
+            log.error("[DSE] %s", e)
+            exit(1)
+
         base_settings.redirect_stdout = True
 
         optimizer.flow_class = flow_class
         optimizer.base_settings = base_settings
-        optimizer.variations = flow_settings_variations[flow_class.name]
 
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
         add_file_logger(Path.cwd(), timestamp)

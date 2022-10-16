@@ -449,6 +449,7 @@ def settings_to_dict(
     settings: Union[
         None, List[str], Tuple[str, ...], Dict[str, StrOrDictStrHier], Flow.Settings
     ],
+    expand_dict_keys: bool = False,
 ) -> Dict[str, Any]:
     if not settings:
         return {}
@@ -464,7 +465,12 @@ def settings_to_dict(
     if isinstance(settings, Flow.Settings):
         return asdict(settings)
     if isinstance(settings, dict):
-        return settings
+        if not expand_dict_keys:
+            return settings
+        expanded: DictStrHier = {}
+        for k, v in settings.items():
+            set_hierarchy(expanded, k, try_convert(v, convert_lists=True))
+        return expanded
     raise TypeError(f"overrides is of unsupported type: {type(settings)}")
 
 
