@@ -227,7 +227,11 @@ class FmaxOptimizer(Optimizer):
             n = n // self.num_variations
         while True:
             if self.hi_freq <= 0 or self.lo_freq < 0:
-                log.warning("hi_freq(%0.2f) or lo_freq(%0.2f) were not positive!", self.hi_freq, self.lo_freq)
+                log.warning(
+                    "hi_freq(%0.2f) or lo_freq(%0.2f) were not positive!",
+                    self.hi_freq,
+                    self.lo_freq,
+                )
                 return None
             freq_candidates, freq_step = linspace(
                 self.lo_freq,
@@ -243,8 +247,12 @@ class FmaxOptimizer(Optimizer):
                 freq_step,
             )
 
-            if self.freq_step < self.settings.min_freq_step:
-                log.warning(f"Stopping: freq_step={freq_step} is below the limit")
+            if self.best and self.freq_step < self.settings.min_freq_step:
+                log.warning(
+                    "Stopping: freq_step=%0.2f is below the limit (%0.2f)",
+                    freq_step,
+                    self.settings.min_freq_step,
+                )
                 return None
 
             clock_periods_to_try = []
@@ -347,9 +355,7 @@ class FmaxOptimizer(Optimizer):
                 self.num_variations -= 1
             return True
         else:
-            log.debug(
-                "Lower Fmax: %0.2f than the current best: %0.2f", freq, best_freq
-            )
+            log.debug("Lower Fmax: %0.2f than the current best: %0.2f", freq, best_freq)
             return False
 
 
