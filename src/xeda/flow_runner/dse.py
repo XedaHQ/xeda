@@ -7,7 +7,7 @@ from concurrent.futures import CancelledError, TimeoutError
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
 
 from attr import define
 from pebble.common import ProcessExpired
@@ -23,6 +23,7 @@ from . import (
     add_file_logger,
     get_flow_class,
     print_results,
+    semantic_hash,
     settings_to_dict,
 )
 
@@ -109,6 +110,9 @@ class FmaxOptimizer(Optimizer):
         max_luts: Optional[int] = None
         max_finder_retries = 5
 
+        max_failed_iters = 5
+        max_failed_iters_with_best = 4
+
         delta_increment: float = 0.001
         resolution: float = 0.2
         min_freq_step: float = 0.05
@@ -153,9 +157,6 @@ class FmaxOptimizer(Optimizer):
         max_workers = self.settings.max_workers
         delta_increment = self.settings.delta_increment
 
-        max_failed_iters = 4
-        max_failed_iters_with_best = 2
-
         best_freq = self.best_freq
 
         if self.hi_freq - self.lo_freq < resolution:
@@ -164,21 +165,21 @@ class FmaxOptimizer(Optimizer):
 
         if self.improved_idx is None:
             self.no_improvements += 1
-            if self.no_improvements > max_failed_iters:
+            if self.no_improvements > self.settings.max_failed_iters:
                 log.info(
                     "Stopping after %d unsuccessfull iterations (max_failed_iters=%d)",
                     self.no_improvements,
-                    max_failed_iters,
+                    self.settings.max_failed_iters,
                 )
                 return False
             if best_freq:
                 self.num_variations = min(max_workers, self.num_variations + 1)
-                log.info("Increased num_variations to %d", self.num_variations)
-                if self.no_improvements > max_failed_iters_with_best:
-                    log.debug(
-                        f"no_improvements={self.no_improvements} > max_failed_iters_with_best({max_failed_iters_with_best})"
+                if self.no_improvements > self.settings.max_failed_iters_with_best:
+                    log.info(
+                        f"no_improvements={self.no_improvements} > max_failed_iters_with_best({self.settings.max_failed_iters_with_best})"
                     )
                     return False
+                log.info("Increased num_variations to %d", self.num_variations)
             else:
                 self.hi_freq = self.lo_freq - resolution
                 if self.hi_freq <= resolution:
@@ -259,11 +260,13 @@ class FmaxOptimizer(Optimizer):
                 return None
 
             finder_retries += 1
-            delta = finder_retries * random.random() + self.settings.delta_increment
             if self.best_freq:
-                self.hi_freq += delta + n * (random.random() * self.settings.resolution)
+                self.hi_freq += self.settings.delta_increment + (
+                    random.random() * self.settings.resolution
+                )
                 log.info("finder increased hi_freq to %0.2f", self.hi_freq)
             else:
+                delta = finder_retries * random.random() + self.settings.delta_increment
                 self.hi_freq -= delta
                 self.lo_freq = max(0, self.lo_freq - delta)
                 log.warning(
@@ -471,17 +474,26 @@ class Dse(FlowLauncher):
         max_workers = optimizer.settings.max_workers
         log.info("max_workers=%d", max_workers)
 
+        flow_setting_hashes: Set[str] = set()
+
         iterate = True
         try:
             with ProcessPool(max_workers=max_workers) as pool:
                 while iterate:
-                    settings_to_try = optimizer.next_batch()
-                    if not settings_to_try:
+                    batch_settings = optimizer.next_batch()
+                    if not batch_settings:
                         break
+
+                    this_batch = []
+                    for s in batch_settings:
+                        hash = semantic_hash(s)
+                        if hash not in flow_setting_hashes:
+                            this_batch.append(s)
+                            flow_setting_hashes.add(hash)
 
                     future = pool.map(
                         executioner,
-                        enumerate(settings_to_try),
+                        enumerate(this_batch),
                         timeout=optimizer.settings.timeout,
                     )
 

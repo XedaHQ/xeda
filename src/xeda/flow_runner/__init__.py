@@ -136,7 +136,7 @@ def get_flow_class(
     return flow_class
 
 
-def _semantic_hash(data: Any) -> str:
+def semantic_hash(data: Any) -> str:
     def _sorted_dict_str(data: Any) -> Any:
         if isinstance(data, (dict, Mapping)):
             return {k: _sorted_dict_str(data[k]) for k in sorted(data.keys())}
@@ -233,14 +233,14 @@ class FlowLauncher:
         flow_name = flow_class.name
         # GOTCHA: design contains tb settings even for simulation flows
         # OTOH removing tb from hash for sim flows creates a mismatch for different flows of the same design
-        design_hash = _semantic_hash(
+        design_hash = semantic_hash(
             dict(
                 # design=design,
                 rtl_hash=design.rtl_hash,  # TODO WHY?!!
                 tb_hash=design.tb_hash,
             )
         )
-        flowrun_hash = _semantic_hash(
+        flowrun_hash = semantic_hash(
             dict(
                 flow_name=flow_name,
                 flow_settings=flow_settings,
