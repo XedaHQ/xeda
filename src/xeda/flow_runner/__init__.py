@@ -1,4 +1,4 @@
-"""Flow runner"""
+"""Launch execution of flows"""
 import hashlib
 import importlib
 import json

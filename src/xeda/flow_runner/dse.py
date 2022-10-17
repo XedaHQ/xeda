@@ -17,7 +17,7 @@ from ..dataclass import XedaBaseModel, validator
 from ..design import Design
 from ..flows.flow import Flow, FlowFatalError, FlowSettingsError
 from ..tool import NonZeroExitCode
-from ..utils import Timer, dump_json
+from ..utils import Timer, dump_json, unique
 from . import (
     FlowLauncher,
     add_file_logger,
@@ -249,7 +249,9 @@ class FmaxOptimizer(Optimizer):
                     clock_periods_to_try.append(clock_period)
                     frequencies.append(freq)
 
-            if len(clock_periods_to_try) >= n - 1:
+            clock_periods_to_try = unique(clock_periods_to_try)
+
+            if len(clock_periods_to_try) >= max(1, n - 1):
                 break
 
             if finder_retries > self.settings.max_finder_retries:
@@ -260,7 +262,7 @@ class FmaxOptimizer(Optimizer):
             delta = finder_retries * random.random() + self.settings.delta_increment
             if self.best_freq:
                 self.hi_freq += delta + n * (random.random() * self.settings.resolution)
-                log.warning("finder increased hi_freq to %0.2f", self.hi_freq)
+                log.info("finder increased hi_freq to %0.2f", self.hi_freq)
             else:
                 self.hi_freq -= delta
                 self.lo_freq = max(0, self.lo_freq - delta)
