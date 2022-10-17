@@ -115,7 +115,7 @@ class FmaxOptimizer(Optimizer):
 
         delta_increment: float = 0.001
         resolution: float = 0.2
-        min_freq_step: float = 0.05
+        min_freq_step: float = 0.02
 
         @validator("init_freq_high")
         def validate_init_freq(cls, value, values):
@@ -160,7 +160,13 @@ class FmaxOptimizer(Optimizer):
         best_freq = self.best_freq
 
         if self.hi_freq - self.lo_freq < resolution:
-            if best_freq or self.no_improvements > 1:
+            if self.no_improvements > 1:
+                log.info(
+                    "Stopping as span (=%0.2f) < %0.2f and %d iterations without improvement",
+                    self.hi_freq - self.lo_freq,
+                    resolution,
+                    self.no_improvements,
+                )
                 return False
 
         if self.improved_idx is None:
@@ -221,8 +227,7 @@ class FmaxOptimizer(Optimizer):
             n = n // self.num_variations
         while True:
             if self.hi_freq <= 0 or self.lo_freq < 0:
-                return None
-            if self.hi_freq - self.lo_freq < self.settings.resolution:
+                log.warning("hi_freq(%0.2f) or lo_freq(%0.2f) were not positive!", self.hi_freq, self.lo_freq)
                 return None
             freq_candidates, freq_step = linspace(
                 self.lo_freq,
@@ -239,7 +244,7 @@ class FmaxOptimizer(Optimizer):
             )
 
             if self.freq_step < self.settings.min_freq_step:
-                log.info(f"Stopping: freq_step={freq_step} is below the limit")
+                log.warning(f"Stopping: freq_step={freq_step} is below the limit")
                 return None
 
             clock_periods_to_try = []
@@ -256,7 +261,7 @@ class FmaxOptimizer(Optimizer):
                 break
 
             if finder_retries > self.settings.max_finder_retries:
-                log.error("finder failed!")
+                log.error("finder failed after %d retries!", finder_retries)
                 return None
 
             finder_retries += 1
@@ -313,14 +318,14 @@ class FmaxOptimizer(Optimizer):
 
         freq_str = outcome.results.get("Fmax")
         if freq_str is None:
-            log.warning("Fmax was None!")
+            log.warning("No valid in the results! run_path=%s", outcome.run_path)
             return False
         freq = float(freq_str)
 
         if self.settings.max_luts:
             lut = outcome.results.get("lut")
             if lut and int(lut) > self.settings.max_luts:
-                log.info(
+                log.warning(
                     "Used LUTs %s larger than maximum allowed %s. Fmax: %s",
                     lut,
                     self.settings.max_luts,
@@ -343,7 +348,7 @@ class FmaxOptimizer(Optimizer):
             return True
         else:
             log.debug(
-                "Got lower Fmax: %0.2f than the current best: %0.2f", freq, best_freq
+                "Lower Fmax: %0.2f than the current best: %0.2f", freq, best_freq
             )
             return False
 
