@@ -499,8 +499,8 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                 if "main_clock" in clocks:
                     main_clock = clocks["main_clock"]
                 else:
-                    main_clock = (clocks.values())[0]
-                    main_clock_name = (clocks.keys())[0]
+                    main_clock = list(clocks.values())[0]
+                    main_clock_name = list(clocks.keys())[0]
                 if isinstance(main_clock, PhysicalClock):
                     main_clock = dict(main_clock)
                 if clock_period is not None:
