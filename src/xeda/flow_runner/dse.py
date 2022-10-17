@@ -332,7 +332,7 @@ class FmaxOptimizer(Optimizer):
         best_freq = self.best_freq
         if best_freq and freq > best_freq:
             impr = freq - best_freq
-            log.info("New best frequency: %.2f MHz  Improvement:%.2f MHz", freq, impr)
+            log.info("New best frequency: %0.2f MHz  Improvement:%0.2f MHz", freq, impr)
 
         if best_freq is None or freq > best_freq:
             self.best = outcome
@@ -342,8 +342,8 @@ class FmaxOptimizer(Optimizer):
                 self.num_variations -= 1
             return True
         else:
-            log.info(
-                "Got lower Fmax: %.2f than the current best: %.2s", freq, best_freq
+            log.debug(
+                "Got lower Fmax: %0.2f than the current best: %0.2f", freq, best_freq
             )
             return False
 
