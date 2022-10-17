@@ -43,12 +43,12 @@ class Optimizer:
         max_workers: int = 8  # >= 2
         timeout: int = 3600  # in seconds
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, settings: Optional[Settings] = None, **kwargs) -> None:
         self.base_settings: Flow.Settings = Flow.Settings()
         self.flow_class: Optional[Type[Flow]] = None
         self.variations: Dict[str, List[str]] = {}
 
-        self.settings = self.Settings(**kwargs)
+        self.settings = settings if settings else self.Settings(**kwargs)
         self.improved_idx: Optional[int] = None
 
         self.best: Optional[FlowOutcome] = None
@@ -108,14 +108,17 @@ class FmaxOptimizer(Optimizer):
         init_freq_low: float
         init_freq_high: float
         max_luts: Optional[int] = None
-        max_finder_retries = 5
+        max_finder_retries = 10
 
-        max_failed_iters = 5
+        max_failed_iters = 6
         max_failed_iters_with_best = 4
 
-        delta_increment: float = 0.001
+        delta: float = 0.001
         resolution: float = 0.2
         min_freq_step: float = 0.02
+
+        # min improvement before increasing variations
+        variation_min_improv = 1.0
 
         @validator("init_freq_high")
         def validate_init_freq(cls, value, values):
@@ -131,6 +134,7 @@ class FmaxOptimizer(Optimizer):
         self.prev_frequencies = []
         self.freq_step: float = 0.0
         self.num_variations = 1
+        self.last_improvement: float = 0.0
 
         # can be different due to rounding errors, TODO only keep track of periods?
         self.previously_tried_periods = set()
@@ -155,8 +159,6 @@ class FmaxOptimizer(Optimizer):
             return True
         resolution = self.settings.resolution
         max_workers = self.settings.max_workers
-        delta_increment = self.settings.delta_increment
-
         best_freq = self.best_freq
 
         if self.hi_freq - self.lo_freq < resolution:
@@ -169,6 +171,26 @@ class FmaxOptimizer(Optimizer):
                 )
                 return False
 
+        # if we have a best_freq and little or no improvements on this iteration, increment num_variations
+        if best_freq:
+            if (
+                self.improved_idx is None
+                or self.last_improvement < self.settings.variation_min_improv
+            ):
+                if self.num_variations < max_workers:
+                    self.num_variations = self.num_variations + 1
+                    log.info(
+                        "Increased number of variations to %d", self.num_variations
+                    )
+        if best_freq:
+            # we have a best_freq, but no improvements this time
+            # increment lo_freq by a small positive random value
+            epsilon = random.uniform(
+                self.settings.delta,
+                max(self.settings.delta, resolution / (self.num_variations + 2)),
+            )
+            self.lo_freq = best_freq + epsilon
+
         if self.improved_idx is None:
             self.no_improvements += 1
             if self.no_improvements > self.settings.max_failed_iters:
@@ -179,19 +201,39 @@ class FmaxOptimizer(Optimizer):
                 )
                 return False
             if best_freq:
-                self.num_variations = min(max_workers, self.num_variations + 1)
                 if self.no_improvements > self.settings.max_failed_iters_with_best:
                     log.info(
                         f"no_improvements={self.no_improvements} > max_failed_iters_with_best({self.settings.max_failed_iters_with_best})"
                     )
                     return False
-                log.info("Increased num_variations to %d", self.num_variations)
+
+                if best_freq < self.hi_freq:
+                    if self.num_variations > 1 and self.no_improvements < 3:
+                        self.hi_freq = max(
+                            best_freq + resolution, self.hi_freq - self.settings.delta
+                        )
+                    else:
+                        # no variations or too many failures, just binary search
+                        self.hi_freq = (self.hi_freq + best_freq) + 2
+                        log.info(
+                            "No Improvements. Lowering hi_freq to %0.2f", self.hi_freq
+                        )
+                else:
+                    self.hi_freq = best_freq + self.num_variations * resolution
+                    log.warning(
+                        "No Improvements, but still incrementing hi_freq to %0.2f (%d variations)",
+                        self.hi_freq,
+                        self.num_variations,
+                    )
             else:
                 self.hi_freq = self.lo_freq - resolution
                 if self.hi_freq <= resolution:
                     log.warning("hi_freq < resolution")
                     return False
                 self.lo_freq = self.hi_freq / (0.7 + self.no_improvements)
+                log.info(
+                    "Lowering bounds to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq
+                )
         else:
             # sanity check, best_freq was set before in case of a successful run
             assert (
@@ -201,15 +243,26 @@ class FmaxOptimizer(Optimizer):
             # reset no_improvements
             self.no_improvements = 0
 
-            # set lo_freq to a bit above lo_freq
-            self.lo_freq = best_freq + delta_increment
             # if best freq
             if best_freq >= self.hi_freq:
                 self.hi_freq = best_freq + self.freq_step * max_workers
                 log.debug("incrementing hi_freq to %0.2f", self.hi_freq)
             else:
-                self.hi_freq = (self.hi_freq + best_freq) / 2 + resolution
+                self.hi_freq = (
+                    self.hi_freq + best_freq
+                ) / 2 + self.num_variations * resolution
                 log.debug("decrementing hi_freq to %0.2f", self.hi_freq)
+
+        if best_freq:
+            # sanity check
+            assert (
+                self.lo_freq > best_freq
+            ), f"BUG! self.lo_freq ({self.lo_freq}) <= best_freq({best_freq})"
+            assert (
+                self.hi_freq > best_freq
+            ), f"BUG! self.hi_freq ({self.hi_freq}) <= best_freq({best_freq})"
+
+        log.debug("Bound set to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq)
         return True
 
     def next_batch(self) -> Union[None, List[Flow.Settings], List[Dict[str, Any]]]:
@@ -274,12 +327,12 @@ class FmaxOptimizer(Optimizer):
 
             finder_retries += 1
             if self.best_freq:
-                self.hi_freq += self.settings.delta_increment + (
+                self.hi_freq += self.settings.delta + (
                     random.random() * self.settings.resolution
                 )
                 log.info("finder increased hi_freq to %0.2f", self.hi_freq)
             else:
-                delta = finder_retries * random.random() + self.settings.delta_increment
+                delta = finder_retries * random.random() + self.settings.delta
                 self.hi_freq -= delta
                 self.lo_freq = max(0, self.lo_freq - delta)
                 log.warning(
@@ -289,7 +342,7 @@ class FmaxOptimizer(Optimizer):
         self.previously_tried_periods.update(clock_periods_to_try)
 
         log.info(
-            f"[DSE] Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies]}"
+            f"Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies]}"
         )
 
         if self.flow_class:
@@ -344,8 +397,12 @@ class FmaxOptimizer(Optimizer):
 
         best_freq = self.best_freq
         if best_freq and freq > best_freq:
-            impr = freq - best_freq
-            log.info("New best frequency: %0.2f MHz  Improvement:%0.2f MHz", freq, impr)
+            self.last_improvement = freq - best_freq
+            log.info(
+                "New best frequency: %0.2f MHz  Improvement:%0.2f MHz",
+                freq,
+                self.last_improvement,
+            )
 
         if best_freq is None or freq > best_freq:
             self.best = outcome
@@ -399,8 +456,12 @@ class Executioner:
 class Dse(FlowLauncher):
     def __init__(
         self,
-        optimizer: Union[str, Optimizer],
+        optimizer_class: Union[str, Type[Optimizer]],
+        optimizer_settings: Union[Dict[str, Any], Optimizer.Settings] = {},
         xeda_run_dir: Union[str, os.PathLike] = "xeda_run_dse",
+        cleanup: bool = True,
+        keep_optimal_run_dirs: bool = True,
+        **kwargs,
     ) -> None:
         super().__init__(
             xeda_run_dir,
@@ -410,23 +471,28 @@ class Dse(FlowLauncher):
             dump_results_json=True,
             cached_dependencies=True,
             run_in_existing_dir=False,
-            cleanup=False,
+            cleanup=cleanup and not keep_optimal_run_dirs,
+            **kwargs,
         )
-        if isinstance(optimizer, str):
-            if optimizer == "fmax":
-                optimizer = FmaxOptimizer()
+        if isinstance(optimizer_class, str):
+            if optimizer_class == "fmax":
+                optimizer_class = FmaxOptimizer
             else:
-                raise Exception(f"Unknown optimizer: {optimizer}")
-        self.optimizer: Optimizer = optimizer
+                raise Exception(f"Unknown optimizer: {optimizer_class}")
+        if not isinstance(optimizer_settings, Optimizer.Settings):
+            optimizer_settings = optimizer_class.Settings(**optimizer_settings)
+        self.optimizer: Optimizer = optimizer_class(settings=optimizer_settings)
+        self.keep_optimal_run_dirs = keep_optimal_run_dirs
 
     def run_flow(
         self,
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
-        cleanup_nonoptimal_runs: bool = True,
     ):
         timer = Timer()
+
+        cleanup_nonoptimal_runs = self.cleanup and self.keep_optimal_run_dirs
 
         optimizer = self.optimizer
 
@@ -468,7 +534,7 @@ class Dse(FlowLauncher):
         try:
             base_settings = flow_class.Settings(**flow_settings)
         except FlowSettingsError as e:
-            log.error("[DSE] %s", e)
+            log.error("%s", e)
             exit(1)
 
         base_settings.redirect_stdout = True
@@ -481,9 +547,9 @@ class Dse(FlowLauncher):
         best_json_path = (
             Path.cwd() / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
         )
-        log.info("Final results will be saved to: %s", best_json_path)
+        log.info("Best results are saved to %s", best_json_path)
         max_workers = optimizer.settings.max_workers
-        log.info("max_workers=%d", max_workers)
+        log.debug("max_workers=%d", max_workers)
 
         flow_setting_hashes: Set[str] = set()
 
@@ -525,11 +591,31 @@ class Dse(FlowLauncher):
                                     iterate = False
                                     continue
                                 improved = optimizer.process_outcome(outcome, idx)
+                                if improved:
+                                    log.info(
+                                        "Writing improved result to %s", best_json_path
+                                    )
+                                    dump_json(
+                                        dict(
+                                            best=optimizer.best,
+                                            successful_results=successful_results,
+                                            total_time=timer.timedelta,
+                                            optimizer_settings=optimizer.settings,
+                                            num_iterations=num_iterations,
+                                            unsuccessfull_iters=unsuccessfull_iters,
+                                        ),
+                                        best_json_path,
+                                        backup_previous=False,
+                                    )
                                 if outcome.results.success:
                                     have_success = True
                                     r = {k: outcome.results.get(k) for k in results_sub}
                                     successful_results.append(r)
-                                if cleanup_nonoptimal_runs and not improved and (have_success or num_iterations > 0):
+                                if (
+                                    cleanup_nonoptimal_runs
+                                    and not improved
+                                    and (have_success or num_iterations > 0)
+                                ):
                                     p = outcome.run_path
                                     if p and p.exists():
                                         log.debug(
@@ -548,7 +634,7 @@ class Dse(FlowLauncher):
                             except ProcessExpired as e:
                                 log.critical(f"{e}. Exit code: {e.exitcode}")
                     except CancelledError:
-                        log.warning("[DSE] CancelledError")
+                        log.warning("CancelledError")
                     except KeyboardInterrupt as e:
                         pool.stop()
                         pool.join()
@@ -559,21 +645,9 @@ class Dse(FlowLauncher):
 
                     num_iterations += 1
                     log.info(
-                        f"[DSE] End of iteration #{num_iterations}. Execution time: {timer.timedelta}"
+                        f"End of iteration #{num_iterations}. Execution time: {timer.timedelta}"
                     )
                     if optimizer.best:
-                        if have_success:
-                            log.info(f"Writing current best result to {best_json_path}")
-                            dump_json(
-                                dict(
-                                    best=optimizer.best,
-                                    successful_results=successful_results,
-                                    total_time=timer.timedelta,
-                                    # flow_run_dirs=flow_run_dirs,
-                                ),
-                                best_json_path,
-                                backup_previous=False,
-                            )
                         print_results(
                             results=optimizer.best.results,
                             title="Best so far",
@@ -598,8 +672,10 @@ class Dse(FlowLauncher):
             traceback.print_exc()
         finally:
             if future and not future.cancelled():
+                log.warning("Canecelling future")
                 future.cancel()
             if pool:
+                log.warning("Process pool still active.")
                 pool.close()
                 pool.join()
             if optimizer.best:
@@ -608,19 +684,12 @@ class Dse(FlowLauncher):
                     title="Best Results",
                     subset=results_sub,
                 )
-                log.info(f"Best result are written to {best_json_path}")
-                # dump_json(
-                #     dict(
-                #         best=optimizer.best,
-                #         successful_results=successful_results,
-                #         total_time_minutes=timer.minutes,
-                #         # flow_run_dirs=flow_run_dirs,
-                #     ),
-                #     best_json_path,
-                #     backup_previous=False,
-                # )
+                log.info("Best result were written to %s", best_json_path)
             else:
-                log.warning("No successful results.")
-            log.info(f"[DSE] Total Execution Time: {timer.timedelta}")
-            log.info(f"[DSE] Total Iterations: {num_iterations}")
+                log.error("No successful runs!")
+            log.info(
+                "Total execution time: %s  Number of iterations: %d",
+                timer.timedelta,
+                num_iterations,
+            )
         return optimizer.best

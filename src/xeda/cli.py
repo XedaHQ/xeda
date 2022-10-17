@@ -27,8 +27,14 @@ from .cli_utils import (
 )
 from .console import console
 from .design import Design
-from .flow_runner import DefaultRunner, XedaOptions, add_file_logger, prepare
-from .flow_runner.dse import Dse, FmaxOptimizer
+from .flow_runner import (
+    DefaultRunner,
+    XedaOptions,
+    add_file_logger,
+    prepare,
+    settings_to_dict,
+)
+from .flow_runner.dse import Dse
 from .flows.flow import (
     Flow,
     FlowException,
@@ -66,6 +72,13 @@ CONTEXT_SETTINGS = dict(
 )
 
 
+class LoggerContextFilter(logging.Filter):
+    def filter(self, record):
+        record.name = record.name.removeprefix("xeda.")
+        # Don't filter the record.
+        return 1
+
+
 @click.group(cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
 @click.option("--verbose", is_flag=True, help="Enables verbose mode.")
 @click.option("--quiet", is_flag=True, help="Enable quiet mode.")
@@ -81,11 +94,15 @@ def cli(ctx: click.Context, **kwargs):
         if ctx.obj.debug
         else logging.INFO
     )
-    log.root.setLevel(log_level)
-
+    # log.root.setLevel(log_level)
+    logging.getLogger().setLevel(log_level)
     coloredlogs.install(
-        None, fmt="%(asctime)s %(levelname)s %(message)s", logger=log.root
+        None,
+        fmt="[%(name)s] %(asctime)s %(levelname)s %(message)s",
+        logger=log.root,
     )
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(LoggerContextFilter())
 
 
 @cli.command(
@@ -303,16 +320,19 @@ def list_settings(ctx: click.Context, flow):
     help="Design-space exploration: run several instances of a flow to find optimal parameters and results",
     no_args_is_help=False,
 )
-@click.option(
-    "--max-workers",
-    default=max(2, multiprocessing.cpu_count() / 2),
-    type=int,
-    help="Maximum number of concurrent flow executions.",
-    show_default=True,
-    show_envvar=True,
-)
 @click.argument(
     "flow", metavar="FLOW_NAME", type=click.Choice(sorted(list(registered_flows)))
+)
+@click.option(
+    "--flow-settings",
+    "--settings",
+    metavar="KEY=VALUE...",
+    type=tuple,
+    cls=OptionEatAll,
+    default=tuple(),
+    help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
+    Example: --settings clock_period=2.345 impl.strategy=Debug
+    """,
 )
 @click.option(
     "--xeda-run-dir",
@@ -329,6 +349,7 @@ def list_settings(ctx: click.Context, flow):
     help="Parent folder for execution of xeda commands.",
     default="xeda_run",
     show_default=True,
+    show_envvar=True,
 )
 @click.option(
     "--xedaproject",
@@ -342,14 +363,11 @@ def list_settings(ctx: click.Context, flow):
         allow_dash=False,
         path_type=Path,
     ),
-    # cls=ClickMutex,
-    # mutually_exclusive_with=["design_file"],
+    show_envvar=True,
     help="Path to Xeda project file.",
 )
 @click.option(
     "--design-name",
-    # cls=ClickMutex,
-    # mutually_exclusive_with=["design_file"],
     help="Specify design.name in case multiple designs are available in a xedaproject.",
 )
 @click.option(
@@ -368,43 +386,45 @@ def list_settings(ctx: click.Context, flow):
     help="Path to Xeda design file containing the description of a single design.",
 )
 @click.option(
-    "--init_freq_low",
-    type=float,
-    default=20,
+    "--optimizer",
+    type=str,
+    default="fmax",
+    show_envvar=True,
+    show_default=True,
 )
 @click.option(
-    "--init_freq_high",
-    type=float,
-    default=200,
-)
-@click.option(
-    "--max_luts",
-    type=int,
-    default=None,
-)
-@click.option(
-    "--flow-settings",
-    "--settings",
+    "--optimizer-settings",
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
-    Example: --settings clock_period=2.345 impl.strategy=Debug
-    """
-    #  examples: # FIXME move to docs
-    # - xeda vivado_sim --flow-settings stop_time=100us
-    # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock_period=2.345
+    show_envvar=True,
+)
+@click.option(
+    "--max-workers",
+    default=max(2, multiprocessing.cpu_count() / 2),
+    type=int,
+    help="Maximum number of concurrent flow executions.",
+    show_envvar=True,
+)
+@click.option(
+    "--init_freq_low",
+    type=float,
+)
+@click.option(
+    "--init_freq_high",
+    type=float,
 )
 @click.pass_context
 def dse(
     ctx: click.Context,
     flow: str,
+    flow_settings: Tuple[str, ...],
+    optimizer: str,
+    optimizer_settings: Tuple[str, ...],
     max_workers: int,
     init_freq_low: float,
     init_freq_high: float,
-    max_luts: int,
-    flow_settings: Tuple[str, ...],
     xeda_run_dir: Optional[Path],
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
@@ -414,7 +434,7 @@ def dse(
     # options: XedaOptions = ctx.obj or XedaOptions()
 
     if not xeda_run_dir:
-        xeda_run_dir = Path.cwd() / "xeda_run_fmax"
+        xeda_run_dir = Path.cwd() / ("xeda_run_" + optimizer)
     add_file_logger(xeda_run_dir / "Logs")
 
     design, flow_class, accum_flow_settings = prepare(
@@ -425,15 +445,19 @@ def dse(
         flow_settings=list(flow_settings),
         select_design_in_project=select_design_in_project,
     )
-    optimizer = FmaxOptimizer(
-        max_workers=max_workers,
-        init_freq_low=init_freq_low,
-        init_freq_high=init_freq_high,
-        max_luts=max_luts,
-    )
+    opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)
+    # will deprecate options and only use optimizer_settings
+    opt_settings = {
+        **dict(
+            max_workers=max_workers,
+            init_freq_low=init_freq_low,
+            init_freq_high=init_freq_high,
+        ),
+        **opt_settings,  # optimizer_settings overrides other options
+    }
     if not design or not flow_class:
         sys.exit(1)
-    dse = Dse(optimizer=optimizer)
+    dse = Dse(optimizer_class=optimizer, optimizer_settings=opt_settings)
     dse.run_flow(flow_class, design, accum_flow_settings)
 
 

@@ -164,9 +164,9 @@ def run_process(
     args = [str(a) for a in args]
     if env is not None:
         env = {k: str(v) for k, v in env.items()}
-    log.info("Running `%s`", " ".join(map(lambda x: str(x), [executable, *args])))
+    log.debug("Running `%s`", " ".join(map(lambda x: str(x), [executable, *args])))
     if cwd:
-        log.info("cwd=%s", cwd)
+        log.debug("cwd=%s", cwd)
     if stdout and isinstance(stdout, bool):
         use_cr = False
     if not use_cr and stdout and isinstance(stdout, (str, os.PathLike)):
