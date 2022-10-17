@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import random
@@ -16,7 +15,7 @@ from pebble.pool.process import ProcessPool
 
 from ..dataclass import XedaBaseModel, validator
 from ..design import Design
-from ..flows.flow import Flow, FlowFatalError, FlowSettingsError, SynthFlow
+from ..flows.flow import Flow, FlowFatalError, FlowSettingsError
 from ..tool import NonZeroExitCode
 from ..utils import Timer, dump_json
 from . import (
@@ -42,8 +41,6 @@ class Optimizer:
     class Settings(XedaBaseModel):
         max_workers: int = 8  # >= 2
         timeout: int = 3600  # in seconds
-        resolution: float = 0.2
-        delta_increment: float = 0.001
 
     def __init__(self, **kwargs) -> None:
         self.base_settings: Flow.Settings = Flow.Settings()
@@ -82,15 +79,14 @@ flow_settings_variations: Dict[str, Dict[str, List[str]]] = {
             "Flow_RuntimeOptimized",
         ],
         "impl.strategy": [
-            "Flow_RunPostRoutePhysOpt",  ## fast
+            "Flow_RunPostRoutePhysOpt",  # fast
             "Performance_ExtraTimingOpt",
-            "Flow_RunPhysOpt",  ## fast
+            "Flow_RunPhysOpt",  # fast
             "Performance_NetDelay_low",
-            # "Flow_RuntimeOptimized", ## fast
-            ##
             "Performance_Explore",
             "Performance_NetDelay_high",  # slow
             "Performance_ExplorePostRoutePhysOpt",  # slow
+            # "Flow_RuntimeOptimized", # fast
             "Performance_Retiming",
             "Performance_RefinePlacement",
         ],
@@ -111,6 +107,11 @@ class FmaxOptimizer(Optimizer):
         init_freq_low: float
         init_freq_high: float
         max_luts: Optional[int] = None
+        max_finder_retries = 5
+
+        delta_increment: float = 0.001
+        resolution: float = 0.2
+        min_freq_step: float = 0.05
 
         @validator("init_freq_high")
         def validate_init_freq(cls, value, values):
@@ -142,7 +143,10 @@ class FmaxOptimizer(Optimizer):
         """
         update low and high bounds based on previous results
         It's called _before_ calculation of each iteration batch
+        return False -> stop iteration
         """
+        assert isinstance(self.settings, self.Settings)
+
         if self.num_iterations == 0:  # first time
             return True
         resolution = self.settings.resolution
@@ -171,7 +175,7 @@ class FmaxOptimizer(Optimizer):
                 self.num_variations = min(max_workers, self.num_variations + 1)
                 log.info("Increased num_variations to %d", self.num_variations)
                 if self.no_improvements > max_failed_iters_with_best:
-                    log.info(
+                    log.debug(
                         f"no_improvements={self.no_improvements} > max_failed_iters_with_best({max_failed_iters_with_best})"
                     )
                     return False
@@ -194,24 +198,20 @@ class FmaxOptimizer(Optimizer):
             self.lo_freq = best_freq + delta_increment
             # if best freq
             if best_freq >= self.hi_freq:
-                self.hi_freq += self.freq_step * max_workers
-                log.info("incrementing hi_freq to %0.2f", self.hi_freq)
+                self.hi_freq = best_freq + self.freq_step * max_workers
+                log.debug("incrementing hi_freq to %0.2f", self.hi_freq)
             else:
                 self.hi_freq = (self.hi_freq + best_freq) / 2 + resolution
-                log.info("decrementing hi_freq to %0.2f", self.hi_freq)
+                log.debug("decrementing hi_freq to %0.2f", self.hi_freq)
         return True
 
     def next_batch(self) -> Union[None, List[Flow.Settings], List[Dict[str, Any]]]:
-        # param
-        min_freq_step = self.settings.resolution / 4
+        assert isinstance(self.settings, self.Settings)
 
         if not self.update_bounds():
             return None
 
         batch_settings = []
-
-        max_finder_retries = 5
-
         finder_retries = 0
 
         n = self.settings.max_workers
@@ -229,7 +229,7 @@ class FmaxOptimizer(Optimizer):
                 n,
             )
             self.freq_step = freq_step
-            log.info(
+            log.debug(
                 "[try %d] lo_freq=%0.2f, hi_freq=%0.2f, freq_step=%0.2f",
                 finder_retries,
                 self.lo_freq,
@@ -237,7 +237,7 @@ class FmaxOptimizer(Optimizer):
                 freq_step,
             )
 
-            if self.freq_step < min_freq_step:
+            if self.freq_step < self.settings.min_freq_step:
                 log.info(f"Stopping: freq_step={freq_step} is below the limit")
                 return None
 
@@ -252,7 +252,7 @@ class FmaxOptimizer(Optimizer):
             if len(clock_periods_to_try) >= n - 1:
                 break
 
-            if finder_retries > max_finder_retries:
+            if finder_retries > self.settings.max_finder_retries:
                 log.error("finder failed!")
                 return None
 
@@ -285,7 +285,10 @@ class FmaxOptimizer(Optimizer):
         for i in range(self.num_variations):
             for clock_period in clock_periods_to_try:
                 vv = settings_to_dict(
-                    {k: rand_choice(v, i + 1) for k, v in self.variations.items()},
+                    {
+                        k: rand_choice(v, i + 1 + self.no_improvements)
+                        for k, v in self.variations.items()
+                    },
                     expand_dict_keys=True,
                 )
                 settings = {**base_settings, "clock_period": clock_period, **vv}
@@ -530,11 +533,12 @@ class Dse(FlowLauncher):
                         unsuccessfull_iters += 1
 
                     num_iterations += 1
-                    log.info(f"[DSE] End of iteration #{num_iterations}")
-                    log.info(f"[DSE] Execution time so far: {timer.timedelta}")
-                    if improved:
-                        log.info(f"Writing current best result to {best_json_path}")
+                    log.info(
+                        f"[DSE] End of iteration #{num_iterations}. Execution time: {timer.timedelta}"
+                    )
+                    if optimizer.best:
                         if have_success:
+                            log.info(f"Writing current best result to {best_json_path}")
                             dump_json(
                                 dict(
                                     best=optimizer.best,
@@ -545,7 +549,6 @@ class Dse(FlowLauncher):
                                 best_json_path,
                                 backup_previous=False,
                             )
-                    if optimizer.best:
                         print_results(
                             results=optimizer.best.results,
                             title="Best so far",
