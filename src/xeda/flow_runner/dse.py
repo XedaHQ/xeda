@@ -111,7 +111,7 @@ class FmaxOptimizer(Optimizer):
         max_finder_retries = 10
 
         max_failed_iters = 6
-        max_failed_iters_with_best = 4
+        max_failed_iters_with_best = 3
 
         delta: float = 0.001
         resolution: float = 0.2
@@ -330,7 +330,7 @@ class FmaxOptimizer(Optimizer):
                 self.hi_freq += self.settings.delta + (
                     random.random() * self.settings.resolution
                 )
-                log.info("finder increased hi_freq to %0.2f", self.hi_freq)
+                log.debug("finder increased hi_freq to %0.2f", self.hi_freq)
             else:
                 delta = finder_retries * random.random() + self.settings.delta
                 self.hi_freq -= delta
