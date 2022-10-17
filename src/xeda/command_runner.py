@@ -265,11 +265,7 @@ def command_runner(
     universal_newlines = kwargs.pop("universal_newlines", False)
     creationflags = kwargs.pop("creationflags", 0)
     # subprocess.CREATE_NO_WINDOW was added in Python 3.7 for Windows OS only
-    if (
-        windows_no_window
-        and sys.version_info[1] >= 7
-        and os.name == "nt"
-    ):
+    if windows_no_window and sys.version_info[1] >= 7 and os.name == "nt":
         # Disable the following pylint error since the code also runs on nt platform, but
         # triggers an error on Unix
         # pylint: disable=E1101
