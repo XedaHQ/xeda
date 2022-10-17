@@ -525,7 +525,11 @@ class Dse(FlowLauncher):
                                     iterate = False
                                     continue
                                 improved = optimizer.process_outcome(outcome, idx)
-                                if cleanup_nonoptimal_runs and not improved:
+                                if outcome.results.success:
+                                    have_success = True
+                                    r = {k: outcome.results.get(k) for k in results_sub}
+                                    successful_results.append(r)
+                                if cleanup_nonoptimal_runs and not improved and (have_success or num_iterations > 0):
                                     p = outcome.run_path
                                     if p and p.exists():
                                         log.debug(
@@ -534,10 +538,6 @@ class Dse(FlowLauncher):
                                         )
                                         shutil.rmtree(p, ignore_errors=True)
                                         outcome.run_path = None
-                                if outcome.results.success:
-                                    have_success = True
-                                    r = {k: outcome.results.get(k) for k in results_sub}
-                                    successful_results.append(r)
                             except StopIteration:
                                 break  # next(iterator) finished
                             except TimeoutError as e:
