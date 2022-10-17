@@ -27,7 +27,7 @@ from ..dataclass import (
 from ..design import Design
 from ..fpga import FPGA
 from ..tool import Tool
-from ..utils import camelcase_to_snakecase, try_convert, unique
+from ..utils import camelcase_to_snakecase, regex_match, try_convert, unique
 from .cocotb import Cocotb, CocotbSettings
 
 log = logging.getLogger(__name__)
@@ -43,26 +43,7 @@ __all__ = [
 ]
 
 
-def regex_match(
-    string: str, pattern: str, ignorecase: bool = False
-) -> Optional[re.Match]:
-    if not isinstance(string, str):
-        return None
-    return re.match(pattern, string, flags=re.I if ignorecase else 0)
-
-
-def removesuffix(s: str, suffix: str) -> str:
-    """similar to str.removesuffix in Python 3.9+"""
-    return s[: -len(suffix)] if suffix and s.endswith(suffix) else s
-
-
-def removeprefix(s: str, suffix: str) -> str:
-    """similar to str.removeprefix in Python 3.9+"""
-    return s[len(suffix) :] if suffix and s.startswith(suffix) else s
-
-
 registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
-
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
 

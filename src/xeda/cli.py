@@ -43,6 +43,7 @@ from .flows.flow import (
     registered_flows,
 )
 from .tool import ExecutableNotFound, NonZeroExitCode
+from .utils import removeprefix
 
 install_import_hook("xeda")
 
@@ -74,7 +75,7 @@ CONTEXT_SETTINGS = dict(
 
 class LoggerContextFilter(logging.Filter):
     def filter(self, record):
-        record.name = record.name.removeprefix("xeda.")
+        record.name = removeprefix(record.name, "xeda.")
         # Don't filter the record.
         return 1
 
