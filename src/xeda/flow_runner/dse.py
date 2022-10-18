@@ -160,6 +160,7 @@ class FmaxOptimizer(Optimizer):
         resolution = self.settings.resolution
         max_workers = self.settings.max_workers
         best_freq = self.best_freq
+        delta = self.settings.delta
 
         if self.hi_freq - self.lo_freq < resolution:
             if self.no_improvements > 1:
@@ -186,8 +187,8 @@ class FmaxOptimizer(Optimizer):
             # we have a best_freq, but no improvements this time
             # increment lo_freq by a small positive random value
             epsilon = random.uniform(
-                self.settings.delta,
-                max(self.settings.delta, resolution / (self.num_variations + 2)),
+                delta,
+                max(delta, resolution / (self.num_variations + 2)),
             )
             self.lo_freq = best_freq + epsilon
 
@@ -208,13 +209,13 @@ class FmaxOptimizer(Optimizer):
                     return False
 
                 if best_freq < self.hi_freq:
+                    self.hi_freq = (self.hi_freq + best_freq) / 2 + delta
                     if self.num_variations > 1 and self.no_improvements < 3:
-                        self.hi_freq = max(
-                            best_freq + resolution, self.hi_freq - self.settings.delta
-                        )
+                        self.hi_freq += (
+                            (max_workers + 1) * resolution
+                        ) // self.num_variations
                     else:
                         # no variations or too many failures, just binary search
-                        self.hi_freq = (self.hi_freq + best_freq) + 2
                         log.info(
                             "No Improvements. Lowering hi_freq to %0.2f", self.hi_freq
                         )
