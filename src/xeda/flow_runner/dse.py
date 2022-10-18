@@ -1,4 +1,5 @@
 import logging
+import multiprocessing
 import os
 import random
 import shutil
@@ -9,13 +10,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
 
+import psutil
 from attr import define
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 
 from ..dataclass import Field, XedaBaseModel, validator
 from ..design import Design
-from ..flows.flow import Flow, FlowFatalError, FlowSettingsError
+from ..flows.flow import Flow, FlowFatalError
 from ..tool import NonZeroExitCode
 from ..utils import Timer, dump_json, load_class, unique
 from . import (
@@ -40,10 +42,12 @@ class FlowOutcome:
 
 class Optimizer:
     class Settings(XedaBaseModel):
-        max_workers: int = 8  # >= 2
-        timeout: int = 3600  # in seconds
+        pass
 
-    def __init__(self, settings: Optional[Settings] = None, **kwargs) -> None:
+    def __init__(
+        self, max_workers: int, settings: Optional[Settings] = None, **kwargs
+    ) -> None:
+        self.max_workers: int = max_workers
         self.base_settings: Flow.Settings = Flow.Settings()
         self.flow_class: Optional[Type[Flow]] = None
         self.variations: Dict[str, List[str]] = {}
@@ -110,15 +114,12 @@ class FmaxOptimizer(Optimizer):
         max_luts: Optional[int] = None
         max_finder_retries = 10
 
-        max_failed_iters = 6
-        max_failed_iters_with_best = 3
-
         delta: float = 0.001
         resolution: float = 0.2
         min_freq_step: float = 0.02
 
         # min improvement before increasing variations
-        variation_min_improv = 1.0
+        variation_min_improv = 2.0
 
         @validator("init_freq_high")
         def validate_init_freq(cls, value, values):
@@ -158,7 +159,7 @@ class FmaxOptimizer(Optimizer):
         if self.num_iterations == 0:  # first time
             return True
         resolution = self.settings.resolution
-        max_workers = self.settings.max_workers
+        max_workers = self.max_workers
         best_freq = self.best_freq
         delta = self.settings.delta
 
@@ -194,20 +195,7 @@ class FmaxOptimizer(Optimizer):
 
         if self.improved_idx is None:
             self.no_improvements += 1
-            if self.no_improvements > self.settings.max_failed_iters:
-                log.info(
-                    "Stopping after %d unsuccessfull iterations (max_failed_iters=%d)",
-                    self.no_improvements,
-                    self.settings.max_failed_iters,
-                )
-                return False
             if best_freq:
-                if self.no_improvements > self.settings.max_failed_iters_with_best:
-                    log.info(
-                        f"no_improvements={self.no_improvements} > max_failed_iters_with_best({self.settings.max_failed_iters_with_best})"
-                    )
-                    return False
-
                 if best_freq < self.hi_freq:
                     self.hi_freq = (self.hi_freq + best_freq) / 2 + delta
                     if self.num_variations > 1 and self.no_improvements < 3:
@@ -275,7 +263,7 @@ class FmaxOptimizer(Optimizer):
         batch_settings = []
         finder_retries = 0
 
-        n = self.settings.max_workers
+        n = self.max_workers
         if self.num_variations > 1:
             log.info("Generating %d variations", self.num_variations)
             n = n // self.num_variations
@@ -298,13 +286,13 @@ class FmaxOptimizer(Optimizer):
                 finder_retries,
                 self.lo_freq,
                 self.hi_freq,
-                freq_step,
+                self.freq_step,
             )
 
-            if self.best and self.freq_step < self.settings.min_freq_step:
+            if self.best and n > 1 and self.freq_step < self.settings.min_freq_step:
                 log.warning(
-                    "Stopping: freq_step=%0.5f is below 'min_freq_step' (%0.3f)",
-                    freq_step,
+                    "Stopping: freq_step=%0.3f is below 'min_freq_step' (%0.3f)",
+                    self.freq_step,
                     self.settings.min_freq_step,
                 )
                 return None
@@ -409,7 +397,7 @@ class FmaxOptimizer(Optimizer):
             self.best = outcome
             self.base_settings = outcome.settings
             self.improved_idx = idx
-            if self.num_variations > 1 and idx > self.settings.max_workers // 2:
+            if self.num_variations > 1 and idx > self.max_workers // 2:
                 self.num_variations -= 1
             return True
         else:
@@ -462,6 +450,14 @@ class Dse(FlowLauncher):
         )  # type: ignore
         keep_optimal_run_dirs: bool = True
 
+        max_failed_iters = 6
+        max_failed_iters_with_best = 3
+        max_workers: int = Field(
+            psutil.cpu_count(logical=False),
+            description="Number of parallel executions.",
+        )
+        timeout: int = 3600  # in seconds
+
     def __init__(
         self,
         optimizer_class: Union[str, Type[Optimizer]],
@@ -485,7 +481,9 @@ class Dse(FlowLauncher):
             optimizer_class = cls
         if not isinstance(optimizer_settings, Optimizer.Settings):
             optimizer_settings = optimizer_class.Settings(**optimizer_settings)
-        self.optimizer: Optimizer = optimizer_class(settings=optimizer_settings)
+        self.optimizer: Optimizer = optimizer_class(
+            max_workers=self.settings.max_workers, settings=optimizer_settings
+        )
 
     def run_flow(
         self,
@@ -498,7 +496,8 @@ class Dse(FlowLauncher):
 
         optimizer = self.optimizer
 
-        unsuccessfull_iters = 0
+        # consecutive "unsuccessfull" iterations where in all runs success == False
+        consecutive_failed_iters = 0
         num_iterations = 0
         future = None
         pool = None
@@ -533,13 +532,14 @@ class Dse(FlowLauncher):
         )
         flow_settings = {**flow_settings, **base_variation}
 
-        try:
-            base_settings = flow_class.Settings(**flow_settings)
-        except FlowSettingsError as e:
-            log.error("%s", e)
-            exit(1)
-
+        base_settings = flow_class.Settings(**flow_settings)
         base_settings.redirect_stdout = True
+
+        if base_settings.nthreads > 1:
+            max_nthreads = max(
+                2, multiprocessing.cpu_count() // self.settings.max_workers
+            )
+            base_settings.nthreads = min(base_settings.nthreads, max_nthreads)
 
         optimizer.flow_class = flow_class
         optimizer.base_settings = base_settings
@@ -550,15 +550,32 @@ class Dse(FlowLauncher):
             Path.cwd() / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
         )
         log.info("Best results are saved to %s", best_json_path)
-        max_workers = optimizer.settings.max_workers
-        log.debug("max_workers=%d", max_workers)
 
         flow_setting_hashes: Set[str] = set()
 
         iterate = True
         try:
-            with ProcessPool(max_workers=max_workers) as pool:
+            with ProcessPool(max_workers=optimizer.max_workers) as pool:
                 while iterate:
+                    if consecutive_failed_iters > self.settings.max_failed_iters:
+                        log.info(
+                            "Stopping after %d unsuccessfull iterations (max_failed_iters=%d)",
+                            consecutive_failed_iters,
+                            self.settings.max_failed_iters,
+                        )
+                        break
+                    if (
+                        optimizer.best
+                        and consecutive_failed_iters
+                        > self.settings.max_failed_iters_with_best
+                    ):
+                        log.info(
+                            "Stopping after %d unsuccessfull iterations (max_failed_iters_with_best=%d)",
+                            consecutive_failed_iters,
+                            self.settings.max_failed_iters_with_best,
+                        )
+                        break
+
                     if timer.minutes > self.settings.max_runtime_minutes:
                         log.warning(
                             "Total execution time (%d minutes) exceed 'max_runtime_minutes'=%d",
@@ -580,7 +597,7 @@ class Dse(FlowLauncher):
                     future = pool.map(
                         executioner,
                         enumerate(this_batch),
-                        timeout=optimizer.settings.timeout,
+                        timeout=self.settings.timeout,
                     )
 
                     have_success = False
@@ -611,7 +628,7 @@ class Dse(FlowLauncher):
                                             total_time=timer.timedelta,
                                             optimizer_settings=optimizer.settings,
                                             num_iterations=num_iterations,
-                                            unsuccessfull_iters=unsuccessfull_iters,
+                                            consecutive_failed_iters=consecutive_failed_iters,
                                         ),
                                         best_json_path,
                                         backup_previous=False,
@@ -651,7 +668,9 @@ class Dse(FlowLauncher):
                         raise e from None
 
                     if not have_success:
-                        unsuccessfull_iters += 1
+                        consecutive_failed_iters += 1
+                    else:
+                        consecutive_failed_iters = 0
 
                     num_iterations += 1
                     log.info(
