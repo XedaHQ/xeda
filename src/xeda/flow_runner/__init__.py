@@ -180,33 +180,31 @@ class FlowLauncher:
     class Settings(XedaBaseModel):
         """Settings for FlowLaunchers"""
 
+        debug: bool = False
+        dump_settings_json: bool = True
+        display_results: bool = True
+        dump_results_json: bool = True
+        cached_dependencies: bool = True
+        run_in_existing_dir: bool = False  # DO NOT USE! Only for development!
+        cleanup: bool = False
+
     def __init__(
-        self,
-        xeda_run_dir: Union[str, os.PathLike] = "xeda_run",
-        debug: bool = False,
-        dump_settings_json: bool = True,
-        display_results: bool = True,
-        dump_results_json: bool = True,
-        cached_dependencies: bool = True,
-        run_in_existing_dir: bool = False,  # DO NOT USE! Only for development!
-        cleanup: bool = False,
-        settings: Settings = Settings(),  # TODO
+        self, xeda_run_dir: Union[None, str, os.PathLike] = None, **kwargs
     ) -> None:
-        if debug:
-            log.setLevel(logging.DEBUG)
-            log.root.setLevel(logging.DEBUG)
-        self.debug = debug
-        self.cleanup = cleanup
-        log.debug("%s xeda_run_dir=%s", self.__class__.__name__, xeda_run_dir)
+        if "xeda_run_dir" in kwargs:
+            xeda_run_dir = kwargs.pop("xeda_run_dir")
+        if not xeda_run_dir:
+            xeda_run_dir = "xeda_run"
         xeda_run_dir = Path(xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
+        self.settings = self.Settings(**kwargs)
+        if self.settings.debug:
+            log.setLevel(logging.DEBUG)
+            log.root.setLevel(logging.DEBUG)
+        self.debug = self.settings.debug
+        self.cleanup = self.settings.cleanup
+        log.debug("%s xeda_run_dir=%s", self.__class__.__name__, xeda_run_dir)
         self.xeda_run_dir: Path = xeda_run_dir
-        self.cached_dependencies: bool = cached_dependencies
-        self.display_results: bool = display_results
-        self.dump_results_json: bool = dump_results_json
-        self.dump_settings_json: bool = dump_settings_json
-        self.run_in_existing_dir: bool = run_in_existing_dir
-        self.settings = settings
 
     def get_flow_run_path(
         self,
@@ -217,7 +215,7 @@ class FlowLauncher:
     ) -> Path:
         design_subdir = design_name
         flow_subdir = flow_name
-        if self.cached_dependencies:
+        if self.settings.cached_dependencies:
             if design_hash:
                 design_subdir += f"_{design_hash[:16]}"
             if flowrun_hash:
@@ -235,7 +233,7 @@ class FlowLauncher:
         flow_settings: Union[None, Dict[str, Any], Flow.Settings],
         depender: Optional[Flow] = None,
     ) -> Flow:
-        if self.run_in_existing_dir:
+        if self.settings.run_in_existing_dir:
             log.error(
                 "run_in_existing_dir should only be used during Xeda's development!"
             )
@@ -281,7 +279,7 @@ class FlowLauncher:
         previous_results = None
         if (
             depender
-            and self.cached_dependencies
+            and self.settings.cached_dependencies
             and run_path.exists()
             and settings_json.exists()
             and results_json.exists()
@@ -314,11 +312,11 @@ class FlowLauncher:
                 )
 
         if not previous_results:
-            if not self.run_in_existing_dir and run_path.exists():
+            if not self.settings.run_in_existing_dir and run_path.exists():
                 backup_existing(run_path)
             run_path.mkdir(parents=True)
 
-            if self.dump_settings_json:
+            if self.settings.dump_settings_json:
                 log.info("dumping effective settings to %s", settings_json)
                 all_settings = dict(
                     design=design,
@@ -402,11 +400,11 @@ class FlowLauncher:
             # set success=false if execution failed
             log.critical("%s failed!", flow.name)
 
-        if self.dump_results_json:
+        if self.settings.dump_results_json:
             dump_json(flow.results, results_json)
             log.info("Results written to %s", results_json)
 
-        if self.display_results:
+        if self.settings.display_results:
             print_results(
                 flow,
                 title=f"{flow.name} Results",

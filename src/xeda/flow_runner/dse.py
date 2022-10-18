@@ -417,7 +417,7 @@ class FmaxOptimizer(Optimizer):
 
 
 class Executioner:
-    def __init__(self, launcher: "Dse", design: Design, flow_class):
+    def __init__(self, launcher: FlowLauncher, design: Design, flow_class):
         self.launcher = launcher
         self.design = design
         self.flow_class = flow_class
@@ -463,7 +463,6 @@ class Dse(FlowLauncher):
 
     def __init__(
         self,
-        settings: Settings,
         optimizer_class: Union[str, Type[Optimizer]],
         optimizer_settings: Union[Dict[str, Any], Optimizer.Settings] = {},
         xeda_run_dir: Union[str, os.PathLike] = "xeda_run_dse",
@@ -471,13 +470,6 @@ class Dse(FlowLauncher):
     ) -> None:
         super().__init__(
             xeda_run_dir,
-            settings=settings,
-            debug=False,
-            dump_settings_json=True,
-            display_results=False,
-            dump_results_json=True,
-            cached_dependencies=True,
-            run_in_existing_dir=False,
             **kwargs,
         )
         if isinstance(optimizer_class, str):
@@ -489,6 +481,7 @@ class Dse(FlowLauncher):
         self.optimizer: Optimizer = optimizer_class(settings=optimizer_settings)
         assert isinstance(self.settings, self.Settings)
         self.cleanup &= not self.settings.keep_optimal_run_dirs
+        self.display_results = False
 
     def run_flow(
         self,
@@ -645,7 +638,7 @@ class Dse(FlowLauncher):
                                 )
                                 future.cancel()
                             except ProcessExpired as e:
-                                log.critical(f"{e}. Exit code: {e.exitcode}")
+                                log.critical("%s. Exit code: %d", e, e.exitcode)
                     except CancelledError:
                         log.warning("CancelledError")
                     except KeyboardInterrupt as e:
@@ -673,22 +666,11 @@ class Dse(FlowLauncher):
         except KeyboardInterrupt:
             log.exception("Received Keyboard Interrupt")
             log.critical("future: %s pool: %s", future, pool)
-            if pool:
-                pool.join()
-            if future and not future.cancelled():
-                future.cancel()
-            if pool:
-                pool.close()
-                pool.join()
         except Exception as e:
-            log.exception(f"Received exception: {e}")
+            log.exception("Received exception: %s", e)
             traceback.print_exc()
         finally:
-            if future and not future.cancelled():
-                log.warning("Canecelling future")
-                future.cancel()
             if pool:
-                log.warning("Process pool still active.")
                 pool.close()
                 pool.join()
             if optimizer.best:

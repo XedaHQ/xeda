@@ -457,7 +457,6 @@ def dse(
     )
     opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)
     dse_settings_dict = settings_to_dict(dse_settings, expand_dict_keys=True)
-    settings = Dse.Settings(**dse_settings_dict)
     # will deprecate options and only use optimizer_settings
     opt_settings = {
         **dict(
@@ -469,10 +468,8 @@ def dse(
     }
     if not design or not flow_class:
         sys.exit(1)
-    dse = Dse(
-        settings=settings, optimizer_class=optimizer, optimizer_settings=opt_settings
-    )
-    dse.run_flow(flow_class, design, accum_flow_settings)
+    dse = Dse(optimizer_class=optimizer, optimizer_settings=opt_settings)
+    dse.run_flow(flow_class, design, accum_flow_settings, **dse_settings_dict)
 
 
 SHELLS: dict[str, dict[str, Any]] = {
