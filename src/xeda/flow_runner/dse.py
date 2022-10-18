@@ -47,6 +47,7 @@ class Optimizer:
     def __init__(
         self, max_workers: int, settings: Optional[Settings] = None, **kwargs
     ) -> None:
+        assert max_workers > 0
         self.max_workers: int = max_workers
         self.base_settings: Flow.Settings = Flow.Settings()
         self.flow_class: Optional[Type[Flow]] = None
@@ -140,8 +141,11 @@ class FmaxOptimizer(Optimizer):
         # can be different due to rounding errors, TODO only keep track of periods?
         self.previously_tried_periods = set()
         assert isinstance(self.settings, self.Settings)
+        assert self.settings.init_freq_high > self.settings.init_freq_low
         self.hi_freq = self.settings.init_freq_high
         self.lo_freq = self.settings.init_freq_low
+        assert self.settings.resolution > 0.0
+
         self.num_iterations: int = 0
 
     @property
@@ -160,8 +164,9 @@ class FmaxOptimizer(Optimizer):
             return True
         resolution = self.settings.resolution
         max_workers = self.max_workers
-        best_freq = self.best_freq
         delta = self.settings.delta
+
+        best_freq = self.best_freq
 
         if self.hi_freq - self.lo_freq < resolution:
             if self.no_improvements > 1:
@@ -234,7 +239,7 @@ class FmaxOptimizer(Optimizer):
 
             # if best freq
             if best_freq >= self.hi_freq:
-                self.hi_freq = best_freq + self.freq_step * max_workers
+                self.hi_freq = best_freq + max(resolution, self.freq_step) * max_workers
                 log.debug("incrementing hi_freq to %0.2f", self.hi_freq)
             else:
                 self.hi_freq = (
@@ -280,22 +285,23 @@ class FmaxOptimizer(Optimizer):
                 self.hi_freq,
                 n,
             )
-            self.freq_step = freq_step
             log.debug(
                 "[try %d] lo_freq=%0.2f, hi_freq=%0.2f, freq_step=%0.2f",
                 finder_retries,
                 self.lo_freq,
                 self.hi_freq,
-                self.freq_step,
+                freq_step,
             )
 
-            if self.best and n > 1 and self.freq_step < self.settings.min_freq_step:
+            if self.best and n > 1 and freq_step < self.settings.min_freq_step:
                 log.warning(
                     "Stopping: freq_step=%0.3f is below 'min_freq_step' (%0.3f)",
-                    self.freq_step,
+                    freq_step,
                     self.settings.min_freq_step,
                 )
                 return None
+
+            self.freq_step = freq_step
 
             clock_periods_to_try = []
             frequencies = []
