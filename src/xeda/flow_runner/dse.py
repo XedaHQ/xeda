@@ -13,11 +13,11 @@ from attr import define
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 
-from ..dataclass import XedaBaseModel, validator
+from ..dataclass import Field, XedaBaseModel, validator
 from ..design import Design
 from ..flows.flow import Flow, FlowFatalError, FlowSettingsError
 from ..tool import NonZeroExitCode
-from ..utils import Timer, dump_json, unique
+from ..utils import Timer, dump_json, load_class, unique
 from . import (
     FlowLauncher,
     add_file_logger,
@@ -302,7 +302,7 @@ class FmaxOptimizer(Optimizer):
 
             if self.best and self.freq_step < self.settings.min_freq_step:
                 log.warning(
-                    "Stopping: freq_step=%0.2f is below the limit (%0.2f)",
+                    "Stopping: freq_step=%0.5f is below 'min_freq_step' (%0.3f)",
                     freq_step,
                     self.settings.min_freq_step,
                 )
@@ -454,35 +454,41 @@ class Executioner:
 
 
 class Dse(FlowLauncher):
+    class Settings(FlowLauncher.Settings):
+        max_runtime_minutes = Field(
+            3600 * 12,
+            description="Maximum total running time in minutes, after which no new flow execution will be launched. Flows all ready launched will continue to completion or their timeout.",
+        )  # type: ignore
+        keep_optimal_run_dirs: bool = True
+
     def __init__(
         self,
+        settings: Settings,
         optimizer_class: Union[str, Type[Optimizer]],
         optimizer_settings: Union[Dict[str, Any], Optimizer.Settings] = {},
         xeda_run_dir: Union[str, os.PathLike] = "xeda_run_dse",
-        cleanup: bool = True,
-        keep_optimal_run_dirs: bool = True,
         **kwargs,
     ) -> None:
         super().__init__(
             xeda_run_dir,
+            settings=settings,
             debug=False,
             dump_settings_json=True,
             display_results=False,
             dump_results_json=True,
             cached_dependencies=True,
             run_in_existing_dir=False,
-            cleanup=cleanup and not keep_optimal_run_dirs,
             **kwargs,
         )
         if isinstance(optimizer_class, str):
-            if optimizer_class == "fmax":
-                optimizer_class = FmaxOptimizer
-            else:
-                raise Exception(f"Unknown optimizer: {optimizer_class}")
+            cls = load_class(optimizer_class, self.__module__)
+            assert cls and issubclass(cls, Optimizer)
+            optimizer_class = cls
         if not isinstance(optimizer_settings, Optimizer.Settings):
             optimizer_settings = optimizer_class.Settings(**optimizer_settings)
         self.optimizer: Optimizer = optimizer_class(settings=optimizer_settings)
-        self.keep_optimal_run_dirs = keep_optimal_run_dirs
+        assert isinstance(self.settings, self.Settings)
+        self.cleanup &= not self.settings.keep_optimal_run_dirs
 
     def run_flow(
         self,
@@ -490,9 +496,8 @@ class Dse(FlowLauncher):
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
     ):
+        assert isinstance(self.settings, self.Settings)
         timer = Timer()
-
-        cleanup_nonoptimal_runs = self.cleanup and self.keep_optimal_run_dirs
 
         optimizer = self.optimizer
 
@@ -557,6 +562,13 @@ class Dse(FlowLauncher):
         try:
             with ProcessPool(max_workers=max_workers) as pool:
                 while iterate:
+                    if timer.minutes > self.settings.max_runtime_minutes:
+                        log.warning(
+                            "Total execution time (%d minutes) exceed 'max_runtime_minutes'=%d",
+                            timer.minutes,
+                            self.settings.max_runtime_minutes,
+                        )
+                        break
                     batch_settings = optimizer.next_batch()
                     if not batch_settings:
                         break
@@ -612,7 +624,8 @@ class Dse(FlowLauncher):
                                     r = {k: outcome.results.get(k) for k in results_sub}
                                     successful_results.append(r)
                                 if (
-                                    cleanup_nonoptimal_runs
+                                    self.cleanup
+                                    and self.settings.keep_optimal_run_dirs
                                     and not improved
                                     and (have_success or num_iterations > 0)
                                 ):

@@ -47,7 +47,7 @@ registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
 
-T = TypeVar("T", bound="Flow")
+FlowType = TypeVar("FlowType", bound="Flow")
 
 
 @typechecked
@@ -194,7 +194,7 @@ class Flow(metaclass=ABCMeta):
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         self.run_path = run_path
         self.settings = settings
-        # assert isinstance(self.settings, self.Settings)
+        assert isinstance(self.settings, self.Settings)
         self.design: Design = design
         self.design_root = design._design_root
 
@@ -223,7 +223,7 @@ class Flow(metaclass=ABCMeta):
         self.dependencies: List[Tuple[Type[Flow], Flow.Settings]] = []
         self.completed_dependencies: List[Flow] = []
 
-    def pop_dependency(self, typ: Type[T]) -> Flow:
+    def pop_dependency(self, typ: Type[FlowType]) -> Flow:
         assert inspect.isclass(typ) and issubclass(
             typ, Flow
         ), f"{typ} is not a subclass of Flow"

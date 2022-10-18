@@ -1,4 +1,6 @@
 """Launch execution of flows"""
+from __future__ import annotations
+
 import hashlib
 import importlib
 import json
@@ -8,7 +10,18 @@ import shutil
 import time
 from datetime import datetime, timedelta
 from pathlib import Path, PosixPath
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Type, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from box import Box
 from pathvalidate import sanitize_filename  # pyright: reportPrivateImportUsage=none
@@ -18,7 +31,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..console import console
-from ..dataclass import asdict, define
+from ..dataclass import XedaBaseModel, asdict, define
 from ..design import Design, DesignValidationError
 from ..flows.flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
@@ -150,6 +163,9 @@ def semantic_hash(data: Any) -> str:
     return hashlib.sha3_256(bytes(r, "UTF-8")).hexdigest()
 
 
+FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
+
+
 class FlowLauncher:
     """
     Manage running flows and their dependencies.
@@ -161,6 +177,9 @@ class FlowLauncher:
     5. Evaluate and print the results
     """
 
+    class Settings(XedaBaseModel):
+        """Settings for FlowLaunchers"""
+
     def __init__(
         self,
         xeda_run_dir: Union[str, os.PathLike] = "xeda_run",
@@ -171,6 +190,7 @@ class FlowLauncher:
         cached_dependencies: bool = True,
         run_in_existing_dir: bool = False,  # DO NOT USE! Only for development!
         cleanup: bool = False,
+        settings: Settings = Settings(),  # TODO
     ) -> None:
         if debug:
             log.setLevel(logging.DEBUG)
@@ -186,6 +206,7 @@ class FlowLauncher:
         self.dump_results_json: bool = dump_results_json
         self.dump_settings_json: bool = dump_settings_json
         self.run_in_existing_dir: bool = run_in_existing_dir
+        self.settings = settings
 
     def get_flow_run_path(
         self,

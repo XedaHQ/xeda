@@ -171,14 +171,14 @@ def snakecase_to_camelcase(name: str) -> str:
 
 
 def load_class(
-    full_class_string: str, defualt_module_name: Optional[str] = None
+    full_class_string: str, default_module_name: Optional[str] = None
 ) -> Optional[type]:
     cls_path_lst = full_class_string.split(".")
     assert len(cls_path_lst) > 0
 
     cls_name = snakecase_to_camelcase(cls_path_lst[-1])
     if len(cls_path_lst) == 1:  # module name not specified, use default
-        mod_name = defualt_module_name
+        mod_name = default_module_name
     else:
         mod_name = ".".join(cls_path_lst[:-1])
     assert mod_name

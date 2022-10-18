@@ -389,9 +389,17 @@ def list_settings(ctx: click.Context, flow):
 @click.option(
     "--optimizer",
     type=str,
-    default="fmax",
+    default="fmax_optimizer",
     show_envvar=True,
     show_default=True,
+)
+@click.option(
+    "--dse-settings",
+    metavar="KEY=VALUE...",
+    type=tuple,
+    cls=OptionEatAll,
+    default=tuple(),
+    show_envvar=True,
 )
 @click.option(
     "--optimizer-settings",
@@ -423,6 +431,7 @@ def dse(
     flow_settings: Tuple[str, ...],
     optimizer: str,
     optimizer_settings: Tuple[str, ...],
+    dse_settings: Tuple[str, ...],
     max_workers: int,
     init_freq_low: float,
     init_freq_high: float,
@@ -447,6 +456,8 @@ def dse(
         select_design_in_project=select_design_in_project,
     )
     opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)
+    dse_settings_dict = settings_to_dict(dse_settings, expand_dict_keys=True)
+    settings = Dse.Settings(**dse_settings_dict)
     # will deprecate options and only use optimizer_settings
     opt_settings = {
         **dict(
@@ -458,7 +469,9 @@ def dse(
     }
     if not design or not flow_class:
         sys.exit(1)
-    dse = Dse(optimizer_class=optimizer, optimizer_settings=opt_settings)
+    dse = Dse(
+        settings=settings, optimizer_class=optimizer, optimizer_settings=opt_settings
+    )
     dse.run_flow(flow_class, design, accum_flow_settings)
 
 
