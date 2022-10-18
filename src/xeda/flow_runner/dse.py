@@ -668,8 +668,7 @@ class Dse(FlowLauncher):
                         log.info("No results to report.")
 
         except KeyboardInterrupt:
-            log.exception("Received Keyboard Interrupt")
-            log.critical("future: %s pool: %s", future, pool)
+            log.critical("Received Keyboard Interrupt")
         except Exception as e:
             log.exception("Received exception: %s", e)
             traceback.print_exc()
