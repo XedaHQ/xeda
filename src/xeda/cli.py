@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 import logging
-import multiprocessing
 import os
 import sys
 from pathlib import Path
@@ -411,8 +410,8 @@ def list_settings(ctx: click.Context, flow):
 )
 @click.option(
     "--max-workers",
-    default=max(2, multiprocessing.cpu_count() / 2),
     type=int,
+    default=None,
     help="Maximum number of concurrent flow executions.",
     show_envvar=True,
 )
@@ -432,7 +431,7 @@ def dse(
     optimizer: str,
     optimizer_settings: Tuple[str, ...],
     dse_settings: Tuple[str, ...],
-    max_workers: int,
+    max_workers: Optional[int],
     init_freq_low: float,
     init_freq_high: float,
     xeda_run_dir: Optional[Path],
@@ -457,10 +456,12 @@ def dse(
     )
     opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)
     dse_settings_dict = settings_to_dict(dse_settings, expand_dict_keys=True)
+    if max_workers:
+        dse_settings_dict["max_workers"] = max_workers  # overrides
+
     # will deprecate options and only use optimizer_settings
     opt_settings = {
         **dict(
-            max_workers=max_workers,
             init_freq_low=init_freq_low,
             init_freq_high=init_freq_high,
         ),
@@ -468,8 +469,14 @@ def dse(
     }
     if not design or not flow_class:
         sys.exit(1)
-    dse = Dse(optimizer_class=optimizer, optimizer_settings=opt_settings)
-    dse.run_flow(flow_class, design, accum_flow_settings, **dse_settings_dict)
+    dse = Dse(
+        optimizer_class=optimizer, optimizer_settings=opt_settings, **dse_settings_dict
+    )
+    dse.run_flow(
+        flow_class,
+        design,
+        accum_flow_settings,
+    )
 
 
 SHELLS: dict[str, dict[str, Any]] = {

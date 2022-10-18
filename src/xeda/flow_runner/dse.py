@@ -451,7 +451,7 @@ class Executioner:
 class Dse(FlowLauncher):
     class Settings(FlowLauncher.Settings):
         max_runtime_minutes = Field(
-            3600 * 12,
+            12 * 3600,
             description="Maximum total running time in minutes, after which no new flow execution will be launched. Flows all ready launched will continue to completion or their timeout.",
         )  # type: ignore
         keep_optimal_run_dirs: bool = True
@@ -462,7 +462,7 @@ class Dse(FlowLauncher):
             psutil.cpu_count(logical=False),
             description="Number of parallel executions.",
         )
-        timeout: int = 3600  # in seconds
+        timeout: int = 90 * 60  # in seconds
 
     def __init__(
         self,
@@ -546,6 +546,12 @@ class Dse(FlowLauncher):
                 2, multiprocessing.cpu_count() // self.settings.max_workers
             )
             base_settings.nthreads = min(base_settings.nthreads, max_nthreads)
+
+        if (
+            not base_settings.timeout_seconds
+            or base_settings.timeout_seconds > self.settings.timeout
+        ):
+            base_settings.timeout_seconds = self.settings.timeout
 
         optimizer.flow_class = flow_class
         optimizer.base_settings = base_settings
