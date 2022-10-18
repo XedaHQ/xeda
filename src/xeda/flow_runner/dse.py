@@ -473,6 +473,12 @@ class Dse(FlowLauncher):
             xeda_run_dir,
             **kwargs,
         )
+        assert isinstance(self.settings, self.Settings)
+
+        # update settings
+        self.settings.cleanup &= not self.settings.keep_optimal_run_dirs
+        self.settings.display_results = False
+
         if isinstance(optimizer_class, str):
             cls = load_class(optimizer_class, self.__module__)
             assert cls and issubclass(cls, Optimizer)
@@ -480,9 +486,6 @@ class Dse(FlowLauncher):
         if not isinstance(optimizer_settings, Optimizer.Settings):
             optimizer_settings = optimizer_class.Settings(**optimizer_settings)
         self.optimizer: Optimizer = optimizer_class(settings=optimizer_settings)
-        assert isinstance(self.settings, self.Settings)
-        self.cleanup &= not self.settings.keep_optimal_run_dirs
-        self.display_results = False
 
     def run_flow(
         self,
