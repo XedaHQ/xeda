@@ -1,5 +1,4 @@
 import logging
-from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from ...dataclass import validator
