@@ -568,10 +568,24 @@ class Dse(FlowLauncher):
 
         flow_setting_hashes: Set[str] = set()
 
+        num_cpus = psutil.cpu_count()
         iterate = True
         try:
             with ProcessPool(max_workers=optimizer.max_workers) as pool:
                 while iterate:
+                    cpu_usage = tuple(
+                        (ld / num_cpus) * 100 for ld in psutil.getloadavg()
+                    )
+                    ram_usage = psutil.virtual_memory()[2]
+
+                    log.info(
+                        "CPU load over (1, 5, 15) minutes: %d%%, %d%%, %d%%    RAM usage: %d%%",
+                        cpu_usage[0],
+                        cpu_usage[1],
+                        cpu_usage[2],
+                        ram_usage,
+                    )
+
                     if consecutive_failed_iters > self.settings.max_failed_iters:
                         log.info(
                             "Stopping after %d unsuccessfull iterations (max_failed_iters=%d)",
