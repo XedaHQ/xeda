@@ -417,10 +417,12 @@ def list_settings(ctx: click.Context, flow):
 )
 @click.option(
     "--init_freq_low",
+    "--init-freq-low",
     type=float,
 )
 @click.option(
     "--init_freq_high",
+    "--init-freq-high",
     type=float,
 )
 @click.pass_context
