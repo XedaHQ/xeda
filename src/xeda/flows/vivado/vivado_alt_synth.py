@@ -199,7 +199,6 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
                 " -timing_summary": None,
             },
             "place_opt": {
-                "-directive": None,
                 "-propconst": None,
                 "-sweep": None,
                 "-muxf_remap": None,
