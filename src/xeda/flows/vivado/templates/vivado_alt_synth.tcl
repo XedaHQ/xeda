@@ -22,9 +22,9 @@ file mkdir [file join ${reports_dir} post_place]
 file mkdir ${checkpoints_dir}
 
 
-{% for msg in settings.suppress_msgs -%}
+{%- for msg in settings.suppress_msgs %}
 set_msg_config -id "\[{{msg}}\]" -suppress
-{%- endfor %} 
+{%- endfor %}
 
 set_param tcl.collectionResultDisplayLimit 0
 set parts [get_parts]
@@ -184,9 +184,9 @@ if {[string is double -strict $timing_slack]} {
 
     if {[string is double -strict $timing_slack] && ($timing_slack < 0)} {
         puts "ERROR: Failed to meet timing by $timing_slack, see ${timing_summary_file} for details"
-    {% if settings.fail_timing -%}
+        {%- if settings.fail_timing %}
         exit 1
-    {% endif %}
+        {%- endif %}
     }
 }
 

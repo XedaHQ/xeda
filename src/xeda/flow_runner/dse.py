@@ -99,10 +99,14 @@ flow_settings_variations: Dict[str, Dict[str, List[str]]] = {
     },
     "vivado_alt_synth": {
         "synth.strategy": [
+            "ExtraTiming",
+            "ExtraTimingAlt",
+            "Timing",
+        ],
+        "impl.strategy": [
+            "ExtraTimingAutoPlace1",  # only available since Vivado 2022.1
             "ExtraTimingCongestion",
             "ExtraTimingAltRouting",
-            "ExtraTiming",
-            # "Timing",
         ],
     },
 }
