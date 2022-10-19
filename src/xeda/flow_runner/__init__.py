@@ -78,7 +78,10 @@ def print_results(
     table.add_column(style="bold", no_wrap=True)
     table.add_column(justify="right")
     for k, v in results.items():
-        if skip_if_false and (skip_if_false is True or k in skip_if_false) and not v:
+        skipable = skip_if_false and (
+            isinstance(skip_if_false, bool) or k in skip_if_false
+        )
+        if skipable and not v:
             continue
         if v is not None and not k.startswith("_"):
             if k == "success":
@@ -197,14 +200,14 @@ class FlowLauncher:
             xeda_run_dir = "xeda_run"
         xeda_run_dir = Path(xeda_run_dir).resolve()
         xeda_run_dir.mkdir(exist_ok=True, parents=True)
+        log.debug("%s xeda_run_dir=%s", self.__class__.__name__, xeda_run_dir)
+        self.xeda_run_dir: Path = xeda_run_dir
         self.settings = self.Settings(**kwargs)
         if self.settings.debug:
             log.setLevel(logging.DEBUG)
             log.root.setLevel(logging.DEBUG)
         self.debug = self.settings.debug
         self.cleanup = self.settings.cleanup
-        log.debug("%s xeda_run_dir=%s", self.__class__.__name__, xeda_run_dir)
-        self.xeda_run_dir: Path = xeda_run_dir
 
     def get_flow_run_path(
         self,

@@ -470,7 +470,10 @@ def dse(
     if not design or not flow_class:
         sys.exit(1)
     dse = Dse(
-        optimizer_class=optimizer, optimizer_settings=opt_settings, **dse_settings_dict
+        optimizer_class=optimizer,
+        optimizer_settings=opt_settings,
+        xeda_run_dir=xeda_run_dir,
+        **dse_settings_dict,
     )
     dse.run_flow(
         flow_class,

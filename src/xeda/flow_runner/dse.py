@@ -376,11 +376,10 @@ class FmaxOptimizer(Optimizer):
         if not outcome.results.success:
             return False
 
-        freq_str = outcome.results.get("Fmax")
-        if freq_str is None:
-            log.warning("No valid in the results! run_path=%s", outcome.run_path)
+        freq = outcome.results.get("Fmax")
+        if freq is None:
+            log.warning("No valid 'Fmax' in the results! run_path=%s", outcome.run_path)
             return False
-        freq = float(freq_str)
 
         if self.settings.max_luts:
             lut = outcome.results.get("lut")
