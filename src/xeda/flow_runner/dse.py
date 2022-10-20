@@ -146,6 +146,7 @@ class FmaxOptimizer(Optimizer):
         self.num_variations = 1
         self.last_improvement: float = 0.0
         self.num_iterations: int = 0
+        self.last_best_freq: float = 0
 
         # can be different due to rounding errors, TODO only keep track of periods?
         self.previously_tried_periods = set()
@@ -192,14 +193,24 @@ class FmaxOptimizer(Optimizer):
         # if we have a best_freq (or failed_fmax better than previous lo_freq)
         #  and little or no improvement during previous iteration, increment num_variations
         if best_freq or (self.failed_fmax and self.failed_fmax > self.lo_freq):
-            if (
-                self.improved_idx is None
-                or self.last_improvement < self.settings.variation_min_improv
+            if self.improved_idx is None or (
+                self.last_improvement
+                and self.last_improvement < self.settings.variation_min_improv
             ):
                 if self.num_variations < max_workers:
                     self.num_variations = self.num_variations + 1
                     log.info(
                         "Increased number of variations to %d", self.num_variations
+                    )
+
+            elif (
+                self.improved_idx > (self.max_workers + 1) // 2
+                or self.last_improvement > 2 * self.settings.variation_min_improv
+            ):
+                if self.num_variations > 1:
+                    self.num_variations -= 1
+                    log.info(
+                        "Decreased number of variations to to %d", self.num_variations
                     )
         if best_freq:
             # we have a best_freq, but no improvements this time
@@ -250,7 +261,7 @@ class FmaxOptimizer(Optimizer):
                 log.info(
                     "Lowering bounds to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq
                 )
-        else:
+        else:  # -> improvement during last iteration
             # sanity check, best_freq was set before in case of a successful run
             assert (
                 best_freq
@@ -258,6 +269,19 @@ class FmaxOptimizer(Optimizer):
 
             # reset no_improvements
             self.no_improvements = 0
+
+            if self.last_best_freq:
+                # sanity check
+                assert (
+                    best_freq >= self.last_best_freq
+                ), f"best_freq={best_freq} < last_best_freq={self.last_best_freq}"
+
+                self.last_improvement = best_freq - self.last_best_freq
+                log.info(
+                    "Fmax improvement during previous iteration: %0.2f MHz",
+                    self.last_improvement,
+                )
+            self.last_best_freq = best_freq
 
             # if best freq
             if best_freq >= self.hi_freq:
@@ -454,19 +478,16 @@ class FmaxOptimizer(Optimizer):
                 return False
 
         best_freq = self.best_freq
-        if best_freq and freq > best_freq:
-            self.last_improvement = freq - best_freq
-            log.info(
-                "New best frequency: %0.2f MHz  Improvement:%0.2f MHz",
-                freq,
-                self.last_improvement,
-            )
 
         def promote(lst: List[Any], idx: int):
             if idx > 0 and lst:
                 lst.insert(0, lst.pop(idx))
 
         if best_freq is None or freq > best_freq:
+            log.info(
+                "New maximum frequency: %0.2f MHz",
+                freq,
+            )
             self.best = outcome
             self.base_settings = outcome.settings
             self.improved_idx = idx
@@ -474,8 +495,6 @@ class FmaxOptimizer(Optimizer):
                 var_choices = self.variation_choices[idx]
                 for k, i in var_choices.items():
                     promote(self.variations[k], i)
-                if idx > (self.max_workers + 1) // 2:
-                    self.num_variations -= 1
             return True
         else:
             log.debug("Lower Fmax: %0.2f than the current best: %0.2f", freq, best_freq)
