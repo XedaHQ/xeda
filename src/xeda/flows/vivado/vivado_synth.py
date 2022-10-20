@@ -59,11 +59,11 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         write_netlist: bool = False
         write_bitstream: bool = False
         extra_reports: bool = False
-        qor_suggestions: bool = True
+        qor_suggestions: bool = False
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
         synth: RunOptions = RunOptions(
-            # strategy="Flow_PerfOptimized_high", # no LUT combining, fanout limit: 400
-            strategy="Flow_AlternateRoutability",
+            # Performance strategies: "Flow_PerfOptimized_high" (no LUT combining, fanout limit: 400), "Flow_AlternateRoutability",
+            strategy="",  # Empty for Vivado Default strategy
             steps={
                 "SYNTH_DESIGN": {},
                 "OPT_DESIGN": {},
@@ -72,10 +72,9 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug904-vivado-implementation.pdf
         impl: RunOptions = RunOptions(
-            # strategy="Performance_ExploreWithRemap",
-            # strategy="Flow_RunPostRoutePhysOpt",
-            # strategy="Flow_RunPhysOpt",
-            strategy="Performance_ExtraTimingOpt",
+            # Performance strategies: "Performance_ExploreWithRemap", "Flow_RunPostRoutePhysOpt",
+            #   "Flow_RunPhysOpt", "Performance_ExtraTimingOpt",
+            strategy="",  # Empty for Vivado Default strategy
             steps={
                 "PLACE_DESIGN": {},
                 "POST_PLACE_POWER_OPT_DESIGN": {},
