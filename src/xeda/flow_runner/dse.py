@@ -79,7 +79,7 @@ def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
 flow_settings_variations: Dict[str, Dict[str, List[Any]]] = {
     "vivado_synth": {
         "synth.steps.synth_design.args.flatten_hierarchy": ["full"],
-        "synth.STEPS.SYNTH_DESIGN.ARGS.NO_LC": [False, True],
+        "synth.steps.synth_design.args.NO_LC": [False, True],
         "synth.strategy": [
             "Flow_AlternateRoutability",
             "Flow_PerfThresholdCarry",
