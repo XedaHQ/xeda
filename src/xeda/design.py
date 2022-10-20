@@ -305,14 +305,17 @@ class TbSettings(DVSettings):
     )
     cocotb: bool = Field(False, description="testbench is based on cocotb framework")
 
-    @validator("top", pre=True)
-    def top_validator(cls, top: Union[None, str, Sequence[str], Tuple012]) -> Tuple012:
-        if top:
-            if isinstance(top, str):
-                return (top,)
-            if isinstance(top, (tuple, list, Sequence)):
-                assert len(top) <= 2
-                return tuple(top)
+    @validator("top", pre=True, always=True)
+    def top_validator(
+        cls, value: Union[None, str, Sequence[str], Tuple012]
+    ) -> Tuple012:
+        if value:
+            if isinstance(value, str):
+                return (value,)
+            if isinstance(value, (tuple, list, Sequence)):
+                if len(value) > 2:
+                    raise ValueError("At most 2 simulation top modules are supported.")
+                return tuple(value)
         return tuple()
 
 
