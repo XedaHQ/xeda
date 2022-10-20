@@ -49,13 +49,14 @@ class Optimizer:
     ) -> None:
         assert max_workers > 0
         self.max_workers: int = max_workers
+        self.max_failed_iters: int = 2
         self.base_settings: Flow.Settings = Flow.Settings()
         self.flow_class: Optional[Type[Flow]] = None
         self.variations: Dict[str, List[str]] = {}
 
         self.settings = settings if settings else self.Settings(**kwargs)
-        self.improved_idx: Optional[int] = None
-
+        self.improved_idx: Optional[int] = None  # ATM only used as a bool
+        self.failed_fmax: Optional[float] = None  # failed due to negative slack
         self.best: Optional[FlowOutcome] = None
 
     def next_batch(self) -> Union[None, List[Flow.Settings], List[Dict[str, Any]]]:
@@ -123,7 +124,7 @@ class FmaxOptimizer(Optimizer):
         resolution: float = 0.2
         min_freq_step: float = 0.02
 
-        # min improvement before increasing variations
+        # min improvement inf frequency before increasing variations
         variation_min_improv = 2.0
 
         @validator("init_freq_high")
@@ -141,16 +142,19 @@ class FmaxOptimizer(Optimizer):
         self.freq_step: float = 0.0
         self.num_variations = 1
         self.last_improvement: float = 0.0
+        self.num_iterations: int = 0
 
         # can be different due to rounding errors, TODO only keep track of periods?
         self.previously_tried_periods = set()
+
+        # task-idx -> {key -> choice}
+        self.variation_choice_for_idx: Dict[int, Dict[str, int]] = {}
+
         assert isinstance(self.settings, self.Settings)
         assert self.settings.init_freq_high > self.settings.init_freq_low
         self.hi_freq = self.settings.init_freq_high
         self.lo_freq = self.settings.init_freq_low
         assert self.settings.resolution > 0.0
-
-        self.num_iterations: int = 0
 
     @property
     def best_freq(self) -> Optional[float]:
@@ -182,8 +186,9 @@ class FmaxOptimizer(Optimizer):
                 )
                 return False
 
-        # if we have a best_freq and little or no improvements on this iteration, increment num_variations
-        if best_freq:
+        # if we have a best_freq (or failed_fmax better than previous lo_freq)
+        #  and little or no improvement during previous iteration, increment num_variations
+        if best_freq or (self.failed_fmax and self.failed_fmax > self.lo_freq):
             if (
                 self.improved_idx is None
                 or self.last_improvement < self.settings.variation_min_improv
@@ -228,7 +233,17 @@ class FmaxOptimizer(Optimizer):
                 if self.hi_freq <= resolution:
                     log.warning("hi_freq < resolution")
                     return False
-                self.lo_freq = self.hi_freq / (0.7 + self.no_improvements)
+                if self.failed_fmax:
+                    self.lo_freq = self.failed_fmax
+                else:
+                    log.error(
+                        "All runs in the previous iteration failed without reporting an Fmax! Please check the flow's logs to determine the reason."
+                    )
+                    return False
+                    # self.lo_freq = self.hi_freq / (0.7 + self.no_improvements)
+
+                if self.hi_freq - self.lo_freq < resolution:
+                    self.hi_freq = self.lo_freq + max_workers * resolution
                 log.info(
                     "Lowering bounds to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq
                 )
@@ -347,18 +362,36 @@ class FmaxOptimizer(Optimizer):
         if self.flow_class:
             assert isinstance(self.base_settings, self.flow_class.Settings)
 
-        def rand_choice(lst, mx):
-            mx = min(len(lst), mx)
-            return random.choice(lst[:mx])
+        # task-idx -> {key -> choice}
+        self.variation_choice_for_idx = {}
+
+        mfi = max(self.max_failed_iters, self.no_improvements)
+
+        def rand_choice(k, val_list, i):
+            n = len(val_list)
+            assert n > 0
+            if self.num_variations <= 1 or n == 1:
+                return val_list[0]
+            approx_max_score = self.max_workers + mfi
+            score = min(
+                n,
+                round(
+                    (n * (i + 1 + self.no_improvements + random.random()))
+                    / approx_max_score
+                ),
+            )
+            # score is 0..n-1
+            choice = random.randrange(0, score)
+            if i not in self.variation_choice_for_idx:
+                self.variation_choice_for_idx[i] = {}
+            self.variation_choice_for_idx[i][k] = choice
+            return val_list[choice]
 
         base_settings = dict(self.base_settings)
         for i in range(self.num_variations):
             for clock_period in clock_periods_to_try:
                 vv = settings_to_dict(
-                    {
-                        k: rand_choice(v, i + 1 + self.no_improvements)
-                        for k, v in self.variations.items()
-                    },
+                    {k: rand_choice(k, v, i) for k, v in self.variations.items() if v},
                     expand_dict_keys=True,
                 )
                 settings = {**base_settings, "clock_period": clock_period, **vv}
@@ -373,12 +406,25 @@ class FmaxOptimizer(Optimizer):
         """returns True if this was the best result so far"""
         assert isinstance(self.settings, self.Settings)
 
+        freq = outcome.results.get("Fmax")
+
         if not outcome.results.success:
+            if freq and not self.best:
+                # Failed due to negative slack
+                # Keep the Fmax for next iter, if no other runs succeeded
+                if not self.failed_fmax or self.failed_fmax < freq:
+                    log.info(
+                        "Flow #%d failed, but Fmax=%0.2f was suggested.", idx, freq
+                    )
+                    self.failed_fmax = freq
             return False
 
-        freq = outcome.results.get("Fmax")
         if freq is None:
-            log.warning("No valid 'Fmax' in the results! run_path=%s", outcome.run_path)
+            log.error(
+                "Flow #%d: No valid 'Fmax' in the results! run_path=%s",
+                idx,
+                outcome.run_path,
+            )
             return False
 
         if self.settings.max_luts:
@@ -390,7 +436,6 @@ class FmaxOptimizer(Optimizer):
                     self.settings.max_luts,
                     freq,
                 )
-                outcome.results["exceeds_max_luts"] = True
                 return False
 
         best_freq = self.best_freq
@@ -402,12 +447,24 @@ class FmaxOptimizer(Optimizer):
                 self.last_improvement,
             )
 
+        def promote(lst: List[Any], idx: int):
+            if idx > 0 and lst:
+                lst.insert(0, lst.pop(idx))
+
         if best_freq is None or freq > best_freq:
             self.best = outcome
             self.base_settings = outcome.settings
             self.improved_idx = idx
-            if self.num_variations > 1 and idx > self.max_workers // 2:
-                self.num_variations -= 1
+            if self.num_variations > 1:
+                # task-idx -> {key -> choice}
+                var_choices = self.variation_choice_for_idx.get(idx)
+                if var_choices:
+                    for k, i in var_choices.items():
+                        v = self.variations[k]
+                        promote(v, i)
+                        self.variations[k] = v  # TODO: is this needed?
+                if idx > self.max_workers // 2:
+                    self.num_variations -= 1
             return True
         else:
             log.debug("Lower Fmax: %0.2f than the current best: %0.2f", freq, best_freq)
@@ -459,7 +516,7 @@ class Dse(FlowLauncher):
         )  # type: ignore
         keep_optimal_run_dirs: bool = True
 
-        max_failed_iters = 6
+        max_failed_iters = 5
         max_failed_iters_with_best = 3
         max_workers: int = Field(
             psutil.cpu_count(logical=False),
@@ -504,6 +561,8 @@ class Dse(FlowLauncher):
         timer = Timer()
 
         optimizer = self.optimizer
+
+        optimizer.max_failed_iters = self.settings.max_failed_iters
 
         # consecutive "unsuccessfull" iterations where in all runs success == False
         consecutive_failed_iters = 0
@@ -622,6 +681,20 @@ class Dse(FlowLauncher):
                         if hash not in flow_setting_hashes:
                             this_batch.append(s)
                             flow_setting_hashes.add(hash)
+
+                    batch_len = len(batch_settings)
+                    if batch_len < self.settings.max_workers:
+                        log.warning(
+                            "Only %d (out of %d) workers will be utilized.",
+                            batch_len,
+                            self.settings.max_workers,
+                        )
+
+                    log.info(
+                        "Starting iteration #%d with %d parallel executions.",
+                        num_iterations,
+                        batch_len,
+                    )
 
                     future = pool.map(
                         executioner,
