@@ -76,9 +76,10 @@ def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
     return [step * i + a for i in range(n)], step
 
 
-flow_settings_variations: Dict[str, Dict[str, List[str]]] = {
+flow_settings_variations: Dict[str, Dict[str, List[Any]]] = {
     "vivado_synth": {
         "synth.steps.synth_design.args.flatten_hierarchy": ["full"],
+        "synth.STEPS.SYNTH_DESIGN.ARGS.NO_LC": [False, True],
         "synth.strategy": [
             "Flow_AlternateRoutability",
             "Flow_PerfThresholdCarry",
@@ -91,11 +92,12 @@ flow_settings_variations: Dict[str, Dict[str, List[str]]] = {
             "Flow_RunPhysOpt",  # fast
             "Performance_NetDelay_low",
             "Performance_Explore",
-            "Performance_NetDelay_high",  # slow
             "Performance_ExplorePostRoutePhysOpt",  # slow
-            # "Flow_RuntimeOptimized", # fast
             "Performance_Retiming",
             "Performance_RefinePlacement",
+            "Performance_ExploreWithRemap",
+            "Performance_NetDelay_high",  # slow
+            # "Flow_RuntimeOptimized", # fast
         ],
     },
     "vivado_alt_synth": {
@@ -105,8 +107,9 @@ flow_settings_variations: Dict[str, Dict[str, List[str]]] = {
             "Timing",
         ],
         "impl.strategy": [
-            "ExtraTimingAutoPlace1",  # only available since Vivado 2022.1
+            "TimingAutoPlace1",  # only available since Vivado 2022.1
             "ExtraTimingCongestion",
+            "TimingAutoPlace2",  # only available since Vivado 2022.1
             "ExtraTimingAltRouting",
         ],
     },
@@ -147,8 +150,8 @@ class FmaxOptimizer(Optimizer):
         # can be different due to rounding errors, TODO only keep track of periods?
         self.previously_tried_periods = set()
 
-        # task-idx -> {key -> choice}
-        self.variation_choice_for_idx: Dict[int, Dict[str, int]] = {}
+        # array of {key -> choice} choices, indexed by flow idx
+        self.variation_choices: List[Dict[str, int]]
 
         assert isinstance(self.settings, self.Settings)
         assert self.settings.init_freq_high > self.settings.init_freq_low
@@ -284,9 +287,7 @@ class FmaxOptimizer(Optimizer):
         if not self.update_bounds():
             return None
 
-        batch_settings = []
         finder_retries = 0
-
         n = self.max_workers
         if self.num_variations > 1:
             log.info("Generating %d variations", self.num_variations)
@@ -349,54 +350,66 @@ class FmaxOptimizer(Optimizer):
                 delta = finder_retries * random.random() + self.settings.delta
                 self.hi_freq -= delta
                 self.lo_freq = max(0, self.lo_freq - delta)
-                log.warning(
-                    "finder updated range to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq
+                log.debug(
+                    "finder loop updated range to [%0.2f..%0.2f]",
+                    self.lo_freq,
+                    self.hi_freq,
                 )
 
         self.previously_tried_periods.update(clock_periods_to_try)
 
         log.info(
-            f"Trying following frequencies (MHz): {[f'{freq:.2f}' for freq in frequencies]}"
+            "Trying following frequencies (MHz): %s",
+            ", ".join(f"{freq:.2f}" for freq in frequencies),
         )
 
         if self.flow_class:
             assert isinstance(self.base_settings, self.flow_class.Settings)
 
-        # task-idx -> {key -> choice}
-        self.variation_choice_for_idx = {}
+        self.variation_choices = [{} for _ in range(self.num_variations)]
 
         mfi = max(self.max_failed_iters, self.no_improvements)
 
-        def rand_choice(k, val_list, i):
+        def rand_choice(k, val_list, var_idx, task_idx):
+            """
+            k        : settings key name
+            val_list : list of settings value variations
+            var_idx  : variation index
+            task_idx : task index in batch_settings
+            """
             n = len(val_list)
             assert n > 0
             if self.num_variations <= 1 or n == 1:
                 return val_list[0]
             approx_max_score = self.max_workers + mfi
-            score = (i + 1 + self.no_improvements) / approx_max_score
+            score = (var_idx + 1 + self.no_improvements) / approx_max_score
             if score >= 1 or score <= 0:
                 log.warning("[rand_choice] score=%0.3f", score)
             choice_max = min(n - 1, round(n * score))
             # 0 <= choice_max <= n-1
             choice = random.randrange(0, choice_max + 1)
-            if i not in self.variation_choice_for_idx:
-                self.variation_choice_for_idx[i] = {}
-            self.variation_choice_for_idx[i][k] = choice
+            self.variation_choices[task_idx][k] = choice
             return val_list[choice]
 
         base_settings = dict(self.base_settings)
+        batch_settings = []
+        task_idx = 0
         for i in range(self.num_variations):
             for clock_period in clock_periods_to_try:
                 vv = settings_to_dict(
-                    {k: rand_choice(k, v, i) for k, v in self.variations.items() if v},
+                    {
+                        k: rand_choice(k, v, i, task_idx)
+                        for k, v in self.variations.items()
+                        if v
+                    },
                     expand_dict_keys=True,
                 )
                 settings = {**base_settings, "clock_period": clock_period, **vv}
                 batch_settings.append(settings)
+                task_idx += 1
 
         self.improved_idx = None
-        if batch_settings:
-            self.num_iterations += 1
+        self.num_iterations += 1
         return batch_settings
 
     def process_outcome(self, outcome: FlowOutcome, idx: int) -> bool:
@@ -453,14 +466,10 @@ class FmaxOptimizer(Optimizer):
             self.base_settings = outcome.settings
             self.improved_idx = idx
             if self.num_variations > 1:
-                # task-idx -> {key -> choice}
-                var_choices = self.variation_choice_for_idx.get(idx)
-                if var_choices:
-                    for k, i in var_choices.items():
-                        v = self.variations[k]
-                        promote(v, i)
-                        self.variations[k] = v  # TODO: is this needed?
-                if idx > self.max_workers // 2:
+                var_choices = self.variation_choices[idx]
+                for k, i in var_choices.items():
+                    promote(self.variations[k], i)
+                if idx > (self.max_workers + 1) // 2:
                     self.num_variations -= 1
             return True
         else:
