@@ -366,7 +366,12 @@ class FmaxOptimizer(Optimizer):
         if self.flow_class:
             assert isinstance(self.base_settings, self.flow_class.Settings)
 
-        self.variation_choices = [{} for _ in range(self.num_variations)]
+        self.variation_choices = [
+            {}
+            for _ in range(
+                max(self.max_workers, len(clock_periods_to_try) * self.num_variations)
+            )
+        ]
 
         mfi = max(self.max_failed_iters, self.no_improvements)
 
