@@ -373,15 +373,12 @@ class FmaxOptimizer(Optimizer):
             if self.num_variations <= 1 or n == 1:
                 return val_list[0]
             approx_max_score = self.max_workers + mfi
-            score = min(
-                n,
-                round(
-                    (n * (i + 1 + self.no_improvements + random.random()))
-                    / approx_max_score
-                ),
-            )
-            # score is 0..n-1
-            choice = random.randrange(0, score)
+            score = (i + 1 + self.no_improvements) / approx_max_score
+            if score >= 1 or score <= 0:
+                log.warning("[rand_choice] score=%0.3f", score)
+            choice_max = min(n - 1, round(n * score))
+            # 0 <= choice_max <= n-1
+            choice = random.randrange(0, choice_max + 1)
             if i not in self.variation_choice_for_idx:
                 self.variation_choice_for_idx[i] = {}
             self.variation_choice_for_idx[i][k] = choice
@@ -516,8 +513,8 @@ class Dse(FlowLauncher):
         )  # type: ignore
         keep_optimal_run_dirs: bool = True
 
-        max_failed_iters = 5
-        max_failed_iters_with_best = 3
+        max_failed_iters = 6
+        max_failed_iters_with_best = 4
         max_workers: int = Field(
             psutil.cpu_count(logical=False),
             description="Number of parallel executions.",
@@ -647,9 +644,8 @@ class Dse(FlowLauncher):
 
                     if consecutive_failed_iters > self.settings.max_failed_iters:
                         log.info(
-                            "Stopping after %d unsuccessfull iterations (max_failed_iters=%d)",
+                            "Stopping after %d unsuccessfull iterations.",
                             consecutive_failed_iters,
-                            self.settings.max_failed_iters,
                         )
                         break
                     if (
