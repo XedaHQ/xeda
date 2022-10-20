@@ -475,12 +475,16 @@ def settings_to_dict(
 ) -> Dict[str, Any]:
     if not settings:
         return {}
+    if isinstance(settings, str):
+        settings = settings.split(",")
     if isinstance(settings, (tuple, list)):
         res: DictStrHier = {}
         for override in settings:
             sp = override.split("=")
             if len(sp) != 2:
-                raise ValueError("Settings should be in KEY=VALUE format!")
+                raise ValueError(
+                    f"Settings should be in KEY=VALUE format! (value given: {override})"
+                )
             key, val = sp
             set_hierarchy(res, key, try_convert(val, convert_lists=True))
         return res

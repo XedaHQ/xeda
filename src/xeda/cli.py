@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 import click
 import coloredlogs
@@ -222,6 +222,8 @@ def run(
         xeda_run_dir = Path.cwd() / "xeda_run"
     if log_to_file:
         add_file_logger(xeda_run_dir / "Logs")
+    if isinstance(flow_settings, str):
+        flow_settings = flow_settings.split(",")
 
     design, flow_class, accum_flow_settings = prepare(
         flow,
@@ -327,9 +329,9 @@ def list_settings(ctx: click.Context, flow):
     "--flow-settings",
     "--settings",
     metavar="KEY=VALUE...",
-    type=tuple,
+    # type=tuple,
     cls=OptionEatAll,
-    default=tuple(),
+    default=None,
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
     Example: --settings clock_period=2.345 impl.strategy=Debug
     """,
@@ -429,7 +431,7 @@ def list_settings(ctx: click.Context, flow):
 def dse(
     ctx: click.Context,
     flow: str,
-    flow_settings: Tuple[str, ...],
+    flow_settings: Union[None, str, Tuple[str, ...]],
     optimizer: str,
     optimizer_settings: Tuple[str, ...],
     dse_settings: Tuple[str, ...],
@@ -447,6 +449,12 @@ def dse(
     if not xeda_run_dir:
         xeda_run_dir = Path.cwd() / ("xeda_run_" + optimizer)
     add_file_logger(xeda_run_dir / "Logs")
+
+    if isinstance(flow_settings, str):
+        flow_settings = flow_settings.split(",")
+
+    if flow_settings is None:
+        flow_settings = []
 
     design, flow_class, accum_flow_settings = prepare(
         flow,
