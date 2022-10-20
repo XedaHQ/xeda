@@ -315,7 +315,7 @@ class FmaxOptimizer(Optimizer):
         n = self.max_workers
         if self.num_variations > 1:
             log.info("Generating %d variations", self.num_variations)
-            n = n // self.num_variations
+            n = (n + self.num_variations - 1) // self.num_variations  # ceiling
         while True:
             if self.hi_freq <= 0 or self.lo_freq < 0:
                 log.warning(
@@ -390,12 +390,7 @@ class FmaxOptimizer(Optimizer):
         if self.flow_class:
             assert isinstance(self.base_settings, self.flow_class.Settings)
 
-        self.variation_choices = [
-            {}
-            for _ in range(
-                max(self.max_workers, len(clock_periods_to_try) * self.num_variations)
-            )
-        ]
+        self.variation_choices = [{} for _ in range(self.max_workers)]
 
         mfi = max(self.max_failed_iters, self.no_improvements)
 
@@ -436,6 +431,8 @@ class FmaxOptimizer(Optimizer):
                 settings = {**base_settings, "clock_period": clock_period, **vv}
                 batch_settings.append(settings)
                 task_idx += 1
+                if task_idx >= self.max_workers:
+                    break
 
         self.improved_idx = None
         self.num_iterations += 1
@@ -712,6 +709,8 @@ class Dse(FlowLauncher):
                             flow_setting_hashes.add(hash)
 
                     batch_len = len(batch_settings)
+                    batch_len = min(batch_len, self.settings.max_workers)
+                    batch_settings = batch_settings[:batch_len]
                     if batch_len < self.settings.max_workers:
                         log.warning(
                             "Only %d (out of %d) workers will be utilized.",
