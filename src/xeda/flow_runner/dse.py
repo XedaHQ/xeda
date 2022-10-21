@@ -71,10 +71,14 @@ ONE_THOUSAND = 1000.0
 # way more light weight than semantic_hash
 def deep_hash(s) -> int:
     def freeze(d):
+        if isinstance(d, (str, int, bool, tuple, frozenset)):
+            return d
+        if isinstance(d, (list, tuple)):
+            return tuple(freeze(value) for value in d)
         if isinstance(d, dict):
             return frozenset((key, freeze(value)) for key, value in d.items())
-        elif isinstance(d, list):
-            return tuple(freeze(value) for value in d)
+        if isinstance(d, XedaBaseModel) or hasattr(d, "__dict__"):
+            return freeze(dict(d))
         return d
 
     return hash(freeze(s))
@@ -162,7 +166,7 @@ class FmaxOptimizer(Optimizer):
         self.batch_hashes: Set[int] = set()
 
         # array of {key -> choice} choices, indexed by flow idx
-        self.variation_choices: List[Dict[str, int]]
+        self.variation_choices: List[Dict[str, int]] = []
 
         assert isinstance(self.settings, self.Settings)
         assert self.settings.init_freq_high > self.settings.init_freq_low

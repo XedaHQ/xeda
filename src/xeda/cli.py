@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Optional, Tuple, Union
+from attrs import asdict
 
 import click
 import coloredlogs
@@ -142,11 +143,6 @@ def cli(ctx: click.Context, **kwargs):
     help="DO NOT USE!",
     hidden=True,
 )
-# @click.option(
-#     "--force-run",
-#     is_flag=True,
-#     help="Force re-run of flow and all dependencies, even if they are already up-to-date",
-# )
 @click.option(
     "--xedaproject",
     type=click.Path(
@@ -331,9 +327,8 @@ def list_settings(ctx: click.Context, flow):
     "--flow-settings",
     "--settings",
     metavar="KEY=VALUE...",
-    # type=tuple,
-    cls=OptionEatAll,
-    default=None,
+    multiple=True,
+    default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
     Example: --settings clock_period=2.345 impl.strategy=Debug
     """,
@@ -399,16 +394,14 @@ def list_settings(ctx: click.Context, flow):
 @click.option(
     "--dse-settings",
     metavar="KEY=VALUE...",
-    type=tuple,
-    cls=OptionEatAll,
+    multiple=True,
     default=tuple(),
     show_envvar=True,
 )
 @click.option(
     "--optimizer-settings",
     metavar="KEY=VALUE...",
-    type=tuple,
-    cls=OptionEatAll,
+    multiple=True,
     default=tuple(),
     show_envvar=True,
 )
@@ -433,7 +426,7 @@ def list_settings(ctx: click.Context, flow):
 def dse(
     ctx: click.Context,
     flow: str,
-    flow_settings: Union[None, str, Iterable[str]],
+    flow_settings: Tuple[str, ...],
     optimizer: str,
     optimizer_settings: Tuple[str, ...],
     dse_settings: Tuple[str, ...],
@@ -446,23 +439,18 @@ def dse(
     design_file: Optional[str] = None,
 ):
     """Design-space exploration (e.g. fmax)"""
-    # options: XedaOptions = ctx.obj or XedaOptions()
+    options: XedaOptions = ctx.obj or XedaOptions()
 
     if not xeda_run_dir:
         xeda_run_dir = Path.cwd() / ("xeda_run_" + optimizer)
     add_file_logger(xeda_run_dir / "Logs")
-
-    if isinstance(flow_settings, str):
-        flow_settings = flow_settings.split(",")
-    if flow_settings is not None:
-        flow_settings = list(flow_settings)
 
     design, flow_class, accum_flow_settings = prepare(
         flow,
         xedaproject=xedaproject,
         design_name=design_name,
         design_file=design_file,
-        flow_settings=flow_settings,
+        flow_settings=list(flow_settings),
         select_design_in_project=select_design_in_project,
     )
     opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)
@@ -484,6 +472,7 @@ def dse(
         optimizer_class=optimizer,
         optimizer_settings=opt_settings,
         xeda_run_dir=xeda_run_dir,
+        debug=options.debug,
         **dse_settings_dict,
     )
     dse.run_flow(
