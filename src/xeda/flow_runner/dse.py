@@ -261,21 +261,28 @@ class FmaxOptimizer(Optimizer):
                         self.num_variations,
                     )
             else:
-                self.hi_freq = self.lo_freq - resolution
                 if self.hi_freq <= resolution:
                     log.warning("hi_freq < resolution")
                     return False
-                if self.failed_fmax:
-                    self.lo_freq = self.failed_fmax
-                else:
+                if not self.failed_fmax:
                     log.error(
                         "All runs in the previous iteration failed without reporting an Fmax! Please check the flow's logs to determine the reason."
                     )
                     return False
-                    # self.lo_freq = self.hi_freq / (0.7 + self.no_improvements)
 
-                if self.hi_freq - self.lo_freq < resolution:
-                    self.hi_freq = self.lo_freq + max_workers * resolution
+                self.hi_freq = (
+                    max(self.failed_fmax, self.lo_freq)
+                    + max_workers * resolution
+                    + delta
+                )
+
+                if self.no_improvements > 2:
+                    self.lo_freq = self.failed_fmax / (
+                        self.no_improvements + random.random() - 2
+                    )
+                else:
+                    self.lo_freq = self.failed_fmax + delta
+
                 log.info(
                     "Lowering bounds to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq
                 )
@@ -347,9 +354,9 @@ class FmaxOptimizer(Optimizer):
             if self.num_variations <= 1 or vlist_len == 1:
                 return 0
             choice_max = round(
-                (vlist_len * var + random.random()) / self.num_variations
+                ((vlist_len - 1) * var + random.random()) / self.num_variations
             )
-            return random.randrange(0, min(vlist_len, choice_max))
+            return random.randrange(0, min(vlist_len - 1, choice_max) + 1)
 
         base_settings = dict(self.base_settings)
         max_var = 0
