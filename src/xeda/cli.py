@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Iterable, Optional, Tuple, Union
 
 import click
 import coloredlogs
@@ -204,7 +204,7 @@ def run(
     ctx: click.Context,
     flow: str,
     cached_dependencies: bool,
-    flow_settings: Tuple[str, ...],
+    flow_settings: Union[None, str, Iterable[str]],
     run_in_existing_dir: bool = False,
     # force_run: bool = False,
     xeda_run_dir: Optional[Path] = None,
@@ -224,13 +224,15 @@ def run(
         add_file_logger(xeda_run_dir / "Logs")
     if isinstance(flow_settings, str):
         flow_settings = flow_settings.split(",")
+    if flow_settings is not None:
+        flow_settings = list(flow_settings)
 
     design, flow_class, accum_flow_settings = prepare(
         flow,
         xedaproject=xedaproject,
         design_name=design_name,
         design_file=design_file,
-        flow_settings=list(flow_settings) if flow_settings else None,
+        flow_settings=flow_settings,
         select_design_in_project=select_design_in_project,
     )
     if not design or not flow_class:
@@ -431,7 +433,7 @@ def list_settings(ctx: click.Context, flow):
 def dse(
     ctx: click.Context,
     flow: str,
-    flow_settings: Union[None, str, Tuple[str, ...]],
+    flow_settings: Union[None, str, Iterable[str]],
     optimizer: str,
     optimizer_settings: Tuple[str, ...],
     dse_settings: Tuple[str, ...],
@@ -452,16 +454,15 @@ def dse(
 
     if isinstance(flow_settings, str):
         flow_settings = flow_settings.split(",")
-
-    if flow_settings is None:
-        flow_settings = []
+    if flow_settings is not None:
+        flow_settings = list(flow_settings)
 
     design, flow_class, accum_flow_settings = prepare(
         flow,
         xedaproject=xedaproject,
         design_name=design_name,
         design_file=design_file,
-        flow_settings=list(flow_settings),
+        flow_settings=flow_settings,
         select_design_in_project=select_design_in_project,
     )
     opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)

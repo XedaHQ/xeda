@@ -19,13 +19,12 @@ from ..dataclass import Field, XedaBaseModel, validator
 from ..design import Design
 from ..flows.flow import Flow, FlowFatalError
 from ..tool import NonZeroExitCode
-from ..utils import Timer, dump_json, load_class, unique
+from ..utils import Timer, dump_json, load_class
 from . import (
     FlowLauncher,
     add_file_logger,
     get_flow_class,
     print_results,
-    semantic_hash,
     settings_to_dict,
 )
 
@@ -121,7 +120,6 @@ class FmaxOptimizer(Optimizer):
         init_freq_low: float
         init_freq_high: float
         max_luts: Optional[int] = None
-        max_finder_retries = 10
 
         delta: float = 0.001
         resolution: float = 0.2
@@ -148,8 +146,8 @@ class FmaxOptimizer(Optimizer):
         self.num_iterations: int = 0
         self.last_best_freq: float = 0
 
-        # can be different due to rounding errors, TODO only keep track of periods?
-        self.previously_tried_periods = set()
+        # TODO: duplicate
+        self.batch_hashes: Set[int] = set()
 
         # array of {key -> choice} choices, indexed by flow idx
         self.variation_choices: List[Dict[str, int]]
@@ -160,9 +158,13 @@ class FmaxOptimizer(Optimizer):
         self.lo_freq = self.settings.init_freq_low
         assert self.settings.resolution > 0.0
 
+    @staticmethod
+    def get_result_value(res):
+        return res.get("Fmax")
+
     @property
     def best_freq(self) -> Optional[float]:
-        return self.best.results.get("Fmax") if self.best else None
+        return self.get_result_value(self.best.results) if self.best else None
 
     def update_bounds(self) -> bool:
         """
@@ -311,129 +313,77 @@ class FmaxOptimizer(Optimizer):
         if not self.update_bounds():
             return None
 
-        finder_retries = 0
         n = self.max_workers
         if self.num_variations > 1:
             log.info("Generating %d variations", self.num_variations)
             n = (n + self.num_variations - 1) // self.num_variations  # ceiling
-        while True:
-            if self.hi_freq <= 0 or self.lo_freq < 0:
-                log.warning(
-                    "hi_freq(%0.2f) or lo_freq(%0.2f) were not positive!",
-                    self.hi_freq,
-                    self.lo_freq,
+
+        if self.hi_freq <= 0 or self.lo_freq < 0:
+            log.warning(
+                "hi_freq(%0.2f) or lo_freq(%0.2f) were not positive!",
+                self.hi_freq,
+                self.lo_freq,
+            )
+            return None
+
+        def rand_choice(vlist_len: int, var: int) -> int:
+            # var is 1...self.num_variations, inclusive
+            if self.num_variations <= 1 or vlist_len == 1:
+                return 0
+            choice_max = round(
+                (vlist_len * var + random.random()) / self.num_variations
+            )
+            return random.randrange(0, min(vlist_len, choice_max))
+
+        base_settings = dict(self.base_settings)
+        max_var = 0
+        stop = False
+        batch_settings: List[Dict[str, Any]] = []
+        frequencies: List[float] = []
+        while not stop:
+            max_var += 1
+            if max_var > self.num_variations:
+                self.lo_freq += random.random() * self.settings.delta / 2
+                self.hi_freq += (
+                    random.uniform(self.settings.delta, self.settings.resolution) / 2
                 )
-                return None
-            freq_candidates, freq_step = linspace(
+
+            frequencies, freq_step = linspace(
                 self.lo_freq,
                 self.hi_freq,
                 n,
             )
-            log.debug(
-                "[try %d] lo_freq=%0.2f, hi_freq=%0.2f, freq_step=%0.2f",
-                finder_retries,
-                self.lo_freq,
-                self.hi_freq,
-                freq_step,
-            )
-
-            if self.best and n > 1 and freq_step < self.settings.min_freq_step:
-                log.warning(
-                    "Stopping: freq_step=%0.3f is below 'min_freq_step' (%0.3f)",
-                    freq_step,
-                    self.settings.min_freq_step,
-                )
-                return None
-
             self.freq_step = freq_step
 
-            clock_periods_to_try = []
-            frequencies = []
-            for freq in freq_candidates:
+            for freq in frequencies:
                 clock_period = round(ONE_THOUSAND / freq, 3)
-                if clock_period not in self.previously_tried_periods:
-                    clock_periods_to_try.append(clock_period)
-                    frequencies.append(freq)
-
-            clock_periods_to_try = unique(clock_periods_to_try)
-
-            if len(clock_periods_to_try) >= max(1, n - 1):
-                break
-
-            if finder_retries > self.settings.max_finder_retries:
-                log.error("finder failed after %d retries!", finder_retries)
-                return None
-
-            finder_retries += 1
-            if self.best_freq:
-                self.hi_freq += self.settings.delta + (
-                    random.random() * self.settings.resolution
-                )
-                log.debug("finder increased hi_freq to %0.2f", self.hi_freq)
-            else:
-                delta = finder_retries * random.random() + self.settings.delta
-                self.hi_freq -= delta
-                self.lo_freq = max(0, self.lo_freq - delta)
-                log.debug(
-                    "finder loop updated range to [%0.2f..%0.2f]",
-                    self.lo_freq,
-                    self.hi_freq,
-                )
-
-        self.previously_tried_periods.update(clock_periods_to_try)
-
+                choice_indices = {}
+                variations = {}
+                for k, v in self.variations.items():
+                    if v:
+                        choice = rand_choice(len(v), max_var)
+                        choice_indices[k] = choice
+                        variations[k] = v[choice]
+                settings = {
+                    **base_settings,
+                    "clock_period": clock_period,
+                    **settings_to_dict(
+                        variations,
+                        expand_dict_keys=True,
+                    ),
+                }
+                h = hash(settings)
+                if h not in self.batch_hashes:
+                    self.variation_choices.append(choice_indices)
+                    batch_settings.append(settings)
+                    self.batch_hashes.add(h)
+                    if len(batch_settings) >= self.max_workers:
+                        stop = True
+                        break
         log.info(
             "Trying following frequencies (MHz): %s",
             ", ".join(f"{freq:.2f}" for freq in frequencies),
         )
-
-        if self.flow_class:
-            assert isinstance(self.base_settings, self.flow_class.Settings)
-
-        self.variation_choices = [{} for _ in range(self.max_workers)]
-
-        mfi = max(self.max_failed_iters, self.no_improvements)
-
-        def rand_choice(k, val_list, var_idx, task_idx):
-            """
-            k        : settings key name
-            val_list : list of settings value variations
-            var_idx  : variation index
-            task_idx : task index in batch_settings
-            """
-            n = len(val_list)
-            assert n > 0
-            if self.num_variations <= 1 or n == 1:
-                return val_list[0]
-            approx_max_score = self.max_workers + mfi
-            score = (var_idx + 1 + self.no_improvements) / approx_max_score
-            if score >= 1 or score <= 0:
-                log.warning("[rand_choice] score=%0.3f", score)
-            choice_max = min(n - 1, round(n * score))
-            # 0 <= choice_max <= n-1
-            choice = random.randrange(0, choice_max + 1)
-            self.variation_choices[task_idx][k] = choice
-            return val_list[choice]
-
-        base_settings = dict(self.base_settings)
-        batch_settings = []
-        task_idx = 0
-        for i in range(self.num_variations):
-            for clock_period in clock_periods_to_try:
-                vv = settings_to_dict(
-                    {
-                        k: rand_choice(k, v, i, task_idx)
-                        for k, v in self.variations.items()
-                        if v
-                    },
-                    expand_dict_keys=True,
-                )
-                settings = {**base_settings, "clock_period": clock_period, **vv}
-                batch_settings.append(settings)
-                task_idx += 1
-                if task_idx >= self.max_workers:
-                    break
-
         self.improved_idx = None
         self.num_iterations += 1
         return batch_settings
@@ -442,7 +392,7 @@ class FmaxOptimizer(Optimizer):
         """returns True if this was the best result so far"""
         assert isinstance(self.settings, self.Settings)
 
-        freq = outcome.results.get("Fmax")
+        freq = self.get_result_value(outcome.results)
 
         if not outcome.results.success:
             if freq and not self.best:
@@ -652,7 +602,7 @@ class Dse(FlowLauncher):
         )
         log.info("Best results are saved to %s", best_json_path)
 
-        flow_setting_hashes: Set[str] = set()
+        flow_setting_hashes: Set[int] = set()
 
         num_cpus = psutil.cpu_count()
         iterate = True
@@ -703,10 +653,10 @@ class Dse(FlowLauncher):
 
                     this_batch = []
                     for s in batch_settings:
-                        hash = semantic_hash(s)
-                        if hash not in flow_setting_hashes:
+                        hash_value = hash(s)
+                        if hash_value not in flow_setting_hashes:
                             this_batch.append(s)
-                            flow_setting_hashes.add(hash)
+                            flow_setting_hashes.add(hash_value)
 
                     batch_len = len(batch_settings)
                     batch_len = min(batch_len, self.settings.max_workers)

@@ -469,7 +469,7 @@ StrOrDictStrHier = Union[str, DictStrHier]
 
 def settings_to_dict(
     settings: Union[
-        None, List[str], Tuple[str, ...], Dict[str, StrOrDictStrHier], Flow.Settings
+        None, List[str], Tuple[str, ...], Mapping[str, StrOrDictStrHier], Flow.Settings
     ],
     expand_dict_keys: bool = False,
 ) -> Dict[str, Any]:
