@@ -58,7 +58,7 @@ class Optimizer:
         self.failed_fmax: Optional[float] = None  # failed due to negative slack
         self.best: Optional[FlowOutcome] = None
 
-    def next_batch(self) -> Union[None, List[Flow.Settings], List[Dict[str, Any]]]:
+    def next_batch(self) -> Union[None, List[Dict[str, Any]]]:
         ...
 
     def process_outcome(self, outcome: FlowOutcome, idx: int) -> bool:
@@ -66,6 +66,10 @@ class Optimizer:
 
 
 ONE_THOUSAND = 1000.0
+
+
+def dict_hash(d: dict) -> int:
+    return hash(frozenset(d.items()))
 
 
 def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
@@ -307,7 +311,7 @@ class FmaxOptimizer(Optimizer):
         log.debug("Bound set to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq)
         return True
 
-    def next_batch(self) -> Union[None, List[Flow.Settings], List[Dict[str, Any]]]:
+    def next_batch(self) -> Union[None, List[Dict[str, Any]]]:
         assert isinstance(self.settings, self.Settings)
 
         if not self.update_bounds():
@@ -372,7 +376,7 @@ class FmaxOptimizer(Optimizer):
                         expand_dict_keys=True,
                     ),
                 }
-                h = hash(settings)
+                h = dict_hash(settings)
                 if h not in self.batch_hashes:
                     self.variation_choices.append(choice_indices)
                     batch_settings.append(settings)
@@ -653,7 +657,7 @@ class Dse(FlowLauncher):
 
                     this_batch = []
                     for s in batch_settings:
-                        hash_value = hash(s)
+                        hash_value = dict_hash(s)
                         if hash_value not in flow_setting_hashes:
                             this_batch.append(s)
                             flow_setting_hashes.add(hash_value)
