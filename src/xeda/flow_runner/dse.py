@@ -68,8 +68,16 @@ class Optimizer:
 ONE_THOUSAND = 1000.0
 
 
-def dict_hash(d: dict) -> int:
-    return hash(frozenset(d.items()))
+# way more light weight than semantic_hash
+def deep_hash(s) -> int:
+    def freeze(d):
+        if isinstance(d, dict):
+            return frozenset((key, freeze(value)) for key, value in d.items())
+        elif isinstance(d, list):
+            return tuple(freeze(value) for value in d)
+        return d
+
+    return hash(freeze(s))
 
 
 def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
@@ -376,7 +384,7 @@ class FmaxOptimizer(Optimizer):
                         expand_dict_keys=True,
                     ),
                 }
-                h = dict_hash(settings)
+                h = deep_hash(settings)
                 if h not in self.batch_hashes:
                     self.variation_choices.append(choice_indices)
                     batch_settings.append(settings)
@@ -657,7 +665,7 @@ class Dse(FlowLauncher):
 
                     this_batch = []
                     for s in batch_settings:
-                        hash_value = dict_hash(s)
+                        hash_value = deep_hash(s)
                         if hash_value not in flow_setting_hashes:
                             this_batch.append(s)
                             flow_setting_hashes.add(hash_value)
