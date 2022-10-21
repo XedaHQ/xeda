@@ -494,11 +494,17 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         for clock_name, physical_clock in flow_settings.clocks.items():
             if not physical_clock.port:
                 if clock_name not in design.rtl.clocks:
+                    if design.rtl.clocks:
+                        msg = "Physical clock {} has no corresponding clock port in design. Existing clocks: {}".format(
+                            clock_name, ", ".join(c for c in design.rtl.clocks)
+                        )
+                    else:
+                        msg = f"No clock ports specified in 'design.rtl', while physical '{clock_name}' is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
                     raise FlowSettingsError(
                         [
                             (
                                 None,
-                                f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c for c in design.rtl.clocks)}",
+                                msg,
                                 None,
                                 None,
                             )
