@@ -103,7 +103,7 @@ class FileResource:
                 path = _root_path / path
             self.file = path.resolve(strict=True) if resolve else path.absolute()
         except FileNotFoundError as e:
-            log.critical("Design resource '%s' does not exist!", path)
+            log.error("Design resource '%s' does not exist!", path)
             raise e from None
 
     @property
@@ -535,7 +535,6 @@ class Design(XedaBaseModel):
             design_root = Path(design_root)
         if not data.get("_design_root"):
             data["_design_root"] = design_root
-
         with WorkingDirectory(design_root):
             try:
                 super().__init__(**data)
@@ -621,8 +620,11 @@ class Design(XedaBaseModel):
                 data=e.data,
                 design_root=e.design_root,
                 design_name=e.design_name,
-                file=str(design_file),
+                file=str(design_file.absolute()),
             ) from None
+        except Exception as e:
+            log.error("Error processing design file: %s", design_file.absolute())
+            raise e from None
 
     @cached_property
     def rtl_fingerprint(self) -> dict[str, dict[str, str]]:

@@ -25,7 +25,6 @@ from .cli_utils import (
     select_design_in_project,
 )
 from .console import console
-from .design import Design
 from .flow_runner import (
     DefaultRunner,
     XedaOptions,
@@ -47,10 +46,6 @@ from .utils import removeprefix
 install_import_hook("xeda")
 
 log = logging.getLogger(__name__)
-
-
-def load_design_from_toml(design_file) -> Design:
-    return Design.from_toml(design_file)
 
 
 def get_available_flows():

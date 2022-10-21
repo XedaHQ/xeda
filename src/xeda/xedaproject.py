@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -10,6 +11,8 @@ import yaml
 
 from .design import Design
 from .utils import WorkingDirectory, tomllib
+
+log = logging.getLogger(__name__)
 
 
 @attrs.define
@@ -47,10 +50,14 @@ class XedaProject:
         flows = data.get("flow") or data.get("flows", {})
         assert isinstance(flows, dict)
         with WorkingDirectory(file.parent):
-            return cls(  # type: ignore
-                designs=[Design(**d) for d in designs if isinstance(d, dict)],
-                flows=flows,
-            )
+            try:
+                return cls(  # type: ignore
+                    designs=[Design(**d) for d in designs if isinstance(d, dict)],
+                    flows=flows,
+                )
+            except Exception as e:
+                log.error("Error processing project file: %s", file.absolute())
+                raise e from None
 
     @property
     def design_names(self) -> List[str]:

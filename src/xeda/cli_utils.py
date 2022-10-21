@@ -234,7 +234,7 @@ def print_flow_settings(flow, options: XedaOptions):
         req_or_def = (
             "[red]<required>[/red]" if required else fmt_default(field.get("default"))
         )
-        table.add_row(name, typ, req_or_def, desc)
+        table.add_row(name, typ, req_or_def, desc)  # type: ignore
     console.print(table)
 
     for typ_name, typ_def in list(type_defs.items()):

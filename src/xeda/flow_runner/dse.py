@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
 
 import psutil
-from attr import define
+from attrs import define
 from pebble.common import ProcessExpired
 from pebble.pool.process import ProcessPool
 
@@ -491,7 +491,7 @@ class Executioner:
                     results=flow.results,
                     timestamp=flow.timestamp,
                     run_path=flow.run_path,
-                ),
+                ),  # type: ignore
                 idx,
             )
         except FlowFatalError as e:
