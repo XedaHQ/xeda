@@ -8,7 +8,6 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Optional, Tuple, Union
-from attrs import asdict
 
 import click
 import coloredlogs
