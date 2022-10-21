@@ -19,7 +19,7 @@ from ..dataclass import Field, XedaBaseModel, validator
 from ..design import Design
 from ..flows.flow import Flow, FlowFatalError
 from ..tool import NonZeroExitCode
-from ..utils import Timer, dump_json, load_class
+from ..utils import Timer, dump_json, load_class, unique
 from . import (
     FlowLauncher,
     add_file_logger,
@@ -362,7 +362,7 @@ class FmaxOptimizer(Optimizer):
         max_var = 0
         stop = False
         batch_settings: List[Dict[str, Any]] = []
-        frequencies: List[float] = []
+        batch_frequencies: List[float] = []
         while not stop:
             max_var += 1
             if max_var > self.num_variations:
@@ -377,6 +377,7 @@ class FmaxOptimizer(Optimizer):
                 n,
             )
             self.freq_step = freq_step
+            batch_frequencies.extend(frequencies)
 
             for freq in frequencies:
                 clock_period = round(ONE_THOUSAND / freq, 3)
@@ -403,9 +404,10 @@ class FmaxOptimizer(Optimizer):
                     if len(batch_settings) >= self.max_workers:
                         stop = True
                         break
+        batch_frequencies = sorted(unique(batch_frequencies))
         log.info(
             "Trying following frequencies (MHz): %s",
-            ", ".join(f"{freq:.2f}" for freq in frequencies),
+            ", ".join(f"{freq:.2f}" for freq in batch_frequencies),
         )
         self.improved_idx = None
         self.num_iterations += 1
@@ -593,6 +595,13 @@ class Dse(FlowLauncher):
             flow_settings = dict(flow_settings)
 
         optimizer.variations = flow_settings_variations[flow_class.name]
+
+        possible_variations = 1
+        for v in optimizer.variations.values():
+            if v:
+                possible_variations *= len(v)
+
+        log.info("Number of possible setting variations: %d", possible_variations)
 
         base_variation = settings_to_dict(
             {k: v[0] for k, v in optimizer.variations.items() if v},
