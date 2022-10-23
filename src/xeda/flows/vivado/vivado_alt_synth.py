@@ -396,7 +396,9 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         def flatten_dict(d):
             return " ".join(
                 [
-                    f"-{k} {v}" if v is not None and not isinstance(v, bool) else k
+                    f"-{k} {v}"
+                    if v is not None and not isinstance(v, bool)
+                    else f"-{k}"
                     for k, v in d.items()
                     if not isinstance(v, bool) or v
                 ]
