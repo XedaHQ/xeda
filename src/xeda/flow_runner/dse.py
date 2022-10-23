@@ -216,9 +216,7 @@ class FmaxOptimizer(Optimizer):
                 and self.last_improvement < self.settings.variation_min_improv
             ):
                 self.num_variations = self.num_variations + 1
-                log.info(
-                    "Increased number of variations to %d", self.num_variations
-                )
+                log.info("Increased number of variations to %d", self.num_variations)
 
             elif (
                 self.improved_idx > (self.max_workers + 1) // 2
@@ -249,9 +247,7 @@ class FmaxOptimizer(Optimizer):
                     else:
                         # no variations or too many failures, just binary search
                         self.hi_freq = (self.hi_freq + best_freq) / 2 + delta
-                        log.info(
-                            "Lowering hi_freq to %0.2f", self.hi_freq
-                        )
+                        log.info("Lowering hi_freq to %0.2f", self.hi_freq)
                 else:
                     self.hi_freq = best_freq + self.num_variations * resolution
                     log.warning(
