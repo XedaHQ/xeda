@@ -45,6 +45,9 @@ class ExecutableNotFound(ToolException):
         self.tool = tool
         self.path = path
 
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}: Executable '{self.exec}' (for {self.tool}) was not found (PATH={self.path})"
+
 
 class RemoteSettings(XedaBaseModel):
     enabled: bool = False
