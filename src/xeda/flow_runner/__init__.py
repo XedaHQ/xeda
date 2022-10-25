@@ -208,6 +208,10 @@ class FlowLauncher:
             log.root.setLevel(logging.DEBUG)
         self.debug = self.settings.debug
         self.cleanup = self.settings.cleanup
+        if self.settings.run_in_existing_dir:
+            log.error(
+                "run_in_existing_dir should only be used during Xeda's development!"
+            )
 
     def get_flow_run_path(
         self,
@@ -236,10 +240,6 @@ class FlowLauncher:
         flow_settings: Union[None, Dict[str, Any], Flow.Settings],
         depender: Optional[Flow] = None,
     ) -> Flow:
-        if self.settings.run_in_existing_dir:
-            log.error(
-                "run_in_existing_dir should only be used during Xeda's development!"
-            )
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
         if flow_settings is None:
@@ -372,7 +372,7 @@ class FlowLauncher:
                 try:
                     flow.run()
                 except NonZeroExitCode as e:
-                    log.critical(
+                    log.error(
                         "Execution of %s returned %d", e.command_args[0], e.exit_code
                     )
                     success = False
@@ -381,12 +381,11 @@ class FlowLauncher:
                 try:
                     success &= flow.parse_reports()
                 except Exception as e:  # pylint: disable=broad-except
-                    log.critical("parse_reports throw an exception: %s", e)
+                    log.critical("parse_reports threw an exception: %s", e)
                     if success:  # if so far so good this is a bug!
                         raise e from None
-                    success = False
                 if not success:
-                    log.error("Failure was reported in the parsed results.")
+                    log.warning("Failure was reported in the parsed results.")
                 flow.results.success = success
 
         if flow.artifacts and flow.succeeded:
@@ -399,10 +398,6 @@ class FlowLauncher:
             print(f"Generated artifacts in {flow.run_path}:")  # FIXME
             print_json(data=flow.artifacts, default=default_encoder)  # FIXME
 
-        if not success:
-            # set success=false if execution failed
-            log.critical("%s failed!", flow.name)
-
         if self.settings.dump_results_json:
             dump_json(flow.results, results_json)
             log.info("Results written to %s", results_json)
@@ -414,7 +409,7 @@ class FlowLauncher:
                 skip_if_false={"artifacts", "reports"},
             )
         if self.cleanup:
-            log.warning("removing flow run path %s", flow.run_path)
+            log.warning("Removing flow run path %s", flow.run_path)
 
             def on_rmtree_error(*args):
                 log.error("Error while removing %s: %s", flow.run_path, args)

@@ -413,10 +413,12 @@ class FmaxOptimizer(Optimizer):
         """returns True if this was the best result so far"""
         assert isinstance(self.settings, self.Settings)
 
+        best_freq = self.best_freq
+
         fmax = self.get_result_value(outcome.results)
 
         if fmax and not outcome.results.success:
-            if not self.best or fmax > self.best:
+            if not best_freq or fmax > best_freq:
                 # Failed due to negative slack
                 # Keep the Fmax for next iter, if no other runs succeeded
                 if not self.failed_fmax or fmax > self.failed_fmax:
@@ -444,8 +446,6 @@ class FmaxOptimizer(Optimizer):
                     fmax,
                 )
                 return False
-
-        best_freq = self.best_freq
 
         def promote(lst: List[Any], idx: int):
             if idx > 0 and lst:
