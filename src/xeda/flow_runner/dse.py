@@ -91,7 +91,7 @@ def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
     return [step * i + a for i in range(n)], step
 
 
-flow_settings_variations: Dict[str, Dict[str, List[Any]]] = {
+default_variations: Dict[str, Dict[str, List[Any]]] = {
     "vivado_synth": {
         "synth.steps.synth_design.args.flatten_hierarchy": ["full"],
         # "synth.steps.synth_design.args.NO_LC": [False, True],
@@ -136,6 +136,7 @@ class FmaxOptimizer(Optimizer):
         init_freq_low: float
         init_freq_high: float
         max_luts: Optional[int] = None
+        init_num_variations: int = 1
 
         delta: float = 0.001
         resolution: float = 0.2
@@ -157,7 +158,6 @@ class FmaxOptimizer(Optimizer):
         self.no_improvements: int = 0
         self.prev_frequencies = []
         self.freq_step: float = 0.0
-        self.num_variations = 1
         self.last_improvement: float = 0.0
         self.num_iterations: int = 0
         self.last_best_freq: float = 0
@@ -172,6 +172,7 @@ class FmaxOptimizer(Optimizer):
         assert self.settings.init_freq_high > self.settings.init_freq_low
         self.hi_freq = self.settings.init_freq_high
         self.lo_freq = self.settings.init_freq_low
+        self.num_variations = self.settings.init_num_variations
         assert self.settings.resolution > 0.0
 
     @staticmethod
@@ -520,6 +521,7 @@ class Dse(FlowLauncher):
             description="Number of parallel executions.",
         )
         timeout: int = 90 * 60  # in seconds
+        variations: Optional[Dict[str, List[Any]]] = None
 
     def __init__(
         self,
@@ -589,7 +591,10 @@ class Dse(FlowLauncher):
         if isinstance(flow_settings, Flow.Settings):
             flow_settings = dict(flow_settings)
 
-        optimizer.variations = flow_settings_variations[flow_class.name]
+        if self.settings.variations is not None:
+            optimizer.variations = self.settings.variations
+        else:
+            optimizer.variations = default_variations[flow_class.name]
 
         possible_variations = 1
         for v in optimizer.variations.values():
@@ -736,6 +741,7 @@ class Dse(FlowLauncher):
                                             optimizer_settings=optimizer.settings,
                                             num_iterations=num_iterations,
                                             consecutive_failed_iters=consecutive_failed_iters,
+                                            design=design,
                                         ),
                                         best_json_path,
                                         backup_previous=False,
