@@ -413,20 +413,20 @@ class FmaxOptimizer(Optimizer):
         """returns True if this was the best result so far"""
         assert isinstance(self.settings, self.Settings)
 
-        freq = self.get_result_value(outcome.results)
+        fmax = self.get_result_value(outcome.results)
 
-        if not outcome.results.success:
-            if freq and not self.best:
+        if fmax and not outcome.results.success:
+            if not self.best or fmax > self.best:
                 # Failed due to negative slack
                 # Keep the Fmax for next iter, if no other runs succeeded
-                if not self.failed_fmax or self.failed_fmax < freq:
+                if not self.failed_fmax or fmax > self.failed_fmax:
                     log.info(
-                        "Flow #%d failed, but Fmax=%0.2f was suggested.", idx, freq
+                        "Flow #%d failed, but Fmax=%0.2f was suggested.", idx, fmax
                     )
-                    self.failed_fmax = freq
+                    self.failed_fmax = fmax
             return False
 
-        if freq is None:
+        if fmax is None:
             log.error(
                 "Flow #%d: No valid 'Fmax' in the results! run_path=%s",
                 idx,
@@ -441,7 +441,7 @@ class FmaxOptimizer(Optimizer):
                     "Used LUTs %s larger than maximum allowed %s. Fmax: %s",
                     lut,
                     self.settings.max_luts,
-                    freq,
+                    fmax,
                 )
                 return False
 
@@ -451,10 +451,10 @@ class FmaxOptimizer(Optimizer):
             if idx > 0 and lst:
                 lst.insert(0, lst.pop(idx))
 
-        if best_freq is None or freq > best_freq:
+        if best_freq is None or fmax > best_freq:
             log.info(
                 "New maximum frequency: %0.2f MHz",
-                freq,
+                fmax,
             )
             self.best = outcome
             self.base_settings = outcome.settings
@@ -465,7 +465,11 @@ class FmaxOptimizer(Optimizer):
                     promote(self.variations[k], i)
             return True
         else:
-            log.debug("Lower Fmax: %0.2f than the current best: %0.2f", freq, best_freq)
+            log.debug(
+                "Reported Fmax (%0.2f) is lower than the current best (%0.2f)",
+                fmax,
+                best_freq,
+            )
             return False
 
 
@@ -492,17 +496,20 @@ class Executioner:
                 ),  # type: ignore
                 idx,
             )
+        except KeyboardInterrupt:
+            log.exception("KeyboardInterrupt received during the execution of flow")
         except FlowFatalError as e:
-            log.warning(f"[Run Thread] Fatal exception during flow: {e}")
+            log.warning("Fatal exception during execution of flow: %s", e)
             traceback.print_exc()
-            log.warning("[Run Thread] Continuing")
-        except KeyboardInterrupt as e:
-            log.exception("[Run Thread] KeyboardInterrupt received during flow")
             raise e
         except NonZeroExitCode as e:
-            log.warning(f"[Run Thread] {e}")
+            log.warning("%s", e)
         except Exception as e:
-            log.exception(f"Exception: {e}")
+            log.error(
+                "Received exception during the execution of flow, but will continue: %s",
+                e,
+            )
+            traceback.print_exc()
         return None, idx
 
 
