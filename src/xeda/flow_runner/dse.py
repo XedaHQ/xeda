@@ -266,18 +266,14 @@ class FmaxOptimizer(Optimizer):
                     )
                     return False
 
+                self.lo_freq = self.failed_fmax / (
+                    self.no_improvements * random.random() + 1
+                )
                 self.hi_freq = (
-                    max(self.failed_fmax, self.lo_freq)
-                    + max_workers * resolution
+                    self.lo_freq
+                    + max_workers * resolution * random.uniform(0.75, 1)
                     + delta
                 )
-
-                if self.no_improvements > 2:
-                    self.lo_freq = self.failed_fmax / (
-                        self.no_improvements + random.random() - 2
-                    )
-                else:
-                    self.lo_freq = self.failed_fmax + delta
 
                 log.info(
                     "Lowering bounds to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq
