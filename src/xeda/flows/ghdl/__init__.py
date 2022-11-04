@@ -72,8 +72,8 @@ class Ghdl(Flow, metaclass=ABCMeta):
             "--warn-runtime-error",
             "--warn-body",
             "--warn-specs",
-            "--warn-unused",
-            "--warn-static",
+            "--warn-no-hide",
+            # "--warn-static",
             "--warn-parenthesis",
         ]
         werror: bool = Field(
