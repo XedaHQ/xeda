@@ -509,7 +509,9 @@ def prepare(
         xedaproject = "xedaproject.toml"
     if Path(xedaproject).exists():
         try:
-            xeda_project = XedaProject.from_file(xedaproject)
+            xeda_project = XedaProject.from_file(
+                xedaproject, skip_designs=design_file is not None
+            )
         except DesignValidationError as e:
             log.critical("%s", e)
             return None, None, flows_settings

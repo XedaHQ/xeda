@@ -23,7 +23,7 @@ class XedaProject:
     flows: Dict[str, dict]  # = attrs.field(default={}, validator=type_validator())
 
     @classmethod
-    def from_file(cls, file: Union[str, os.PathLike, Path]):
+    def from_file(cls, file: Union[str, os.PathLike, Path], skip_designs: bool = False):
         """load xedaproject from file"""
         if not isinstance(file, Path):
             file = Path(file)
@@ -41,18 +41,21 @@ class XedaProject:
                 )
         if not isinstance(data, dict) or not data:
             raise ValueError("Invalid xedaproject!")
-        designs = data.get("design") or data.get("designs")
-        if not isinstance(designs, list):
-            designs = [designs]
-        if not designs:
-            raise ValueError("No designs found in the xedaproject file!")
+        designs = None
+        if not skip_designs:
+            designs = data.get("design") or data.get("designs")
+        if designs:
+            if not isinstance(designs, list):
+                designs = [designs]
 
         flows = data.get("flow") or data.get("flows", {})
         assert isinstance(flows, dict)
         with WorkingDirectory(file.parent):
             try:
                 return cls(  # type: ignore
-                    designs=[Design(**d) for d in designs if isinstance(d, dict)],
+                    designs=[Design(**d) for d in designs if isinstance(d, dict)]
+                    if designs
+                    else [],
                     flows=flows,
                 )
             except Exception as e:
