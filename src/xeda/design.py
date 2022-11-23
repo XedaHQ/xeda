@@ -533,6 +533,7 @@ class Design(XedaBaseModel):
         assert design_root
         if not isinstance(design_root, Path):
             design_root = Path(design_root)
+        design_root = design_root.resolve()
         if not data.get("_design_root"):
             data["_design_root"] = design_root
         with WorkingDirectory(design_root):
@@ -564,14 +565,21 @@ class Design(XedaBaseModel):
                 if not self.tb.top and dep_design.tb.top:
                     self.tb.top = dep_design.tb.top
 
+    def sources_of_type(self, *source_types, rtl=True, tb=True) -> List[DesignSource]:
+        source_types_str = [str(st).lower() for st in source_types]
+        sources = []
+        if rtl:
+            sources.extend(self.rtl.sources)
+        if tb:
+            sources.extend(
+                [src for src in self.tb.sources if src not in self.rtl.sources]
+            )
+        return [src for src in sources if str(src.type).lower() in source_types_str]
+
     def sim_sources_of_type(self, *source_types) -> List[DesignSource]:
         if not self.tb:
             return []
-        source_types_str = [str(st).lower() for st in source_types]
-        sources = self.rtl.sources + [
-            src for src in self.tb.sources if src not in self.rtl.sources
-        ]
-        return [src for src in sources if str(src.type).lower() in source_types_str]
+        return self.sources_of_type(*source_types, rtl=True, tb=True)
 
     @property
     def sim_sources(self) -> List[DesignSource]:
