@@ -208,10 +208,6 @@ class FlowLauncher:
             log.root.setLevel(logging.DEBUG)
         self.debug = self.settings.debug
         self.cleanup = self.settings.cleanup
-        if self.settings.run_in_existing_dir:
-            log.error(
-                "run_in_existing_dir should only be used during Xeda's development!"
-            )
 
     def get_flow_run_path(
         self,
@@ -317,7 +313,7 @@ class FlowLauncher:
         if not previous_results:
             if not self.settings.run_in_existing_dir and run_path.exists():
                 backup_existing(run_path)
-            run_path.mkdir(parents=True)
+            run_path.mkdir(parents=True, exist_ok=self.settings.run_in_existing_dir)
 
             if self.settings.dump_settings_json:
                 log.info("dumping effective settings to %s", settings_json)
@@ -373,7 +369,9 @@ class FlowLauncher:
                     flow.run()
                 except NonZeroExitCode as e:
                     log.error(
-                        "Execution of %s returned %d", e.command_args[0], e.exit_code
+                        "Execution of '%s' returned %d",
+                        " ".join(e.command_args),
+                        e.exit_code,
                     )
                     success = False
                 if flow.init_time is not None:
