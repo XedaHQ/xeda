@@ -66,9 +66,11 @@ class Cocotb(CocotbSettings, Tool):
                 self.sim_name,
             )
         else:
-            so_path = (
-                self.run_get_stdout("--prefix")
-                + f"/cocotb/libs/libcocotbvpi_{self.sim_name}.{so_ext}"
+            so_path = os.path.join(
+                self.run_get_stdout("--prefix"),
+                "cocotb",
+                "libs",
+                f"libcocotbvpi_{self.sim_name}.{so_ext}",
             )
 
         log.info("cocotb.vpi_path: %s", so_path)
@@ -81,7 +83,9 @@ class Cocotb(CocotbSettings, Tool):
                 raise ValueError(
                     "'design.tb.cocotb' is true, but 'design.tb.sources' is empty."
                 )
-            assert design.tb.top, "tb.top was not set by the parent SimFlow"
+            if not design.tb.top:
+                assert design.rtl.top
+                design.tb.top = (design.rtl.top,)
             coco_module = design.tb.sources[0].file.stem
             tb_top_path = design.tb.sources[0].file.parent
             ppath = []
