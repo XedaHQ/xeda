@@ -576,7 +576,7 @@ class Design(XedaBaseModel):
             )
         return [src for src in sources if str(src.type).lower() in source_types_str]
 
-    def sim_sources_of_type(self, *source_types) -> List[DesignSource]:
+    def sim_sources_of_type(self, *source_types: Union[str, SourceType]) -> List[DesignSource]:
         if not self.tb:
             return []
         return self.sources_of_type(*source_types, rtl=True, tb=True)
