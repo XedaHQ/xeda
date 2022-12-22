@@ -8,9 +8,8 @@ from pathlib import Path
 from sys import stderr
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from .command_runner import command_runner  # type: ignore
 from .dataclass import Field, XedaBaseModeAllowExtra, XedaBaseModel, validator
-from .utils import cached_property, unique
+from .utils import cached_property
 
 log = logging.getLogger(__name__)
 
@@ -160,7 +159,6 @@ def run_process(
     check: bool = True,
     cwd: OptionalPath = None,
     tool_name: str = "",
-    use_cr: bool = False,
 ) -> Union[None, str]:
     if args is None:
         args = []
@@ -170,9 +168,7 @@ def run_process(
     log.debug("Running `%s`", " ".join(map(lambda x: str(x), [executable, *args])))
     if cwd:
         log.debug("cwd=%s", cwd)
-    if stdout and isinstance(stdout, bool):
-        use_cr = False
-    if not use_cr and stdout and isinstance(stdout, (str, os.PathLike)):
+    if stdout and isinstance(stdout, (str, os.PathLike)):
         stdout = Path(stdout)
 
         def cm_call():
@@ -182,66 +178,54 @@ def run_process(
         cm = cm_call
     else:
         cm = contextlib.nullcontext
-    if use_cr:
-        valid_exit_codes = None
-        if check:
-            valid_exit_codes = [0]
-        command_runner(
-            [executable, *args],
-            valid_exit_codes=valid_exit_codes,
-            live_output=True,
-            stdout=stdout,
-        )
-    else:
-        with cm() as f:
-            try:
-                with subprocess.Popen(
-                    [executable, *args],
-                    cwd=cwd,
-                    shell=False,
-                    stdout=f if f else subprocess.PIPE if stdout else None,
-                    bufsize=1,
-                    universal_newlines=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    env=env,
-                ) as proc:
-                    log.info("Started %s[%d]", executable, proc.pid)
+
+    with cm() as f:
+        try:
+            with subprocess.Popen(
+                [executable, *args],
+                cwd=cwd,
+                shell=False,
+                stdout=f if f else subprocess.PIPE if stdout else None,
+                bufsize=1,
+                universal_newlines=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            ) as proc:
+                log.info("Started %s[%d]", executable, proc.pid)
+                try:
+                    if stdout:
+                        if isinstance(stdout, bool):
+                            out, err = proc.communicate(timeout=None)
+                            if check and proc.returncode != 0:
+                                raise NonZeroExitCode(proc.args, proc.returncode)
+                            if err:
+                                print(err, file=stderr)
+                            return out.strip()
+                        else:
+                            log.info(
+                                "Standard output is redirected to: %s",
+                                os.path.abspath(stdout),
+                            )
+                    proc.wait()
+                except KeyboardInterrupt as e:
                     try:
-                        if stdout:
-                            if isinstance(stdout, bool):
-                                out, err = proc.communicate(timeout=None)
-                                if check and proc.returncode != 0:
-                                    raise NonZeroExitCode(proc.args, proc.returncode)
-                                if err:
-                                    print(err, file=stderr)
-                                return out.strip()
-                            else:
-                                log.info(
-                                    "Standard output is redirected to: %s",
-                                    os.path.abspath(stdout),
-                                )
+                        # log.warning(
+                        #     "[Tool] Received KeyboardInterrupt! Terminating %s(pid=%s)",
+                        #     executable,
+                        #     proc.pid,
+                        # )
+                        proc.terminate()
+                    except OSError as e2:
+                        log.warning("Terminate failed: %s", e2)
+                    finally:
                         proc.wait()
-                    except KeyboardInterrupt as e:
-                        try:
-                            # log.warning(
-                            #     "[Tool] Received KeyboardInterrupt! Terminating %s(pid=%s)",
-                            #     executable,
-                            #     proc.pid,
-                            # )
-                            proc.terminate()
-                        except OSError as e2:
-                            log.warning("Terminate failed: %s", e2)
-                        finally:
-                            proc.wait()
-                            raise e from None
-                if check and proc.returncode != 0:
-                    raise NonZeroExitCode(proc.args, proc.returncode)
-            except FileNotFoundError as e:
-                path = (
-                    env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
-                )
-                raise ExecutableNotFound(e.filename, tool_name, path, *e.args) from None
+                        raise e from None
+            if check and proc.returncode != 0:
+                raise NonZeroExitCode(proc.args, proc.returncode)
+        except FileNotFoundError as e:
+            path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
+            raise ExecutableNotFound(e.filename, tool_name, path, *e.args) from None
     return None
 
 
@@ -301,7 +285,7 @@ class Tool(XedaBaseModeAllowExtra):
 
     executable: str
     minimum_version: Union[None, Tuple[Union[int, str], ...]] = None
-    default_args: Optional[List[str]] = None
+    default_args: List[str] = []
 
     remote: Optional[RemoteSettings] = Field(None)
     docker: Optional[Docker] = Field(None)
@@ -380,8 +364,6 @@ class Tool(XedaBaseModeAllowExtra):
         check: bool = True,
         cwd: OptionalPath = None,
     ):
-        # FIXME broken
-        # use_cr = self.use_cr and (not stdout or not isinstance(stdout, bool))
         return run_process(
             self.executable,
             args,
@@ -390,7 +372,6 @@ class Tool(XedaBaseModeAllowExtra):
             check=check,
             cwd=cwd,
             tool_name=self.__class__.__name__,
-            use_cr=False,
         )
 
     def _run_system(
@@ -490,8 +471,7 @@ class Tool(XedaBaseModeAllowExtra):
     ) -> Union[None, str]:
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
-        if self.default_args:
-            args = tuple(unique(self.default_args + list(args)))
+        args = tuple(list(self.default_args) + list(args))
         if self.remote and self.remote.enabled:
             self._run_remote(*args, env=env, stdout=stdout, check=check)
             return None

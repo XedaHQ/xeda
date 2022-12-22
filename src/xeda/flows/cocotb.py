@@ -57,6 +57,25 @@ class Cocotb(CocotbSettings, Tool):
 
     """Not a stand-alone tool, but is used from a SimFlow"""
 
+    @cached_property
+    def prefix(self) -> str:
+        return self.run_get_stdout("--prefix")
+
+    @cached_property
+    def share_dir(self) -> str:
+        return self.run_get_stdout("--share")
+
+    @cached_property
+    def lib_dir(self) -> str:
+        return self.run_get_stdout("--lib-dir")
+
+    @cached_property
+    def vpi_lib_name(self) -> str:
+        return self.get_lib_name(self.sim_name)
+
+    def get_lib_name(self, simulator, interface="vpi") -> str:
+        return self.run_get_stdout("--lib_name", interface, simulator)
+
     def vpi_path(self) -> str:
         so_ext = "so"  # TODO windows?
         if self.version_gte(1, 6):
@@ -67,7 +86,7 @@ class Cocotb(CocotbSettings, Tool):
             )
         else:
             so_path = os.path.join(
-                self.run_get_stdout("--prefix"),
+                self.prefix,
                 "cocotb",
                 "libs",
                 f"libcocotbvpi_{self.sim_name}.{so_ext}",

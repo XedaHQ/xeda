@@ -344,7 +344,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
     cocotb_sim_name: Optional[str] = None
 
     class Settings(Flow.Settings):
-        vcd: Optional[str] = None
+        vcd: Union[None, os.PathLike, Path] = None
         stop_time: Union[None, str, int, float] = None
         cocotb: CocotbSettings = (
             CocotbSettings()
@@ -354,11 +354,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
         @validator("vcd", pre=True)
         def _validate_vcd(cls, vcd):  # pylint: disable=no-self-argument
             if vcd is not None:
-                if isinstance(vcd, bool) or not vcd:
-                    vcd = "dump.vcd" if vcd else None
+                if isinstance(vcd, bool) and vcd is True:
+                    vcd = "dump.vcd"
                 else:
-                    assert isinstance(vcd, str), "`vcd` file name should be string"
-                    if vcd[1:].count(".") == 0:  # if it doesn't have an extension
+                    if (
+                        isinstance(vcd, str) and vcd[1:].count(".") == 0
+                    ):  # if it doesn't have an extension
                         vcd += ".vcd"
             return vcd
 

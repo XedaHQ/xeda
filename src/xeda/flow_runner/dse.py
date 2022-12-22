@@ -63,6 +63,7 @@ class Optimizer:
 
     def process_outcome(self, outcome: FlowOutcome, idx: int) -> bool:
         ...
+        return True
 
 
 ONE_THOUSAND = 1000.0
