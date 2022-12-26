@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ...dataclass import validator
-from ..flow import FpgaSynthFlow
+from ...flow import FpgaSynthFlow
 from .vivado_synth import RunOptions, VivadoSynth
 
 log = logging.getLogger(__name__)

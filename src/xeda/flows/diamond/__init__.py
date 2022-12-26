@@ -3,7 +3,7 @@ from typing import List, Literal, Optional
 
 from ...dataclass import validator
 from ...tool import Tool
-from ..flow import FpgaSynthFlow
+from ...flow import FpgaSynthFlow
 
 log = logging.getLogger(__name__)
 

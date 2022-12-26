@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from ...dataclass import Field
 from ...utils import SDF
-from ..flow import SimFlow
+from ...sim_flow import SimFlow
 from ..vivado import Vivado
 
 log = logging.getLogger(__name__)

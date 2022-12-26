@@ -4,7 +4,7 @@ from typing import Mapping, Union
 
 from ...tool import Tool
 from ...utils import try_convert
-from ..flow import FpgaSynthFlow
+from ...flow import FpgaSynthFlow
 
 logger = logging.getLogger(__name__)
 

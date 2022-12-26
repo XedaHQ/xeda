@@ -8,7 +8,7 @@ from ..board import WithFpgaBoardSettings, get_board_data, get_board_file_path
 from ..dataclass import Field, XedaBaseModel, validator
 from ..tool import Tool
 from ..utils import setting_flag
-from .flow import FlowFatalError, FpgaSynthFlow
+from ..flow import FlowFatalError, FpgaSynthFlow
 from .yosys import YosysSynth
 
 __all__ = ["Nextpnr"]

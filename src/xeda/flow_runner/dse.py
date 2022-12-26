@@ -17,7 +17,7 @@ from pebble.pool.process import ProcessPool
 
 from ..dataclass import Field, XedaBaseModel, validator
 from ..design import Design
-from ..flows.flow import Flow, FlowFatalError
+from ..flow import Flow, FlowFatalError
 from ..tool import NonZeroExitCode
 from ..utils import Timer, dump_json, load_class, unique
 from . import (

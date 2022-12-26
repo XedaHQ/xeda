@@ -6,7 +6,7 @@ from pathlib import Path
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoSynth
-from xeda.flows.flow import FPGA
+from xeda.flow import FPGA
 from xeda.flows.vivado.vivado_synth import parse_hier_util, vivado_synth_generics
 
 TESTS_DIR = Path(__file__).parent.absolute()

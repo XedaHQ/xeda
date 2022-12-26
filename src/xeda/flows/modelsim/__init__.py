@@ -4,7 +4,7 @@ from typing import Optional
 
 from ...tool import Tool
 from ...utils import SDF
-from ..flow import SimFlow
+from ...sim_flow import SimFlow
 
 
 class Modelsim(SimFlow):

@@ -67,7 +67,14 @@ class Cocotb(CocotbSettings, Tool):
 
     @cached_property
     def lib_dir(self) -> str:
-        return self.run_get_stdout("--lib-dir")
+        if self.version_gte(1, 6):
+            return self.run_get_stdout("--lib-dir")
+        else:
+            return os.path.join(
+                self.prefix,
+                "cocotb",
+                "libs",
+            )
 
     @cached_property
     def vpi_lib_name(self) -> str:

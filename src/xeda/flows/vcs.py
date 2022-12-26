@@ -3,7 +3,7 @@ from copy import deepcopy
 from typing import List, Optional
 
 from ..tool import Tool
-from .flow import SimFlow
+from ..sim_flow import SimFlow
 
 log = logging.getLogger(__name__)
 

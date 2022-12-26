@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Dict
 
-from xeda.flows.flow import Cocotb
+from xeda.flows.cocotb import Cocotb
 from xeda.utils import WorkingDirectory
 
 TESTS_DIR = Path(__file__).parent.absolute()

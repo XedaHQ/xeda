@@ -1,4 +1,5 @@
 import contextlib
+import inspect
 import logging
 import os
 import re
@@ -8,8 +9,9 @@ from pathlib import Path
 from sys import stderr
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from .dataclass import Field, XedaBaseModeAllowExtra, XedaBaseModel, validator
+from .dataclass import Field, XedaBaseModel, validator
 from .utils import cached_property
+from .flow import Flow
 
 log = logging.getLogger(__name__)
 
@@ -63,13 +65,16 @@ OptionalBoolOrPath = Union[None, bool, str, os.PathLike]
 
 
 class Docker(XedaBaseModel):
-    enabled: bool = False
     command: List[str] = []
-    platform: Optional[str]
+    platform: Optional[str] = Field(
+        None,
+        description="Set platform (e.g. 'linux/amd64'), if server is multi-platform capable",
+    )
     image: str = Field(description="Docker image name")
-    tag: str = Field("latest", description="Docker image tag")
+    tag: Optional[str] = Field("latest", description="Docker image tag")
     registry: Optional[str] = Field(None, description="Docker image registry")
     mounts: Dict[str, str] = {}
+    priviledged: bool = True
 
     # TODO this is only for a Linux container
     @cached_property
@@ -127,6 +132,9 @@ class Docker(XedaBaseModel):
             "--rm",
             f"--workdir={cwd}",
         ]
+
+        if self.priviledged:
+            docker_args.append("--privileged")
         self.mounts[str(cwd)] = str(cwd)
         if root_dir:
             self.mounts[str(root_dir)] = str(root_dir)
@@ -141,9 +149,12 @@ class Docker(XedaBaseModel):
             with open(env_file, "w") as f:
                 f.write("\n".join(f"{k}={v}" for k, v in env.items()))
             docker_args.extend(["--env-file", str(env_file)])
+        image = self.image
+        if self.tag:
+            image += self.tag
         return run_process(
             "docker",
-            ["run", *docker_args, f"{self.image}:{self.tag}", *args],
+            ["run", *docker_args, image, *args],
             env=None,
             stdout=stdout,
             check=check,
@@ -192,7 +203,7 @@ def run_process(
                 errors="replace",
                 env=env,
             ) as proc:
-                log.info("Started %s[%d]", executable, proc.pid)
+                log.debug("Started %s[%d]", executable, proc.pid)
                 try:
                     if stdout:
                         if isinstance(stdout, bool):
@@ -280,7 +291,7 @@ def _run_processes(commands: List[List[str]], cwd: OptionalPath = None) -> None:
             raise Exception(f"Process exited with return code {p.returncode}")
 
 
-class Tool(XedaBaseModeAllowExtra):
+class Tool(XedaBaseModel):
     """abstraction for an EDA tool"""
 
     executable: str
@@ -294,17 +305,46 @@ class Tool(XedaBaseModeAllowExtra):
     )
     bin_path: str = Field(None, description="Path to the tool binary")
     design_root: Optional[Path] = None
+    dockerized: bool = False
+    print_command: bool = True
 
-    def __init__(self, executable: Optional[str] = None, **kwargs):
+    def __init__(
+        self,
+        executable: Optional[str] = None,
+        flow: Optional[Flow] = None,
+        **kwargs,
+    ):
         if executable:
             assert "executable" not in kwargs, "executable specified twice"
             kwargs["executable"] = executable
+        if flow is None:
+            for s in inspect.stack(0)[1:]:
+                caller_inst = s.frame.f_locals.get("self")
+                if isinstance(caller_inst, Flow):
+                    flow = caller_inst
+
         super().__init__(**kwargs)
+
+        if flow is not None:
+            self.design_root = flow.design_root
+            self.dockerized = flow.settings.dockerized
+            self.print_command = flow.settings.print_commands
+        if self.design_root and self.docker:
+            self.docker.mounts[str(self.design_root)] = str(self.design_root)
 
     @validator("docker", pre=True, always=True)
     def validate_docker(cls, value, values):
+        default_args = values.get("default_args", [])
+        command = [values.get("executable"), *default_args]
+        if isinstance(value, str):
+            split = value.split(":")
+            value = Docker(
+                image=split[0],
+                tag=split[1] if len(split) > 1 else None,
+                command=command,
+            )
         if value and not value.command:
-            value.command = [values.get("executable")]
+            value.command = command
         return value
 
     @cached_property
@@ -472,10 +512,17 @@ class Tool(XedaBaseModeAllowExtra):
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
         args = tuple(list(self.default_args) + list(args))
+        exec_name = (
+            f"[docker] {self.executable}"
+            if self.docker and self.dockerized
+            else self.executable
+        )
+        if self.print_command:
+            print(exec_name, *args)
         if self.remote and self.remote.enabled:
             self._run_remote(*args, env=env, stdout=stdout, check=check)
             return None
-        if self.docker and self.docker.enabled:
+        if self.docker and self.dockerized:
             return self.docker.run(
                 *args, env=env, stdout=stdout, check=check, root_dir=self.design_root
             )
@@ -494,5 +541,10 @@ class Tool(XedaBaseModeAllowExtra):
     ) -> None:
         self.run(*args, env=env, stdout=redirect_to)
 
-    def update(self, **kwargs) -> "Tool":
-        return self.copy(update=kwargs)
+    def new_exec(self, executable, **kwargs) -> "Tool":
+        r = self.copy(update=kwargs)
+        r.default_args = []
+        r.executable = executable
+        if r.docker:
+            r.docker.command = [executable]
+        return r

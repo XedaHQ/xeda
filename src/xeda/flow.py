@@ -14,9 +14,8 @@ import jinja2
 import psutil
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
-from typeguard import typechecked
 
-from ..dataclass import (
+from .dataclass import (
     Field,
     ValidationError,
     XedaBaseModel,
@@ -24,11 +23,9 @@ from ..dataclass import (
     validation_errors,
     validator,
 )
-from ..design import Design
-from ..fpga import FPGA
-from ..tool import Tool
-from ..utils import camelcase_to_snakecase, regex_match, try_convert, unique
-from .cocotb import Cocotb, CocotbSettings
+from .design import Design
+from .fpga import FPGA
+from .utils import camelcase_to_snakecase, regex_match, try_convert, unique
 
 log = logging.getLogger(__name__)
 
@@ -37,9 +34,7 @@ __all__ = [
     "Flow",
     "FlowSettingsError",
     "FlowFatalError",
-    "SimFlow",
     "SynthFlow",
-    "Tool",
 ]
 
 
@@ -50,7 +45,6 @@ DictStrPath = Dict[str, Union[str, os.PathLike]]
 FlowType = TypeVar("FlowType", bound="Flow")
 
 
-@typechecked
 class Flow(metaclass=ABCMeta):
     """A flow may run one or more tools and is associated with a single set of settings and a single design.
     All tool executables should be available on the installed system or on the same docker image."""
@@ -108,6 +102,7 @@ class Flow(metaclass=ABCMeta):
             description="Additional libraries specified as a list of (name, path) tuples. Either name or path can be none. A single string or a list of string is converted to a mapping of library names without paths",
         )
         dockerized: bool = Field(False, description="Run tools from docker")
+        print_commands: bool = Field(True, description="Print executed commands")
 
         @validator("lib_paths", pre=True)
         def _lib_paths_validator(cls, value):  # pylint: disable=no-self-argument
@@ -131,11 +126,6 @@ class Flow(metaclass=ABCMeta):
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
-
-    def run_tool(self, tool: Tool, *args: Any, env: Optional[Dict[str, Any]] = None):
-        """run a tool"""
-        tool.design_root = self.design_root
-        tool.run(*args, env=env)
 
     @property
     def succeeded(self) -> bool:
@@ -191,12 +181,15 @@ class Flow(metaclass=ABCMeta):
             lstrip_blocks=lstrip_blocks,
         )
 
+    @property
+    def design_root(self):
+        return self.design._design_root
+
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         self.run_path = run_path
         self.settings = settings
         assert isinstance(self.settings, self.Settings)
         self.design: Design = design
-        self.design_root = design._design_root
 
         self.init_time: Optional[float] = None
         self.timestamp: Optional[str] = None
@@ -336,46 +329,6 @@ class Flow(metaclass=ABCMeta):
         if self.design._design_root and not path.is_absolute():
             path = self.design._design_root / path
         return path
-
-
-class SimFlow(Flow, metaclass=ABCMeta):
-    """superclass of all simulation flows"""
-
-    cocotb_sim_name: Optional[str] = None
-
-    class Settings(Flow.Settings):
-        vcd: Union[None, os.PathLike, Path] = None
-        stop_time: Union[None, str, int, float] = None
-        cocotb: CocotbSettings = (
-            CocotbSettings()
-        )  # pyright: reportGeneralTypeIssues=none
-        optimization_flags: List[str] = Field([], description="Optimization flags")
-
-        @validator("vcd", pre=True)
-        def _validate_vcd(cls, vcd):  # pylint: disable=no-self-argument
-            if vcd is not None:
-                if isinstance(vcd, bool) and vcd is True:
-                    vcd = "dump.vcd"
-                else:
-                    if (
-                        isinstance(vcd, str) and vcd[1:].count(".") == 0
-                    ):  # if it doesn't have an extension
-                        vcd += ".vcd"
-            return vcd
-
-    def __init__(self, settings: Settings, design: Design, run_path: Path):
-        super().__init__(settings, design, run_path)
-        assert isinstance(
-            self.settings, self.Settings
-        ), "self.settings is not an instance of self.Settings class"
-        self.cocotb: Optional[Cocotb] = (
-            Cocotb(
-                **self.settings.cocotb.dict(),
-                sim_name=self.cocotb_sim_name,
-            )
-            if self.cocotb_sim_name
-            else None
-        )
 
 
 class TargetTechnology(XedaBaseModel):

@@ -10,7 +10,7 @@ from xml.etree import ElementTree
 from ...dataclass import Field
 from ...design import Design
 from ...tool import Docker, Tool
-from ..flow import Flow
+from ...flow import Flow
 
 log = logging.getLogger(__name__)
 
@@ -95,8 +95,6 @@ class Vivado(Flow, metaclass=ABCMeta):
             default_args=default_args,
             design_root=self.design_root,
         )  # type: ignore
-        if self.vivado.docker:
-            self.vivado.docker.enabled = self.settings.dockerized
         if self.settings.redirect_stdout:
             self.vivado.redirect_stdout = Path(f"{self.name}_stdout.log")
         self.results.tools = [self.vivado.info]

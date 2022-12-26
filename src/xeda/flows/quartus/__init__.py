@@ -8,7 +8,7 @@ from ...dataclass import Field
 from ...tool import Docker, Tool
 from ...types import PathLike
 from ...utils import try_convert
-from ..flow import FpgaSynthFlow
+from ...flow import FpgaSynthFlow
 
 log = logging.getLogger(__name__)
 
@@ -148,7 +148,6 @@ class Quartus(FpgaSynthFlow):
         }
         # FIXME only a proof of concept. Tool instantiation/invocation needs to change!
         if self.quartus_sh.docker:
-            self.quartus_sh.docker.enabled = self.settings.dockerized
             # FIXME
             for src in self.design.rtl.sources:
                 p = str(src.file.parent.resolve())

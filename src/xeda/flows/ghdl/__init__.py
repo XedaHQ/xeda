@@ -12,7 +12,8 @@ from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
 from ...gtkwave import gen_gtkw
 from ...tool import Docker, Tool
 from ...utils import SDF, common_root, setting_flag
-from ..flow import Flow, FlowSettingsError, SimFlow, SynthFlow
+from ...flow import Flow, FlowSettingsError, SynthFlow
+from ...sim_flow import SimFlow
 
 log = logging.getLogger(__name__)
 
@@ -45,8 +46,6 @@ class GhdlTool(Tool):
         lines = [line.strip() for line in out.splitlines()]
         if len(lines) < 3:
             return {}
-        self._version = tuple(lines[0].split("."))
-
         return {
             "version": ".".join(self.version),
             "compiler": lines[1],

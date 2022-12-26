@@ -8,7 +8,7 @@ from box import Box
 
 from ...tool import Tool
 from ...utils import dict_merge, toml_load, try_convert
-from ..flow import AsicSynthFlow
+from ...flow import AsicSynthFlow
 
 log = logging.getLogger(__name__)
 

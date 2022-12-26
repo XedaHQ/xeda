@@ -1,7 +1,5 @@
 # © 2022 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 """Xeda Command-line interface"""
-from __future__ import annotations
-
 import inspect
 import logging
 import os
@@ -15,7 +13,8 @@ from click.shell_completion import get_completion_class
 from rich import box
 from rich.style import Style
 from rich.table import Table
-from typeguard.importhook import install_import_hook
+
+# from typeguard.importhook import install_import_hook
 
 from .cli_utils import (
     ClickMutex,
@@ -33,7 +32,7 @@ from .flow_runner import (
     settings_to_dict,
 )
 from .flow_runner.dse import Dse
-from .flows.flow import (
+from .flow import (
     Flow,
     FlowException,
     FlowFatalError,
@@ -43,7 +42,8 @@ from .flows.flow import (
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import removeprefix
 
-install_import_hook("xeda")
+# install_import_hook("xeda")
+
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def get_available_flows():
         and issubclass(cls, Flow)
         and not inspect.isabstract(cls),
     )
-    return {n: (mod, cls) for n, cls in fc}
+    return [n for n, cls in fc]
 
 
 CONTEXT_SETTINGS = dict(
@@ -107,7 +107,9 @@ def cli(ctx: click.Context, **kwargs):
     no_args_is_help=False,
 )
 @click.argument(
-    "flow", metavar="FLOW_NAME", type=click.Choice(sorted(list(registered_flows)))
+    "flow",
+    metavar="FLOW_NAME",
+    type=click.Choice(sorted(list(registered_flows.keys()))),
 )
 @click.option(
     "--xeda-run-dir",
@@ -300,7 +302,6 @@ def list_flows():
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(sorted(list(registered_flows))),
     required=True,
 )
 @click.pass_context
@@ -315,7 +316,9 @@ def list_settings(ctx: click.Context, flow):
     no_args_is_help=False,
 )
 @click.argument(
-    "flow", metavar="FLOW_NAME", type=click.Choice(sorted(list(registered_flows)))
+    "flow",
+    metavar="FLOW_NAME",
+    type=click.Choice(sorted(list(registered_flows.keys()))),
 )
 @click.option(
     "--flow-settings",

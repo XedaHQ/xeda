@@ -22,7 +22,7 @@ from pydantic import (
 
 __all__ = [
     "XedaBaseModel",
-    "XedaBaseModeAllowExtra",
+    "XedaBaseModelAllowExtra",
     "xeda_model",  # decorator
     "Field",
     "validator",
@@ -86,7 +86,7 @@ class XedaBaseModel(BaseModel):
         allow_population_by_field_name = True
 
 
-class XedaBaseModeAllowExtra(XedaBaseModel, metaclass=ABCMeta):
+class XedaBaseModelAllowExtra(XedaBaseModel, metaclass=ABCMeta):
     class Config(XedaBaseModel.Config):
         extra = Extra.allow
 

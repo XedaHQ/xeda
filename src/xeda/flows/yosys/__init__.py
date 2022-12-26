@@ -10,7 +10,8 @@ from ...design import Design, SourceType
 from ...flows.ghdl import GhdlSynth
 from ...fpga import FPGA
 from ...tool import Docker, Tool
-from ..flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow
+from ...flow import AsicSynthFlow, Flow, FpgaSynthFlow, SynthFlow
+from ...sim_flow import SimFlow
 
 log = logging.getLogger(__name__)
 
@@ -435,9 +436,9 @@ class YosysSim(Yosys, SimFlow):
         if ss.cxxrtl.header:
             cxx_args += [f"-I{cxxrtl_cpp.parent}"]
         cxx_args += ss.cxxrtl.ccflags
-        self.run_tool(cxx, *cxx_args)
+        cxx.run(*cxx_args)
         sim_bin = self.yosys.update(executable=Path.cwd() / sim_bin_file)
-        self.run_tool(sim_bin)
+        sim_bin.run()
 
     def parse_reports(self) -> bool:
         return True

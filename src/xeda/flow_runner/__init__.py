@@ -33,7 +33,7 @@ from rich.text import Text
 from ..console import console
 from ..dataclass import XedaBaseModel, asdict, define
 from ..design import Design, DesignValidationError
-from ..flows.flow import Flow, FlowDependencyFailure, registered_flows
+from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
 from ..utils import (
     WorkingDirectory,

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Union
 from ...dataclass import Field, XedaBaseModel, validator
 from ...design import Design
 from ...utils import HierDict, parse_xml
-from ..flow import FpgaSynthFlow
+from ...flow import FpgaSynthFlow
 from ..vivado import Vivado
 
 log = logging.getLogger(__name__)

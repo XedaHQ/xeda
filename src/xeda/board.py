@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Union
 import pkg_resources
 
 from .dataclass import root_validator
-from .flows.flow import FPGA, FpgaSynthFlow
+from .flow import FPGA, FpgaSynthFlow
 from .utils import toml_load, toml_loads
 
 __all__ = [
