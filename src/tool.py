@@ -541,10 +541,11 @@ class Tool(XedaBaseModel):
     ) -> None:
         self.run(*args, env=env, stdout=redirect_to)
 
-    def new_exec(self, executable, **kwargs) -> "Tool":
+    def derive(self, executable, **kwargs) -> "Tool":
         r = self.copy(update=kwargs)
-        r.default_args = []
+        if "default_args" not in kwargs:
+            r.default_args = []
         r.executable = executable
-        if r.docker:
+        if "docker" not in kwargs and r.docker:
             r.docker.command = [executable]
         return r

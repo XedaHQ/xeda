@@ -26,7 +26,7 @@ python3 -m pip install -U xeda
 ```
 git clone --recursive https://github.com/XedaHQ/xeda.git
 cd xeda
-python3 -m pip install -U -e .
+python3 -m pip install -U --editable . --config-settings editable_mode=strict
 ```
 
 ## Usage

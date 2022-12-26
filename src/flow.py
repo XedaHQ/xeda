@@ -8,7 +8,7 @@ import os
 import re
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import jinja2
 import psutil
@@ -41,8 +41,6 @@ __all__ = [
 registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
-
-FlowType = TypeVar("FlowType", bound="Flow")
 
 
 class Flow(metaclass=ABCMeta):
@@ -216,7 +214,7 @@ class Flow(metaclass=ABCMeta):
         self.dependencies: List[Tuple[Type[Flow], Flow.Settings]] = []
         self.completed_dependencies: List[Flow] = []
 
-    def pop_dependency(self, typ: Type[FlowType]) -> Flow:
+    def pop_dependency(self, typ: Type["Flow"]) -> Flow:
         assert inspect.isclass(typ) and issubclass(
             typ, Flow
         ), f"{typ} is not a subclass of Flow"

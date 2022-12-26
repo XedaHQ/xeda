@@ -10,9 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 from urllib.parse import parse_qs, urlparse
 
-import git
-from git.repo import Repo
-
 from .dataclass import (
     Extra,
     Field,
@@ -466,6 +463,9 @@ class GitReference(DesignReference):
         )
 
     def fetch_design(self) -> Design:
+        import git
+        from git.repo import Repo
+
         assert self.clone_dir, "clone_dir not set"
         repo = None
         if self.clone_dir.exists():

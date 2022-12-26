@@ -126,7 +126,8 @@ def backup_existing(path: Path) -> Optional[Path]:
         return None
     modifiedTime = os.path.getmtime(path)
     suffix = (
-        f'.backup_{datetime.fromtimestamp(modifiedTime).strftime("%Y-%m-%d-%H%M%S")}'
+        f".backup_{datetime.fromtimestamp(modifiedTime):%Y-%m-%d-%H%M%S}"
+        # .strftime("")}'
     )
     if path.suffix:
         suffix += path.suffix
@@ -135,8 +136,8 @@ def backup_existing(path: Path) -> Optional[Path]:
     log.warning(
         "Renaming existing %s from '%s' to '%s'", typ, path.name, backup_path.name
     )
-    # TODO use shutil.move instead? os.rename vs Path.rename?
-    # os.rename(path, backup_path)
+    while backup_path.exists():
+        backup_path = backup_path.with_suffix(backup_path.suffix + "_")
     return path.rename(backup_path)
 
 
