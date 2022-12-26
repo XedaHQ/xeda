@@ -26,7 +26,6 @@ from typing import (
 )
 from xml.etree import ElementTree
 
-# from typeguard.importhook import install_import_hook
 from varname import argname
 
 from .dataclass import XedaBaseModel

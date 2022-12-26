@@ -14,8 +14,6 @@ from rich import box
 from rich.style import Style
 from rich.table import Table
 
-# from typeguard.importhook import install_import_hook
-
 from .cli_utils import (
     ClickMutex,
     OptionEatAll,

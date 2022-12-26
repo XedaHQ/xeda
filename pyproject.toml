@@ -52,14 +52,13 @@ dependencies = [
     "pebble            ~= 5.0",
     # experimental:
     "pyyaml            ~= 6.0",
-    "typeguard         ~= 2.13",
-    "varname           ~= 0.10",
-    "overrides         ~= 6.1",
+    "varname           >= 0.10",
+    "overrides         >= 6.1",
     "simple_term_menu  >= 1.5.2",
     "psutil            >= 5.9",
     "junitparser       ~= 2.4",   # TODO: remove
     "pyvcd             ~= 0.3",
-    "GitPython         >= 3.1.20",
+    "GitPython         >= 3.1.29",
 ]
 
 [project.optional-dependencies]
