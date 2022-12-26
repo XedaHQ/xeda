@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Iterable, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, Optional, Tuple, Union
 
 import click
 import coloredlogs
@@ -479,7 +479,7 @@ def dse(
     )
 
 
-SHELLS: dict[str, dict[str, Any]] = {
+SHELLS: Dict[str, Dict[str, Any]] = {
     "bash": {
         "eval_file": "~/.bashrc",
         "eval": 'eval "$(_XEDA_COMPLETE=bash_source xeda)"',

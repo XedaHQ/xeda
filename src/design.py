@@ -637,7 +637,7 @@ class Design(XedaBaseModel):
             raise e from None
 
     @cached_property
-    def rtl_fingerprint(self) -> dict[str, dict[str, str]]:
+    def rtl_fingerprint(self) -> Dict[str, Dict[str, str]]:
         return {
             "sources": {
                 str(src._specified_path): src.content_hash for src in self.rtl.sources
