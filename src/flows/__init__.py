@@ -1,4 +1,6 @@
 # all Flow classes imported here can be used from FlowRunners and will be reported on the command-line help
+from __future__ import annotations
+
 from .dc import Dc
 from .diamond import DiamondSynth
 from .ghdl import GhdlSim, GhdlSynth
@@ -28,7 +30,6 @@ __all__ = [
     "VivadoPostsynthSim",
     "VivadoPower",
     "VivadoSim",
-    "VivadoSynth",
     "VivadoSynth",
     "YosysSim",
     "YosysSynth",

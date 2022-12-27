@@ -22,6 +22,13 @@ from .cli_utils import (
     select_design_in_project,
 )
 from .console import console
+from .flow import (
+    Flow,
+    FlowException,
+    FlowFatalError,
+    FlowSettingsError,
+    registered_flows,
+)
 from .flow_runner import (
     DefaultRunner,
     XedaOptions,
@@ -30,33 +37,17 @@ from .flow_runner import (
     settings_to_dict,
 )
 from .flow_runner.dse import Dse
-from .flow import (
-    Flow,
-    FlowException,
-    FlowFatalError,
-    FlowSettingsError,
-    registered_flows,
-)
+from .flows import __all__ as all_flows__
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import removeprefix
-
-# install_import_hook("xeda")
-
 
 log = logging.getLogger(__name__)
 
 
-def get_available_flows():
-    """alternative method using inspect"""
-    mod = "xeda.flows"
-    fc = inspect.getmembers(
-        sys.modules[mod],
-        lambda cls: inspect.isclass(cls)
-        and issubclass(cls, Flow)
-        and not inspect.isabstract(cls),
-    )
-    return [n for n, cls in fc]
+all_flows = sorted(list(registered_flows.keys()))
 
+if len(all_flows__) != len(all_flows):
+    print(f"FIXME: {len(all_flows__)}---{len(all_flows)}", file=sys.stderr)
 
 CONTEXT_SETTINGS = dict(
     auto_envvar_prefix="XEDA",
@@ -107,7 +98,7 @@ def cli(ctx: click.Context, **kwargs):
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(sorted(list(registered_flows.keys()))),
+    type=click.Choice(all_flows),
 )
 @click.option(
     "--xeda-run-dir",
@@ -300,6 +291,7 @@ def list_flows():
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
+    type=click.Choice(all_flows),
     required=True,
 )
 @click.pass_context
@@ -316,7 +308,8 @@ def list_settings(ctx: click.Context, flow):
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(sorted(list(registered_flows.keys()))),
+    type=click.Choice(all_flows),
+    required=True,
 )
 @click.option(
     "--flow-settings",
@@ -549,17 +542,3 @@ def completion(_ctx: click.Context, stdout, shell=None):
             """,
             highlight=False,
         )
-
-
-@cli.command()
-@click.argument("subcommand", required=False)
-@click.pass_context
-def help(ctx: click.Context, subcommand=None):  # pylint: disable=redefined-builtin
-    if subcommand:
-        subcommand_obj = cli.get_command(ctx, subcommand)
-        if subcommand_obj is None:
-            click.echo("I don't know that command.")
-        else:
-            click.echo(subcommand_obj.get_help(ctx))
-    else:
-        click.echo(cli.get_usage(ctx))

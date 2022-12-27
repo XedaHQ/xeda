@@ -1,4 +1,4 @@
-from . import cli, design, flow, flow_runner, flows
+from . import cli, design, flow_runner, flows
 from .design import Design
 from .flow import FPGA, Flow, SynthFlow
 from .tool import Tool
@@ -10,7 +10,6 @@ __all__ = [
     "cli",
     "design",
     "Design",
-    "flow",
     "flow_runner",
     "flows",
     "Flow",
