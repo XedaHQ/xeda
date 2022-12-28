@@ -43,9 +43,7 @@ class Optimizer:
     class Settings(XedaBaseModel):
         pass
 
-    def __init__(
-        self, max_workers: int, settings: Optional[Settings] = None, **kwargs
-    ) -> None:
+    def __init__(self, max_workers: int, settings: Optional[Settings] = None, **kwargs) -> None:
         assert max_workers > 0
         self.max_workers: int = max_workers
         self.max_failed_iters: int = 2
@@ -214,8 +212,7 @@ class FmaxOptimizer(Optimizer):
         #  and little or no improvement during previous iteration, increment num_variations
         if best_freq or (self.failed_fmax and self.failed_fmax > self.lo_freq):
             if self.improved_idx is None or (
-                self.last_improvement
-                and self.last_improvement < self.settings.variation_min_improv
+                self.last_improvement and self.last_improvement < self.settings.variation_min_improv
             ):
                 self.num_variations = self.num_variations + 1
                 log.info("Increased number of variations to %d", self.num_variations)
@@ -226,9 +223,7 @@ class FmaxOptimizer(Optimizer):
             ):
                 if self.num_variations > 1:
                     self.num_variations -= 1
-                    log.info(
-                        "Decreased number of variations to to %d", self.num_variations
-                    )
+                    log.info("Decreased number of variations to to %d", self.num_variations)
         if best_freq:
             # we have a best_freq, but no improvements this time
             # increment lo_freq by a small positive random value
@@ -243,9 +238,7 @@ class FmaxOptimizer(Optimizer):
             if best_freq:
                 if best_freq < self.hi_freq:
                     if self.num_variations > 1 and self.no_improvements < 3:
-                        self.hi_freq += (
-                            (max_workers + 1) * resolution
-                        ) // self.num_variations
+                        self.hi_freq += ((max_workers + 1) * resolution) // self.num_variations
                     else:
                         # no variations or too many failures, just binary search
                         self.hi_freq = (self.hi_freq + best_freq) / 2 + delta
@@ -267,23 +260,15 @@ class FmaxOptimizer(Optimizer):
                     )
                     return False
 
-                self.lo_freq = self.failed_fmax / (
-                    self.no_improvements * random.random() + 1
-                )
+                self.lo_freq = self.failed_fmax / (self.no_improvements * random.random() + 1)
                 self.hi_freq = (
-                    self.lo_freq
-                    + max_workers * resolution * random.uniform(0.75, 1)
-                    + delta
+                    self.lo_freq + max_workers * resolution * random.uniform(0.75, 1) + delta
                 )
 
-                log.info(
-                    "Lowering bounds to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq
-                )
+                log.info("Lowering bounds to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq)
         else:  # -> improvement during last iteration
             # sanity check, best_freq was set before in case of a successful run
-            assert (
-                best_freq
-            ), f"best_freq was None, while improved_idx={self.improved_idx}"
+            assert best_freq, f"best_freq was None, while improved_idx={self.improved_idx}"
 
             # reset no_improvements
             self.no_improvements = 0
@@ -306,9 +291,7 @@ class FmaxOptimizer(Optimizer):
                 self.hi_freq = best_freq + max(resolution, self.freq_step) * max_workers
                 log.debug("incrementing hi_freq to %0.2f", self.hi_freq)
             else:
-                self.hi_freq = (
-                    self.hi_freq + best_freq
-                ) / 2 + self.num_variations * resolution
+                self.hi_freq = (self.hi_freq + best_freq) / 2 + self.num_variations * resolution
                 log.debug("decrementing hi_freq to %0.2f", self.hi_freq)
 
         if best_freq:
@@ -346,9 +329,7 @@ class FmaxOptimizer(Optimizer):
             # var is 1...self.num_variations, inclusive
             if self.num_variations <= 1 or vlist_len == 1:
                 return 0
-            choice_max = round(
-                ((vlist_len - 1) * var + random.random()) / self.num_variations
-            )
+            choice_max = round(((vlist_len - 1) * var + random.random()) / self.num_variations)
             return random.randrange(0, min(vlist_len - 1, choice_max) + 1)
 
         base_settings = dict(self.base_settings)
@@ -360,9 +341,7 @@ class FmaxOptimizer(Optimizer):
             max_var += 1
             if max_var > self.num_variations:
                 self.lo_freq += random.random() * self.settings.delta / 2
-                self.hi_freq += (
-                    random.uniform(self.settings.delta, self.settings.resolution) / 2
-                )
+                self.hi_freq += random.uniform(self.settings.delta, self.settings.resolution) / 2
 
             frequencies, freq_step = linspace(
                 self.lo_freq,
@@ -419,9 +398,7 @@ class FmaxOptimizer(Optimizer):
                 # Failed due to negative slack
                 # Keep the Fmax for next iter, if no other runs succeeded
                 if not self.failed_fmax or fmax > self.failed_fmax:
-                    log.info(
-                        "Flow #%d failed, but Fmax=%0.2f was suggested.", idx, fmax
-                    )
+                    log.info("Flow #%d failed, but Fmax=%0.2f was suggested.", idx, fmax)
                     self.failed_fmax = fmax
             return False
 
@@ -476,14 +453,10 @@ class Executioner:
         self.design = design
         self.flow_class = flow_class
 
-    def __call__(
-        self, args: Tuple[int, Dict[str, Any]]
-    ) -> Tuple[Optional[FlowOutcome], int]:
+    def __call__(self, args: Tuple[int, Dict[str, Any]]) -> Tuple[Optional[FlowOutcome], int]:
         idx, flow_settings = args
         try:
-            flow = self.launcher.launch_flow(
-                self.flow_class, self.design, flow_settings
-            )
+            flow = self.launcher.launch_flow(self.flow_class, self.design, flow_settings)
             return (
                 FlowOutcome(
                     settings=deepcopy(flow.settings),
@@ -617,9 +590,7 @@ class Dse(FlowLauncher):
         base_settings.redirect_stdout = True
 
         if base_settings.nthreads > 1:
-            max_nthreads = max(
-                2, multiprocessing.cpu_count() // self.settings.max_workers
-            )
+            max_nthreads = max(2, multiprocessing.cpu_count() // self.settings.max_workers)
             base_settings.nthreads = min(base_settings.nthreads, max_nthreads)
 
         if (
@@ -633,9 +604,7 @@ class Dse(FlowLauncher):
 
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
         add_file_logger(Path.cwd(), timestamp)
-        best_json_path = (
-            Path.cwd() / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
-        )
+        best_json_path = Path.cwd() / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
         log.info("Best results are saved to %s", best_json_path)
 
         flow_setting_hashes: Set[int] = set()
@@ -645,9 +614,7 @@ class Dse(FlowLauncher):
         try:
             with ProcessPool(max_workers=optimizer.max_workers) as pool:
                 while iterate:
-                    cpu_usage = tuple(
-                        (ld / num_cpus) * 100 for ld in psutil.getloadavg()
-                    )
+                    cpu_usage = tuple((ld / num_cpus) * 100 for ld in psutil.getloadavg())
                     ram_usage = psutil.virtual_memory()[2]
 
                     log.info(
@@ -666,8 +633,7 @@ class Dse(FlowLauncher):
                         break
                     if (
                         optimizer.best
-                        and consecutive_failed_iters
-                        > self.settings.max_failed_iters_with_best
+                        and consecutive_failed_iters > self.settings.max_failed_iters_with_best
                     ):
                         log.info(
                             "Stopping after %d unsuccessfull iterations (max_failed_iters_with_best=%d)",
@@ -734,9 +700,7 @@ class Dse(FlowLauncher):
                                     continue
                                 improved = optimizer.process_outcome(outcome, idx)
                                 if improved:
-                                    log.info(
-                                        "Writing improved result to %s", best_json_path
-                                    )
+                                    log.info("Writing improved result to %s", best_json_path)
                                     dump_json(
                                         dict(
                                             best=optimizer.best,

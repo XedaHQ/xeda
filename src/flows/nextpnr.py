@@ -76,9 +76,7 @@ class EcpPLL(Tool):
                 if i > 0:
                     args += [f"--phase{i}", s(clk.phase)]
                 else:
-                    raise ValueError(
-                        "First output clock cannot have a phase difference!"
-                    )
+                    raise ValueError("First output clock cannot have a phase difference!")
         args += setting_flag(self.highres)
         args += setting_flag(self.standby)
         args += setting_flag(self.internal_feedback)

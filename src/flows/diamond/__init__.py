@@ -16,18 +16,14 @@ class DiamondSynth(FpgaSynthFlow):
         synthesis_engine: Literal["lse", "synplify"] = "lse"
 
         @validator("syn_cmdline_args", pre=True)
-        def validate_syn_cmdline_args(
-            cls, syn_cmdline_args: Optional[List[str]]
-        ) -> List[str]:
+        def validate_syn_cmdline_args(cls, syn_cmdline_args: Optional[List[str]]) -> List[str]:
             if syn_cmdline_args is None:
                 syn_cmdline_args = []
             return syn_cmdline_args
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
-        constraint_exts = (
-            ["ldc"] if self.settings.synthesis_engine == "lse" else ["sdc", "fdc"]
-        )
+        constraint_exts = ["ldc"] if self.settings.synthesis_engine == "lse" else ["sdc", "fdc"]
         constraints = [f"constraints.{ext}" for ext in constraint_exts]
         for constraint in constraints:
             self.copy_from_template(constraint)
@@ -63,9 +59,7 @@ class DiamondSynth(FpgaSynthFlow):
 \s*Cost\s+\[ncd\]\s+Unrouted\s+Slack\s+Score\s+Slack\(hold\)\s+Score\(hold\)\s+Time\s+Status\s*
 (\s*\-+){8}\s*
 \s*(?P<_lvl_cost>\S+)\s+(?P<_ncd>\S+)\s+(?P<_num_unrouted>\d+)\s+(?P<wns>\-?\d+\.\d+)\s+(?P<_setup_score>\d+)\s+(?P<whs>\-?\d+\.\d+)\s+(?P<_hold_score>\d+)\s+(?P<_runtime>\d+(?:\:\d+)*)\s+(?P<_status>\w+)\s*$"""
-        self.parse_report_regex(
-            reports_dir / f"{design_name}_{impl_name}.par", slice_pat, time_pat
-        )
+        self.parse_report_regex(reports_dir / f"{design_name}_{impl_name}.par", slice_pat, time_pat)
 
         # NOTE there can be "page breaks" anywhere in the mrp file (others? TODO)
         # NOTE therefore only match lines
@@ -90,9 +84,7 @@ class DiamondSynth(FpgaSynthFlow):
         )
 
         # FIXME add other types of available ALUs and DSPs
-        self.results["dsp"] = (
-            self.results["_dsp_MULT18X18D"] + self.results["_dsp_MULT9X9D"]
-        )
+        self.results["dsp"] = self.results["_dsp_MULT18X18D"] + self.results["_dsp_MULT9X9D"]
 
         failed = False
 

@@ -116,9 +116,7 @@ class FileResource:
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, FileResource):
             return False
-        return self.content_hash == other.content_hash and self.file.samefile(
-            other.file
-        )
+        return self.content_hash == other.content_hash and self.file.samefile(other.file)
 
     def __hash__(self) -> int:
         # path is already absolute
@@ -303,9 +301,7 @@ class TbSettings(DVSettings):
     cocotb: bool = Field(False, description="testbench is based on cocotb framework")
 
     @validator("top", pre=True, always=True)
-    def top_validator(
-        cls, value: Union[None, str, Sequence[str], Tuple012]
-    ) -> Tuple012:
+    def top_validator(cls, value: Union[None, str, Sequence[str], Tuple012]) -> Tuple012:
         if value:
             if isinstance(value, str):
                 return (value,)
@@ -571,14 +567,10 @@ class Design(XedaBaseModel):
         if rtl:
             sources.extend(self.rtl.sources)
         if tb:
-            sources.extend(
-                [src for src in self.tb.sources if src not in self.rtl.sources]
-            )
+            sources.extend([src for src in self.tb.sources if src not in self.rtl.sources])
         return [src for src in sources if str(src.type).lower() in source_types_str]
 
-    def sim_sources_of_type(
-        self, *source_types: Union[str, SourceType]
-    ) -> List[DesignSource]:
+    def sim_sources_of_type(self, *source_types: Union[str, SourceType]) -> List[DesignSource]:
         if not self.tb:
             return []
         return self.sources_of_type(*source_types, rtl=True, tb=True)
@@ -639,9 +631,7 @@ class Design(XedaBaseModel):
     @cached_property
     def rtl_fingerprint(self) -> Dict[str, Dict[str, str]]:
         return {
-            "sources": {
-                str(src._specified_path): src.content_hash for src in self.rtl.sources
-            },
+            "sources": {str(src._specified_path): src.content_hash for src in self.rtl.sources},
             "parameters": {p: str(v) for p, v in self.rtl.parameters.items()},
         }
 

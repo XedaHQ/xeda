@@ -40,9 +40,7 @@ class IseSynth(FpgaSynthFlow):
         xcf_file = self.copy_from_template("constraints.xcf")
         ucf_file = self.copy_from_template("constraints.ucf")
 
-        self.add_template_filter(
-            "quote_str", lambda v: f'"{v}"' if isinstance(v, str) else v
-        )
+        self.add_template_filter("quote_str", lambda v: f'"{v}"' if isinstance(v, str) else v)
 
         script_path = self.copy_from_template(
             "ise_synth.tcl",

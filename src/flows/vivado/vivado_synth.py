@@ -84,9 +84,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             },
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug903-vivado-using-constraints.pdf
-        xdc_files: List[Union[str, Path]] = Field(
-            [], description="List of XDC constraint files."
-        )
+        xdc_files: List[Union[str, Path]] = Field([], description="List of XDC constraint files.")
         suppress_msgs: List[str] = [
             "Synth 8-7080",  # "Parallel synthesis criteria is not met"
             "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
@@ -143,9 +141,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         if settings.synth.steps["SYNTH_DESIGN"] is None:
             settings.synth.steps["SYNTH_DESIGN"] = {}
         assert settings.synth.steps["SYNTH_DESIGN"] is not None
-        if any(
-            item in settings.blacklisted_resources for item in ("bram_tile", "bram")
-        ):
+        if any(item in settings.blacklisted_resources for item in ("bram_tile", "bram")):
             # FIXME also add -max_uram 0 for ultrascale+
             settings.synth.steps["SYNTH_DESIGN"]["MAX_BRAM"] = 0
         if "dsp" in settings.blacklisted_resources:
@@ -155,9 +151,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         xdc_files = [p.file for p in self.design.rtl.sources if p.type == "xdc"]
         xdc_files += [self.normalize_path_to_design_root(p) for p in settings.xdc_files]
-        assert (
-            clock_xdc_path not in xdc_files
-        ), f"XDC file {xdc_files} was already included."
+        assert clock_xdc_path not in xdc_files, f"XDC file {xdc_files} was already included."
         xdc_files.append(clock_xdc_path)
 
         script_path = self.copy_from_template(

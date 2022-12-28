@@ -132,17 +132,13 @@ def backup_existing(path: Path) -> Optional[Path]:
         suffix += path.suffix
     backup_path = path.with_suffix(suffix)
     typ = "file" if path.is_file() else "directory" if path.is_dir() else "???"
-    log.warning(
-        "Renaming existing %s from '%s' to '%s'", typ, path.name, backup_path.name
-    )
+    log.debug("Renaming existing %s from '%s' to '%s'", typ, path.name, backup_path.name)
     while backup_path.exists():
         backup_path = backup_path.with_suffix(backup_path.suffix + "_")
     return path.rename(backup_path)
 
 
-def dump_json(
-    data: object, path: Path, backup_previous: bool = True, indent: int = 4
-) -> None:
+def dump_json(data: object, path: Path, backup_previous: bool = True, indent: int = 4) -> None:
     if path.exists() and backup_previous:
         backup_existing(path)
         assert not path.exists(), "Old file still exists!"
@@ -170,9 +166,7 @@ def snakecase_to_camelcase(name: str) -> str:
     return "".join(word.title() for word in name.split("_"))
 
 
-def load_class(
-    full_class_string: str, default_module_name: Optional[str] = None
-) -> Optional[type]:
+def load_class(full_class_string: str, default_module_name: Optional[str] = None) -> Optional[type]:
     cls_path_lst = full_class_string.split(".")
     assert len(cls_path_lst) > 0
 
@@ -183,9 +177,7 @@ def load_class(
         mod_name = ".".join(cls_path_lst[:-1])
     assert mod_name
 
-    module = importlib.import_module(
-        mod_name, __package__ if mod_name.startswith(".") else None
-    )
+    module = importlib.import_module(mod_name, __package__ if mod_name.startswith(".") else None)
     cls = getattr(module, cls_name)
     if not isinstance(cls, type):
         return None
@@ -201,9 +193,7 @@ def dict_merge(
     """
     rtn_dct = deepcopy(base_dict)
     if add_new_keys is False:
-        merge_dict = {
-            key: merge_dict[key] for key in set(rtn_dct).intersection(set(merge_dict))
-        }
+        merge_dict = {key: merge_dict[key] for key in set(rtn_dct).intersection(set(merge_dict))}
 
     rtn_dct.update(
         {
@@ -402,9 +392,7 @@ class Timer:
         return timedelta(seconds=self.seconds)
 
 
-def regex_match(
-    string: str, pattern: str, ignorecase: bool = False
-) -> Optional[re.Match]:
+def regex_match(string: str, pattern: str, ignorecase: bool = False) -> Optional[re.Match]:
     if not isinstance(string, str):
         return None
     return re.match(pattern, string, flags=re.I if ignorecase else 0)

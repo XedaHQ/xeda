@@ -131,11 +131,7 @@ class Vivado(Flow, metaclass=ABCMeta):
                             table_data[cells[0]] = cell_data
                 if table_data:
                     table_title = table.get("title")
-                    title = (
-                        section_title + ":" + table_title
-                        if table_title
-                        else section_title
-                    )
+                    title = section_title + ":" + table_title if table_title else section_title
                     data[title] = table_data
         return data
 

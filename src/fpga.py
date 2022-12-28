@@ -112,10 +112,7 @@ class FPGA(XedaBaseModel):
                 lc = match_xc7.group("lc")
                 set_if_not_exist(
                     "device",
-                    match_xc7.group(1)
-                    + match_xc7.group("g")
-                    + match_xc7.group("f")
-                    + lc,
+                    match_xc7.group(1) + match_xc7.group("g") + match_xc7.group("f") + lc,
                 )
                 set_if_not_exist("capacity", lc + "K")
                 set_if_not_exist("package", match_xc7.group("pkg"))

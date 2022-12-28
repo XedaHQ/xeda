@@ -55,9 +55,7 @@ class VivadoPower(VivadoSim):
         results = {}
         for tablerow in tree.findall("./section[@title='Summary']/table/tablerow"):
             tablecells = tablerow.findall("tablecell")
-            key, value = (
-                html.unescape(x.attrib["contents"]).strip() for x in tablecells
-            )
+            key, value = (html.unescape(x.attrib["contents"]).strip() for x in tablecells)
             results[key] = value
 
         for tablerow in tree.findall(
@@ -65,9 +63,7 @@ class VivadoPower(VivadoSim):
         ):
             tablecells = tablerow.findall("tablecell")
             if len(tablecells) >= 2:
-                contents = [
-                    html.unescape(x.attrib["contents"]).strip() for x in tablecells
-                ]
+                contents = [html.unescape(x.attrib["contents"]).strip() for x in tablecells]
                 key = contents[0]
                 value = contents[1]
                 results[f"Component Power: {key}"] = value

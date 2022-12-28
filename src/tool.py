@@ -15,7 +15,6 @@ from .flow import Flow
 
 log = logging.getLogger(__name__)
 
-
 __all__ = [
     "ToolException",
     "NonZeroExitCode",
@@ -38,9 +37,7 @@ class NonZeroExitCode(ToolException):
 
 
 class ExecutableNotFound(ToolException):
-    def __init__(
-        self, executable: str, tool: str, path: str, *args: Any, **kwargs: Any
-    ) -> None:
+    def __init__(self, executable: str, tool: str, path: str, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.exec = executable
         self.tool = tool
@@ -73,26 +70,28 @@ class Docker(XedaBaseModel):
     image: str = Field(description="Docker image name")
     tag: Optional[str] = Field("latest", description="Docker image tag")
     registry: Optional[str] = Field(None, description="Docker image registry")
+    privileged: bool = True
+    fix_cpuinfo: bool = False
+    cli: str = "docker"
     mounts: Dict[str, str] = {}
-    priviledged: bool = True
 
     # TODO this is only for a Linux container
     @cached_property
     def cpuinfo(self) -> Optional[List[List[str]]]:
         try:
-            ret = self._run_docker("cat", "/proc/cpuinfo", stdout=True)
+            ret = self.run_dockerized("cat", "/proc/cpuinfo", stdout=True)
         except Exception:
             return None
         assert ret is not None
         return [x.split("\n") for x in re.split(r"\n\s*\n", ret, re.MULTILINE)]
 
-    @property
-    def nproc(self) -> Optional[int]:
+    @cached_property
+    def nproc(self) -> int:
         return len(self.cpuinfo) if self.cpuinfo else 1
 
-    @property
+    @cached_property
     def name(self) -> str:
-        return self.command[0].split("/")[0] if self.command else "xeda_tool"
+        return self.command[0].split("/")[0] if self.command else "???"
 
     def run(
         self,
@@ -103,7 +102,7 @@ class Docker(XedaBaseModel):
         root_dir: OptionalPath = None,
     ) -> Union[None, str]:
         """Run the tool from a docker container"""
-        if self.cpuinfo:
+        if self.fix_cpuinfo and self.cpuinfo:
             cpuinfo_file = Path(".cpuinfo").resolve()
             with open(cpuinfo_file, "w") as f:
                 for proc in self.cpuinfo:
@@ -113,13 +112,12 @@ class Docker(XedaBaseModel):
                             line += " sse sse2"
                         f.write(line + "\n")
                     f.write("\n")
-
             self.mounts[str(cpuinfo_file)] = "/proc/cpuinfo"
-        return self._run_docker(
+        return self.run_dockerized(
             *self.command, *args, env=env, stdout=stdout, check=check, root_dir=root_dir
         )
 
-    def _run_docker(
+    def run_dockerized(
         self,
         *args: Any,
         env: Optional[Dict[str, Any]] = None,
@@ -133,7 +131,7 @@ class Docker(XedaBaseModel):
             f"--workdir={cwd}",
         ]
 
-        if self.priviledged:
+        if self.privileged:
             docker_args.append("--privileged")
         self.mounts[str(cwd)] = str(cwd)
         if root_dir:
@@ -142,8 +140,10 @@ class Docker(XedaBaseModel):
             docker_args += ["--tty", "--interactive"]
         if self.platform:
             docker_args += ["--platform", self.platform]
+        selinux_perm = True
+        cap = ":z" if selinux_perm else ""
         for k, v in self.mounts.items():
-            docker_args.append(f"--volume={k}:{v}")
+            docker_args.append(f"--volume={k}:{v}{cap}")
         if env:
             env_file = cwd / f".{self.name}_docker.env"
             with open(env_file, "w") as f:
@@ -153,7 +153,7 @@ class Docker(XedaBaseModel):
         if self.tag:
             image += self.tag
         return run_process(
-            "docker",
+            self.cli,
             ["run", *docker_args, image, *args],
             env=None,
             stdout=stdout,
@@ -300,9 +300,7 @@ class Tool(XedaBaseModel):
 
     remote: Optional[RemoteSettings] = Field(None)
     docker: Optional[Docker] = Field(None)
-    redirect_stdout: Optional[Path] = Field(
-        None, description="Redirect stdout to a file"
-    )
+    redirect_stdout: Optional[Path] = Field(None, description="Redirect stdout to a file")
     bin_path: str = Field(None, description="Path to the tool binary")
     design_root: Optional[Path] = None
     dockerized: bool = False
@@ -342,7 +340,7 @@ class Tool(XedaBaseModel):
                 image=split[0],
                 tag=split[1] if len(split) > 1 else None,
                 command=command,
-            )
+            )  # pyright: ignore
         if value and not value.command:
             value.command = command
         return value
@@ -360,6 +358,17 @@ class Tool(XedaBaseModel):
         so = re.split(r"\s+", out)
         version_string = so[1] if len(so) > 1 else so[0] if len(so) > 0 else ""
         return tuple(version_string.split("."))
+
+    @cached_property
+    def nproc(self) -> int:
+        if self.dockerized:
+            try:
+                ret = self.run("nproc", stdout=True)
+                return int(ret) if ret else 1
+            except Exception:
+                return 1
+        else:
+            return os.cpu_count() or 1
 
     @staticmethod
     def _version_is_gte(
@@ -450,10 +459,7 @@ class Tool(XedaBaseModel):
         if self.remote.exec_path:
             executable = os.path.join(self.remote.exec_path, executable)
         junest_cmd = (
-            [self.remote.junest_path]
-            + junest_backend_opts
-            + ["--", executable]
-            + list(*args)
+            [self.remote.junest_path] + junest_backend_opts + ["--", executable] + list(*args)
         )
 
         remote_cmd = junest_cmd
@@ -513,7 +519,7 @@ class Tool(XedaBaseModel):
             stdout = self.redirect_stdout
         args = tuple(list(self.default_args) + list(args))
         exec_name = (
-            f"[docker] {self.executable}"
+            f"[{self.docker.cli}] {self.executable}"
             if self.docker and self.dockerized
             else self.executable
         )
@@ -542,10 +548,12 @@ class Tool(XedaBaseModel):
         self.run(*args, env=env, stdout=redirect_to)
 
     def derive(self, executable, **kwargs) -> "Tool":
-        r = self.copy(update=kwargs)
+        new_tool = self.copy(update=kwargs)
+        new_tool.invalidate_cached_properties()
         if "default_args" not in kwargs:
-            r.default_args = []
-        r.executable = executable
-        if "docker" not in kwargs and r.docker:
-            r.docker.command = [executable]
-        return r
+            new_tool.default_args = []
+        new_tool.executable = executable
+        if "docker" not in kwargs and new_tool.docker:
+            new_tool.docker.command = [executable]
+            new_tool.docker.invalidate_cached_properties()
+        return new_tool

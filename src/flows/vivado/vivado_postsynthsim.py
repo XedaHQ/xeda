@@ -58,18 +58,14 @@ class VivadoPostsynthSim(VivadoSim):
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
-        artifacts_path = (
-            synth_flow.run_path / synth_flow.settings.outputs_dir / "route_design"
-        )
+        artifacts_path = synth_flow.run_path / synth_flow.settings.outputs_dir / "route_design"
         synth_netlist_path = artifacts_path / "timesim.v"
         if not synth_netlist_path.exists():
             raise FlowFatalError(f"Netlist {synth_netlist_path} does not exist!")
         postsynth_sources = [DesignSource(synth_netlist_path)]
         log.info("Setting post-synthesis sources to: %s", postsynth_sources)
         # also removing top-level generics and everything else
-        self.design.rtl = RtlSettings(
-            top=self.design.rtl.top, sources=postsynth_sources
-        )
+        self.design.rtl = RtlSettings(top=self.design.rtl.top, sources=postsynth_sources)
         assert self.design.tb and self.design.tb.top
         self.design.tb.top = (self.design.tb.top[0], "glbl")
 

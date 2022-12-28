@@ -193,9 +193,7 @@ def print_flow_settings(flow, options: XedaOptions):
                 return Text(f"array[{get_type(items)}]")
 
         def join_types(lst, joiner, style="red"):
-            return reduce(
-                lambda x, y: x + Text(joiner, style) + y, (get_type(t) for t in lst)
-            )
+            return reduce(lambda x, y: x + Text(joiner, style) + y, (get_type(t) for t in lst))
 
         allof = field.get("allOf")
         if allof:
@@ -231,9 +229,7 @@ def print_flow_settings(flow, options: XedaOptions):
         required = name in schema.get("required", [])
         desc: str = field.get("description", "")
         typ = get_type(field)
-        req_or_def = (
-            "[red]<required>[/red]" if required else fmt_default(field.get("default"))
-        )
+        req_or_def = "[red]<required>[/red]" if required else fmt_default(field.get("default"))
         table.add_row(name, typ, req_or_def, desc)  # type: ignore
     console.print(table)
 
@@ -259,10 +255,7 @@ def print_flow_settings(flow, options: XedaOptions):
         for prop, prop_def in typ_def.get("properties").items():
             if prop_def.get("hidden_from_schema"):
                 continue
-            if (
-                typ_name.endswith("__Settings")
-                and prop in Flow.Settings.__fields__.keys()
-            ):
+            if typ_name.endswith("__Settings") and prop in Flow.Settings.__fields__.keys():
                 continue
             desc = prop_def.get("description", prop_def.get("title", "-"))
             desc = re.sub(r"\s*\.*\s*$", "", desc)
@@ -285,9 +278,7 @@ def select_design_in_project(
     xeda_project: XedaProject, design_name: Optional[str] = None
 ) -> Optional[Design]:
     if console.is_interactive:
-        terminal_menu = TerminalMenu(
-            xeda_project.design_names, title="Please select a design: "
-        )
+        terminal_menu = TerminalMenu(xeda_project.design_names, title="Please select a design: ")
         idx = terminal_menu.show()
         if idx is None or not isinstance(idx, int) or idx < 0:
             log.critical("Invalid design choice!")

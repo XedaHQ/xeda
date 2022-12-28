@@ -19,6 +19,7 @@ from pydantic import (
     root_validator,
     validator,
 )
+from pydantic.main import ModelMetaclass
 
 __all__ = [
     "XedaBaseModel",
@@ -74,16 +75,20 @@ def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str
     return attrs.asdict(inst, filter=filter_)
 
 
-class XedaBaseModel(BaseModel):
+class XedaBaseModel(BaseModel, metaclass=ModelMetaclass):
     class Config(BaseConfig):
         validate_assignment = True
         extra = Extra.forbid
         arbitrary_types_allowed = True
-        keep_untouched = (
-            cached_property,
-        )  # https://github.com/samuelcolvin/pydantic/issues/1241
+        keep_untouched = (cached_property,)  # https://github.com/samuelcolvin/pydantic/issues/1241
         use_enum_values = True
         allow_population_by_field_name = True
+
+    def invalidate_cached_properties(self):
+        for key, value in self.__class__.__dict__.items():
+            if isinstance(value, cached_property):
+                log.debug("invalidating: ", key)
+                self.__dict__.pop(key, None)
 
 
 class XedaBaseModelAllowExtra(XedaBaseModel, metaclass=ABCMeta):

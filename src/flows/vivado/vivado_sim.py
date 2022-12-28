@@ -29,9 +29,7 @@ class VivadoSim(Vivado, SimFlow):
         debug_traces: bool = False
         prerun_time: Optional[str] = None
         work_lib: str = "work"
-        initialize_zeros: bool = Field(
-            False, description="Initialize all signals with zero"
-        )
+        initialize_zeros: bool = Field(False, description="Initialize all signals with zero")
         xelab_log: Optional[str] = "xeda_xelab.log"
         vcd_scope: str = ""
         vcd_level: int = 0  # default 0: dump all values in vcd_scope

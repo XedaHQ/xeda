@@ -143,9 +143,7 @@ class Flow(metaclass=ABCMeta):
         Any dependent flows should be registered here by using add_dependency
         """
 
-    def add_dependency(
-        self, dep_flow_class: Type["Flow"], dep_settings: Settings
-    ) -> None:
+    def add_dependency(self, dep_flow_class: Type["Flow"], dep_settings: Settings) -> None:
         self.dependencies.append((dep_flow_class, dep_settings))
 
     @classmethod
@@ -215,9 +213,7 @@ class Flow(metaclass=ABCMeta):
         self.completed_dependencies: List[Flow] = []
 
     def pop_dependency(self, typ: Type["Flow"]) -> Flow:
-        assert inspect.isclass(typ) and issubclass(
-            typ, Flow
-        ), f"{typ} is not a subclass of Flow"
+        assert inspect.isclass(typ) and issubclass(typ, Flow), f"{typ} is not a subclass of Flow"
         for i in range(len(self.completed_dependencies) - 1, -1, -1):
             if isinstance(self.completed_dependencies[i], typ):
                 dep = self.completed_dependencies.pop(i)
@@ -230,7 +226,7 @@ class Flow(metaclass=ABCMeta):
         """return False on failure"""
 
     def parse_reports(self) -> bool:
-        log.info("No parse_reports action for %s", self.name)
+        log.debug("No parse_reports action for %s", self.name)
         return True
 
     def copy_from_template(
@@ -319,9 +315,7 @@ class Flow(metaclass=ABCMeta):
                     return False
         return True
 
-    def normalize_path_to_design_root(
-        self, path: Union[str, os.PathLike, Path]
-    ) -> Path:
+    def normalize_path_to_design_root(self, path: Union[str, os.PathLike, Path]) -> Path:
         if not isinstance(path, Path):
             path = Path(path)
         if self.design._design_root and not path.is_absolute():
@@ -408,9 +402,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             return value
 
         @validator("clock_period", pre=True, always=True)
-        def clock_period_validate(
-            cls, value, values
-        ):  # pylint: disable=no-self-argument
+        def clock_period_validate(cls, value, values):  # pylint: disable=no-self-argument
             clocks = values.get("clocks")
             if not value and clocks:
                 if "main_clock" in clocks:

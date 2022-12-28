@@ -9,7 +9,7 @@ import os
 import shutil
 import time
 from datetime import datetime, timedelta
-from pathlib import Path, PosixPath
+from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -25,7 +25,7 @@ from typing import (
 
 from box import Box
 from pathvalidate import sanitize_filename  # pyright: reportPrivateImportUsage=none
-from rich import box, print_json
+from rich import box
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
@@ -78,9 +78,7 @@ def print_results(
     table.add_column(style="bold", no_wrap=True)
     table.add_column(justify="right")
     for k, v in results.items():
-        skipable = skip_if_false and (
-            isinstance(skip_if_false, bool) or k in skip_if_false
-        )
+        skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
         if skipable and not v:
             continue
         if v is not None and not k.startswith("_"):
@@ -89,9 +87,7 @@ def print_results(
 
                 # color = "green" if v else "red"
                 # table.add_row("Status", text, style=Style(color=color))
-                table.add_row(
-                    "Status", "[green]OK[/green]" if v else "[red]FAILED[/red]"
-                )
+                table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]")
                 continue
             if subset and k not in subset:
                 continue
@@ -191,9 +187,7 @@ class FlowLauncher:
         run_in_existing_dir: bool = False  # DO NOT USE! Only for development!
         cleanup: bool = False
 
-    def __init__(
-        self, xeda_run_dir: Union[None, str, os.PathLike] = None, **kwargs
-    ) -> None:
+    def __init__(self, xeda_run_dir: Union[None, str, os.PathLike] = None, **kwargs) -> None:
         if "xeda_run_dir" in kwargs:
             xeda_run_dir = kwargs.pop("xeda_run_dir")
         if not xeda_run_dir:
@@ -224,9 +218,7 @@ class FlowLauncher:
             if flowrun_hash:
                 flow_subdir += f"_{flowrun_hash[:16]}"
 
-        run_path: Path = (
-            self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
-        )
+        run_path: Path = self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
         return run_path
 
     def launch_flow(
@@ -301,9 +293,7 @@ class FlowLauncher:
                 ):
                     previous_results = Box(prev_results)
                 else:
-                    log.warning(
-                        "%s does not contain the expected settings", prev_settings
-                    )
+                    log.warning("%s does not contain the expected settings", prev_settings)
             else:
                 log.warning(
                     "Could not find valid results/settings from a previous run in %s",
@@ -348,9 +338,7 @@ class FlowLauncher:
                 dep_cls.__module__,
                 dep_cls.__qualname__,
             )
-            completed_dep = self.launch_flow(
-                dep_cls, design, dep_settings, depender=flow
-            )
+            completed_dep = self.launch_flow(dep_cls, design, dep_settings, depender=flow)
             if not completed_dep.succeeded:
                 log.critical("Dependency flow: %s failed!", dep_cls.name)
                 raise FlowDependencyFailure()
@@ -387,14 +375,35 @@ class FlowLauncher:
                 flow.results.success = success
 
         if flow.artifacts and flow.succeeded:
+            flow.results._artifacts = flow.artifacts
 
             def default_encoder(x: Any) -> str:
-                if isinstance(x, (PosixPath, os.PathLike)):
-                    return str(os.path.relpath(x, flow.run_path))
                 return str(x)
 
-            print(f"Generated artifacts in {flow.run_path}:")  # FIXME
-            print_json(data=flow.artifacts, default=default_encoder)  # FIXME
+            table = Table(
+                box=box.SIMPLE,
+                show_header=True,
+                show_edge=False,
+                show_footer=False,
+            )
+
+            table.add_column("Artifacts", justify="left", style="cyan", no_wrap=True)
+            table.add_column("", justify="left", style="green", no_wrap=True)
+
+            for k, v in flow.artifacts.items():
+                if isinstance(v, list) and v:
+                    v = [str(i) for i in v]
+                    table.add_row(k, v[0], end_section=len(v) == 1)
+                    for vi in v[1:-1]:
+                        table.add_row("", vi, end_section=False)
+                    if len(v) > 1:
+                        table.add_row("", v[-1], end_section=True)
+                else:
+                    table.add_row(k, str(v), end_section=True)
+
+            console.print("")
+            console.print(table)
+            console.print("")
 
         if self.settings.dump_results_json:
             dump_json(flow.results, results_json)
@@ -509,9 +518,7 @@ def prepare(
         xedaproject = "xedaproject.toml"
     if Path(xedaproject).exists():
         try:
-            xeda_project = XedaProject.from_file(
-                xedaproject, skip_designs=design_file is not None
-            )
+            xeda_project = XedaProject.from_file(xedaproject, skip_designs=design_file is not None)
         except DesignValidationError as e:
             log.critical("%s", e)
             return None, None, flows_settings

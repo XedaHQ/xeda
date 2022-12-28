@@ -72,11 +72,7 @@ class LoggerContextFilter(logging.Filter):
 def cli(ctx: click.Context, **kwargs):
     ctx.obj = XedaOptions(**kwargs)
     log_level = (
-        logging.WARNING
-        if ctx.obj.quiet
-        else logging.DEBUG
-        if ctx.obj.debug
-        else logging.INFO
+        logging.WARNING if ctx.obj.quiet else logging.DEBUG if ctx.obj.debug else logging.INFO
     )
     # log.root.setLevel(log_level)
     logging.getLogger().setLevel(log_level)
@@ -234,9 +230,7 @@ def run(
         )
         sys.exit(1)
     except NonZeroExitCode as e:
-        log.critical(
-            "Flow %s failed: NonZeroExitCode %s", flow, " ".join(str(a) for a in e.args)
-        )
+        log.critical("Flow %s failed: NonZeroExitCode %s", flow, " ".join(str(a) for a in e.args))
         sys.exit(1)
     except ExecutableNotFound as e:
         log.critical(
@@ -285,9 +279,7 @@ def list_flows():
     console.print(table)
 
 
-@cli.command(
-    context_settings=CONTEXT_SETTINGS, short_help="List flow settings information"
-)
+@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List flow settings information")
 @click.argument(
     "flow",
     metavar="FLOW_NAME",

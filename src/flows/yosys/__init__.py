@@ -95,9 +95,7 @@ class Yosys(Flow):
             if value is not None:
                 if isinstance(value, str):
                     value = [value]
-                value = [
-                    v if not v.strip() or v.startswith("-") else f"-{v}" for v in value
-                ]
+                value = [v if not v.strip() or v.startswith("-") else f"-{v}" for v in value]
             return value
 
         @validator("set_attributes", pre=True, always=True)
@@ -117,9 +115,7 @@ class Yosys(Flow):
                         except TypeError as e:
                             raise ValueError(f"JSON TypeError: {e.args}") from e
                     else:
-                        raise ValueError(
-                            f"Unsupported extension for JSON file: {value}"
-                        )
+                        raise ValueError(f"Unsupported extension for JSON file: {value}")
                 for attr, attr_dict in value.items():
                     assert attr
                     assert attr_dict, "attr_dict must be a non-empty Dict[str, Any]"
@@ -210,9 +206,7 @@ class YosysSynth(Yosys, SynthFlow):
             if value is not None:
                 if isinstance(value, str):
                     value = [value]
-                value = [
-                    v if not v.strip() or v.startswith("-") else f"-{v}" for v in value
-                ]
+                value = [v if not v.strip() or v.startswith("-") else f"-{v}" for v in value]
             return value
 
         @root_validator(pre=True)
@@ -317,9 +311,7 @@ class YosysSynth(Yosys, SynthFlow):
             trim_blocks=True,
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),
         )
-        log.info(
-            "Yosys script: %s", self.run_path.relative_to(Path.cwd()) / script_path
-        )
+        log.info("Yosys script: %s", self.run_path.relative_to(Path.cwd()) / script_path)
         # args = ['-s', script_path]
         args = ["-c", script_path]
         if ss.log_file:
@@ -348,19 +340,13 @@ class YosysSynth(Yosys, SynthFlow):
                     num_cells_by_type = design_util.get("num_cells_by_type")
                     if num_cells_by_type:
                         design_util = {
-                            **{
-                                k: v
-                                for k, v in design_util.items()
-                                if k != "num_cells_by_type"
-                            },
+                            **{k: v for k, v in design_util.items() if k != "num_cells_by_type"},
                             **num_cells_by_type,
                         }
                     self.results["design_utilization"] = design_util
 
             except json.decoder.JSONDecodeError as e:
-                log.error(
-                    "Failed to decode JSON %s: %s", self.artifacts.report.utilization, e
-                )
+                log.error("Failed to decode JSON %s: %s", self.artifacts.report.utilization, e)
         else:
             if self.settings.fpga:
                 if self.settings.fpga.vendor == "xilinx":
@@ -398,9 +384,7 @@ class YosysSim(Yosys, SimFlow):
         ss.flatten = True
         if not ss.cxxrtl.filename:
             ss.cxxrtl.filename = (
-                self.design.rtl.top
-                if self.design.rtl.top
-                else self.design.name + ".cpp"
+                self.design.rtl.top if self.design.rtl.top else self.design.name + ".cpp"
             )
         script_path = self.copy_from_template(
             "yosys_sim.tcl",
@@ -408,9 +392,7 @@ class YosysSim(Yosys, SimFlow):
             trim_blocks=True,
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),
         )
-        log.info(
-            "Yosys script: %s", self.run_path.relative_to(Path.cwd()) / script_path
-        )
+        log.info("Yosys script: %s", self.run_path.relative_to(Path.cwd()) / script_path)
         # args = ['-s', script_path]
         args = ["-c", script_path]
         if ss.log_file:

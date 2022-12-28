@@ -74,9 +74,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
             "--warn-no-hide",
             "--warn-parenthesis",
         ]
-        werror: bool = Field(
-            False, description="warnings are always considered as errors"
-        )
+        werror: bool = Field(False, description="warnings are always considered as errors")
         elab_werror: bool = Field(
             False, description="During elaboration, warnings are considered as errors"
         )
@@ -88,9 +86,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
         diagnostics: bool = Field(
             True, description="Enable both color and source line carret diagnostics."
         )
-        work: Optional[str] = Field(
-            None, description="Set the name of the WORK library"
-        )
+        work: Optional[str] = Field(None, description="Set the name of the WORK library")
         expect_failure: bool = False
 
         def common_flags(self, vhdl: VhdlSettings) -> List[str]:
@@ -203,9 +199,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 if top:
                     log.info("[ghdl:find-top] `top` entity was set to %s", top)
                 else:
-                    find_out = self.ghdl.run_get_stdout(
-                        "-f", *args, *[str(s) for s in sources]
-                    )
+                    find_out = self.ghdl.run_get_stdout("-f", *args, *[str(s) for s in sources])
                     entities: List[str] = []
                     for line in find_out.split("\n"):
                         sp = line.split()
@@ -214,9 +208,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
                     log.info("discovered entities: %s", ", ".join(entities))
                     if entities:
                         top = (entities[-1],)
-                        log.warning(
-                            "[ghdl:find-top] `top` entity was set to %s", top[0]
-                        )
+                        log.warning("[ghdl:find-top] `top` entity was set to %s", top[0])
                     else:
                         log.error(
                             inspect.cleandoc(
@@ -245,18 +237,12 @@ class GhdlSynth(Ghdl, SynthFlow):
             True,
             description="Neither synthesize assert nor PSL. Required for yosys+nextpnr flow.",
         )
-        no_assert_cover: bool = Field(
-            False, description="Cover PSL assertion activation"
+        no_assert_cover: bool = Field(False, description="Cover PSL assertion activation")
+        assert_assumes: bool = Field(False, description="Treat all PSL asserts like PSL assumes")
+        assume_asserts: bool = Field(False, description="Treat all PSL assumes like PSL asserts")
+        out: Optional[Literal["vhdl", "raw-vhdl", "verilog", "dot", "none", "raw", "dump"]] = Field(
+            None, description="Type of output to generate"
         )
-        assert_assumes: bool = Field(
-            False, description="Treat all PSL asserts like PSL assumes"
-        )
-        assume_asserts: bool = Field(
-            False, description="Treat all PSL assumes like PSL asserts"
-        )
-        out: Optional[
-            Literal["vhdl", "raw-vhdl", "verilog", "dot", "none", "raw", "dump"]
-        ] = Field(None, description="Type of output to generate")
         out_file: Optional[str] = None
 
     def run(self) -> None:
@@ -306,9 +292,7 @@ class GhdlSim(Ghdl, SimFlow):
 
     class Settings(Ghdl.Settings, SimFlow.Settings):
         run_flags: List[str] = []
-        optimization_flags: List[str] = Field(
-            ["-O3"], description="Simulation optimization flags"
-        )
+        optimization_flags: List[str] = Field(["-O3"], description="Simulation optimization flags")
         asserts: Optional[Literal["disable", "disable-at-0"]] = None
         ieee_asserts: Optional[Literal["disable", "disable-at-0"]] = "disable-at-0"
         sdf: SDF = Field(
@@ -326,9 +310,7 @@ class GhdlSim(Ghdl, SimFlow):
             None,
             description="Creates a wave option file with all the signals of the design. Overwrites the file if it already exists.",
         )
-        fst: Optional[str] = Field(
-            None, description="Write the waveforms into an _fst_ file."
-        )
+        fst: Optional[str] = Field(None, description="Write the waveforms into an _fst_ file.")
         stop_delta: Optional[str] = Field(
             None,
             description="Stop the simulation after N delta cycles in the same current time.",
@@ -346,13 +328,7 @@ class GhdlSim(Ghdl, SimFlow):
         @validator("wave", "fst", pre=True)
         def validate_wave(cls, value, field):  # pylint: disable=no-self-argument
             if value is not None:
-                ext = (
-                    ".ghw"
-                    if field.name == "wave"
-                    else ".fst"
-                    if field.name == "fst"
-                    else ""
-                )
+                ext = ".ghw" if field.name == "wave" else ".fst" if field.name == "fst" else ""
                 if isinstance(value, bool):
                     value = "dump" + ext if value else None
                 else:
@@ -454,9 +430,7 @@ class GhdlSim(Ghdl, SimFlow):
 
         run_flags.extend(ss.generics_flags(design.tb.generics))
 
-        design.tb.top = self.elaborate(
-            design.sim_sources, design.tb.top, design.language.vhdl
-        )
+        design.tb.top = self.elaborate(design.sim_sources, design.tb.top, design.language.vhdl)
         assert self.cocotb
         self.ghdl.run(
             "run",

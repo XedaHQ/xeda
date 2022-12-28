@@ -30,9 +30,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
     class Settings(Flow.Settings):
         vcd: Union[None, str, Path] = None
         stop_time: Union[None, str, int, float] = None
-        cocotb: CocotbSettings = (
-            CocotbSettings()
-        )  # pyright: reportGeneralTypeIssues=none
+        cocotb: CocotbSettings = CocotbSettings()  # pyright: reportGeneralTypeIssues=none
         optimization_flags: List[str] = Field([], description="Optimization flags")
 
         @validator("vcd", pre=True)
@@ -58,6 +56,6 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 sim_name=self.cocotb_sim_name,
                 dockerized=self.settings.dockerized,
             )
-            if self.cocotb_sim_name
+            if self.cocotb_sim_name and self.design.tb.cocotb
             else None
         )

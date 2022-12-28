@@ -17,9 +17,7 @@ class CocotbSettings(XedaBaseModel):
     coverage: bool = Field(
         False, description="Collect coverage data if supported by simulation tool."
     )
-    reduced_log_fmt: bool = Field(
-        True, description="Display shorter log lines in the terminal."
-    )
+    reduced_log_fmt: bool = Field(True, description="Display shorter log lines in the terminal.")
     results_xml: str = Field(
         "results.xml",
         description="xUnit-compatible cocotb result file.",
@@ -106,9 +104,7 @@ class Cocotb(CocotbSettings, Tool):
         ret = {}
         if design.tb.cocotb:
             if design.tb is None or not design.tb.sources:
-                raise ValueError(
-                    "'design.tb.cocotb' is true, but 'design.tb.sources' is empty."
-                )
+                raise ValueError("'design.tb.cocotb' is true, but 'design.tb.sources' is empty.")
             if not design.tb.top:
                 assert design.rtl.top
                 design.tb.top = (design.rtl.top,)
@@ -119,9 +115,7 @@ class Cocotb(CocotbSettings, Tool):
             if current_ppath:
                 ppath = current_ppath.split(os.pathsep)
             ppath.append(str(tb_top_path))
-            top: str = (
-                design.tb.top if isinstance(design.tb.top, str) else design.tb.top[0]
-            )
+            top: str = design.tb.top if isinstance(design.tb.top, str) else design.tb.top[0]
             ret = {
                 "MODULE": coco_module,
                 "TOPLEVEL": top,  # TODO
@@ -165,9 +159,7 @@ class Cocotb(CocotbSettings, Tool):
                             "time": round(tc.time, 3),
                         }
 
-    def add_results(
-        self, flow_results: Dict[str, Any], prefix: str = "cocotb."
-    ) -> bool:
+    def add_results(self, flow_results: Dict[str, Any], prefix: str = "cocotb.") -> bool:
         """adds cocotb results to parent flow's results. returns success status"""
         xml = self.results
         flow_results[prefix + "tests"] = xml.tests

@@ -126,12 +126,8 @@ class Quartus(FpgaSynthFlow):
         Values greater than 1 increase placement time and placement quality, but may reduce routing time for designs with routing congestion.
         For example, a value of 4 increases fitting time by approximately 2 to 4 times, but may improve quality.""",
         )
-        router_timing_optimization_level: Literal[
-            "Normal", "Maximum", "Minimum"
-        ] = "Maximum"
-        final_placement_optimization: Literal[
-            "ALWAYS", "AUTOMATICALLY", "NEVER"
-        ] = "ALWAYS"
+        router_timing_optimization_level: Literal["Normal", "Maximum", "Minimum"] = "Maximum"
+        final_placement_optimization: Literal["ALWAYS", "AUTOMATICALLY", "NEVER"] = "ALWAYS"
 
     def init(self) -> None:
         self.reports_dir.mkdir(exist_ok=True)
@@ -153,12 +149,8 @@ class Quartus(FpgaSynthFlow):
                 p = str(src.file.parent.resolve())
                 self.quartus_sh.docker.mounts[p] = p
             if self.settings.dockerized and self.quartus_sh.docker.nproc:
-                self.settings.ncpus = min(
-                    self.settings.ncpus, self.quartus_sh.docker.nproc
-                )
-                self.settings.nthreads = min(
-                    self.settings.nthreads, self.quartus_sh.docker.nproc
-                )
+                self.settings.ncpus = min(self.settings.ncpus, self.quartus_sh.docker.nproc)
+                self.settings.nthreads = min(self.settings.nthreads, self.quartus_sh.docker.nproc)
 
     def create_project(self, **kwargs: Any) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -254,9 +246,7 @@ class Quartus(FpgaSynthFlow):
 
     def run(self) -> None:
         self.create_project()
-        script_path = self.copy_from_template(
-            "compile.tcl", reports_dir=self.reports_dir
-        )
+        script_path = self.copy_from_template("compile.tcl", reports_dir=self.reports_dir)
         self.quartus_sh.run("-t", script_path)
 
     def parse_reports(self) -> bool:
@@ -335,9 +325,7 @@ class Quartus(FpgaSynthFlow):
 
         timing_reports_folder = Path(reports["timing_dir"])
         max_fmax = 0.0
-        for fmax_report in timing_reports_folder.glob(
-            "Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"
-        ):
+        for fmax_report in timing_reports_folder.glob("Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"):
             log.info("Parsing timing report: %s", fmax_report)
             fmax = parse_csv(
                 fmax_report,
@@ -346,9 +334,7 @@ class Quartus(FpgaSynthFlow):
                 id_parser=lambda s: s.strip(),
                 interesting_fields={"Fmax"},
             )
-            conditions = (
-                fmax_report.parent.name.lstrip("Slow_").rstrip("_Model").split("_")
-            )
+            conditions = fmax_report.parent.name.lstrip("Slow_").rstrip("_Model").split("_")
             for clock in self.settings.clocks.keys():
                 flst = fmax.get(clock, {}).get("Fmax")
                 assert flst and len(flst) == 2

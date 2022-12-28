@@ -56,7 +56,7 @@ dependencies = [
     "overrides         >= 6.1",
     "simple_term_menu  >= 1.5.2",
     "psutil            >= 5.9",
-    "junitparser       ~= 2.4",   # TODO: remove
+    "junitparser       ~= 2.4",    # TODO: remove
     "pyvcd             ~= 0.3",
     "GitPython         >= 3.1.29",
 ]
@@ -119,13 +119,43 @@ xeda = "src"
 
 [tool.setuptools_scm]
 
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311"]
+include = '\.pyi?$'
+
+
+[tool.mypy]
+ignore_missing_imports = true
+# explicit-package-bases = true
+# python_version = "3.11"
+# warn_return_any = true
+warn_unused_configs = true
+exclude = [
+    '^build/.*$',
+    '^examples/.*$',
+    '^\.tox/.*$',
+]
+check_untyped_defs = true
+color_output = true
+pretty = true
+follow_imports = "skip"
+## WIP:
+# strict = true
+## for future:
+# disallow_untyped_calls = True
+# disallow_untyped_defs = True
+# disallow_incomplete_defs = True
+# disallow_untyped_decorators = True
+
 [tool.pylint]
 
 [tool.pylint.master]
 ignore-paths = ["src/xeda/plugins/lwc/.*"]
 
 [tool.pylint.messages_control]
-max-line-length = 120
+max-line-length = 100
 disable = [
     "line-too-long",
     "invalid-name",
@@ -170,13 +200,12 @@ skips = [
     "B404:blacklist",   # subprocess module
     "B314",
 ]
-# exclude = []
 
 [tool.flakeheaven]
 # make output nice
 format = "grouped"
 # 80 chars aren't enough in 21 century
-max_line_length = 120
+max_line_length = 100
 # show line of source code in output
 show_source = true
 

@@ -107,9 +107,7 @@ class Dc(AsicSynthFlow):
             r"^\s*Area\s*\n\s*\-+\s*\n(?P<kv1>(?:^.*\n)+)\s*\-+\s*\n(?P<kv2>(?:^.*\n)+)",
             re.MULTILINE,
         )
-        drc_re = re.compile(
-            r"^\s*Design Rules\s*\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)", re.MULTILINE
-        )
+        drc_re = re.compile(r"^\s*Design Rules\s*\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)", re.MULTILINE)
         wns_re = re.compile(
             r"^\s*Design\s+WNS:\s+(?P<wns>\d+\.\d+)\s+TNS:\s+(?P<tns>\d+\.\d+)\s+Number of Violating Paths:\s*(?P<nvp>\d+)"
         )
@@ -143,17 +141,13 @@ class Dc(AsicSynthFlow):
                             drc = parse_kvs(match.group("kv"))
                             self.results["drc"] = drc
                             if drc["Nets With Violations"] != 0:
-                                print(
-                                    f"Nets With DRC Violations: {drc['Nets With Violations']}"
-                                )
+                                print(f"Nets With DRC Violations: {drc['Nets With Violations']}")
                         else:
                             match = wns_re.match(sec)
                             if match:
                                 self.results["wns"] = float(match.group("wns"))
                                 self.results["tns"] = float(match.group("tns"))
-                                self.results["num_violating_paths"] = int(
-                                    match.group("nvp")
-                                )
+                                self.results["num_violating_paths"] = int(match.group("nvp"))
                                 if (
                                     self.results["wns"] > 0
                                     or self.results["tns"] > 0
