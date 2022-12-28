@@ -377,18 +377,18 @@ class FlowLauncher:
         if flow.artifacts and flow.succeeded:
             flow.results._artifacts = flow.artifacts
 
-            def default_encoder(x: Any) -> str:
-                return str(x)
-
             table = Table(
                 box=box.SIMPLE,
                 show_header=True,
                 show_edge=False,
-                show_footer=False,
+                show_footer=True,
+                collapse_padding=True,
+                pad_edge=False,
             )
-
-            table.add_column("Artifacts", justify="left", style="cyan", no_wrap=True)
-            table.add_column("", justify="left", style="green", no_wrap=True)
+            table.add_column(
+                "Artifacts:", justify="left", style="cyan", header_style="blue", no_wrap=False
+            )
+            table.add_column("", justify="left", style="green", no_wrap=False)
 
             for k, v in flow.artifacts.items():
                 if isinstance(v, list) and v:
