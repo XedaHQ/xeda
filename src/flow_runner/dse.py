@@ -588,6 +588,7 @@ class Dse(FlowLauncher):
 
         base_settings = flow_class.Settings(**flow_settings)
         base_settings.redirect_stdout = True
+        base_settings.print_commands = False
 
         if base_settings.nthreads > 1:
             max_nthreads = max(2, multiprocessing.cpu_count() // self.settings.max_workers)
@@ -712,7 +713,7 @@ class Dse(FlowLauncher):
                                             design=design,
                                         ),
                                         best_json_path,
-                                        backup_previous=False,
+                                        backup=False,
                                     )
                                 if outcome.results.success:
                                     have_success = True

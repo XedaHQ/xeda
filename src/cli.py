@@ -63,6 +63,20 @@ class LoggerContextFilter(logging.Filter):
         return 1
 
 
+def setup_logger(log_level, detailed_logs, write_to_file: Optional[Path] = None):
+    logging.getLogger().setLevel(log_level)
+    if detailed_logs:
+        coloredlogs.install(
+            None,
+            fmt="[%(name)s] %(asctime)s %(levelname)s %(message)s",
+            logger=log.root,
+        )
+        for handler in logging.getLogger().handlers:
+            handler.addFilter(LoggerContextFilter())
+    if write_to_file:
+        add_file_logger(write_to_file)
+
+
 @click.group(cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
 @click.option("--verbose", is_flag=True, help="Enables verbose mode.")
 @click.option("--quiet", is_flag=True, help="Enable quiet mode.")
@@ -71,18 +85,6 @@ class LoggerContextFilter(logging.Filter):
 @click.pass_context
 def cli(ctx: click.Context, **kwargs):
     ctx.obj = XedaOptions(**kwargs)
-    log_level = (
-        logging.WARNING if ctx.obj.quiet else logging.DEBUG if ctx.obj.debug else logging.INFO
-    )
-    # log.root.setLevel(log_level)
-    logging.getLogger().setLevel(log_level)
-    coloredlogs.install(
-        None,
-        fmt="[%(name)s] %(asctime)s %(levelname)s %(message)s",
-        logger=log.root,
-    )
-    for handler in logging.getLogger().handlers:
-        handler.addFilter(LoggerContextFilter())
 
 
 @cli.command(
@@ -114,15 +116,14 @@ def cli(ctx: click.Context, **kwargs):
     show_envvar=True,
 )
 @click.option(
-    "--cached-dependencies",
+    "--cached-dependencies/--no-cached-dependencies",
     default=True,
     help="Don't run dependency flows if a previous successfull run on the same design and flow settings exists. Generated directory names will contain a hash of design and/or flow settings.",
 )
 @click.option(
-    "--run_in_existing_dir",
-    is_flag=True,
-    help="DO NOT USE!",
-    hidden=True,
+    "--incremental/--no-incremental",
+    default=True,
+    help="Incremental build. Useful during development. Flows run under a <design_name>/<flow_name>_<flow_settings_hash> subfolder in incremental mode.",
 )
 @click.option(
     "--xedaproject",
@@ -136,8 +137,6 @@ def cli(ctx: click.Context, **kwargs):
         allow_dash=False,
         path_type=Path,
     ),
-    # cls=ClickMutex,
-    # mutually_exclusive_with=["design_file"],
     help="Path to Xeda project file.",
 )
 @click.option(
@@ -176,29 +175,33 @@ def cli(ctx: click.Context, **kwargs):
     # - xeda vivado_sim --flow-settings stop_time=100us
     # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock_period=2.345
 )
+@click.option("--detailed-logs/--no-detailed-logs", show_envvar=True, default=True)
+@click.option("--log-level", show_envvar=True, type=int, default=None)
 @click.pass_context
 def run(
     ctx: click.Context,
     flow: str,
     cached_dependencies: bool,
     flow_settings: Union[None, str, Iterable[str]],
-    run_in_existing_dir: bool = False,
-    # force_run: bool = False,
+    incremental: bool = True,
     xeda_run_dir: Optional[Path] = None,
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     design_file: Optional[str] = None,
+    log_level: Optional[int] = None,
+    detailed_logs: bool = False,
 ):
     """`run` command"""
     assert ctx
     options: XedaOptions = ctx.obj or XedaOptions()
     assert xeda_run_dir
-
-    log_to_file = True
     if not xeda_run_dir:
         xeda_run_dir = Path.cwd() / "xeda_run"
-    if log_to_file:
-        add_file_logger(xeda_run_dir / "Logs")
+    if log_level is None:
+        log_level = (
+            logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
+        )
+    setup_logger(log_level, detailed_logs, xeda_run_dir / "Logs" if detailed_logs else None)
     if isinstance(flow_settings, str):
         flow_settings = flow_settings.split(",")
     if flow_settings is not None:
@@ -217,10 +220,11 @@ def run(
     try:
         launcher = DefaultRunner(
             xeda_run_dir,
-            debug=options.debug,
             cached_dependencies=cached_dependencies,
-            run_in_existing_dir=run_in_existing_dir,
         )
+        launcher.settings.incremental = incremental
+        launcher.settings.debug = options.debug
+        launcher.settings.incremental = True
         launcher.run_flow(flow_class, design, accum_flow_settings)
     except FlowFatalError as e:
         log.critical(
@@ -364,6 +368,8 @@ def list_settings(ctx: click.Context, flow):
     ),
     help="Path to Xeda design file containing the description of a single design.",
 )
+@click.option("--detailed-logs/--no-detailed-logs", show_envvar=True, default=True)
+@click.option("--log-level", show_envvar=True, type=int, default=None)
 @click.option(
     "--optimizer",
     type=str,
@@ -417,13 +423,21 @@ def dse(
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     design_file: Optional[str] = None,
+    log_level: Optional[int] = None,
+    detailed_logs: bool = True,
 ):
     """Design-space exploration (e.g. fmax)"""
     options: XedaOptions = ctx.obj or XedaOptions()
 
     if not xeda_run_dir:
         xeda_run_dir = Path.cwd() / ("xeda_run_" + optimizer)
-    add_file_logger(xeda_run_dir / "Logs")
+
+    if log_level is None:
+        log_level = (
+            logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
+        )
+
+    setup_logger(log_level, detailed_logs, xeda_run_dir / "Logs")
 
     design, flow_class, accum_flow_settings = prepare(
         flow,

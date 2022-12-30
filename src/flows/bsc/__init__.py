@@ -18,11 +18,9 @@ log = logging.getLogger(__name__)
 
 def val_to_int(v):
     if isinstance(v, int):
-        # return ceil(log2(v + 1)), v
         return v
     m = re.match(r"(\d+)'(b|d|h|o)(\d+)", v)
     if m:
-        # sz = int(m.group(1))
         base_char = m.group(2)
         base = 10 if base_char == "d" else 2 if base_char == "b" else 16 if base_char == "h" else 8
         return int(m.group(3), base)
@@ -31,9 +29,11 @@ def val_to_int(v):
 
 def prepend_to_file(filename, lines):
     with open(filename, "r+") as f:
+        to_add = "\n".join(lines) + "\n"
         content = f.read()
-        f.seek(0, 0)
-        f.write("\n".join(lines) + "\n" + content)
+        if not content.startswith(to_add):
+            f.seek(0, 0)
+            f.write(to_add + content)
 
 
 def get_use_mods(use_dir: Path, mod: str):
@@ -64,7 +64,6 @@ class Bsc(Flow):
             ["G0010", "G0005", "G0117"], description="Promote these warnings as errors."
         )
         optimize: bool = True
-        update_top: bool = False  # only update "-u" top module
         docker: Optional[Docker] = Docker(image="bsc")  # pyright: ignore
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
@@ -104,7 +103,8 @@ class Bsc(Flow):
 
         assert out
 
-        print(f"output:\n{out}")
+        if self.settings.debug:
+            print(f"output:\n{out}")
 
         type_info = dict(yaml.full_load(out))
 
@@ -249,12 +249,13 @@ class Bsc(Flow):
 
         # bsc_flags += ["-vsearch", ":".join(verilog_paths)]
 
-        if self.settings.update_top:
+        if self.incremental:
             src_ir_paths = []
             for src in bluespec_sources[:-1]:
                 dirname = src.path.parent
-                if dirname not in src_ir_paths:
-                    src_ir_paths.append(str(dirname.absolute()))
+                p = str(dirname.absolute())
+                if p not in src_ir_paths:
+                    src_ir_paths.append(p)
             if src_ir_paths:
                 src_ir_paths.insert(0, "+")
                 bsc_flags += ["-p", ":".join(src_ir_paths)]
@@ -286,8 +287,8 @@ class Bsc(Flow):
 
         vloggen_flags += ["-g", self.design.rtl.top]
 
-        if self.settings.update_top:
-            log.warning("won't generate Verilog if the .v file was changed")
+        if self.incremental:
+            log.warning("bsc won't re-generate the Verilog file if it was externally changed")
             vloggen_flags.append("-u")
 
         vloggen_flags += [
@@ -303,7 +304,7 @@ class Bsc(Flow):
 
         modules = get_use_mods(vout_dir, self.design.rtl.top)
         modules.insert(0, self.design.rtl.top)
-        log.info(f"modules: {modules}")
+        log.debug(f"modules: {modules}")
         verilog_sources: List[Path] = []
         for mod in modules:
             verilog_name = f"{mod}.v"

@@ -5,7 +5,7 @@ import logging
 import types
 from abc import ABCMeta
 from functools import cached_property
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import attrs
 
@@ -35,12 +35,26 @@ __all__ = [
     "validation_errors",
 ]
 
-
 log = logging.getLogger(__name__)
 
 
+# Static type inference support:
+# https://github.com/microsoft/pyright/blob/master/specs/dataclass_transforms.md
+def __dataclass_transform__(
+    *,
+    eq_default: bool = True,
+    order_default: bool = False,
+    kw_only_default: bool = False,
+    field_descriptors: Tuple[Union[type, Callable[..., Any]], ...] = (()),
+) -> Callable[[_T], _T]:  # type: ignore
+    return lambda a: a
+
+
 # WIP: interchangable dataclass backend
-def define(maybe_cls: Optional[Type[Any]], **kwargs: Any) -> Any:
+@__dataclass_transform__(field_descriptors=())
+def define(maybe_cls: Optional[Type[Any]] = None, **kwargs):
+    if "slots" not in kwargs:
+        kwargs["slots"] = False
     return attrs.define(maybe_cls, **kwargs)
 
 

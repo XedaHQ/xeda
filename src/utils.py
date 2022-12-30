@@ -138,8 +138,8 @@ def backup_existing(path: Path) -> Optional[Path]:
     return path.rename(backup_path)
 
 
-def dump_json(data: object, path: Path, backup_previous: bool = True, indent: int = 4) -> None:
-    if path.exists() and backup_previous:
+def dump_json(data: object, path: Path, backup: bool = True, indent: int = 4) -> None:
+    if path.exists() and backup:
         backup_existing(path)
         assert not path.exists(), "Old file still exists!"
 

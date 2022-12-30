@@ -184,8 +184,10 @@ class FlowLauncher:
         display_results: bool = True
         dump_results_json: bool = True
         cached_dependencies: bool = True
-        run_in_existing_dir: bool = False  # DO NOT USE! Only for development!
+        skip_if_previous_run_exists: bool = False
         cleanup: bool = False
+        backups: bool = False
+        incremental: bool = True
 
     def __init__(self, xeda_run_dir: Union[None, str, os.PathLike] = None, **kwargs) -> None:
         if "xeda_run_dir" in kwargs:
@@ -213,7 +215,7 @@ class FlowLauncher:
         design_subdir = design_name
         flow_subdir = flow_name
         if self.settings.cached_dependencies:
-            if design_hash:
+            if design_hash and not self.settings.incremental:
                 design_subdir += f"_{design_hash[:16]}"
             if flowrun_hash:
                 flow_subdir += f"_{flowrun_hash[:16]}"
@@ -269,11 +271,12 @@ class FlowLauncher:
 
         previous_results = None
         if (
-            depender
+            (depender or self.settings.skip_if_previous_run_exists)
             and self.settings.cached_dependencies
             and run_path.exists()
             and settings_json.exists()
             and results_json.exists()
+            and not self.settings.incremental
         ):
             prev_results, prev_settings = None, None
             try:
@@ -301,9 +304,9 @@ class FlowLauncher:
                 )
 
         if not previous_results:
-            if not self.settings.run_in_existing_dir and run_path.exists():
+            if not self.settings.backups and run_path.exists():
                 backup_existing(run_path)
-            run_path.mkdir(parents=True, exist_ok=self.settings.run_in_existing_dir)
+            run_path.mkdir(parents=True, exist_ok=self.settings.incremental)
 
             if self.settings.dump_settings_json:
                 log.info("dumping effective settings to %s", settings_json)
@@ -317,13 +320,14 @@ class FlowLauncher:
                     xeda_version=__version__,
                     flowrun_hash=flowrun_hash,
                 )
-                dump_json(all_settings, settings_json)
+                dump_json(all_settings, settings_json, backup=self.settings.backups)
 
         with WorkingDirectory(run_path):
             log.debug("Instantiating flow from %s", flow_class)
             flow = flow_class(flow_settings, design, run_path)
             flow.design_hash = design_hash
             flow.flow_hash = flowrun_hash
+            flow.incremental = self.settings.incremental
             flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
             # flow execution time includes init() as well as execution of all its dependency flows
             flow.init_time = time.monotonic()
@@ -406,7 +410,7 @@ class FlowLauncher:
             console.print("")
 
         if self.settings.dump_results_json:
-            dump_json(flow.results, results_json)
+            dump_json(flow.results, results_json, backup=self.settings.backups)
             log.info("Results written to %s", results_json)
 
         if self.settings.display_results:
@@ -462,6 +466,7 @@ class XedaOptions:
     verbose: bool = False
     quiet: bool = False
     debug: bool = False
+    detailed_logs: bool = True
 
 
 # DictStrHier = Dict[str, "StrOrDictStrHier"]
