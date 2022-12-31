@@ -181,7 +181,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 required=False,
             )
             wns = self.results.get("wns")
-            if wns:
+            if wns is not None:
                 if not isinstance(wns, (float, int)):
                     log.critical("Parsed value for `WNS` is %s (%s)", wns, type(wns))
                 else:
