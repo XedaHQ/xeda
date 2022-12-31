@@ -83,28 +83,23 @@ def print_results(
             continue
         if v is not None and not k.startswith("_"):
             if k == "success":
-                # text = "OK :heavy_check_mark-text:" if v else "FAILED :cross_mark-text:"
-
-                # color = "green" if v else "red"
-                # table.add_row("Status", text, style=Style(color=color))
                 table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]")
                 continue
             if subset and k not in subset:
                 continue
             if k == "design":
-                assert isinstance(v, str)
-                table.add_row("Design Name", Text(v), style=Style(dim=True))
+                # table.add_row("Design Name", Text(v), style=Style(dim=True))
                 continue
             if k == "flow":
-                assert isinstance(v, str)
-                table.add_row("Flow Name", Text(v), style=Style(dim=True))
+                # table.add_row("Flow Name", Text(v), style=Style(dim=True))
                 continue
             if k == "runtime" and isinstance(v, (float, int)):
                 table.add_row(
-                    "Running Time",
+                    "Run time",
                     str(timedelta(seconds=round(v))),
                     style=Style(dim=True),
                 )
+                continue
             if isinstance(v, (dict,)):
                 table.add_row(k + ":", "", style=Style(bold=True))
                 for xk, xv in v.items():
@@ -187,7 +182,7 @@ class FlowLauncher:
         skip_if_previous_run_exists: bool = False
         cleanup: bool = False
         backups: bool = False
-        incremental: bool = True
+        incremental: bool = False
 
     def __init__(self, xeda_run_dir: Union[None, str, os.PathLike] = None, **kwargs) -> None:
         if "xeda_run_dir" in kwargs:
@@ -416,7 +411,7 @@ class FlowLauncher:
         if self.settings.display_results:
             print_results(
                 flow,
-                title=f"{flow.name} Results",
+                title=f"Results of flow:{flow.name} design:{design.name}",
                 skip_if_false={"artifacts", "reports"},
             )
         if self.cleanup:

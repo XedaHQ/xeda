@@ -489,7 +489,7 @@ class Dse(FlowLauncher):
             12 * 3600,
             description="Maximum total running time in minutes, after which no new flow execution will be launched. Flows all ready launched will continue to completion or their timeout.",
         )  # type: ignore
-        keep_optimal_run_dirs: bool = True
+        keep_optimal_run_dirs: bool = False
 
         max_failed_iters = 6
         max_failed_iters_with_best = 4
@@ -516,6 +516,7 @@ class Dse(FlowLauncher):
         # update settings
         self.settings.cleanup &= not self.settings.keep_optimal_run_dirs
         self.settings.display_results = False
+        self.settings.incremental = False
 
         if isinstance(optimizer_class, str):
             cls = load_class(optimizer_class, self.__module__)
@@ -780,7 +781,7 @@ class Dse(FlowLauncher):
             if optimizer.best:
                 print_results(
                     results=optimizer.best.results,
-                    title="Best Results",
+                    title="Best results",
                     subset=results_sub,
                 )
                 log.info("Best result were written to %s", best_json_path)
