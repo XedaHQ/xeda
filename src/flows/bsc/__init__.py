@@ -178,10 +178,10 @@ class Bsc(Flow):
         ]
 
         bsc_flags += [
-            # "-check-assert",
-            # "-cross-info",
-            # "-lift",
-            # "-use-proviso-sat",
+            "-check-assert",
+            "-cross-info",
+            "-lift",
+            "-use-proviso-sat",
             ##
             "-verilog-declare-first",
             ##
@@ -215,17 +215,17 @@ class Bsc(Flow):
                 "-show-range-conflict",
                 "-no-show-timestamps",  # regenerated files should be the same
                 # '-aggressive-conditions',  # DO NOT USE!!! BUGGY!!
-                # "-opt-AndOr",
-                # "-opt-aggressive-inline",
-                # "-opt-bit-const",
-                # "-opt-bool",
-                # "-opt-final-pass",
-                # "-opt-if-mux",
-                # "-opt-join-defs",
-                # "-opt-mux",
-                # "-opt-mux-const",
-                # "-opt-sched",
                 # "-opt-mux-expand", ## Broken?!!! Leads to incorrect behavior
+                "-opt-AndOr",
+                "-opt-aggressive-inline",
+                "-opt-bit-const",
+                "-opt-bool",
+                "-opt-final-pass",
+                "-opt-if-mux",
+                "-opt-join-defs",
+                "-opt-mux",
+                "-opt-mux-const",
+                "-opt-sched",
             ]
         if self.settings.optimize:
             bsc_flags.append("-O")
