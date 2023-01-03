@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import Field
 
+from ...design import SourceType
 from ...sim_flow import SimFlow
 from ...tool import Tool
 
@@ -72,7 +73,7 @@ class Verilator(SimFlow):
         if ss.generate_executable:
             args += ["--exe"]
 
-        if not self.cocotb and not self.design.sim_sources_of_type("cpp"):
+        if not self.cocotb and not self.design.sim_sources_of_type(SourceType.Cpp):
             args += ["--main"]
 
         if ss.build:
@@ -187,7 +188,7 @@ class Verilator(SimFlow):
             args += ["-v", vlib]
 
         sources: List[Any] = self.design.sources_of_type(
-            "Verilog", "SystemVerilog", "Cpp", rtl=True, tb=True
+            SourceType.Verilog, SourceType.SystemVerilog, SourceType.Cpp, rtl=True, tb=True
         )
 
         if self.cocotb:
