@@ -8,10 +8,11 @@ from typing import Any, Dict, List, Optional, Union
 import yaml
 from pydantic import Field
 
-from ...design import Design
+from ...design import Design, SourceType
 from ...flow import Flow
 from ...gtkwave import get_color
 from ...tool import Docker, Tool
+from ...utils import unique
 
 log = logging.getLogger(__name__)
 
@@ -51,19 +52,62 @@ def get_use_mods(use_dir: Path, mod: str):
 
 class Bsc(Flow):
     class Settings(Flow.Settings):
-        verilog_out_dir: Union[Path, str] = "gen_rtl"
+        verilog_out_dir: Union[Path, str] = Field(
+            "gen_rtl", description="Folder where generated Verilog files are stored."
+        )
         bobj_dir: str = "bobjs"
         reset_prefix: Optional[str] = None
+        sched_conditions: bool = Field(
+            True, description="include method conditions when computing rule conflicts"
+        )
         unspecified_to: Optional[str] = "X"
-        opt_undetermined_vals: bool = True
         warn_flags: List[str] = [
             "-warn-method-urgency",
             "-warn-action-shadowing",
+            "-warn-undet-predicate",
         ]
-        werror: List[str] = Field(
-            ["G0010", "G0005", "G0117"], description="Promote these warnings as errors."
+        supress_warnings: List[str] = []
+        promote_warnings: List[str] = Field(
+            ["G0009", "G0010", "G0005", "G0117"], description="Promote these warnings as errors."
         )
         optimize: bool = True
+        extra_optimize_flags: List[str] = [
+            "-opt-AndOr",  # An aggressive optimization of And Or expressions
+            # "-opt-aggressive-inline", # aggressive inline of verilog assignments
+            "-opt-bit-const",  # simplify bit operations with constants
+            "-opt-bool",  # use BDD simplifier on booleans (slow but good)
+            "-opt-final-pass",  # final pass optimization to unnest expression (et al)
+            # "-opt-if-mux", # turn nested "if" into one mux
+            # "-opt-if-mux-size", 4, # maximum mux size to inline when doing -opt-if-mux
+            "-opt-join-defs",  # join identical definitions
+            "-opt-mux",  # simplify muxes
+            "-opt-mux-const",  # simplify constants in muxes aggressively
+            # "-opt-mux-expand", # simplify muxes by blasting constants. Broken?!!! Leads to incorrect behavior
+            "-opt-sched",  # simplify scheduler expressions
+        ]
+        opt_undetermined_vals: bool = True
+        split_if: bool = Field(
+            False,
+            description="split 'if' in actions [See 'Bluespec Compiler User Guide' section 3.10]",
+        )
+        lift: bool = Field(
+            True,
+            description="lift method calls in 'if' actions [See 'Bluespec Compiler User Guide' section 3.10]",
+        )
+        aggressive_conditions: bool = Field(
+            False,
+            description="Aggressively propagate implicit conditions of actions in if-statements to the rule predicate [See 'Bluespec Compiler User Guide' section 3.10].",
+        )
+        synthesize_to_boolean: bool = Field(
+            False, description="Synthesize all primitives into simple boolean ops"
+        )
+        haskell_runtime_flags = Field(
+            ["-K128M", "-H1G"],
+            description="Flags passed along to the Haskell compiler run-time system that is used to execute BSC.",
+        )
+        gtkwave_package: Optional[str] = Field(
+            None, description="Generate gtkwave translation filters for Bluespec types."
+        )
         docker: Optional[Docker] = Docker(image="bsc")  # pyright: ignore
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
@@ -129,13 +173,9 @@ class Bsc(Flow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
 
-        bluespec_sources = self.design.sources_of_type("Bluespec")
+        bluespec_sources = self.design.sources_of_type(SourceType.Bluespec)
+        verilog_sources = self.design.sources_of_type(SourceType.Verilog, SourceType.SystemVerilog)
         top_file = bluespec_sources[-1]
-
-        # bsc_exec = shutil.which("bsc")
-        # assert bsc_exec, "`bsc` not found in PATH!"
-        # BLUESPEC_PREFIX = os.path.dirname(os.path.dirname(bsc_exec))
-
         bsc_flags = []
 
         if self.settings.verbose:
@@ -151,7 +191,6 @@ class Bsc(Flow):
             return Path(p)
 
         vout_dir = path_from_setting(self.settings.verilog_out_dir)
-
         bobj_dir = Path(self.settings.bobj_dir).absolute()
         bobj_dir.mkdir(exist_ok=True)
 
@@ -160,15 +199,36 @@ class Bsc(Flow):
             "6000000",
             "-steps-warn-interval",
             "2000000",
-            "-show-compiles",
+            "-show-compiles",  # enabled by default
             "-show-module-use",
             "-show-version",
         ]
+        if not self.settings.split_if and not self.settings.lift:
+            log.warning(
+                "Lifting (lift=true) is recommended when rule splitting is turned off (split_if=false)."
+            )
+        if self.settings.split_if and self.settings.lift:
+            log.warning(
+                "When rule splitting is on (split_if=true), lifting is not required and can make rules more resource hungry."
+            )
+        if self.settings.split_if:
+            self.settings.lift = False
+            self.settings.aggressive_conditions = True
+        bsc_flags.append("-split-if" if self.settings.split_if is True else "-no-split-if")
+        bsc_flags.append("-lift" if self.settings.lift is True else "-no-lift")
+        if self.settings.aggressive_conditions:
+            bsc_flags.append("-aggressive-conditions")
 
-        if self.settings.werror:
-            bsc_flags += ["-promote-warnings", ":".join(self.settings.werror)]
-
+        if self.settings.synthesize_to_boolean:
+            bsc_flags.append("-synthesize")
+        if self.settings.promote_warnings:
+            bsc_flags += ["-promote-warnings", ":".join(self.settings.promote_warnings)]
         bsc_flags += self.settings.warn_flags
+        if self.settings.supress_warnings:
+            bsc_flags += [
+                "-suppress-warnings",
+                ":".join(self.settings.supress_warnings),
+            ]
 
         bsc_flags += [
             "-bdir",
@@ -179,56 +239,42 @@ class Bsc(Flow):
 
         bsc_flags += [
             "-check-assert",
-            "-cross-info",
-            "-lift",
             "-use-proviso-sat",
             ##
             "-verilog-declare-first",
+            "-show-range-conflict",
             ##
-            "-warn-action-shadowing",
-            "-warn-method-urgency",
-            "-warn-undet-predicate",
         ]
         if self.settings.debug:
             bsc_flags += [
-                "-keep-fires",
-                "-keep-inlined-boundaries",
                 "-show-schedule",
+                "-show-elab-progress",
                 "-keep-method-conds",
                 "-sched-dot",
-                # "-show-timestamps",
-                "-show-range-conflict",
                 "-show-method-conf",
                 "-readable-mux",
+                "-cross-info",  # apply heuristics for preserving source code positions
+                "-keep-fires",
+                "-keep-inlined-boundaries",
+                "-show-timestamps",  # enabled by default
+                "-show-stats",
             ]
         else:
             bsc_flags += [
-                ##
-                "-remove-empty-rules",
-                "-remove-false-rules",
-                "-remove-prim-modules",
+                "-remove-false-rules",  # enabled by default
+                # "-remove-prim-modules",  # remove primitives that are local modules
+                "-remove-empty-rules",  # enabled by default
                 "-remove-starved-rules",
                 "-remove-unused-modules",
                 ##
                 "-no-keep-fires",
                 "-no-keep-inlined-boundaries",
-                "-show-range-conflict",
+                ##
                 "-no-show-timestamps",  # regenerated files should be the same
-                # '-aggressive-conditions',  # DO NOT USE!!! BUGGY!!
-                # "-opt-mux-expand", ## Broken?!!! Leads to incorrect behavior
-                "-opt-AndOr",
-                "-opt-aggressive-inline",
-                "-opt-bit-const",
-                "-opt-bool",
-                "-opt-final-pass",
-                "-opt-if-mux",
-                "-opt-join-defs",
-                "-opt-mux",
-                "-opt-mux-const",
-                "-opt-sched",
             ]
         if self.settings.optimize:
             bsc_flags.append("-O")
+            bsc_flags += self.settings.extra_optimize_flags
         if self.settings.opt_undetermined_vals:
             bsc_flags.append("-opt-undetermined-vals")
         if self.settings.unspecified_to:
@@ -243,24 +289,9 @@ class Bsc(Flow):
             ]
         vout_dir.mkdir(exist_ok=True)
 
-        flags = self.get_bsc_flags()
-        verilog_paths = flags["vPath"]
-
-        # bsc_flags += ["-vsearch", ":".join(verilog_paths)]
-
-        if self.incremental:
-            src_ir_paths = []
-            for src in bluespec_sources[:-1]:
-                dirname = src.path.parent
-                p = str(dirname.absolute())
-                if p not in src_ir_paths:
-                    src_ir_paths.append(p)
-            if src_ir_paths:
-                src_ir_paths.insert(0, "+")
-                bsc_flags += ["-p", ":".join(src_ir_paths)]
-        else:
-            for src in bluespec_sources[:-1]:
-                self.bsc.run(*bsc_flags, "-u", src)
+        if verilog_sources:
+            vsearch_paths = unique([str(p.path.parent) for p in verilog_sources])
+            bsc_flags += ["-vsearch", "+:" + ":".join(vsearch_paths)]
 
         bsc_defines = self.design.rtl.parameters
 
@@ -283,12 +314,23 @@ class Bsc(Flow):
         ]
 
         assert self.design.rtl.top, "design.rtl.top must be specified"
-
         vloggen_flags += ["-g", self.design.rtl.top]
 
         if self.incremental:
+            src_ir_paths = []
+            for src in bluespec_sources[:-1]:
+                dirname = src.path.parent
+                p = str(dirname.absolute())
+                if p not in src_ir_paths:
+                    src_ir_paths.append(p)
+            if src_ir_paths:
+                src_ir_paths.insert(0, "+")
+                bsc_flags += ["-p", ":".join(src_ir_paths)]
             log.warning("bsc won't re-generate the Verilog file if it was externally changed")
             vloggen_flags.append("-u")
+        else:
+            for src in bluespec_sources[:-1]:
+                self.bsc.run(*bsc_flags, "-u", src)
 
         vloggen_flags += [
             "-vdir",
@@ -298,20 +340,24 @@ class Bsc(Flow):
 
         self.bsc.run(*bsc_flags, *vloggen_flags, top_file)
 
-        gtkwave_dir = vout_dir.parent / "gtkwave"
-        self.write_gtkwave_tr(bobj_dir, "XoodyakLwc", gtkwave_dir)
+        if self.settings.gtkwave_package:
+            gtkwave_dir = vout_dir.parent / "gtkwave"
+            self.write_gtkwave_tr(bobj_dir, self.settings.gtkwave_package, gtkwave_dir)
 
         modules = get_use_mods(vout_dir, self.design.rtl.top)
         modules.insert(0, self.design.rtl.top)
         log.debug(f"modules: {modules}")
-        verilog_sources: List[Path] = []
+
+        gen_verilog_files: List[Path] = []
+        flags = self.get_bsc_flags()
+        verilog_paths = unique(flags["vPath"])
         for mod in modules:
             verilog_name = f"{mod}.v"
             verilog_path = vout_dir / verilog_name
-            if verilog_path in verilog_sources:
+            if verilog_path in gen_verilog_files:
                 continue
             if verilog_path.exists():
-                verilog_sources.append(verilog_path)
+                gen_verilog_files.append(verilog_path)
             else:
                 for vpath in verilog_paths:
                     vpath = Path(vpath)
@@ -319,16 +365,16 @@ class Bsc(Flow):
                     if found_file:
                         print(f"Copying used verilog {found_file} to {verilog_path}")
                         shutil.copyfile(found_file, verilog_path, follow_symlinks=True)
-                        verilog_sources.insert(0, verilog_path)
+                        gen_verilog_files.insert(0, verilog_path)
                         break
 
-        for v in verilog_sources:
+        for v in gen_verilog_files:
             prepend_to_file(
                 v,
                 ["`define " + (k if v is None else f"{k} {v}") for k, v in verilog_defines.items()],
             )
 
-        self.artifacts.verilog = [src.resolve() for src in verilog_sources]
+        self.artifacts.verilog = [src.resolve() for src in gen_verilog_files]
 
     def parse_reports(self):
         return True
