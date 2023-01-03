@@ -503,7 +503,14 @@ DesignType = TypeVar("DesignType", bound="Design")
 
 
 class Design(XedaBaseModel):
-    name: str
+    name: str = Field(
+        description="Unique name for the design, which should consist of letters, numbers, underscore(_), and dash(-). Name regex: [a-zA-Z][a-zA-Z0-9_\-]*."
+    )
+    description: Optional[str] = Field(None, description="A brief description of the design.")
+    authors: List[str] = Field(
+        [],
+        description="""List of authors/developers in "Name <email>" format ('mailbox' format, RFC 5322), e.g. ["Jane Doe <jane@example.com>", "John Doe <john@example.com>"]""",
+    )
     dependencies: List[DesignReference] = []
     rtl: RtlSettings
     tb: TbSettings = TbSettings()  # type: ignore
@@ -561,7 +568,9 @@ class Design(XedaBaseModel):
                 if not self.tb.top and dep_design.tb.top:
                     self.tb.top = dep_design.tb.top
 
-    def sources_of_type(self, *source_types, rtl=True, tb=True) -> List[DesignSource]:
+    def sources_of_type(
+        self, *source_types: Union[str, SourceType], rtl=True, tb=True
+    ) -> List[DesignSource]:
         source_types_str = [str(st).lower() for st in source_types]
         sources = []
         if rtl:
