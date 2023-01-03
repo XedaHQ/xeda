@@ -504,7 +504,7 @@ DesignType = TypeVar("DesignType", bound="Design")
 
 class Design(XedaBaseModel):
     name: str = Field(
-        description="Unique name for the design, which should consist of letters, numbers, underscore(_), and dash(-). Name regex: [a-zA-Z][a-zA-Z0-9_\-]*."
+        description="Unique name for the design, which should consist of letters, numbers, underscore(_), and dash(-). Name regex: [a-zA-Z][a-zA-Z0-9_\\-]*."
     )
     description: Optional[str] = Field(None, description="A brief description of the design.")
     authors: List[str] = Field(
