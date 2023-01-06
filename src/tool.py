@@ -80,7 +80,7 @@ class Docker(XedaBaseModel):
     def cpuinfo(self) -> Optional[List[List[str]]]:
         try:
             ret = self.run_dockerized("cat", "/proc/cpuinfo", stdout=True)
-        except Exception:
+        except:
             return None
         assert ret is not None
         return [x.split("\n") for x in re.split(r"\n\s*\n", ret, re.MULTILINE)]
@@ -366,7 +366,7 @@ class Tool(XedaBaseModel):
                 ret = self.execute("nproc", stdout=True)
                 if ret:
                     n = int(ret)
-            except Exception:
+            except:
                 pass
             assert self.docker
             return n or self.docker.nproc
