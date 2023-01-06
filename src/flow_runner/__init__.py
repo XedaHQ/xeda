@@ -1,5 +1,6 @@
 """Launch execution of flows"""
 from __future__ import annotations
+from glob import glob
 
 import hashlib
 import importlib
@@ -32,7 +33,7 @@ from rich.text import Text
 
 from ..console import console
 from ..dataclass import XedaBaseModel, asdict, define
-from ..design import Design, DesignValidationError
+from ..design import Design, DesignValidationError, FileResource
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
 from ..utils import (
@@ -224,6 +225,7 @@ class FlowLauncher:
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings],
         depender: Optional[Flow] = None,
+        copy_resources: List[str] = [],
     ) -> Flow:
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
@@ -238,6 +240,11 @@ class FlowLauncher:
             flow_settings.debug = True
 
         flow_name = flow_class.name
+
+        copy_resources = [
+            res for res in copy_resources if os.path.exists(res) and os.path.isfile(res)
+        ]
+
         # GOTCHA: design contains tb settings even for simulation flows
         # OTOH removing tb from hash for sim flows creates a mismatch for different flows of the same design
         design_hash = semantic_hash(
@@ -251,6 +258,7 @@ class FlowLauncher:
             dict(
                 flow_name=flow_name,
                 flow_settings=flow_settings,
+                copied_resources=[FileResource(res) for res in copy_resources],
                 xeda_version=__version__,
             ),
         )
@@ -271,7 +279,6 @@ class FlowLauncher:
             and run_path.exists()
             and settings_json.exists()
             and results_json.exists()
-            and not self.settings.incremental
         ):
             prev_results, prev_settings = None, None
             try:
@@ -303,6 +310,14 @@ class FlowLauncher:
                 backup_existing(run_path)
             run_path.mkdir(parents=True, exist_ok=self.settings.incremental)
 
+        with WorkingDirectory(run_path):
+            log.debug("Instantiating flow from %s", flow_class)
+            flow = flow_class(flow_settings, design, run_path)
+            flow.design_hash = design_hash
+            flow.flow_hash = flowrun_hash
+            flow.incremental = self.settings.incremental
+
+        if not previous_results:
             if self.settings.dump_settings_json:
                 log.info("dumping effective settings to %s", settings_json)
                 all_settings = dict(
@@ -317,31 +332,50 @@ class FlowLauncher:
                 )
                 dump_json(all_settings, settings_json, backup=self.settings.backups)
 
-        with WorkingDirectory(run_path):
-            log.debug("Instantiating flow from %s", flow_class)
-            flow = flow_class(flow_settings, design, run_path)
-            flow.design_hash = design_hash
-            flow.flow_hash = flowrun_hash
-            flow.incremental = self.settings.incremental
-            flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-            # flow execution time includes init() as well as execution of all its dependency flows
-            flow.init_time = time.monotonic()
-            flow.init()
+            copied_res_dir = run_path / flow_class.copied_resources_dir
+            if copy_resources:
+                copied_res_dir.mkdir(parents=True)
+            for res in copy_resources:
+                log.info("Copying %s to %s", str(res), str(copied_res_dir))
+                shutil.copy(res, copied_res_dir)
 
-        for dep_cls, dep_settings in flow.dependencies:
-            # merge with existing self.flows[dep].settings
-            # NOTE this allows dependency flow to make changes to 'design'
-            log.info(
-                "Running dependency: %s (%s.%s)",
-                dep_cls.name,
-                dep_cls.__module__,
-                dep_cls.__qualname__,
-            )
-            completed_dep = self.launch_flow(dep_cls, design, dep_settings, depender=flow)
-            if not completed_dep.succeeded:
-                log.critical("Dependency flow: %s failed!", dep_cls.name)
-                raise FlowDependencyFailure()
-            flow.completed_dependencies.append(completed_dep)
+            with WorkingDirectory(run_path):
+                log.debug("Instantiating flow from %s", flow_class)
+                flow = flow_class(flow_settings, design, run_path)
+                flow.design_hash = design_hash
+                flow.flow_hash = flowrun_hash
+                flow.incremental = self.settings.incremental
+                flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                # flow execution time includes init() as well as execution of all its dependency flows
+                flow.init_time = time.monotonic()
+                flow.init()
+
+            for dep_cls, dep_settings, dep_resources in flow.dependencies:
+                # merge with existing self.flows[dep].settings
+                # NOTE this allows dependency flow to make changes to 'design'
+                if isinstance(dep_cls, str):
+                    dep_cls = get_flow_class(dep_cls)
+                log.info(
+                    "Running dependency: %s (%s.%s)",
+                    dep_cls.name,
+                    dep_cls.__module__,
+                    dep_cls.__qualname__,
+                )
+                resources: List[str] = []
+                dep_settings.debug |= flow.settings.debug
+                if not dep_settings.verbose and flow.settings.verbose > 1:
+                    dep_settings.verbose = flow.settings.verbose
+                for res in dep_resources:
+                    if not os.path.isabs(res):
+                        res_path = os.path.join(flow.run_path.absolute(), res)
+                        resources += glob(res_path)
+                completed_dep = self.launch_flow(
+                    dep_cls, design, dep_settings, depender=flow, copy_resources=resources
+                )
+                if not completed_dep.succeeded:
+                    log.critical("Dependency flow: %s failed!", dep_cls.name)
+                    raise FlowDependencyFailure()
+                flow.completed_dependencies.append(completed_dep)
 
         flow.results["design"] = flow.design.name
         flow.results["flow"] = flow.name
@@ -350,6 +384,7 @@ class FlowLauncher:
         if previous_results:
             log.warning("Using previous run results and artifacts from %s", run_path)
             flow.results.update(**previous_results)
+            flow.artifacts = previous_results._artifacts
         else:
             with WorkingDirectory(run_path):
                 try:

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import Field
 
 from ...design import SourceType
-from ...sim_flow import SimFlow
+from ...flow import SimFlow
 from ...tool import Tool
 
 log = logging.getLogger(__name__)

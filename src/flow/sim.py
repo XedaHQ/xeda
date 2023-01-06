@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 
-from .dataclass import (
+from ..dataclass import (
     Field,
     validator,
 )
-from .design import Design
-from .flow import Flow
-from .flows.cocotb import Cocotb, CocotbSettings
+from ..design import Design
+from ._flow import Flow
+from ..cocotb import Cocotb, CocotbSettings
 
 log = logging.getLogger(__name__)
 

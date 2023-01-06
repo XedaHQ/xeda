@@ -1,8 +1,8 @@
 import logging
 from typing import Optional
 
-from xeda.flow import FlowFatalError
 
+from ...flow import FlowFatalError
 from ...dataclass import Field
 from ...design import DesignSource, RtlSettings
 from ...utils import SDF

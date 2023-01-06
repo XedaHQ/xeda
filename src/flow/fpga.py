@@ -2,14 +2,12 @@ import logging
 import re
 from typing import Any, Optional
 
-from .dataclass import Field, XedaBaseModel, root_validator
+from ..dataclass import Field, XedaBaseModel, root_validator
 
 log = logging.getLogger(__name__)
 
 
-__all__ = [  #
-    "FPGA",  #
-]
+__all__ = ["FPGA"]
 
 
 class FPGA(XedaBaseModel):

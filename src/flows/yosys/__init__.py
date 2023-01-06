@@ -1,17 +1,14 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+import re
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-from box import Box
-
-from ...dataclass import Field, XedaBaseModel, root_validator, validator
-from ...design import Design, SourceType
+from ...dataclass import Field, XedaBaseModel, validator
+from ...design import SourceType
+from ...flow import FPGA, Flow, SimFlow, SynthFlow
 from ...flows.ghdl import GhdlSynth
-from ...fpga import FPGA
 from ...tool import Docker, Tool
-from ...flow import AsicSynthFlow, Flow, FpgaSynthFlow, SynthFlow
-from ...sim_flow import SimFlow
 
 log = logging.getLogger(__name__)
 
@@ -42,9 +39,9 @@ class Yosys(Flow):
         flatten: bool = Field(True, description="flatten design")
         read_verilog_flags: List[str] = [
             "-noautowire",
+            "-sv",
         ]
         read_systemverilog_flags: List[str] = []
-        read_liberty_flags: List[str] = []
         check_assert: bool = True
         rtl_verilog: Optional[str] = None  # "rtl.v"
         rtl_vhdl: Optional[str] = None  # "rtl.vhdl"
@@ -57,49 +54,20 @@ class Yosys(Flow):
         ]
         ghdl: GhdlSynth.Settings = GhdlSynth.Settings()
         verilog_lib: List[str] = []
-        splitnets: Optional[List[str]] = None  # ['-driver']
+        splitnets: bool = True
+        splitnets_driver: bool = False
         set_attributes: Dict[str, Dict[str, Any]] = {}
-        plugins: List[str] = []  # ["systemverilog"]
         prep: Optional[List[str]] = None
-        write_vhdl_flags: List[str] = [
-            # '-norename',
-            # '-std08'.
-            # '-noattr',
-            "-renameprefix YOSYS_n",
-            # "-v",
-        ]
-        write_verilog_flags: List[str] = [
-            # '-norename',
-            # '-attr2comment',
-            # '-noexpr',
-            # '-siminit',
-            # '-extmem',
-            # '-sv',
-        ]
-
-        @validator("write_verilog_flags", pre=False)
-        def validate_write_verilog_flags(cls, value, values):  # type: ignore
-            if values.get("debug"):
-                value.append("-norename")
-            return value
 
         @validator("verilog_lib", pre=True)
-        def validate_verilog_lib(cls, value, values):  # type: ignore
+        def validate_verilog_lib(cls, value):
             if isinstance(value, str):
                 value = [value]
             value = [str(Path(v).resolve(strict=True)) for v in value]
             return value
 
-        @validator("splitnets", pre=True)
-        def validate_splitnets(cls, value, values):  # type: ignore
-            if value is not None:
-                if isinstance(value, str):
-                    value = [value]
-                value = [v if not v.strip() or v.startswith("-") else f"-{v}" for v in value]
-            return value
-
         @validator("set_attributes", pre=True, always=True)
-        def validate_set_attributes(cls, value, values):  # type: ignore
+        def validate_set_attributes(cls, value):
             if value:
                 if isinstance(value, str):
                     if value.endswith(".json"):
@@ -129,31 +97,33 @@ class Yosys(Flow):
                     value[attr] = dict(attr_dict)
             return value
 
-    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
-        super().__init__(flow_settings, design, run_path)
 
-        assert isinstance(self.settings, self.Settings)
-        self.yosys = Tool(
-            executable="yosys",
-            docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
-        )
+def process_parameters(parameters: Dict[str, Any]) -> Dict[str, str]:
+    out = dict()
+    for k, v in parameters.items():
+        if isinstance(v, bool):
+            v = f"1'b{int(v)}"
+        elif isinstance(v, str) and not re.match(r"\d+'b[01]+", v):
+            v = '\\"' + v + '\\"'
+        out[k] = str(v)
+    return out
 
-    def init(self) -> None:
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        if ss.rtl_json:
-            self.artifacts.rtl.json = ss.rtl_json
-        if ss.rtl_vhdl:
-            self.artifacts.rtl.vhdl = ss.rtl_vhdl
-        if ss.rtl_verilog:
-            self.artifacts.rtl.verilog = ss.rtl_verilog
+
+class HiLoMap(XedaBaseModel):
+    hi: Tuple[str, str]
+    lo: Tuple[str, str]
+    singleton: bool = True
 
 
 class YosysSynth(Yosys, SynthFlow):
     """Synthesize the design using Yosys Open SYnthesis Suite"""
 
-    class Settings(Yosys.Settings, FpgaSynthFlow.Settings, AsicSynthFlow.Settings):
-        fpga: Optional[FPGA] = None  # type: ignore
+    class Settings(Yosys.Settings, SynthFlow.Settings):
+        fpga: Optional[FPGA] = None
+        liberty: List[str] = []
+        dff_liberty: Optional[str] = None
+        gates: Optional[str] = None
+        lut: Optional[str] = None
         abc9: bool = Field(True, description="Use abc9")
         retime: bool = Field(False, description="Enable flip-flop retiming")
         nobram: bool = Field(False, description="Do not map to block RAM cells")
@@ -175,9 +145,6 @@ class YosysSynth(Yosys, SynthFlow):
         )
         synth_flags: List[str] = []
         abc_flags: List[str] = []
-        netlist_verilog: Optional[str] = "netlist.v"
-        netlist_vhdl: Optional[str] = None  # "netlist.vhdl"
-        netlist_json: Optional[str] = "netlist.json"
         rtl_verilog: Optional[str] = None  # "rtl.v"
         rtl_vhdl: Optional[str] = None  # "rtl.vhdl"
         rtl_json: Optional[str] = None  # "rtl.json"
@@ -194,50 +161,36 @@ class YosysSynth(Yosys, SynthFlow):
             description="run additional optimization steps after synthesis if complete",
         )
         stop_after: Optional[Literal["rtl"]]
+        defines: Dict[str, Any] = {}
+        keep_hierarchy: List[str] = []
+        black_box: List[str] = []
+        adder_map: Optional[str] = None
+        clockgate_map: Optional[str] = None
+        other_maps: List[str] = []
+        abc_constr: List[str] = []
+        abc_script: Union[None, Path, List[str]] = None
+        hilomap: Optional[HiLoMap] = None
+        insbuf: Optional[Tuple[str, str, str]] = None
 
-        @validator("write_verilog_flags", pre=False)
-        def validate_write_verilog_flags(cls, value, values):  # type: ignore
-            if values.get("debug"):
-                value.append("-norename")
+        @validator("liberty")
+        def _str_to_list(value):
+            if isinstance(value, str):
+                return [value]
             return value
 
-        @validator("splitnets", pre=True)
-        def validate_splitnets(cls, value, values):  # type: ignore
-            if value is not None:
-                if isinstance(value, str):
-                    value = [value]
-                value = [v if not v.strip() or v.startswith("-") else f"-{v}" for v in value]
-            return value
-
-        @root_validator(pre=True)
-        def check_target(cls, values):  # type: ignore
-            # assert values.get("fpga") or values.get(
-            #     "tech"
-            # ), "ERROR in flows.yosys.settings: No targets specified! Either 'fpga' or 'tech' must be specified."
-            return values
-
-    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
-        super().__init__(flow_settings, design, run_path)
-
+    def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
-        self.yosys = Tool(
+        ss = self.settings
+
+        yosys = Tool(
             executable="yosys",
             docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
         )
-        self.stat_report = (
-            "utilization.json" if self.yosys.version_gte(0, 21) else "utilization.rpt"
-        )
-        self.timing_report = "timing.rpt"
-        self.artifacts = Box(
-            # non-plural names are preferred for keys, e.g. "digram" instead of "diagrams".
-            diagram={},
-            report=dict(utilization=self.stat_report, timing=self.timing_report),
-            rtl={},
-            netlist={},
-        )
 
-    def init(self) -> None:
-        assert isinstance(self.settings, self.Settings)
+        self.artifacts.timing_report = "timing.rpt"
+        self.artifacts.utilization_report = (
+            "utilization.json" if yosys.version_gte(0, 21) else "utilization.rpt"
+        )
 
         yosys_family_name = {"artix-7": "xc7"}
 
@@ -247,22 +200,15 @@ class YosysSynth(Yosys, SynthFlow):
             if ss.fpga.vendor == "xilinx" and ss.fpga.family:
                 ss.fpga.family = yosys_family_name.get(ss.fpga.family, "xc7")
         if ss.rtl_json:
-            self.artifacts.rtl.json = ss.rtl_json
+            self.artifacts.rtl_json = ss.rtl_json
         if ss.rtl_vhdl:
-            self.artifacts.rtl.vhdl = ss.rtl_vhdl
+            self.artifacts.rtl_vhdl = ss.rtl_vhdl
         if ss.rtl_verilog:
-            self.artifacts.rtl.verilog = ss.rtl_verilog
+            self.artifacts.rtl_verilog = ss.rtl_verilog
         if not ss.stop_after:  # FIXME
-            if ss.netlist_json:
-                self.artifacts.netlist.json = ss.netlist_json
-            if ss.netlist_vhdl:
-                self.artifacts.netlist.vhdl = ss.netlist_vhdl
-            if ss.netlist_verilog:
-                self.artifacts.netlist.verilog = ss.netlist_verilog
+            self.artifacts.netlist_verilog = "netlist.v"
+            self.artifacts.netlist_json = "netlist.json"
 
-    def run(self) -> None:
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
         if ss.sta:
             ss.flatten = True
         if ss.flatten:
@@ -286,55 +232,76 @@ class YosysSynth(Yosys, SynthFlow):
                 append_flag(ss.synth_flags, "-nowidelut")
             if ss.widemux:
                 append_flag(ss.synth_flags, f"-widemux {ss.widemux}")
-            if ss.fpga.vendor == "xilinx":
-                ss.write_vhdl_flags.append("-unisim")
         else:
             if ss.dff:
                 append_flag(ss.abc_flags, "-dff")
-            if ss.tech:
-                if ss.tech.gates:
-                    append_flag(ss.abc_flags, f"-g {ss.tech.gates}")
-                elif ss.tech.liberty:
-                    liberty_path = Path(ss.tech.liberty)
+            if ss.gates:
+                append_flag(ss.abc_flags, f"-g {ss.gates}")
+            elif ss.liberty:
+                lst = []
+                for lib in ss.liberty:
+                    liberty_path = Path(lib)
                     liberty_path = liberty_path.resolve().absolute()
-                    assert (
-                        liberty_path.exists()
-                    ), f"Specified tech.liberty={liberty_path} does not exist!"
-                    ss.tech.liberty = str(liberty_path)
-                    append_flag(ss.abc_flags, f"-liberty {ss.tech.liberty}")
-                elif ss.tech.lut:
-                    append_flag(ss.abc_flags, f"-lut {ss.tech.lut}")
-
+                    if not liberty_path.exists():
+                        raise FileNotFoundError(
+                            f"Specified liberty: {liberty_path} does not exist!"
+                        )
+                    lst.append(str(liberty_path))
+                ss.liberty = lst
+            elif ss.lut:
+                append_flag(ss.abc_flags, f"-lut {ss.lut}")
+        abc_constr_file = None
+        if ss.abc_constr:
+            abc_constr_file = "abc.constr"
+            with open(abc_constr_file, "w") as f:
+                f.write("\n".join(ss.abc_constr) + "\n")
+        abc_script_file = None
+        if ss.abc_script:
+            if isinstance(ss.abc_script, list):
+                abc_script_file = "abc.script"
+                with open(abc_script_file, "w") as f:
+                    f.write("\n".join(ss.abc_script) + "\n")
+            else:
+                abc_script_file = str(ss.abc_script)
+        clock_period_ps: Optional[float] = None
+        if ss.clocks:
+            clock_period_ps = list(ss.clocks.values())[0].period_ps
         script_path = self.copy_from_template(
-            "yosys_synth.tcl",
+            "yosys_fpga_synth.tcl" if ss.fpga else "yosys_synth.tcl",
             lstrip_blocks=True,
             trim_blocks=True,
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),
+            parameters=process_parameters(self.design.rtl.parameters),
+            defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
+            abc_constr_file=abc_constr_file,
+            clock_period_ps=clock_period_ps,
+            abc_script_file=abc_script_file,
         )
         log.info("Yosys script: %s", self.run_path.relative_to(Path.cwd()) / script_path)
-        # args = ['-s', script_path]
         args = ["-c", script_path]
         if ss.log_file:
             args.extend(["-L", ss.log_file])
         if not ss.verbose:  # reduce noise unless verbose
-            args.extend(["-T", "-Q", "-q"])
-        self.results["_tool"] = self.yosys.info  # TODO where should this go?
+            args.extend(["-T", "-Q"])
+            if not ss.debug:
+                args.append("-q")
+        self.results["_tool"] = yosys.info  # TODO where should this go?
         log.info("Logging yosys output to %s", ss.log_file)
-        self.yosys.run(*args)
+        yosys.run(*args)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
-        if self.artifacts.report.utilization.endswith(".json"):
+        if self.artifacts.utilization_report.endswith(".json"):
             try:
-                with open(self.artifacts.report.utilization, "r") as f:
+                with open(self.artifacts.utilization_report, "r") as f:
                     content = f.read()
-                i = content.find("{")  # yosys bug
+                i = content.find("{")  # yosys bug (FIXED)
                 if i >= 0:
                     content = content[i:]
                 utilization = json.loads(content)
                 mod_util = utilization.get("modules")
                 if mod_util:
-                    self.results["module_utilization"] = mod_util
+                    self.results["_module_utilization"] = mod_util
                 design_util = utilization.get("design")
                 if design_util:
                     num_cells_by_type = design_util.get("num_cells_by_type")
@@ -346,12 +313,12 @@ class YosysSynth(Yosys, SynthFlow):
                     self.results["design_utilization"] = design_util
 
             except json.decoder.JSONDecodeError as e:
-                log.error("Failed to decode JSON %s: %s", self.artifacts.report.utilization, e)
+                log.error("Failed to decode JSON %s: %s", self.artifacts.utilization_report, e)
         else:
             if self.settings.fpga:
                 if self.settings.fpga.vendor == "xilinx":
                     self.parse_report_regex(
-                        self.artifacts.report.utilization,
+                        self.artifacts.utilization_report,
                         r"=+\s*design hierarchy\s*=+",
                         r"DSP48(E\d+)?\s*(?P<DSP48>\d+)",
                         r"FDRE\s*(?P<_FDRE>\d+)",
@@ -365,7 +332,7 @@ class YosysSynth(Yosys, SynthFlow):
                     )
                 if self.settings.fpga.family == "ecp5":
                     self.parse_report_regex(
-                        self.artifacts.report.utilization,
+                        self.artifacts.utilization_report,
                         r"TRELLIS_FF\s+(?P<FFs>\d+)",
                         r"LUT4\s+(?P<LUT4>\d+)",
                     )
@@ -381,6 +348,10 @@ class YosysSim(Yosys, SimFlow):
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        yosys = Tool(
+            executable="yosys",
+            docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
+        )
         ss.flatten = True
         if not ss.cxxrtl.filename:
             ss.cxxrtl.filename = (
@@ -398,14 +369,16 @@ class YosysSim(Yosys, SimFlow):
         if ss.log_file:
             args.extend(["-L", ss.log_file])
         if not ss.verbose:  # reduce noise unless verbose
-            args.extend(["-T", "-Q", "-q"])
-        self.results["_tool"] = self.yosys.info  # TODO where should this go?
+            args.extend(["-T", "-Q"])
+            if not ss.debug:
+                args.append("-q")
+        self.results["_tool"] = yosys.info  # TODO where should this go?
         log.info("Logging yosys output to %s", ss.log_file)
-        self.yosys.run(*args)
+        yosys.run(*args)
 
-        yosys_config = self.yosys.update(executable="yosys-config")
+        yosys_config = yosys.derive("yosys-config")
         yosys_include_dir = yosys_config.run_get_stdout("--datdir/include")
-        cxx = self.yosys.update(executable="g++")
+        cxx = yosys.derive("g++")
         assert ss.cxxrtl.filename
         cxxrtl_cpp = Path(ss.cxxrtl.filename)
         cxx_args: List[Any] = [cxxrtl_cpp] + [
@@ -419,7 +392,7 @@ class YosysSim(Yosys, SimFlow):
             cxx_args += [f"-I{cxxrtl_cpp.parent}"]
         cxx_args += ss.cxxrtl.ccflags
         cxx.run(*cxx_args)
-        sim_bin = self.yosys.update(executable=Path.cwd() / sim_bin_file)
+        sim_bin = yosys.derive(executable=Path.cwd() / sim_bin_file)
         sim_bin.run()
 
     def parse_reports(self) -> bool:

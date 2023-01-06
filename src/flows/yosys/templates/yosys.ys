@@ -15,8 +15,8 @@ log -stdout yosys> Compiling VHDL files
 plugin -i ghdl
 ghdl {{ghdl_args|join(" ")}}
 {%- endif %}
-{% if settings.tech and settings.tech.liberty -%}
-read_liberty {{settings.read_liberty_flags|join(" ")}} {{settings.tech.liberty}}
+{% if settings.liberty -%}
+read_liberty {{settings.read_liberty_flags|join(" ")}} {{settings.liberty}}
 {%- endif %}
 
 {% for src in settings.verilog_lib -%}
@@ -65,14 +65,12 @@ log -stderr yosys> Unknown FPGA vendor, family, or device
 {%- else %}
 log -stdout yosys> Running synthesis
 synth {{settings.synth_flags|join(" ")}}
-    {%- if settings.tech %}
-        {% if settings.tech.liberty -%}
+        {% if settings.liberty -%}
 log -stdout yosys> Mapping FFs to lib
-dfflibmap -liberty {{settings.tech.liberty}}
+dfflibmap -liberty {{settings.liberty}}
         {%- endif %}
 log -stdout yosys> Running ABC
 abc {{settings.abc_flags|join(" ")}}
-    {%- endif %}
 {%- endif %}
 
 {% if settings.post_synth_opt -%}
@@ -86,7 +84,7 @@ splitnets {{settings.splitnets|join(" ")}}
 {%- endif %}
 
 log -stdout yosys> Writing stat
-tee -q -o {{artifacts.report.utilization}} stat {%- if settings.fpga and settings.fpga.vendor == "xilinx" %} -tech xilinx {%-elif settings.tech and settings.tech.liberty%} -liberty {{settings.tech.liberty}}  {%- endif %}
+tee -q -o {{artifacts.report.utilization}} stat {%- if settings.fpga and settings.fpga.vendor == "xilinx" %} -tech xilinx {%-elif settings.liberty %} -liberty {{settings.liberty}}  {%- endif %}
 
 check {% if settings.check_assert -%} -assert {%- endif %}
 
