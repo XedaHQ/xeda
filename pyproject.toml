@@ -37,19 +37,21 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "jinja2            ~= 3.1",
-    "pydantic          ~= 1.10",
-    "tomli             ~= 2.0; python_version<'3.11'",
-    "python-box[]      ~= 6.1",
-    "attrs             ~= 22.1",
-    "cattrs            ~= 22.2",
-    "attrs_strict      ~= 1.0",
-    "pathvalidate      ~= 2.5",
-    "click             ~= 8.1",
-    "click_help_colors ~= 0.9",
-    "coloredlogs       ~= 15.0",
-    "rich              ~= 12.6",
-    "pebble            ~= 5.0",
+    "jinja2              ~= 3.1",
+    "pydantic            ~= 1.10",
+    "tomli               ~= 2.0; python_version<'3.11'",
+    "python-box[]        ~= 6.1",
+    "attrs               ~= 22.1",
+    "cattrs              ~= 22.2",
+    "attrs_strict        ~= 1.0",
+    "pathvalidate        ~= 2.5",
+    "click               ~= 8.1",
+    "click_help_colors   ~= 0.9",
+    "coloredlogs         ~= 15.0",
+    "rich                ~= 12.6",
+    "pebble              ~= 5.0",
+    "pint                ~= 0.20",
+    "importlib_resources >= 5.10", # backport of importlib.resources, replaces pkg_resources
     # experimental:
     "pyyaml            ~= 6.0",
     "varname           >= 0.10",
@@ -105,8 +107,11 @@ xeda = "src"
     "*.cpp",
     "*.dse",
     "*.fdc",
+    "*.j2",
     "*.json",
     "*.ldc",
+    "*.lef",
+    "*.lib",
     "*.sdc",
     "*.sdf",
     "*.tcl",
@@ -115,6 +120,9 @@ xeda = "src"
     "*.xcf",
     "*.xdc",
     "*.ys",
+    "platforms/*",
+    "platforms/**",
+    "platforms/**/*",
 ]
 
 [tool.setuptools_scm]
@@ -132,11 +140,7 @@ ignore_missing_imports = true
 # python_version = "3.11"
 # warn_return_any = true
 warn_unused_configs = true
-exclude = [
-    '^build/.*$',
-    '^examples/.*$',
-    '^\.tox/.*$',
-]
+exclude = ['^build/.*$', '^examples/.*$', '^\.tox/.*$', 'src/flows/openroad/openroad_scripts/utils/.*']
 check_untyped_defs = true
 color_output = true
 pretty = true

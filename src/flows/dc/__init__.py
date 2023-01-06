@@ -27,7 +27,6 @@ def get_hier(dct, dotted_path, default=None):
             return default
 
     for k, v in dct.items():
-        # if not isinstance(v, Mapping):
         merged_leaves[k] = v
     return Box(merged_leaves)
 

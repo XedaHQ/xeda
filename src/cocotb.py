@@ -6,9 +6,9 @@ from typing import Any, Dict, List, Literal, Optional
 
 from junitparser import JUnitXml
 
-from ..dataclass import Field, XedaBaseModel, validator
-from ..design import Design
-from ..tool import Tool
+from .dataclass import Field, XedaBaseModel, validator
+from .design import Design
+from .tool import Tool
 
 log = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ class Cocotb(CocotbSettings, Tool):
                             "name": tc.name,
                             "result": str(tc),
                             "classname": tc.classname,
-                            "time": round(tc.time, 3),
+                            "time": None if tc.time is None else round(tc.time, 3),
                         }
 
     def add_results(self, flow_results: Dict[str, Any], prefix: str = "cocotb.") -> bool:

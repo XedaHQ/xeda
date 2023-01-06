@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import logging
 import os
@@ -9,11 +11,10 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
+from ...flow import Flow, FlowSettingsError, SimFlow, SynthFlow
 from ...gtkwave import gen_gtkw
 from ...tool import Docker, Tool
 from ...utils import SDF, common_root, setting_flag
-from ...flow import Flow, FlowSettingsError, SynthFlow
-from ...sim_flow import SimFlow
 
 log = logging.getLogger(__name__)
 
@@ -251,7 +252,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         ss = self.settings
         top = self.elaborate(design.rtl.sources, design.rtl.top, design.language.vhdl)
         args = self.synth_args(ss, design, one_shot_elab=False, top=top)
-        self.ghdl.run_stdout_to_file("synth", *args, redirect_to=ss.out_file)
+        self.ghdl.run("synth", *args, stdout=ss.out_file)
 
     @staticmethod
     def synth_args(
@@ -357,7 +358,7 @@ class GhdlSim(Ghdl, SimFlow):
             return str(s)
 
         if ss.vcd:
-            if ss.vcd.endswith((".gz", ".vcdgz")):
+            if str(ss.vcd).endswith((".gz", ".vcdgz")):
                 run_flags.append(f"--vcdgz={ss.vcd}")
             else:
                 run_flags.append(f"--vcd={ss.vcd}")

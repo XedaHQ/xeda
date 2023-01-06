@@ -16,18 +16,15 @@ import psutil
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
 
-from .dataclass import (
+from ..dataclass import (
     Field,
     ValidationError,
     XedaBaseModel,
-    define,
-    root_validator,
     validation_errors,
     validator,
 )
-from .design import Design
-from .fpga import FPGA
-from .utils import camelcase_to_snakecase, regex_match, try_convert, unique
+from ..design import Design
+from ..utils import camelcase_to_snakecase, regex_match, try_convert, unique
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +33,6 @@ __all__ = [
     "Flow",
     "FlowSettingsError",
     "FlowFatalError",
-    "SynthFlow",
 ]
 
 
@@ -45,13 +41,13 @@ registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
 DictStrPath = Dict[str, Union[str, os.PathLike]]
 
 
-@define
 class Flow(metaclass=ABCMeta):
     """A flow may run one or more tools and is associated with a single set of settings and a single design.
     All tool executables should be available on the installed system or on the same docker image."""
 
     name: str  # set automatically
     incremental: bool = False
+    copied_resources_dir: str = "copied_resources"
 
     class Settings(XedaBaseModel):
         """Settings that can affect flow's behavior"""
@@ -78,10 +74,12 @@ class Flow(metaclass=ABCMeta):
 
         timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
         nthreads: int = Field(
+            # FIXME default of the host machine not optimal for dockerized or remote execution
             default_factory=multiprocessing.cpu_count,
             description="max number of threads",
         )
         ncpus: int = Field(
+            # FIXME default of the host machine not optimal for dockerized or remote execution
             psutil.cpu_count(logical=False),
             description="Number of physical CPUs to use.",
         )
@@ -147,8 +145,20 @@ class Flow(metaclass=ABCMeta):
         Any dependent flows should be registered here by using add_dependency
         """
 
-    def add_dependency(self, dep_flow_class: Type["Flow"], dep_settings: Settings) -> None:
-        self.dependencies.append((dep_flow_class, dep_settings))
+    def add_dependency(
+        self,
+        dep_flow_class: Union[Type["Flow"], str],
+        dep_settings: Settings,
+        copy_resources: List[str] = [],
+    ) -> None:
+        """
+        dep_flow_class:   dependency Flow class
+        dep_settings:     settings for dependency Flow
+        copy_resources:   copy these resources to dependency before running.
+                            All resources should be _within_ the depender (parent) run_path and the
+                            paths should be _relative_ to depender's run_path.
+        """
+        self.dependencies.append((dep_flow_class, dep_settings, copy_resources))
 
     @classmethod
     def _create_jinja_env(
@@ -210,7 +220,7 @@ class Flow(metaclass=ABCMeta):
         )
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
         self.add_template_test("match", regex_match)
-        self.dependencies: List[Tuple[Type[Flow], Flow.Settings]] = []
+        self.dependencies: List[Tuple[Union[Type["Flow"], str], Flow.Settings, List[str]]] = []
         self.completed_dependencies: List[Flow] = []
 
     def pop_dependency(self, typ: Type["Flow"]) -> Flow:
@@ -322,186 +332,6 @@ class Flow(metaclass=ABCMeta):
         if self.design._design_root and not path.is_absolute():
             path = self.design._design_root / path
         return path
-
-
-# decorator to auto-inherit from Flow
-def flow(cls):
-    if Flow not in cls.__bases__:
-        # FIXME do we need to add existing __bases__?
-        cls = type(cls.__name__, (Flow, cls), {})
-    return define(cls)
-
-
-class TargetTechnology(XedaBaseModel):
-    liberty: Optional[str] = None
-    adk: Optional[str] = None
-    gates: Optional[str] = None
-    lut: Optional[str] = None
-
-
-class PhysicalClock(XedaBaseModel):
-    name: Optional[str] = None
-    period: float = Field(
-        description="Clock Period (in nanoseconds). Either (and only one of) 'period' OR 'freq' have to be specified."
-    )
-    freq: float = Field(
-        description="Clock frequency (in MegaHertz). Either (and only one of) 'period' OR 'freq' have to be specified."
-    )
-    rise: float = Field(0.0, description="Rise time (nanoseconds)")
-    fall: float = Field(0.0, description="Rall time (nanoseconds)")
-    uncertainty: Optional[float] = Field(None, description="Clock uncertainty")
-    skew: Optional[float] = Field(None, description="skew")
-    port: Optional[str] = Field(None, description="associated design port")
-
-    @validator("fall", always=True)
-    def fall_validate(cls, value, values):  # pylint: disable=no-self-argument
-        if not value:
-            value = round(values.get("period", 0.0) / 2.0, 3)
-        return value
-
-    @property
-    def duty_cycle(self) -> float:
-        return (self.fall - self.rise) / self.period
-
-    @property
-    def freq_mhz(self) -> float:
-        return 1000.0 / self.period
-
-    @root_validator(pre=True, skip_on_failure=True)
-    @classmethod
-    def root_validate_phys_clock(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        log.debug("%s root_validator values=%s", cls.__name__, values)
-        freq = values.get("freq")
-        if "period" in values:
-            period = float(values["period"])
-            if freq is not None and abs(float(freq) * period - 1000.0) >= 0.001:
-                log.debug(
-                    "Mismatching 'freq' and 'period' values were specified. Setting 'freq' from 'period' value."
-                )
-            values["freq"] = 1000.0 / values["period"]
-        else:
-            if freq:
-                values["period"] = round(1000.0 / float(freq), 3)
-            else:
-                raise ValueError("Neither freq or period were specified")
-        if not values.get("name"):
-            values["name"] = "main_clock"
-        return values
-
-
-class SynthFlow(Flow, metaclass=ABCMeta):
-    """Superclass of all synthesis flows"""
-
-    class Settings(Flow.Settings):
-        """base Synthesis flow settings"""
-
-        clock_period: Optional[float] = Field(
-            None, description="target clock period in nanoseconds"
-        )
-        clocks: Dict[str, PhysicalClock] = Field({}, description="Design clocks")
-        blacklisted_resources: List[str] = []
-
-        @validator("clocks", pre=True, always=True)
-        def clocks_validate(cls, value, values):  # pylint: disable=no-self-argument
-            clock_period = values.get("clock_period")
-            if not value and clock_period:
-                value = {
-                    "main_clock": PhysicalClock(name="main_clock", period=clock_period)  # type: ignore
-                }
-            return value
-
-        @validator("clock_period", pre=True, always=True)
-        def clock_period_validate(cls, value, values):  # pylint: disable=no-self-argument
-            clocks = values.get("clocks")
-            if not value and clocks:
-                if "main_clock" in clocks:
-                    value = clocks["main_clock"].period
-                else:
-                    value = list(clocks.values())[0].period
-            return value
-
-        @root_validator(pre=True)
-        def synthflow_settings_root_validator(cls, values):
-            """
-            if we only have 1 clock OR a clock named main_clock:
-                clock_period value takes priority for that particular value and overrides that clock's period
-            """
-            clocks = values.get("clocks")
-            clock_period = values.get("clock_period")
-            main_clock_name = "main_clock"
-            if clocks and (len(clocks) == 1 or main_clock_name in clocks):
-                if "main_clock" in clocks:
-                    main_clock = clocks["main_clock"]
-                else:
-                    main_clock = list(clocks.values())[0]
-                    main_clock_name = list(clocks.keys())[0]
-                if isinstance(main_clock, PhysicalClock):
-                    main_clock = dict(main_clock)
-                if clock_period is not None:
-                    log.debug("Setting main_clock period to %s", clock_period)
-                    main_clock["period"] = clock_period
-                clocks[main_clock_name] = PhysicalClock(**main_clock)
-            return values
-
-    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
-        for clock_name, physical_clock in flow_settings.clocks.items():
-            if not physical_clock.port:
-                if clock_name not in design.rtl.clocks:
-                    if design.rtl.clocks:
-                        msg = "Physical clock {} has no corresponding clock port in design. Existing clocks: {}".format(
-                            clock_name, ", ".join(c for c in design.rtl.clocks)
-                        )
-                    else:
-                        msg = f"No clock ports specified in 'design.rtl', while physical '{clock_name}' is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
-                    raise FlowSettingsError(
-                        [
-                            (
-                                None,
-                                msg,
-                                None,
-                                None,
-                            )
-                        ],
-                        self.Settings,
-                    )
-                physical_clock.port = design.rtl.clocks[clock_name].port
-                flow_settings.clocks[clock_name] = physical_clock
-        for clock_name, clock in design.rtl.clocks.items():
-            if clock_name not in flow_settings.clocks:
-                raise FlowSettingsError(
-                    [
-                        (
-                            None,
-                            f"No clock period or frequency was specified for clock: '{clock_name}' (clock port: '{clock.port})'",
-                            None,
-                            None,
-                        )
-                    ],
-                    self.Settings,
-                )
-        super().__init__(flow_settings, design, run_path)
-
-
-class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
-    """Superclass of all FPGA synthesis flows"""
-
-    class Settings(SynthFlow.Settings):
-        """base FPGA Synthesis flow settings"""
-
-        fpga: FPGA
-
-
-class AsicSynthFlow(SynthFlow, metaclass=ABCMeta):
-    """Superclass of all ASIC synthesis flows"""
-
-    class Settings(SynthFlow.Settings):
-        """base ASIC Synthesis flow settings"""
-
-        tech: Optional[TargetTechnology] = None
-
-
-class DseFlow(Flow, metaclass=ABCMeta):
-    """Superclass of all design-space exploration flows"""
 
 
 class FlowException(Exception):

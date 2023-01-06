@@ -175,7 +175,7 @@ def run_process(
         args = []
     args = [str(a) for a in args]
     if env is not None:
-        env = {k: str(v) for k, v in env.items()}
+        env = {k: str(v) for k, v in env.items() if v is not None}
     log.debug("Running `%s`", " ".join(map(lambda x: str(x), [executable, *args])))
     if cwd:
         log.debug("cwd=%s", cwd)
@@ -297,6 +297,7 @@ class Tool(XedaBaseModel):
     executable: str
     minimum_version: Union[None, Tuple[Union[int, str], ...]] = None
     default_args: List[str] = []
+    version_arg: str = "--version"
 
     remote: Optional[RemoteSettings] = Field(None)
     docker: Optional[Docker] = Field(None)
@@ -351,9 +352,7 @@ class Tool(XedaBaseModel):
 
     @cached_property
     def version(self) -> Tuple[str, ...]:
-        out = self.run_get_stdout(
-            "--version",
-        )
+        out = self.run_get_stdout(self.version_arg)
         assert isinstance(out, str)
         so = re.split(r"\s+", out)
         version_string = so[1] if len(so) > 1 else so[0] if len(so) > 0 else ""
@@ -362,11 +361,15 @@ class Tool(XedaBaseModel):
     @cached_property
     def nproc(self) -> int:
         if self.dockerized:
+            n = None
             try:
-                ret = self.run("nproc", stdout=True)
-                return int(ret) if ret else 1
+                ret = self.execute("nproc", stdout=True)
+                if ret:
+                    n = int(ret)
             except Exception:
-                return 1
+                pass
+            assert self.docker
+            return n or self.docker.nproc
         else:
             return os.cpu_count() or 1
 
@@ -404,37 +407,6 @@ class Tool(XedaBaseModel):
     def version_gte(self, *args: Union[int, str]) -> bool:
         """Tool version is greater than or equal to version specified in args"""
         return self._version_is_gte(self.version, args)
-
-    def _run_process(
-        self,
-        args: Optional[Sequence[Any]] = None,
-        env: Optional[Dict[str, Any]] = None,
-        stdout: OptionalBoolOrPath = None,
-        check: bool = True,
-        cwd: OptionalPath = None,
-    ):
-        return run_process(
-            self.executable,
-            args,
-            env=env,
-            stdout=stdout,
-            check=check,
-            cwd=cwd,
-            tool_name=self.__class__.__name__,
-        )
-
-    def _run_system(
-        self,
-        *args: Any,
-        stdout: OptionalBoolOrPath = None,
-        env: Optional[Dict[str, Any]] = None,
-        cwd: OptionalPath = None,
-        check: bool = True,
-    ) -> Union[None, str]:
-        """Run the tool if locally installed on the system and available on the current user's PATH"""
-        if env is not None:
-            env = {**os.environ, **env}
-        return self._run_process(args, env=env, stdout=stdout, check=check, cwd=cwd)
 
     def _run_remote(
         self,
@@ -515,24 +487,45 @@ class Tool(XedaBaseModel):
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
     ) -> Union[None, str]:
+        return self.execute(self.executable, *args, env=env, stdout=stdout, check=check)
+
+    def execute(
+        self,
+        executable: str,
+        *args: Any,
+        env: Optional[Dict[str, Any]] = None,
+        stdout: OptionalBoolOrPath = None,
+        check: bool = True,
+        cwd: Optional[Path] = None,
+    ) -> Union[None, str]:
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
         args = tuple(list(self.default_args) + list(args))
         exec_name = (
-            f"[{self.docker.cli}] {self.executable}"
-            if self.docker and self.dockerized
-            else self.executable
+            f"[{self.docker.cli}] {executable}" if self.docker and self.dockerized else executable
         )
         if self.print_command:
             print(exec_name, *args)
-        if self.remote and self.remote.enabled:
-            self._run_remote(*args, env=env, stdout=stdout, check=check)
-            return None
         if self.docker and self.dockerized:
-            return self.docker.run(
-                *args, env=env, stdout=stdout, check=check, root_dir=self.design_root
+            return self.docker.run_dockerized(
+                executable,
+                *args,
+                env=env,
+                stdout=stdout,
+                check=check,
+                root_dir=self.design_root,
             )
-        return self._run_system(*args, env=env, stdout=stdout, check=check)
+        if env is not None:
+            env = {**os.environ, **env}
+        return run_process(
+            self.executable,
+            args,
+            env=env,
+            stdout=stdout,
+            check=check,
+            cwd=cwd,
+            tool_name=self.__class__.__name__,
+        )
 
     def run_get_stdout(self, *args: Any, env: Optional[Dict[str, Any]] = None) -> str:
         out = self.run(*args, env=env, stdout=True)

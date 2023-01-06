@@ -31,7 +31,7 @@ from varname import argname
 from .dataclass import XedaBaseModel
 
 try:
-    import tomllib  # type: ignore # pyright: reportMissingImports=none
+    import tomllib  # pyright: ignore reportMissingImports
 except ModuleNotFoundError:
     # python_version < "3.11":
     import tomli as tomllib  # type: ignore
@@ -41,13 +41,30 @@ except ModuleNotFoundError:
 
 __all__ = [
     "SDF",
-    # utility functions
-    "toml_load",
-    "toml_loads",
+    "WorkingDirectory",
+    "Timer",
+    # re-exports
     "tomllib",
     "cached_property",
+    # utility functions
+    "load_class",
+    "dump_json",
+    "toml_loads",
+    "parse_xml",
+    # list/container utils
     "unique",
-    "WorkingDirectory",
+    # str utils
+    "camelcase_to_snakecase",
+    "snakecase_to_camelcase",
+    "regex_match",
+    "removesuffix",
+    "removeprefix",
+    # dict utils
+    "dict_merge",
+    "get_hierarchy",
+    "set_hierarchy",
+    "first_value",
+    "first_key",
 ]
 
 log = logging.getLogger(__name__)
@@ -406,3 +423,15 @@ def removesuffix(s: str, suffix: str) -> str:
 def removeprefix(s: str, suffix: str) -> str:
     """similar to str.removeprefix in Python 3.9+"""
     return s[len(suffix) :] if suffix and s.startswith(suffix) else s
+
+
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+
+
+def first_value(d: Dict[_K, _V]) -> Optional[_V]:  # pyright: ignore reportInvalidTypeVarUse
+    return next(iter(d.values())) if d else None
+
+
+def first_key(d: Dict[_K, _V]) -> Optional[_K]:  # pyright: ignore reportInvalidTypeVarUse
+    return next(iter(d)) if d else None
