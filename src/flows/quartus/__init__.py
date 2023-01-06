@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Literal, Optional, Set
 from ...dataclass import Field
 from ...tool import Docker, Tool
 from ...types import PathLike
-from ...utils import try_convert
+from ...utils import try_convert_to_primitives
 from ...flow import FpgaSynthFlow
 
 log = logging.getLogger(__name__)
@@ -313,12 +313,12 @@ class Quartus(FpgaSynthFlow):
             print("wns:", wns)
             whs = worst_slacks.get("Hold")
             if wns is not None:
-                wns = try_convert(wns)
+                wns = try_convert_to_primitives(wns)
                 self.results["wns"] = wns
                 if isinstance(wns, (int, float)):
                     failed |= wns < 0
             if whs is not None:
-                whs = try_convert(whs)
+                whs = try_convert_to_primitives(whs)
                 self.results["whs"] = whs
                 if isinstance(whs, (int, float)):
                     failed |= whs < 0

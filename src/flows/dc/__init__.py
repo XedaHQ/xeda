@@ -7,7 +7,7 @@ from typing import Any, Dict, Mapping
 from box import Box
 
 from ...tool import Tool
-from ...utils import dict_merge, toml_load, try_convert
+from ...utils import dict_merge, toml_load, try_convert_to_primitives
 from ...flow import AsicSynthFlow
 
 log = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ class Dc(AsicSynthFlow):
         def parse_kvs(kvs):
             kvs = re.split(r"\s*\n\s*", kvs)
             kvs = [re.split(r"\s*:\s*", s.strip()) for s in kvs if s.strip()]
-            return {s[0].strip(): try_convert(s[1]) for s in kvs}
+            return {s[0].strip(): try_convert_to_primitives(s[1]) for s in kvs}
 
         path_group_re = re.compile(
             r"^\s*Timing Path Group\s+'(?P<path_group_name>\w+)'\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)",

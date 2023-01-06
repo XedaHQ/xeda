@@ -3,7 +3,7 @@ import logging
 from typing import Mapping, Union
 
 from ...tool import Tool
-from ...utils import try_convert
+from ...utils import try_convert_to_primitives
 from ...flow import FpgaSynthFlow
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,6 @@ class IseSynth(FpgaSynthFlow):
             r"Slack:\s+(?P<wns>\-?\d+(?:\.\d+)?)ns",
         )
         if "wns" in self.results:
-            wns = try_convert(self.results["wns"])
+            wns = try_convert_to_primitives(self.results["wns"])
             fail |= not isinstance(wns, (float, int)) or wns < 0
         return not fail

@@ -42,7 +42,7 @@ from ..utils import (
     dump_json,
     set_hierarchy,
     snakecase_to_camelcase,
-    try_convert,
+    try_convert_to_primitives,
 )
 from ..version import __version__
 from ..xedaproject import XedaProject
@@ -523,7 +523,7 @@ def settings_to_dict(
                     f"Settings should be in KEY=VALUE format! (value given: {override})"
                 )
             key, val = sp
-            set_hierarchy(res, key, try_convert(val, convert_lists=True))
+            set_hierarchy(res, key, try_convert_to_primitives(val, convert_lists=True))
         return res
     if isinstance(settings, Flow.Settings):
         return asdict(settings)
@@ -532,7 +532,7 @@ def settings_to_dict(
             return settings
         expanded: DictStrHier = {}
         for k, v in settings.items():
-            set_hierarchy(expanded, k, try_convert(v, convert_lists=True))
+            set_hierarchy(expanded, k, try_convert_to_primitives(v, convert_lists=True))
         return expanded
     raise TypeError(f"overrides is of unsupported type: {type(settings)}")
 

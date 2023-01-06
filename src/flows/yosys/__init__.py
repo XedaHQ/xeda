@@ -171,6 +171,10 @@ class YosysSynth(Yosys, SynthFlow):
         abc_script: Union[None, Path, List[str]] = None
         hilomap: Optional[HiLoMap] = None
         insbuf: Optional[Tuple[str, str, str]] = None
+        top_is_vhdl: Optional[bool] = Field(
+            None,
+            description="set to `true` to specify top module is VHDL, or `false` to override detection based on last source.",
+        )
 
         @validator("liberty")
         def _str_to_list(value):
@@ -265,7 +269,14 @@ class YosysSynth(Yosys, SynthFlow):
                 abc_script_file = str(ss.abc_script)
         clock_period_ps: Optional[float] = None
         if ss.clocks:
-            clock_period_ps = list(ss.clocks.values())[0].period_ps
+            assert ss.main_clock
+            clock_period_ps = ss.main_clock.period_ps
+        if ss.top_is_vhdl is True or (
+            ss.top_is_vhdl is None and self.design.rtl.sources[-1].type is SourceType.Vhdl
+        ):
+            # generics were already handled by GHDL and the synthesized design is no longer parametric
+            self.design.rtl.parameters = {}
+
         script_path = self.copy_from_template(
             "yosys_fpga_synth.tcl" if ss.fpga else "yosys_synth.tcl",
             lstrip_blocks=True,
@@ -277,7 +288,7 @@ class YosysSynth(Yosys, SynthFlow):
             clock_period_ps=clock_period_ps,
             abc_script_file=abc_script_file,
         )
-        log.info("Yosys script: %s", self.run_path.relative_to(Path.cwd()) / script_path)
+        log.info("Yosys script: %s", script_path.absolute())
         args = ["-c", script_path]
         if ss.log_file:
             args.extend(["-L", ss.log_file])
