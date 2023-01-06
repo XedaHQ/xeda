@@ -10,7 +10,7 @@ from sys import stderr
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from .dataclass import Field, XedaBaseModel, validator
-from .utils import cached_property
+from .utils import cached_property, try_convert
 from .flow import Flow
 
 log = logging.getLogger(__name__)
@@ -80,10 +80,11 @@ class Docker(XedaBaseModel):
     def cpuinfo(self) -> Optional[List[List[str]]]:
         try:
             ret = self.run_dockerized("cat", "/proc/cpuinfo", stdout=True)
-        except:
-            return None
-        assert ret is not None
-        return [x.split("\n") for x in re.split(r"\n\s*\n", ret, re.MULTILINE)]
+        except:  # noqa
+            ret = None
+        if ret is not None:
+            return [x.split("\n") for x in re.split(r"\n\s*\n", ret, re.MULTILINE)]
+        return None
 
     @cached_property
     def nproc(self) -> int:
@@ -259,25 +260,24 @@ def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
                 f.write(f"{k}{ws}: {v}")
 
 
-def _run_processes(commands: List[List[str]], cwd: OptionalPath = None) -> None:
-    """Run a list commands to completion. Throws if any of them did not execute and exit normally"""
-    # if args:
-    #     args = [str(a) for a in args]
-    # if env:
-    #     env = {str(k): str(v) for k, v in env.items()}
-    processes = []
+def _run_processes(commands: List[List[Any]], cwd: OptionalPath = None, env=None) -> None:
+    """Run a list commands to completion. Raises an exception if any of them did not execute and exit normally"""
+    for args in commands:
+        args = [str(a) for a in args]
+    if env:
+        env = {str(k): str(v) for k, v in env.items() if v is not None}
+    processes: List[subprocess.Popen] = []
     for cmd in commands:
         log.info("Running `%s`", " ".join(cmd))
         with subprocess.Popen(
             cmd,
             cwd=cwd,
             shell=False,
-            #   stdout=subprocess.PIPE if stdout else None,
             bufsize=1,
             universal_newlines=True,
             encoding="utf-8",
             errors="replace",
-            #   env=env
+            env=env,
         ) as proc:
             assert isinstance(proc.args, list)
             log.info("Started %s[%d]", str(proc.args[0]), proc.pid)
@@ -288,7 +288,7 @@ def _run_processes(commands: List[List[str]], cwd: OptionalPath = None) -> None:
 
     for p in processes:
         if p.returncode != 0:
-            raise Exception(f"Process exited with return code {p.returncode}")
+            raise NonZeroExitCode(p.args, p.returncode)
 
 
 class Tool(XedaBaseModel):
@@ -361,13 +361,10 @@ class Tool(XedaBaseModel):
     @cached_property
     def nproc(self) -> int:
         if self.dockerized:
-            n = None
             try:
-                ret = self.execute("nproc", stdout=True)
-                if ret:
-                    n = int(ret)
-            except:
-                pass
+                n = try_convert(self.execute("nproc", stdout=True), int)
+            except:  # noqa
+                n = None
             assert self.docker
             return n or self.docker.nproc
         else:
@@ -380,22 +377,16 @@ class Tool(XedaBaseModel):
         """check if `tool_version` is greater than or equal to `required_version`"""
         log.debug(f"[gte] {tool_version}  ?  {required_version}")
         for tool_part, req_part in zip(tool_version, required_version):
-            try:
-                req_part_val = int(req_part)
-            except ValueError:
-                req_part_val = -1
-            try:
-                tool_part_val = int(tool_part)
-            except ValueError:
+            req_part_val = try_convert(req_part, int, default=-1)
+            assert req_part_val is not None
+            tool_part_val = try_convert(tool_part, int)
+            if tool_part_val is None:
                 match = re.match(r"(\d+)[+.-\._](\w+)", tool_part)
                 if match:
                     tool_part = match.group(1)
-                    try:
-                        tool_part_val = int(tool_part)
-                        assert req_part_val > -1
+                    tool_part_val = try_convert(tool_part, int)
+                    if tool_part_val is not None and req_part_val > -1:
                         return tool_part_val >= req_part_val
-                    except ValueError:
-                        pass
                 tool_part_val = -1
 
             if tool_part_val < req_part_val:  # if equal, continue
@@ -440,20 +431,9 @@ class Tool(XedaBaseModel):
 
         sshfs_opts = ["directport=10000", "idmap=user", "exec", "compression=yes"]
 
-        sshfs_cmd = [
-            "sshfs",
-            "-o",
-            ",".join(sshfs_opts),
-            f"localhost:{wd}",
-            remote_sshfs_mount_dir,
-        ]
+        sshfs_cmd = ["sshfs", "-o", ",".join(sshfs_opts), f"localhost:{wd}", remote_sshfs_mount_dir]
 
-        ssh_proc = [
-            "ssh",
-            self.remote.hostname,
-            "-p",
-            str(self.remote.port),
-        ]
+        ssh_proc = ["ssh", self.remote.hostname, "-p", str(self.remote.port)]
 
         sshfs_proc = (
             ssh_proc
@@ -470,14 +450,7 @@ class Tool(XedaBaseModel):
             + remote_cmd
         )
 
-        ncat_proc = [
-            "ncat",
-            "-l",
-            "-p",
-            f"{client_nc_port}",
-            "-e",
-            "/usr/libexec/sftp-server",
-        ]
+        ncat_proc = ["ncat", "-l", "-p", f"{client_nc_port}", "-e", "/usr/libexec/sftp-server"]
         _run_processes([sshfs_proc, ncat_proc])
 
     def run(

@@ -24,7 +24,7 @@ from ..dataclass import (
     validator,
 )
 from ..design import Design
-from ..utils import camelcase_to_snakecase, regex_match, try_convert, unique
+from ..utils import camelcase_to_snakecase, regex_match, try_convert_to_primitives, unique
 
 log = logging.getLogger(__name__)
 
@@ -300,7 +300,7 @@ class Flow(metaclass=ABCMeta):
                     return False, content
                 match_dict = match.groupdict()
                 for k, v in match_dict.items():
-                    self.results[k] = try_convert(v)
+                    self.results[k] = try_convert_to_primitives(v)
                     log.debug("%s: %s", k, self.results.get(k))
                 if sequential:
                     content = content[match.span(0)[1] :]

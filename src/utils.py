@@ -12,18 +12,8 @@ from datetime import datetime, timedelta
 from functools import cached_property, reduce
 from pathlib import Path
 from types import TracebackType
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Optional,
-    OrderedDict,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import Any, Dict, Iterable, List, Optional, OrderedDict, Tuple, Type, TypeVar, Union
+import unittest
 from xml.etree import ElementTree
 
 from varname import argname
@@ -51,6 +41,8 @@ __all__ = [
     "dump_json",
     "toml_loads",
     "parse_xml",
+    "try_convert_to_primitives",
+    "try_convert",
     # list/container utils
     "unique",
     # str utils
@@ -223,7 +215,18 @@ def dict_merge(
     return rtn_dct
 
 
-def try_convert(
+_T1 = TypeVar("_T1")
+_D1 = TypeVar("_D1")
+
+
+def try_convert(value: Any, typ: Type[_T1], default: Optional[_D1] = None) -> Union[None, _T1, _D1]:
+    try:
+        return typ(value)  # type: ignore
+    except:  # noqa
+        return default
+
+
+def try_convert_to_primitives(
     s: Any, convert_lists: bool = False
 ) -> Union[bool, int, float, str, List[Union[bool, int, float, str, List[Any]]]]:
     if s is None:
@@ -235,7 +238,7 @@ def try_convert(
             return s.strip("\"'")
         if convert_lists and s.startswith("[") and s.endswith("]"):
             s = re.sub(r"\s+", "", s)
-            return try_convert(list(s.strip("][").split(",")))
+            return try_convert_to_primitives(list(s.strip("][").split(",")))
         # Should NOT convert dict, set, etc!
         if re.match(r"^\d+$", s):
             return int(s)
@@ -253,7 +256,7 @@ def try_convert(
     if isinstance(s, (tuple)):
         s = list(s)
     if isinstance(s, (list)):
-        return [try_convert(e) for e in s]
+        return [try_convert_to_primitives(e) for e in s]
     return str(s)
 
 
@@ -435,3 +438,12 @@ def first_value(d: Dict[_K, _V]) -> Optional[_V]:  # pyright: ignore reportInval
 
 def first_key(d: Dict[_K, _V]) -> Optional[_K]:  # pyright: ignore reportInvalidTypeVarUse
     return next(iter(d)) if d else None
+
+
+class UnitTestUtils(unittest.TestCase):
+    def test_try_convert(self):
+        self.assertEqual(try_convert(" ", int), None)
+        self.assertEqual(try_convert("", int), None)
+        self.assertEqual(try_convert("xx", int), None)
+        self.assertEqual(try_convert("1234", int), 1234)
+        self.assertEqual(try_convert("1234.5", float), 1234.5)
