@@ -267,10 +267,6 @@ class YosysSynth(Yosys, SynthFlow):
                     f.write("\n".join(ss.abc_script) + "\n")
             else:
                 abc_script_file = str(ss.abc_script)
-        clock_period_ps: Optional[float] = None
-        if ss.clocks:
-            assert ss.main_clock
-            clock_period_ps = ss.main_clock.period_ps
         if ss.top_is_vhdl is True or (
             ss.top_is_vhdl is None and self.design.rtl.sources[-1].type is SourceType.Vhdl
         ):
@@ -285,7 +281,6 @@ class YosysSynth(Yosys, SynthFlow):
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
-            clock_period_ps=clock_period_ps,
             abc_script_file=abc_script_file,
         )
         log.info("Yosys script: %s", script_path.absolute())
