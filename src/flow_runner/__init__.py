@@ -7,6 +7,7 @@ import importlib
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from datetime import datetime, timedelta
@@ -43,6 +44,7 @@ from ..utils import (
     set_hierarchy,
     snakecase_to_camelcase,
     try_convert_to_primitives,
+    unique,
 )
 from ..version import __version__
 from ..xedaproject import XedaProject
@@ -56,6 +58,8 @@ __all__ = [
 ]
 
 log = logging.getLogger(__name__)
+
+DIR_NAME_HASH_LEN = 16
 
 
 def print_results(
@@ -158,6 +162,45 @@ def semantic_hash(data: Any) -> str:
     return hashlib.sha3_256(bytes(r, "UTF-8")).hexdigest()
 
 
+def on_rm_error(func, path, exc_info):
+    log.error("Error while removing %s: %s, %s", path, func, exc_info)
+
+
+def scrub_runs(flow_name: str, dir: Path, exclude: List[Path] = []) -> bool:
+    regex = re.compile(f"^{flow_name}_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r"$")
+    xr = dir.resolve()
+    if not dir.exists() or not xr.is_dir():
+        return False
+    dirs_to_rm = unique(
+        [
+            p
+            for p in dir.glob(f"{flow_name}_*")
+            if p.is_dir()
+            and regex.match(p.name)
+            and all(not ex.exists() or not p.samefile(ex) for ex in exclude)
+            and xr in p.resolve().parents
+        ]
+    )
+    if dirs_to_rm:
+        console.print(
+            f"[red]This will action will remove all of the following {len(dirs_to_rm)} subfolders:[/red]"
+        )
+        for p in dirs_to_rm:
+            console.print(p)
+        confirmation = console.input("Type 'yes' if you're sure you want to continue: ")
+        if confirmation.lower() == "yes":
+            log.warning(
+                "Removing the following directories: %s", " ".join(str(p) for p in dirs_to_rm)
+            )
+            for p in dirs_to_rm:
+                shutil.rmtree(p, onerror=on_rm_error)
+            console.print(f"{len(dirs_to_rm)} folders removed.")
+            return True
+        else:
+            console.print("Not confirmed. No files or folders were removed.")
+    return False
+
+
 FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
 
 
@@ -181,9 +224,15 @@ class FlowLauncher:
         dump_results_json: bool = True
         cached_dependencies: bool = True
         skip_if_previous_run_exists: bool = False
-        cleanup: bool = False
         backups: bool = False
         incremental: bool = False
+        incremental_fresh: bool = False
+        # remove flow files except settings.json, results.json, and artifacts _after_ run:
+        post_cleanup: bool = False
+        # remove flow_run folder and all of its contents _after_ running the flow:
+        post_cleanup_purge: bool = False
+        # remove previous flow directories _before_ running the flow:
+        scrub_old_runs: bool = False
 
     def __init__(self, xeda_run_dir: Union[None, str, os.PathLike] = None, **kwargs) -> None:
         if "xeda_run_dir" in kwargs:
@@ -199,7 +248,6 @@ class FlowLauncher:
             log.setLevel(logging.DEBUG)
             log.root.setLevel(logging.DEBUG)
         self.debug = self.settings.debug
-        self.cleanup = self.settings.cleanup
 
     def get_flow_run_path(
         self,
@@ -212,9 +260,9 @@ class FlowLauncher:
         flow_subdir = flow_name
         if self.settings.cached_dependencies:
             if design_hash and not self.settings.incremental:
-                design_subdir += f"_{design_hash[:16]}"
+                design_subdir += f"_{design_hash[:DIR_NAME_HASH_LEN]}"
             if flowrun_hash:
-                flow_subdir += f"_{flowrun_hash[:16]}"
+                flow_subdir += f"_{flowrun_hash[:DIR_NAME_HASH_LEN]}"
 
         run_path: Path = self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
         return run_path
@@ -304,11 +352,15 @@ class FlowLauncher:
                     "Could not find valid results/settings from a previous run in %s",
                     run_path,
                 )
-
-        if not previous_results:
-            if not self.settings.backups and run_path.exists():
+        if self.settings.scrub_old_runs:
+            scrub_runs(flow_name, run_path.parent, [run_path])
+        if not previous_results and run_path.exists():
+            if self.settings.incremental and self.settings.incremental_fresh:
+                shutil.rmtree(run_path)
+            elif not self.settings.incremental and self.settings.backups:
                 backup_existing(run_path)
-            run_path.mkdir(parents=True, exist_ok=self.settings.incremental)
+        if not run_path.exists():
+            run_path.mkdir(parents=True)
 
         with WorkingDirectory(run_path):
             log.debug("Instantiating flow from %s", flow_class)
@@ -334,7 +386,7 @@ class FlowLauncher:
 
             copied_res_dir = run_path / flow_class.copied_resources_dir
             if copy_resources:
-                copied_res_dir.mkdir(parents=True)
+                copied_res_dir.mkdir(parents=True, exist_ok=True)
             for res in copy_resources:
                 log.info("Copying %s to %s", str(res), str(copied_res_dir))
                 shutil.copy(res, copied_res_dir)
@@ -382,7 +434,12 @@ class FlowLauncher:
         success = True
 
         if previous_results:
-            log.warning("Using previous run results and artifacts from %s", run_path)
+            log.warning(
+                "Using previous %s results and artifacts from %s (timestamp: %s)",
+                flow_name,
+                run_path.absolute(),
+                previous_results.get("timestamp"),
+            )
             flow.results.update(**previous_results)
             flow.artifacts = previous_results._artifacts
         else:
@@ -407,6 +464,7 @@ class FlowLauncher:
                 if not success:
                     log.warning("Failure was reported in the parsed results.")
                 flow.results.success = success
+                flow.results.timestamp = flow.timestamp
 
         if flow.artifacts and flow.succeeded:
             flow.results._artifacts = flow.artifacts
@@ -449,13 +507,28 @@ class FlowLauncher:
                 title=f"Results of flow:{flow.name} design:{design.name}",
                 skip_if_false={"artifacts", "reports"},
             )
-        if self.cleanup:
+
+        if self.settings.post_cleanup_purge:
             log.warning("Removing flow run path %s", flow.run_path)
-
-            def on_rmtree_error(*args):
-                log.error("Error while removing %s: %s", flow.run_path, args)
-
-            shutil.rmtree(flow.run_path, onerror=on_rmtree_error)
+            shutil.rmtree(flow.run_path, onerror=on_rm_error)
+        elif self.settings.post_cleanup:
+            log.warning("Cleaning up %s", flow.run_path)
+            exclude = [settings_json, results_json]
+            exclude += [
+                Path(p) if os.path.isabs(p) else flow.run_path / p
+                for p in flow.artifacts
+                if p and isinstance(p, (str, Path))
+            ]
+            paths_to_rm = unique(
+                [
+                    p
+                    for p in flow.run_path.glob("*")
+                    if p not in exclude and self.xeda_run_dir.resolve() in p.resolve().parents
+                ]
+            )
+            log.warning("Removing the following files: %s", " ".join(str(p) for p in paths_to_rm))
+            for p in paths_to_rm:
+                shutil.rmtree(p, onerror=on_rm_error)
         return flow
 
     def run_flow(

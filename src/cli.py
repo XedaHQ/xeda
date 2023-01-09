@@ -3,6 +3,7 @@
 import inspect
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple, Union
@@ -30,10 +31,13 @@ from .flow import (
     registered_flows,
 )
 from .flow_runner import (
+    DIR_NAME_HASH_LEN,
     DefaultRunner,
     XedaOptions,
     add_file_logger,
+    get_flow_class,
     prepare,
+    scrub_runs,
     settings_to_dict,
 )
 from .flow_runner.dse import Dse
@@ -126,6 +130,11 @@ def cli(ctx: click.Context, **kwargs):
     help="Incremental build. Useful during development. Flows run under a <design_name>/<flow_name>_<flow_settings_hash> subfolder in incremental mode.",
 )
 @click.option(
+    "--incremental-fresh",
+    default=False,
+    help="In incremental mode, cleanup folder contents before running.",
+)
+@click.option(
     "--xedaproject",
     type=click.Path(
         exists=True,
@@ -177,6 +186,21 @@ def cli(ctx: click.Context, **kwargs):
 )
 @click.option("--detailed-logs/--no-detailed-logs", show_envvar=True, default=True)
 @click.option("--log-level", show_envvar=True, type=int, default=None)
+@click.option(
+    "--post-cleanup",
+    is_flag=True,
+    help="Remove flow files except settings.json, results.json, and artifacts _after_ running the flow.",
+)
+@click.option(
+    "--post-cleanup-purge",
+    is_flag=True,
+    help="Remove flow run_dir and all of its content _after_ running the flow.",
+)
+@click.option(
+    "--scrub",
+    is_flag=True,
+    help="Remove all previous flow directories of the same flow withing the current 'xeda_run_dir' _before_ running the flow. Requires user confirmation.",
+)
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -184,12 +208,16 @@ def run(
     cached_dependencies: bool,
     flow_settings: Union[None, str, Iterable[str]],
     incremental: bool = True,
+    incremental_fresh: bool = False,
     xeda_run_dir: Optional[Path] = None,
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     design_file: Optional[str] = None,
     log_level: Optional[int] = None,
     detailed_logs: bool = False,
+    post_cleanup: bool = False,
+    post_cleanup_purge: bool = False,
+    scrub: bool = False,
 ):
     """`run` command"""
     assert ctx
@@ -223,8 +251,11 @@ def run(
             cached_dependencies=cached_dependencies,
         )
         launcher.settings.incremental = incremental
+        launcher.settings.incremental_fresh = incremental_fresh
+        launcher.settings.post_cleanup = post_cleanup
+        launcher.settings.post_cleanup_purge = post_cleanup_purge
+        launcher.settings.scrub_old_runs = scrub
         launcher.settings.debug = options.debug
-        launcher.settings.incremental = True
         launcher.run_flow(flow_class, design, accum_flow_settings)
     except FlowFatalError as e:
         log.critical(
@@ -474,6 +505,58 @@ def dse(
         design,
         accum_flow_settings,
     )
+
+
+@cli.command(
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Remove all flow runs in the specified xeda_run_dir",
+)
+@click.argument(
+    "flow",
+    metavar="FLOW_NAME",
+    type=click.Choice(all_flows),
+    required=True,
+)
+@click.argument(
+    "design_name",
+    metavar="DESIGN_NAME",
+    required=True,
+)
+@click.option(
+    "--xeda-run-dir",
+    type=click.Path(
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        readable=True,
+        resolve_path=True,
+        allow_dash=True,
+        path_type=Path,
+    ),
+    envvar="XEDA_RUN_DIR",
+    help="Parent folder for execution of xeda commands.",
+    default="xeda_run",
+    show_default=True,
+    show_envvar=True,
+)
+@click.option(
+    "--incremental/--no-incremental",
+    default=True,
+    help="Include incremental build directories (<design_name>/<flow_name>_<flow_settings_hash> name pattern)",
+)
+@click.pass_context
+def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, incremental):
+    xeda_run_dir = Path(xeda_run_dir).resolve()
+    # just to make sure flow exists and name is canonical
+    flow_class = get_flow_class(flow)
+
+    regex = re.compile(f"^{design_name}_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r"$")
+    design_dirs = [p for p in xeda_run_dir.glob("design_") if p.is_dir() and regex.match(p.name)]
+    if incremental and (xeda_run_dir / design_name).exists():
+        design_dirs.append(xeda_run_dir / design_name)
+
+    for dd in design_dirs:
+        scrub_runs(flow_class.name, dd)
 
 
 SHELLS: Dict[str, Dict[str, Any]] = {

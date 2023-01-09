@@ -1,7 +1,6 @@
 yosys -import
 
-set log_prefix "yosys> "
-{% if settings.debug %}
+{% if settings.debug or settings.verbose > 1 %}
 echo on
 {% endif %}
 
@@ -12,18 +11,18 @@ yosys plugin -i systemverilog
 
 {% for src in design.rtl.sources %}
     {% if src.type.name == "Verilog" %}
-    puts "$log_prefix Reading {{src}}"
+    yosys log -stdout "Reading {{src}}"
     ## -Dname=value -Idir
     yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{src}}
     {% elif src.type.name == "SystemVerilog" %}
-    puts "$log_prefix Reading {{src}}"
+    yosys log -stdout "Reading {{src}}"
     yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src}}
     {% endif %}
 {% endfor %}
 
 {% set vhdl_files = design.sources_of_type("Vhdl", rtl= True) %}
 {% if vhdl_files %}
-puts "$log_prefix Elaborating VHDL files"
+yosys log -stdout "Elaborating VHDL files"
 yosys plugin -i ghdl
 yosys ghdl {{ghdl_args|join(" ")}}
 {% endif %}

@@ -75,11 +75,11 @@ class Docker(XedaBaseModel):
     cli: str = "docker"
     mounts: Dict[str, str] = {}
 
-    # TODO this is only for a Linux container
+    # NOTE only works for Linux containers
     @cached_property
     def cpuinfo(self) -> Optional[List[List[str]]]:
         try:
-            ret = self.run_dockerized("cat", "/proc/cpuinfo", stdout=True)
+            ret = self.run("cat", "/proc/cpuinfo", stdout=True)
         except:  # noqa
             ret = None
         if ret is not None:
@@ -114,18 +114,7 @@ class Docker(XedaBaseModel):
                         f.write(line + "\n")
                     f.write("\n")
             self.mounts[str(cpuinfo_file)] = "/proc/cpuinfo"
-        return self.run_dockerized(
-            *self.command, *args, env=env, stdout=stdout, check=check, root_dir=root_dir
-        )
 
-    def run_dockerized(
-        self,
-        *args: Any,
-        env: Optional[Dict[str, Any]] = None,
-        stdout: OptionalBoolOrPath = None,
-        check: bool = True,
-        root_dir: OptionalPath = None,
-    ) -> Union[None, str]:
         cwd = Path.cwd()
         docker_args = [
             "--rm",
@@ -222,11 +211,11 @@ def run_process(
                     proc.wait()
                 except KeyboardInterrupt as e:
                     try:
-                        # log.warning(
-                        #     "[Tool] Received KeyboardInterrupt! Terminating %s(pid=%s)",
-                        #     executable,
-                        #     proc.pid,
-                        # )
+                        log.debug(
+                            "Received KeyboardInterrupt! Terminating %s(pid=%s)",
+                            executable,
+                            proc.pid,
+                        )
                         proc.terminate()
                     except OSError as e2:
                         log.warning("Terminate failed: %s", e2)
@@ -460,6 +449,11 @@ class Tool(XedaBaseModel):
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
     ) -> Union[None, str]:
+        if env:
+            env = {k: str(v) for k, v in env.items() if v is not None}
+            env_file = "env.sh"
+            with open(env_file, "w") as f:
+                f.write("\n".join(f'export {k}="{v}"' for k, v in env.items()))
         return self.execute(self.executable, *args, env=env, stdout=stdout, check=check)
 
     def execute(
@@ -480,7 +474,7 @@ class Tool(XedaBaseModel):
         if self.print_command:
             print(exec_name, *args)
         if self.docker and self.dockerized:
-            return self.docker.run_dockerized(
+            return self.docker.run(
                 executable,
                 *args,
                 env=env,

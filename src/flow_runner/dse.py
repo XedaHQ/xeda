@@ -514,7 +514,9 @@ class Dse(FlowLauncher):
         assert isinstance(self.settings, self.Settings)
 
         # update settings
-        self.settings.cleanup &= not self.settings.keep_optimal_run_dirs
+        if self.settings.keep_optimal_run_dirs:
+            self.settings.post_cleanup = False
+            self.settings.post_cleanup_purge = False
         self.settings.display_results = False
         self.settings.incremental = False
 
@@ -721,7 +723,7 @@ class Dse(FlowLauncher):
                                     r = {k: outcome.results.get(k) for k in results_sub}
                                     successful_results.append(r)
                                 if (
-                                    self.cleanup
+                                    self.settings.post_cleanup
                                     and self.settings.keep_optimal_run_dirs
                                     and not improved
                                     and (have_success or num_iterations > 0)

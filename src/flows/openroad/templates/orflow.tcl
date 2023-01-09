@@ -1,81 +1,48 @@
-read_lef {{platform.tech_lef}}
-{%- if platform.merged_lef %}
-read_lef {{platform.merged_lef}}
-{%- endif %}
-{%- for lef in platform.additional_lef_files %}
-read_lef {{lef}}
-{%- endfor %}
+{# TODO: write/load snapshots, check errors/warnings, load pre/post scripts, etc #}
+{%- macro preamble(step, index, total) -%}
+{%- set line_len = 80 -%}
+{%- set msg = (" Starting %s (%d/%d) "|format(step, index, total)) -%}
+{%- set msg_len = (msg|length) -%}
+{%- set sp1 = (line_len - msg_len) // 2 -%}
+{%- set sp2 = line_len - sp1 - msg_len -%}
+puts "{{ '=' * line_len }}"
+puts "{{ '=' * sp1 }}{{msg}}{{'=' * sp2 }}"
+puts "{{ '=' * line_len }}"
+{% endmacro %}
 
-{%- if (platform.corner|length) > 1 %}
-define_corners {{platform.corner.keys()|join(" ")}}
+{%- macro epilogue(step) -%}
+puts "{{step}} done"
+puts ""
+{{ "#" * 80 }}
+{% endmacro %}
 
-{%- for corner,s in platform.corner %}
-    {%- for lib in s.lib_files %}
-    read_liberty -corner {{corner}} {{lib}}
-    {%- endfor %}
-    {%- if s.dff_lib_file %}
-    read_liberty {{s.dff_lib_file}}
-    {%- endif %}
-{%- endfor %}
-
-{%- else %}
-
-{%- set s = (platform.corner.values()|first) %}
-{%- for lib in s.lib_files %}
-read_liberty {{lib}}
-{%- endfor %}
-{%- if s.dff_lib_file %}
-read_liberty {{s.dff_lib_file}}
-{%- endif %}
-
-{%- endif %}
-
-read_verilog {{netlist}}
-link_design {{design.rtl.top}}
-
-{%- for sdc in sdc_files %}
-read_sdc {{sdc}}
-{%- endfor %}
-
-{%- if platform.derate_tcl %}
+{%- macro maybe_load_snapshot(db_step_id, sdc_step_id=none) -%}
+{% if db_step_id -%} load_db {{results_dir}}/{{db_step_id}}.odb {%- endif %}
+{% if sdc_step_id -%} load_sdc {{results_dir}}/{{sdc_step_id}}.sdc {%- endif %}
+{% if platform.derate_tcl %}
 source {{platform.derate_tcl}}
-{%- endif %}
-{%- if platform.setrc_tcl %}
+{% endif %}
 source {{platform.setrc_tcl}}
-{%- endif %}
+{% endmacro %}
 
-set SCRIPTS_DIR $::env(SCRIPTS_DIR)
-set SOURCE_FLAGS [list -verbose {%- if settings.debug %} -echo {%- endif %}]
+{%- macro maybe_write_snapshot(step_id, db=true, sdc=false, def=false) -%}
+{% if db -%} write_db {{results_dir}}/{{step_id}}.odb {%- endif %}
+{% if sdc -%} write_sdc {{results_dir}}/{{step_id}}.sdc {%- endif %}
+{% if sdc -%} write_def {{results_dir}}/{{step_id}}.def {%- endif %}
+{% endmacro %}
 
-# set standalone 0
+{%- macro section(name) -%}
+puts "-- {{name}}"
+{% endmacro %}
 
-# Floorplan
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/floorplan.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/io_placement_random.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/tdms_place.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/macro_place.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/tapcell.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/pdn.tcl
+{%- include "utils.tcl" %}
 
-# Place
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/global_place_skip_io.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/io_placement.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/global_place.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/resize.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/detail_place.tcl
-
-# CTS
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/cts.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/fillcell.tcl
-
-# Route
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/global_route.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/detail_route.tcl
-
-# if {[info exists ::env(USE_FILL)] && $::env(USE_FILL)} {
-#   source {*}$SOURCE_FLAGS $SCRIPTS_DIR/density_fill.tcl
-# }
-
-# Finishing
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/final_report.tcl
-source {*}$SOURCE_FLAGS $SCRIPTS_DIR/klayout.tcl
+{% set num_steps = flow_steps|length -%}
+{% set prev_step_id = "" -%}
+{% for step in flow_steps -%}
+{% set step_id = "%d_%s"|format(loop.index0, step) -%}
+{{ preamble(step, loop.index0, num_steps) }}
+{% include step + '.tcl' %}
+{{ epilogue(step) }}
+{% set prev_step_id = step_id -%}
+{% endfor %}

@@ -4,17 +4,18 @@ name = "sky130hd"
 process = 130
 
 stackup = "5M1LI"
-default_corner = "typical"
+# default_corner = "tt"
 
 #-----------------------------------------------------
 # Tech/Libs
 # ----------------------------------------------------
+lib_files = ["lib/sky130_fd_sc_hd__tt_025c_1v80.lib"]
 tech_lef = "lef/sky130_fd_sc_hd.tlef"
-merged_lef = "lef/sky130_fd_sc_hd_merged.lef"
+std_cell_lef = "lef/sky130_fd_sc_hd_merged.lef"
 gds_files = ["gds/sky130_fd_sc_hd.gds"]
 
-# derate_script = "..."
-setrc_script = "setRC.tcl"
+# derate_tcl = "..."
+setrc_tcl = "setRC.tcl"
 
 # Dont use cells to ease congestion
 # Specify at least one filler cell if none
@@ -145,7 +146,8 @@ fastroute_tcl = "fastroute.tcl"
 
 # KLayout technology file
 klayout_tech_file = "sky130hd.lyt"
-klayout_display_file = "sky130hd.lyp"
+# Layer properties file
+klayout_layer_prop_file = "sky130hd.lyp"
 
 # Rules for metal fill
 fill_config = "fill.json"
@@ -157,16 +159,12 @@ template_pga_cfg = "template_pga.cfg"
 # ---------------------------------------------------------
 #  IR Drop
 # ---------------------------------------------------------
-
+voltage = 1.8
 # IR drop estimation supply net name to be analyzed and supply voltage variable
 # For multiple nets: PWR_NETS_VOLTAGES  = "VDD1 1.8 VDD2 1.2"
-pwr_nets_voltages = {VDD=1.8}
-gnd_nets_voltages = {VSS=0.0}
+pwr_nets_voltages = { VDD = 1.8 }
+gnd_nets_voltages = { VSS = 0.0 }
 ir_drop_layer = "met1"
 
-
-[corner.typical]
-lib_files = ["lib/sky130_fd_sc_hd__tt_025c_1v80.lib"]
-voltage = 1.8
 # OpenRCX extRules
 rcx_rules = "rcx_patterns.rules"

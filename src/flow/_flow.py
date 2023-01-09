@@ -259,7 +259,21 @@ class Flow(metaclass=ABCMeta):
         return script_path.relative_to(self.run_path)  # resource_name
 
     def add_template_filter(self, filter_name: str, func) -> None:
+        assert filter_name
+        if filter_name in self.jinja_env.filters:
+            raise ValueError(f"Template filter with name {filter_name} already exists!")
         self.jinja_env.filters[filter_name] = func
+
+    def add_template_filter_func(self, func) -> None:
+        self.add_template_filter(func.__name__, func)
+
+    def add_template_global_func(self, func, filter_name=None) -> None:
+        if not filter_name:
+            filter_name = func.__name__
+        assert filter_name
+        if filter_name in self.jinja_env.globals:
+            raise ValueError(f"Template global with name {filter_name} already exists!")
+        self.jinja_env.globals[filter_name] = func
 
     def add_template_test(self, filter_name: str, func) -> None:
         self.jinja_env.tests[filter_name] = func

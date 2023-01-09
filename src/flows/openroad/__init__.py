@@ -3,10 +3,9 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
-from importlib_resources import files, as_file
-from pydantic import Field, validator
+from pydantic import Field, validator, confloat
 
 from ...flow import AsicSynthFlow
 from ...flows.yosys import HiLoMap, YosysSynth
@@ -33,22 +32,25 @@ def clean_ascii(s: str) -> str:
 
 def preproc_lib_content(content: str, pattern_list: List[str]) -> str:
     # Pattern to match a cell header
-    pattern = r"(^\s*cell\s*\(\s*([\"]*" + '["]*|["]*'.join(pattern_list) + r"[\"]*)\)\s*\{)"
+    pattern1 = r"(^\s*cell\s*\(\s*([\"]*" + '["]*|["]*'.join(pattern_list) + r"[\"]*)\)\s*\{)"
     replace = r"\1\n    dont_use : true;"
-    content, count = re.subn(pattern, replace, content, 0, re.M)
-    log.info("Marked %d cells as dont_use", count)
+    content, count = re.subn(pattern1, replace, content, flags=re.MULTILINE)
+    if count:
+        log.info("Marked %d cells as dont_use", count)
 
     # Yosys-abc throws an error if original_pin is found within the liberty file.
-    pattern = r"(.*original_pin.*)"
+    pattern2 = re.compile(r"(.*original_pin.*)")
     replace = r"/* \1 */;"
-    content, count = re.subn(pattern, replace, content)
-    log.info("Commented %d lines containing 'original_pin", count)
+    content, count = re.subn(pattern2, replace, content)
+    if count:
+        log.info("Commented %d lines containing 'original_pin", count)
 
     # Yosys, does not like properties that start with : !, without quotes
-    pattern = r":\s+(!.*)\s+;"
+    pattern3 = re.compile(r":\s+(!.*)\s+;")
     replace = r': "\1" ;'
-    content, count = re.subn(pattern, replace, content)
-    log.info("Replaced %d malformed functions", count)
+    content, count = re.subn(pattern3, replace, content)
+    if count:
+        log.info("Replaced %d malformed functions", count)
     return content
 
 
@@ -87,7 +89,9 @@ def merge_libs(in_files, new_lib_name, out_file):
         out.write("\n}\n")
 
 
-def preproc_libs(in_files, new_lib_name, merged_file, dont_use_cells: List[str]):
+def preproc_libs(
+    in_files, new_lib_name, merged_file, dont_use_cells: List[str], needs_preproc=False
+):
     merged_content = ""
     proc_files = []
     for in_file in in_files:
@@ -95,7 +99,10 @@ def preproc_libs(in_files, new_lib_name, merged_file, dont_use_cells: List[str])
         log.info("Pre-processing liberty file: %s", in_file)
         with open(in_file, encoding="utf-8") as f:
             content = clean_ascii(f.read())
-        merged_content += preproc_lib_content(content, dont_use_cells)
+        if needs_preproc:
+            merged_content += preproc_lib_content(content, dont_use_cells)
+        else:
+            merged_content += content
         out_file = in_file.with_stem(in_file.stem + "-mod")
         log.info("Writing pre-processed file: %s", out_file)
         with open(out_file, "w") as f:
@@ -119,56 +126,111 @@ def abc_opt_script(opt):
     scr += ["upsize -c", "dnsize -c"]
 
 
-def replace_abs_paths(p: Dict[str, Any], root_dir: Path, p_path_fields=[], p_path_list_fields=[]):
-    for f in p_path_fields:
-        v = p.get(f)
-        if v and isinstance(v, str) and not os.path.isabs(v):
-            p[f] = str(root_dir / v)
-    for f in p_path_list_fields:
-        vl = p.get(f)
-        if vl and isinstance(vl, (list, tuple)):
-            new_vl = []
-            for v in vl:
-                if v and isinstance(v, str) and not os.path.isabs(v):
-                    v = str(root_dir / v)
-                new_vl.append(v)
-            p[f] = new_vl
-    return p
+def format_value(v, precision=3) -> Optional[str]:
+    if v is None:
+        return None
+    return f"{round(v, precision):.{precision}}" if isinstance(v, float) else str(v)
 
 
-def dict_to_str(d, kv_sep=" ", sep=" ", val_fmt=lambda v: str(v)):
+def join_to_str(*args, sep=" ", val_fmt=None):
+    if val_fmt is None:
+        val_fmt = lambda x: str(x)  # noqa: E731
+    return sep.join(val_fmt(e) for e in args)
+
+
+def dict_to_str(
+    d,
+    kv_sep=" ",
+    sep=" ",
+    val_fmt=format_value,
+):
     return sep.join(f"{k}{kv_sep}{val_fmt(v)}" for k, v in d.items())
 
 
 class OpenROAD(AsicSynthFlow):
-    merged_lib_file = "merged.lib"
+    merged_lib_file = "merged.lib"  # used by Yosys and floorplan (restructure)
 
     class Settings(AsicSynthFlow.Settings):
         platform: Platform
-        core_utilization: float = Field(40.0, description="Core utilization in percent (0..100)")
+        input_delay: Optional[float] = Field(
+            0.20, description="Input delay as fraction of clock period (0.0..1.0)"
+        )
+        output_delay: Optional[float] = Field(
+            0.20, description="Output delay as fraction of clock period (0.0..1.0)"
+        )
+        core_utilization: Optional[float] = Field(
+            40.0, description="Core utilization in percent (0..100)"
+        )
         core_aspect_ratio: float = Field(1.0, description="Core height / core width")
         core_margin: float = Field(2.0, description="Core margin in um")
         core_area: List[Union[int, float]] = []
         die_area: List[Union[int, float]] = []
-        sdc_files: List[str] = []
-        floorplan_def: Optional[str] = None
-        floorplan_tcl: Optional[str] = None
-        io_constraints: Optional[str] = None
+        sdc_files: List[Path] = []
+        io_constraints: Optional[Path] = None
         place_density: Union[None, float, str] = None
         log_file: Optional[str] = Field("openroad.log", description="write log")
-        optimize: Literal["speed", "area"] = Field("area", description="Optimization target")
-        write_metrics: Optional[str] = Field(
+        optimize: Optional[Literal["speed", "area"]] = Field(
+            "area", description="Optimization target"
+        )
+        abc_load_in_ff: Optional[int] = None  # to override platform value
+        abc_driver_cell: Optional[int] = None  # to override platform value
+        write_metrics: Optional[Path] = Field(
             "metrics.json", description="write metrics in file in JSON format"
         )
         exit: bool = Field(True, description="exit after completion")
         gui: bool = Field(False, description="start in gui mode")
-        place_density_lb_addon: Optional[float] = None
+        copy_platform_files: bool = False
         nthreads: Optional[int] = Field(None, description="Number of threads to use. If none/0, use max available.")  # type: ignore
+        extra_liberty_files: List[Path] = []
+        # floorplan
+        floorplan_def: Optional[Path] = None
+        floorplan_tcl: Optional[Path] = None
+        resynth_for_timing: bool = False
+        resynth_for_area: bool = False
+        # pre_place
+        rtlmp_flow: bool = False
+        # place
+        place_density_lb_addon: Optional[confloat(ge=0.0, lt=1)] = None  # type: ignore
         dont_use_cells: List[str] = []
         place_pins_args: List[str] = []
         blocks: List[str] = []
-        use_fill: bool = False
-        copy_platform_files: bool = False
+        global_placement_args: List[str] = []
+        # global_route
+        congestion_iterations: int = 100
+        global_routing_layer_adjustment: float = 0.5
+        update_sdc_margin: Optional[confloat(gt=0.0, lt=1.0)] = Field(0.05, description="If set, write an SDC file with clock periods that result in slightly (value * clock_period) negative slack (failing).")  # type: ignore
+        # detailed_route
+        detailed_route_or_seed: Optional[int] = None
+        detailed_route_or_k: Optional[int] = None
+        db_process_node: Optional[str] = None
+        detailed_route_additional_args: List[str] = []
+        post_detailed_route_tcl: Optional[Path] = None
+        #
+        gpl_routability_driven: bool = True
+        gpl_timing_driven: bool = True
+        macro_placement_file: Optional[Path] = None
+        post_pdn_tcl: Optional[Path] = None
+        make_tracks_tcl: Optional[Path] = None
+        footprint: Optional[Path] = None  # footprint strategy file
+        footprint_def: Optional[Path] = None  # floorplan, resize
+        footprint_tcl: Optional[Path] = None  # floorplan, resize
+        gds_seal_file: Optional[Path] = None
+        sig_map_file: Optional[Path] = None
+        density_fill: bool = False
+        save_images: bool = False
+        rtlmp_config_file: Optional[Path] = None
+        macro_wrappers: Optional[Path] = None
+        cdl_masters_file: Optional[Path] = None  # cts
+        hold_slack_margin: Optional[float] = None
+        setup_slack_margin: Optional[float] = None
+        cts_buf_distance: Optional[int] = None
+        cts_cluster_size: int = 30
+        cts_cluster_diameter: int = 100
+        write_cdl: bool = False
+        tie_separation: int = 0
+        final_irdrop_analysis: bool = True
+        disable_via_gen: bool = False
+        repair_pdn_via_layer: Optional[str] = None
 
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value):
@@ -181,51 +243,31 @@ class OpenROAD(AsicSynthFlow):
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        yosys_settings = YosysSynth.Settings()  # pyright: ignore
+
+        yosys_settings = YosysSynth.Settings(
+            clocks=ss.clocks,
+            flatten=True,
+            black_box=ss.blocks,
+            optimize=ss.optimize,
+            post_synth_opt=ss.optimize is not None,
+            abc_script=abc_opt_script(ss.optimize),
+            abc_constr=[
+                f"set_driving_cell {ss.abc_driver_cell or ss.platform.abc_driver_cell}",
+                f"set_load {ss.abc_load_in_ff if ss.abc_load_in_ff is not None else ss.platform.abc_load_in_ff}",
+            ],
+        )  # pyright: ignore
 
         if not ss.copy_platform_files:
-            p_path_fields = [
-                "tech_lef",
-                "merged_lef",
-                "latch_map_file",
-                "clkgate_map_file",
-                "adder_map_file",
-                "pdn_tcl",
-                "tapcell_tcl",
-                "fastroute_tcl",
-                "klayout_tech_file",
-                "klayout_display_file",
-                "fill_config",
-                "template_pga_cfg",
-                "gds_layer_map",
-                "setrc_tcl",
-                "derate_tcl",
-            ]
-            p_path_list_fields = ["additional_lef_files", "gds_files"]
-            root_dir = ss.platform.root_dir
-
-            p = ss.platform.dict()
-            p = replace_abs_paths(p, root_dir, p_path_fields, p_path_list_fields)
-
-            for corer_name, corner in ss.platform.corner.items():
-                new_corner = corner.dict()
-                pc_path_fields = ["rcx_rules", "dff_lib_file"]
-                pc_path_list_fields = ["lib_files"]
-                new_corner = replace_abs_paths(
-                    new_corner, root_dir, pc_path_fields, pc_path_list_fields
-                )
-                p["corner"][corer_name] = new_corner
-
-            ss.platform = Platform(**p)
+            ss.platform = ss.platform.with_absolute_paths()
         else:
-            files_to_copy: List[str] = []
+            files_to_copy: List[Path] = []
             for _, corner in ss.platform.corner.items():
                 files_to_copy += corner.lib_files
                 if corner.dff_lib_file:
                     files_to_copy.append(corner.dff_lib_file)
             files_to_copy.append(ss.platform.tech_lef)
-            if ss.platform.merged_lef:
-                files_to_copy.append(ss.platform.merged_lef)
+            if ss.platform.std_cell_lef:
+                files_to_copy.append(ss.platform.std_cell_lef)
             files_to_copy += ss.platform.gds_files
             if ss.platform.setrc_tcl:
                 files_to_copy.append(ss.platform.setrc_tcl)
@@ -263,11 +305,12 @@ class OpenROAD(AsicSynthFlow):
             src = ss.platform.root_dir / lib
             dst = my_lib_dir / src.name
             shutil.copy(src, dst)
+        ss.dont_use_cells = unique(ss.platform.dont_use_cells + ss.dont_use_cells)
         preproc_libs(
             orig_libs,
             f"{ss.platform.name}_merged",
             self.merged_lib_file,
-            ss.platform.dont_use_cells,
+            ss.dont_use_cells,
         )
         yosys_libs = [self.merged_lib_file]
         if dff_lib_file:
@@ -277,17 +320,9 @@ class OpenROAD(AsicSynthFlow):
             str(os.path.join(YosysSynth.copied_resources_dir, os.path.basename(res)))
             for res in yosys_libs
         ]
-        yosys_settings.clocks = ss.clocks
-        yosys_settings.abc_constr = [
-            f"set_driving_cell {ss.platform.abc_driver_cell}",
-            f"set_load {ss.platform.abc_load_in_ff}",
-        ]
-        yosys_settings.abc_script = abc_opt_script(ss.optimize)
-        ###
-        yosys_settings.adder_map = ss.platform.adder_map_file
-        yosys_settings.clockgate_map = ss.platform.clkgate_map_file
-        yosys_settings.other_maps = [ss.platform.latch_map_file]
-        yosys_settings.flatten = True
+        yosys_settings.adder_map = str(ss.platform.adder_map_file)
+        yosys_settings.clockgate_map = str(ss.platform.clkgate_map_file)
+        yosys_settings.other_maps = [str(ss.platform.latch_map_file)]
         yosys_settings.hilomap = HiLoMap(
             hi=(ss.platform.tiehi_cell, ss.platform.tiehi_port),
             lo=(ss.platform.tielo_cell, ss.platform.tielo_port),
@@ -297,30 +332,27 @@ class OpenROAD(AsicSynthFlow):
             ss.platform.min_buf_ports[0],
             ss.platform.min_buf_ports[1],
         )
-        yosys_settings.black_box = ss.blocks
-        yosys_settings.post_synth_opt = False
         self.add_dependency(YosysSynth, yosys_settings, copy_resources)
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        jobs_dir = Path("results")
-        jobs_dir.mkdir(exist_ok=True, parents=True)
+        results_dir = Path("results")
+        results_dir.mkdir(exist_ok=True, parents=True)
 
         yosys_dep = self.pop_dependency(YosysSynth)
         netlist = yosys_dep.artifacts.netlist_verilog
         if not os.path.isabs(netlist):
             netlist = os.path.join(yosys_dep.run_path, netlist)
-        synth_netlist = jobs_dir / "1_synth.v"
+        synth_netlist = results_dir / "1_synth.v"
         shutil.copy(netlist, synth_netlist)
 
         # yosys doesn't support SDC so we generate it here
         clocks_sdc = self.copy_from_template("clocks.sdc")
-        sdc_files = []
-        sdc_files += [str(s) for s in self.design.sources_of_type(SourceType.Sdc)]
-        sdc_files.append(str(clocks_sdc))
+        sdc_files = [s.path for s in self.design.sources_of_type(SourceType.Sdc)]
+        sdc_files.append(clocks_sdc)
         sdc_files += ss.sdc_files
-        merged_sdc_file = jobs_dir / "1_synth.sdc"
+        merged_sdc_file = results_dir / "1_synth.sdc"
         merge_files(sdc_files, merged_sdc_file)
 
         openroad = Tool("openroad", self, version_arg="-version")
@@ -329,9 +361,6 @@ class OpenROAD(AsicSynthFlow):
             log.critical(
                 "No clocks specified for top RTL design. Continuing with synthesis anyways."
             )
-        all_lib_files: List[str] = []
-        for _, corner in ss.platform.corner.items():
-            all_lib_files += corner.lib_files
         default_corner = (
             ss.platform.corner.get(ss.platform.default_corner)
             if ss.platform.default_corner
@@ -339,117 +368,110 @@ class OpenROAD(AsicSynthFlow):
         )
         assert default_corner
 
-        sd = files(__package__).joinpath("openroad_scripts")
-        with as_file(sd) as scripts_dir:
-            utils_dir = scripts_dir / "utils"
-            assert self.design.rtl.top, "rtl.top must be set"
-            rc_corner_name = ss.platform.rcx_rc_corner or ""
+        assert self.design.rtl.top, "design.rtl.top must be set"
 
-            env = dict(
-                SCRIPTS_DIR=scripts_dir,
-                RESULTS_DIR=jobs_dir,
-                OBJECTS_DIR=jobs_dir,
-                REPORTS_DIR=jobs_dir,
-                UTILS_DIR=utils_dir,
-                DESIGN_NAME=self.design.rtl.top or self.design.name,
-                CLOCK_PORT=self.design.rtl.clock_port or "",
-                CLOCK_PERIOD=f"{ss.main_clock.period_ps:.1f}" if ss.main_clock else "",
-                PLATFORM=ss.platform.name,
-                PLATFORM_DIR=ss.platform.root_dir,
-                PLACE_SITE=ss.platform.place_site or "",
-                SC_LEF=ss.platform.merged_lef or "",
-                TECH_LEF=ss.platform.tech_lef,
-                ADDITIONAL_LEFS=" ".join(ss.platform.additional_lef_files),
-                LIB_FILES=" ".join(all_lib_files),
-                DONT_USE_SC_LIB=self.merged_lib_file,
-                DONT_USE_CELLS=" ".join(ss.platform.dont_use_cells + ss.dont_use_cells),
-                CLKGATE_MAP_FILE=ss.platform.clkgate_map_file,
-                LATCH_MAP_FILE=ss.platform.latch_map_file,
-                GDS_FILES=" ".join(sorted(ss.platform.gds_files)),
-                IO_PLACER_H=ss.platform.io_placer_h,
-                IO_PLACER_V=ss.platform.io_placer_v,
-                SDC_FILE=merged_sdc_file,  # expects a single SDC file
-                CORE_UTILIZATION=f"{ss.core_utilization:.1f}",
-                CORE_MARGIN=f"{ss.core_margin:.3}",
-                CORE_ASPECT_RATIO=f"{ss.core_aspect_ratio:.1f}",
-                PLACE_PINS_ARGS=" ".join(ss.place_pins_args),
-                GPL_ROUTABILITY_DRIVEN=1,
-                GPL_TIMING_DRIVEN=1,
-                GDS_LAYER_MAP=ss.platform.gds_layer_map or "",
-                ABC_AREA=0,  # TODO ???
-                NUM_CORES=ss.nthreads or openroad.nproc,
-                PDN_TCL=ss.platform.pdn_tcl,
-                MIN_ROUTING_LAYER=ss.platform.min_routing_layer,
-                MAX_ROUTING_LAYER=ss.platform.max_routing_layer,
-                PLACE_DENSITY=ss.place_density or f"{ss.platform.place_density:.2f}",
-                CELL_PAD_IN_SITES_GLOBAL_PLACEMENT=ss.platform.cell_pad_in_sites_global_placement,
-                CELL_PAD_IN_SITES_DETAIL_PLACEMENT=ss.platform.cell_pad_in_sites_detail_placement,
-                CELL_PAD_IN_SITES=ss.platform.cell_pad_in_sites,
-                TIEHI_CELL_AND_PORT=f"{ss.platform.tiehi_cell} {ss.platform.tiehi_port}",
-                TIELO_CELL_AND_PORT=f"{ss.platform.tielo_cell} {ss.platform.tielo_port}",
-                MIN_BUF_CELL_AND_PORTS=f"{ss.platform.min_buf_cell} {' '.join(ss.platform.min_buf_ports)}",
-                CTS_BUF_CELL=ss.platform.cts_buf_cell,
-                USE_FILL=ss.use_fill or "",
-                FILL_CELLS=" ".join(ss.platform.fill_cells),
-                FILL_CONFIG=ss.platform.fill_config,
-                TAPCELL_TCL=ss.platform.tapcell_tcl,
-                MACRO_PLACE_HALO=" ".join(str(e) for e in ss.platform.macro_place_halo),
-                MACRO_PLACE_CHANNEL=" ".join(str(e) for e in ss.platform.macro_place_channel),
-                PWR_NETS_VOLTAGES=dict_to_str(
-                    ss.platform.pwr_nets_voltages, val_fmt=lambda v: f"{v:0.1}"
-                ),
-                GND_NETS_VOLTAGES=dict_to_str(
-                    ss.platform.gnd_nets_voltages, val_fmt=lambda v: f"{v:0.1}"
-                ),
-                RCX_RC_CORNER=rc_corner_name,
-                RCX_RULES=(
-                    ss.platform.corner[rc_corner_name] if rc_corner_name else default_corner
-                ).rcx_rules,
-                FASTROUTE_TCL=ss.platform.fastroute_tcl,
-                KLAYOUT_TECH_FILE=ss.platform.klayout_tech_file or "",
-                KLAYOUT_DISPLAY_FILE=ss.platform.klayout_display_file or "",
-                MAKE_TRACKS=ss.platform.make_tracks_tcl,
-                CORE_AREA=" ".join(
-                    f"{a:.3}" if isinstance(a, float) else str(a) for a in ss.core_area
-                ),
-                DIE_AREA=" ".join(
-                    f"{a:.3}" if isinstance(a, float) else str(a) for a in ss.die_area
-                ),
-                FLOORPLAN_DEF=ss.floorplan_def,
-                FLOORPLAN_TCL=ss.floorplan_tcl,
-                PLACE_DENSITY_LB_ADDON=f"{ss.place_density_lb_addon:.3f}"
-                if ss.place_density_lb_addon
-                else None,
-                HAS_IO_CONSTRAINTS=1 if ss.io_constraints is not None else 0,
-                IO_CONSTRAINTS=ss.io_constraints,
-            )
-            if len(ss.platform.corner) > 1:
-                env["CORNERS"] = " ".join(ss.platform.corner.keys())
-            # env["FOOTPRINT_TCL"] =
-            # env["FOOTPRINT"] =
-            # env["SIG_MAP_FILE"] =
-            # env["IO_CONSTRAINTS"] =
-            # env["MACRO_PLACEMENT"] =
-            # env["RTLMP_CONFIG_FILE"] =
-            # env["POST_FLOORPLAN_TCL"] =
-            # env["RESYNTH_TIMING_RECOVER"] =
-            # env["RESYNTH_AREA_RECOVER"] =
+        if not ss.footprint_def and ss.footprint:
+            assert ss.sig_map_file
+        reports_dir = Path("reports")
+        reports_dir.mkdir(exist_ok=True, parents=True)
+        env = dict(
+            MIN_ROUTING_LAYER=ss.platform.min_routing_layer,  # needed by platform.fastroute
+            MAX_ROUTING_LAYER=ss.platform.max_routing_layer,  # needed by platform.fastroute
+        )
+        if len(ss.platform.corner) > 1:
+            env["CORNERS"] = " ".join(ss.platform.corner.keys())
 
-            cmd_file = self.copy_from_template(
+        klayout = None
+
+        flow_steps = [
+            "start",
+            "floorplan",
+            "resynth",
+            "pre_place",
+            "io_place",
+            "global_place",
+            "resize",
+            "detailed_place",
+            "cts",
+            "filler",
+            "global_route",
+            "detailed_route",
+            "finalize",
+        ]
+        one_shot = True  # TODO
+
+        def get_step_id(step_name):
+            idx = flow_steps.index(step_name)
+            return f"{idx}_{step_name}"
+
+        def embrace(s):
+            return "{" + str(s) + "}"
+
+        self.add_template_filter_func(embrace)
+        self.add_template_filter_func(join_to_str)
+        self.add_template_global_func(get_step_id)
+
+        args = ["-no_splash", "-no_init", "-threads", ss.nthreads or "max"]
+        if ss.exit:
+            args.append("-exit")
+        if ss.gui:
+            args.append("-gui")
+
+        if one_shot:
+            log_args = ["-log", ss.log_file] if ss.log_file else []
+            oneshot_flow = self.copy_from_template(
                 "orflow.tcl",
-                lstrip_blocks=True,
                 trim_blocks=True,
+                flow_steps=flow_steps[:-1],
+                results_dir=results_dir,
+                reports_dir=reports_dir,
                 sdc_files=sdc_files,
                 netlist=synth_netlist,
                 platform=ss.platform,
+                merged_lib_file=self.merged_lib_file,
+                num_cores=ss.nthreads or openroad.nproc,
             )
+            # OpenROAD hangs when trying to run this step on the final design in one-shot
+            finalize = self.copy_from_template(
+                f"{flow_steps[-1]}.tcl",
+                results_dir=results_dir,
+                reports_dir=reports_dir,
+                platform=ss.platform,
+                step_id=get_step_id(flow_steps[-1]),
+                rcx_rules=(
+                    ss.platform.corner[ss.platform.rcx_rc_corner]
+                    if ss.platform.rcx_rc_corner
+                    else default_corner
+                ).rcx_rules,
+            )
+            openroad.run(*args, *log_args, oneshot_flow, env=env)
+            openroad.run(*args, finalize, env=env)
 
-            args = ["-no_splash", "-no_init", "-threads", ss.nthreads or "max"]
-            if ss.exit:
-                args.append("-exit")
-            if ss.gui:
-                args.append("-gui")
-            if ss.log_file:
-                args += ["-log", ss.log_file]
+        run_klayout = False  # FIXME
+        if run_klayout:
+            klayout = openroad.derive("klayout")  # TODO ?
+            def2stream = "def2stream.py"
+            lyt = "klayout.lyt"
+            outfile = reports_dir / "final.gds"
+            in_def = results_dir / f"{len(flow_steps)}_finalize.def"
+            in_files = ss.platform.gds_files
 
-            openroad.run(*args, cmd_file, env=env)
+            args = [
+                "-zz",
+                f"-rd design_name={self.design.rtl.top}",
+                "-rd",
+                f"in_def={in_def}",
+                "-rd",
+                f"in_files={join_to_str(in_files)}",
+                "-rd",
+                f"config_file=\"{ss.platform.fill_config or '' }\"",
+                "-rd",
+                f"seal_file=\"{ ss.gds_seal_file or '' }\"",
+                "-rd",
+                f"out_file={outfile}",
+                "-rd",
+                lyt,
+                "-rm",
+                def2stream,
+            ]
+            klayout.run(*args)
