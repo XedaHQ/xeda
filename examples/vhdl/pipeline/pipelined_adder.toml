@@ -11,3 +11,8 @@ clock_port = 'clock'
 sources = ['pipelined_adder_tb.vhdl']
 top = 'pipelined_adder_tb'
 uut = 'uut'
+
+[flow.openroad]
+platform = "sky130hd"
+clocks.main_clock.freq = "500 MHz"
+core_utilization = 45

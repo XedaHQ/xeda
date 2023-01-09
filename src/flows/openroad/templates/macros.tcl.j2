@@ -1,0 +1,55 @@
+{% macro banner(msg, line_len = 80, line_char="=", top_line=true, bottom_line=true) %}
+{% set msg_len = (msg|length) %}
+{% set sp1 = (line_len - msg_len) // 2 %}
+{% set sp2 = line_len - sp1 - msg_len %}
+{% if top_line %}
+puts "{{ line_char * line_len }}"
+{% endif %}
+puts "{{ line_char * sp1 }}{{msg}}{{line_char * sp2 }}"
+{% if bottom_line %}
+puts "{{ line_char * line_len }}"
+{% endif %}
+{% endmacro %}
+
+{% macro preamble(step, index=0, total=1) %}
+{% set msg = (" Starting %s (%d/%d) "|format(step, index, total)) if index else (" Starting %s "|format(step)) %}
+{{ banner(msg) }}
+{% endmacro %}
+
+{% macro epilogue(step) %}
+{{ banner("( %s done )"|format(step), line_char="-", top_line=false, bottom_line=false) }}
+{% endmacro %}
+
+{% macro load_checkpoint(db_step_id, sdc_step_id=none) %}
+{% if db_step_id %}
+load_db {{results_dir}}/{{db_step_id}}.odb
+{% endif %}
+{% if sdc_step_id %}
+load_sdc {{results_dir}}/{{sdc_step_id}}.sdc
+{% endif %}
+{% if platform.derate_tcl %}
+source {{platform.derate_tcl}}
+{% endif %}
+source {{platform.setrc_tcl}}
+{% endmacro %}
+
+{% macro write_checkpoint(step_id, db=true, sdc=false, def=false, verilog=false) %}
+{% if should_write_checkpoint(step_id) %}
+{% if db %}
+write_db {{results_dir}}/{{step_id}}.odb
+{% endif %}
+{% if sdc %}
+write_sdc {{results_dir}}/{{step_id}}.sdc
+{% endif %}
+{% if def %}
+write_def {{results_dir}}/{{step_id}}.def
+{% endif %}
+{% if verilog %}
+write_verilog {{results_dir}}/{{step_id}}.v
+{% endif %}
+{% endif %}
+{% endmacro %}
+
+{% macro section(name) %}
+{{ banner(" %s "|format(name), line_char="-", top_line=false, bottom_line=false) }}
+{% endmacro %}

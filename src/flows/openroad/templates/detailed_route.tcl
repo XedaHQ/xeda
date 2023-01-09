@@ -34,7 +34,9 @@ set_thread_count {{num_cores}}
 detailed_route -output_drc {{reports_dir}}/{{step_id}}_drc.rpt \
     -output_maze {{results_dir}}/maze.log \
     -save_guide_updates -verbose {{settings.verbose}} {{additional_args}}
-{% if settings.post_detailed_route_tcl -%} source {{settings.post_detailed_route_tcl}} {%- endif %}
 
-write_db {{results_dir}}/{{step_id}}.odb
-write_def {{results_dir}}/{{step_id}}.def
+{% if settings.post_detailed_route_tcl %}
+source {{settings.post_detailed_route_tcl}}
+{% endif %}
+
+{{write_checkpoint(step_id)}}

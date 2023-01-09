@@ -2,7 +2,9 @@
 set_dont_use {{settings.dont_use_cells|join(" ")|embrace}}
 
 # set fastroute layer reduction
-{% if platform.fastroute_tcl -%} source {{platform.fastroute_tcl}} {%- else %}
+{% if platform.fastroute_tcl %}
+source {{platform.fastroute_tcl}}
+{% else %}
 
 set_global_routing_layer_adjustment {{platform.min_routing_layer}}-{{platform.max_routing_layer}} 0.5
 set_routing_layers -signal {{platform.min_routing_layer}}-{{platform.max_routing_layer}}
@@ -37,3 +39,5 @@ global_placement -density $place_density \
 
 estimate_parasitics -placement
 report_metrics "global place" false false
+
+{{write_checkpoint(step_id)}}

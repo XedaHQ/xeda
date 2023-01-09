@@ -1,7 +1,9 @@
 
 {{ section("io_placement_random") }}
 {% if not settings.floorplan_def %}
-{% if settings.io_constraints -%} source {{settings.io_constraints}} {%- endif %}
+{% if settings.io_constraints %}
+source {{settings.io_constraints}}
+{% endif %}
 place_pins -hor_layer {{platform.io_placer_h}} -ver_layer {{platform.io_placer_v}} -random {{settings.place_pins_args|join(" ")}}
 {% endif %}
 
@@ -130,8 +132,12 @@ source {{platform.tapcell_tcl}}
 ################ PDN
 {{ section("pdn") }}
 source {{platform.pdn_tcl}}
+
 pdngen
-{% if settings.post_pdn_tcl -%} source $::env(POST_PDN_TCL) {%- endif %}
+
+{% if settings.post_pdn_tcl %}
+source $::env(POST_PDN_TCL)
+{% endif %}
 
 # Check all supply nets
 set block [ord::get_db_block]
@@ -143,3 +149,5 @@ foreach net [$block getNets] {
         check_power_grid -net [$net getName]
     }
 }
+
+{{write_checkpoint(step_id)}}

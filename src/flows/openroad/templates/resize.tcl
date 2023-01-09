@@ -7,8 +7,6 @@ puts [sta::network_leaf_instance_count]
 print_banner "pin_count"
 puts [sta::network_leaf_pin_count]
 
-puts ""
-
 set_dont_use {{settings.dont_use_cells|join(" ")|embrace}}
 
 # Do not buffer chip-level designs
@@ -36,8 +34,6 @@ repair_tie_fanout -separation {{settings.tie_separation}} $tiehi_pin
 
 # hold violations are not repaired until after CTS
 
-# post report
-
 print_banner "report_floating_nets"
 report_floating_nets
 
@@ -49,4 +45,4 @@ puts [sta::network_leaf_instance_count]
 print_banner "pin_count"
 puts [sta::network_leaf_pin_count]
 
-puts ""
+{{write_checkpoint(step_id)}}

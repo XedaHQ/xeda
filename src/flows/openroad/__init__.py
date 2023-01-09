@@ -147,7 +147,13 @@ def dict_to_str(
     return sep.join(f"{k}{kv_sep}{val_fmt(v)}" for k, v in d.items())
 
 
-class OpenROAD(AsicSynthFlow):
+def embrace(s):
+    return "{" + str(s) + "}"
+
+
+class Openroad(AsicSynthFlow):
+    """OpenROAD open-source ASIC synthesis flow"""
+
     merged_lib_file = "merged.lib"  # used by Yosys and floorplan (restructure)
 
     class Settings(AsicSynthFlow.Settings):
@@ -168,7 +174,7 @@ class OpenROAD(AsicSynthFlow):
         sdc_files: List[Path] = []
         io_constraints: Optional[Path] = None
         place_density: Union[None, float, str] = None
-        log_file: Optional[str] = Field("openroad.log", description="write log")
+        log_file: Optional[Path] = Field("openroad.log", description="write log")
         optimize: Optional[Literal["speed", "area"]] = Field(
             "area", description="Optimization target"
         )
@@ -217,7 +223,7 @@ class OpenROAD(AsicSynthFlow):
         gds_seal_file: Optional[Path] = None
         sig_map_file: Optional[Path] = None
         density_fill: bool = False
-        save_images: bool = False
+        save_images: bool = False  # FIXME broken, detailed_route_drc.rpt is empty?
         rtlmp_config_file: Optional[Path] = None
         macro_wrappers: Optional[Path] = None
         cdl_masters_file: Optional[Path] = None  # cts
@@ -352,8 +358,7 @@ class OpenROAD(AsicSynthFlow):
         sdc_files = [s.path for s in self.design.sources_of_type(SourceType.Sdc)]
         sdc_files.append(clocks_sdc)
         sdc_files += ss.sdc_files
-        merged_sdc_file = results_dir / "1_synth.sdc"
-        merge_files(sdc_files, merged_sdc_file)
+        ss.sdc_files = sdc_files
 
         openroad = Tool("openroad", self, version_arg="-version")
 
@@ -378,13 +383,9 @@ class OpenROAD(AsicSynthFlow):
             MIN_ROUTING_LAYER=ss.platform.min_routing_layer,  # needed by platform.fastroute
             MAX_ROUTING_LAYER=ss.platform.max_routing_layer,  # needed by platform.fastroute
         )
-        if len(ss.platform.corner) > 1:
-            env["CORNERS"] = " ".join(ss.platform.corner.keys())
-
-        klayout = None
 
         flow_steps = [
-            "start",
+            "load",
             "floorplan",
             "resynth",
             "pre_place",
@@ -404,12 +405,23 @@ class OpenROAD(AsicSynthFlow):
             idx = flow_steps.index(step_name)
             return f"{idx}_{step_name}"
 
-        def embrace(s):
-            return "{" + str(s) + "}"
+        def get_prev_step_id(step_name):
+            idx = flow_steps.index(step_name)
+            assert idx > 0
+            idx -= 1
+            return f"{idx}_{flow_steps[idx]}"
+
+        write_snapshot_steps = ["cts", "detailed_route", "finalize"]
+
+        def should_write_checkpoint(step_id: str):
+            step_name = "_".join(step_id.split("_")[1:])
+            return (not one_shot) or step_name in write_snapshot_steps
 
         self.add_template_filter_func(embrace)
         self.add_template_filter_func(join_to_str)
         self.add_template_global_func(get_step_id)
+        self.add_template_global_func(get_prev_step_id)
+        self.add_template_global_func(should_write_checkpoint)
 
         args = ["-no_splash", "-no_init", "-threads", ss.nthreads or "max"]
         if ss.exit:
@@ -417,34 +429,44 @@ class OpenROAD(AsicSynthFlow):
         if ss.gui:
             args.append("-gui")
 
+        defines = dict(
+            results_dir=results_dir,
+            reports_dir=reports_dir,
+            platform=ss.platform,  # for easier reference
+            netlist=synth_netlist,
+            merged_lib_file=self.merged_lib_file,  # used by resynth
+            num_cores=ss.nthreads or openroad.nproc,
+            rcx_rules=(
+                ss.platform.corner[ss.platform.rcx_rc_corner]
+                if ss.platform.rcx_rc_corner
+                else default_corner
+            ).rcx_rules,
+        )
+
         if one_shot:
             log_args = ["-log", ss.log_file] if ss.log_file else []
             oneshot_flow = self.copy_from_template(
                 "orflow.tcl",
                 trim_blocks=True,
                 flow_steps=flow_steps[:-1],
-                results_dir=results_dir,
-                reports_dir=reports_dir,
-                sdc_files=sdc_files,
-                netlist=synth_netlist,
-                platform=ss.platform,
-                merged_lib_file=self.merged_lib_file,
-                num_cores=ss.nthreads or openroad.nproc,
+                **defines,
             )
             # OpenROAD hangs when trying to run this step on the final design in one-shot
+            step = flow_steps[-1]
+            step_id = get_step_id(step)
+            prev_step_id = get_prev_step_id(step)
             finalize = self.copy_from_template(
-                f"{flow_steps[-1]}.tcl",
-                results_dir=results_dir,
-                reports_dir=reports_dir,
-                platform=ss.platform,
-                step_id=get_step_id(flow_steps[-1]),
-                rcx_rules=(
-                    ss.platform.corner[ss.platform.rcx_rc_corner]
-                    if ss.platform.rcx_rc_corner
-                    else default_corner
-                ).rcx_rules,
+                f"{step}.tcl",
+                **defines,
+                step_id=step_id,
+                prev_step_id=prev_step_id,
             )
             openroad.run(*args, *log_args, oneshot_flow, env=env)
+            log_args = (
+                ["-log", ss.log_file.with_stem(ss.log_file.stem + f"_{step}")]
+                if ss.log_file
+                else []
+            )
             openroad.run(*args, finalize, env=env)
 
         run_klayout = False  # FIXME
@@ -475,3 +497,8 @@ class OpenROAD(AsicSynthFlow):
                 def2stream,
             ]
             klayout.run(*args)
+
+    def parse_reports(self) -> bool:
+        # TODO
+        # report_file = "reports/final.rpt"
+        return True

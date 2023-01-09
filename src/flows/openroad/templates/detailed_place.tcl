@@ -18,3 +18,5 @@ utl::info FLW 12 "Placement violations [check_placement -verbose]."
 estimate_parasitics -placement
 
 report_metrics "detailed place" true false
+
+{{write_checkpoint(step_id)}}

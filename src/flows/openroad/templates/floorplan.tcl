@@ -33,12 +33,11 @@ source {{make_tracks_tcl}}
 make_tracks
 {% endif %}
 
-{% if settings.footprint_tcl -%} source {{settings.footprint_tcl}} {%- endif %}
+{% if settings.footprint_tcl %}
+source {{settings.footprint_tcl}}
+{% endif %}
 
 # remove buffers inserted by yosys/abc
 remove_buffers
 
-
-write_db {{results_dir}}/{{step_id}}.odb
-write_sdc {{results_dir}}/{{step_id}}.sdc
-
+{{write_checkpoint(step_id, sdc=true)}}

@@ -73,3 +73,5 @@ report_design_area_metrics
 {% endif %}
 
 report_metrics "after resynth" false false
+
+{{write_checkpoint(step_id)}}

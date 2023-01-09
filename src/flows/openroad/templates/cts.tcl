@@ -6,7 +6,7 @@ repair_clock_inverters
 clock_tree_synthesis -root_buf "{{platform.cts_buf_cell}}" -buf_list "{{platform.cts_buf_cell}}" \
   -sink_clustering_enable \
   -sink_clustering_size {{settings.cts_cluster_size}} \
-  -sink_clustering_max_diameter {{settings.cts_cluster_diameter}} {% if settings.cts_buf_distance -%} -distance_between_buffers {{settings.cts_buf_distance}} {%- endif %} \
+  -sink_clustering_max_diameter {{settings.cts_cluster_diameter}} {% if settings.cts_buf_distance %} -distance_between_buffers {{settings.cts_buf_distance}} {% endif %} \
   -balance_levels
 
 set_propagated_clock [all_clocks]
@@ -27,12 +27,10 @@ detailed_placement
 estimate_parasitics -placement
 
 puts "Repair setup and hold violations..."
-repair_timing {% if settings.setup_slack_margin -%} -setup_margin {{settings.setup_slack_margin}} {%- endif %} {% if settings.hold_slack_margin -%} -hold_margin {{settings.hold_slack_margin}} {%- endif %}
+repair_timing {% if settings.setup_slack_margin %} -setup_margin {{settings.setup_slack_margin}} {% endif %} {% if settings.hold_slack_margin %} -hold_margin {{settings.hold_slack_margin}} {% endif %}
 
 detailed_placement
 check_placement -verbose
 report_metrics "cts final"
 
-write_db {{results_dir}}/{{step_id}}.odb
-write_sdc {{results_dir}}/{{step_id}}.sdc
-
+{{write_checkpoint(step_id, sdc=true)}}

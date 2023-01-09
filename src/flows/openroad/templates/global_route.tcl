@@ -7,7 +7,7 @@ set_routing_layers -signal {{platform.min_routing_layer}}-{{platform.max_routing
 
 global_route -guide_file {{results_dir}}/route.guide \
   -congestion_iterations {{settings.congestion_iterations}} \
-  -congestion_report_file {{reports_dir}}/congestion.rpt {% if settings.verbose -%} -verbose {%- endif %}
+  -congestion_report_file {{reports_dir}}/congestion.rpt {% if settings.verbose %} -verbose {% endif %}
 
 set_propagated_clock [all_clocks]
 estimate_parasitics -global_routing
@@ -40,3 +40,5 @@ write_sdc {{results_dir}}/{{step_id}}_updated_clks.sdc
 create_clock -name $clk_name -period $period $sources
 set_propagated_clock [all_clocks]
 {% endif %}
+
+{{write_checkpoint(step_id)}}
