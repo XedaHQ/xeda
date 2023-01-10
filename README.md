@@ -3,7 +3,7 @@
 
 
 
-[![Xeda Logo](https://raw.githubusercontent.com/XedaHQ/xeda/dev/xeda.png?raw=true)](https://github.com/XedaHQ/xeda)
+[![Xeda Logo](https://raw.githubusercontent.com/XedaHQ/xeda/main/xeda.png?raw=true)](https://github.com/XedaHQ/xeda)
 
 
 **Xeda** `/ˈziːdə/` is a cross-platform, cross-EDA, cross-target simulation and synthesis automation platform.
