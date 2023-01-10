@@ -341,7 +341,9 @@ class FlowLauncher:
                 ):
                     previous_results = Box(prev_results)
                 else:
-                    log.warning("%s does not contain the expected settings", prev_settings)
+                    log.warning(
+                        "%s does not contain the expected flow and/or design hash.", str(settings_json.absolute())
+                    )
             else:
                 log.warning(
                     "Could not find valid results/settings from a previous run in %s",
