@@ -9,6 +9,7 @@ from .ise import IseSynth
 from .modelsim import Modelsim
 from .nextpnr import Nextpnr
 from .openfpgaloader import Openfpgaloader
+from .openroad import Openroad
 from .quartus import Quartus
 from .verilator import Verilator
 from .vivado.vivado_alt_synth import VivadoAltSynth
@@ -28,6 +29,7 @@ __all__ = [
     "Modelsim",
     "Nextpnr",
     "Openfpgaloader",
+    "Openroad",
     "Quartus",
     "Verilator",
     "VivadoAltSynth",

@@ -160,6 +160,9 @@ class YosysSynth(Yosys, SynthFlow):
             True,
             description="run additional optimization steps after synthesis if complete",
         )
+        optimize: Optional[Literal["speed", "area"]] = Field(
+            "area", description="Optimization target"
+        )
         stop_after: Optional[Literal["rtl"]]
         defines: Dict[str, Any] = {}
         keep_hierarchy: List[str] = []
@@ -289,7 +292,7 @@ class YosysSynth(Yosys, SynthFlow):
             args.extend(["-L", ss.log_file])
         if not ss.verbose:  # reduce noise unless verbose
             args.extend(["-T", "-Q"])
-            if not ss.debug:
+            if not ss.debug and not ss.verbose:
                 args.append("-q")
         self.results["_tool"] = yosys.info  # TODO where should this go?
         log.info("Logging yosys output to %s", ss.log_file)

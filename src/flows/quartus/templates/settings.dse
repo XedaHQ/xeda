@@ -12,5 +12,5 @@ save_results=all
 skip_base_compile=True
 time_limit_value={{dse.timeout}}
 stop_after_timing_met={{dse.stop_on_success}}
-report_filename={{reports_dir}}/quartus_dse_report.json
+report_filename={{settings.reports_dir}}/quartus_dse_report.json
 report_format=json

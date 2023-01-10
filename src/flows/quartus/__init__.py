@@ -130,18 +130,6 @@ class Quartus(FpgaSynthFlow):
         final_placement_optimization: Literal["ALWAYS", "AUTOMATICALLY", "NEVER"] = "ALWAYS"
 
     def init(self) -> None:
-        self.reports_dir.mkdir(exist_ok=True)
-        self.reports = {
-            "summary": self.reports_dir / "Flow_Summary.csv",
-            "utilization": self.reports_dir
-            / "Fitter"
-            / "Resource_Section"
-            / "Fitter_Resource_Utilization_by_Entity.csv",
-            "timing_dir": self.reports_dir / "Timing_Analyzer",
-            "timing.multicorner_summary": self.reports_dir
-            / "Timing_Analyzer"
-            / "Multicorner_Timing_Analysis_Summary.csv",
-        }
         # FIXME only a proof of concept. Tool instantiation/invocation needs to change!
         if self.quartus_sh.docker:
             # FIXME
@@ -201,58 +189,25 @@ class Quartus(FpgaSynthFlow):
         )
         self.quartus_sh.run("-t", script_path)
 
-        # self.run_process('quartus_sh',
-        #                  ['--dse', '-project', self.settings.design['name'], '-nogui', '-concurrent-compiles', '8', '-exploration-space',
-        #                   "Extra Effort Space", '-optimization-goal', "Optimize for Speed", '-report-all-resource-usage', '-ignore-failed-base'],
-        #                  stdout_logfile='dse_stdout.log'
-        #                  )
-
-    # def __init__(self, settings, args, logger):
-    #     # def supported_quartus_generic(k, v, sim):
-    #     #     if sim:
-    #     #         return True
-    #     #     if isinstance(v, int):
-    #     #         return True
-    #     #     if isinstance(v, bool):
-    #     #         return True
-    #     #     v = str(v)
-    #     #     return (v.isnumeric() or (v.strip().lower() in {'true', 'false'}))
-
-    #     # def quartus_gen_convert(k, x, sim):
-    #     #     if sim:
-    #     #         if isinstance(x, dict) and "file" in x:
-    #     #             p = x["file"]
-    #     #             assert isinstance(p, str), "value of `file` should be a relative or absolute path string"
-    #     #             x = self.conv_to_relative_path(p.strip())
-    #     #             self.logger.info(f'Converting generic `{k}` marked as `file`: {p} -> {x}')
-    #     #     xl = str(x).strip().lower()
-    #     #     if xl == 'false':
-    #     #         return "1\\'b0"
-    #     #     if xl == 'true':
-    #     #         return "1\\'b1"
-    #     #     return x
-
-    #     # def quartus_generics(kvdict, sim):
-    #     #     return ' '.join([f"-generic {k}={quartus_gen_convert(k, v, sim)}" for k, v in kvdict.items() if supported_quartus_generic(k, v, sim)])
-
-    #     super().__init__(settings, args, logger)
-
-    #     # self.settings.flow['generics_options'] = quartus_generics(self.settings.design["generics"], sim=False)
-    #     # self.settings.flow['tb_generics_options'] = quartus_generics(self.settings.design["tb_generics"], sim=True)
-
-    # self.run_process('quartus_eda', [prj_name, '--simulation', '--functional', '--tool=modelsim_oem', '--format=verilog'],
-    #                         stdout_logfile='eda_1_stdout.log'
-    #                         )
-
     def run(self) -> None:
         self.create_project()
-        script_path = self.copy_from_template("compile.tcl", reports_dir=self.reports_dir)
+        script_path = self.copy_from_template("compile.tcl")
         self.quartus_sh.run("-t", script_path)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
         failed = False
-        reports = self.reports
+        reports = {
+            "summary": self.reports_dir / "Flow_Summary.csv",
+            "utilization": self.reports_dir
+            / "Fitter"
+            / "Resource_Section"
+            / "Fitter_Resource_Utilization_by_Entity.csv",
+            "timing_dir": self.reports_dir / "Timing_Analyzer",
+            "timing.multicorner_summary": self.reports_dir
+            / "Timing_Analyzer"
+            / "Multicorner_Timing_Analysis_Summary.csv",
+        }
         resources = parse_csv(reports["summary"], id_field=None)
         self.results.update(resources)
         utilization_report = Path(reports["utilization"])
@@ -350,47 +305,3 @@ class Quartus(FpgaSynthFlow):
             self.results["Fmax"] = max_fmax
 
         return not failed
-
-
-# class QuartusDse(QuartusSynth, DseFlow):
-#     def run(self):
-#         self.create_project()
-#         # 'explore': Exploration flow to use, if not specified in --config
-#         #   configuration file. Valid flows: timing_aggressive,
-#         #   all_optimization_modes, timing_high_effort, seed,
-#         #   area_aggressive, power_high_effort, power_aggressive
-#         # 'compile_flow':  'full_compile', 'fit_sta' and 'fit_sta_asm'.
-#         # 'timeout': Limit the amount of time a compute node is allowed to run. Format: hh:mm:ss
-#         if 'dse' not in self.settings.flow:
-#             self.fatal('`flows.quartus.dse` settings are missing!')
-
-#         dse = self.settings.flow['dse']
-#         if 'nproc' not in dse or not dse['nproc']:
-#             dse['nproc'] = self.nthreads
-
-#         script_path = self.copy_from_template(f'settings.dse',
-#                                               dse=dse
-#                                               )
-#         self.run_process('quartus_dse',
-#                          ['--use-dse-file', script_path, self.settings.design['name']],
-#                          stdout_logfile='dse_stdout.log',
-#                          initial_step="Running Quartus DSE",
-#                          )
-
-# DES:
-
-# Available exploration spaces for this family are:
-# "Seed Sweep"
-# "Extra Effort Space"
-# "Extra Effort Space for Quartus Prime Integrated Synthesis Projects"
-# "Area Optimization Space"
-# "Signature: Placement Effort Multiplier"
-# "Custom Space"
-
-# Valid optimization-goal options are:
-# "Optimize for Speed"
-# "Optimize for Area"
-# "Optimize for Power"
-# "Optimize for Negative Slack and Failing Paths"
-# "Optimize for Average Period"
-# "Optimize for Quality of Fit"

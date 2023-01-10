@@ -136,7 +136,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         clock_xdc_path = self.copy_from_template("clock.xdc")
 
         if settings.blacklisted_resources:
-            log.info("blacklisted_resources: %s", self.settings.blacklisted_resources)
+            log.info("blacklisted_resources: %s", settings.blacklisted_resources)
 
         if settings.synth.steps["SYNTH_DESIGN"] is None:
             settings.synth.steps["SYNTH_DESIGN"] = {}
@@ -201,10 +201,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         return not failed
 
     def parse_reports(self) -> bool:
-        reports_dir = Path(self.settings.reports_dir) / "route_design"
+        assert isinstance(self.settings, self.Settings)
 
+        reports_dir = self.settings.reports_dir / "route_design"
         failed = not self.parse_timing_report(reports_dir)
-
         hier_util = parse_hier_util(reports_dir / "hierarchical_utilization.xml")
         if hier_util:
             with open(reports_dir / "hierarchical_utilization.json", "w") as f:
@@ -255,39 +255,35 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                             report_file,
                         )
             self.results["_utilization"] = utilization
-
-        assert isinstance(self.settings, self.Settings)
-
-        if not failed:
-            for resource in self.settings.blacklisted_resources:
-                res_util = self.results.get(resource)
-                if res_util is not None:
-                    try:
-                        res_util = int(res_util)  # type: ignore
-                        if res_util > 0:
-                            log.critical(
-                                "utilization report lists %s use(s) of blacklisted resource: %s",
-                                res_util,
-                                resource,
-                            )
-                            failed = True
-                    except ValueError:
-                        log.warning(
-                            "Unknown utilization value: %s for blacklisted resource %s. Assuming results are not violating the blacklist criteria.",
+        if failed:
+            return False
+        for resource in self.settings.blacklisted_resources:
+            res_util = self.results.get(resource)
+            if res_util is not None:
+                try:
+                    res_util = int(res_util)  # type: ignore
+                    if res_util > 0:
+                        log.critical(
+                            "utilization report lists %s use(s) of blacklisted resource: %s",
                             res_util,
                             resource,
                         )
-
-            # TODO better fail analysis for vivado
-            wns = self.results.get("wns")
-            if wns is not None and isinstance(wns, (float, int, str)):
-                failed |= float(wns) < 0.0
-            whs = self.results.get("whs")
-            if whs is not None and isinstance(whs, (float, int, str)):
-                failed |= float(whs) < 0.0
-            if "_failing_endpoints" in self.results:
-                failed |= self.results["_failing_endpoints"] != 0
-
+                        failed = True
+                except ValueError:
+                    log.warning(
+                        "Unknown utilization value: %s for blacklisted resource %s. Assuming results are not violating the blacklist criteria.",
+                        res_util,
+                        resource,
+                    )
+        # TODO better fail analysis for vivado
+        wns = self.results.get("wns")
+        if wns is not None and isinstance(wns, (float, int, str)):
+            failed |= float(wns) < 0.0
+        whs = self.results.get("whs")
+        if whs is not None and isinstance(whs, (float, int, str)):
+            failed |= float(whs) < 0.0
+        if "_failing_endpoints" in self.results:
+            failed |= self.results["_failing_endpoints"] != 0
         return not failed
 
 

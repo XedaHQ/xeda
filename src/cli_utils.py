@@ -16,8 +16,8 @@ from simple_term_menu import TerminalMenu
 
 from .console import console
 from .design import Design
-from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
 from .flow import Flow
+from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
 from .xedaproject import XedaProject
 
 __all__ = [
