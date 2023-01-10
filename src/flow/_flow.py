@@ -84,9 +84,9 @@ class Flow(metaclass=ABCMeta):
             description="Number of physical CPUs to use.",
         )
         no_console: bool = Field(False, hidden_from_schema=True)
-        reports_dir: str = Field("reports", hidden_from_schema=True)
-        checkpoints_dir: str = Field("checkpoints", hidden_from_schema=True)
-        outputs_dir: str = Field("outputs", hidden_from_schema=True)
+        reports_dir: Path = Field(Path("reports"), hidden_from_schema=True)
+        checkpoints_dir: Path = Field(Path("checkpoints"), hidden_from_schema=True)
+        outputs_dir: Path = Field(Path("outputs"), hidden_from_schema=True)
         clean: bool = False  # TODO remove!
         lib_paths: List[
             Union[
@@ -208,9 +208,11 @@ class Flow(metaclass=ABCMeta):
 
         # generated artifacts as a dict of category to list of file paths
         self.artifacts = Box()
-        self.reports: DictStrPath = {}
+        self.reports: DictStrPath = {}  # DEPRECATED! TODO: remove
         # TODO deprecate and use self.reports
-        self.reports_dir = run_path / self.settings.reports_dir
+        if self.settings.reports_dir:
+            self.settings.reports_dir.mkdir(exist_ok=True, parents=True)
+        self.reports_dir = self.settings.reports_dir  # DEPRECATED! use settings.reports_dir
         self.results = self.Results(
             success=False,
             # "Time of the execution of run() in fractional seconds.
@@ -241,12 +243,13 @@ class Flow(metaclass=ABCMeta):
         return True
 
     def copy_from_template(
-        self, resource_name, lstrip_blocks=False, trim_blocks=False, **kwargs
+        self, resource_name, lstrip_blocks=False, trim_blocks=False, script_filename=None, **kwargs
     ) -> Path:
         template = self.jinja_env.get_template(resource_name)
         template.environment.lstrip_blocks = lstrip_blocks
         template.environment.trim_blocks = trim_blocks
-        script_path: Path = self.run_path / resource_name
+        script_path = Path(script_filename) if script_filename else self.run_path / resource_name
+
         log.debug("generating %s from template.", str(script_path.resolve()))
         rendered_content = template.render(
             settings=self.settings,
@@ -256,7 +259,7 @@ class Flow(metaclass=ABCMeta):
         )
         with open(script_path, "w") as f:
             f.write(rendered_content)
-        return script_path.relative_to(self.run_path)  # resource_name
+        return script_path.resolve().relative_to(self.run_path)  # resource_name
 
     def add_template_filter(self, filter_name: str, func) -> None:
         assert filter_name

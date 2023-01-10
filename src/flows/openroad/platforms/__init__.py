@@ -9,7 +9,7 @@ if __name__ == "__main__":
     __package__ = "xeda.flows.openroad.platforms"
 
 from ....dataclass import XedaBaseModel
-from ....utils import toml_load
+from ....utils import toml_load, first_value
 
 log = logging.getLogger(__name__)
 
@@ -125,6 +125,12 @@ class Platform(XedaBaseModel):
             return kv
 
         return Platform(**convert_rec(self.dict(), exclude_keys=["root_dir"]))
+
+    @property
+    def default_corner_settings(self):
+        if self.default_corner:
+            return self.corner.get(self.default_corner)
+        return first_value(self.corner)
 
 
 if __name__ == "__main__":

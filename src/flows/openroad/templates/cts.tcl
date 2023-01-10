@@ -33,4 +33,4 @@ detailed_placement
 check_placement -verbose
 report_metrics "cts final"
 
-{{write_checkpoint(step_id, sdc=true)}}
+{{ write_checkpoint(step, sdc=true)}}

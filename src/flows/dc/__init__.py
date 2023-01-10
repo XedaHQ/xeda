@@ -59,9 +59,6 @@ class Dc(AsicSynthFlow):
         )
         self.dc_shell.run("-64bit", "-topographical_mode", "-f", script_path)
 
-    def init(self) -> None:
-        self.reports_dir.mkdir(exist_ok=True)
-
     def parse_reports(self) -> bool:
         reports_dir = self.reports_dir
 

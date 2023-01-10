@@ -19,4 +19,4 @@ estimate_parasitics -placement
 
 report_metrics "detailed place" true false
 
-{{write_checkpoint(step_id)}}
+{{ write_checkpoint(step) }}

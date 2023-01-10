@@ -30,4 +30,4 @@ report_units_metric
 
 puts "number instances in verilog is [llength [get_cells -hier *]]"
 
-{{write_checkpoint(step_id)}}
+{{ write_checkpoint(step) }}

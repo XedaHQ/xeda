@@ -45,4 +45,4 @@ puts [sta::network_leaf_instance_count]
 print_banner "pin_count"
 puts [sta::network_leaf_pin_count]
 
-{{write_checkpoint(step_id)}}
+{{ write_checkpoint(step) }}

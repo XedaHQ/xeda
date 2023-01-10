@@ -150,4 +150,4 @@ foreach net [$block getNets] {
     }
 }
 
-{{write_checkpoint(step_id)}}
+{{ write_checkpoint(step) }}

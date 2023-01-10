@@ -20,7 +20,7 @@ from ..design import Design
 from ..flow import Flow, FlowFatalError
 from ..tool import NonZeroExitCode
 from ..utils import Timer, dump_json, load_class, unique
-from . import (
+from .default_runner import (
     FlowLauncher,
     add_file_logger,
     get_flow_class,

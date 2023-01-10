@@ -2,16 +2,18 @@ import logging
 import os
 import re
 import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
-from pydantic import Field, validator, confloat
+from importlib_resources import as_file, files
+from pydantic import Field, confloat, validator
 
+from ...design import SourceType
 from ...flow import AsicSynthFlow
 from ...flows.yosys import HiLoMap, YosysSynth
 from ...tool import Tool
-from ...utils import unique, first_value
-from ...design import SourceType
+from ...utils import unique, try_convert
 from .platforms import Platform
 
 log = logging.getLogger(__name__)
@@ -135,7 +137,7 @@ def format_value(v, precision=3) -> Optional[str]:
 def join_to_str(*args, sep=" ", val_fmt=None):
     if val_fmt is None:
         val_fmt = lambda x: str(x)  # noqa: E731
-    return sep.join(val_fmt(e) for e in args)
+    return sep.join(val_fmt(e) for e in args if e is not None)
 
 
 def dict_to_str(
@@ -174,7 +176,7 @@ class Openroad(AsicSynthFlow):
         sdc_files: List[Path] = []
         io_constraints: Optional[Path] = None
         place_density: Union[None, float, str] = None
-        log_file: Optional[Path] = Field("openroad.log", description="write log")
+        results_dir: Path = Path("results")
         optimize: Optional[Literal["speed", "area"]] = Field(
             "area", description="Optimization target"
         )
@@ -223,7 +225,6 @@ class Openroad(AsicSynthFlow):
         gds_seal_file: Optional[Path] = None
         sig_map_file: Optional[Path] = None
         density_fill: bool = False
-        save_images: bool = False  # FIXME broken, detailed_route_drc.rpt is empty?
         rtlmp_config_file: Optional[Path] = None
         macro_wrappers: Optional[Path] = None
         cdl_masters_file: Optional[Path] = None  # cts
@@ -232,11 +233,14 @@ class Openroad(AsicSynthFlow):
         cts_buf_distance: Optional[int] = None
         cts_cluster_size: int = 30
         cts_cluster_diameter: int = 100
-        write_cdl: bool = False
         tie_separation: int = 0
         final_irdrop_analysis: bool = True
         disable_via_gen: bool = False
         repair_pdn_via_layer: Optional[str] = None
+        # final
+        write_cdl: bool = False
+        save_images: bool = True
+        generate_gds: bool = True
 
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value):
@@ -299,13 +303,8 @@ class Openroad(AsicSynthFlow):
                 dst = my_lib_dir / src.name
                 shutil.copy(src, dst)
                 copy_resources.append(str(dst))
-        default_corner = (
-            ss.platform.corner.get(ss.platform.default_corner)
-            if ss.platform.default_corner
-            else first_value(ss.platform.corner)
-        )
-        assert default_corner
-        dff_lib_file = default_corner.dff_lib_file
+        assert ss.platform.default_corner_settings
+        dff_lib_file = ss.platform.default_corner_settings.dff_lib_file
         orig_libs = unique(orig_libs)
         for lib in orig_libs:
             src = ss.platform.root_dir / lib
@@ -343,14 +342,14 @@ class Openroad(AsicSynthFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        results_dir = Path("results")
-        results_dir.mkdir(exist_ok=True, parents=True)
+        ss.results_dir.mkdir(exist_ok=True, parents=True)
+        ss.checkpoints_dir.mkdir(exist_ok=True, parents=True)
 
         yosys_dep = self.pop_dependency(YosysSynth)
         netlist = yosys_dep.artifacts.netlist_verilog
         if not os.path.isabs(netlist):
             netlist = os.path.join(yosys_dep.run_path, netlist)
-        synth_netlist = results_dir / "1_synth.v"
+        synth_netlist = ss.results_dir / "1_synth.v"
         shutil.copy(netlist, synth_netlist)
 
         # yosys doesn't support SDC so we generate it here
@@ -366,19 +365,11 @@ class Openroad(AsicSynthFlow):
             log.critical(
                 "No clocks specified for top RTL design. Continuing with synthesis anyways."
             )
-        default_corner = (
-            ss.platform.corner.get(ss.platform.default_corner)
-            if ss.platform.default_corner
-            else first_value(ss.platform.corner)
-        )
-        assert default_corner
 
         assert self.design.rtl.top, "design.rtl.top must be set"
 
         if not ss.footprint_def and ss.footprint:
             assert ss.sig_map_file
-        reports_dir = Path("reports")
-        reports_dir.mkdir(exist_ok=True, parents=True)
         env = dict(
             MIN_ROUTING_LAYER=ss.platform.min_routing_layer,  # needed by platform.fastroute
             MAX_ROUTING_LAYER=ss.platform.max_routing_layer,  # needed by platform.fastroute
@@ -401,27 +392,34 @@ class Openroad(AsicSynthFlow):
         ]
         one_shot = True  # TODO
 
+        def get_step_index(step_name):
+            return flow_steps.index(step_name)
+
         def get_step_id(step_name):
-            idx = flow_steps.index(step_name)
-            return f"{idx}_{step_name}"
+            return f"{get_step_index(step_name)}_{step_name}"
 
         def get_prev_step_id(step_name):
-            idx = flow_steps.index(step_name)
-            assert idx > 0
-            idx -= 1
-            return f"{idx}_{flow_steps[idx]}"
+            idx = get_step_index(step_name)
+            if idx <= 0:
+                return None
+            return get_step_id(flow_steps[idx - 1])
 
-        write_snapshot_steps = ["cts", "detailed_route", "finalize"]
+        write_checkpoint_steps = ["cts", "detailed_route", "finalize"]
+        load_checkpoint_steps = ["finalize"]
 
-        def should_write_checkpoint(step_id: str):
-            step_name = "_".join(step_id.split("_")[1:])
-            return (not one_shot) or step_name in write_snapshot_steps
+        def should_write_checkpoint(step_name: str):
+            return (not one_shot) or step_name in write_checkpoint_steps
+
+        def should_load_checkpoint(step_name: str):
+            return (not one_shot) or step_name in load_checkpoint_steps
 
         self.add_template_filter_func(embrace)
         self.add_template_filter_func(join_to_str)
         self.add_template_global_func(get_step_id)
+        self.add_template_global_func(get_step_index)
         self.add_template_global_func(get_prev_step_id)
         self.add_template_global_func(should_write_checkpoint)
+        self.add_template_global_func(should_load_checkpoint)
 
         args = ["-no_splash", "-no_init", "-threads", ss.nthreads or "max"]
         if ss.exit:
@@ -430,75 +428,109 @@ class Openroad(AsicSynthFlow):
             args.append("-gui")
 
         defines = dict(
-            results_dir=results_dir,
-            reports_dir=reports_dir,
             platform=ss.platform,  # for easier reference
             netlist=synth_netlist,
             merged_lib_file=self.merged_lib_file,  # used by resynth
             num_cores=ss.nthreads or openroad.nproc,
-            rcx_rules=(
-                ss.platform.corner[ss.platform.rcx_rc_corner]
-                if ss.platform.rcx_rc_corner
-                else default_corner
-            ).rcx_rules,
+            total_steps=len(flow_steps),
         )
+        self.artifacts.logs = []
 
-        if one_shot:
-            log_args = ["-log", ss.log_file] if ss.log_file else []
-            oneshot_flow = self.copy_from_template(
+        def run_steps(start_idx, end_idx):
+            steps_to_run = flow_steps[start_idx:end_idx]
+            log_file = f"openroad_{start_idx}_{end_idx-1}.log"
+            log_args = ["-log", log_file]
+            self.artifacts.logs.append(log_file)
+            tcl_script = self.copy_from_template(
                 "orflow.tcl",
                 trim_blocks=True,
-                flow_steps=flow_steps[:-1],
+                script_filename=f"orflow_{start_idx}_{end_idx-1}.tcl",
                 **defines,
+                steps_to_run=steps_to_run,
+                starting_index=start_idx,
             )
-            # OpenROAD hangs when trying to run this step on the final design in one-shot
-            step = flow_steps[-1]
-            step_id = get_step_id(step)
-            prev_step_id = get_prev_step_id(step)
-            finalize = self.copy_from_template(
-                f"{step}.tcl",
-                **defines,
-                step_id=step_id,
-                prev_step_id=prev_step_id,
-            )
-            openroad.run(*args, *log_args, oneshot_flow, env=env)
-            log_args = (
-                ["-log", ss.log_file.with_stem(ss.log_file.stem + f"_{step}")]
-                if ss.log_file
-                else []
-            )
-            openroad.run(*args, finalize, env=env)
+            openroad.run(*args, *log_args, tcl_script, env=env)
 
-        run_klayout = False  # FIXME
-        if run_klayout:
+        run_steps(0, len(flow_steps) - 1)
+        run_steps(len(flow_steps) - 1, len(flow_steps))
+
+        if ss.generate_gds:
             klayout = openroad.derive("klayout")  # TODO ?
-            def2stream = "def2stream.py"
-            lyt = "klayout.lyt"
-            outfile = reports_dir / "final.gds"
-            in_def = results_dir / f"{len(flow_steps)}_finalize.def"
-            in_files = ss.platform.gds_files
+            platform_lyt = ss.platform.klayout_tech_file
+            assert platform_lyt
+            xml_tree = ET.parse(platform_lyt).getroot()
+            base_path = xml_tree.find("base-path")
+            assert base_path is not None
+            base_path.text = str(ss.platform.root_dir.absolute())
+            lef_files = xml_tree.find("reader-options/lefdef/lef-files")
+            assert lef_files is not None
+            lef_files.text = str(ss.platform.std_cell_lef)
+            properties_file = xml_tree.find("layer-properties_file")
+            if properties_file is None:
+                properties_file = xml_tree.find("layer-properties-file")
+            lyp = ss.platform.klayout_layer_prop_file
+            if lyp and properties_file is not None:
+                properties_file.text = str(lyp)
 
-            args = [
-                "-zz",
-                f"-rd design_name={self.design.rtl.top}",
-                "-rd",
-                f"in_def={in_def}",
-                "-rd",
-                f"in_files={join_to_str(in_files)}",
-                "-rd",
-                f"config_file=\"{ss.platform.fill_config or '' }\"",
-                "-rd",
-                f"seal_file=\"{ ss.gds_seal_file or '' }\"",
-                "-rd",
-                f"out_file={outfile}",
-                "-rd",
-                lyt,
-                "-rm",
-                def2stream,
-            ]
-            klayout.run(*args)
+            lyt = platform_lyt.name
+            with open(lyt, "wb") as f:
+                f.write(ET.tostring(xml_tree))
+            out_file = ss.results_dir / "final.gds"
+            res = files(__package__).joinpath("openroad_scripts", "utils", "def2stream.py")
+            with as_file(res) as def2stream:
+                args = [
+                    "-zz",
+                    "-rd",
+                    f"design_name={self.design.rtl.top}",
+                    "-rd",
+                    f'in_def={str(ss.results_dir / f"{get_step_id(flow_steps[-1])}.def")}',
+                    "-rd",
+                    f"in_files={join_to_str(*ss.platform.gds_files)}",
+                    "-rd",
+                    f"config_file={join_to_str(ss.platform.fill_config)}",
+                    "-rd",
+                    f"seal_file={join_to_str(ss.gds_seal_file)}",
+                    "-rd",
+                    f"out_file={str(out_file)}",
+                    "-rd",
+                    f"tech_file={str(lyt)}",
+                    "-rd",
+                    f"layer_map={join_to_str(ss.platform.gds_layer_map)}",
+                    "-rm",
+                    str(def2stream),
+                ]
+                klayout.run(*args)
+                log.info("GDS file saved in %s", str(out_file.absolute()))
+                self.artifacts.gds = out_file
 
     def parse_reports(self) -> bool:
-        # TODO
-        # report_file = "reports/final.rpt"
-        return True
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        last_log = self.artifacts.logs[-1]
+        print(last_log)
+        success = self.parse_report_regex(
+            last_log,
+            r"tns\s+(?P<tns>\-?\d+(?:\.\d+)?)",
+            r"wns\s+(?P<wns>\-?\d+(?:\.\d+)?)",
+            r"worst slack\s+(?P<worst_slack>\-?\d+(?:\.\d+)?)",
+            r"setup violation count +(?P<setup_violations>\d+)",
+            r"hold violation count +(?P<hold_violations>\d+)",
+            r"Design area\s+(?P<design_area>\d+(?:\.\d+)?)\s+(?P<design_area_unit>[a-zA-Z]+\^2)\s+(?P<utilization_percent>\d+(?:\.\d+)?)% utilization.",
+            required=False,
+        )
+        wns = self.results.get("wns")
+        worst_slack = self.results.get("worst_slack")
+        if wns is not None and worst_slack is not None and len(ss.clocks) == 1:
+            worst_slack = try_convert(worst_slack, float)
+            assert worst_slack
+            assert ss.main_clock
+            self.results["Fmax"] = 1000.0 / (ss.main_clock.period - worst_slack)
+        violations = try_convert(self.results.get("setup_violations"), int)
+        if violations:
+            log.error("%d setup violations.", violations)
+            success = False
+        violations = try_convert(self.results.get("hold_violations"), int)
+        if violations:
+            log.error("%d hold violations.", violations)
+            success = False
+        return success

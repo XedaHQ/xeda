@@ -40,4 +40,4 @@ global_placement -density $place_density \
 estimate_parasitics -placement
 report_metrics "global place" false false
 
-{{write_checkpoint(step_id)}}
+{{ write_checkpoint(step) }}

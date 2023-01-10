@@ -26,4 +26,4 @@ global_placement -skip_io -density $place_density \
 place_pins -hor_layer {{platform.io_placer_h}} -ver_layer {{platform.io_placer_v}} {{settings.place_pins_args|join(" ")}}
 {% endif %} {# --not settings.floorplan_def-- #}
 
-{{write_checkpoint(step_id)}}
+{{ write_checkpoint(step) }}

@@ -25,7 +25,7 @@ if {![info exist ::env(GUI_NO_TIMING)]} {
   # Read SDC, first try to find the most recent SDC file for the stage
   set sdc_file ""
   for {set s $design_stage} {$s > 0} {incr s -1} {
-    set sdc_file [glob -nocomplain -directory {{results_dir}} -types f "${s}_\[A-Za-z\]*\.sdc"]
+    set sdc_file [glob -nocomplain -directory {{settings.results_dir}} -types f "${s}_\[A-Za-z\]*\.sdc"]
     if {$sdc_file != ""} {
       break
     }
@@ -44,9 +44,9 @@ if {![info exist ::env(GUI_NO_TIMING)]} {
     set_propagated_clock [all_clocks]
   }
   
-  if {$design_stage >= 6 && [file exist {{results_dir}}/6_final.spef]} {
+  if {$design_stage >= 6 && [file exist {{settings.results_dir}}/6_final.spef]} {
     puts "Loading spef"
-    read_spef {{results_dir}}/6_final.spef
+    read_spef {{settings.results_dir}}/6_final.spef
   } elseif {$design_stage >= 3} {
     puts "Estimating parasitics"
     estimate_parasitics -placement

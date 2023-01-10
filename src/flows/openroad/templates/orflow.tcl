@@ -1,13 +1,13 @@
-{% from "macros.tcl.j2" import write_checkpoint, preamble, epilogue, section with context %}
-{% include "utils.tcl" %}
+{% from "macros.tcl.j2" import write_checkpoint, load_checkpoint, preamble, epilogue, section with context %}
 
-{% set num_steps = flow_steps|length %}
-{% set prev_step_id = "" %}
-{% for step in flow_steps %}
-{% set step_index = loop.index0 %}
+{% for step in steps_to_run %}
+{% set step_index = loop.index0 + starting_index %}
 {% set step_id = "%d_%s"|format(step_index, step) %}
-{{ preamble(step, step_index + 1, num_steps) }}
+{% set prev_step_id = get_prev_step_id(step) %}
+{% if loop.index0 == 0 %}
+{% include "utils.tcl" %}
+{% endif %}
+{{ preamble(step, step_index) }}
 {% include step + '.tcl' %}
 {{ epilogue(step) }}
-{% set prev_step_id = step_id %}
 {% endfor %}

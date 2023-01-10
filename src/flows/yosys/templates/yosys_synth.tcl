@@ -19,7 +19,7 @@ yosys log -stdout "Writing Verilog {{settings.rtl_verilog}}"
 yosys write_verilog {{settings.rtl_verilog}}
 {% endif %}
 {% if settings.rtl_vhdl %}
-yosys log -stdout " Writing VHDL {{settings.rtl_vhdl}}"
+yosys log -stdout "fWriting VHDL {{settings.rtl_vhdl}}"
 yosys write_vhdl {{settings.rtl_vhdl}}
 {% endif %}
 {% if settings.show_rtl %}
@@ -30,7 +30,7 @@ if { {{settings.stop_after == "rtl"}} } {
     exit
 }
 
-yosys log -stdout " Running synthesis"
+yosys log -stdout "Running synthesis"
 yosys synth {{settings.synth_flags|join(" ")}} {% if design.rtl.top %} -top {{design.rtl.top}}{% endif %}
 
 {#- TODO: ##### LSOracle ###### #}

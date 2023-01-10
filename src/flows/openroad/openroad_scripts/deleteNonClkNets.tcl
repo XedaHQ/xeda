@@ -10,7 +10,7 @@ if {[info exist ::env(ADDITIONAL_LEFS)]} {
 source $::env(SCRIPTS_DIR)/read_liberty.tcl
 
 # Read def and sdc
-read_def {{results_dir}}/6_final.def
+read_def {{settings.results_dir}}/6_final.def
 
 set block [[[ord::get_db] getChip] getBlock]
 set nets  [$block getNets]
@@ -35,4 +35,4 @@ foreach inst $insts {
   }
 }
 
-write_def {{results_dir}}/6_final_only_clk.def
+write_def {{settings.results_dir}}/6_final_only_clk.def

@@ -40,4 +40,4 @@ source {{settings.footprint_tcl}}
 # remove buffers inserted by yosys/abc
 remove_buffers
 
-{{write_checkpoint(step_id, sdc=true)}}
+{{ write_checkpoint(step, sdc=true)}}

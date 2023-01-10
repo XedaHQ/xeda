@@ -5,16 +5,16 @@ set_global_routing_layer_adjustment {{platform.min_routing_layer}}-{{platform.ma
 set_routing_layers -signal {{platform.min_routing_layer}}-{{platform.max_routing_layer}}
 {% endif %}
 
-global_route -guide_file {{results_dir}}/route.guide \
+global_route -guide_file {{settings.results_dir}}/route.guide \
   -congestion_iterations {{settings.congestion_iterations}} \
-  -congestion_report_file {{reports_dir}}/congestion.rpt {% if settings.verbose %} -verbose {% endif %}
+  -congestion_report_file {{settings.reports_dir}}/congestion.rpt {% if settings.verbose %} -verbose {% endif %}
 
 set_propagated_clock [all_clocks]
 estimate_parasitics -global_routing
 report_metrics "global route"
 
 print_banner "check_antennas"
-check_antennas -report_file {{reports_dir}}/{{step_id}}_antenna.log
+check_antennas -report_file {{settings.reports_dir}}/{{step_id}}_antenna.log
 
 {% if (settings.clocks|length) == 1 and settings.update_sdc_margin %}
 {{section("write_ref_sdc")}}
@@ -35,10 +35,10 @@ set sources [$clk sources]
 create_clock -name $clk_name -period $ref_period $sources
 # Undo the set_propagated_clock so SDC at beginning of flow uses ideal clocks.
 unset_propagated_clock [all_clocks]
-write_sdc {{results_dir}}/{{step_id}}_updated_clks.sdc
+write_sdc {{settings.results_dir}}/{{step_id}}_updated_clks.sdc
 # Reset
 create_clock -name $clk_name -period $period $sources
 set_propagated_clock [all_clocks]
 {% endif %}
 
-{{write_checkpoint(step_id)}}
+{{ write_checkpoint(step) }}

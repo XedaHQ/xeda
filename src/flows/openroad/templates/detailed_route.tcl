@@ -31,12 +31,12 @@ set_thread_count {{num_cores}}
 {%- set additional_args = additional_args + " -repair_pdn_vias " + settings.repair_pdn_via_layer %}
 {%- endif %}
 
-detailed_route -output_drc {{reports_dir}}/{{step_id}}_drc.rpt \
-    -output_maze {{results_dir}}/maze.log \
+detailed_route -output_drc {{settings.reports_dir}}/{{step_id}}_drc.rpt \
+    -output_maze {{settings.results_dir}}/maze.log \
     -save_guide_updates -verbose {{settings.verbose}} {{additional_args}}
 
 {% if settings.post_detailed_route_tcl %}
 source {{settings.post_detailed_route_tcl}}
 {% endif %}
 
-{{write_checkpoint(step_id)}}
+{{ write_checkpoint(step) }}

@@ -1,5 +1,5 @@
-variable reports_dir "{{reports_dir}}"
-variable results_dir "{{results_dir}}"
+variable reports_dir "{{settings.reports_dir}}"
+variable results_dir "{{settings.results_dir}}"
 
 proc read_libraries {} {
   {% if (platform.corner|length) > 1 %}

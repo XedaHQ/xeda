@@ -59,7 +59,7 @@ foreach panel_name $panel_names {
     set csv_file [regsub -all {_*'+_*} $csv_file {} ]
     set csv_file [regsub -all {_*"+_*} $csv_file {} ]
 
-    set csv_file {{reports_dir}}/$csv_file.csv
+    set csv_file {{settings.reports_dir}}/$csv_file.csv
 
     set csv_file_dir [file dirname ${csv_file}]
 

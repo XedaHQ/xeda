@@ -11,14 +11,14 @@ puts "Post synth-opt tns"
 report_tns -digits 3
 
 if {![info exists save_checkpoint] || $save_checkpoint} {
-    write_verilog {{results_dir}}/{{step_id}}_pre_abc_timing.v
+    write_verilog {{settings.results_dir}}/{{step_id}}_pre_abc_timing.v
 }
 
 restructure -target timing -liberty_file {{merged_lib_file}} \
-    -work_dir {{results_dir}}
+    -work_dir {{settings.results_dir}}
 
 if {![info exists save_checkpoint] || $save_checkpoint} {
-    write_verilog {{results_dir}}/{{step_id}}_post_abc_timing.v
+    write_verilog {{settings.results_dir}}/{{step_id}}_post_abc_timing.v
 }
 
 # post restructure area/timing report (ideal clocks)
@@ -43,7 +43,7 @@ report_design_area
 report_design_area_metrics
 
 if {![info exists save_checkpoint] || $save_checkpoint} {
-    write_verilog {{results_dir}}/{{step_id}}_pre_abc.v
+    write_verilog {{settings.results_dir}}/{{step_id}}_pre_abc.v
 }
 
 set tielo_cell_name {{platform.tielo_cell}}
@@ -57,13 +57,13 @@ set tiehi_port $tiehi_lib_name/$tiehi_cell_name/{{platform.tiehi_port}}
 restructure -liberty_file {{merged_lib_file}} -target "area" \
     -tiehi_port $tiehi_port \
     -tielo_port $tielo_port \
-    -work_dir {{results_dir}}
+    -work_dir {{settings.results_dir}}
 
 # remove buffers inserted by abc
 remove_buffers
 
 if {![info exists save_checkpoint] || $save_checkpoint} {
-    write_verilog {{results_dir}}/{{step_id}}_post_abc.v
+    write_verilog {{settings.results_dir}}/{{step_id}}_post_abc.v
 }
 set num_instances [llength [get_cells -hier *]]
 puts "number instances after restructure is $num_instances"
@@ -74,4 +74,4 @@ report_design_area_metrics
 
 report_metrics "after resynth" false false
 
-{{write_checkpoint(step_id)}}
+{{ write_checkpoint(step) }}

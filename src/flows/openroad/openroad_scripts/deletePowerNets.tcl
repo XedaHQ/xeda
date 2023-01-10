@@ -10,7 +10,7 @@ if {[info exist ::env(ADDITIONAL_LEFS)]} {
 source $::env(SCRIPTS_DIR)/read_liberty.tcl
 
 # Read def and sdc
-read_def {{results_dir}}/6_final.def
+read_def {{settings.results_dir}}/6_final.def
 
 proc deleteNetByName {name} {
   set db [ord::get_db]
@@ -24,4 +24,4 @@ proc deleteNetByName {name} {
 deleteNetByName VDD
 deleteNetByName VSS
 
-write_def {{results_dir}}/6_final_no_power.def
+write_def {{settings.results_dir}}/6_final_no_power.def
