@@ -101,7 +101,7 @@ class Bsc(Flow):
         synthesize_to_boolean: bool = Field(
             False, description="Synthesize all primitives into simple boolean ops"
         )
-        haskell_runtime_flags = Field(
+        haskell_runtime_flags: List[str] = Field(
             ["-K128M", "-H1G"],
             description="Flags passed along to the Haskell compiler run-time system that is used to execute BSC.",
         )
