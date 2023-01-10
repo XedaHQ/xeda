@@ -61,7 +61,7 @@ yosys opt
 
 puts "$log_prefix  Running ABC"
 yosys abc {{settings.abc_flags|join(" ")}}
-    {%- if ss.main_clock.period_ps %} -D {{"%.3f"|format(ss.main_clock.period_ps)}} {% endif %}
+    {%- if settings.main_clock.period_ps %} -D {{"%.3f"|format(settings.main_clock.period_ps)}} {% endif %}
     {%- if abc_script_file %} -script {{abc_script_file}} {% endif %}
     {%- if settings.liberty %} -liberty {{settings.liberty[0]}} {% endif %}
     {%- if abc_constr_file %} -constr {{abc_constr_file}} {% endif %}
