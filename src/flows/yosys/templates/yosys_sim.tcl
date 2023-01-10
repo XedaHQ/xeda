@@ -6,7 +6,7 @@ set log_prefix "yosys> "
 yosys plugin -i {{plugin}}
 {%- endfor %}
 
-{%- set sv_files = design.sim_sources_of_type("SystemVerilog") | list %}
+{%- set sv_files = design.sim_sources_of_type("SystemVerilog", rtl=True, tb=True) | list %}
 
 {# defered loading of systemverilog files #}
 {%- set systemverilog_plugin_defered = sv_files and "systemverilog" in settings.plugins %}
@@ -30,7 +30,7 @@ yosys plugin -i {{plugin}}
 yosys read_systemverilog -link
 {% endif %}
 
-{%- set vhdl_files = design.sim_sources_of_type("Vhdl") | list %}
+{%- set vhdl_files = design.sim_sources_of_type("Vhdl", rtl=True, tb=True) | list %}
 {%- if vhdl_files %}
     puts "$log_prefix Reading VHDL files: {{vhdl_files|join(" ")}}"
     yosys plugin -i ghdl

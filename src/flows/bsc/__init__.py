@@ -173,8 +173,10 @@ class Bsc(Flow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
 
-        bluespec_sources = self.design.sources_of_type(SourceType.Bluespec)
-        verilog_sources = self.design.sources_of_type(SourceType.Verilog, SourceType.SystemVerilog)
+        bluespec_sources = self.design.sources_of_type(SourceType.Bluespec, rtl=True, tb=True)
+        verilog_sources = self.design.sources_of_type(
+            SourceType.Verilog, SourceType.SystemVerilog, rtl=True, tb=True
+        )
         top_file = bluespec_sources[-1]
         bsc_flags = []
 

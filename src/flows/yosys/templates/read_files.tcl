@@ -4,23 +4,23 @@ yosys -import
 echo on
 {% endif %}
 
-{% set sv_files = design.sources_of_type("SystemVerilog", rtl=True) %}
+{% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=false) %}
 {% if sv_files %}
 yosys plugin -i systemverilog
 {% endif %}
 
 {% for src in design.rtl.sources %}
-    {% if src.type.name == "Verilog" %}
-    yosys log -stdout "Reading {{src}}"
-    ## -Dname=value -Idir
-    yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{src}}
-    {% elif src.type.name == "SystemVerilog" %}
-    yosys log -stdout "Reading {{src}}"
-    yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src}}
-    {% endif %}
+{% if src.type.name == "Verilog" %}
+yosys log -stdout "Reading {{src}}"
+## -Dname=value -Idir
+yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{src}}
+{% elif src.type.name == "SystemVerilog" %}
+yosys log -stdout "Reading {{src}}"
+yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src}}
+{% endif %}
 {% endfor %}
 
-{% set vhdl_files = design.sources_of_type("Vhdl", rtl= True) %}
+{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) %}
 {% if vhdl_files %}
 yosys log -stdout "Elaborating VHDL files"
 yosys plugin -i ghdl

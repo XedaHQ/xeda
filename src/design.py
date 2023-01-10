@@ -569,7 +569,7 @@ class Design(XedaBaseModel):
                     self.tb.top = dep_design.tb.top
 
     def sources_of_type(
-        self, *source_types: Union[str, SourceType], rtl=True, tb=True
+        self, *source_types: Union[str, SourceType], rtl=True, tb=False
     ) -> List[DesignSource]:
         source_types_str = [str(st).lower() for st in source_types]
         sources = []
