@@ -27,9 +27,11 @@ yosys plugin -i ghdl
 yosys ghdl {{ghdl_args|join(" ")}}
 {% endif %}
 
+{% if 'liberty' in settings %}
 {% for lib in settings.liberty %}
 read_liberty -lib {{lib}}
 {% endfor %}
+{% endif %}
 
 {% for key, value in parameters.items() %}
 chparam -set {{key}} {{value}} {% if design.rtl.top %} {{design.rtl.top}} {% endif %}
@@ -62,9 +64,9 @@ blackbox {{mod}}
 {% endfor %}
 
 {% for attr,attr_dict in settings.set_attributes.items() %}
-    {% for path,value in attr_dict.items() %}
-    yosys setattr -set {{attr}} {{value}} {{path}}
-    {% endfor %}
+{% for path,value in attr_dict.items() %}
+yosys setattr -set {{attr}} {{value}} {{path}}
+{% endfor %}
 {% endfor %}
 
 check -initdrv -assert

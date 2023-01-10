@@ -35,11 +35,11 @@ yosys synth {{settings.synth_flags|join(" ")}} {% if design.rtl.top %} -top {{de
 
 {#- TODO: ##### LSOracle ###### #}
 
-yosys opt -purge
-
 {% if settings.post_synth_opt %}
 yosys log -stdout "Post-synth optimization"
 yosys opt -full -purge -sat
+{% else %}
+yosys opt -purge
 {% endif %}
 
 {% if settings.adder_map %}

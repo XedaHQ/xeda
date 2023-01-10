@@ -13,6 +13,10 @@ set_propagated_clock [all_clocks]
 estimate_parasitics -global_routing
 report_metrics "global route"
 
+{% if settings.repair_antennas %}
+repair_antennas
+{% endif %}
+
 print_banner "check_antennas"
 check_antennas -report_file {{settings.reports_dir}}/{{step_id}}_antenna.log
 

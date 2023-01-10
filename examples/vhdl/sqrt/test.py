@@ -6,7 +6,7 @@ from pathlib import Path
 
 from xeda import Design, Flow
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import GhdlSim, YosysSynth
+from xeda.flows import GhdlSim, YosysFpga
 from xeda.tool import ExecutableNotFound
 
 log = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def test_sqrt_yosys_synth() -> None:
     design.tb.parameters["G_IN_WIDTH"] = 32
     try:
         f = xeda_runner.run_flow(
-            YosysSynth,
+            YosysFpga,
             design,
             {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock_period": 10.0},
         )

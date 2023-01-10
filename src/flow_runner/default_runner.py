@@ -342,7 +342,8 @@ class FlowLauncher:
                     previous_results = Box(prev_results)
                 else:
                     log.warning(
-                        "%s does not contain the expected flow and/or design hash.", str(settings_json.absolute())
+                        "%s does not contain the expected flow and/or design hash.",
+                        str(settings_json.absolute()),
                     )
             else:
                 log.warning(

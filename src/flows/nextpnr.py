@@ -9,7 +9,7 @@ from ..dataclass import Field, XedaBaseModel, validator
 from ..flow import FlowFatalError, FpgaSynthFlow
 from ..tool import Tool
 from ..utils import setting_flag
-from .yosys import YosysSynth
+from .yosys import YosysFpga
 
 __all__ = ["Nextpnr"]
 
@@ -113,20 +113,20 @@ class Nextpnr(FpgaSynthFlow):
         placed_svg: Optional[str] = None  # "placed.svg"
         routed_svg: Optional[str] = None  # "routed.svg"
         parallel_refine: bool = False
-        yosys: Optional[YosysSynth.Settings] = None
+        yosys: Optional[YosysFpga.Settings] = None
 
         @validator("yosys", always=True, pre=False)
         def _validate_yosys(cls, value, values):
             clocks = values.get("clocks")
             fpga = values.get("fpga")
             if value is None:
-                value = YosysSynth.Settings(
+                value = YosysFpga.Settings(
                     fpga=fpga,
                     clocks=clocks,
                 )  # pyright: reportGeneralTypeIssues=none
             else:
-                if not isinstance(value, YosysSynth.Settings):
-                    value = YosysSynth.Settings(**value)
+                if not isinstance(value, YosysFpga.Settings):
+                    value = YosysFpga.Settings(**value)
                 value.fpga = fpga
                 value.clocks = clocks
             return value
@@ -136,7 +136,7 @@ class Nextpnr(FpgaSynthFlow):
         ss = self.settings
         assert ss.yosys is not None
         self.add_dependency(
-            YosysSynth,
+            YosysFpga,
             ss.yosys,
         )
 
@@ -144,8 +144,8 @@ class Nextpnr(FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         yosys_flow = self.completed_dependencies[0]
-        assert isinstance(yosys_flow, YosysSynth)
-        assert isinstance(yosys_flow.settings, YosysSynth.Settings)
+        assert isinstance(yosys_flow, YosysFpga)
+        assert isinstance(yosys_flow.settings, YosysFpga.Settings)
         assert yosys_flow.settings.netlist_json
         netlist_json = yosys_flow.run_path / yosys_flow.settings.netlist_json
         fpga_family = ss.fpga.family if ss.fpga.family else "generic"

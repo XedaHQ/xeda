@@ -17,11 +17,12 @@ from .vivado.vivado_postsynthsim import VivadoPostsynthSim
 from .vivado.vivado_power import VivadoPower
 from .vivado.vivado_sim import VivadoSim
 from .vivado.vivado_synth import VivadoSynth
-from .yosys import YosysSim, YosysSynth
+from .yosys import CxxRtl, Yosys, YosysFpga
 
 __all__ = [
     "Dc",
     "Bsc",
+    "CxxRtl",
     "DiamondSynth",
     "GhdlSim",
     "GhdlSynth",
@@ -37,6 +38,6 @@ __all__ = [
     "VivadoPower",
     "VivadoSim",
     "VivadoSynth",
-    "YosysSim",
-    "YosysSynth",
+    "Yosys",
+    "YosysFpga",
 ]

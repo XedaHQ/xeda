@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -11,106 +10,12 @@ from pydantic import Field, confloat, validator
 
 from ...design import SourceType
 from ...flow import AsicSynthFlow
-from ...flows.yosys import HiLoMap, YosysSynth
+from ...flows.yosys import HiLoMap, Yosys, preproc_libs
 from ...tool import ExecutableNotFound, Tool
 from ...utils import unique, try_convert
-from .platforms import Platform
+from ...platforms import AsicsPlatform
 
 log = logging.getLogger(__name__)
-
-
-def merge_files(in_files, out_file, add_newline=False):
-    with open(out_file, "w") as out_f:
-        for in_file in in_files:
-            with open(in_file, "r") as in_f:
-                out_f.write(in_f.read())
-            if add_newline:
-                out_f.write("\n")
-
-
-def clean_ascii(s: str) -> str:
-    return s.encode("ascii", "ignore").decode("ascii")
-
-
-def preproc_lib_content(content: str, pattern_list: List[str]) -> str:
-    # Pattern to match a cell header
-    pattern1 = r"(^\s*cell\s*\(\s*([\"]*" + '["]*|["]*'.join(pattern_list) + r"[\"]*)\)\s*\{)"
-    replace = r"\1\n    dont_use : true;"
-    content, count = re.subn(pattern1, replace, content, flags=re.MULTILINE)
-    if count:
-        log.info("Marked %d cells as dont_use", count)
-
-    # Yosys-abc throws an error if original_pin is found within the liberty file.
-    pattern2 = re.compile(r"(.*original_pin.*)")
-    replace = r"/* \1 */;"
-    content, count = re.subn(pattern2, replace, content)
-    if count:
-        log.info("Commented %d lines containing 'original_pin", count)
-
-    # Yosys, does not like properties that start with : !, without quotes
-    pattern3 = re.compile(r":\s+(!.*)\s+;")
-    replace = r': "\1" ;'
-    content, count = re.subn(pattern3, replace, content)
-    if count:
-        log.info("Replaced %d malformed functions", count)
-    return content
-
-
-def merge_libs(in_files, new_lib_name, out_file):
-    cell_regex = re.compile(r"^\s*cell\s*\(")
-
-    log.info(
-        "Merging libraries %s into library %s (%s)",
-        ", ".join(str(f) for f in in_files),
-        new_lib_name,
-        out_file,
-    )
-
-    with open(out_file, "w") as out:
-        with open(in_files[0]) as hf:
-            for line in hf.readlines():
-                if re.search(r"^\s*library\s*\(", line):
-                    out.write(f"library ({new_lib_name}) {{\n")
-                elif re.search(cell_regex, line):
-                    break
-                else:
-                    out.write(line)
-        for f in in_files:
-            with open(f, "r") as f:
-                flag = 0
-                for line in f.readlines():
-                    if re.search(cell_regex, line):
-                        if flag != 0:
-                            raise Exception("Error! new cell before finishing previous one.")
-                        flag = 1
-                        out.write("\n" + line)
-                    elif flag > 0:
-                        flag += len(re.findall(r"\{", line))
-                        flag -= len(re.findall(r"\}", line))
-                        out.write(line)
-        out.write("\n}\n")
-
-
-def preproc_libs(
-    in_files, new_lib_name, merged_file, dont_use_cells: List[str], needs_preproc=False
-):
-    merged_content = ""
-    proc_files = []
-    for in_file in in_files:
-        in_file = Path(in_file)
-        log.info("Pre-processing liberty file: %s", in_file)
-        with open(in_file, encoding="utf-8") as f:
-            content = clean_ascii(f.read())
-        if needs_preproc:
-            merged_content += preproc_lib_content(content, dont_use_cells)
-        else:
-            merged_content += content
-        out_file = in_file.with_stem(in_file.stem + "-mod")
-        log.info("Writing pre-processed file: %s", out_file)
-        with open(out_file, "w") as f:
-            f.write(merged_content)
-        proc_files.append(out_file)
-    merge_libs(proc_files, new_lib_name, merged_file)
 
 
 def abc_opt_script(opt):
@@ -159,7 +64,7 @@ class Openroad(AsicSynthFlow):
     merged_lib_file = "merged.lib"  # used by Yosys and floorplan (restructure)
 
     class Settings(AsicSynthFlow.Settings):
-        platform: Platform
+        platform: AsicsPlatform
         input_delay: Optional[float] = Field(
             0.20, description="Input delay as fraction of clock period (0.0..1.0)"
         )
@@ -206,6 +111,7 @@ class Openroad(AsicSynthFlow):
         # global_route
         congestion_iterations: int = 100
         global_routing_layer_adjustment: float = 0.5
+        repair_antennas: bool = False
         update_sdc_margin: Optional[confloat(gt=0.0, lt=1.0)] = Field(0.05, description="If set, write an SDC file with clock periods that result in slightly (value * clock_period) negative slack (failing).")  # type: ignore
         # detailed_route
         detailed_route_or_seed: Optional[int] = None
@@ -245,16 +151,16 @@ class Openroad(AsicSynthFlow):
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value):
             if isinstance(value, str) and not value.endswith(".toml"):
-                return Platform.from_resource(value)
+                return AsicsPlatform.from_resource(value)
             elif isinstance(value, (str, Path)):
-                return Platform.from_toml(value)
+                return AsicsPlatform.from_toml(value)
             return value
 
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
 
-        yosys_settings = YosysSynth.Settings(
+        yosys_settings = Yosys.Settings(
             clocks=ss.clocks,
             flatten=True,
             black_box=ss.blocks,
@@ -313,17 +219,16 @@ class Openroad(AsicSynthFlow):
         ss.dont_use_cells = unique(ss.platform.dont_use_cells + ss.dont_use_cells)
         preproc_libs(
             orig_libs,
-            f"{ss.platform.name}_merged",
             self.merged_lib_file,
             ss.dont_use_cells,
+            f"{ss.platform.name}_merged",
         )
         yosys_libs = [self.merged_lib_file]
         if dff_lib_file:
-            yosys_settings.dff_liberty = os.path.join(YosysSynth.copied_resources_dir, dff_lib_file)
+            yosys_settings.dff_liberty = os.path.join(Yosys.copied_resources_dir, dff_lib_file)
         copy_resources += yosys_libs
         yosys_settings.liberty = [
-            str(os.path.join(YosysSynth.copied_resources_dir, os.path.basename(res)))
-            for res in yosys_libs
+            Path(Yosys.copied_resources_dir) / os.path.basename(res) for res in yosys_libs
         ]
         yosys_settings.adder_map = str(ss.platform.adder_map_file)
         yosys_settings.clockgate_map = str(ss.platform.clkgate_map_file)
@@ -337,7 +242,7 @@ class Openroad(AsicSynthFlow):
             ss.platform.min_buf_ports[0],
             ss.platform.min_buf_ports[1],
         )
-        self.add_dependency(YosysSynth, yosys_settings, copy_resources)
+        self.add_dependency(Yosys, yosys_settings, copy_resources)
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
@@ -345,7 +250,7 @@ class Openroad(AsicSynthFlow):
         ss.results_dir.mkdir(exist_ok=True, parents=True)
         ss.checkpoints_dir.mkdir(exist_ok=True, parents=True)
 
-        yosys_dep = self.pop_dependency(YosysSynth)
+        yosys_dep = self.pop_dependency(Yosys)
         netlist = yosys_dep.artifacts.netlist_verilog
         if not os.path.isabs(netlist):
             netlist = os.path.join(yosys_dep.run_path, netlist)

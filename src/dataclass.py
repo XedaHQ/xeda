@@ -101,7 +101,7 @@ class XedaBaseModel(BaseModel, metaclass=ModelMetaclass):
     def invalidate_cached_properties(self):
         for key, value in self.__class__.__dict__.items():
             if isinstance(value, cached_property):
-                log.debug("invalidating: ", key)
+                log.debug("invalidating: %s", str(key))
                 self.__dict__.pop(key, None)
 
 

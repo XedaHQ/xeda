@@ -2,14 +2,10 @@
 name = "blink"
 
 [design.rtl]
-sources = [
-    "blink.sv"
-]
+sources = ["blink.sv"]
 
 [design.tb]
-sources =[
-    "blink_tb.cpp"
-]
+sources = ["blink_tb.cpp"]
 
-[flows.yosys]
+[flows.cxxrtl]
 cxxrtl.filename = "blink.cpp"
