@@ -12,7 +12,7 @@ from pydantic import Field, confloat, validator
 from ...design import SourceType
 from ...flow import AsicSynthFlow
 from ...flows.yosys import HiLoMap, YosysSynth
-from ...tool import Tool
+from ...tool import ExecutableNotFound, Tool
 from ...utils import unique, try_convert
 from .platforms import Platform
 
@@ -501,9 +501,12 @@ class Openroad(AsicSynthFlow):
                     "-rm",
                     str(def2stream),
                 ]
-                klayout.run(*args)
-                log.info("GDS file saved in %s", str(out_file.absolute()))
-                self.artifacts.gds = out_file
+                try:
+                    klayout.run(*args)
+                    self.artifacts.gds = out_file
+                    log.info("GDS file saved in %s", str(out_file.absolute()))
+                except ExecutableNotFound:
+                    log.warning("`%s` was not found. Skipping GDS generation.", klayout.executable)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
