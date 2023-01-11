@@ -64,15 +64,15 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             executable="yosys",
             docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
         )
-        self.artifacts.timing_report = "timing.rpt"
-        self.artifacts.utilization_report = (
-            "utilization.json" if yosys.version_gte(0, 21) else "utilization.rpt"
-        )
         yosys_family_name = {"artix-7": "xc7"}
         if ss.fpga:
             assert ss.fpga.family or ss.fpga.vendor == "xilinx"
             if ss.fpga.vendor == "xilinx" and ss.fpga.family:
                 ss.fpga.family = yosys_family_name.get(ss.fpga.family, "xc7")
+        self.artifacts.timing_report = "timing.rpt"
+        self.artifacts.utilization_report = (
+            "utilization.json" if yosys.version_gte(0, 21) else "utilization.rpt"
+        )
         if ss.rtl_json:
             self.artifacts.rtl_json = ss.rtl_json
         if ss.rtl_vhdl:
@@ -80,8 +80,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         if ss.rtl_verilog:
             self.artifacts.rtl_verilog = ss.rtl_verilog
         if not ss.stop_after:  # FIXME
-            self.artifacts.netlist_verilog = "netlist.v"
-            self.artifacts.netlist_json = "netlist.json"
+            self.artifacts.netlist_verilog = ss.netlist_verilog
+            self.artifacts.netlist_json = ss.netlist_json
 
         if ss.sta:
             ss.flatten = True

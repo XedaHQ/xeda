@@ -1,5 +1,6 @@
 """Interchangable dataclass abstraction"""
 from __future__ import annotations
+import copy
 
 import logging
 import types
@@ -108,6 +109,15 @@ class XedaBaseModel(BaseModel, metaclass=ModelMetaclass):
 class XedaBaseModelAllowExtra(XedaBaseModel, metaclass=ABCMeta):
     class Config(XedaBaseModel.Config):
         extra = Extra.allow
+
+
+_XedaModelType = TypeVar("_XedaModelType", bound=XedaBaseModel)
+
+
+def model_with_allow_extra(cls: Type[_XedaModelType]) -> Type[_XedaModelType]:
+    cls_copy = copy.deepcopy(cls)
+    cls_copy.Config.extra = Extra.allow
+    return cls_copy
 
 
 def validation_errors(

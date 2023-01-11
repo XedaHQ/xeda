@@ -171,6 +171,10 @@ class Openroad(AsicSynthFlow):
                 f"set_driving_cell {ss.abc_driver_cell or ss.platform.abc_driver_cell}",
                 f"set_load {ss.abc_load_in_ff if ss.abc_load_in_ff is not None else ss.platform.abc_load_in_ff}",
             ],
+            netlist_attrs=False,
+            netlist_hex=False,
+            netlist_dec=False,
+            netlist_blackboxes=False,
         )  # pyright: ignore
 
         if not ss.copy_platform_files:

@@ -61,10 +61,10 @@ yosys opt
 
 yosys log -stdout " Running ABC"
 yosys abc {{settings.abc_flags|join(" ")}}
-    {%- if settings.main_clock and settings.main_clock.period_ps %} -D {{"%.3f"|format(settings.main_clock.period_ps)}} {% endif %}
-    {%- if abc_script_file %} -script {{abc_script_file}} {% endif %}
-    {%- if settings.liberty %} -liberty {{settings.liberty[0]}} {% endif %}
-    {%- if abc_constr_file %} -constr {{abc_constr_file}} {% endif %}
+{%- if settings.main_clock and settings.main_clock.period_ps %} -D {{"%.3f"|format(settings.main_clock.period_ps)}} {% endif %}
+{%- if abc_script_file %} -script {{abc_script_file}} {% endif %}
+{%- if settings.liberty %} -liberty {{settings.liberty[0]}} {% endif %}
+{%- if abc_constr_file %} -constr {{abc_constr_file}} {% endif %}
 
 # replace undefined values with 0
 yosys setundef -zero
@@ -91,9 +91,13 @@ tee -9 -q -o {{artifacts["utilization_report"]}} stat {% if artifacts["utilizati
 yosys log -stdout "Writing netlist {{artifacts.netlist_json}}"
 yosys write_json {{artifacts.netlist_json}}
 {% endif %}
+
 {% if artifacts.netlist_verilog %}
+{% for attr in settings.netlist_unset_attributes %}
+yosys setattr -unset {{attr}}
+{% endfor %}
 yosys log -stdout "Writing netlist {{artifacts.netlist_verilog}}"
-yosys write_verilog -noattr -noexpr -nohex -nodec {{artifacts.netlist_verilog}}
+yosys write_verilog {{settings.netlist_verilog_flags|join(" ")}} {{artifacts.netlist_verilog}}
 {% endif %}
 
 {% if settings.sta %}

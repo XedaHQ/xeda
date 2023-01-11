@@ -1,7 +1,6 @@
 yosys -import
-
 {% if settings.debug or settings.verbose > 1 %}
-echo on
+yosys echo on
 {% endif %}
 
 {% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=false) %}
@@ -29,37 +28,37 @@ yosys ghdl {{ghdl_args|join(" ")}}
 
 {% if settings.liberty is defined %}
 {% for lib in settings.liberty %}
-read_liberty -lib {{lib}}
+yosys read_liberty -lib {{lib}}
 {% endfor %}
 {% endif %}
 
 {% for src in settings.verilog_lib %}
-read_verilog -lib {{src}}
+yosys read_verilog -lib {{src}}
 {% endfor %}
 
 {% for key, value in parameters.items() %}
-chparam -set {{key}} {{value}} {% if design.rtl.top %} {{design.rtl.top}} {% endif %}
+yosys chparam -set {{key}} {{value}} {% if design.rtl.top %} {{design.rtl.top}} {% endif %}
 {% endfor %}
 
 {% if settings.clockgate_map %}
-read_verilog -defer {{settings.clockgate_map}}
+yosys read_verilog -defer {{settings.clockgate_map}}
 {% endif %}
 
 {% if sv_files %}
-read_systemverilog -link
+yosys read_systemverilog -link
 {% endif %}
 
-hierarchy -check {% if design.rtl.top %} -top {{design.rtl.top}} {% else %} -auto-top {% endif %}
+yosys hierarchy -check {% if design.rtl.top %} -top {{design.rtl.top}} {% else %} -auto-top {% endif %}
 
 {% for mod in settings.keep_hierarchy %}
-select -module {{mod}}
-setattr -mod -set keep_hierarchy 1
-select -clear
+yosys select -module {{mod}}
+yosys setattr -mod -set keep_hierarchy 1
+yosys select -clear
 {% endfor %}
 
 {% for mod in settings.black_box %}
 puts "Converting module {{mod}} into blackbox"
-blackbox {{mod}}
+yosys blackbox {{mod}}
 {% endfor %}
 
 {% for attr, value in settings.set_attribute.items() %}
@@ -71,5 +70,14 @@ yosys setattr -set {{attr}} {{v}} {{path}}
 yosys setattr -set {{attr}} {{value}}
 {% endif %}
 {% endfor %}
+{% for attr, value in settings.set_mod_attribute.items() %}
+{% if value is mapping %}
+{% for path, v in value.items() %}
+yosys setattr -mod -set {{attr}} {{v}} {{path}}
+{% endfor %}
+{% else %}
+yosys setattr -mod -set {{attr}} {{value}}
+{% endif %}
+{% endfor %}
 
-check -initdrv -assert
+yosys check -initdrv -assert

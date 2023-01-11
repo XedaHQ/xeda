@@ -10,6 +10,7 @@ from ...design import SourceType
 from ...flow import SynthFlow
 from ...tool import Docker, Tool
 from ..ghdl import GhdlSynth
+from ...utils import hierarchical_merge
 from .common import YosysBase, append_flag, process_parameters
 
 log = logging.getLogger(__name__)
@@ -131,9 +132,6 @@ class Yosys(YosysBase, SynthFlow):
             False,
             description="Run a simple static timing analysis (requires `flatten`)",
         )
-        dff: bool = Field(True, description="Run abc/abc9 with -dff option")
-        synth_flags: List[str] = []
-        abc_flags: List[str] = []
         show_netlist: bool = False
         show_netlist_flags: List[str] = ["-stretch", "-enum"]
         post_synth_opt: bool = Field(
@@ -154,24 +152,22 @@ class Yosys(YosysBase, SynthFlow):
         merge_libs_to: Optional[str] = None
 
         @validator("liberty", pre=True, always=True)
-        def _str_to_list(cls, value):
+        def _single_to_list(cls, value):
             if not isinstance(value, (list, tuple)):
                 return [value]
             return value
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
+        # TODO factor out common code
         ss = self.settings
-
         yosys = Tool(
             executable="yosys",
             docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
+            minimum_version=(0, 21),
         )
-
         self.artifacts.timing_report = "timing.rpt"
-        self.artifacts.utilization_report = (
-            "utilization.json" if yosys.version_gte(0, 21) else "utilization.rpt"
-        )
+        self.artifacts.utilization_report = "utilization.json"
         if os.path.exists(self.artifacts.utilization_report):
             os.remove(self.artifacts.utilization_report)
         if os.path.exists(self.artifacts.timing_report):
@@ -183,15 +179,16 @@ class Yosys(YosysBase, SynthFlow):
         if ss.rtl_verilog:
             self.artifacts.rtl_verilog = ss.rtl_verilog
         if not ss.stop_after:  # FIXME
-            self.artifacts.netlist_verilog = "netlist.v"
-            self.artifacts.netlist_json = "netlist.json"
+            self.artifacts.netlist_verilog = ss.netlist_verilog
+            self.artifacts.netlist_json = ss.netlist_json
+        ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)
 
         if ss.sta:
             ss.flatten = True
         if ss.flatten:
             append_flag(ss.synth_flags, "-flatten")
 
-        if ss.dff:
+        if ss.abc_dff:
             append_flag(ss.abc_flags, "-dff")
         if ss.gates:
             append_flag(ss.abc_flags, f"-g {ss.gates}")
@@ -257,28 +254,27 @@ class Yosys(YosysBase, SynthFlow):
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
-        if self.artifacts.utilization_report.endswith(".json"):
-            try:
-                with open(self.artifacts.utilization_report, "r") as f:
-                    content = f.read()
-                i = content.find("{")  # yosys bug (FIXED)
-                if i >= 0:
-                    content = content[i:]
-                utilization = json.loads(content)
-                mod_util = utilization.get("modules")
-                if mod_util:
-                    self.results["_module_utilization"] = mod_util
-                design_util = utilization.get("design")
-                if design_util:
-                    num_cells_by_type = design_util.get("num_cells_by_type")
-                    if num_cells_by_type:
-                        design_util = {
-                            **{k: v for k, v in design_util.items() if k != "num_cells_by_type"},
-                            **num_cells_by_type,
-                        }
-                    self.results["design_utilization"] = design_util
+        try:
+            with open(self.artifacts.utilization_report, "r") as f:
+                content = f.read()
+            i = content.find("{")  # yosys bug (FIXED)
+            if i >= 0:
+                content = content[i:]
+            utilization = json.loads(content)
+            mod_util = utilization.get("modules")
+            if mod_util:
+                self.results["_module_utilization"] = mod_util
+            design_util = utilization.get("design")
+            if design_util:
+                num_cells_by_type = design_util.get("num_cells_by_type")
+                if num_cells_by_type:
+                    design_util = {
+                        **{k: v for k, v in design_util.items() if k != "num_cells_by_type"},
+                        **num_cells_by_type,
+                    }
+                self.results["design_utilization"] = design_util
 
-            except json.decoder.JSONDecodeError as e:
-                log.error("Failed to decode JSON %s: %s", self.artifacts.utilization_report, e)
+        except json.decoder.JSONDecodeError as e:
+            log.error("Failed to decode JSON %s: %s", self.artifacts.utilization_report, e)
 
         return True

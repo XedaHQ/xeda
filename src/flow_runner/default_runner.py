@@ -616,6 +616,8 @@ def prepare(
     flow_settings: Union[List[str], None] = None,
     select_design_in_project=None,
     design_overrides: Union[None, Iterable[str], Dict[str, Any]] = None,
+    design_allow_extra: bool = False,
+    design_remove_extra: List[str] = [],
 ) -> Tuple[Optional[Design], Optional[Type[Flow]], Dict[str, Any]]:
     # get default flow configs from xedaproject even if a design-file is specified
     xeda_project = None
@@ -631,7 +633,11 @@ def prepare(
     if Path(xedaproject).exists():
         try:
             xeda_project = XedaProject.from_file(
-                xedaproject, skip_designs=design_file is not None, design_overrides=design_overrides
+                xedaproject,
+                skip_designs=design_file is not None,
+                design_overrides=design_overrides,
+                design_allow_extra=design_allow_extra,
+                design_remove_extra=design_remove_extra,
             )
         except DesignValidationError as e:
             log.critical("%s", e)
@@ -644,7 +650,12 @@ def prepare(
         flows_settings = xeda_project.flows
     if design_file:
         try:
-            design = Design.from_toml(design_file, overrides=design_overrides)
+            design = Design.from_toml(
+                design_file,
+                overrides=design_overrides,
+                allow_extra=design_allow_extra,
+                remove_extra=design_remove_extra,
+            )
             dd = asdict(design)
             flows_settings = {
                 **flows_settings,

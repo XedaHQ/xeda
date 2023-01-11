@@ -4,11 +4,13 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import attrs
+from pydantic import Extra
 import yaml
 
+from .dataclass import model_with_allow_extra
 from .design import Design
 from .utils import WorkingDirectory, hierarchical_merge, tomllib
 
@@ -24,7 +26,12 @@ class XedaProject:
 
     @classmethod
     def from_file(
-        cls, file: Union[str, os.PathLike, Path], skip_designs: bool = False, design_overrides={}
+        cls,
+        file: Union[str, os.PathLike, Path],
+        skip_designs: bool = False,
+        design_overrides: Dict[str, Any] = {},
+        design_allow_extra: bool = False,
+        design_remove_extra: List[str] = [],
     ):
         """load xedaproject from file"""
         if not isinstance(file, Path):
@@ -52,16 +59,26 @@ class XedaProject:
 
         flows = data.get("flow") or data.get("flows", {})
         assert isinstance(flows, dict)
+        design_cls = Design
+
+        if designs is not None:
+            if design_allow_extra:
+                design_cls = model_with_allow_extra(design_cls)
+            else:
+                for d in designs:
+                    for k in design_remove_extra:
+                        d.pop(k, None)
+        else:
+            designs = []
+
         with WorkingDirectory(file.parent):
             try:
                 return cls(  # type: ignore
                     designs=[
-                        Design(**hierarchical_merge(d, design_overrides))
+                        design_cls(**hierarchical_merge(d, design_overrides))
                         for d in designs
                         if isinstance(d, dict)
-                    ]
-                    if designs
-                    else [],
+                    ],
                     flows=flows,
                 )
             except Exception as e:

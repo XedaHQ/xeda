@@ -320,6 +320,15 @@ class Tool(XedaBaseModel):
         if self.design_root and self.docker:
             self.docker.mounts[str(self.design_root)] = str(self.design_root)
 
+        if self.minimum_version and not self.version_gte(*self.minimum_version):
+            log.error(
+                "%s version %s is required. Found version: %s",
+                self.executable,
+                ".".join(str(i) for i in self.minimum_version),
+                self.version_str,
+            )
+            raise ToolException("Minimum version not met")
+
     @validator("docker", pre=True, always=True)
     def validate_docker(cls, value, values):
         default_args = values.get("default_args", [])
@@ -337,7 +346,7 @@ class Tool(XedaBaseModel):
 
     @cached_property
     def info(self) -> Dict[str, str]:
-        return {"executable": self.executable, "version": ".".join(self.version)}
+        return {"executable": self.executable, "version": self.version_str}
 
     @cached_property
     def version(self) -> Tuple[str, ...]:
@@ -346,6 +355,10 @@ class Tool(XedaBaseModel):
         so = re.split(r"\s+", out)
         version_string = so[1] if len(so) > 1 else so[0] if len(so) > 0 else ""
         return tuple(version_string.split("."))
+
+    @cached_property
+    def version_str(self) -> str:
+        return (".").join(self.version)
 
     @cached_property
     def nproc(self) -> int:

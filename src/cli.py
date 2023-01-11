@@ -180,6 +180,13 @@ def cli(ctx: click.Context, **kwargs):
     help="""Override design attributes.""",
 )
 @click.option(
+    "--design-allow-extra/--no-design-allow-extra",
+    type=bool,
+    is_flag=True,
+    default=False,
+    help="""Allow extra properties (fields) in design description.""",
+)
+@click.option(
     "--flow-settings",
     "--settings",
     metavar="KEY=VALUE...",
@@ -222,6 +229,7 @@ def run(
     design_name: Optional[str] = None,
     design_file: Optional[str] = None,
     design_overrides: Iterable[str] = tuple(),
+    design_allow_extra: bool = False,
     log_level: Optional[int] = None,
     detailed_logs: bool = False,
     post_cleanup: bool = False,
@@ -250,6 +258,8 @@ def run(
         flow_settings=flow_settings,
         select_design_in_project=select_design_in_project,
         design_overrides=design_overrides,
+        design_allow_extra=design_allow_extra,
+        design_remove_extra=["lwc"],
     )
     if not design or not flow_class:
         if options.debug:
@@ -413,6 +423,13 @@ def list_settings(ctx: click.Context, flow):
     ),
     help="Path to Xeda design file containing the description of a single design.",
 )
+@click.option(
+    "--design-allow-extra/--no-design-allow-extra",
+    type=bool,
+    is_flag=True,
+    default=True,  # by default allow for dse
+    help="""Allow extra properties (fields) in design description.""",
+)
 @click.option("--detailed-logs/--no-detailed-logs", show_envvar=True, default=True)
 @click.option("--log-level", show_envvar=True, type=int, default=None)
 @click.option(
@@ -468,6 +485,7 @@ def dse(
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     design_file: Optional[str] = None,
+    design_allow_extra: bool = True,
     log_level: Optional[int] = None,
     detailed_logs: bool = True,
 ):
@@ -491,6 +509,8 @@ def dse(
         design_file=design_file,
         flow_settings=list(flow_settings),
         select_design_in_project=select_design_in_project,
+        design_remove_extra=["lwc"],
+        design_allow_extra=design_allow_extra,
     )
     opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)
     dse_settings_dict = settings_to_dict(dse_settings, expand_dict_keys=True)

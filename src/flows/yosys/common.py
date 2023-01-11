@@ -4,10 +4,10 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ...dataclass import Field, validator
+from ...dataclass import Field, validator, root_validator
 from ...flow import Flow
 from ...flows.ghdl import GhdlSynth
-from ...utils import try_convert
+from ...utils import try_convert, unique
 
 log = logging.getLogger(__name__)
 
@@ -44,24 +44,76 @@ class YosysBase(Flow):
         splitnets: bool = True
         splitnets_driver: bool = False
         set_attribute: Dict[str, Any] = {}
+        set_mod_attribute: Dict[str, Any] = {}
         prep: Optional[List[str]] = None
         keep_hierarchy: List[str] = []
         defines: Dict[str, Any] = {}
         black_box: List[str] = []
+        synth_flags: List[str] = []
+        abc_dff: bool = Field(True, description="Run abc/abc9 with -dff option")
+        abc_flags: List[str] = []
         top_is_vhdl: Optional[bool] = Field(
             None,
             description="set to `true` to specify top module is VHDL, or `false` to override detection based on last source.",
         )
+        netlist_verilog: Optional[Path] = Field(Path("netlist.v"), alias="netlist")
+        netlist_attrs: bool = True
+        netlist_expr: bool = False
+        netlist_dec: bool = False
+        netlist_hex: bool = False
+        netlist_blackboxes: bool = False
+        netlist_simple_lhs: bool = False
+        netlist_verilog_flags: List[str] = []
+        netlist_src_attrs: bool = True
+        netlist_unset_attributes: List[str] = []
+        netlist_json: Optional[Path] = Path("netlist.json")
 
-        @validator("verilog_lib", pre=True)
+        @validator("netlist_verilog_flags", pre=False, always=True)
+        def _validate_netlist_flags(cls, value, values):
+            if value is None:
+                value = []
+            if values.get("netlist_dec") is False:
+                value.append("-nodec")
+            if values.get("netlist_hex") is False:
+                value.append("-nohex")
+            if values.get("netlist_expr") is False:
+                value.append("-noexpr")
+            if values.get("netlist_attrs") is False:
+                value.append("-noattr")
+            if values.get("netlist_blackboxes") is True:
+                value.append("-blackboxes")
+            if values.get("netlist_simple_lhs") is True:
+                value.append("-simple-lhs")
+            return unique(value)
+
+        @validator("netlist_unset_attributes", pre=False, always=True)
+        def _validate_netlist_unset_attributes(cls, value, values):
+            if values.get("netlist_attrs") is True and values.get("netlist_src_attrs") is False:
+                value.append("src")
+            return unique(value)
+
+        @validator("verilog_lib", pre=True, always=True)
         def validate_verilog_lib(cls, value):
             if isinstance(value, str):
                 value = [value]
             value = [str(Path(v).resolve(strict=True)) for v in value]
             return value
 
-        @validator("set_attribute", pre=True, always=True)
+        @validator("set_attribute", "set_mod_attribute", pre=True, always=True)
         def validate_set_attributes(cls, value):
+            def format_attribute_value(v) -> Any:
+                if isinstance(v, str):
+                    try:
+                        return int(v)
+                    except ValueError:
+                        # String values must be passed in double quotes
+                        if v.startswith('"') and v.endswith('"'):
+                            # escape double-quotes for TCL
+                            return f"\\{v}\\"
+                        elif not v.startswith('\\"') and not v.endswith('\\"'):  # conservative
+                            return f'\\"{v}\\"'
+                return v
+
             if value:
                 if isinstance(value, (str, Path)):
                     attr_file = Path(value)
@@ -83,23 +135,13 @@ class YosysBase(Flow):
                     if isinstance(attr_val, (dict)):
                         new_dict = {}
                         for (path, v) in attr_val.items():
-                            assert path and v
+                            assert path and v is not None
                             if isinstance(path, list):
                                 path = "/".join(path)
-                            if isinstance(v, str):
-                                v1 = try_convert(v, int)
-                                if v1 is None:
-                                    v = f'"{v}"'
-                                else:
-                                    v = v1
-                            new_dict[path] = v
-                        value[attr] = {**new_dict}
-                    elif isinstance(attr_val, (str)):
-                        v1 = try_convert(attr_val, int)
-                        if v1 is None:
-                            value[attr] = f'"{attr_val}"'
-                        else:
-                            value[attr] = v1
+                            new_dict[path] = format_attribute_value(v)
+                        value[attr] = new_dict
+                    else:
+                        value[attr] = format_attribute_value(attr_val)
             return value
 
 

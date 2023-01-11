@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Un
 from urllib.parse import parse_qs, urlparse
 
 from .dataclass import (
+    model_with_allow_extra,
     Field,
     ValidationError,
     XedaBaseModel,
@@ -214,6 +215,19 @@ class DVSettings(XedaBaseModel):  # type: ignore
         has_alias=True,
     )
     defines: Dict[str, DefineType] = Field(default={})
+    attributes: Dict[str, Any] = Field(
+        {},
+        description="""
+        attributes may include HDL attributes for modules, ports, etc, but their actual meaning and behavior is decided by the specific target flow
+        In general the mapping of key->value is as follows:
+        - key: is the _name_ of the attribute
+        - value:
+            - if itself a dictionary: 
+                - the keys are scope (path) of the attribute
+                - value is the value of the attribute
+            - otherwise: its the actual value of the attribute for the top module or the whole design (as interpreted by a target flow)
+        """,
+    )
 
     # pylint: disable=no-self-argument
     @root_validator(pre=True)
@@ -254,9 +268,8 @@ class RtlSettings(DVSettings):
     )
     # preferred way to specify a design's clock ports:
     clocks: Dict[str, Clock] = {}
-
-    # short-hand alternatives for a signle clock designs:
-    clock: Optional[Clock] = None  # TODO rename to primary_clock?
+    # short-hand alternatives for a single clock designs:
+    clock: Optional[Clock] = None  # DEPRECATED # TODO remove
     clock_port: Optional[str] = None  # TODO remove?
 
     @root_validator(pre=False)
@@ -616,6 +629,8 @@ class Design(XedaBaseModel):
         design_file: Union[str, os.PathLike],
         design_root: Union[None, str, os.PathLike] = None,
         overrides: Dict[str, Any] = {},
+        allow_extra: bool = False,
+        remove_extra: List[str] = [],
     ) -> DesignType:
         """Load and validate a design description from TOML file"""
         if not isinstance(design_file, Path):
@@ -628,6 +643,11 @@ class Design(XedaBaseModel):
                 design_file.stem,
             )
             design_dict["name"] = design_file.stem
+        if allow_extra:
+            cls = model_with_allow_extra(cls)
+        else:
+            for k in remove_extra:
+                design_dict.pop(k, None)
         # Default value for design_root is the folder containing the design description file.
         if design_root is None:
             design_root = design_file.parent
