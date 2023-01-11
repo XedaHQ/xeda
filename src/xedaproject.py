@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import attrs
-from pydantic import Extra
 import yaml
 
 from .dataclass import model_with_allow_extra

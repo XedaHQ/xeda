@@ -222,7 +222,7 @@ class DVSettings(XedaBaseModel):  # type: ignore
         In general the mapping of key->value is as follows:
         - key: is the _name_ of the attribute
         - value:
-            - if itself a dictionary: 
+            - if itself a dictionary:
                 - the keys are scope (path) of the attribute
                 - value is the value of the attribute
             - otherwise: its the actual value of the attribute for the top module or the whole design (as interpreted by a target flow)

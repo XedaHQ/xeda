@@ -4,10 +4,10 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ...dataclass import Field, validator, root_validator
+from ...dataclass import Field, validator
 from ...flow import Flow
 from ...flows.ghdl import GhdlSynth
-from ...utils import try_convert, unique
+from ...utils import unique
 
 log = logging.getLogger(__name__)
 
