@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union
@@ -152,8 +153,8 @@ class Yosys(YosysBase, SynthFlow):
         insbuf: Optional[Tuple[str, str, str]] = None
         merge_libs_to: Optional[str] = None
 
-        @validator("liberty")
-        def _str_to_list(value):
+        @validator("liberty", pre=True, always=True)
+        def _str_to_list(cls, value):
             if not isinstance(value, (list, tuple)):
                 return [value]
             return value
@@ -171,6 +172,10 @@ class Yosys(YosysBase, SynthFlow):
         self.artifacts.utilization_report = (
             "utilization.json" if yosys.version_gte(0, 21) else "utilization.rpt"
         )
+        if os.path.exists(self.artifacts.utilization_report):
+            os.remove(self.artifacts.utilization_report)
+        if os.path.exists(self.artifacts.timing_report):
+            os.remove(self.artifacts.timing_report)
         if ss.rtl_json:
             self.artifacts.rtl_json = ss.rtl_json
         if ss.rtl_vhdl:

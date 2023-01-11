@@ -27,7 +27,7 @@ yosys plugin -i ghdl
 yosys ghdl {{ghdl_args|join(" ")}}
 {% endif %}
 
-{% if 'liberty' in settings %}
+{% if settings.liberty is defined %}
 {% for lib in settings.liberty %}
 read_liberty -lib {{lib}}
 {% endfor %}
