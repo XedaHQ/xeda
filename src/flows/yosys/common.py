@@ -81,7 +81,8 @@ class YosysBase(Flow):
                 for attr, attr_val in value.items():
                     assert attr
                     if isinstance(attr_val, (dict)):
-                        for (v, path) in attr_val.items():
+                        new_dict = {}
+                        for (path, v) in attr_val.items():
                             assert path and v
                             if isinstance(path, list):
                                 path = "/".join(path)
@@ -91,8 +92,14 @@ class YosysBase(Flow):
                                     v = f'"{v}"'
                                 else:
                                     v = v1
-                            attr_val[path] = v
-                        value[attr] = {**attr_val}
+                            new_dict[path] = v
+                        value[attr] = {**new_dict}
+                    elif isinstance(attr_val, (str)):
+                        v1 = try_convert(attr_val, int)
+                        if v1 is None:
+                            value[attr] = f'"{attr_val}"'
+                        else:
+                            value[attr] = v1
             return value
 
 

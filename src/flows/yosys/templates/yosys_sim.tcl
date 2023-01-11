@@ -45,8 +45,8 @@ yosys hierarchy -nodefaults -check {%- if design.tb.top %} -top {{design.tb.top}
 
 yosys check -initdrv -assert
 {% for attr, value in settings.set_attribute.items() %}
-{% if isinstance(value, dict) %}
-{% for path, v in value.items() %}
+{% if value is mapping %}
+{% for path, v in value %}
 yosys setattr -set {{attr}} {{v}} {{path}}
 {% endfor %}
 {% else %}

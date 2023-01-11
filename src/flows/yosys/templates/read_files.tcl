@@ -63,7 +63,7 @@ blackbox {{mod}}
 {% endfor %}
 
 {% for attr, value in settings.set_attribute.items() %}
-{% if isinstance(value, dict) %}
+{% if value is mapping %}
 {% for path, v in value.items() %}
 yosys setattr -set {{attr}} {{v}} {{path}}
 {% endfor %}
