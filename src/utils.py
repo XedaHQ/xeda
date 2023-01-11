@@ -52,7 +52,7 @@ __all__ = [
     "removesuffix",
     "removeprefix",
     # dict utils
-    "dict_merge",
+    "hierarchical_merge",
     "get_hierarchy",
     "set_hierarchy",
     "first_value",
@@ -193,23 +193,24 @@ def load_class(full_class_string: str, default_module_name: Optional[str] = None
     return cls
 
 
-def dict_merge(
-    base_dict: Dict[Any, Any], merge_dict: Dict[Any, Any], add_new_keys: bool = True
+def hierarchical_merge(
+    base_dict: Dict[Any, Any], overrides: Dict[Any, Any], add_new_keys: bool = True
 ) -> Dict[Any, Any]:
     """
+    Hierarchical merge of 'overrides' into 'base_dict' and return the resulting dict
     returns content of base_dict merge with content of merge_dict.
     if add_new_keys=False keys in merge_dict not existing in base_dict are ignored
     """
     rtn_dct = deepcopy(base_dict)
     if add_new_keys is False:
-        merge_dict = {key: merge_dict[key] for key in set(rtn_dct).intersection(set(merge_dict))}
+        overrides = {key: overrides[key] for key in set(rtn_dct).intersection(set(overrides))}
 
     rtn_dct.update(
         {
-            key: dict_merge(rtn_dct[key], merge_dict[key], add_new_keys=add_new_keys)
-            if isinstance(rtn_dct.get(key), dict) and isinstance(merge_dict[key], dict)
-            else merge_dict[key]
-            for key in merge_dict
+            key: hierarchical_merge(rtn_dct[key], overrides[key], add_new_keys=add_new_keys)
+            if isinstance(rtn_dct.get(key), dict) and isinstance(overrides[key], dict)
+            else overrides[key]
+            for key in overrides
         }
     )
     return rtn_dct

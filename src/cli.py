@@ -131,6 +131,7 @@ def cli(ctx: click.Context, **kwargs):
 )
 @click.option(
     "--incremental-fresh",
+    is_flag=True,
     default=False,
     help="In incremental mode, cleanup folder contents before running.",
 )
@@ -170,6 +171,13 @@ def cli(ctx: click.Context, **kwargs):
     # cls=ClickMutex,
     # mutually_exclusive_with=["xedaproject"],
     help="Path to Xeda design file containing the description of a single design.",
+)
+@click.option(
+    "--design-overrides",
+    metavar="KEY=VALUE...",
+    type=tuple,
+    cls=OptionEatAll,
+    help="""Override design attributes.""",
 )
 @click.option(
     "--flow-settings",
@@ -213,6 +221,7 @@ def run(
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     design_file: Optional[str] = None,
+    design_overrides: Iterable[str] = tuple(),
     log_level: Optional[int] = None,
     detailed_logs: bool = False,
     post_cleanup: bool = False,
@@ -229,9 +238,7 @@ def run(
         log_level = (
             logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
         )
-    setup_logger(log_level, detailed_logs, xeda_run_dir / "Logs" if detailed_logs else None)
-    if isinstance(flow_settings, str):
-        flow_settings = flow_settings.split(",")
+    setup_logger(log_level, detailed_logs, (xeda_run_dir / "Logs") if detailed_logs else None)
     if flow_settings is not None:
         flow_settings = list(flow_settings)
 
@@ -242,8 +249,11 @@ def run(
         design_file=design_file,
         flow_settings=flow_settings,
         select_design_in_project=select_design_in_project,
+        design_overrides=design_overrides,
     )
     if not design or not flow_class:
+        if options.debug:
+            raise ValueError(f"design={design} flow_ckass={flow_class}")
         sys.exit(1)
     try:
         launcher = DefaultRunner(
@@ -263,9 +273,13 @@ def run(
             flow,
             " ".join(str(a) for a in e.args),
         )
+        if options.debug:
+            raise e
         sys.exit(1)
     except NonZeroExitCode as e:
         log.critical("Flow %s failed: NonZeroExitCode %s", flow, " ".join(str(a) for a in e.args))
+        if options.debug:
+            raise e
         sys.exit(1)
     except ExecutableNotFound as e:
         log.critical(
@@ -279,12 +293,12 @@ def run(
     except FlowSettingsError as e:
         log.critical("%s", e)
         if options.debug:
-            raise e from None
+            raise e
         sys.exit(1)
     except FlowException as e:  # any flow exception
         log.critical("%s", e)
         if options.debug:
-            raise e from None
+            raise e
         sys.exit(1)
 
 

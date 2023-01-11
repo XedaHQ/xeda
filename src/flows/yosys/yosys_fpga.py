@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import List, Literal, Optional, Union
 
 from ...dataclass import Field
 from ...design import SourceType
@@ -40,15 +40,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         )
         synth_flags: List[str] = []
         abc_flags: List[str] = []
-        rtl_verilog: Optional[str] = None  # "rtl.v"
-        rtl_vhdl: Optional[str] = None  # "rtl.vhdl"
-        rtl_json: Optional[str] = None  # "rtl.json"
-        show_rtl: bool = False
-        show_rtl_flags: List[str] = [
-            "-stretch",
-            "-enum",
-            "-width",
-        ]
         show_netlist: bool = False
         show_netlist_flags: List[str] = ["-stretch", "-enum"]
         post_synth_opt: bool = Field(
@@ -59,19 +50,12 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             "area", description="Optimization target"
         )
         stop_after: Optional[Literal["rtl"]]
-        defines: Dict[str, Any] = {}
-        keep_hierarchy: List[str] = []
         black_box: List[str] = []
         adder_map: Optional[str] = None
         clockgate_map: Optional[str] = None
         other_maps: List[str] = []
         abc_constr: List[str] = []
         abc_script: Union[None, Path, List[str]] = None
-        insbuf: Optional[Tuple[str, str, str]] = None
-        top_is_vhdl: Optional[bool] = Field(
-            None,
-            description="set to `true` to specify top module is VHDL, or `false` to override detection based on last source.",
-        )
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)

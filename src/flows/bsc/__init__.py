@@ -109,6 +109,7 @@ class Bsc(Flow):
             None, description="Generate gtkwave translation filters for Bluespec types."
         )
         docker: Optional[Docker] = Docker(image="bsc")  # pyright: ignore
+        incremental: bool = Field(False, description="Only compile modified packages.")
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         super().__init__(settings, design, run_path)
@@ -318,7 +319,7 @@ class Bsc(Flow):
         assert self.design.rtl.top, "design.rtl.top must be specified"
         vloggen_flags += ["-g", self.design.rtl.top]
 
-        if self.incremental:
+        if self.incremental and self.settings.incremental:
             src_ir_paths = []
             for src in bluespec_sources[:-1]:
                 dirname = src.path.parent

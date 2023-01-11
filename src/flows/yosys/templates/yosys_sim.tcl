@@ -44,11 +44,15 @@ yosys read_verilog -lib {{src}}
 yosys hierarchy -nodefaults -check {%- if design.tb.top %} -top {{design.tb.top}} {%- else %} -auto-top {%- endif %}
 
 yosys check -initdrv -assert
-{%- for attr,attr_dict in settings.set_attributes.items() %}
-    {%- for path,value in attr_dict.items() %}
-    yosys setattr -set {{attr}} {{value}} {{path}}
-    {%- endfor %}
-{%- endfor %}
+{% for attr, value in settings.set_attribute.items() %}
+{% if isinstance(value, dict) %}
+{% for path, v in value.items() %}
+yosys setattr -set {{attr}} {{v}} {{path}}
+{% endfor %}
+{% else %}
+yosys setattr -set {{attr}} {{value}}
+{% endif %}
+{% endfor %}
 
 {%- if settings.prep is not none %}
     yosys prep {%- if settings.flatten %} -flatten {%- endif %} {{settings.prep|join(" ")}}

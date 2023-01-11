@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any, Type, TypeVar, Union
+from typing import Any, Dict, Type, TypeVar, Union
 
 from importlib_resources import as_file, files
 
@@ -45,7 +45,7 @@ class Platform(XedaBaseModel):
                 return rd / v
             return v
 
-        def convert_rec(kv: dict[str, Any], exclude_keys=[]):
+        def convert_rec(kv: Dict[str, Any], exclude_keys=[]):
             for k, v in kv.items():
                 if k in exclude_keys:
                     continue

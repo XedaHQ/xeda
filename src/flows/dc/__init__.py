@@ -7,7 +7,7 @@ from typing import Any, Dict, Mapping
 from box import Box
 
 from ...tool import Tool
-from ...utils import dict_merge, toml_load, try_convert_to_primitives
+from ...utils import hierarchical_merge, toml_load, try_convert_to_primitives
 from ...flow import AsicSynthFlow
 
 log = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class Dc(AsicSynthFlow):
         adk_root = Path.home() / "adk"
         adk_config: Dict[str, Any] = {}
         for toml_file in adk_root.glob("*.toml"):
-            adk_config = dict_merge(adk_config, toml_load(toml_file), add_new_keys=True)
+            adk_config = hierarchical_merge(adk_config, toml_load(toml_file), add_new_keys=True)
 
         adk = get_hier(adk_config, adk_id)
         assert adk is not None

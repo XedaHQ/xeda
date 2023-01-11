@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from ...dataclass import Field, validator
 from ...flow import Flow
 from ...flows.ghdl import GhdlSynth
+from ...utils import try_convert
 
 log = logging.getLogger(__name__)
 
@@ -42,8 +43,15 @@ class YosysBase(Flow):
         verilog_lib: List[str] = []
         splitnets: bool = True
         splitnets_driver: bool = False
-        set_attributes: Dict[str, Dict[str, Any]] = {}
+        set_attribute: Dict[str, Any] = {}
         prep: Optional[List[str]] = None
+        keep_hierarchy: List[str] = []
+        defines: Dict[str, Any] = {}
+        black_box: List[str] = []
+        top_is_vhdl: Optional[bool] = Field(
+            None,
+            description="set to `true` to specify top module is VHDL, or `false` to override detection based on last source.",
+        )
 
         @validator("verilog_lib", pre=True)
         def validate_verilog_lib(cls, value):
@@ -52,12 +60,12 @@ class YosysBase(Flow):
             value = [str(Path(v).resolve(strict=True)) for v in value]
             return value
 
-        @validator("set_attributes", pre=True, always=True)
+        @validator("set_attribute", pre=True, always=True)
         def validate_set_attributes(cls, value):
             if value:
-                if isinstance(value, str):
-                    if value.endswith(".json"):
-                        attr_file = Path(value)
+                if isinstance(value, (str, Path)):
+                    attr_file = Path(value)
+                    if attr_file.suffix.endswith(".json"):
                         try:
                             log.info("Parsing %s as JSON file", attr_file)
                             with open(attr_file) as f:
@@ -70,17 +78,21 @@ class YosysBase(Flow):
                             raise ValueError(f"JSON TypeError: {e.args}") from e
                     else:
                         raise ValueError(f"Unsupported extension for JSON file: {value}")
-                for attr, attr_dict in value.items():
+                for attr, attr_val in value.items():
                     assert attr
-                    assert attr_dict, "attr_dict must be a non-empty Dict[str, Any]"
-                    for (path, v) in attr_dict.items():
-                        assert path and v
-                        if isinstance(path, list):
-                            path = "/".join(path)
-                        if isinstance(v, str):
-                            v = f'"{v}"'
-                        attr_dict[path] = v
-                    value[attr] = dict(attr_dict)
+                    if isinstance(attr_val, (dict)):
+                        for (v, path) in attr_val.items():
+                            assert path and v
+                            if isinstance(path, list):
+                                path = "/".join(path)
+                            if isinstance(v, str):
+                                v1 = try_convert(v, int)
+                                if v1 is None:
+                                    v = f'"{v}"'
+                                else:
+                                    v = v1
+                            attr_val[path] = v
+                        value[attr] = {**attr_val}
             return value
 
 

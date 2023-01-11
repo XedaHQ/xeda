@@ -10,7 +10,7 @@ import attrs
 import yaml
 
 from .design import Design
-from .utils import WorkingDirectory, tomllib
+from .utils import WorkingDirectory, hierarchical_merge, tomllib
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +23,9 @@ class XedaProject:
     flows: Dict[str, dict]  # = attrs.field(default={}, validator=type_validator())
 
     @classmethod
-    def from_file(cls, file: Union[str, os.PathLike, Path], skip_designs: bool = False):
+    def from_file(
+        cls, file: Union[str, os.PathLike, Path], skip_designs: bool = False, design_overrides={}
+    ):
         """load xedaproject from file"""
         if not isinstance(file, Path):
             file = Path(file)
@@ -53,7 +55,11 @@ class XedaProject:
         with WorkingDirectory(file.parent):
             try:
                 return cls(  # type: ignore
-                    designs=[Design(**d) for d in designs if isinstance(d, dict)]
+                    designs=[
+                        Design(**hierarchical_merge(d, design_overrides))
+                        for d in designs
+                        if isinstance(d, dict)
+                    ]
                     if designs
                     else [],
                     flows=flows,

@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Un
 from urllib.parse import parse_qs, urlparse
 
 from .dataclass import (
-    Extra,
     Field,
     ValidationError,
     XedaBaseModel,
@@ -19,7 +18,7 @@ from .dataclass import (
     validation_errors,
     validator,
 )
-from .utils import WorkingDirectory, toml_load
+from .utils import WorkingDirectory, hierarchical_merge, toml_load
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +100,7 @@ class FileResource:
             self.file = path.resolve(strict=True) if resolve else path.absolute()
         except FileNotFoundError as e:
             log.error("Design resource '%s' does not exist!", path)
-            raise e from None
+            raise e
 
     @property
     def path(self) -> Path:
@@ -238,9 +237,7 @@ class DVSettings(XedaBaseModel):  # type: ignore
                 try:
                     src = DesignSource(src)
                 except FileNotFoundError as e:
-                    raise ValueError(
-                        f"Source file: {src} was not found: {e.strerror} {e.filename}"
-                    ) from None
+                    raise ValueError(f"Source file: {src} was not found: {e.strerror} {e.filename}")
             ds.append(src)
         return ds
 
@@ -509,22 +506,31 @@ class Design(XedaBaseModel):
     description: Optional[str] = Field(None, description="A brief description of the design.")
     authors: List[str] = Field(
         [],
+        alias="author",
         description="""List of authors/developers in "Name <email>" format ('mailbox' format, RFC 5322), e.g. ["Jane Doe <jane@example.com>", "John Doe <john@example.com>"]""",
     )
     dependencies: List[DesignReference] = []
     rtl: RtlSettings
     tb: TbSettings = TbSettings()  # type: ignore
     language: Language = Language()
-    _design_root: Optional[Path] = None
+    flow: Dict[str, Dict[str, Any]] = Field(
+        dict(),
+        alias="flows",
+        description="Design-specific flow settings. The keys are the name of the flow and values are design-specific overrides for that flow.",
+    )
+    design_root: Optional[Path] = None
 
     @validator("dependencies", pre=True, always=True)
-    def validate_dependencies_from_str(cls, value):
+    def _dependencies_from_str(cls, value):
         if value and isinstance(value, list):
             value = [DesignReference.from_data(v) for v in value]
         return value
 
-    class Config(XedaBaseModel.Config):
-        extra = Extra.allow
+    @validator("authors", pre=True, always=True)
+    def _authors_from_str(cls, value):
+        if isinstance(value, str):
+            return [value]
+        return value
 
     def __init__(
         self,
@@ -532,20 +538,20 @@ class Design(XedaBaseModel):
         **data: Any,
     ) -> None:
         if not design_root:
-            design_root = data.get("_design_root", Path.cwd())
+            design_root = data.pop("design_root", Path.cwd())
         assert design_root
         if not isinstance(design_root, Path):
             design_root = Path(design_root)
         design_root = design_root.resolve()
-        if not data.get("_design_root"):
-            data["_design_root"] = design_root
+        if not data.get("design_root"):
+            data["design_root"] = design_root
         with WorkingDirectory(design_root):
             try:
                 super().__init__(**data)
             except ValidationError as e:
                 raise DesignValidationError(
                     validation_errors(e.errors()), data=data, design_root=design_root  # type: ignore
-                ) from None
+                )
 
             for dep in self.dependencies:
                 dep_design = dep.fetch_design()
@@ -601,19 +607,21 @@ class Design(XedaBaseModel):
 
     @property
     def root_path(self) -> Path:
-        assert self._design_root, "design_root is not set!"
-        return self._design_root
+        assert self.design_root, "design_root is not set!"
+        return self.design_root
 
     @classmethod
     def from_toml(
         cls: Type[DesignType],
         design_file: Union[str, os.PathLike],
         design_root: Union[None, str, os.PathLike] = None,
+        overrides: Dict[str, Any] = {},
     ) -> DesignType:
         """Load and validate a design description from TOML file"""
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
         design_dict = toml_load(design_file)
+        design_dict = hierarchical_merge(design_dict, overrides)
         if "name" not in design_dict:
             log.warning(
                 "'design.name' not specified! Inferring design name %s from design filename.",
@@ -632,10 +640,10 @@ class Design(XedaBaseModel):
                 design_root=e.design_root,
                 design_name=e.design_name,
                 file=str(design_file.absolute()),
-            ) from None
+            )
         except Exception as e:
             log.error("Error processing design file: %s", design_file.absolute())
-            raise e from None
+            raise e
 
     @cached_property
     def rtl_fingerprint(self) -> Dict[str, Dict[str, str]]:

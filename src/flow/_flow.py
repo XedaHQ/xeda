@@ -193,7 +193,7 @@ class Flow(metaclass=ABCMeta):
 
     @property
     def design_root(self):
-        return self.design._design_root
+        return self.design.design_root
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         self.run_path = run_path
@@ -346,8 +346,8 @@ class Flow(metaclass=ABCMeta):
     def normalize_path_to_design_root(self, path: Union[str, os.PathLike, Path]) -> Path:
         if not isinstance(path, Path):
             path = Path(path)
-        if self.design._design_root and not path.is_absolute():
-            path = self.design._design_root / path
+        if self.design.design_root and not path.is_absolute():
+            path = self.design.design_root / path
         return path
 
 

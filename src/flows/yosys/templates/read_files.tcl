@@ -33,12 +33,12 @@ read_liberty -lib {{lib}}
 {% endfor %}
 {% endif %}
 
-{% for key, value in parameters.items() %}
-chparam -set {{key}} {{value}} {% if design.rtl.top %} {{design.rtl.top}} {% endif %}
-{% endfor %}
-
 {% for src in settings.verilog_lib %}
 read_verilog -lib {{src}}
+{% endfor %}
+
+{% for key, value in parameters.items() %}
+chparam -set {{key}} {{value}} {% if design.rtl.top %} {{design.rtl.top}} {% endif %}
 {% endfor %}
 
 {% if settings.clockgate_map %}
@@ -46,7 +46,6 @@ read_verilog -defer {{settings.clockgate_map}}
 {% endif %}
 
 {% if sv_files %}
-## ???
 read_systemverilog -link
 {% endif %}
 
@@ -63,10 +62,14 @@ puts "Converting module {{mod}} into blackbox"
 blackbox {{mod}}
 {% endfor %}
 
-{% for attr,attr_dict in settings.set_attributes.items() %}
-{% for path,value in attr_dict.items() %}
-yosys setattr -set {{attr}} {{value}} {{path}}
+{% for attr, value in settings.set_attribute.items() %}
+{% if isinstance(value, dict) %}
+{% for path, v in value.items() %}
+yosys setattr -set {{attr}} {{v}} {{path}}
 {% endfor %}
+{% else %}
+yosys setattr -set {{attr}} {{value}}
+{% endif %}
 {% endfor %}
 
 check -initdrv -assert

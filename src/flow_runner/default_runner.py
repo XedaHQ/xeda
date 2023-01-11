@@ -458,7 +458,7 @@ class FlowLauncher:
                 except Exception as e:  # pylint: disable=broad-except
                     log.critical("parse_reports threw an exception: %s", e)
                     if success:  # if so far so good this is a bug!
-                        raise e from None
+                        raise e
                 if not success:
                     log.warning("Failure was reported in the parsed results.")
                 flow.results.success = success
@@ -615,16 +615,24 @@ def prepare(
     design_file: Union[None, str, os.PathLike] = None,
     flow_settings: Union[List[str], None] = None,
     select_design_in_project=None,
+    design_overrides: Union[None, Iterable[str], Dict[str, Any]] = None,
 ) -> Tuple[Optional[Design], Optional[Type[Flow]], Dict[str, Any]]:
     # get default flow configs from xedaproject even if a design-file is specified
     xeda_project = None
     flows_settings: Dict[str, Any] = {}
     design: Optional[Design] = None
+    if not design_overrides:
+        design_overrides = {}
+    if not isinstance(design_overrides, dict):
+        design_overrides = list(design_overrides)
+        design_overrides = settings_to_dict(design_overrides)
     if not xedaproject:
         xedaproject = "xedaproject.toml"
     if Path(xedaproject).exists():
         try:
-            xeda_project = XedaProject.from_file(xedaproject, skip_designs=design_file is not None)
+            xeda_project = XedaProject.from_file(
+                xedaproject, skip_designs=design_file is not None, design_overrides=design_overrides
+            )
         except DesignValidationError as e:
             log.critical("%s", e)
             return None, None, flows_settings
@@ -636,12 +644,12 @@ def prepare(
         flows_settings = xeda_project.flows
     if design_file:
         try:
-            design = Design.from_toml(design_file)
+            design = Design.from_toml(design_file, overrides=design_overrides)
             dd = asdict(design)
             flows_settings = {
                 **flows_settings,
                 **dd.get("flows", {}),
-                **dd.get("flow", {}),
+                **design.flow,
             }
         except DesignValidationError as e:
             log.critical("%s", e)
