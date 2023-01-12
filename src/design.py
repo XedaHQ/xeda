@@ -229,7 +229,6 @@ class DVSettings(XedaBaseModel):  # type: ignore
         """,
     )
 
-    # pylint: disable=no-self-argument
     @root_validator(pre=True)
     def the_root_validator(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         value = values.get("parameters")
