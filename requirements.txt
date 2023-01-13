@@ -29,7 +29,7 @@ executing==1.2.0
     # via
     #   -r requirements.txt
     #   varname
-future==0.18.2
+future==0.18.3
     # via
     #   -r requirements.txt
     #   junitparser
