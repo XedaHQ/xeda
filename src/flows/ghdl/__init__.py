@@ -432,13 +432,12 @@ class GhdlSim(Ghdl, SimFlow):
         run_flags.extend(ss.generics_flags(design.tb.generics))
 
         design.tb.top = self.elaborate(design.sim_sources, design.tb.top, design.language.vhdl)
-        assert self.cocotb
         self.ghdl.run(
             "run",
             *cf,
             *design.sim_tops,
             *run_flags,
-            env=self.cocotb.env(design),
+            env=self.cocotb.env(design) if self.cocotb else {},
         )
 
     def parse_reports(self) -> bool:

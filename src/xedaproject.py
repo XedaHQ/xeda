@@ -18,10 +18,12 @@ log = logging.getLogger(__name__)
 
 @attrs.define
 class XedaProject:
+    # TODO: workspace options
+    workspace: Dict[str, Any] = {}
     # validate to concrete Designs to verify the whole xedaproject
-    designs: List[Design]
+    designs: List[Design] = []
     # keep raw dict as flows are dynamically discovered
-    flows: Dict[str, dict]  # = attrs.field(default={}, validator=type_validator())
+    flows: Dict[str, dict] = {}  # = attrs.field(default={}, validator=type_validator())
 
     @classmethod
     def from_file(
