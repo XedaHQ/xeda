@@ -64,19 +64,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-docs = [
-    "sphinx",
-    "sphinx-tabs",
-    "sphinx-jinja",
-    "sphinxcontrib.bibtex",
-    "sphinx_panels",
-    "sphinxext.rediraffe",
-    "sphinxcontrib.mermaid",
-    "sphinxext.opengraph",
-    "autodoc_pydantic",
-    "sphinx_book_theme",
-    "myst-parser",
-]
+# docs = [
+#     "sphinx",
+#     "sphinx-tabs",
+#     "sphinx-jinja",
+#     "sphinxcontrib.bibtex",
+#     "sphinx_panels",
+#     "sphinxext.rediraffe",
+#     "sphinxcontrib.mermaid",
+#     "sphinxext.opengraph",
+#     "autodoc_pydantic",
+#     "sphinx_book_theme",
+#     "myst-parser",
+# ]
 dev = ["pytest", "mypy", "black", "flakeheaven", "tox"]
 tests = ["pytest", "mypy"]
 

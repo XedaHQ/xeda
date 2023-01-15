@@ -33,7 +33,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..console import console
-from ..dataclass import XedaBaseModel, asdict, define
+from ..dataclass import XedaBaseModel, asdict
 from ..design import Design, DesignValidationError, FileResource
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
@@ -562,8 +562,7 @@ def add_file_logger(logdir: Path, timestamp: Union[None, str, datetime] = None):
     log.root.addHandler(fileHandler)
 
 
-@define
-class XedaOptions:
+class XedaOptions(XedaBaseModel):
     verbose: bool = False
     quiet: bool = False
     debug: bool = False
