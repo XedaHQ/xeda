@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 
 import logging
-import types
 from abc import ABCMeta
 from functools import cached_property
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
@@ -24,7 +23,6 @@ from pydantic import (
 __all__ = [
     "XedaBaseModel",
     "XedaBaseModelAllowExtra",
-    "xeda_model",  # decorator
     "Field",
     "validator",
     "root_validator",
@@ -110,35 +108,3 @@ def validation_errors(
         )
         for e in errors
     ]
-
-
-_T = TypeVar("_T", bound=object)
-
-
-# FIXME: experimental/broken! Do not use!
-def xeda_model(maybe_class: Optional[Type[_T]] = None, /, *, allow_extra: bool = False):
-    """decorator replacement for dataclasses"""
-    # This is a WIP
-    # FIXME: does not work with classes with inheritance
-
-    def wrap(clz: Type[_T]) -> Type[_T]:
-
-        return attrs.define(slots=False)(clz)
-        base_model = BaseModel
-        # : Type[BaseModel] =
-        # (
-        # XedaBaseModeAllowExtra if allow_extra else XedaBaseModel
-        # )
-        self_name = clz.__name__
-        # bases = (clz,) if issubclass(clz, base_model) else (clz, base_model)
-        bases = () if issubclass(clz, base_model) else (base_model,)
-        # fields = {}
-        # kwds = copy(dict(clz.__dict__))
-        kwds = {"designs": list, "flows": list}
-        eclz = types.new_class(self_name, bases, kwds)  # , dict(clz.__dict__))
-
-        # setattr(eclz, "__init__", init)
-
-        return eclz
-
-    return wrap if maybe_class is None else wrap(maybe_class)  # type: ignore
