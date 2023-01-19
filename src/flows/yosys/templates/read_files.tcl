@@ -50,34 +50,20 @@ yosys read_systemverilog -link
 
 yosys hierarchy -check {% if design.rtl.top %} -top {{design.rtl.top}} {% else %} -auto-top {% endif %}
 
-{% for mod in settings.keep_hierarchy %}
-yosys select -module {{mod}}
-yosys setattr -mod -set keep_hierarchy 1
-yosys select -clear
-{% endfor %}
-
 {% for mod in settings.black_box %}
 puts "Converting module {{mod}} into blackbox"
 yosys blackbox {{mod}}
 {% endfor %}
 
 {% for attr, value in settings.set_attribute.items() %}
-{% if value is mapping %}
 {% for path, v in value.items() %}
 yosys setattr -set {{attr}} {{v}} {{path}}
 {% endfor %}
-{% else %}
-yosys setattr -set {{attr}} {{value}}
-{% endif %}
 {% endfor %}
 {% for attr, value in settings.set_mod_attribute.items() %}
-{% if value is mapping %}
 {% for path, v in value.items() %}
 yosys setattr -mod -set {{attr}} {{v}} {{path}}
 {% endfor %}
-{% else %}
-yosys setattr -mod -set {{attr}} {{value}}
-{% endif %}
 {% endfor %}
 
 yosys check -initdrv -assert

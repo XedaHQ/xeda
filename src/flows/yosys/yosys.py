@@ -6,11 +6,8 @@ from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
-from ...design import SourceType
 from ...flow import SynthFlow
-from ...tool import Docker, Tool
 from ..ghdl import GhdlSynth
-from ...utils import hierarchical_merge
 from .common import YosysBase, append_flag, process_parameters
 
 log = logging.getLogger(__name__)
@@ -132,8 +129,6 @@ class Yosys(YosysBase, SynthFlow):
             False,
             description="Run a simple static timing analysis (requires `flatten`)",
         )
-        show_netlist: bool = False
-        show_netlist_flags: List[str] = ["-stretch", "-enum"]
         post_synth_opt: bool = Field(
             True,
             description="run additional optimization steps after synthesis if complete",
@@ -161,27 +156,12 @@ class Yosys(YosysBase, SynthFlow):
         assert isinstance(self.settings, self.Settings)
         # TODO factor out common code
         ss = self.settings
-        yosys = Tool(
-            executable="yosys",
-            docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
-            minimum_version=(0, 21),
-        )
         self.artifacts.timing_report = "timing.rpt"
         self.artifacts.utilization_report = "utilization.json"
         if os.path.exists(self.artifacts.utilization_report):
             os.remove(self.artifacts.utilization_report)
         if os.path.exists(self.artifacts.timing_report):
             os.remove(self.artifacts.timing_report)
-        if ss.rtl_json:
-            self.artifacts.rtl_json = ss.rtl_json
-        if ss.rtl_vhdl:
-            self.artifacts.rtl_vhdl = ss.rtl_vhdl
-        if ss.rtl_verilog:
-            self.artifacts.rtl_verilog = ss.rtl_verilog
-        if not ss.stop_after:  # FIXME
-            self.artifacts.netlist_verilog = ss.netlist_verilog
-            self.artifacts.netlist_json = ss.netlist_json
-        ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)
 
         if ss.sta:
             ss.flatten = True
@@ -224,11 +204,6 @@ class Yosys(YosysBase, SynthFlow):
                     f.write("\n".join(ss.abc_script) + "\n")
             else:
                 abc_script_file = str(ss.abc_script)
-        if ss.top_is_vhdl is True or (
-            ss.top_is_vhdl is None and self.design.rtl.sources[-1].type is SourceType.Vhdl
-        ):
-            # generics were already handled by GHDL and the synthesized design is no longer parametric
-            self.design.rtl.parameters = {}
 
         script_path = self.copy_from_template(
             "yosys_synth.tcl",
@@ -243,14 +218,13 @@ class Yosys(YosysBase, SynthFlow):
         log.info("Yosys script: %s", script_path.absolute())
         args = ["-c", script_path]
         if ss.log_file:
+            log.info("Logging yosys output to %s", ss.log_file)
             args.extend(["-L", ss.log_file])
-        if not ss.verbose:  # reduce noise unless verbose
+        if ss.log_file and not ss.verbose:  # reduce noise when have log_file, unless verbose
             args.extend(["-T", "-Q"])
             if not ss.debug and not ss.verbose:
                 args.append("-q")
-        self.results["_tool"] = yosys.info  # TODO where should this go?
-        log.info("Logging yosys output to %s", ss.log_file)
-        yosys.run(*args)
+        self.yosys.run(*args)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
@@ -266,13 +240,9 @@ class Yosys(YosysBase, SynthFlow):
                 self.results["_module_utilization"] = mod_util
             design_util = utilization.get("design")
             if design_util:
-                num_cells_by_type = design_util.get("num_cells_by_type")
-                if num_cells_by_type:
-                    design_util = {
-                        **{k: v for k, v in design_util.items() if k != "num_cells_by_type"},
-                        **num_cells_by_type,
-                    }
-                self.results["design_utilization"] = design_util
+                num_cells_by_type = design_util.get("num_cells_by_type", {})
+                self.results = self.Results(**{**self.results, **num_cells_by_type})
+                self.results["_design_utilization"] = design_util
 
         except json.decoder.JSONDecodeError as e:
             log.error("Failed to decode JSON %s: %s", self.artifacts.utilization_report, e)

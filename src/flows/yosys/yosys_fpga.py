@@ -4,10 +4,8 @@ from pathlib import Path
 from typing import List, Literal, Optional, Union
 
 from ...dataclass import Field
-from ...design import SourceType
 from ...flow import FpgaSynthFlow
 from ...flows.ghdl import GhdlSynth
-from ...tool import Docker, Tool
 from .common import YosysBase, append_flag, process_parameters
 
 log = logging.getLogger(__name__)
@@ -40,8 +38,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         )
         synth_flags: List[str] = []
         abc_flags: List[str] = []
-        show_netlist: bool = False
-        show_netlist_flags: List[str] = ["-stretch", "-enum"]
         post_synth_opt: bool = Field(
             True,
             description="run additional optimization steps after synthesis if complete",
@@ -60,33 +56,13 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        yosys = Tool(
-            executable="yosys",
-            docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
-        )
         yosys_family_name = {"artix-7": "xc7"}
         if ss.fpga:
             assert ss.fpga.family or ss.fpga.vendor == "xilinx"
             if ss.fpga.vendor == "xilinx" and ss.fpga.family:
                 ss.fpga.family = yosys_family_name.get(ss.fpga.family, "xc7")
         self.artifacts.timing_report = "timing.rpt"
-        self.artifacts.utilization_report = (
-            "utilization.json" if yosys.version_gte(0, 21) else "utilization.rpt"
-        )
-        if ss.rtl_json:
-            self.artifacts.rtl_json = ss.rtl_json
-        if ss.rtl_vhdl:
-            self.artifacts.rtl_vhdl = ss.rtl_vhdl
-        if ss.rtl_verilog:
-            self.artifacts.rtl_verilog = ss.rtl_verilog
-        if not ss.stop_after:  # FIXME
-            self.artifacts.netlist_verilog = ss.netlist_verilog
-            self.artifacts.netlist_json = ss.netlist_json
-
-        if ss.sta:
-            ss.flatten = True
-        if ss.flatten:
-            append_flag(ss.synth_flags, "-flatten")
+        self.artifacts.utilization_report = "utilization.json"
 
         # add FPGA-specific synth_xx flags
         if ss.abc9:  # ABC9 is for only FPGAs?
@@ -119,11 +95,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                     f.write("\n".join(ss.abc_script) + "\n")
             else:
                 abc_script_file = str(ss.abc_script)
-        if ss.top_is_vhdl is True or (
-            ss.top_is_vhdl is None and self.design.rtl.sources[-1].type is SourceType.Vhdl
-        ):
-            # generics were already handled by GHDL and the synthesized design is no longer parametric
-            self.design.rtl.parameters = {}
 
         script_path = self.copy_from_template(
             "yosys_fpga_synth.tcl",
@@ -138,14 +109,13 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         log.info("Yosys script: %s", script_path.absolute())
         args = ["-c", script_path]
         if ss.log_file:
+            log.info("Logging yosys output to %s", ss.log_file)
             args.extend(["-L", ss.log_file])
-        if not ss.verbose:  # reduce noise unless verbose
+        if ss.log_file and not ss.verbose:  # reduce noise when have log_file, unless verbose
             args.extend(["-T", "-Q"])
             if not ss.debug and not ss.verbose:
                 args.append("-q")
-        self.results["_tool"] = yosys.info  # TODO where should this go?
-        log.info("Logging yosys output to %s", ss.log_file)
-        yosys.run(*args)
+        self.yosys.run(*args)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)

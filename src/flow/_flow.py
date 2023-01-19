@@ -101,16 +101,24 @@ class Flow(metaclass=ABCMeta):
             [],
             description="Additional libraries specified as a list of (name, path) tuples. Either name or path can be none. A single string or a list of string is converted to a mapping of library names without paths",
         )
+        docker: Optional[str] = Field(
+            None,
+            description="Use this docker image to run the tools, overriding flow's default pick.",
+        )
         dockerized: bool = Field(False, description="Run tools from docker")
         print_commands: bool = Field(True, description="Print executed commands")
 
-        @validator("lib_paths", pre=True)
-        def _lib_paths_validator(cls, value):  # pylint: disable=no-self-argument
+        @validator("lib_paths", pre=True, always=True)
+        def _lib_paths_validator(cls, value):
             if isinstance(value, str):
                 value = [(value, None)]
             elif isinstance(value, (list, tuple)):
                 value = [(x, None) if isinstance(x, str) else x for x in value]
             return value
+
+        @validator("dockerized", pre=False, always=True)
+        def _set_dockerized(cls, value, values):
+            return values.get("docker") or value
 
         def __init__(self, **data: Any) -> None:
             try:
@@ -218,6 +226,7 @@ class Flow(metaclass=ABCMeta):
             # "Time of the execution of run() in fractional seconds.
             # Initialized with None and set only after execution has finished."
             runtime=None,
+            tools=[],
             artifacts={},
         )
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])

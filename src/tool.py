@@ -62,12 +62,12 @@ OptionalBoolOrPath = Union[None, bool, str, os.PathLike]
 
 
 class Docker(XedaBaseModel):
+    image: str = Field(description="Docker image name")
     command: List[str] = []
     platform: Optional[str] = Field(
         None,
         description="Set platform (e.g. 'linux/amd64'), if server is multi-platform capable",
     )
-    image: str = Field(description="Docker image name")
     tag: Optional[str] = Field("latest", description="Docker image tag")
     registry: Optional[str] = Field(None, description="Docker image registry")
     privileged: bool = True
@@ -316,6 +316,9 @@ class Tool(XedaBaseModel):
         if flow is not None:
             self.design_root = flow.design_root
             self.dockerized = flow.settings.dockerized
+            if flow.settings.docker:
+                self.docker = Docker(image=flow.settings.docker)
+                self.dockerized = True
             self.print_command = flow.settings.print_commands
         if self.design_root and self.docker:
             self.docker.mounts[str(self.design_root)] = str(self.design_root)
@@ -328,6 +331,9 @@ class Tool(XedaBaseModel):
                 self.version_str,
             )
             raise ToolException("Minimum version not met")
+        if flow is not None:
+            if self.info not in flow.results.tools:
+                flow.results.tools.append(self.info)
 
     @validator("docker", pre=True, always=True)
     def validate_docker(cls, value, values):

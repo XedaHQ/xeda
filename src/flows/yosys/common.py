@@ -1,13 +1,16 @@
 import json
 import logging
 import re
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ...dataclass import Field, validator
+from ...design import SourceType
 from ...flow import Flow
 from ...flows.ghdl import GhdlSynth
-from ...utils import unique
+from ...tool import Docker, Tool
+from ...utils import hierarchical_merge, unique
 
 log = logging.getLogger(__name__)
 
@@ -30,9 +33,9 @@ class YosysBase(Flow):
         ]
         read_systemverilog_flags: List[str] = []
         check_assert: bool = True
-        rtl_verilog: Optional[str] = None  # "rtl.v"
-        rtl_vhdl: Optional[str] = None  # "rtl.vhdl"
-        rtl_json: Optional[str] = None  # "rtl.json"
+        rtl_verilog: Optional[Path] = None  # "rtl.v"
+        rtl_vhdl: Optional[Path] = None  # "rtl.vhdl"
+        rtl_json: Optional[Path] = None  # "rtl.json"
         show_rtl: bool = False
         show_rtl_flags: List[str] = [
             "-stretch",
@@ -43,8 +46,8 @@ class YosysBase(Flow):
         verilog_lib: List[str] = []
         splitnets: bool = True
         splitnets_driver: bool = False
-        set_attribute: Dict[str, Any] = {}
-        set_mod_attribute: Dict[str, Any] = {}
+        set_attribute: Dict[str, Dict[str, Any]] = {}  # attr -> (path -> value)
+        set_mod_attribute: Dict[str, Dict[str, Any]] = {}  # attr -> (path -> value)
         prep: Optional[List[str]] = None
         keep_hierarchy: List[str] = []
         defines: Dict[str, Any] = {}
@@ -67,6 +70,8 @@ class YosysBase(Flow):
         netlist_src_attrs: bool = True
         netlist_unset_attributes: List[str] = []
         netlist_json: Optional[Path] = Path("netlist.json")
+        netlist_dot: Optional[str] = None  # prefix
+        netlist_dot_flags: List[str] = ["-stretch", "-enum", "-width"]
 
         @validator("netlist_verilog_flags", pre=False, always=True)
         def _validate_netlist_flags(cls, value, values):
@@ -131,18 +136,52 @@ class YosysBase(Flow):
                     else:
                         raise ValueError(f"Unsupported extension for JSON file: {value}")
                 for attr, attr_val in value.items():
-                    assert attr
-                    if isinstance(attr_val, (dict)):
-                        new_dict = {}
-                        for (path, v) in attr_val.items():
-                            assert path and v is not None
-                            if isinstance(path, list):
-                                path = "/".join(path)
-                            new_dict[path] = format_attribute_value(v)
-                        value[attr] = new_dict
-                    else:
-                        value[attr] = format_attribute_value(attr_val)
+                    for (path, v) in attr_val.items():
+                        value[attr][path] = format_attribute_value(v)
             return value
+
+    def init(self):
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        if ss.keep_hierarchy:
+            kh = "keep_hierarchy"
+            if kh not in ss.set_mod_attribute:
+                ss.set_mod_attribute[kh] = {}
+            for mod in ss.keep_hierarchy:
+                ss.set_mod_attribute[kh][mod] = 1
+
+        if ss.top_is_vhdl is True or (
+            ss.top_is_vhdl is None and self.design.rtl.sources[-1].type is SourceType.Vhdl
+        ):
+            # generics were already handled by GHDL and the synthesized design is no longer parametric
+            self.design.rtl.parameters = {}
+        if ss.flatten:
+            append_flag(ss.synth_flags, "-flatten")
+        ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)
+
+        if ss.rtl_json:
+            ss.rtl_json.parent.mkdir(parents=True, exist_ok=True)
+            self.artifacts.rtl_json = ss.rtl_json
+        if ss.rtl_vhdl:
+            ss.rtl_vhdl.parent.mkdir(parents=True, exist_ok=True)
+            self.artifacts.rtl_vhdl = ss.rtl_vhdl
+        if ss.rtl_verilog:
+            ss.rtl_verilog.parent.mkdir(parents=True, exist_ok=True)
+            self.artifacts.rtl_verilog = ss.rtl_verilog
+        if ss.netlist_verilog:
+            ss.netlist_verilog.parent.mkdir(parents=True, exist_ok=True)
+            self.artifacts.netlist_verilog = ss.netlist_verilog
+        if ss.netlist_json:
+            ss.netlist_json.parent.mkdir(parents=True, exist_ok=True)
+            self.artifacts.netlist_json = ss.netlist_json
+
+    @cached_property
+    def yosys(self):
+        return Tool(
+            executable="yosys",
+            docker=Docker(image="hdlc/impl"),
+            minimum_version=(0, 21),
+        )
 
 
 def process_parameters(parameters: Dict[str, Any]) -> Dict[str, str]:

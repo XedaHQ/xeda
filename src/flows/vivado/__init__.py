@@ -97,7 +97,6 @@ class Vivado(Flow, metaclass=ABCMeta):
         )  # type: ignore
         if self.settings.redirect_stdout:
             self.vivado.redirect_stdout = Path(f"{self.name}_stdout.log")
-        self.results.tools = [self.vivado.info]
         self.add_template_filter("vivado_generics", vivado_generics)
 
     @staticmethod

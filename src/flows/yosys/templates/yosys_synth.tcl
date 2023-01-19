@@ -10,25 +10,7 @@ yosys flatten
 {% endif %}
 {% endif %}
 
-{% if settings.rtl_json %}
-yosys log -stdout "Writing JSON {{settings.rtl_json}}"
-yosys write_json {{settings.rtl_json}}
-{% endif %}
-{% if settings.rtl_verilog %}
-yosys log -stdout "Writing Verilog {{settings.rtl_verilog}}"
-yosys write_verilog {{settings.rtl_verilog}}
-{% endif %}
-{% if settings.rtl_vhdl %}
-yosys log -stdout "fWriting VHDL {{settings.rtl_vhdl}}"
-yosys write_vhdl {{settings.rtl_vhdl}}
-{% endif %}
-{% if settings.show_rtl %}
-yosys show -prefix rtl_show -format dot {{settings.show_rtl_flags|join(" ")}}
-{% endif %}
-
-if { {{settings.stop_after == "rtl"}} } {
-    exit
-}
+{% include "post_rtl.tcl" %}
 
 yosys log -stdout "Running synthesis"
 yosys synth {{settings.synth_flags|join(" ")}} {% if design.rtl.top %} -top {{design.rtl.top}}{% endif %}
@@ -82,31 +64,4 @@ yosys hilomap {% if settings.hilomap.singleton %} -singleton {% endif %} -hicell
 yosys insbuf -buf {{settings.insbuf|join(" ")}}
 {% endif %}
 
-tee -o "synth_check.log" check {% if settings.check_assert %} -assert {% endif %}
-
-yosys log -stdout "Writing stat to {{artifacts["utilization_report"]}}"
-tee -9 -q -o {{artifacts["utilization_report"]}} stat {% if artifacts["utilization_report"].endswith(".json") %} -json {% endif %} {% if settings.liberty %} {% for lib in settings.liberty %} -liberty {{lib}} {% endfor %} {% elif settings.gates %} -tech cmos {% endif %}
-
-{% if artifacts.netlist_json %}
-yosys log -stdout "Writing netlist {{artifacts.netlist_json}}"
-yosys write_json {{artifacts.netlist_json}}
-{% endif %}
-
-{% if artifacts.netlist_verilog %}
-{% for attr in settings.netlist_unset_attributes %}
-yosys setattr -unset {{attr}}
-{% endfor %}
-yosys log -stdout "Writing netlist {{artifacts.netlist_verilog}}"
-yosys write_verilog {{settings.netlist_verilog_flags|join(" ")}} {{artifacts.netlist_verilog}}
-{% endif %}
-
-{% if settings.sta %}
-yosys log -stdout "Writing timing report to {{artifacts["timing_report"]}}"
-tee -o {{artifacts["timing_report"]}} ltp
-tee -a {{artifacts["timing_report"]}} sta
-{% endif %}
-
-{% if settings.show_netlist %}
-yosys log -stdout "Writing netlist diagram to {{settings.show_netlist}}"
-yosys show -prefix netlist_show -format dot {{settings.show_netlist_flags|join(" ")}}
-{% endif %}
+{% include "write_netlist.tcl" %}
