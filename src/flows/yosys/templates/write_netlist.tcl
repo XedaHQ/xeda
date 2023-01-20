@@ -1,12 +1,17 @@
 
+yosys echo off
 tee -o "final_check.log" check {% if settings.check_assert %} -assert {% endif %}
 
 yosys log -stdout "Writing stat to {{artifacts["utilization_report"]}}"
-tee -9 -q -o {{artifacts["utilization_report"]}} stat {% if artifacts["utilization_report"].endswith(".json") %} -json {% endif %} {% if settings.liberty is defined and settings.liberty %} {% for lib in settings.liberty %} -liberty {{lib}} {% endfor %} {% elif settings.gates is defined and settings.gates %} -tech cmos {% endif %}
+tee -9 -q -o {{artifacts["utilization_report"]}} stat {% if (artifacts.utilization_report|string).endswith(".json") %} -json {% endif %} {% if settings.liberty is defined and settings.liberty %} {% for lib in settings.liberty %} -liberty {{lib}} {% endfor %} {% elif settings.gates is defined and settings.gates %} -tech cmos {% endif %}
 {% if settings.sta %}
 yosys log -stdout "Writing timing report to {{artifacts["timing_report"]}}"
 tee -o {{artifacts["timing_report"]}} ltp
 tee -a {{artifacts["timing_report"]}} sta
+{% endif %}
+
+{% if settings.debug or settings.verbose > 1 %}
+yosys echo on
 {% endif %}
 
 {% if artifacts.netlist_json %}

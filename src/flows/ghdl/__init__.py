@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
-from ...flow import Flow, FlowSettingsError, SimFlow, SynthFlow
+from ...flow import Flow, FlowSettingsError, SimFlow, SynthFlow, FlowException
 from ...gtkwave import gen_gtkw
 from ...tool import Docker, Tool
 from ...utils import SDF, common_root, setting_flag
@@ -56,8 +56,6 @@ class GhdlTool(Tool):
 
 class Ghdl(Flow, metaclass=ABCMeta):
     """VHDL simulation using GHDL"""
-
-    ghdl = GhdlTool()  # pyright: reportGeneralTypeIssues=none
 
     class Settings(Flow.Settings):
         analysis_flags: List[str] = []
@@ -155,6 +153,10 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 return find_top_flags
             raise ValueError("unknown stage!")
 
+    @cached_property
+    def ghdl(self):
+        return GhdlTool()  # pyright: reportGeneralTypeIssues=none
+
     def elaborate(
         self,
         sources: List[DesignSource],
@@ -164,6 +166,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
         """returns top(s) as a Tuple012"""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        sources = [src for src in sources if src.type == SourceType.Vhdl]
         if isinstance(top, str):
             top = (top,)
         steps = ["import", "make"]
@@ -245,14 +248,43 @@ class GhdlSynth(Ghdl, SynthFlow):
             None, description="Type of output to generate"
         )
         out_file: Optional[str] = None
+        convert_files: bool = Field(False, description="Convert each VHDL source file to Verilog.")
 
     def run(self) -> None:
         design = self.design
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        top = self.elaborate(design.rtl.sources, design.rtl.top, design.language.vhdl)
-        args = self.synth_args(ss, design, one_shot_elab=False, top=top)
-        self.ghdl.run("synth", *args, stdout=ss.out_file)
+        if ss.convert_files:
+            flags = ss.get_flags(design.language.vhdl, "elaborate")
+            flags += setting_flag(ss.vendor_library, name="vendor_library")
+            flags += setting_flag(ss.no_formal, name="no_formal")
+            flags += setting_flag(ss.no_assert_cover, name="no_assert_cover")
+            flags += setting_flag(ss.assert_assumes, name="assert_assumes")
+            flags += setting_flag(ss.assume_asserts, name="assume_asserts")
+            flags += ss.generics_flags(design.rtl.generics)
+            flags.append("--out=verilog")
+            self.artifacts.generated_verilog = []
+            for src in design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False):
+                verilog = self.ghdl.run_get_stdout("synth", *flags, str(src.path), "-e")
+                if not verilog:
+                    raise FlowException("ghdl synthesis failed!")
+                fixed_params = "\n".join(
+                    [f"  parameter {k} = {v};" for k, v in design.rtl.generics.items()]
+                )
+                verilog = verilog.replace(");", f");\n{fixed_params}", 1)
+                out_file = src.path.with_stem(src.path.stem + "_ghdl_synth").with_suffix(".v")
+                # TODO FIXME add settings for what to do, default to fail
+                if out_file.exists():
+                    log.warning("File %s will be overwritten!", out_file)
+                else:
+                    log.info("Generating verilog: %s", out_file)
+                with open(out_file, "w") as f:
+                    f.write(verilog)
+                self.artifacts.generated_verilog.append(out_file)
+        else:
+            top = self.elaborate(design.rtl.sources, design.rtl.top, design.language.vhdl)
+            args = self.synth_args(ss, design, one_shot_elab=False, top=top)
+            self.ghdl.run("synth", *args, stdout=ss.out_file)
 
     @staticmethod
     def synth_args(
@@ -265,10 +297,9 @@ class GhdlSynth(Ghdl, SynthFlow):
         flags += setting_flag(ss.no_assert_cover, name="no_assert_cover")
         flags += setting_flag(ss.assert_assumes, name="assert_assumes")
         flags += setting_flag(ss.assume_asserts, name="assume_asserts")
-
         flags.extend(ss.generics_flags(design.rtl.generics))
         if one_shot_elab:
-            flags += [str(v) for v in design.rtl.sources if v.type == SourceType.Vhdl]
+            flags += map(str, design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False))
             flags.append("-e")
         if (
             design.rtl.sources[-1].type == SourceType.Vhdl

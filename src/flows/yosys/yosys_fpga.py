@@ -61,8 +61,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             assert ss.fpga.family or ss.fpga.vendor == "xilinx"
             if ss.fpga.vendor == "xilinx" and ss.fpga.family:
                 ss.fpga.family = yosys_family_name.get(ss.fpga.family, "xc7")
-        self.artifacts.timing_report = "timing.rpt"
-        self.artifacts.utilization_report = "utilization.json"
+        self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
+        self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
 
         # add FPGA-specific synth_xx flags
         if ss.abc9:  # ABC9 is for only FPGAs?
@@ -99,7 +99,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         script_path = self.copy_from_template(
             "yosys_fpga_synth.tcl",
             lstrip_blocks=True,
-            trim_blocks=True,
+            trim_blocks=False,
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
@@ -119,7 +119,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
-        if self.artifacts.utilization_report.endswith(".json"):
+        if Path(self.artifacts.utilization_report).suffix == ".json":
             try:
                 with open(self.artifacts.utilization_report, "r") as f:
                     content = f.read()

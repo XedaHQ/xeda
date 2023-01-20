@@ -215,17 +215,15 @@ class DVSettings(XedaBaseModel):  # type: ignore
         has_alias=True,
     )
     defines: Dict[str, DefineType] = Field(default={})
-    attributes: Dict[str, Any] = Field(
+    attributes: Dict[str, Dict[str, Any]] = Field(
         {},
         description="""
         attributes may include HDL attributes for modules, ports, etc, but their actual meaning and behavior is decided by the specific target flow
-        In general the mapping of key->value is as follows:
+        Attributes should be specified as a mapping of attr_name->(path->attr_value), i.e.:
         - key: is the _name_ of the attribute
-        - value:
-            - if itself a dictionary:
-                - the keys are scope (path) of the attribute
-                - value is the value of the attribute
-            - otherwise: its the actual value of the attribute for the top module or the whole design (as interpreted by a target flow)
+        - value is a mapping of path->attr_value, i.e.:
+            - the key is the path or scope on which the attribute applies
+            - value is the actual value of the attribute
         """,
     )
 

@@ -120,14 +120,14 @@ class Yosys(YosysBase, SynthFlow):
 
     class Settings(YosysBase.Settings, SynthFlow.Settings):
         liberty: List[Path] = []
-        dff_liberty: Optional[str] = None
+        dff_liberty: Optional[Path] = None
         dont_use_cells: List[str] = []
         gates: Optional[str] = None
         lut: Optional[str] = None
         retime: bool = Field(False, description="Enable flip-flop retiming")
         sta: bool = Field(
             False,
-            description="Run a simple static timing analysis (requires `flatten`)",
+            description="Run a simple static timing analysis (implies `flatten`)",
         )
         post_synth_opt: bool = Field(
             True,
@@ -147,17 +147,32 @@ class Yosys(YosysBase, SynthFlow):
         merge_libs_to: Optional[str] = None
 
         @validator("liberty", pre=True, always=True)
-        def _single_to_list(cls, value):
+        def _validate_liberty(cls, value):
             if not isinstance(value, (list, tuple)):
-                return [value]
+                value = [value]
+            return value
+
+        @validator("dff_liberty", pre=True, always=True)
+        def _validate_dff_liberty(cls, value):
             return value
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         # TODO factor out common code
         ss = self.settings
-        self.artifacts.timing_report = "timing.rpt"
-        self.artifacts.utilization_report = "utilization.json"
+
+        def set_file_path(p):
+            if not p or os.path.isabs(p):
+                return p
+            return self.design.root_path / p
+
+        ss.liberty = [set_file_path(lib) for lib in ss.liberty]
+        ss.dff_liberty = set_file_path(ss.dff_liberty)
+        if isinstance(ss.abc_script, Path):
+            ss.abc_script = set_file_path(ss.abc_script)
+
+        self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
+        self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
         if os.path.exists(self.artifacts.utilization_report):
             os.remove(self.artifacts.utilization_report)
         if os.path.exists(self.artifacts.timing_report):
@@ -208,7 +223,7 @@ class Yosys(YosysBase, SynthFlow):
         script_path = self.copy_from_template(
             "yosys_synth.tcl",
             lstrip_blocks=True,
-            trim_blocks=True,
+            trim_blocks=False,
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
@@ -242,6 +257,9 @@ class Yosys(YosysBase, SynthFlow):
             if design_util:
                 num_cells_by_type = design_util.get("num_cells_by_type", {})
                 self.results = self.Results(**{**self.results, **num_cells_by_type})
+                area = design_util.get("area")
+                if area:
+                    self.results["area"] = area
                 self.results["_design_utilization"] = design_util
 
         except json.decoder.JSONDecodeError as e:
