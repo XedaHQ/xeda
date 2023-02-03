@@ -531,6 +531,7 @@ class Design(XedaBaseModel):
     design_root: Optional[Path] = None
     license: Union[None, str, List[str]] = None
     version: Optional[str] = None
+    url: Optional[str] = None
 
     @validator("dependencies", pre=True, always=True)
     def _dependencies_from_str(cls, value):
