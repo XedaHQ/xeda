@@ -272,7 +272,7 @@ class GhdlSynth(Ghdl, SynthFlow):
                     [f"  parameter {k} = {v};" for k, v in design.rtl.generics.items()]
                 )
                 verilog = verilog.replace(");", f");\n{fixed_params}", 1)
-                out_file = src.path.with_stem(src.path.stem + "_ghdl_synth").with_suffix(".v")
+                out_file = src.path.with_name(src.path.stem + "_ghdl_synth.v")
                 # TODO FIXME add settings for what to do, default to fail
                 if out_file.exists():
                     log.warning("File %s will be overwritten!", out_file)

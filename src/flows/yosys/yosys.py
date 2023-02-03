@@ -7,6 +7,7 @@ from typing import List, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
 from ...flow import SynthFlow
+from ...platforms import AsicsPlatform
 from ..ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
 
@@ -98,7 +99,7 @@ def preproc_libs(in_files, merged_file, dont_use_cells: List[str], new_lib_name=
         with open(in_file, encoding="utf-8") as f:
             content = clean_ascii(f.read())
         merged_content += preproc_lib_content(content, dont_use_cells)
-        out_file = temp_path / in_file.with_stem(in_file.stem + "-mod").name
+        out_file = temp_path / in_file.with_name(in_file.stem + "-mod" + in_file.suffix).name
         log.info("Writing pre-processed file: %s", out_file)
         with open(out_file, "w") as f:
             f.write(merged_content)
@@ -119,6 +120,7 @@ class Yosys(YosysBase, SynthFlow):
     """
 
     class Settings(YosysBase.Settings, SynthFlow.Settings):
+        platform: Optional[AsicsPlatform] = None
         liberty: List[Path] = []
         dff_liberty: Optional[Path] = None
         dont_use_cells: List[str] = []
@@ -156,6 +158,14 @@ class Yosys(YosysBase, SynthFlow):
         def _validate_dff_liberty(cls, value):
             return value
 
+        @validator("platform", pre=True, always=True)
+        def _validate_platform(cls, value):
+            if isinstance(value, str) and not value.endswith(".toml"):
+                return AsicsPlatform.from_resource(value)
+            elif isinstance(value, (str, Path)):
+                return AsicsPlatform.from_toml(value)
+            return value
+
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         # TODO factor out common code
@@ -165,6 +175,12 @@ class Yosys(YosysBase, SynthFlow):
             if not p or os.path.isabs(p):
                 return p
             return self.design.root_path / p
+
+        if ss.platform:
+            if not ss.liberty:
+                ss.liberty = ss.platform.default_corner_settings.lib_files
+            if not ss.dff_liberty:
+                ss.dff_liberty = ss.platform.default_corner_settings.dff_lib_file
 
         ss.liberty = [set_file_path(lib) for lib in ss.liberty]
         ss.dff_liberty = set_file_path(ss.dff_liberty)

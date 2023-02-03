@@ -69,7 +69,7 @@ class YosysBase(Flow):
         netlist_verilog_flags: List[str] = []
         netlist_src_attrs: bool = True
         netlist_unset_attributes: List[str] = []
-        netlist_json: Optional[Path] = Path("netlist.json")
+        netlist_json: Optional[Path] = Field(Path("netlist.json"), alias="json_netlist")
         netlist_dot: Optional[str] = None  # prefix
         netlist_dot_flags: List[str] = ["-stretch", "-enum", "-width"]
 

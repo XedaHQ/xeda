@@ -99,9 +99,13 @@ class AsicsPlatform(Platform):
 
     @property
     def default_corner_settings(self):
+        v = None
         if self.default_corner:
-            return self.corner.get(self.default_corner)
-        return first_value(self.corner)
+            v = self.corner.get(self.default_corner)
+        if v is None:
+            v = first_value(self.corner)
+        assert v is not None
+        return v
 
 
 if __name__ == "__main__":
