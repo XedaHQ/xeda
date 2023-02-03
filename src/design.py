@@ -529,6 +529,8 @@ class Design(XedaBaseModel):
         description="Design-specific flow settings. The keys are the name of the flow and values are design-specific overrides for that flow.",
     )
     design_root: Optional[Path] = None
+    license: Union[None, str, List[str]] = None
+    version: Optional[str] = None
 
     @validator("dependencies", pre=True, always=True)
     def _dependencies_from_str(cls, value):
