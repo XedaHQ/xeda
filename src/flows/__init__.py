@@ -1,6 +1,12 @@
 # all Flow classes imported here can be used from FlowRunners and will be reported on the command-line help
 from __future__ import annotations
 
+import pkgutil
+from importlib import import_module
+from inspect import isabstract, isclass
+from typing import List, Type
+
+from ..flow import Flow
 from .bsc import Bsc
 from .dc import Dc
 from .diamond import DiamondSynth
@@ -19,7 +25,10 @@ from .vivado.vivado_sim import VivadoSim
 from .vivado.vivado_synth import VivadoSynth
 from .yosys import CxxRtl, Yosys, YosysFpga
 
+__builtin_flows__: List[Type[Flow]] = []
+
 __all__ = [
+    "__builtin_flows__",
     "Dc",
     "Bsc",
     "CxxRtl",
@@ -41,3 +50,10 @@ __all__ = [
     "Yosys",
     "YosysFpga",
 ]
+
+for loader, module_name, is_pkg in pkgutil.walk_packages(__path__):
+    module = import_module("." + module_name, __package__)
+    for attribute_name in dir(module):
+        cls = getattr(module, attribute_name)
+        if isclass(cls) and issubclass(cls, Flow) and not isabstract(cls):
+            __builtin_flows__.append(cls)

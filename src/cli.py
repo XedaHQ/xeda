@@ -1,5 +1,6 @@
 # © 2022 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 """Xeda Command-line interface"""
+from collections import OrderedDict
 import inspect
 import logging
 import os
@@ -15,6 +16,7 @@ from rich import box
 from rich.style import Style
 from rich.table import Table
 
+from .flows import __builtin_flows__
 from .cli_utils import (
     ClickMutex,
     OptionEatAll,
@@ -41,17 +43,20 @@ from .flow_runner import (
     settings_to_dict,
 )
 from .flow_runner.dse import Dse
-from .flows import __all__ as all_flows__
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import removeprefix
 
 log = logging.getLogger(__name__)
 
-
-all_flows = sorted(list(registered_flows.keys()))
-
-if len(all_flows__) != len(all_flows):
-    print(f"FIXME: {len(all_flows__)}---{len(all_flows)}", file=sys.stderr)
+all_flows = OrderedDict(
+    sorted(
+        [
+            (f.name, f)
+            for f in set(__builtin_flows__).union(set(v for _, v in registered_flows.values()))
+        ]
+    )
+)
+all_flow_names = list(all_flows.keys())
 
 CONTEXT_SETTINGS = dict(
     auto_envvar_prefix="XEDA",
@@ -100,7 +105,7 @@ def cli(ctx: click.Context, **kwargs):
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(all_flows),
+    type=click.Choice(all_flow_names),
 )
 @click.option(
     "--xeda-run-dir",
@@ -326,7 +331,7 @@ def list_flows():
     table.add_column("Description")
     table.add_column("Class", style="dim")
     super_flow_doc = inspect.getdoc(Flow)
-    for cls_name, (_mod, cls) in sorted(registered_flows.items()):
+    for cls_name, cls in all_flows.items():
         doc = inspect.getdoc(cls)
         if doc == super_flow_doc:
             doc = "<no description>"
@@ -342,7 +347,7 @@ def list_flows():
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(all_flows),
+    type=click.Choice(all_flow_names),
     required=True,
 )
 @click.pass_context
@@ -359,7 +364,7 @@ def list_settings(ctx: click.Context, flow):
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(all_flows),
+    type=click.Choice(all_flow_names),
     required=True,
 )
 @click.option(
@@ -548,7 +553,7 @@ def dse(
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(all_flows),
+    type=click.Choice(all_flow_names),
     required=True,
 )
 @click.argument(
