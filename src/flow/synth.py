@@ -52,6 +52,7 @@ class PhysicalClock(XedaBaseModel):
     def fall(self) -> float:
         if not self.period:
             return 0
+        assert isinstance(self.duty_cycle, float)
         f = self.rise + (self.period * self.duty_cycle)
         if f >= self.period:
             raise ValueError("Fall time is beyond the period")

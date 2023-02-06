@@ -229,7 +229,7 @@ class Openroad(AsicSynthFlow):
         )
         yosys_libs = [self.merged_lib_file]
         if dff_lib_file:
-            yosys_settings.dff_liberty = os.path.join(Yosys.copied_resources_dir, dff_lib_file)
+            yosys_settings.dff_liberty = Yosys.copied_resources_dir / dff_lib_file
         copy_resources += yosys_libs
         yosys_settings.liberty = [
             Path(Yosys.copied_resources_dir) / os.path.basename(res) for res in yosys_libs

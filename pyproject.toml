@@ -60,7 +60,7 @@ dependencies = [
     "psutil            >= 5.9",
     "junitparser       ~= 2.4",    # TODO: remove
     "pyvcd             ~= 0.3",
-    "GitPython         >= 3.1.29",
+    "GitPython         >= 3.1.30",
 ]
 
 [project.optional-dependencies]
@@ -138,20 +138,13 @@ include = '\.pyi?$'
 ignore_missing_imports = true
 # explicit-package-bases = true
 # python_version = "3.11"
-# warn_return_any = true
 warn_unused_configs = true
 exclude = ['^build/.*$', '^examples/.*$', '^\.tox/.*$', 'src/flows/openroad/openroad_scripts/utils/.*']
 check_untyped_defs = true
 color_output = true
 pretty = true
-follow_imports = "skip"
-## WIP:
-# strict = true
-## for future:
-# disallow_untyped_calls = True
-# disallow_untyped_defs = True
-# disallow_incomplete_defs = True
-# disallow_untyped_decorators = True
+strict = false
+warn_return_any = false
 
 [tool.pylint]
 
@@ -223,7 +216,7 @@ pycodestyle = [
     "-E203",
     "-E231", # whitespace before/after ':'
     "-C812", # missing trailing comma
-    "-W503", # line break before binary operator 
+    "-W503", # line break before binary operator
 ]
 # enable only codes from S100 to S199
 # flake8-bandit = ["-*", "+S1??"]
@@ -247,3 +240,8 @@ flake8-commas = ["-*"]
 
 [tool.isort]
 profile = "black"
+
+[tool.zimports]
+black-line-length = 100
+keep-unused-type-checking = true
+# multi-imports = true

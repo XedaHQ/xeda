@@ -108,7 +108,7 @@ class Bsc(Flow):
         gtkwave_package: Optional[str] = Field(
             None, description="Generate gtkwave translation filters for Bluespec types."
         )
-        docker: Optional[Docker] = Docker(image="bsc")  # pyright: ignore
+        docker: Optional[str] = "bsc"
         incremental: bool = Field(False, description="Only compile modified packages.")
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):

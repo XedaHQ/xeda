@@ -325,7 +325,7 @@ def parse_hier_util(
                 continue
         return v
 
-    def add_hier(d, cur_ws=0, i=0, parent=None) -> int:
+    def add_hier(d, cur_ws=0, i: int = 0, parent=None) -> int:
         cur_dict = d
         cur_mod = parent
         while i < len(rows):

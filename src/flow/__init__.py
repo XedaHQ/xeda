@@ -6,7 +6,8 @@ from ._flow import (
     FlowSettingsError,
     registered_flows,
 )
-from .decorators import define_flow, sim_flow, synth_flow
+
+# from .decorators import define_flow, sim_flow, synth_flow
 from .fpga import FPGA
 from .sim import SimFlow
 from .synth import (
@@ -29,7 +30,7 @@ __all__ = [
     "FlowFatalError",
     "FlowSettingsError",
     "FlowException",
-    "define_flow",
-    "synth_flow",
-    "sim_flow",
+    # "define_flow",
+    # "synth_flow",
+    # "sim_flow",
 ]

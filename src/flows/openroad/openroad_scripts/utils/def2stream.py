@@ -1,4 +1,12 @@
-# flake8: noqa
+# noqa
+# type: ignore
+
+## requirements:
+# pip3 install klayout
+
+# https://www.klayout.de/doc-qt5/programming/python.html
+# https://onehwengineer.com/category/klayout-python/
+
 import pya
 import re
 import json

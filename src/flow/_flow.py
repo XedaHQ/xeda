@@ -132,7 +132,21 @@ class Flow(metaclass=ABCMeta):
     class Results(Box):
         """Flow results"""
 
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
+        def __init__(
+            self,
+            *args,
+            **kwargs,
+        ) -> None:
+            kwargs = {
+                **kwargs,
+                **dict(box_intact_types=[Box]),
+            }
+            self.success: bool = False
+            self.tools: List[Any] = []
+            self.artifacts: Box = Box()
+            # "Time of the execution of run() in fractional seconds.
+            # Initialized with None and set only after execution has finished."
+            self.runtime: Optional[float] = None
             super().__init__(*args, **kwargs)
 
     @property
@@ -221,14 +235,7 @@ class Flow(metaclass=ABCMeta):
         if self.settings.reports_dir:
             self.settings.reports_dir.mkdir(exist_ok=True, parents=True)
         self.reports_dir = self.settings.reports_dir  # DEPRECATED! use settings.reports_dir
-        self.results = self.Results(
-            success=False,
-            # "Time of the execution of run() in fractional seconds.
-            # Initialized with None and set only after execution has finished."
-            runtime=None,
-            tools=[],
-            artifacts={},
-        )
+        self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
         self.add_template_test("match", regex_match)
         self.dependencies: List[Tuple[Union[Type["Flow"], str], Flow.Settings, List[str]]] = []
@@ -268,7 +275,7 @@ class Flow(metaclass=ABCMeta):
         )
         with open(script_path, "w") as f:
             f.write(rendered_content)
-        return script_path.resolve().relative_to(self.run_path)  # resource_name
+        return script_path.resolve().relative_to(self.run_path)
 
     def add_template_filter(self, filter_name: str, func) -> None:
         assert filter_name

@@ -34,7 +34,7 @@ class EcpPLL(Tool):
     file: Optional[str] = None
 
     @classmethod
-    def _fix_clock(cls, clock, out_clk=None) -> Clock:
+    def _fix_clock(cls, clock: Clock, out_clk=None) -> Clock:
         if isinstance(clock, float):
             clock = cls.Clock(mhz=clock)
         if not clock.name:
