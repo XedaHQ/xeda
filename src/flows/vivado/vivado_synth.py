@@ -163,40 +163,48 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         self.vivado.run("-source", script_path)
 
     def parse_timing_report(self, reports_dir) -> bool:
-        failed = False
         assert isinstance(self.settings, self.Settings)
-        if self.design.rtl.clock_port and self.settings.clock_period:
-            failed |= not self.parse_report_regex(
-                reports_dir / "timing_summary.rpt",
-                ##
-                r"Timing\s+Summary[\s\|\-]+WNS\(ns\)\s+TNS\(ns\)\s+"
-                r"TNS Failing Endpoints\s+TNS Total Endpoints\s+WHS\(ns\)\s+THS\(ns\)\s+"
-                r"THS Failing Endpoints\s+THS Total Endpoints\s+WPWS\(ns\)\s+TPWS\(ns\)\s+"
-                r"TPWS Failing Endpoints\s+TPWS Total Endpoints\s*"
-                r"\s*(?:\-+\s+)+"
-                r"(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<_tns>\-?\d+(?:\.\d+)?)\s+(?P<_failing_endpoints>\d+)\s+(?P<_tns_total_endpoints>\d+)\s+"
-                r"(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<_ths_failing_endpoints>\d+)\s+(?P<_ths_total_endpoints>\d+)\s+",
-                ##
-                r"Clock Summary[\s\|\-]+^\s*Clock\s+.*$[^\w]+(\w*)\s+(\{.*\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)",
-                required=False,
+        if not self.design.rtl.clocks:
+            log.warning(
+                "Skipping parse of timing reports as no design clocks (Design.rtl.clocks) were specified "
             )
-            wns = self.results.get("wns")
-            if wns is not None:
-                if not isinstance(wns, (float, int)):
-                    log.critical("Parsed value for `WNS` is %s (%s)", wns, type(wns))
-                else:
-                    if wns < 0:
-                        failed = True
-                    # see https://support.xilinx.com/s/article/57304?language=en_US
-                    # Fmax in Megahertz
-                    # Here Fmax refers to: "The maximum frequency a design can run on Hardware in a given implementation
-                    # Fmax = 1/(T-WNS), with WNS positive or negative, where T is the target clock period."
-                    if "clock_period" in self.results:
-                        clock_period = self.results["clock_period"]
-                        assert isinstance(
-                            clock_period, (float, int)
-                        ), f"clock_period: {clock_period} is not a number"
-                        self.results["Fmax"] = 1000.0 / (clock_period - wns)
+            return True
+        if not self.settings.clocks:
+            log.warning(
+                "Skipping parse of timing reports as no flow clocks (Flow.settings.clocks) were specified."
+            )
+            return True
+        failed = not self.parse_report_regex(
+            reports_dir / "timing_summary.rpt",
+            ##
+            r"Timing\s+Summary[\s\|\-]+WNS\(ns\)\s+TNS\(ns\)\s+"
+            r"TNS Failing Endpoints\s+TNS Total Endpoints\s+WHS\(ns\)\s+THS\(ns\)\s+"
+            r"THS Failing Endpoints\s+THS Total Endpoints\s+WPWS\(ns\)\s+TPWS\(ns\)\s+"
+            r"TPWS Failing Endpoints\s+TPWS Total Endpoints\s*"
+            r"\s*(?:\-+\s+)+"
+            r"(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<_tns>\-?\d+(?:\.\d+)?)\s+(?P<_failing_endpoints>\d+)\s+(?P<_tns_total_endpoints>\d+)\s+"
+            r"(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<_ths_failing_endpoints>\d+)\s+(?P<_ths_total_endpoints>\d+)\s+",
+            ##
+            r"Clock Summary[\s\|\-]+^\s*Clock\s+.*$[^\w]+(\w*)\s+(\{.*\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)",
+            required=False,
+        )
+        wns = self.results.get("wns")
+        if wns is not None:
+            if not isinstance(wns, (float, int)):
+                log.critical("Parsed value for `WNS` is %s (%s)", wns, type(wns))
+            else:
+                if wns < 0:
+                    failed = True
+                # see https://support.xilinx.com/s/article/57304?language=en_US
+                # Fmax in Megahertz
+                # Here Fmax refers to: "The maximum frequency a design can run on Hardware in a given implementation
+                # Fmax = 1/(T-WNS), with WNS positive or negative, where T is the target clock period."
+                if "clock_period" in self.results:
+                    clock_period = self.results["clock_period"]
+                    assert isinstance(
+                        clock_period, (float, int)
+                    ), f"clock_period: {clock_period} is not a number"
+                    self.results["Fmax"] = 1000.0 / (clock_period - wns)
 
         return not failed
 
