@@ -70,6 +70,10 @@ class PhysicalClock(XedaBaseModel):
             return 0
         return convert(self.period, target_unit="ps", src_unit="ns")
 
+    @period_ps.setter
+    def period_ps(self, period):
+        self.period = convert(period, target_unit="ps", src_unit=None)
+
     @root_validator(pre=True, skip_on_failure=True)
     @classmethod
     def root_validate_phys_clock(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -91,9 +95,6 @@ class PhysicalClock(XedaBaseModel):
         if not values.get("name"):
             values["name"] = "main_clock"
         return values
-
-
-# PhysicalClock.update_forward_refs()
 
 
 class SynthFlow(Flow, metaclass=ABCMeta):
