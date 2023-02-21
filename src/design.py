@@ -562,6 +562,21 @@ class Design(XedaBaseModel):
         if not data.get("design_root"):
             data["design_root"] = design_root
         with WorkingDirectory(design_root):
+            generator = data.get("rtl", {}).get("generator", None)
+            if generator:
+                if isinstance(generator, str):
+                    args = generator.split()
+                else:
+                    args = generator
+                gen_script = Path(args[0])
+                extension = gen_script.suffix
+                if extension == ".py":
+                    if not gen_script.exists():
+                        log.critical("Generator script not found: %s", gen_script)
+                        raise FileNotFoundError(gen_script)
+                    args.insert(0, sys.executable)
+                log.info("Running generator: %s", " ".join(args))
+                subprocess.run(args, check=True, cwd=design_root)
             try:
                 super().__init__(**data)
             except ValidationError as e:
@@ -589,16 +604,6 @@ class Design(XedaBaseModel):
                     self.tb.sources = dep_design.tb.sources
                 if not self.tb.top and dep_design.tb.top:
                     self.tb.top = dep_design.tb.top
-            if self.rtl.generator:
-                if isinstance(self.rtl.generator, str):
-                    args = self.rtl.generator.split()
-                else:
-                    args = self.rtl.generator
-                extension = Path(args[0]).suffix
-                if extension == ".py":
-                    args.insert(0, sys.executable)
-                log.info("Running generator: %s", " ".join(args))
-                subprocess.run(args, check=True, cwd=design_root)
 
     def sources_of_type(
         self, *source_types: Union[str, SourceType], rtl=True, tb=False
