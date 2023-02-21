@@ -7,6 +7,8 @@ import os
 from enum import Enum, auto
 from functools import cached_property
 from pathlib import Path
+import subprocess
+import sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 from urllib.parse import parse_qs, urlparse
 
@@ -215,17 +217,6 @@ class DVSettings(XedaBaseModel):  # type: ignore
         has_alias=True,
     )
     defines: Dict[str, DefineType] = Field(default={})
-    attributes: Dict[str, Dict[str, Any]] = Field(
-        {},
-        description="""
-        attributes may include HDL attributes for modules, ports, etc, but their actual meaning and behavior is decided by the specific target flow
-        Attributes should be specified as a mapping of attr_name->(path->attr_value), i.e.:
-        - key: is the _name_ of the attribute
-        - value is a mapping of path->attr_value, i.e.:
-            - the key is the path or scope on which the attribute applies
-            - value is the actual value of the attribute
-        """,
-    )
 
     @root_validator(pre=True)
     def the_root_validator(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -262,6 +253,18 @@ class RtlSettings(DVSettings):
 
     top: Optional[str] = Field(
         description="Toplevel RTL module/entity",
+    )
+    generator: Union[None, str, List[str]] = None
+    attributes: Dict[str, Dict[str, Any]] = Field(
+        dict(),
+        description="""
+        attributes may include HDL attributes for modules, ports, etc, but their actual meaning and behavior is decided by the specific target flow
+        Attributes should be specified as a mapping of attr_name->(path->attr_value), i.e.:
+        - key: is the _name_ of the attribute
+        - value is a mapping of path->attr_value, i.e.:
+            - the key is the path or scope on which the attribute applies
+            - value is the actual value of the attribute
+        """,
     )
     # preferred way to specify a design's clock ports:
     clocks: Dict[str, Clock] = {}
@@ -586,6 +589,16 @@ class Design(XedaBaseModel):
                     self.tb.sources = dep_design.tb.sources
                 if not self.tb.top and dep_design.tb.top:
                     self.tb.top = dep_design.tb.top
+            if self.rtl.generator:
+                if isinstance(self.rtl.generator, str):
+                    args = self.rtl.generator.split()
+                else:
+                    args = self.rtl.generator
+                extension = Path(args[0]).suffix
+                if extension == ".py":
+                    args.insert(0, sys.executable)
+                log.info("Running generator: %s", " ".join(args))
+                subprocess.run(args, check=True, cwd=design_root)
 
     def sources_of_type(
         self, *source_types: Union[str, SourceType], rtl=True, tb=False
