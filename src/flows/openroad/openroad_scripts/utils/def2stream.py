@@ -16,6 +16,7 @@ import os
 
 errors = 0
 
+
 # Expand layers in json
 def expand_cfg_layers(cfg):
     layers = cfg["layers"]
@@ -191,7 +192,6 @@ if not orphan_cell:
 
 
 if seal_file:
-
     top_cell = top_only_layout.top_cell()
 
     print("[INFO] Reading seal GDS/OAS file...")

@@ -136,7 +136,7 @@ class YosysBase(Flow):
                     else:
                         raise ValueError(f"Unsupported extension for JSON file: {value}")
                 for attr, attr_val in value.items():
-                    for (path, v) in attr_val.items():
+                    for path, v in attr_val.items():
                         value[attr][path] = format_attribute_value(v)
             return value
 

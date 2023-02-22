@@ -5,13 +5,12 @@ from typing import Any, Dict, List, Optional, Set, Union
 from ...dataclass import validator
 from ...utils import unique
 from ..default_runner import settings_to_dict
-from ..dse import FlowOutcome, Optimizer, deep_hash, linspace
+from ..dse.dse_runner import FlowOutcome, Optimizer, deep_hash, linspace
 
 log = logging.getLogger(__name__)
 
 
 class FmaxOptimizer(Optimizer):
-
     default_variations: Dict[str, Dict[str, List[Any]]] = {
         "vivado_synth": {
             "synth.steps.synth_design.args.flatten_hierarchy": ["full"],
