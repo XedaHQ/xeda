@@ -73,12 +73,14 @@ class LoggerContextFilter(logging.Filter):
 
 def setup_logger(log_level, detailed_logs, write_to_file: Optional[Path] = None):
     logging.getLogger().setLevel(log_level)
+    coloredlogs.install(
+        None,
+        fmt="[%(name)s] %(asctime)s %(levelname)s %(message)s"
+        if detailed_logs
+        else "%(levelname)s %(message)s",
+        logger=log.root,
+    )
     if detailed_logs:
-        coloredlogs.install(
-            None,
-            fmt="[%(name)s] %(asctime)s %(levelname)s %(message)s",
-            logger=log.root,
-        )
         for handler in logging.getLogger().handlers:
             handler.addFilter(LoggerContextFilter())
     if write_to_file:
@@ -203,7 +205,7 @@ def cli(ctx: click.Context, **kwargs):
     # - xeda vivado_sim --flow-settings stop_time=100us
     # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock_period=2.345
 )
-@click.option("--detailed-logs/--no-detailed-logs", show_envvar=True, default=True)
+@click.option("--detailed-logs/--no-detailed-logs", show_envvar=True, default=False)
 @click.option("--log-level", show_envvar=True, type=int, default=None)
 @click.option(
     "--post-cleanup",
@@ -235,7 +237,7 @@ def run(
     design_overrides: Iterable[str] = tuple(),
     design_allow_extra: bool = False,
     log_level: Optional[int] = None,
-    detailed_logs: bool = True,
+    detailed_logs: bool = False,
     post_cleanup: bool = False,
     post_cleanup_purge: bool = False,
     scrub: bool = False,
@@ -248,8 +250,10 @@ def run(
         xeda_run_dir = Path.cwd() / "xeda_run"
     if log_level is None:
         log_level = (
-            logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
+            logging.DEBUG if options.debug else logging.WARNING if options.quiet else logging.INFO
         )
+    if options.debug:
+        detailed_logs = True
     setup_logger(log_level, detailed_logs)
     if flow_settings is not None:
         flow_settings = list(flow_settings)
@@ -503,7 +507,8 @@ def dse(
         log_level = (
             logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
         )
-
+    if options.debug:
+        detailed_logs = True
     setup_logger(log_level, detailed_logs, xeda_run_dir / "Logs")
 
     opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)

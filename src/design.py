@@ -21,7 +21,7 @@ from .dataclass import (
     validation_errors,
     validator,
 )
-from .utils import WorkingDirectory, hierarchical_merge, toml_load
+from .utils import WorkingDirectory, hierarchical_merge, removeprefix, toml_load
 
 log = logging.getLogger(__name__)
 
@@ -128,13 +128,14 @@ class FileResource:
         return str(self.file)
 
     def __repr__(self) -> str:
-        return "FileResource:" + self.__str__()
+        return f"file:{self.file}"
 
 
 class SourceType(str, Enum):
     Bluespec = auto()
     Chisel = auto()
     Cpp = auto()
+    Cocotb = auto()
     Sdc = auto()
     SystemVerilog = auto()
     Tcl = auto()
@@ -145,18 +146,39 @@ class SourceType(str, Enum):
     def __str__(self) -> str:
         return str(self.name)
 
+    @classmethod
+    def from_str(cls, type: str) -> Optional[SourceType]:
+        try:
+            return cls[type]
+        except KeyError:
+            pass
+        try:
+            return cls[type.capitalize()]
+        except KeyError:
+            for k, v in cls.__members__.items():
+                if k.lower() == type.lower():
+                    return v
+            return None
+
 
 class DesignSource(FileResource):
     def __init__(
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
-        typ: Optional[str] = None,
+        type: Union[None, str, SourceType] = None,
         standard: Optional[str] = None,
         variant: Optional[str] = None,
         _root_path: Optional[Path] = None,
-        **data: Any,
+        **kwargs: Any,
     ) -> None:
-        super().__init__(path, _root_path, **data)
+        if isinstance(path, dict):
+            type = type or path.pop("type", None)
+            standard = standard or path.pop("standard", None)
+            variant = variant or path.pop("variant", None)
+            rp = path.pop("root_path", None)
+            if not _root_path and rp:
+                _root_path = Path(rp)
+        super().__init__(path, _root_path=_root_path, **kwargs)
 
         def type_from_suffix(path: Path) -> Tuple[Optional[SourceType], Optional[str]]:
             type_variants_map = {
@@ -176,7 +198,14 @@ class DesignSource(FileResource):
                     return (typ, vari)
             return None, None
 
-        self.type, self.variant = (typ, variant) if typ else type_from_suffix(self.file)
+        self.variant = variant
+        self.type = None
+        if isinstance(type, SourceType):
+            self.type = type
+        elif isinstance(type, str):
+            self.type = SourceType.from_str(type)
+        if not self.type:
+            self.type, self.variant = type_from_suffix(self.file)
         if standard and len(standard) == 4:
             if standard.startswith("20") or standard.startswith("19"):
                 standard = standard[2:]
@@ -189,6 +218,14 @@ class DesignSource(FileResource):
     def __hash__(self) -> int:  # pylint: disable=useless-super-delegation
         # added attributes do not change semantic identity
         return super().__hash__()
+
+    def __repr__(self) -> str:
+        s = f"file:{self.file} type:{self.type}"
+        if self.variant:
+            s += f" variant: {self.variant}"
+        if self.standard:
+            s += f" standard: {self.standard}"
+        return s
 
 
 DefineType = Any
@@ -233,15 +270,17 @@ class DVSettings(XedaBaseModel):  # type: ignore
 
     @validator("sources", pre=True, always=True)
     def sources_to_files(cls, value):
-        ds = []
+        if isinstance(value, (str, Path, DesignSource)):
+            value = [value]
+        sources = []
         for src in value:
             if not isinstance(src, DesignSource):
                 try:
                     src = DesignSource(src)
                 except FileNotFoundError as e:
                     raise ValueError(f"Source file: {src} was not found: {e.strerror} {e.filename}")
-            ds.append(src)
-        return ds
+            sources.append(src)
+        return sources
 
 
 class Clock(XedaBaseModel):
@@ -304,14 +343,13 @@ class TbSettings(DVSettings):
         tuple(),
         description="Toplevel testbench module(s), specified as a tuple of strings. In addition to the primary toplevel, a secondary toplevel module can also be specified.",
     )
-    sources: List[DesignSource] = []
     uut: Optional[str] = Field(
         None, description="instance name of the unit under test in the testbench"
     )
     cocotb: bool = Field(False, description="testbench is based on cocotb framework")
 
     @validator("top", pre=True, always=True)
-    def top_validator(cls, value: Union[None, str, Sequence[str], Tuple012]) -> Tuple012:
+    def _tb_top_validate(cls, value) -> Tuple012:
         if value:
             if isinstance(value, str):
                 return (value,)
@@ -320,6 +358,20 @@ class TbSettings(DVSettings):
                     raise ValueError("At most 2 simulation top modules are supported.")
                 return tuple(value)
         return tuple()
+
+    @root_validator(pre=True)
+    def _tb_root_validate(cls, values):
+        sources_value = values.get("sources", [])
+        if isinstance(sources_value, (str, Path)):
+            sources_value = [sources_value]
+        sources = []
+        for src in sources_value:
+            if isinstance(src, str) and src.startswith("cocotb:") and src.endswith(".py"):
+                src = {"file": removeprefix(src, "cocotb:"), "type": SourceType.Cocotb}
+                values["cocotb"] = True
+            sources.append(src)
+        values["sources"] = sources
+        return values
 
 
 class LanguageSettings(XedaBaseModel):
@@ -657,7 +709,7 @@ class Design(XedaBaseModel):
         design_dict = hierarchical_merge(design_dict, overrides)
         if "name" not in design_dict:
             log.warning(
-                "'design.name' not specified! Inferring design name %s from design filename.",
+                "'design.name' not specified! Inferring design name: `%s` from design file name.",
                 design_file.stem,
             )
             design_dict["name"] = design_file.stem
@@ -683,10 +735,18 @@ class Design(XedaBaseModel):
             log.error("Error processing design file: %s", design_file.absolute())
             raise e
 
+    def relative_path(self, src: DesignSource):
+        if src.file and self.root_path:
+            file = src.file.absolute()
+            root = self.root_path.absolute()
+            if file.is_relative_to(root):
+                return file.relative_to(root)
+        return src._specified_path
+
     @cached_property
     def rtl_fingerprint(self) -> Dict[str, Dict[str, str]]:
         return {
-            "sources": {str(src._specified_path): src.content_hash for src in self.rtl.sources},
+            "sources": {str(self.relative_path(src)): src.content_hash for src in self.rtl.sources},
             "parameters": {p: str(v) for p, v in self.rtl.parameters.items()},
         }
 

@@ -1,6 +1,5 @@
 """Launch execution of flows"""
 from __future__ import annotations
-from glob import glob
 
 import hashlib
 import importlib
@@ -11,7 +10,9 @@ import re
 import shutil
 import time
 from datetime import datetime, timedelta
+from glob import glob
 from pathlib import Path
+from pprint import PrettyPrinter
 from typing import (
     Any,
     Dict,
@@ -666,10 +667,12 @@ class FlowLauncher:
         flows_settings = {**flows_settings.get(flow_name, {}), **flow_overrides}
         if not design or not flow_class:
             log.critical("Failed to parse design and/or flow")
-            raise ValueError(f"design={design} flow_ckass={flow_class}")
+            raise ValueError(f"design={design} flow_class={flow_class}")
         assert isinstance(
             design, Design
         ), f"BUG: design should be of type Design but was {type(design)}"
+        if self.settings.debug:
+            log.info("design: %s" % PrettyPrinter().pformat(design.dict()))
         return self.run_flow(
             flow_class,
             design,

@@ -17,6 +17,7 @@ class FmaxOptimizer(Optimizer):
             # "synth.steps.synth_design.args.NO_LC": [False, True],
             "synth.strategy": [
                 "Flow_AlternateRoutability",
+                "Flow_AreaOptimized_high",
                 "Flow_PerfThresholdCarry",
                 "Flow_PerfOptimized_high",
                 "Flow_RuntimeOptimized",
@@ -31,6 +32,7 @@ class FmaxOptimizer(Optimizer):
                 "Performance_Retiming",
                 "Performance_RefinePlacement",
                 "Performance_ExploreWithRemap",
+                "Area_ExploreWithRemap",
                 "Performance_NetDelay_high",  # slow
                 # "Flow_RuntimeOptimized", # fast
             ],

@@ -107,7 +107,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             and (settings.input_delay is None)
             and (settings.output_delay is None)
         ):
-            dummy_delay = max(1.0, 0.05 * settings.main_clock.period)
+            dummy_delay = max(0.001, 0.001 * settings.main_clock.period)
             settings.input_delay = dummy_delay
             settings.output_delay = dummy_delay
         if settings.write_netlist:
