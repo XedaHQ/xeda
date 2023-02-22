@@ -38,7 +38,6 @@ from .flow_runner import (
     XedaOptions,
     add_file_logger,
     get_flow_class,
-    prepare,
     scrub_runs,
     settings_to_dict,
 )
@@ -161,8 +160,8 @@ def cli(ctx: click.Context, **kwargs):
     help="Specify design.name in case multiple designs are available in a xedaproject.",
 )
 @click.option(
-    "--design-file",
     "--design",
+    "--design-file",
     type=click.Path(
         exists=True,
         file_okay=True,
@@ -173,8 +172,8 @@ def cli(ctx: click.Context, **kwargs):
         allow_dash=False,
         path_type=Path,
     ),
-    # cls=ClickMutex,
-    # mutually_exclusive_with=["xedaproject"],
+    cls=ClickMutex,
+    mutually_exclusive_with=["design_name"],
     help="Path to Xeda design file containing the description of a single design.",
 )
 @click.option(
@@ -231,12 +230,12 @@ def run(
     incremental_fresh: bool = False,
     xeda_run_dir: Optional[Path] = None,
     xedaproject: Optional[str] = None,
+    design: Optional[str] = None,
     design_name: Optional[str] = None,
-    design_file: Optional[str] = None,
     design_overrides: Iterable[str] = tuple(),
     design_allow_extra: bool = False,
     log_level: Optional[int] = None,
-    detailed_logs: bool = False,
+    detailed_logs: bool = True,
     post_cleanup: bool = False,
     post_cleanup_purge: bool = False,
     scrub: bool = False,
@@ -251,25 +250,12 @@ def run(
         log_level = (
             logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
         )
-    setup_logger(log_level, detailed_logs, (xeda_run_dir / "Logs") if detailed_logs else None)
+    setup_logger(log_level, detailed_logs)
     if flow_settings is not None:
         flow_settings = list(flow_settings)
+    else:
+        flow_settings = []
 
-    design, flow_class, accum_flow_settings = prepare(
-        flow,
-        xedaproject=xedaproject,
-        design_name=design_name,
-        design_file=design_file,
-        flow_settings=flow_settings,
-        select_design_in_project=select_design_in_project,
-        design_overrides=design_overrides,
-        design_allow_extra=design_allow_extra,
-        design_remove_extra=["lwc"],
-    )
-    if not design or not flow_class:
-        if options.debug:
-            raise ValueError(f"design={design} flow_ckass={flow_class}")
-        sys.exit(1)
     try:
         launcher = DefaultRunner(
             xeda_run_dir,
@@ -281,7 +267,16 @@ def run(
         launcher.settings.post_cleanup_purge = post_cleanup_purge
         launcher.settings.scrub_old_runs = scrub
         launcher.settings.debug = options.debug
-        launcher.run_flow(flow_class, design, accum_flow_settings)
+        launcher.run(
+            flow,
+            xedaproject=xedaproject,
+            design=design or design_name,
+            flow_settings=flow_settings,
+            select_design_in_project=select_design_in_project,
+            design_overrides=design_overrides,
+            design_allow_extra=design_allow_extra,
+            design_remove_extra=["lwc"],
+        )
     except FlowFatalError as e:
         log.critical(
             "Flow %s failed: FlowFatalException %s",
@@ -358,7 +353,7 @@ def list_settings(ctx: click.Context, flow):
 @cli.command(
     context_settings=CONTEXT_SETTINGS,
     short_help="Run DSE",
-    help="Design-space exploration: run several instances of a flow to find optimal parameters and results",
+    help="Design-space exploration: runs several instances of a flow for finding optimal settings and results",
     no_args_is_help=False,
 )
 @click.argument(
@@ -411,11 +406,13 @@ def list_settings(ctx: click.Context, flow):
 )
 @click.option(
     "--design-name",
+    # cls=ClickMutex,
+    # mutually_exclusive_with=["design_file"],
     help="Specify design.name in case multiple designs are available in a xedaproject.",
 )
 @click.option(
-    "--design-file",
     "--design",
+    "--design-file",
     type=click.Path(
         exists=True,
         file_okay=True,
@@ -426,6 +423,8 @@ def list_settings(ctx: click.Context, flow):
         allow_dash=False,
         path_type=Path,
     ),
+    # cls=ClickMutex,
+    # mutually_exclusive_with=["design_name"],
     help="Path to Xeda design file containing the description of a single design.",
 )
 @click.option(
@@ -488,8 +487,8 @@ def dse(
     init_freq_high: float,
     xeda_run_dir: Optional[Path],
     xedaproject: Optional[str] = None,
+    design: Optional[str] = None,
     design_name: Optional[str] = None,
-    design_file: Optional[str] = None,
     design_allow_extra: bool = True,
     log_level: Optional[int] = None,
     detailed_logs: bool = True,
@@ -507,16 +506,6 @@ def dse(
 
     setup_logger(log_level, detailed_logs, xeda_run_dir / "Logs")
 
-    design, flow_class, accum_flow_settings = prepare(
-        flow,
-        xedaproject=xedaproject,
-        design_name=design_name,
-        design_file=design_file,
-        flow_settings=list(flow_settings),
-        select_design_in_project=select_design_in_project,
-        design_remove_extra=["lwc"],
-        design_allow_extra=design_allow_extra,
-    )
     opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)
     dse_settings_dict = settings_to_dict(dse_settings, expand_dict_keys=True)
     if max_workers:
@@ -530,8 +519,6 @@ def dse(
         ),
         **opt_settings,  # optimizer_settings overrides other options
     }
-    if not design or not flow_class:
-        sys.exit(1)
     dse = Dse(
         optimizer_class=optimizer,
         optimizer_settings=opt_settings,
@@ -539,10 +526,14 @@ def dse(
         debug=options.debug,
         **dse_settings_dict,
     )
-    dse.run_flow(
-        flow_class,
-        design,
-        accum_flow_settings,
+    dse.run(
+        flow,
+        xedaproject=xedaproject,
+        design=design or design_name,
+        flow_settings=list(flow_settings),
+        select_design_in_project=select_design_in_project,
+        design_remove_extra=["lwc"],
+        design_allow_extra=design_allow_extra,
     )
 
 

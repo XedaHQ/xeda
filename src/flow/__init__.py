@@ -30,7 +30,4 @@ __all__ = [
     "FlowFatalError",
     "FlowSettingsError",
     "FlowException",
-    # "define_flow",
-    # "synth_flow",
-    # "sim_flow",
 ]

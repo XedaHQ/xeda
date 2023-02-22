@@ -1,7 +1,7 @@
-# noqa
+# flake8: noqa
 # type: ignore
 
-## requirements:
+# requirements:
 # pip3 install klayout
 
 # https://www.klayout.de/doc-qt5/programming/python.html

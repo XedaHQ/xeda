@@ -11,7 +11,7 @@ from pydantic import Field
 from ...design import Design, SourceType
 from ...flow import Flow
 from ...gtkwave import get_color
-from ...tool import Docker, Tool
+from ...tool import Tool
 from ...utils import unique
 
 log = logging.getLogger(__name__)

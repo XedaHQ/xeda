@@ -73,9 +73,13 @@ class Ghdl(Flow, metaclass=ABCMeta):
             "--warn-no-hide",
             "--warn-parenthesis",
         ]
-        werror: bool = Field(False, description="warnings are always considered as errors")
+        werror: bool = Field(
+            False, alias="warn_error", description="warnings are always considered as errors"
+        )
         elab_werror: bool = Field(
-            False, description="During elaboration, warnings are considered as errors"
+            False,
+            alias="elab_warn_error",
+            description="During elaboration, warnings are considered as errors",
         )
         relaxed: bool = Field(
             True,

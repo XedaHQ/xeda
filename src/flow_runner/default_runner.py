@@ -262,7 +262,7 @@ class FlowLauncher:
         run_path: Path = self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
         return run_path
 
-    def launch_flow(
+    def _launch_flow(
         self,
         flow_class: Union[str, Type[Flow]],
         design: Design,
@@ -419,7 +419,7 @@ class FlowLauncher:
                     if not os.path.isabs(res):
                         res_path = os.path.join(flow.run_path.absolute(), res)
                         resources += glob(res_path)
-                completed_dep = self.launch_flow(
+                completed_dep = self._launch_flow(
                     dep_cls, design, dep_settings, depender=flow, copy_resources=resources
                 )
                 if not completed_dep.succeeded:
@@ -535,7 +535,146 @@ class FlowLauncher:
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
     ) -> Optional[Flow]:
-        return self.launch_flow(flow_class, design, flow_settings, depender=None)
+        """
+        Low-level interface for launching flows.
+        """
+        return self._launch_flow(flow_class, design, flow_settings, depender=None)
+
+    def run(
+        self,
+        flow: Union[Type[Flow], str],
+        design: Union[str, Path, Design, Dict[str, Any], None] = None,
+        xedaproject: Optional[str] = None,
+        flow_settings: Union[
+            List[str], Tuple[str, ...], Mapping[str, StrOrDictStrHier], Flow.Settings
+        ] = [],
+        select_design_in_project=None,
+        design_overrides: Union[None, Iterable[str], Dict[str, Any]] = None,
+        design_allow_extra: bool = False,
+        design_remove_extra: List[str] = [],
+    ):
+        """
+        Flexible API for launching flows.
+        """
+        # get default flow configs from xedaproject even if a design-file is specified
+        xeda_project = None
+        flows_settings: Dict[str, Any] = {}
+        if not design_overrides:
+            design_overrides = {}
+        if not isinstance(design_overrides, dict):
+            design_overrides = list(design_overrides)
+            design_overrides = settings_to_dict(design_overrides)
+        design_not_in_project = False
+        if xedaproject:
+            if Path(xedaproject).exists():
+                raise FileNotFoundError(f"Cannot open xeda-project file: {xedaproject}")
+        else:
+            xedaproject = "xedaproject.toml"
+        if design is not None:
+            if isinstance(design, (Design, dict, Path)):
+                design_not_in_project = True
+            else:
+                p = Path(design)
+                if p.suffix in [".toml"] and p.exists():
+                    design_not_in_project = True
+                    design = p
+        if Path(xedaproject).exists():
+            try:
+                xeda_project = XedaProject.from_file(
+                    xedaproject,
+                    skip_designs=design_not_in_project,
+                    design_overrides=design_overrides,
+                    design_allow_extra=design_allow_extra,
+                    design_remove_extra=design_remove_extra,
+                )
+            except DesignValidationError as e:
+                log.critical("%s", e)
+                return None, None, flows_settings
+            except FileNotFoundError:
+                log.critical(
+                    f"Cannot open project file: {xedaproject}. Try specifing the correct path using the --xedaproject <path-to-file>."
+                )
+                return None, None, flows_settings
+            flows_settings = xeda_project.flows
+        if design and design_not_in_project:
+            try:
+                if isinstance(design, (str, Path)):
+                    design = Design.from_toml(
+                        design,
+                        overrides=design_overrides,
+                        allow_extra=design_allow_extra,
+                        remove_extra=design_remove_extra,
+                    )
+                elif isinstance(design, dict):
+                    if "design_root" not in design:
+                        design["design_root"] = Path.cwd()
+                    design = Design(**design)
+                flows_settings = {
+                    **flows_settings,
+                    **design.flow,
+                }
+            except DesignValidationError as e:
+                log.critical("%s", e)
+                return None, None, flows_settings
+        else:
+            if not xeda_project:
+                log.critical(
+                    "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
+                )
+                return None, None, flows_settings
+            if not xeda_project.designs:
+                log.critical(
+                    "There are no designs in the xedaproject file. You can specify a single design description using `--design-file` argument."
+                )
+                return None, None, flows_settings
+            assert isinstance(xeda_project.design_names, list)  # type checker
+            log.info(
+                "Available designs in xedaproject: %s",
+                ", ".join(xeda_project.design_names),
+            )
+            if isinstance(design, str):
+                design_ = xeda_project.get_design(design)
+                if design_:
+                    design = design_
+                else:
+                    if design:
+                        log.critical(
+                            'Design "%s" not found in %s. Available designs are: %s',
+                            design,
+                            xedaproject,
+                            ", ".join(xeda_project.design_names),
+                        )
+                        raise ValueError("Invalid design name")
+                    else:
+                        if len(xeda_project.designs) == 1:
+                            design = xeda_project.designs[1]
+                        elif select_design_in_project:
+                            design = select_design_in_project(xeda_project, design)
+                    if not design:
+                        log.critical(
+                            "[ERROR] no design was specified and none were automatically discovered."
+                        )
+                        raise ValueError("no design was specified or discovered")
+        flow_overrides = settings_to_dict(flow_settings)
+        log.debug("flow_overrides: %s", flow_overrides)
+        if isinstance(flow, str):
+            flow_name = flow
+            flow_class = get_flow_class(flow)
+        else:
+            flow_name = flow.name
+            flow_class = flow
+        flows_settings = {**flows_settings.get(flow_name, {}), **flow_overrides}
+        if not design or not flow_class:
+            log.critical("Failed to parse design and/or flow")
+            raise ValueError(f"design={design} flow_ckass={flow_class}")
+        assert isinstance(
+            design, Design
+        ), f"BUG: design should be of type Design but was {type(design)}"
+        return self.run_flow(
+            flow_class,
+            design,
+            flows_settings,
+        )
 
 
 class FlowRunner(FlowLauncher):
@@ -575,9 +714,7 @@ StrOrDictStrHier = Union[str, DictStrHier]
 
 
 def settings_to_dict(
-    settings: Union[
-        None, List[str], Tuple[str, ...], Mapping[str, StrOrDictStrHier], Flow.Settings
-    ],
+    settings: Union[List[str], Tuple[str, ...], Mapping[str, StrOrDictStrHier], Flow.Settings],
     expand_dict_keys: bool = False,
 ) -> Dict[str, Any]:
     if not settings:
@@ -605,103 +742,3 @@ def settings_to_dict(
             set_hierarchy(expanded, k, try_convert_to_primitives(v, convert_lists=True))
         return expanded
     raise TypeError(f"overrides is of unsupported type: {type(settings)}")
-
-
-def prepare(
-    flow: str,
-    xedaproject: Optional[str] = None,
-    design_name: Optional[str] = None,
-    design_file: Union[None, str, os.PathLike] = None,
-    flow_settings: Union[List[str], None] = None,
-    select_design_in_project=None,
-    design_overrides: Union[None, Iterable[str], Dict[str, Any]] = None,
-    design_allow_extra: bool = False,
-    design_remove_extra: List[str] = [],
-) -> Tuple[Optional[Design], Optional[Type[Flow]], Dict[str, Any]]:
-    # get default flow configs from xedaproject even if a design-file is specified
-    xeda_project = None
-    flows_settings: Dict[str, Any] = {}
-    design: Optional[Design] = None
-    if not design_overrides:
-        design_overrides = {}
-    if not isinstance(design_overrides, dict):
-        design_overrides = list(design_overrides)
-        design_overrides = settings_to_dict(design_overrides)
-    if not xedaproject:
-        xedaproject = "xedaproject.toml"
-    if Path(xedaproject).exists():
-        try:
-            xeda_project = XedaProject.from_file(
-                xedaproject,
-                skip_designs=design_file is not None,
-                design_overrides=design_overrides,
-                design_allow_extra=design_allow_extra,
-                design_remove_extra=design_remove_extra,
-            )
-        except DesignValidationError as e:
-            log.critical("%s", e)
-            return None, None, flows_settings
-        except FileNotFoundError:
-            log.critical(
-                f"Cannot open project file: {xedaproject}. Try specifing the correct path using the --xedaproject <path-to-file>."
-            )
-            return None, None, flows_settings
-        flows_settings = xeda_project.flows
-    if design_file:
-        try:
-            design = Design.from_toml(
-                design_file,
-                overrides=design_overrides,
-                allow_extra=design_allow_extra,
-                remove_extra=design_remove_extra,
-            )
-            dd = asdict(design)
-            flows_settings = {
-                **flows_settings,
-                **dd.get("flows", {}),
-                **design.flow,
-            }
-        except DesignValidationError as e:
-            log.critical("%s", e)
-            return None, None, flows_settings
-    else:
-        if not xeda_project:
-            log.critical(
-                "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
-            )
-            return None, None, flows_settings
-        if not xeda_project.designs:
-            log.critical(
-                "There are no designs in the xedaproject file. You can specify a single design description using `--design-file` argument."
-            )
-            return None, None, flows_settings
-        assert isinstance(xeda_project.design_names, list)  # type checker
-        log.info(
-            "Available designs in xedaproject: %s",
-            ", ".join(xeda_project.design_names),
-        )
-        design = xeda_project.get_design(design_name)
-        if not design:
-            if design_name:
-                log.critical(
-                    'Design "%s" not found in %s. Available designs are: %s',
-                    design_name,
-                    xedaproject,
-                    ", ".join(xeda_project.design_names),
-                )
-                return None, None, flows_settings
-            else:
-                if len(xeda_project.designs) == 1:
-                    design = xeda_project.designs[1]
-                elif select_design_in_project:
-                    design = select_design_in_project(xeda_project, design_name)
-            if not design:
-                log.critical(
-                    "[ERROR] no design was specified and none were automatically discovered."
-                )
-                return None, None, flows_settings
-    flow_overrides = settings_to_dict(flow_settings)
-    log.debug("flow_overrides: %s", flow_overrides)
-    flows_settings = {**flows_settings.get(flow, {}), **flow_overrides}
-    flow_class = get_flow_class(flow)
-    return design, flow_class, flows_settings

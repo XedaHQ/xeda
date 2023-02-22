@@ -7,7 +7,6 @@ from .default_runner import (
     XedaOptions,
     add_file_logger,
     get_flow_class,
-    prepare,
     scrub_runs,
     settings_to_dict,
 )
@@ -21,7 +20,6 @@ __all__ = [
     "FlowNotFoundError",
     "XedaOptions",
     "get_flow_class",
-    "prepare",
     "settings_to_dict",
     "add_file_logger",
     "DIR_NAME_HASH_LEN",
