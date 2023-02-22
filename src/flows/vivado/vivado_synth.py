@@ -89,7 +89,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             "Synth 8-7080",  # "Parallel synthesis criteria is not met"
             "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
         ]
-        dummy_io_delay: bool = True  # set a dummy IO delay if they are not specified
+        dummy_io_delay: bool = False  # set a dummy IO delay if they are not specified
 
         @validator("fpga")
         def _validate_fpga(cls, value):
@@ -146,8 +146,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         clock_xdc_path = self.copy_from_template("clock.xdc")
 
-        if settings.blacklisted_resources:
-            log.info("blacklisted_resources: %s", settings.blacklisted_resources)
+        log.debug("blacklisted_resources: %s", settings.blacklisted_resources)
 
         if settings.synth.steps["SYNTH_DESIGN"] is None:
             settings.synth.steps["SYNTH_DESIGN"] = {}
