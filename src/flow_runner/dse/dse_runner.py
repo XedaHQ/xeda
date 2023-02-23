@@ -364,8 +364,7 @@ class Dse(FlowLauncher):
                                     r = {k: outcome.results.get(k) for k in results_sub}
                                     successful_results.append(r)
                                 if (
-                                    self.settings.post_cleanup
-                                    and self.settings.keep_optimal_run_dirs
+                                    self.settings.post_cleanup_purge
                                     and not improved
                                     and (have_success or num_iterations > 0)
                                 ):
