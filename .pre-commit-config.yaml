@@ -24,11 +24,11 @@ repos:
       hooks:
           - id: mypy
             args: [--install-types, --non-interactive]
-    # - repo: local
-    #   hooks:
-    #       - id: pytest-check
-    #         name: pytest-check
-    #         entry: pytest
-    #         language: system
-    #         pass_filenames: false
-    #         always_run: false
+    - repo: local
+      hooks:
+          - id: pytest-check
+            name: pytest-check
+            entry: pytest
+            language: system
+            pass_filenames: false
+            always_run: false
