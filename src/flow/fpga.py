@@ -3,6 +3,7 @@ import re
 from typing import Any, Optional
 
 from ..dataclass import Field, XedaBaseModel, root_validator
+from ..utils import try_convert
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("capacity", match_ecp5.group(2) + "k")
                 set_if_not_exist("speed", match_ecp5.group("sp"))
                 set_if_not_exist("package", match_ecp5.group("pkg"))
-                set_if_not_exist("pins", int(match_ecp5.group("pins")))
+                set_if_not_exist("pins", try_convert(match_ecp5.group("pins"), int))
                 set_if_not_exist("grade", match_ecp5.group("gr"))
                 return values
             # Commercial Xilinx # Generation # Family # Logic Cells in 1K units # Speed Grade (-1 slowest, L: low-power) # Package Type
@@ -114,7 +115,7 @@ class FPGA(XedaBaseModel):
                 )
                 set_if_not_exist("capacity", lc + "K")
                 set_if_not_exist("package", match_xc7.group("pkg"))
-                set_if_not_exist("pins", int(match_xc7.group("pins")))
+                set_if_not_exist("pins", try_convert(match_xc7.group("pins"), int))
                 set_if_not_exist("grade", match_xc7.group("gr"))
                 return values
             match_us = re.match(
@@ -137,8 +138,8 @@ class FPGA(XedaBaseModel):
                     match_us.group(1) + match_us.group("g") + match_us.group("f") + lc,
                 )
                 set_if_not_exist("capacity", lc + "K")
-                set_if_not_exist("package", int(match_us.group("pkg")))
-                set_if_not_exist("pins", int(match_us.group("pins")))
+                set_if_not_exist("package", try_convert(match_us.group("pkg"), int))
+                set_if_not_exist("pins", try_convert(match_us.group("pins"), int))
                 set_if_not_exist("grade", match_us.group("gr"))
                 return values
             # UltraSCALE+
@@ -162,8 +163,8 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist(
                     "device", match_usp.group(1) + match_usp.group("f") + "U" + lc + "P"
                 )
-                set_if_not_exist("package", int(match_usp.group("pkg")))
-                set_if_not_exist("pins", int(match_usp.group("pins")))
+                set_if_not_exist("package", try_convert(match_usp.group("pkg"), int))
+                set_if_not_exist("pins", try_convert(match_usp.group("pins"), int))
                 set_if_not_exist("grade", match_usp.group("gr"))
                 return values
         elif not values.get("device") and not values.get("vendor"):
