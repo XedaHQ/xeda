@@ -183,6 +183,7 @@ def cli(ctx: click.Context, **kwargs):
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
+    default=tuple(),
     help="""Override design attributes.""",
 )
 @click.option(
@@ -198,6 +199,7 @@ def cli(ctx: click.Context, **kwargs):
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
+    default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
     Example: --settings clock_period=2.345 impl.strategy=Debug
     """
@@ -372,6 +374,7 @@ def list_settings(ctx: click.Context, flow):
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
+    default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
     Example: --settings clock_period=2.345 impl.strategy=Debug
     """,
@@ -452,6 +455,7 @@ def list_settings(ctx: click.Context, flow):
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
+    default=tuple(),
     show_envvar=True,
 )
 @click.option(
@@ -459,6 +463,7 @@ def list_settings(ctx: click.Context, flow):
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
+    default=tuple(),
     show_envvar=True,
 )
 @click.option(
