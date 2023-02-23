@@ -370,8 +370,8 @@ def list_settings(ctx: click.Context, flow):
     "--flow-settings",
     "--settings",
     metavar="KEY=VALUE...",
-    multiple=True,
-    default=tuple(),
+    type=tuple,
+    cls=OptionEatAll,
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
     Example: --settings clock_period=2.345 impl.strategy=Debug
     """,
@@ -450,15 +450,15 @@ def list_settings(ctx: click.Context, flow):
 @click.option(
     "--dse-settings",
     metavar="KEY=VALUE...",
-    multiple=True,
-    default=tuple(),
+    type=tuple,
+    cls=OptionEatAll,
     show_envvar=True,
 )
 @click.option(
     "--optimizer-settings",
     metavar="KEY=VALUE...",
-    multiple=True,
-    default=tuple(),
+    type=tuple,
+    cls=OptionEatAll,
     show_envvar=True,
 )
 @click.option(
