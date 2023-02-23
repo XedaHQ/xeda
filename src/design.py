@@ -739,8 +739,10 @@ class Design(XedaBaseModel):
         if src.file and self.root_path:
             file = src.file.absolute()
             root = self.root_path.absolute()
-            if file.is_relative_to(root):
+            try:
                 return file.relative_to(root)
+            except ValueError:
+                pass
         return src._specified_path
 
     @cached_property

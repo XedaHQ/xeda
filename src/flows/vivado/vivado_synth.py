@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
 from ...design import Design
-from ...utils import HierDict, parse_xml
+from ...utils import HierDict, parse_xml, try_convert
 from ...flow import FpgaSynthFlow
 from ..vivado import Vivado
 
@@ -263,8 +263,9 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 if self.results.get(k) is None:
                     path.append("Used")
                     try:
-                        self.results[k] = self.get_from_path(utilization, path)
+                        util = self.get_from_path(utilization, path)
                     except KeyError as e:
+                        util = None
                         log.debug(
                             "determining %s: property %s (in %s) was not found in the utilization report %s.",
                             k,
@@ -272,6 +273,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                             path,
                             report_file,
                         )
+                    if util is not None:
+                        r = try_convert(util, int, default=util)
+                        if r:
+                            self.results[k] = r
             self.results["_utilization"] = utilization
         if failed:
             return False
