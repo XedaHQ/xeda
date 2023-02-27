@@ -136,9 +136,11 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             clocks = values.get("clocks")
             clock_period = values.get("clock_period")
             main_clock_name = "main_clock"
+            if clocks is None and "clock" in values:
+                clocks = {main_clock_name: values.pop("clock")}
             if clocks and (len(clocks) == 1 or main_clock_name in clocks):
-                if "main_clock" in clocks:
-                    main_clock = clocks["main_clock"]
+                if main_clock_name in clocks:
+                    main_clock = clocks[main_clock_name]
                 else:
                     main_clock = list(clocks.values())[0]
                     main_clock_name = list(clocks.keys())[0]
@@ -148,6 +150,8 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                     log.debug("Setting main_clock period to %s", clock_period)
                     main_clock["period"] = clock_period
                 clocks[main_clock_name] = PhysicalClock(**main_clock)
+            if clocks:
+                values["clocks"] = clocks
             return values
 
         @property

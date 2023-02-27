@@ -390,15 +390,19 @@ class LanguageSettings(XedaBaseModel):
     )
 
     @validator("standard", pre=True)
-    def two_digit_standard(cls, standard, values):
-        if isinstance(standard, int):
-            standard = str(standard)
-        elif not isinstance(standard, str):
+    def two_digit_standard(cls, value, values):
+        if not value:
+            value = values.get("version")
+        if not value:
+            return None
+        if isinstance(value, int):
+            value = str(value)
+        elif not isinstance(value, str):
             raise ValueError("standard should be of type string")
-        if standard and len(standard) == 4:
-            if standard.startswith("20") or standard.startswith("19"):
-                standard = standard[2:]
-        return standard
+        if value and len(value) == 4:
+            if value.startswith("20") or value.startswith("19"):
+                value = value[2:]
+        return value
 
     @root_validator(pre=True)
     def language_root_validator(cls, values):
@@ -748,6 +752,9 @@ class Design(XedaBaseModel):
             for k in remove_extra:
                 design_dict.pop(k, None)
         # Default value for design_root is the folder containing the design description file.
+        dr = design_dict.pop("design_root", None)
+        if design_root is None:
+            design_root = dr
         if design_root is None:
             design_root = design_file.parent
         try:

@@ -124,6 +124,7 @@ begin
                                 counter <= counter + 1;
                             end if;
                         end if;
+                        -- FIXME: Vivado Synthesis reports out of bound access when G_IN_BITS != G_OUT_BITS
                         s(1 + ctr * G_IN_BITS to ctr * G_IN_BITS + G_IN_BITS) <= kiv;
 
                         s(G_KEY_IV_BITS + 1 to 93)                <= (others => '0');

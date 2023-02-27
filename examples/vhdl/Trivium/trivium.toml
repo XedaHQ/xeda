@@ -6,14 +6,17 @@ language.vhdl.standard = "2008"
 sources = [ #
     "trivium.vhdl",
 ]
-parameters.G_IN_BITS = 8
+parameters.G_IN_BITS = 64
 parameters.G_OUT_BITS = 64 # 96
 # parameters.G_SETUP_ROUNDS = 4
 top = "trivium"
+clock.port = "clk"
 
 
 [tb]
-sources = [
-    "trivium_tb.py"
-]
+sources = ["trivium_tb.py"]
 cocotb = true
+
+[flow.vivado_synth]
+fpga.part = "xc7a12tcsg325-3"
+clock.freq = "200 MHz"

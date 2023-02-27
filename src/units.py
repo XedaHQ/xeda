@@ -1,7 +1,7 @@
 from typing import Optional, Union
 from pint import UnitRegistry
 
-unit_registry = UnitRegistry()
+unit_registry = UnitRegistry(case_sensitive=False)
 Q_ = unit_registry.Quantity
 
 
