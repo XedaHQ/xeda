@@ -527,7 +527,10 @@ class FlowLauncher:
             )
             log.warning("Removing the following files: %s", " ".join(str(p) for p in paths_to_rm))
             for p in paths_to_rm:
-                shutil.rmtree(p, onerror=on_rm_error)
+                if os.path.isfile(p):
+                    os.remove(p)
+                elif os.path.isdir(p):
+                    shutil.rmtree(p, onerror=on_rm_error)
         return flow
 
     def run_flow(
