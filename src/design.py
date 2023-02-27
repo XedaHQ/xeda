@@ -2,21 +2,22 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
 import logging
 import os
+import subprocess
+import sys
 from enum import Enum, auto
 from functools import cached_property
 from pathlib import Path
-import subprocess
-import sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 from urllib.parse import parse_qs, urlparse
 
 from .dataclass import (
-    model_with_allow_extra,
     Field,
     ValidationError,
     XedaBaseModel,
+    model_with_allow_extra,
     root_validator,
     validation_errors,
     validator,
@@ -664,8 +665,10 @@ class Design(XedaBaseModel):
         sources = []
         if rtl:
             sources.extend(self.rtl.sources)
-        if tb:
+        if tb and self.tb:
             sources.extend([src for src in self.tb.sources if src not in self.rtl.sources])
+        if len(source_types) == 1 and isinstance(source_types[0], str) and source_types[0] == "*":
+            return sources
         return [src for src in sources if str(src.type).lower() in source_types_str]
 
     def sim_sources_of_type(self, *source_types: Union[str, SourceType]) -> List[DesignSource]:
@@ -702,10 +705,36 @@ class Design(XedaBaseModel):
         allow_extra: bool = False,
         remove_extra: List[str] = [],
     ) -> DesignType:
+        if not isinstance(design_file, Path):
+            design_file = Path(design_file)
+        assert design_file.suffix == ".toml"
+        return cls.from_file(
+            design_file,
+            design_root=design_root,
+            overrides=overrides,
+            allow_extra=allow_extra,
+            remove_extra=remove_extra,
+        )
+
+    @classmethod
+    def from_file(
+        cls: Type[DesignType],
+        design_file: Union[str, os.PathLike],
+        design_root: Union[None, str, os.PathLike] = None,
+        overrides: Dict[str, Any] = {},
+        allow_extra: bool = False,
+        remove_extra: List[str] = [],
+    ) -> DesignType:
         """Load and validate a design description from TOML file"""
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
-        design_dict = toml_load(design_file)
+        if design_file.suffix == ".toml":
+            design_dict = toml_load(design_file)
+        elif design_file.suffix == ".json":
+            with open(design_file, "r") as f:
+                design_dict = json.load(f)
+        else:
+            raise ValueError(f"File extension `{design_file.suffix}` is not supported.")
         design_dict = hierarchical_merge(design_dict, overrides)
         if "name" not in design_dict:
             log.warning(
