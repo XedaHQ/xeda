@@ -1,0 +1,19 @@
+name = "trivium"
+
+language.vhdl.standard = "2008"
+
+[rtl]
+sources = [ #
+    "trivium.vhdl",
+]
+parameters.G_IN_BITS = 8
+parameters.G_OUT_BITS = 64 # 96
+# parameters.G_SETUP_ROUNDS = 4
+top = "trivium"
+
+
+[tb]
+sources = [
+    "trivium_tb.py"
+]
+cocotb = true
