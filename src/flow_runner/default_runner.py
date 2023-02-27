@@ -576,7 +576,7 @@ class FlowLauncher:
                 design_not_in_project = True
             else:
                 p = Path(design)
-                if p.suffix in [".toml"] and p.exists():
+                if p.suffix in [".toml", ".json"] and p.exists():
                     design_not_in_project = True
                     design = p
         if Path(xedaproject).exists():
@@ -600,7 +600,7 @@ class FlowLauncher:
         if design and design_not_in_project:
             try:
                 if isinstance(design, (str, Path)):
-                    design = Design.from_toml(
+                    design = Design.from_file(
                         design,
                         overrides=design_overrides,
                         allow_extra=design_allow_extra,
