@@ -14,7 +14,7 @@ clock.port = "clk"
 
 
 [tb]
-sources = ["trivium_tb.py"]
+sources = ["trivium_tb.py", "cref/trivium64.c"]
 cocotb = true
 
 [flow.vivado_synth]

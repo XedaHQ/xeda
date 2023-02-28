@@ -42,6 +42,7 @@ from .flow_runner import (
     settings_to_dict,
 )
 from .flow_runner.dse import Dse
+from .flow_runner.remote import RemoteRunner
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import removeprefix
 
@@ -224,6 +225,11 @@ def cli(ctx: click.Context, **kwargs):
     is_flag=True,
     help="Remove all previous flow directories of the same flow withing the current 'xeda_run_dir' _before_ running the flow. Requires user confirmation.",
 )
+@click.option(
+    "--remote",
+    type=str,
+    help="Run on a remote machine with SSH access. Xeda needs to be installed on the remote machine and PATH env variable should be set correctly.",
+)
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -243,6 +249,7 @@ def run(
     post_cleanup: bool = False,
     post_cleanup_purge: bool = False,
     scrub: bool = False,
+    remote: Optional[str] = None,
 ):
     """`run` command"""
     assert ctx
@@ -262,6 +269,14 @@ def run(
     else:
         flow_settings = []
 
+    if remote:
+        rl = RemoteRunner(
+            xeda_run_dir,
+            cached_dependencies=cached_dependencies,
+        )
+        assert design
+        rl.run_remote(design, flow, host=remote, flow_settings=flow_settings)
+        sys.exit(0)
     try:
         launcher = DefaultRunner(
             xeda_run_dir,

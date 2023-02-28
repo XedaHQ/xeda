@@ -40,7 +40,7 @@ dependencies = [
     "jinja2              ~= 3.1",
     "pydantic            ~= 1.10",
     "tomli               ~= 2.0; python_version<'3.11'",
-    "python-box[]        ~= 6.1",
+    "python-box[]        ~= 7.0",
     "attrs               ~= 22.1",
     "cattrs              ~= 22.2",
     "attrs_strict        ~= 1.0",
@@ -61,6 +61,8 @@ dependencies = [
     "junitparser       ~= 2.4",    # TODO: remove
     "pyvcd             ~= 0.3",
     "GitPython         >= 3.1.30",
+    "fabric            ~= 3.0",
+    "execnet           >= 1.9",
 ]
 
 [project.optional-dependencies]

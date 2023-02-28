@@ -806,3 +806,10 @@ class Design(XedaBaseModel):
         param_strs = [f"{p}={v}" for p, v in self.tb.parameters.items()]
         r = bytes(", ".join(hashes + param_strs), "utf-8")
         return hashlib.sha3_256(r).hexdigest()
+
+    def dict(self):
+        return super().dict(
+            exclude_unset=True,
+            exclude_defaults=True,
+            exclude={"rtl_hash", "tb_hash", "rtl_fingerprint"},
+        )
