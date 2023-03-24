@@ -28,18 +28,22 @@ def send_design(design: Design, conn: Connection, remote_path: str) -> Tuple[str
         temp_dir = Path(tmpdirname)
         zip_file = temp_dir / f"{design.name}.zip"
         log.debug(f"temp_dir={temp_dir} zip_file={zip_file}")
-        new_design: Dict[str, Any] = {**design.dict(), "design_root": None}
-        rtl = new_design.get("rtl", {})
-        tb = new_design.get("tb", {})
+        new_design: Dict[str, Any] = {}  # **design.dict(), "design_root": None}
+        rtl: Dict[str, Any] = {}  # new_design.get("rtl", {})
+        tb: Dict[str, Any] = {}  # new_design.get("tb", {})
         remote_sources_path = Path("sources")
         rtl["sources"] = [
             str(remote_sources_path / src.path.relative_to(root_path)) for src in design.rtl.sources
         ]
+        rtl["top"] = design.rtl.top
+        rtl["clocks"] = list(map(lambda kv: (kv[0], kv[1].dict()), design.rtl.clocks.items()))
         tb["sources"] = [
             str(remote_sources_path / src.file.relative_to(root_path)) for src in design.tb.sources
         ]
+        tb["top"] = design.tb.top
         new_design["rtl"] = rtl
         new_design["tb"] = tb
+        new_design["flow"] = design.flow
         design_file = temp_dir / f"{design.name}.json"
         with open(design_file, "w") as f:
             json.dump(new_design, f)
@@ -77,7 +81,7 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
             xeda_run_dir,
             cached_dependencies=True,
             incremental=False,
-            post_cleanup=True,
+            post_cleanup=False,
             # post_cleanup_purge = True,
         )
         f = launcher.run(
