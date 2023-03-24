@@ -238,7 +238,7 @@ DefineType = Any
 Tuple012 = Union[Tuple[str, ...], Tuple[str], Tuple[str, str]]  # xtype: ignore
 
 
-class DVSettings(XedaBaseModel):  # type: ignore
+class DVSettings(XedaBaseModel):
     """Design/Verification settings"""
 
     sources: List[DesignSource]
@@ -416,8 +416,8 @@ class VhdlSettings(LanguageSettings):
 
 
 class Language(XedaBaseModel):
-    vhdl: VhdlSettings = VhdlSettings()  # type: ignore
-    verilog: LanguageSettings = LanguageSettings()  # type: ignore
+    vhdl: VhdlSettings = VhdlSettings()  # pyright: ignore
+    verilog: LanguageSettings = LanguageSettings()  # pyright: ignore
 
 
 class RtlDep(XedaBaseModel):
@@ -539,7 +539,7 @@ class GitReference(DesignReference):
                 repo.remotes.origin.fetch()
                 if not self.commit:
                     repo.git.pull()
-            except git.InvalidGitRepositoryError:  # type: ignore
+            except git.InvalidGitRepositoryError:
                 log.error("Path %s is not a valid git repository.", self.clone_dir)
         if repo is None:
             log.info(

@@ -63,7 +63,7 @@ class FmaxOptimizer(Optimizer):
         min_freq_step: float = 0.02
 
         # min improvement inf frequency before increasing variations
-        variation_min_improv = 2.0
+        variation_min_improv: float = 2.0
 
         @validator("init_freq_high")
         def validate_init_freq(cls, value, values):

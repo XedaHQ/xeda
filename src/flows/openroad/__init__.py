@@ -88,12 +88,14 @@ class Openroad(AsicSynthFlow):
         abc_load_in_ff: Optional[int] = None  # to override platform value
         abc_driver_cell: Optional[int] = None  # to override platform value
         write_metrics: Optional[Path] = Field(
-            "metrics.json", description="write metrics in file in JSON format"
+            Path("metrics.json"), description="write metrics in file in JSON format"
         )
         exit: bool = Field(True, description="exit after completion")
         gui: bool = Field(False, description="start in gui mode")
         copy_platform_files: bool = False
-        nthreads: Optional[int] = Field(None, description="Number of threads to use. If none/0, use max available.")  # type: ignore
+        nthreads: Optional[int] = Field(
+            None, description="Number of threads to use. If none/0, use max available."
+        )
         extra_liberty_files: List[Path] = []
         # floorplan
         floorplan_def: Optional[Path] = None
@@ -270,7 +272,7 @@ class Openroad(AsicSynthFlow):
         sdc_files += ss.sdc_files
         ss.sdc_files = sdc_files
 
-        openroad = Tool("openroad", self, version_arg="-version")
+        openroad = Tool("openroad", self, version_flag="-version")
 
         if not self.design.rtl.clocks:
             log.critical(

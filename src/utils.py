@@ -119,13 +119,13 @@ class SDF(XedaBaseModel):
         )
 
 
-def toml_load(path: Union[str, os.PathLike]) -> Dict[str, Any]:  # type: ignore
+def toml_load(path: Union[str, os.PathLike]) -> Dict[str, Any]:
     with open(path, "rb") as f:
-        return tomllib.load(f)  # type: ignore
+        return tomllib.load(f)
 
 
 def toml_loads(s: str) -> Dict[str, Any]:
-    return tomllib.loads(s)  # type: ignore
+    return tomllib.loads(s)
 
 
 def backup_existing(path: Path) -> Optional[Path]:

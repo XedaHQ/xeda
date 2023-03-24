@@ -72,10 +72,10 @@ class LoggerContextFilter(logging.Filter):
         return 1
 
 
-def setup_logger(log_level, detailed_logs, write_to_file: Optional[Path] = None):
+def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
     logging.getLogger().setLevel(log_level)
     coloredlogs.install(
-        None,
+        level=log_level,
         fmt="[%(name)s] %(asctime)s %(levelname)s %(message)s"
         if detailed_logs
         else "%(levelname)s %(message)s",
@@ -84,8 +84,8 @@ def setup_logger(log_level, detailed_logs, write_to_file: Optional[Path] = None)
     if detailed_logs:
         for handler in logging.getLogger().handlers:
             handler.addFilter(LoggerContextFilter())
-    if write_to_file:
-        add_file_logger(write_to_file)
+    if log_to_file:
+        add_file_logger(log_to_file)
 
 
 @click.group(cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Type, Union
 
 import attrs
 import yaml
@@ -27,13 +26,13 @@ class XedaProject:
 
     @classmethod
     def from_file(
-        cls,
-        file: Union[str, os.PathLike, Path],
+        cls: Type["XedaProject"],
+        file: Union[str, Path],
         skip_designs: bool = False,
         design_overrides: Dict[str, Any] = {},
         design_allow_extra: bool = False,
         design_remove_extra: List[str] = [],
-    ):
+    ) -> "XedaProject":
         """load xedaproject from file"""
         if not isinstance(file, Path):
             file = Path(file)
@@ -74,7 +73,7 @@ class XedaProject:
 
         with WorkingDirectory(file.parent):
             try:
-                return cls(  # type: ignore
+                return cls(  # type: ignore[call-arg]
                     designs=[
                         design_cls(**hierarchical_merge(d, design_overrides))
                         for d in designs

@@ -129,24 +129,10 @@ xeda = "src"
 
 [tool.setuptools_scm]
 
-
 [tool.black]
 line-length = 100
 target-version = ["py38", "py39", "py310", "py311"]
 include = '\.pyi?$'
-
-
-[tool.mypy]
-ignore_missing_imports = true
-# explicit-package-bases = true
-# python_version = "3.11"
-warn_unused_configs = true
-exclude = ['^build/.*$', '^examples/.*$', '^\.tox/.*$', 'src/flows/openroad/openroad_scripts/utils/.*']
-check_untyped_defs = true
-color_output = true
-pretty = true
-strict = false
-warn_return_any = false
 
 [tool.pylint]
 

@@ -50,7 +50,7 @@ class CocotbSettings(XedaBaseModel):
 class Cocotb(CocotbSettings, Tool):
     """Cocotb support for a SimFlow"""
 
-    executable = "cocotb-config"
+    executable: str = "cocotb-config"
     sim_name: str
 
     """Not a stand-alone tool, but is used from a SimFlow"""
@@ -106,7 +106,10 @@ class Cocotb(CocotbSettings, Tool):
             if design.tb is None or not design.tb.sources:
                 raise ValueError("'design.tb.cocotb' is true, but 'design.tb.sources' is empty.")
             if not design.tb.top:
-                assert design.rtl.top
+                if not design.rtl.top:
+                    raise ValueError(
+                        f"[cocotb] In design {design.name}: Either `tb.top` or `rtl.top` must be specified."
+                    )
                 design.tb.top = (design.rtl.top,)
             coco_module = design.tb.sources[0].file.stem
             tb_top_path = design.tb.sources[0].file.parent

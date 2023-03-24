@@ -22,7 +22,7 @@ class EcpPLL(Tool):
         mhz: float = Field(gt=0, description="frequency in MHz")
         phase: Optional[float] = None
 
-    executable = "ecppll"
+    executable: str = "ecppll"
     module: str = "ecp5pll"
     reset: bool = False
     standby: bool = False
@@ -41,11 +41,11 @@ class EcpPLL(Tool):
             clock.name = "clk_i" if out_clk is None else f"clk_o_{out_clk}"
         return clock
 
-    @validator("clkin", always=True)  # type: ignore
+    @validator("clkin", always=True)
     def _validate_clockin(cls, value):
         return cls._fix_clock(value)
 
-    @validator("clkouts", always=True)  # type: ignore
+    @validator("clkouts", always=True)
     def _validate_clockouts(cls, value):
         new_value = []
         for i, v in enumerate(value):
@@ -99,7 +99,7 @@ class Nextpnr(FpgaSynthFlow):
             False,
             description="disable IO buffer insertion and global promotion/routing, for building pre-routed blocks",
         )
-        lpf_allow_unconstrained = Field(
+        lpf_allow_unconstrained: bool = Field(
             False,
             description="don't require LPF file(s) to constrain all IOs",
         )

@@ -42,11 +42,13 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         """Settings for Vivado synthesis in project mode"""
 
         # FIXME implement and verify all
-        fail_critical_warning = Field(
+        fail_critical_warning: bool = Field(
             False,
             description="flow fails if any Critical Warnings are reported by Vivado",
-        )  # type: ignore
-        fail_timing = Field(True, description="flow fails if timing is not met")  # type: ignore
+        )  # pyright: ignore
+        fail_timing: bool = Field(
+            True, description="flow fails if timing is not met"
+        )  # pyright: ignore
         blacklisted_resources: List[str] = Field(  # TODO: remove
             # ["latch"],
             [],
@@ -284,7 +286,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             res_util = self.results.get(resource)
             if res_util is not None:
                 try:
-                    res_util = int(res_util)  # type: ignore
+                    res_util = int(res_util)
                     if res_util > 0:
                         log.critical(
                             "utilization report lists %s use(s) of blacklisted resource: %s",

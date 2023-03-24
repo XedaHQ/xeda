@@ -100,11 +100,11 @@ class Executioner:
             flow = self.launcher._launch_flow(self.flow_class, self.design, flow_settings)
             return (
                 FlowOutcome(
-                    settings=deepcopy(flow.settings),
+                    settings=deepcopy(flow.settings),  # type: ignore[call-arg]
                     results=flow.results,
                     timestamp=flow.timestamp,
                     run_path=flow.run_path,
-                ),  # type: ignore
+                ),
                 idx,
             )
         except KeyboardInterrupt:
@@ -126,14 +126,14 @@ class Executioner:
 
 class Dse(FlowLauncher):
     class Settings(FlowLauncher.Settings):
-        max_runtime_minutes = Field(
+        max_runtime_minutes: int = Field(
             12 * 3600,
             description="Maximum total running time in minutes, after which no new flow execution will be launched. Flows all ready launched will continue to completion or their timeout.",
-        )  # type: ignore
+        )
         keep_optimal_run_dirs: bool = False
 
-        max_failed_iters = 6
-        max_failed_iters_with_best = 4
+        max_failed_iters: int = 6
+        max_failed_iters_with_best: int = 4
         max_workers: int = Field(
             psutil.cpu_count(logical=False),
             description="Number of parallel executions.",
@@ -234,7 +234,7 @@ class Dse(FlowLauncher):
         base_settings.redirect_stdout = True
         base_settings.print_commands = False
 
-        if base_settings.nthreads > 1:
+        if base_settings.nthreads and base_settings.nthreads > 1:
             max_nthreads = max(2, multiprocessing.cpu_count() // self.settings.max_workers)
             base_settings.nthreads = min(base_settings.nthreads, max_nthreads)
 

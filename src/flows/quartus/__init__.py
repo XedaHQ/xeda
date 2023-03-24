@@ -79,7 +79,7 @@ class Quartus(FpgaSynthFlow):
             image="chriz2600/quartus-lite",
             tag="20.1.0",
             platform="linux/amd64",
-        ),  # type: ignore
+        ),  # pyright: ignore
     )
 
     class Settings(FpgaSynthFlow.Settings):
@@ -138,7 +138,12 @@ class Quartus(FpgaSynthFlow):
                 self.quartus_sh.docker.mounts[p] = p
             if self.settings.dockerized and self.quartus_sh.docker.nproc:
                 self.settings.ncpus = min(self.settings.ncpus, self.quartus_sh.docker.nproc)
-                self.settings.nthreads = min(self.settings.nthreads, self.quartus_sh.docker.nproc)
+                if self.settings.nthreads:
+                    self.settings.nthreads = min(
+                        self.settings.nthreads, self.quartus_sh.docker.nproc
+                    )
+                else:
+                    self.settings.nthreads = self.quartus_sh.docker.nproc
 
     def create_project(self, **kwargs: Any) -> None:
         assert isinstance(self.settings, self.Settings)

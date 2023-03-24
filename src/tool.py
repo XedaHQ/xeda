@@ -286,12 +286,12 @@ class Tool(XedaBaseModel):
     executable: str
     minimum_version: Union[None, Tuple[Union[int, str], ...]] = None
     default_args: List[str] = []
-    version_arg: str = "--version"
+    version_flag: str = "--version"
 
     remote: Optional[RemoteSettings] = Field(None)
     docker: Optional[Docker] = Field(None)
     redirect_stdout: Optional[Path] = Field(None, description="Redirect stdout to a file")
-    bin_path: str = Field(None, description="Path to the tool binary")
+    bin_path: Optional[str] = Field(None, description="Path to the tool binary")
     design_root: Optional[Path] = None
     dockerized: bool = False
     print_command: bool = True
@@ -315,10 +315,10 @@ class Tool(XedaBaseModel):
 
         if flow is not None:
             self.design_root = flow.design_root
+            print("flow.settings.dockerized=", flow.settings.dockerized)
             self.dockerized = flow.settings.dockerized
             if flow.settings.docker:
-                self.docker = Docker(image=flow.settings.docker)
-                self.dockerized = True
+                self.docker = Docker(image=flow.settings.docker)  # pyright: ignore
             self.print_command = flow.settings.print_commands
         if self.design_root and self.docker:
             self.docker.mounts[str(self.design_root)] = str(self.design_root)
@@ -356,7 +356,7 @@ class Tool(XedaBaseModel):
 
     @cached_property
     def version(self) -> Tuple[str, ...]:
-        out = self.run_get_stdout(self.version_arg)
+        out = self.run_get_stdout(self.version_flag)
         assert isinstance(out, str)
         so = re.split(r"\s+", out)
         version_string = so[1] if len(so) > 1 else so[0] if len(so) > 0 else ""

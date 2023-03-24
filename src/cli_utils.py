@@ -115,7 +115,7 @@ class OptionEatAll(click.Option):
             our_parser = parser._long_opt.get(name) or parser._short_opt.get(name)
             if our_parser:
                 self._eat_all_parser = our_parser
-                self._previous_parser_process = our_parser.process  # type: ignore
+                self._previous_parser_process = our_parser.process  # pyright: ignore
                 our_parser.process = parser_process
                 break
 
@@ -230,7 +230,7 @@ def print_flow_settings(flow, options: XedaOptions):
         desc: str = field.get("description", "")
         typ = get_type(field)
         req_or_def = "[red]<required>[/red]" if required else fmt_default(field.get("default"))
-        table.add_row(name, typ, req_or_def, desc)  # type: ignore
+        table.add_row(name, typ, req_or_def, desc)  # pyright: ignore
     console.print(table)
 
     for typ_name, typ_def in list(type_defs.items()):

@@ -15,6 +15,7 @@ import jinja2
 import psutil
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
+from pydantic.fields import ModelField
 
 from ..dataclass import (
     Field,
@@ -73,7 +74,7 @@ class Flow(metaclass=ABCMeta):
             return value
 
         timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
-        nthreads: int = Field(
+        nthreads: Optional[int] = Field(
             # FIXME default of the host machine not optimal for dockerized or remote execution
             default_factory=multiprocessing.cpu_count,
             description="max number of threads",
@@ -108,6 +109,20 @@ class Flow(metaclass=ABCMeta):
         dockerized: bool = Field(False, description="Run tools from docker")
         print_commands: bool = Field(True, description="Print executed commands")
 
+        @validator("*", always=True, allow_reuse=True)
+        def _expand_path_vars(cls, v, field: Optional[ModelField]):
+            if field is not None and v and field.type_ and (field.type_ is Path):
+                s = str(v)
+                var = "${design_root}"
+                if s.startswith(var):
+                    s = s[len(var) :]
+                    # remove path separators
+                    while s.startswith(os.path.sep):
+                        s = s[len(os.path.sep) :]
+                    v = Path.cwd() / s
+                    log.debug("Expanded path value for %s as %s", field.name, v.absolute())
+            return v
+
         @validator("lib_paths", pre=True, always=True)
         def _lib_paths_validator(cls, value):
             if isinstance(value, str):
@@ -115,10 +130,6 @@ class Flow(metaclass=ABCMeta):
             elif isinstance(value, (list, tuple)):
                 value = [(x, None) if isinstance(x, str) else x for x in value]
             return value
-
-        @validator("dockerized", pre=False, always=True)
-        def _set_dockerized(cls, value, values):
-            return values.get("docker") or value
 
         def __init__(self, **data: Any) -> None:
             try:

@@ -32,7 +32,7 @@ def get_hier(dct, dotted_path, default=None):
 
 
 class Dc(AsicSynthFlow):
-    dc_shell = Tool(executable="dc_shell-xg-t")  # type: ignore
+    dc_shell = Tool(executable="dc_shell-xg-t")  # pyright: ignore
 
     class Settings(AsicSynthFlow.Settings):
         adk: str

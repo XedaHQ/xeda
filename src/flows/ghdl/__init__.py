@@ -36,8 +36,8 @@ def _get_wave_opt_signals(wave_opt_file, extra_top=None):
 class GhdlTool(Tool):
     """GHDL VHDL simulation, synthesis, and linting tool: https://ghdl.readthedocs.io"""
 
-    docker = Docker(image="hdlc/sim:osvb")
-    executable = "ghdl"
+    docker: Optional[Docker] = Docker(image="hdlc/sim:osvb")
+    executable: str = "ghdl"
 
     @cached_property
     def info(self) -> Dict[str, str]:

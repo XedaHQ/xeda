@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 class Vcs(SimFlow):
     """Synopsys VCS simulator"""
 
-    dc_shell = Tool(executable="dc_shell-xg-t")  # type: ignore
+    dc_shell = Tool(executable="dc_shell-xg-t")
     vlogan = Tool("vlogan")
     vhdlan = Tool("vhdlan")
     vcs = Tool("vcs")

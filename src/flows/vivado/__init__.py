@@ -46,12 +46,12 @@ def vivado_generics(kvdict, sim=False):
 
 
 class VivadoTool(Tool):
-    executable = "vivado"
-    docker = Docker(
+    executable: str = "vivado"
+    docker: Optional[Docker] = Docker(
         image="siliconbootcamp/xilinx-vivado",
         command=["/tools/Xilinx/Vivado/2021.1/bin/vivado"],
         tag="stable",
-    )  # type: ignore
+    )  # pyright: ignore
 
     @cached_property
     def version(self) -> Tuple[str, ...]:
@@ -94,7 +94,7 @@ class Vivado(Flow, metaclass=ABCMeta):
         self.vivado = VivadoTool(
             default_args=default_args,
             design_root=self.design_root,
-        )  # type: ignore
+        )  # pyright: ignore
         if self.settings.redirect_stdout:
             self.vivado.redirect_stdout = Path(f"{self.name}_stdout.log")
         self.add_template_filter("vivado_generics", vivado_generics)

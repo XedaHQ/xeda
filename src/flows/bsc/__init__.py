@@ -1,3 +1,4 @@
+from functools import cached_property
 import logging
 import os
 import re
@@ -8,7 +9,7 @@ from typing import Any, Dict, List, Optional, Union
 import yaml
 from pydantic import Field
 
-from ...design import Design, SourceType
+from ...design import SourceType
 from ...flow import Flow
 from ...gtkwave import get_color
 from ...tool import Tool
@@ -52,8 +53,8 @@ def get_use_mods(use_dir: Path, mod: str):
 
 class Bsc(Flow):
     class Settings(Flow.Settings):
-        verilog_out_dir: Union[Path, str] = Field(
-            "gen_rtl", description="Folder where generated Verilog files are stored."
+        verilog_out_dir: Path = Field(
+            Path("gen_rtl"), description="Folder where generated Verilog files are stored."
         )
         bobj_dir: str = "bobjs"
         reset_prefix: Optional[str] = None
@@ -66,7 +67,7 @@ class Bsc(Flow):
             "-warn-action-shadowing",
             "-warn-undet-predicate",
         ]
-        supress_warnings: List[str] = []
+        suppress_warnings: List[str] = []
         promote_warnings: List[str] = Field(
             ["G0009", "G0010", "G0005", "G0117"], description="Promote these warnings as errors."
         )
@@ -111,10 +112,13 @@ class Bsc(Flow):
         docker: Optional[str] = "bsc"
         incremental: bool = Field(False, description="Only compile modified packages.")
 
-    def __init__(self, settings: Settings, design: Design, run_path: Path):
-        super().__init__(settings, design, run_path)
-        self.bsc = Tool("bsc", docker="bsc")
-        self.bluetcl = self.bsc.derive("bluetcl")
+    @cached_property
+    def bsc(self):
+        return Tool("bsc", docker="bsc", version_flag="-v")
+
+    @cached_property
+    def bluetcl(self):
+        return self.bsc.derive("bluetcl")
 
     def get_bsc_flags(self):
         def convert_value(v: str):
@@ -227,10 +231,10 @@ class Bsc(Flow):
         if self.settings.promote_warnings:
             bsc_flags += ["-promote-warnings", ":".join(self.settings.promote_warnings)]
         bsc_flags += self.settings.warn_flags
-        if self.settings.supress_warnings:
+        if self.settings.suppress_warnings:
             bsc_flags += [
                 "-suppress-warnings",
-                ":".join(self.settings.supress_warnings),
+                ":".join(self.settings.suppress_warnings),
             ]
 
         bsc_flags += [
@@ -366,7 +370,9 @@ class Bsc(Flow):
                     vpath = Path(vpath)
                     found_file = next(vpath.glob(os.path.join("**", verilog_name)), None)
                     if found_file:
-                        print(f"Copying used verilog {found_file} to {verilog_path}")
+                        log.info(
+                            "Copying imported Verilog file `%s` to `%s`", found_file, verilog_path
+                        )
                         shutil.copyfile(found_file, verilog_path, follow_symlinks=True)
                         gen_verilog_files.insert(0, verilog_path)
                         break
