@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import Field
@@ -112,6 +112,10 @@ class Bsc(Flow):
         )
         docker: Optional[str] = "bsc"
         incremental: bool = Field(False, description="Only compile modified packages.")
+        cleanup_bobjs: bool = Field(
+            True,
+            description="Remove _all_ '.bo' files from `bobj_dir` before running. BSC randomly skips updating compilation artifacts, resultling to very weired bugs. Highly recommended to keep it enabled.",
+        )
 
     @cached_property
     def bsc(self):
@@ -173,7 +177,7 @@ class Bsc(Flow):
                     translate = vcd.gtkw.make_translation_filter(tr, datafmt=datafmt, size=sz)
                     gtkwave_dir.mkdir(exist_ok=True, parents=True)
                     with open(gtkwave_dir / (name + ".gwtr"), "w") as f:
-                        print(f"writing translation of {name} into {f.name}")
+                        log.info(f"writing translation of {name} into {f.name}")
                         f.write(translate)
 
     def run(self):
@@ -191,15 +195,12 @@ class Bsc(Flow):
         elif self.settings.quiet:
             bsc_flags.append("-quiet")
 
-        def path_from_setting(p: Union[str, Path]) -> Path:
-            p = str(p)
-            if not os.path.isabs(p):
-                if p.startswith("$DESIGN_ROOT/"):
-                    return self.design.root_path / p
-            return Path(p)
-
-        vout_dir = path_from_setting(self.settings.verilog_out_dir)
+        vout_dir = self.settings.verilog_out_dir
         bobj_dir = Path(self.settings.bobj_dir).absolute()
+        if self.settings.cleanup_bobjs and bobj_dir.exists():
+            for bobj in bobj_dir.glob("*.bo"):
+                if bobj.is_file():
+                    bobj.unlink()
         bobj_dir.mkdir(exist_ok=True)
 
         bsc_flags += [
