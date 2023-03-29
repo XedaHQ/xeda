@@ -58,6 +58,7 @@ class Bsc(Flow):
         )
         bobj_dir: str = "bobjs"
         reset_prefix: Optional[str] = None
+        positive_reset: bool = True
         sched_conditions: bool = Field(
             True, description="include method conditions when computing rule conflicts"
         )
@@ -282,12 +283,20 @@ class Bsc(Flow):
         if self.settings.optimize:
             bsc_flags.append("-O")
             bsc_flags += self.settings.extra_optimize_flags
-        if self.settings.opt_undetermined_vals:
-            bsc_flags.append("-opt-undetermined-vals")
-        if self.settings.unspecified_to:
+            if self.settings.opt_undetermined_vals:
+                bsc_flags.append("-opt-undetermined-vals")
+        uv = self.settings.unspecified_to
+        if (
+            not self.settings.optimize
+            or not self.settings.opt_undetermined_vals
+            and uv
+            and uv == "X"
+        ):
+            uv = None
+        if uv:
             bsc_flags += [
                 "-unspecified-to",
-                self.settings.unspecified_to,
+                uv,
             ]
         if self.settings.reset_prefix:
             bsc_flags += [
@@ -304,9 +313,11 @@ class Bsc(Flow):
 
         verilog_defines: Dict[str, Any] = {}
 
-        verilog_defines["BSV_NO_INITIAL_BLOCKS"] = None
-        bsc_defines["BSV_POSITIVE_RESET"] = None
-        verilog_defines["BSV_POSITIVE_RESET"] = None
+        # verilog_defines["BSV_NO_INITIAL_BLOCKS"] = None
+
+        if self.settings.positive_reset:
+            bsc_defines["BSV_POSITIVE_RESET"] = None
+            verilog_defines["BSV_POSITIVE_RESET"] = None
 
         for param_name, param_value in bsc_defines.items():
             bsc_flags.extend(
