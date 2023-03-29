@@ -315,7 +315,7 @@ class Tool(XedaBaseModel):
 
         if flow is not None:
             self.design_root = flow.design_root
-            print("flow.settings.dockerized=", flow.settings.dockerized)
+            log.debug("flow.settings.dockerized=%s", flow.settings.dockerized)
             self.dockerized = flow.settings.dockerized
             if flow.settings.docker:
                 self.docker = Docker(image=flow.settings.docker)  # pyright: ignore
