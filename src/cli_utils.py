@@ -283,7 +283,7 @@ def select_design_in_project(
         if idx is None or not isinstance(idx, int) or idx < 0:
             log.critical("Invalid design choice!")
             return None
-        return xeda_project.designs[idx]
+        return xeda_project.get_design(idx)
     else:
         design_name = click.prompt(
             "Please enter design name: ",

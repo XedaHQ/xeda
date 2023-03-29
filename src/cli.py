@@ -288,7 +288,7 @@ def run(
         launcher.settings.post_cleanup_purge = post_cleanup_purge
         launcher.settings.scrub_old_runs = scrub
         launcher.settings.debug = options.debug
-        launcher.run(
+        f = launcher.run(
             flow,
             xedaproject=xedaproject,
             design=design or design_name,
@@ -298,6 +298,7 @@ def run(
             design_allow_extra=design_allow_extra,
             design_remove_extra=["lwc"],
         )
+        sys.exit(1 if not f or not f.results.success else 0)
     except FlowFatalError as e:
         log.critical(
             "Flow %s failed: FlowFatalException %s",
@@ -306,12 +307,12 @@ def run(
         )
         if options.debug:
             raise e
-        sys.exit(1)
+        sys.exit(2)
     except NonZeroExitCode as e:
         log.critical("Flow %s failed: NonZeroExitCode %s", flow, " ".join(str(a) for a in e.args))
         if options.debug:
             raise e
-        sys.exit(1)
+        sys.exit(3)
     except ExecutableNotFound as e:
         log.critical(
             "Executable '%s' was not found! (tool:%s, flow:%s, PATH:%s)",
@@ -320,17 +321,17 @@ def run(
             flow,
             e.path,
         )
-        sys.exit(1)
+        sys.exit(4)
     except FlowSettingsError as e:
         log.critical("%s", e)
         if options.debug:
             raise e
-        sys.exit(1)
+        sys.exit(5)
     except FlowException as e:  # any flow exception
         log.critical("%s", e)
         if options.debug:
             raise e
-        sys.exit(1)
+        sys.exit(6)
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")

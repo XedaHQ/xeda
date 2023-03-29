@@ -144,7 +144,7 @@ class RemoteRunner(FlowLauncher):
         run_path.mkdir(parents=True, exist_ok=True)
 
         settings_json = run_path / "settings.json"
-        results_json = run_path / "results.json"
+        results_json_path = run_path / "results.json"
 
         log.info("dumping effective settings to %s", settings_json)
         all_settings = dict(
@@ -199,6 +199,6 @@ class RemoteRunner(FlowLauncher):
                 skip_if_false={"artifacts", "reports"},
             )
 
-            dump_json(results, results_json, backup=True)
-            log.info("Results written to %s", results_json)
+            dump_json(results, results_json_path, backup=True)
+            log.info("Results written to %s", results_json_path)
         return results

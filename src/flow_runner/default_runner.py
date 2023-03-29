@@ -35,7 +35,7 @@ from rich.text import Text
 
 from ..console import console
 from ..dataclass import XedaBaseModel, asdict
-from ..design import Design, DesignValidationError, FileResource
+from ..design import Design, FileResource
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
 from ..utils import (
@@ -556,7 +556,7 @@ class FlowLauncher:
         design_overrides: Union[None, Iterable[str], Dict[str, Any]] = None,
         design_allow_extra: bool = False,
         design_remove_extra: List[str] = [],
-    ):
+    ) -> Optional[Flow]:
         """
         Flexible API for launching flows.
         """
@@ -591,46 +591,39 @@ class FlowLauncher:
                     design_allow_extra=design_allow_extra,
                     design_remove_extra=design_remove_extra,
                 )
-            except DesignValidationError as e:
-                log.critical("%s", e)
-                return None, None, flows_settings
             except FileNotFoundError:
                 log.critical(
                     f"Cannot open project file: {xedaproject}. Try specifing the correct path using the --xedaproject <path-to-file>."
                 )
-                return None, None, flows_settings
+                return None
             flows_settings = xeda_project.flows
         if design and design_not_in_project:
-            try:
-                if isinstance(design, (str, Path)):
-                    design = Design.from_file(
-                        design,
-                        overrides=design_overrides,
-                        allow_extra=design_allow_extra,
-                        remove_extra=design_remove_extra,
-                    )
-                elif isinstance(design, dict):
-                    if "design_root" not in design:
-                        design["design_root"] = Path.cwd()
-                    design = Design(**design)
-                flows_settings = {
-                    **flows_settings,
-                    **design.flow,
-                }
-            except DesignValidationError as e:
-                log.critical("%s", e)
-                return None, None, flows_settings
+            if isinstance(design, (str, Path)):
+                design = Design.from_file(
+                    design,
+                    overrides=design_overrides,
+                    allow_extra=design_allow_extra,
+                    remove_extra=design_remove_extra,
+                )
+            elif isinstance(design, dict):
+                if "design_root" not in design:
+                    design["design_root"] = Path.cwd()
+                design = Design(**design)
+            flows_settings = {
+                **flows_settings,
+                **design.flow,
+            }
         else:
             if not xeda_project:
                 log.critical(
                     "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
                 )
-                return None, None, flows_settings
+                return None
             if not xeda_project.designs:
                 log.critical(
                     "There are no designs in the xedaproject file. You can specify a single design description using `--design-file` argument."
                 )
-                return None, None, flows_settings
+                return None
             assert isinstance(xeda_project.design_names, list)  # type checker
             log.info(
                 "Available designs in xedaproject: %s",
@@ -651,7 +644,7 @@ class FlowLauncher:
                         raise ValueError("Invalid design name")
                     else:
                         if len(xeda_project.designs) == 1:
-                            design = xeda_project.designs[1]
+                            design = xeda_project.get_design()
                         elif select_design_in_project:
                             design = select_design_in_project(xeda_project, design)
                     if not design:
