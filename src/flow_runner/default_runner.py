@@ -348,8 +348,9 @@ class FlowLauncher:
                     )
             else:
                 log.warning(
-                    "Could not find valid results/settings from a previous run in %s",
+                    "No valid previous results found in %s. Running %s from scratch.",
                     run_path,
+                    flow_name,
                 )
         if self.settings.scrub_old_runs:
             scrub_runs(flow_name, run_path.parent, [run_path])
