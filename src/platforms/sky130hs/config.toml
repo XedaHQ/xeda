@@ -12,7 +12,7 @@ stackup = "5M1LI"
 lib_files = ["lib/sky130_fd_sc_hs__tt_025C_1v80.lib"]
 tech_lef = "lef/sky130_fd_sc_hs.tlef"
 std_cell_lef = "lef/sky130_fd_sc_hs_merged.lef"
-gds_files = ["sky130_fd_sc_hs.gds"]
+gds_files = ["gds/sky130_fd_sc_hs.gds"]
 
 # derate_tcl = "..."
 setrc_tcl = "setRC.tcl"
@@ -79,7 +79,7 @@ macro_place_channel = [80, 80]
 #---------------------------------------------------------
 # Place
 # --------------------------------------------------------
-# default cell padding for cells 
+# default cell padding for cells
 cell_pad_in_sites_global_placement = 1
 cell_pad_in_sites_detail_placement = 0
 # cell_pad_in_sites =
@@ -87,7 +87,7 @@ cell_pad_in_sites_detail_placement = 0
 
 place_density = 0.50
 
-# 
+#
 # --------------------------------------------------------
 #  CTS
 #  -------------------------------------------------------
