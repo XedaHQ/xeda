@@ -37,10 +37,12 @@ def preproc_lib_content(content: str, dont_use_cells: List[str]) -> str:
     content, count = re.subn(pattern1, r"\1\n    dont_use : true;", content, flags=re.MULTILINE)
     if count:
         log.info("Marked %d cells as dont_use", count)
-    # Yosys-abc throws an error if original_pin is found within the liberty file.
-    content, count = re.subn(ORIGINAL_PIN_PATTERN, r"/* \1 */;", content)
-    if count:
-        log.info("Commented %d lines containing 'original_pin", count)
+    # The following substitution is *very* slow and therefore has been disabled.
+    # Possibly sub-optimal/incorrect regex.
+    # # Yosys-abc throws an error if original_pin is found within the liberty file.
+    # content, count = re.subn(ORIGINAL_PIN_PATTERN, r"/* \1 */;", content)
+    # if count:
+    #     log.info("Commented %d lines containing 'original_pin", count)
     # Yosys does not like properties that start with : !, without quotes
     content, count = re.subn(EXCLAIM_PATTERN, r': "\1" ;', content)
     if count:
@@ -251,10 +253,8 @@ class Yosys(YosysBase, SynthFlow):
         if ss.log_file:
             log.info("Logging yosys output to %s", ss.log_file)
             args.extend(["-L", ss.log_file])
-        if ss.log_file and not ss.verbose:  # reduce noise when have log_file, unless verbose
+        if ss.quiet or (not ss.verbose and not ss.debug):
             args.extend(["-T", "-Q"])
-            if not ss.debug and not ss.verbose:
-                args.append("-q")
         self.yosys.run(*args)
 
     def parse_reports(self) -> bool:
