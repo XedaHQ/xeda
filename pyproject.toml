@@ -125,6 +125,7 @@ xeda = "src"
     "platforms/*",
     "platforms/**",
     "platforms/**/*",
+    "resources/**/*",
 ]
 
 [tool.setuptools_scm]

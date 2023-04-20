@@ -1,4 +1,6 @@
-{% if not settings.floorplan_def %}
+{% if settings.floorplan_def %}
+puts "Skipping IO placement as DEF file was used to initialize floorplan."
+{% else %}
 
 {% if settings.io_constraints %} {# ---------------------------- #}
 source {{settings.io_constraints}}
@@ -23,7 +25,7 @@ global_placement -skip_io -density $place_density \
 
 {% endif %} {# ------------------------------------------------- #}
 
-place_pins -hor_layer {{platform.io_placer_h}} -ver_layer {{platform.io_placer_v}} {{settings.place_pins_args|join(" ")}}
+place_pins -hor_layer {{platform.io_placer_h}} -ver_layer {{platform.io_placer_v}} {% if settings.io_place_random %} -random {% endif %}  {{settings.place_pins_args|join(" ")}}
 {% endif %} {# --not settings.floorplan_def-- #}
 
 {{ write_checkpoint(step) }}

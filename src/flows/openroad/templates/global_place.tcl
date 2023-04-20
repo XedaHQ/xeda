@@ -31,6 +31,13 @@ append global_placement_args " -routability_driven"
 {% if settings.gpl_timing_driven %}
 append global_placement_args " -timing_driven"
 {% endif %}
+{% if settings.min_phi_coef is not none %}
+append global_placement_args " -min_phi_coef {{settings.min_phi_coef}}"
+{% endif %}
+
+{% if settings.max_phi_coef is not none %}
+append global_placement_args " -max_phi_coef {{settings.max_phi_coef}}"
+{% endif %}
 
 global_placement -density $place_density \
     -pad_left {{platform.cell_pad_in_sites_global_placement}} \

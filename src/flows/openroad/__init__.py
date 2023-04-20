@@ -80,7 +80,6 @@ class Openroad(AsicSynthFlow):
         die_area: List[Union[int, float]] = []
         sdc_files: List[Path] = []
         io_constraints: Optional[Path] = None
-        place_density: Union[None, float, str] = None
         results_dir: Path = Path("results")
         optimize: Optional[Literal["speed", "area"]] = Field(
             "area", description="Optimization target"
@@ -104,12 +103,23 @@ class Openroad(AsicSynthFlow):
         resynth_for_area: bool = False
         # pre_place
         rtlmp_flow: bool = False
+        # io_place
+        io_place_random: bool = False
         # place
+        place_density: Union[None, float, str] = None
         place_density_lb_addon: Optional[confloat(ge=0.0, lt=1)] = None  # type: ignore
         dont_use_cells: List[str] = []
         place_pins_args: List[str] = []
         blocks: List[str] = []
         global_placement_args: List[str] = []
+        min_phi_coef: Optional[confloat(ge=0.95, le=1.05)] = Field(  # type: ignore
+            None,
+            description="set pcof_min (µ_k Lower Bound). Default value is 0.95. Allowed values are [0.95-1.05]",
+        )
+        max_phi_coef: Optional[confloat(ge=1.00, le=1.20)] = Field(  # type: ignore
+            None,
+            description="set  pcof_max (µ_k Upper Bound) . Default value is 1.05. Allowed values are [1.00-1.20]",
+        )
         # global_route
         congestion_iterations: int = 100
         global_routing_layer_adjustment: float = 0.5
@@ -231,11 +241,9 @@ class Openroad(AsicSynthFlow):
         )
         yosys_libs = [self.merged_lib_file]
         if dff_lib_file:
-            yosys_settings.dff_liberty = Yosys.copied_resources_dir / dff_lib_file
+            yosys_settings.dff_liberty = Path(dff_lib_file).absolute()
         copy_resources += yosys_libs
-        yosys_settings.liberty = [
-            Path(Yosys.copied_resources_dir) / os.path.basename(res) for res in yosys_libs
-        ]
+        yosys_settings.liberty = [Path(lib).absolute() for lib in yosys_libs]
         yosys_settings.adder_map = str(ss.platform.adder_map_file)
         yosys_settings.clockgate_map = str(ss.platform.clkgate_map_file)
         yosys_settings.other_maps = [str(ss.platform.latch_map_file)]
