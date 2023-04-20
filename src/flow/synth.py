@@ -45,7 +45,7 @@ class PhysicalClock(XedaBaseModel):
     @validator("period", "rise", "duty_cycle", "uncertainty", "skew", pre=True, always=True)
     def time_validator(cls, value):
         if value is not None:
-            return convert(value, "ns")
+            return convert(value, "nanosecond")
         return value
 
     @property
@@ -68,11 +68,11 @@ class PhysicalClock(XedaBaseModel):
     def period_ps(self) -> float:
         if not self.period:
             return 0
-        return convert(self.period, target_unit="ps", src_unit="ns")
+        return convert(self.period, target_unit="picosecond", src_unit="nanosecond")
 
     @period_ps.setter
     def period_ps(self, period):
-        self.period = convert(period, target_unit="ps", src_unit=None)
+        self.period = convert(period, target_unit="picosecond", src_unit=None)
 
     @root_validator(pre=True, skip_on_failure=True)
     @classmethod
