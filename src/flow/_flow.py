@@ -8,6 +8,7 @@ import os
 import re
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
+import traceback
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 # from attrs import define
@@ -136,6 +137,13 @@ class Flow(metaclass=ABCMeta):
                 log.debug("Settings.__init__(): data=%s", data)
                 super().__init__(**data)
             except ValidationError as e:
+                print("\n\n======== ValidationError ========")
+                traceback.print_stack()
+                print("----------------------")
+                print(traceback.format_exception(e))
+                print("----------------------")
+                traceback.print_exception(e)
+                print("======== ****** ========\n\n")
                 raise FlowSettingsError(
                     validation_errors(e.errors()), e.model, e.json()  # type: ignore
                 ) from e

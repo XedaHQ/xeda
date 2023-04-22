@@ -11,16 +11,19 @@ from pydantic import Field, confloat, validator
 from ...design import SourceType
 from ...flow import AsicSynthFlow
 from ...flows.yosys import HiLoMap, Yosys, preproc_libs
-from ...tool import ExecutableNotFound, Tool
-from ...utils import unique, try_convert
 from ...platforms import AsicsPlatform
+from ...tool import ExecutableNotFound, Tool
+from ...units import convert
+from ...utils import try_convert, unique
 
 log = logging.getLogger(__name__)
 
 
 def abc_opt_script(opt):
-    if opt == "speed":
-        scr = [
+    opt = str(opt)
+    scr = []
+    if "speed" in opt:
+        scr += [
             # fmt: off
             "&get -n", "&st", "&dch", "&nf", "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf",
             "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf", "&put", "&get -n", "&st", "&syn2",
@@ -28,7 +31,7 @@ def abc_opt_script(opt):
             "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf", "&put", "buffer -c", "topo", "stime -c",
             # fmt: on
         ]
-    else:
+    if "area" in opt:
         scr = ["strash", "dch", "map -B 0.9", "topo", "stime -c", "buffer -c"]
     scr += ["upsize -c", "dnsize -c"]
 
@@ -65,12 +68,16 @@ class Openroad(AsicSynthFlow):
 
     class Settings(AsicSynthFlow.Settings):
         platform: AsicsPlatform
-        input_delay: Optional[float] = Field(
-            0.20, description="Input delay as fraction of clock period (0.0..1.0)"
+        corner: Optional[Union[str, List]] = None
+        multi_corner: bool = False
+        input_delay_frac: Optional[float] = Field(
+            0.20, description="Input delay as fraction of clock period [0.0..1.0)"
         )
-        output_delay: Optional[float] = Field(
-            0.20, description="Output delay as fraction of clock period (0.0..1.0)"
+        output_delay_frac: Optional[float] = Field(
+            0.20, description="Output delay as fraction of clock period [0.0..1.0)"
         )
+        input_delay: Optional[float] = Field(None, description="Input delay in picoseconds")
+        output_delay: Optional[float] = Field(None, description="Output delay in picoseconds")
         core_utilization: Optional[float] = Field(
             40.0, description="Core utilization in percent (0..100)"
         )
@@ -81,7 +88,7 @@ class Openroad(AsicSynthFlow):
         sdc_files: List[Path] = []
         io_constraints: Optional[Path] = None
         results_dir: Path = Path("results")
-        optimize: Optional[Literal["speed", "area"]] = Field(
+        optimize: Optional[Literal["speed", "area", "area+speed"]] = Field(
             "area", description="Optimization target"
         )
         abc_load_in_ff: Optional[int] = None  # to override platform value
@@ -90,7 +97,7 @@ class Openroad(AsicSynthFlow):
             Path("metrics.json"), description="write metrics in file in JSON format"
         )
         exit: bool = Field(True, description="exit after completion")
-        gui: bool = Field(False, description="start in gui mode")
+        gui: bool = Field(False, description="start in GUI mode")
         copy_platform_files: bool = False
         nthreads: Optional[int] = Field(
             None, description="Number of threads to use. If none/0, use max available."
@@ -161,16 +168,30 @@ class Openroad(AsicSynthFlow):
         generate_gds: bool = True
 
         @validator("platform", pre=True, always=True)
-        def _validate_platform(cls, value):
+        def _validate_platform(cls, value, values):
             if isinstance(value, str) and not value.endswith(".toml"):
-                return AsicsPlatform.from_resource(value)
+                value = AsicsPlatform.from_resource(value)
             elif isinstance(value, (str, Path)):
-                return AsicsPlatform.from_toml(value)
+                value = AsicsPlatform.from_toml(value)
+            if value is not None and isinstance(value, AsicsPlatform):
+                corner = values.get("corner")
+                if corner:
+                    if isinstance(corner, list):
+                        corner = corner[0]
+                    value.default_corner = corner
+            return value
+
+        @validator("input_delay", "output_delay", pre=True, always=True)
+        def _validate_values_units_to_ps(cls, value):
+            if isinstance(value, str):
+                value = convert(value, "picoseconds")
             return value
 
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        if len(ss.platform.corner) < 2:
+            ss.multi_corner = False
 
         yosys_settings = Yosys.Settings(
             clocks=ss.clocks,
@@ -218,13 +239,13 @@ class Openroad(AsicSynthFlow):
         copy_resources = []
         orig_libs = []
         dff_lib_file = None
-        for _, corner in ss.platform.corner.items():
-            orig_libs += corner.lib_files
-            if corner.dff_lib_file:
-                src = ss.platform.root_dir / corner.dff_lib_file
-                dst = my_lib_dir / src.name
-                shutil.copy(src, dst)
-                copy_resources.append(str(dst))
+        corner = ss.platform.default_corner_settings
+        orig_libs += corner.lib_files
+        if corner.dff_lib_file:
+            src = ss.platform.root_dir / corner.dff_lib_file
+            dst = my_lib_dir / src.name
+            shutil.copy(src, dst)
+            copy_resources.append(str(dst))
         assert ss.platform.default_corner_settings
         dff_lib_file = ss.platform.default_corner_settings.dff_lib_file
         orig_libs = unique(orig_libs)
@@ -238,6 +259,7 @@ class Openroad(AsicSynthFlow):
             self.merged_lib_file,
             ss.dont_use_cells,
             f"{ss.platform.name}_merged",
+            use_temp_folder=not ss.debug,
         )
         yosys_libs = [self.merged_lib_file]
         if dff_lib_file:
@@ -294,6 +316,7 @@ class Openroad(AsicSynthFlow):
         env = dict(
             MIN_ROUTING_LAYER=ss.platform.min_routing_layer,  # needed by platform.fastroute
             MAX_ROUTING_LAYER=ss.platform.max_routing_layer,  # needed by platform.fastroute
+            TAP_CELL_NAME=ss.platform.tapcell_name,  # needed by platform.tapcell_tcl
         )
 
         flow_steps = [
@@ -431,7 +454,6 @@ class Openroad(AsicSynthFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         last_log = self.artifacts.logs[-1]
-        print(last_log)
         success = self.parse_report_regex(
             last_log,
             r"tns\s+(?P<tns>\-?\d+(?:\.\d+)?)",

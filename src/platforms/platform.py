@@ -1,9 +1,10 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Type, TypeVar, Union
+from typing import Any, Dict, Optional, Type, TypeVar, Union
 
 from importlib_resources import as_file, files
+from pydantic import Field
 
 from ..dataclass import XedaBaseModel
 from ..utils import toml_load
@@ -16,7 +17,9 @@ PlatformType = TypeVar("PlatformType", bound="Platform")
 
 class Platform(XedaBaseModel):
     root_dir: Path
-    name: str
+    name: str = Field(alias="platform")
+    version: Optional[str] = None
+    description: Optional[str] = None
 
     @classmethod
     def create(cls: Type[PlatformType], **kwargs) -> PlatformType:

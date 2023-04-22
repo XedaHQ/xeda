@@ -2,10 +2,10 @@ variable reports_dir "{{settings.reports_dir}}"
 variable results_dir "{{settings.results_dir}}"
 
 proc read_libraries {} {
-  {% if (platform.corner|length) > 1 %}
+  {% if (settings.multi_corner and platform.corner|length) > 1 %}
   #------------------------------- Multi-corner --------------------------------#
   define_corners {{platform.corner.keys()|join(" ")}}
-  {% for corner,s in platform.corner %}
+  {% for corner,s in platform.corner.items() %}
   {% for lib in s.lib_files %} read_liberty -corner {{corner}} {{lib}} {% endfor %}
   {% endfor %}
   #-----------------------------------------------------------------------------#
@@ -131,7 +131,7 @@ proc report_metrics { when {include_erc true} {include_clock_skew true} } {
   }
 
   print_banner "$when report_power"
-  {% if (platform.corner|length) > 1 %}
+  {% if (settings.multi_corner and platform.corner|length) > 1 %}
   {% for corner,s in platform.corner %}
   puts "Corner: {{corner}}"
   report_power -corner {{corner}}

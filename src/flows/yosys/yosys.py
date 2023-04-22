@@ -1,13 +1,17 @@
+import contextlib
+import gzip
 import json
 import logging
 import os
 import re
 from pathlib import Path
+import tempfile
 from typing import List, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
 from ...flow import SynthFlow
 from ...platforms import AsicsPlatform
+from ...utils import unique
 from ..ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
 
@@ -37,12 +41,14 @@ def preproc_lib_content(content: str, dont_use_cells: List[str]) -> str:
     content, count = re.subn(pattern1, r"\1\n    dont_use : true;", content, flags=re.MULTILINE)
     if count:
         log.info("Marked %d cells as dont_use", count)
+
+    # # Yosys-abc throws an error if original_pin is found within the liberty file.
     # The following substitution is *very* slow and therefore has been disabled.
     # Possibly sub-optimal/incorrect regex.
-    # # Yosys-abc throws an error if original_pin is found within the liberty file.
     # content, count = re.subn(ORIGINAL_PIN_PATTERN, r"/* \1 */;", content)
     # if count:
     #     log.info("Commented %d lines containing 'original_pin", count)
+
     # Yosys does not like properties that start with : !, without quotes
     content, count = re.subn(EXCLAIM_PATTERN, r': "\1" ;', content)
     if count:
@@ -50,7 +56,7 @@ def preproc_lib_content(content: str, dont_use_cells: List[str]) -> str:
     return content
 
 
-_CELL_PATTERN = re.compile(r"^\s*cell\s*\(")
+_CELL_PATTERN = re.compile(r"^\s*cell\s*\(\s*(\w+)\s*\)")
 _LIBRARY_PATTERN = re.compile(r"^\s*library\s*\(\s*(\S+)\s*\)")
 
 
@@ -61,6 +67,9 @@ def merge_libs(in_files, out_file, new_lib_name=None):
         new_lib_name,
         out_file,
     )
+
+    all_cell_names = set()
+    skip_this_cell = False
 
     with open(out_file, "w") as out:
         with open(in_files[0]) as hf:
@@ -78,36 +87,66 @@ def merge_libs(in_files, out_file, new_lib_name=None):
             with open(f, "r") as f:
                 flag = 0
                 for line in f.readlines():
-                    if re.search(_CELL_PATTERN, line):
+                    cell_match = _CELL_PATTERN.match(line)
+                    if cell_match:
                         if flag != 0:
                             raise Exception("Error! new cell before finishing previous one.")
                         flag = 1
-                        out.write("\n" + line)
+                        cell_name = cell_match.group(1)
+                        if cell_name in all_cell_names:
+                            log.warning("Skipping duplicate cell %s", cell_name)
+                            skip_this_cell = True
+                        else:
+                            all_cell_names.add(cell_name)
+                            out.write("\n" + line)
+                            skip_this_cell = False
                     elif flag > 0:
                         flag += len(re.findall(r"\{", line))
                         flag -= len(re.findall(r"\}", line))
-                        out.write(line)
+                        if not skip_this_cell:
+                            out.write(line)
         out.write("\n}\n")
 
 
-def preproc_libs(in_files, merged_file, dont_use_cells: List[str], new_lib_name=None):
+def preproc_libs(
+    in_files, merged_file, dont_use_cells: List[str], new_lib_name=None, use_temp_folder=True
+):
+    in_files = unique(in_files)
     merged_content = ""
     proc_files = []
-    temp_path = Path("processed_libs")
-    temp_path.mkdir(parents=True, exist_ok=True)
-    for in_file in in_files:
-        in_file = Path(in_file)
-        log.info("Pre-processing liberty file: %s", in_file)
-        with open(in_file, encoding="utf-8") as f:
-            content = clean_ascii(f.read())
-        merged_content += preproc_lib_content(content, dont_use_cells)
-        out_file = temp_path / in_file.with_name(in_file.stem + "-mod" + in_file.suffix).name
-        log.info("Writing pre-processed file: %s", out_file)
-        with open(out_file, "w") as f:
-            f.write(merged_content)
-        proc_files.append(out_file)
-    merge_libs(proc_files, merged_file, new_lib_name)
-    log.info("Merged lib: %s", str(merged_file))
+    if len(in_files) > 1:
+        log.info(f"Processing {len(in_files)} libraries")
+    tmp_context: Union[tempfile.TemporaryDirectory[str], contextlib.ExitStack]
+    if use_temp_folder:
+        tmp_context = tempfile.TemporaryDirectory(prefix="xeda.yosys.processed_libs")
+    else:
+        tmp_context = contextlib.ExitStack()  # no-op
+    with tmp_context as tmp:
+        if use_temp_folder:
+            assert isinstance(tmp, str)
+            temp_path = Path(tmp)
+        else:
+            temp_path = Path("processed_libs")
+            temp_path.mkdir(parents=True, exist_ok=True)
+        for in_file in in_files:
+            in_file = Path(in_file)
+            log.info("Pre-processing liberty file: %s", in_file)
+            suffix = in_file.suffix
+            if suffix and suffix[1:] in ["gz", "gzip"]:
+                ctx = gzip.open(in_file, "rt")
+                suffix = ".".join(in_file.suffixes[:-1]) if len(in_file.suffixes) > 1 else ".lib"
+            else:
+                ctx = open(in_file, encoding="utf-8")
+            with ctx as f:
+                content = clean_ascii(f.read())
+            merged_content += preproc_lib_content(content, dont_use_cells)
+            out_file = temp_path / in_file.with_name(in_file.stem + "-mod" + suffix).name
+            log.info("Writing pre-processed file: %s", out_file)
+            with open(out_file, "w") as f:
+                f.write(merged_content)
+            proc_files.append(out_file)
+        merge_libs(proc_files, merged_file, new_lib_name)
+    log.info("Merged lib: %s", str(Path(merged_file).absolute()))
 
 
 class HiLoMap(XedaBaseModel):
@@ -137,7 +176,7 @@ class Yosys(YosysBase, SynthFlow):
             True,
             description="run additional optimization steps after synthesis if complete",
         )
-        optimize: Optional[Literal["speed", "area"]] = Field(
+        optimize: Optional[Literal["speed", "area", "area+speed"]] = Field(
             "area", description="Optimization target"
         )
         stop_after: Optional[Literal["rtl"]]

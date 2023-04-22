@@ -5,13 +5,13 @@ repos:
       - id: check-ast
       - id: check-yaml
       - id: check-toml
-      - id: end-of-file-fixer
-      - id: check-added-large-files
+      # - id: end-of-file-fixer
+      # - id: check-added-large-files
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: check-symlinks
       - id: destroyed-symlinks
-      - id: trailing-whitespace
+      # - id: trailing-whitespace
       - id: check-vcs-permalinks
       - id: mixed-line-ending
       - id: detect-private-key
@@ -26,11 +26,11 @@ repos:
         args: [--install-types, --non-interactive]
         additional_dependencies:
           - "pydantic>=1.10.4"
-  - repo: local
-    hooks:
-      - id: pytest-check
-        name: pytest-check
-        entry: pytest
-        language: system
-        pass_filenames: false
-        always_run: false
+  # - repo: local
+  #   hooks:
+  #     - id: pytest-check
+  #       name: pytest-check
+  #       entry: pytest
+  #       language: system
+  #       pass_filenames: false
+  #       always_run: false

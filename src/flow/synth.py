@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from abc import ABCMeta
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
 
 from pydantic import confloat
@@ -73,6 +74,25 @@ class PhysicalClock(XedaBaseModel):
     @period_ps.setter
     def period_ps(self, period):
         self.period = convert(period, target_unit="picosecond", src_unit=None)
+
+    def period_in_units(self, unit: str) -> float:
+        unit = unit.strip()
+        if not unit:
+            return self.period
+        scale = None
+        m = re.match(r"(\d*\.?\d*)\s*(\w+)", unit)
+        assert m
+        if m.group(1):
+            scale = float(m.group(1))
+        unit = m.group(2)
+        if unit == "ps":
+            unit = "picoseconds"
+        if unit == "ns":
+            unit = "nanoseconds"
+        v = convert(self.period, target_unit=unit, src_unit="nanosecond")
+        if scale:
+            v *= scale
+        return v
 
     @root_validator(pre=True, skip_on_failure=True)
     @classmethod
