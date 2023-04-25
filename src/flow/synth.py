@@ -3,14 +3,13 @@ from __future__ import annotations
 import logging
 from abc import ABCMeta
 from pathlib import Path
-import re
 from typing import Any, Dict, List, Optional
 
 from pydantic import confloat
 
 from ..dataclass import Field, XedaBaseModel, root_validator, validator
 from ..design import Design
-from ..units import convert
+from ..units import convert_unit
 from ..utils import first_value
 from ._flow import Flow, FlowSettingsError
 from .fpga import FPGA
@@ -41,12 +40,12 @@ class PhysicalClock(XedaBaseModel):
 
     @validator("freq", pre=True, always=True)
     def freq_validator(cls, value):
-        return convert(value, "MHz")
+        return convert_unit(value, "MHz")
 
     @validator("period", "rise", "duty_cycle", "uncertainty", "skew", pre=True, always=True)
     def time_validator(cls, value):
         if value is not None:
-            return convert(value, "nanosecond")
+            return convert_unit(value, "nanosecond")
         return value
 
     @property
@@ -69,37 +68,24 @@ class PhysicalClock(XedaBaseModel):
     def period_ps(self) -> float:
         if not self.period:
             return 0
-        return convert(self.period, target_unit="picosecond", src_unit="nanosecond")
+        return convert_unit(self.period, to_unit="picosecond", from_unit="nanosecond")
 
     @period_ps.setter
     def period_ps(self, period):
-        self.period = convert(period, target_unit="picosecond", src_unit=None)
+        self.period = convert_unit(period, to_unit="picosecond", from_unit=None)
 
-    def period_in_units(self, unit: str) -> float:
+    def period_unit(self, unit: str) -> float:
         unit = unit.strip()
         if not unit:
             return self.period
-        scale = None
-        m = re.match(r"(\d*\.?\d*)\s*(\w+)", unit)
-        assert m
-        if m.group(1):
-            scale = float(m.group(1))
-        unit = m.group(2)
-        if unit == "ps":
-            unit = "picoseconds"
-        if unit == "ns":
-            unit = "nanoseconds"
-        v = convert(self.period, target_unit=unit, src_unit="nanosecond")
-        if scale:
-            v *= scale
-        return v
+        return convert_unit(self.period, to_unit=unit, from_unit="nanosecond")
 
     @root_validator(pre=True, skip_on_failure=True)
     @classmethod
     def root_validate_phys_clock(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         freq = values.get("freq")
         if freq:
-            freq = convert(freq, "MHz")
+            freq = convert_unit(freq, "MHz")
         if "period" in values:
             period = float(values["period"])
             if freq and abs(float(freq) * period - 1000.0) >= 0.001:

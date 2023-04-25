@@ -329,16 +329,41 @@ class Flow(metaclass=ABCMeta):
         required: bool = False,
         sequential: bool = False,
     ) -> bool:
+        res = self.parse_regex(
+            reportfile_path,
+            re_pattern,
+            *other_re_patterns,
+            dotall=dotall,
+            required=required,
+            sequential=sequential,
+        )
+        if not res:
+            return False
+        if "success" not in res:
+            res["success"] = True
+        self.results.update(**res)
+        return self.results.success
+
+    def parse_regex(
+        self,
+        reportfile_path: Union[str, os.PathLike],
+        re_pattern: Union[str, List[str]],
+        *other_re_patterns: Union[str, List[str]],
+        dotall: bool = True,
+        required: bool = False,
+        sequential: bool = False,
+    ) -> Optional[dict]:
         if not isinstance(reportfile_path, Path):
             reportfile_path = Path(reportfile_path)
         # TODO fix debug and verbosity levels!
+        results = dict()
         if not reportfile_path.exists():
             log.warning(
                 "File %s does not exist! Most probably the flow run had failed.\n Please check log files in %s",
                 reportfile_path,
                 self.run_path,
             )
-            return False
+            return None
         with open(reportfile_path) as rpt_file:
             content = rpt_file.read()
 
@@ -352,8 +377,9 @@ class Flow(metaclass=ABCMeta):
                     return False, content
                 match_dict = match.groupdict()
                 for k, v in match_dict.items():
-                    self.results[k] = try_convert_to_primitives(v)
-                    log.debug("%s: %s", k, self.results.get(k))
+                    v = try_convert_to_primitives(v)
+                    results[k] = v
+                    log.debug("%s: %s", k, v)
                 if sequential:
                     content = content[match.span(0)[1] :]
                     log.debug("len(content)=%d", len(content))
@@ -375,14 +401,14 @@ class Flow(metaclass=ABCMeta):
                         rpt_file.name,
                         pat,
                     )
-                    return False
-        return True
+                    return None
+        return results
 
     def normalize_path_to_design_root(self, path: Union[str, os.PathLike, Path]) -> Path:
         if not isinstance(path, Path):
             path = Path(path)
         if self.design.design_root and not path.is_absolute():
-            path = self.design.design_root / path
+            return self.design.design_root / path
         return path
 
 

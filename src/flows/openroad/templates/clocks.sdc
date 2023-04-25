@@ -6,7 +6,7 @@ set all_clock_ports [list {{all_clock_ports|join(" ")}}]
 
 {% for clock_name, clock in settings.clocks.items() %}
 {% if clock.port %}
-{% set clock_period = clock.period_in_units(settings.platform.time_unit) %}
+{% set clock_period = clock.period_unit(settings.platform.time_unit) %}
 set clk_port [get_ports {{clock.port}}]
 create_clock -period {{ "%.3f"|format(clock_period) }} -name {{clock_name}} $clk_port
 

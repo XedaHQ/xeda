@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import shutil
@@ -13,7 +14,7 @@ from ...flow import AsicSynthFlow
 from ...flows.yosys import HiLoMap, Yosys, preproc_libs
 from ...platforms import AsicsPlatform
 from ...tool import ExecutableNotFound, Tool
-from ...units import convert
+from ...units import convert_unit
 from ...utils import try_convert, unique
 
 log = logging.getLogger(__name__)
@@ -184,7 +185,7 @@ class Openroad(AsicSynthFlow):
         @validator("input_delay", "output_delay", pre=True, always=True)
         def _validate_values_units_to_ps(cls, value):
             if isinstance(value, str):
-                value = convert(value, "picoseconds")
+                value = convert_unit(value, "picoseconds")
             return value
 
     def init(self):
@@ -370,6 +371,8 @@ class Openroad(AsicSynthFlow):
             args.append("-exit")
         if ss.gui:
             args.append("-gui")
+        if ss.write_metrics:
+            args.extend(["-metrics", str(ss.write_metrics)])
 
         defines = dict(
             platform=ss.platform,  # for easier reference
@@ -454,7 +457,8 @@ class Openroad(AsicSynthFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         last_log = self.artifacts.logs[-1]
-        success = self.parse_report_regex(
+        time_unit = ss.platform.time_unit
+        results = self.parse_regex(
             last_log,
             r"tns\s+(?P<tns>\-?\d+(?:\.\d+)?)",
             r"wns\s+(?P<wns>\-?\d+(?:\.\d+)?)",
@@ -464,13 +468,68 @@ class Openroad(AsicSynthFlow):
             r"Design area\s+(?P<design_area>\d+(?:\.\d+)?)\s+(?P<design_area_unit>[a-zA-Z]+\^2)\s+(?P<utilization_percent>\d+(?:\.\d+)?)% utilization.",
             required=False,
         )
-        wns = self.results.get("wns")
-        worst_slack = self.results.get("worst_slack")
+
+        if results:
+            u = try_convert(results.pop("utilization_percent"), float)
+            if u is not None:
+                results["utilization"] = u / 100
+        else:
+            if not ss.write_metrics or not ss.write_metrics.exists():
+                log.error("No results found!")
+                return False
+            results = dict()
+        if ss.write_metrics:
+            # metrics JSON should contain more accurate and more reliable values, therefore overwrite results from parsing the log
+            with open(ss.write_metrics) as mf:
+                metrics = dict(json.load(mf))
+            metrics_name_map = {
+                "timing__setup__tns": "tns",
+                "timing__setup__ws": "worst_slack",
+                "timing__setup__wns": None,
+                # "clock__skew__setup": ,
+                # "clock__skew__hold": ,
+                # "timing__drv__max_slew_limit": ,
+                # "timing__drv__max_slew": ,
+                # "timing__drv__max_cap_limit": ,
+                # "timing__drv__max_cap": ,
+                # "timing__drv__max_fanout_limit":,
+                # "timing__drv__max_fanout": 0,
+                "timing__drv__setup_violation_count": "setup_violations",
+                "timing__drv__hold_violation_count": "hold_violations",
+                "power__internal__total": "_power_internal",
+                "power__switching__total": "_power_switching",
+                "power__leakage__total": "_power_leakage",
+                "power__total": "power",
+                "design__io": "_num_io",
+                "design__die__area": "die_area",
+                "design__core__area": "core_area",
+                # "design__instance__count": ,
+                "design__instance__area": "design_area",
+                # "design__instance__count__stdcell": ,
+                "design__instance__area__stdcell": "_design_area_stdcell",
+                # "design__instance__count__macros": ,
+                "design__instance__area__macros": "_design_area_macros",
+                "design__instance__utilization": "utilization",
+                # "design__instance__utilization__stdcell": ,
+            }
+            for metr_name, res_name in metrics_name_map.items():
+                v = metrics.get(metr_name)
+                if v is not None:
+                    results[res_name] = v
+        wns = results.get("wns")
+        worst_slack = results.get("worst_slack")
+        self.results.update(**results, success=True)
         if wns is not None and worst_slack is not None and len(ss.clocks) == 1:
             worst_slack = try_convert(worst_slack, float)
             assert worst_slack
             assert ss.main_clock
-            self.results["Fmax"] = 1000.0 / (ss.main_clock.period - worst_slack)
+            # Fmax in MHz
+            self.results["Fmax"] = 1000.0 / convert_unit(
+                ss.main_clock.period_unit(time_unit) - worst_slack,
+                to_unit="nanoseconds",
+                from_unit=time_unit,
+            )
+        success = True
         violations = try_convert(self.results.get("setup_violations"), int)
         if violations:
             log.error("%d setup violations.", violations)
