@@ -128,6 +128,12 @@ xeda = "src"
     "resources/**/*",
 ]
 
+[tool.setuptools.exclude-package-data]
+xeda = [
+    "src/platforms/asap7",
+    "src/platforms/asap7/**",
+]
+
 [tool.setuptools_scm]
 
 [tool.black]
