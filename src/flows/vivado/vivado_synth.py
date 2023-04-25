@@ -194,13 +194,21 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             r"THS Failing Endpoints\s+THS Total Endpoints\s+WPWS\(ns\)\s+TPWS\(ns\)\s+"
             r"TPWS Failing Endpoints\s+TPWS Total Endpoints\s*"
             r"\s*(?:\-+\s+)+"
-            r"(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<_tns>\-?\d+(?:\.\d+)?)\s+(?P<_failing_endpoints>\d+)\s+(?P<_tns_total_endpoints>\d+)\s+"
-            r"(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<_ths_failing_endpoints>\d+)\s+(?P<_ths_total_endpoints>\d+)\s+",
+            r"(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<tns>\-?\d+(?:\.\d+)?)\s+(?P<setup_violations>\d+)\s+(?P<_tns_total_endpoints>\d+)\s+"
+            r"(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<hold_violations>\d+)\s+(?P<_ths_total_endpoints>\d+)\s+",
             ##
             r"Clock Summary[\s\|\-]+^\s*Clock\s+.*$[^\w]+(\w*)\s+(\{.*\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)",
             required=False,
         )
         wns = self.results.get("wns")
+        su_fail = self.results.get("setup_violations")
+        if su_fail:
+            log.error("%s setup violations. WNS: %s", su_fail, wns)
+            failed = True
+        hld_fail = self.results.get("setup_violations")
+        if hld_fail:
+            log.error("%s hold violations. WHS: %s", hld_fail, self.results.get("whs"))
+            failed = True
         if wns is not None:
             if not isinstance(wns, (float, int)):
                 log.critical("Parsed value for `WNS` is %s (%s)", wns, type(wns))

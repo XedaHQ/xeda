@@ -2,11 +2,11 @@ import logging
 import os
 from typing import Any, Dict, Optional, Union
 
-import pkg_resources
+from importlib_resources import as_file, files
 
 from .dataclass import root_validator
 from .flow import FPGA, FpgaSynthFlow
-from .utils import toml_load, toml_loads
+from .utils import toml_load
 
 __all__ = [
     "get_board_file_path",
@@ -18,7 +18,10 @@ log = logging.getLogger(__name__)
 
 
 def get_board_file_path(file: str):
-    return pkg_resources.resource_filename("xeda.data.boards", file)
+    # FIXME refactor and verify behavior
+    # return pkg_resources.resource_filename("xeda.data.boards", file)
+    res = files("xeda.data.boards").joinpath(file)
+    return as_file(res)
 
 
 def get_board_data(
@@ -32,15 +35,15 @@ def get_board_data(
         boards_data = toml_load(custom_toml_file)
     else:
         log.info("Retrieving board data for %s", board)
-        board_toml_bytes = pkg_resources.resource_string("xeda.data", "boards.toml")
-        if board_toml_bytes:
-            boards_data = toml_loads(board_toml_bytes.decode("utf-8"))
-        else:
-            log.error(
-                "Unable to get resource %s.%s. Please check xeda installation.",
-                "xeda.data",
-                "boards.toml",
-            )
+        res = files("xeda.data").joinpath("boards.toml")
+        with as_file(res) as p:
+            boards_data = toml_load(p)
+        # else:
+        #     log.error(
+        #         "Unable to get resource %s.%s. Please check xeda installation.",
+        #         "xeda.data",
+        #         "boards.toml",
+        #     )
     return boards_data.get(board)
 
 

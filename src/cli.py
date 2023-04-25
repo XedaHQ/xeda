@@ -42,7 +42,6 @@ from .flow_runner import (
     settings_to_dict,
 )
 from .flow_runner.dse import Dse
-from .flow_runner.remote import RemoteRunner
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import removeprefix
 
@@ -270,6 +269,8 @@ def run(
         flow_settings = []
 
     if remote:
+        from .flow_runner.remote import RemoteRunner
+
         rl = RemoteRunner(
             xeda_run_dir,
             cached_dependencies=cached_dependencies,

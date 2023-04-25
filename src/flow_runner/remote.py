@@ -5,8 +5,6 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
-from fabric import Connection
-from fabric.transfer import Transfer
 
 from ..design import Design
 from ..utils import dump_json
@@ -21,8 +19,12 @@ from .default_runner import (
 log = logging.getLogger(__name__)
 
 
-def send_design(design: Design, conn: Connection, remote_path: str) -> Tuple[str, str]:
+def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
     root_path = design.root_path
+
+    from fabric import Connection
+
+    assert isinstance(conn, Connection)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         temp_dir = Path(tmpdirname)
@@ -109,6 +111,10 @@ class RemoteRunner(FlowLauncher):
         port: Optional[int] = None,
         flow_settings=[],
     ):
+        # to avoid fabric 3.0.0 deprecation warnings we delay imports to when remote feature is requested
+        from fabric import Connection
+        from fabric.transfer import Transfer
+
         if not isinstance(design, Design):
             design = Design.from_file(design)
         design_hash = semantic_hash(
