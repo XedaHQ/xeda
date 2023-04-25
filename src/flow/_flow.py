@@ -137,8 +137,6 @@ class Flow(metaclass=ABCMeta):
                 log.debug("Settings.__init__(): data=%s", data)
                 super().__init__(**data)
             except ValidationError as e:
-                print("----------------------")
-                log.debug("ValidationError: %s", traceback.format_exception(e))
                 raise FlowSettingsError(
                     validation_errors(e.errors()), e.model, e.json()  # type: ignore
                 ) from e
