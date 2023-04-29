@@ -5,11 +5,6 @@ from typing import Dict, List, Optional
 
 from pydantic import Field, validator
 
-if __name__ == "__main__":
-    import xeda
-
-    __package__ = "xeda.platforms"
-
 from ..dataclass import XedaBaseModel, root_validator
 from ..utils import first_key, first_value
 from .platform import Platform
@@ -147,7 +142,3 @@ class AsicsPlatform(Platform):
             selected_corner = first_value(self.corner)
         assert selected_corner is not None
         return selected_corner
-
-
-if __name__ == "__main__":
-    print(AsicsPlatform.schema_json(indent=2))
