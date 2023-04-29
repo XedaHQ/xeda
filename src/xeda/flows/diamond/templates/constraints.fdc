@@ -1,0 +1,13 @@
+{% if not flow.allow_dsps %}
+define_global_attribute syn_multstyle logic
+
+define_scope_collection all_insts {find -hier -net {*}}
+define_attribute {$all_insts} {syn_multstyle} {logic}
+{% endif %}
+
+{% if not flow.allow_brams %}
+define_global_attribute {syn_ramstyle} {distributed}
+
+define_scope_collection all_insts {find -hier -net {*}}
+define_attribute {$all_insts} {syn_ramstyle} {distributed}
+{% endif %}

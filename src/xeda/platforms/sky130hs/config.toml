@@ -1,0 +1,130 @@
+name = "sky130hs"
+
+# Process node
+process = 130
+
+stackup = "5M1LI"
+# default_corner = "tt"
+
+#-----------------------------------------------------
+# Tech/Libs
+# ----------------------------------------------------
+lib_files = ["lib/sky130_fd_sc_hs__tt_025C_1v80.lib"]
+tech_lef = "lef/sky130_fd_sc_hs.tlef"
+std_cell_lef = "lef/sky130_fd_sc_hs_merged.lef"
+gds_files = ["gds/sky130_fd_sc_hs.gds"]
+
+# derate_tcl = "..."
+setrc_tcl = "setRC.tcl"
+
+# Dont use cells to ease congestion
+# Specify at least one filler cell if none
+
+dont_use_cells = []
+
+fill_cells = [
+    "sky130_fd_sc_hs__fill_1",
+    "sky130_fd_sc_hs__fill_2",
+    "sky130_fd_sc_hs__fill_4",
+    "sky130_fd_sc_hs__fill_8",
+]
+
+tiehi_cell = "sky130_fd_sc_hs__conb_1"
+tiehi_port = "HI"
+tielo_cell = "sky130_fd_sc_hs__conb_1"
+tielo_port = "LO"
+
+min_buf_cell = "sky130_fd_sc_hs__buf_4"
+min_buf_ports = ["A", "X"]
+
+
+#
+# Define fill cells
+# -----------------------------------------------------
+#  Yosys
+#  ----------------------------------------------------
+# Set the TIEHI/TIELO cells
+# These are used in yosys synthesis to avoid logical 1/0's in the netlist
+# Used in synthesis
+# Yosys mapping files
+latch_map_file = "cells_latch_hs.v"
+clkgate_map_file = "cells_clkgate_hs.v"
+adder_map_file = "cells_adders_hs.v"
+#
+# Define ABC driver and load
+abc_driver_cell = "sky130_fd_sc_hs__buf_1"
+abc_load_in_ff = 5
+
+#--------------------------------------------------------
+# Floorplan
+# -------------------------------------------------------
+
+# Placement site for core cells
+# This can be found in the technology lef
+place_site = "unit"
+
+# IO Placer pin layers
+io_placer_h = "met3"
+io_placer_v = "met2"
+
+# Define default PDN config
+pdn_tcl = "pdn.tcl"
+
+# Endcap and Welltie cells
+tapcell_tcl = "tapcell.tcl"
+
+macro_place_halo = [40, 40]
+macro_place_channel = [80, 80]
+
+#---------------------------------------------------------
+# Place
+# --------------------------------------------------------
+# default cell padding for cells
+cell_pad_in_sites_global_placement = 1
+cell_pad_in_sites_detail_placement = 0
+# cell_pad_in_sites =
+#
+
+place_density = 0.50
+
+#
+# --------------------------------------------------------
+#  CTS
+#  -------------------------------------------------------
+# TritonCTS options
+cts_buf_cell = "sky130_fd_sc_hs__clkbuf_4"
+
+# ---------------------------------------------------------
+#  Route
+# ---------------------------------------------------------
+# FastRoute options
+min_routing_layer = "met1"
+max_routing_layer = "met5"
+#
+# Define fastRoute tcl
+fastroute_tcl = "fastroute.tcl"
+
+# KLayout technology file
+klayout_tech_file = "sky130hs.lyt"
+# Layer properties file
+klayout_layer_prop_file = "sky130hs.lyp"
+
+# Rules for metal fill
+fill_config = "fill.json"
+
+# Template definition for power grid analysis
+template_pga_cfg = "template_pga.cfg"
+
+
+# ---------------------------------------------------------
+#  IR Drop
+# ---------------------------------------------------------
+voltage = 1.8
+# IR drop estimation supply net name to be analyzed and supply voltage variable
+# For multiple nets: PWR_NETS_VOLTAGES  = "VDD1 1.8 VDD2 1.2"
+pwr_nets_voltages = { VDD = 1.8 }
+gnd_nets_voltages = { VSS = 0.0 }
+ir_drop_layer = "met1"
+
+# OpenRCX extRules
+rcx_rules = "rcx_patterns.rules"

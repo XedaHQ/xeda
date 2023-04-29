@@ -1,0 +1,95 @@
+# Process node
+process = 45
+#-----------------------------------------------------
+# Tech/Libs
+# ----------------------------------------------------
+tech_lef = "lef/NangateOpenCellLibrary.tech.lef"
+sc_lef = "lef/NangateOpenCellLibrary.macro.mod.lef"
+lib_files = "lib/NangateOpenCellLibrary_typical.lib"
+gds_files = "$(sort $(wildcard gds/*.gds))"
+# Dont use cells to ease congestion
+# Specify at least one filler cell if none
+dont_use_cells = ["TAPCELL_X1", "FILLCELL_X1", "AOI211_X1", "OAI211_X1"]
+# Fill cells used in fill cell insertion
+fill_cells = ["FILLCELL_X1", "FILLCELL_X2", "FILLCELL_X4", "FILLCELL_X8", "FILLCELL_X16", "FILLCELL_X32"]
+# -----------------------------------------------------
+#  Yosys
+#  ----------------------------------------------------
+# Ungroup size for hierarchical synthesis
+max_ungroup_size = 100000 # overridable
+# Set the TIEHI/TIELO cells
+# These are used in yosys synthesis to avoid logical 1/0's in the netlist
+tiehi_cell_and_port = ["LOGIC1_X1", "Z"]
+tielo_cell_and_port = ["LOGIC0_X1", "Z"]
+# Used in synthesis
+min_buf_cell_and_ports = ["BUF_X1", "A", "Z"]
+# Yosys mapping files
+latch_map_file = "cells_latch.v"
+clkgate_map_file = "cells_clkgate.v"
+adder_map_file = "cells_adders.v" # overridable
+#
+# Set yosys-abc clock period to first "-period" found in sdc file
+abc_clock_period_in_ps = "$(shell sed -nr \"s/^set clk_period (.+)|.* -period (.+) .*/\\1\\2/p\" $(SDC_FILE) | head -1 | awk '{print $$1*1000}')" # overridable
+abc_driver_cell = "BUF_X1"
+# BUF_X1, pin (A) = 0.974659. Arbitrarily multiply by 4
+abc_load_in_ff = 3.898
+#--------------------------------------------------------
+# Floorplan
+# -------------------------------------------------------
+
+# Placement site for core cells
+# This can be found in the technology lef
+place_site = "FreePDK45_38x28_10R_NP_162NW_34O"
+# IO Placer pin layers
+io_placer_h = "metal5"
+io_placer_v = "metal6"
+# Define default PDN config
+pdn_tcl = "grid_strategy-M1-M4-M7.tcl" # overridable
+# Endcap and Welltie cells
+tapcell_tcl = "tapcell.tcl"
+macro_place_halo = [22.4, 15.12] # overridable
+macro_place_channel = [18.8, 19.95] # overridable
+#---------------------------------------------------------
+# Place
+# --------------------------------------------------------
+# Cell padding in SITE widths to ease rout-ability.  Applied to both sides
+cell_pad_in_sites_global_placement = 0 # overridable
+cell_pad_in_sites_detail_placement = 0 # overridable
+#
+
+place_density = 0.30 # overridable
+# --------------------------------------------------------
+#  CTS
+#  -------------------------------------------------------
+# TritonCTS options
+cts_buf_cell = "BUF_X4" # overridable
+# ---------------------------------------------------------
+#  Route
+# ---------------------------------------------------------
+# FastRoute options
+min_routing_layer = "metal2"
+max_routing_layer = "metal10"
+# Define fastRoute tcl
+fastroute_tcl = "fastroute.tcl"
+# KLayout technology file
+klayout_tech_file = "FreePDK45.lyt"
+# KLayout DRC ruledeck
+klayout_drc_file = "drc/FreePDK45.lydrc"
+# KLayout LVS ruledeck
+klayout_lvs_file = "lvs/FreePDK45.lylvs"
+# Allow empty GDS cell
+gds_allow_empty = "fakeram.*"
+cdl_file = "cdl/NangateOpenCellLibrary.cdl"
+# Template definition for power grid analysis
+template_pga_cfg = "template_pga.cfg" # overridable
+# OpenRCX extRules
+rcx_rules = "rcx_patterns.rules"
+# ---------------------------------------------------------
+#  IR Drop
+# ---------------------------------------------------------
+
+# IR drop estimation supply net name to be analyzed and supply voltage variable
+# For multiple nets: PWR_NETS_VOLTAGES  = "VDD1 1.8 VDD2 1.2"
+pwr_nets_voltages = "VDD 1.1" # overridable
+gnd_nets_voltages = "VSS 0.0" # overridable
+ir_drop_layer = "metal1" # overridable

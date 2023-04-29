@@ -1,0 +1,51 @@
+platform = "asap7.lvt"
+version = "2.0"
+extends = "asap7"
+
+
+tiehi_cell = "TIEHIx1_ASAP7_75t_L"
+tiehi_port = "H"
+tielo_cell = "TIELOx1_ASAP7_75t_L"
+tielo_port = "L"
+min_buf_cells = "BUFx2_ASAP7_75t_L"
+min_buf_ports = ["A", "Y"]
+hold_buf_cell = "BUFx2_ASAP7_75t_L"
+abc_driver_cell = "BUFx2_ASAP7_75t_L"
+cts_buf_cell = "BUFx4_ASAP7_75t_L"
+fill_cells = "FILLERxp5_ASAP7_75t_L"
+tap_cell_name = "TAPCELL_ASAP7_75t_L"
+gds_files = ["gds/asap7sc7p5t_28_L_220121a.gds"]
+sc_lef = "lef/asap7sc7p5t_28_L_1x_220121a.lef"
+latch_map_file = "yosys/cells_latch_L.v"
+clkgate_map_file = "yosys/cells_clkgate_L.v"
+adder_map_file = "yosys/cells_adders_L.v"      # overridable
+
+[corner.FF]
+dff_lib_file = "lib/asap7sc7p5t_SEQ_LVT_FF_nldm_220123.lib"
+lib_files = [
+   "lib/asap7sc7p5t_AO_LVT_FF_nldm_211120.lib.gz",
+   "lib/asap7sc7p5t_INVBUF_LVT_FF_nldm_220122.lib.gz",
+   "lib/asap7sc7p5t_OA_LVT_FF_nldm_211120.lib.gz",
+   "lib/asap7sc7p5t_SIMPLE_LVT_FF_nldm_211120.lib.gz",
+   "lib/asap7sc7p5t_SEQ_LVT_FF_nldm_220123.lib",
+]
+
+[corner.SS]
+dff_lib_file = "lib/asap7sc7p5t_SEQ_LVT_SS_nldm_220123.lib"
+lib_files = [
+   "lib/asap7sc7p5t_AO_LVT_SS_nldm_211120.lib.gz",
+   "lib/asap7sc7p5t_INVBUF_LVT_SS_nldm_220122.lib.gz",
+   "lib/asap7sc7p5t_OA_LVT_SS_nldm_211120.lib.gz",
+   "lib/asap7sc7p5t_SEQ_LVT_SS_nldm_220123.lib",
+   "lib/asap7sc7p5t_SIMPLE_LVT_SS_nldm_211120.lib.gz",
+]
+
+[corner.TT]
+dff_lib_file = "lib/asap7sc7p5t_SEQ_LVT_TT_nldm_220123.lib"
+lib_files = [
+   "lib/asap7sc7p5t_AO_LVT_TT_nldm_211120.lib.gz",
+   "lib/asap7sc7p5t_INVBUF_LVT_TT_nldm_220122.lib.gz",
+   "lib/asap7sc7p5t_OA_LVT_TT_nldm_211120.lib.gz",
+   "lib/asap7sc7p5t_SEQ_LVT_TT_nldm_220123.lib",
+   "lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib.gz",
+]

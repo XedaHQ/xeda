@@ -88,24 +88,27 @@ repository = "https://github.com/XedaHQ/xeda.git"
 changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
 # documentation = "..."
 
-# [project.scripts]
-# xeda = "xeda:cli.cli"
+[project.scripts]
+xeda = "xeda.cli:cli"
 
 [build-system]
 requires = ["setuptools>=65", "wheel>=0.37", "setuptools_scm[toml]>=7.1"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-# ...
-# By default, include-package-data is true in pyproject.toml, so you do
-# NOT have to specify this line.
-include-package-data = true
+# include-package-data = true
 
-[tool.setuptools.package-dir]
-xeda = "src"
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["xeda*"]
+exclude = [
+    "tests/**",
+    "*/tests/**",
+]
+namespaces = false
 
 [tool.setuptools.package-data]
-"*" = [
+"xeda" = [
     "*.cpp",
     "*.dse",
     "*.fdc",
@@ -122,16 +125,19 @@ xeda = "src"
     "*.xcf",
     "*.xdc",
     "*.ys",
-    "platforms/*",
     "platforms/**",
-    "platforms/**/*",
-    "resources/**/*",
+    "resources/**",
 ]
 
 [tool.setuptools.exclude-package-data]
-xeda = [
-    "src/platforms/asap7",
-    "src/platforms/asap7/**",
+"xeda" = [
+    "tests*",
+    "*platforms/gf180*",
+    # must keep PyPI dist archive size < 100MB
+    # TODO: move platforms to separate xeda_platforms_xx packages
+    "*platforms/asap7/lib/*_LVT_*",
+    "*platforms/asap7/lib/*_SLVT_*",
+    "*platforms/asap7/lib/*_SRAM_*",
 ]
 
 [tool.setuptools_scm]
@@ -140,11 +146,6 @@ xeda = [
 line-length = 100
 target-version = ["py38", "py39", "py310", "py311"]
 include = '\.pyi?$'
-
-[tool.pylint]
-
-[tool.pylint.master]
-ignore-paths = ["src/xeda/plugins/lwc/.*"]
 
 [tool.pylint.messages_control]
 max-line-length = 100

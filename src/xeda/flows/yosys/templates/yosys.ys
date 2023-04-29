@@ -1,0 +1,113 @@
+{% for src in design.rtl.sources %}
+{%- if src.type == 'verilog' %}
+log -stdout yosys> Reading {{src}}
+# -Dname=value -Idir
+read_verilog {{settings.read_verilog_flags|join(" ")}} {{src}}
+{%- elif src.type == 'systemverilog' %}
+log -stdout yosys> Reading {{src}}
+read_verilog {{settings.read_verilog_flags|join(" ")}} -sv {{src}}
+{%- endif %}
+{%- endfor %}
+
+{%- set vhdl_files = design.rtl.sources | selectattr("type", "equalto", "vhdl") | list %}
+{%- if vhdl_files %}
+log -stdout yosys> Compiling VHDL files
+plugin -i ghdl
+ghdl {{ghdl_args|join(" ")}}
+{%- endif %}
+{% if settings.liberty -%}
+read_liberty {{settings.read_liberty_flags|join(" ")}} {{settings.liberty}}
+{%- endif %}
+
+{% for src in settings.verilog_lib -%}
+read_verilog -lib {{src}}
+{%- endfor %}
+
+{%- if design.rtl.top %}
+hierarchy -check -top {{design.rtl.primary}}
+{%- else %}
+hierarchy -check -auto-top
+{%- endif %}
+check -initdrv -assert
+{%- for attr,attr_dict in settings.set_attributes.items() %}
+{%- for path,value in attr_dict.items() %}
+setattr -set {{attr}} {{value}} {{path}}
+{%- endfor %}
+{%- endfor %}
+
+{% if settings.rtl_json -%}
+log -stdout yosys> Writing JSON {{settings.rtl_json}}
+write_json {{settings.rtl_json}}
+{%- endif %}
+{% if settings.rtl_verilog -%}
+log -stdout yosys> Writing Verilog {{settings.rtl_verilog}}
+write_verilog {{settings.rtl_verilog}}
+{%- endif %}
+{% if settings.rtl_vhdl -%}
+log -stdout yosys> Writing VHDL {{settings.rtl_vhdl}}
+write_vhdl {{settings.rtl_vhdl}}
+{%- endif %}
+{% if settings.show_rtl -%}
+show -prefix rtl_show -format dot {{settings.show_rtl_flags|join(" ")}}
+{%- endif %}
+
+{%- if settings.fpga %}
+log -stdout yosys> Running FPGA synthesis for device {{settings.fpga}}
+    {%- if settings.fpga.vendor == "xilinx" %}
+log -stdout yosys> Target: Xilinx {%if settings.fpga.part%} {{settings.fpga.part}} {%else%} {{settings.fpga.device}} {%endif%}
+synth_xilinx {%- if settings.fpga.family %} -family {{settings.fpga.family}} {%- endif %} {{settings.synth_flags|join(" ")}}
+    {%- elif settings.fpga.family %}
+log -stdout yosys> Target: {{settings.fpga.family}}
+synth_{{settings.fpga.family}} {{settings.synth_flags|join(" ")}}
+    {%- else %}
+log -stderr yosys> Unknown FPGA vendor, family, or device
+    {%- endif %}
+{%- else %}
+log -stdout yosys> Running synthesis
+synth {{settings.synth_flags|join(" ")}}
+        {% if settings.liberty -%}
+log -stdout yosys> Mapping FFs to lib
+dfflibmap -liberty {{settings.liberty}}
+        {%- endif %}
+log -stdout yosys> Running ABC
+abc {{settings.abc_flags|join(" ")}}
+{%- endif %}
+
+{% if settings.post_synth_opt -%}
+log -stdout Post-synthesis optimization
+opt -full -purge -sat
+opt -full -purge 
+{%- endif %}
+
+{% if settings.splitnets is not none -%}
+splitnets {{settings.splitnets|join(" ")}}
+{%- endif %}
+
+log -stdout yosys> Writing stat
+tee -q -o {{artifacts.report.utilization}} stat {%- if settings.fpga and settings.fpga.vendor == "xilinx" %} -tech xilinx {%-elif settings.liberty %} -liberty {{settings.liberty}}  {%- endif %}
+
+check {% if settings.check_assert -%} -assert {%- endif %}
+
+{% if settings.netlist_json -%}
+log -stdout yosys> Writing netlist {{settings.netlist_json}}
+write_json {{settings.netlist_json}}
+{%- endif %}
+{% if settings.netlist_verilog -%}
+log -stdout yosys> Writing netlist {{settings.netlist_verilog}}
+write_verilog {{settings.write_verilog_flags|join(" ")}} {{settings.netlist_verilog}}
+{%- endif %}
+{% if settings.netlist_vhdl -%}
+log -stdout yosys> Writing netlist {{settings.netlist_vhdl}}
+write_vhdl {{settings.write_vhdl_flags|join(" ")}} {{settings.netlist_vhdl}}
+{%- endif %}
+
+{% if settings.sta -%}
+log -stdout yosys> Writing timing report to {{artifacts.report.timing}}
+tee -o {{artifacts.report.timing}} ltp
+tee -a {{artifacts.report.timing}} sta
+{%- endif %}
+
+{% if settings.show_netlist -%}
+log -stdout yosys> Writing netlist diagram to netlist_show.dot
+show -prefix netlist_show -format dot {{settings.show_netlist_flags|join(" ")}}
+{%- endif %}
