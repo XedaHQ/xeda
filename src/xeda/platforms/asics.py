@@ -4,6 +4,7 @@ import re
 from typing import Dict, List, Optional
 
 from pydantic import Field, validator
+from simpleeval import simple_eval
 
 from ..dataclass import XedaBaseModel, root_validator
 from ..utils import first_key, first_value
@@ -130,7 +131,7 @@ class AsicsPlatform(Platform):
                 if isinstance(v, str):
                     if selected_corner.voltage is not None:
                         v = re.sub(r"\$\(?(\w*)\)?", lambda pat: pat.group(1).lower(), v)
-                    value[k] = float(eval(v, selected_corner.dict()))
+                    value[k] = float(simple_eval(v, selected_corner.dict()))
         return value
 
     @property

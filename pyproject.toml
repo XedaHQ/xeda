@@ -52,6 +52,7 @@ dependencies = [
     "pebble              ~= 5.0",
     "pint                ~= 0.20",
     "importlib_resources >= 5.10",                       # backport of importlib.resources, replaces pkg_resources
+    "simpleeval          >= 0.9.13",
     # experimental:
     "pyyaml            ~= 6.0",
     "varname           >= 0.10",
