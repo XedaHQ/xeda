@@ -51,14 +51,14 @@ dependencies = [
     "rich                >= 12.6,< 14.0",
     "pebble              ~= 5.0",
     "pint                ~= 0.20",
-    "importlib_resources >= 5.10", # backport of importlib.resources, replaces pkg_resources
+    "importlib_resources >= 5.10",                       # backport of importlib.resources, replaces pkg_resources
     # experimental:
     "pyyaml            ~= 6.0",
     "varname           >= 0.10",
     "overrides         >= 6.1",
     "simple_term_menu  >= 1.5.2",
     "psutil            >= 5.9",
-    "junitparser       >= 2.4,< 4.0",    # TODO: remove
+    "junitparser       >= 2.4,< 4.0", # TODO: remove
     "pyvcd             ~= 0.3",
     "GitPython         >= 3.1.30",
     "fabric            ~= 3.0",
@@ -95,9 +95,6 @@ xeda = "xeda.cli:cli"
 requires = ["setuptools>=65", "wheel>=0.37", "setuptools_scm[toml]>=7.1"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-# include-package-data = true
-
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["xeda*"]
@@ -125,19 +122,19 @@ namespaces = false
     "*.xcf",
     "*.xdc",
     "*.ys",
-    "platforms/**",
+    "*/platforms/**",
     "resources/**",
 ]
 
 [tool.setuptools.exclude-package-data]
 "xeda" = [
     "tests*",
-    "*platforms/gf180*",
-    # must keep PyPI dist archive size < 100MB
-    # TODO: move platforms to separate xeda_platforms_xx packages
-    "*platforms/asap7/lib/*_LVT_*",
-    "*platforms/asap7/lib/*_SLVT_*",
-    "*platforms/asap7/lib/*_SRAM_*",
+    # # must keep PyPI dist archive size < 100MB
+    # # TODO: move platforms to separate xeda_platforms_xx packages
+    # "*platforms/gf180*",
+    # "platforms/asap7/lib/*_LVT_*",
+    # "platforms/asap7/lib/*_SLVT_*",
+    # "platforms/asap7/lib/*_SRAM_*",
 ]
 
 [tool.setuptools_scm]
