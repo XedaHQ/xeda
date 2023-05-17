@@ -136,10 +136,10 @@ def cli(ctx: click.Context, **kwargs):
     help="Incremental build. Useful during development. Flows run under a <design_name>/<flow_name>_<flow_settings_hash> subfolder in incremental mode.",
 )
 @click.option(
-    "--incremental-fresh",
+    "--clean",
     is_flag=True,
     default=False,
-    help="In incremental mode, cleanup folder contents before running.",
+    help="Run `clean` before `run`.",
 )
 @click.option(
     "--xedaproject",
@@ -236,7 +236,7 @@ def run(
     cached_dependencies: bool,
     flow_settings: Union[None, str, Iterable[str]],
     incremental: bool = True,
-    incremental_fresh: bool = False,
+    clean: bool = False,
     xeda_run_dir: Optional[Path] = None,
     xedaproject: Optional[str] = None,
     design: Optional[str] = None,
@@ -284,7 +284,7 @@ def run(
             cached_dependencies=cached_dependencies,
         )
         launcher.settings.incremental = incremental
-        launcher.settings.incremental_fresh = incremental_fresh
+        launcher.settings.clean = clean
         launcher.settings.post_cleanup = post_cleanup
         launcher.settings.post_cleanup_purge = post_cleanup_purge
         launcher.settings.scrub_old_runs = scrub
