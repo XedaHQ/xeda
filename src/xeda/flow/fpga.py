@@ -62,11 +62,14 @@ class FPGA(XedaBaseModel):
             if attr not in values:
                 values[attr] = v
 
-        def set_xc_family(s: str):
+        def set_xc_family(s: str, gen=None):
             d = dict(s="spartan", a="artix", k="kintex", v="virtex", z="zynq")
             s = s.lower()
             if s in d:
-                set_if_not_exist("family", d[s])
+                family = d[s]
+                if gen:
+                    family += str(gen)
+                set_if_not_exist("family", family)
 
         if part:
             part = part.strip()
@@ -94,6 +97,34 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("grade", match_ecp5.group("gr"))
                 return values
             # Commercial Xilinx # Generation # Family # Logic Cells in 1K units # Speed Grade (-1 slowest, L: low-power) # Package Type
+            match_xc6 = re.match(
+                r"^(XC)(6)(?P<f>[A-Z]+)(?P<lc>\d+)(-(?P<gr>\d))?(-(?P<pkg>[A-Z]+)(?P<pins>\d+))?$",
+                part,
+                flags=re.IGNORECASE,
+            )
+            if match_xc6:
+                log.debug(
+                    "Xilinx/AMD Spartan-6 attributes extracted from part# (%s): %s",
+                    part,
+                    match_xc6.groupdict(),
+                )
+                gen = "6"
+                set_if_not_exist("vendor", "xilinx")
+                set_if_not_exist("generation", gen)
+                fam = match_xc6.group("f")
+                if fam:
+                    set_xc_family(fam[0], gen)
+                lc = match_xc6.group("lc")
+                set_if_not_exist(
+                    "device",
+                    "xc" + gen + fam + lc,
+                )
+                set_if_not_exist("capacity", lc + "K")
+                pins = match_xc6.group("pins")
+                set_if_not_exist("package", match_xc6.group("pkg") + pins)
+                set_if_not_exist("pins", try_convert(pins, int))
+                set_if_not_exist("grade", match_xc6.group("gr"))
+                return values
             match_xc7 = re.match(
                 r"^(XC)(?P<g>\d)(?P<f>[A-Z])(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",
                 part,

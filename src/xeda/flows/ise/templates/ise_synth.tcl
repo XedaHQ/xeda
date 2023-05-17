@@ -6,21 +6,32 @@ puts "\n==============================( Creating Project )======================
 if { [catch  { project new {{design.name}} }] } {
     project open {{design.name}}
 }
-
+{% if settings.fpga.family %}
 project set family {{settings.fpga.family}}
+{% endif %}
+{% if settings.fpga.device %}
 project set device {{settings.fpga.device}}
-project set package {{settings.fpga.package}}
-project set speed {{settings.fpga.speed}}
+{% endif %}
+# {% if settings.fpga.package %}
+# project set package {{settings.fpga.package}}
+# {% endif %}
+{% if settings.fpga.speed %}
+project set speed "-{{settings.fpga.speed}}"
+{% endif %}
+
 project set "Generate Detailed MAP Report" TRUE
 
-project set "Auto Implementation Top" true
 
 puts "\n==============================( Adding RTL Sources )================================"
 {% for src in design.rtl.sources %}
 xfile add {{src.file}} -copy
 {%- endfor %}
 
+{% if design.rtl.top %}
 project set top {{design.rtl.top}}
+{% else %}
+project set "Auto Implementation Top" TRUE
+{% endif %}
 
 puts "\n==============================( Adding Constraint Files )================================"
 if { [catch  { xfile add {{ucf_file}} -copy }] } {
@@ -30,6 +41,7 @@ if { [catch  { xfile add {{ucf_file}} -copy }] } {
 project set "Use Synthesis Constraints File" TRUE
 project set "Synthesis Constraints File" "{{xcf_file}}"
 
+# puts [project properties] # to see the full list of properties
 
 puts "\n==============================( Setting Options )================================"
 {% if settings.nthreads is not none %}
@@ -37,17 +49,20 @@ project set "Enable Multi-Threading" {{2 if settings.nthreads and settings.nthre
 project set "Enable Multi-Threading" {{[settings.nthreads, 4]|min if settings.nthreads and settings.nthreads > 1 else "Off"}} -process "Place & Route"
 {% endif %}
 
+{% for k, v in settings.translate_options.items() %}
+project set "{{k}}" {{v}} -process "Translate"
+{% endfor %}
 {% for k, v in settings.synthesis_options.items() %}
-project set "{{k}}" {{v|quote_str}} -process "Synthesize - XST"
+project set "{{k}}" {{v}} -process "Synthesize - XST"
 {% endfor %}
 {% for k, v in settings.map_options.items() %}
-project set "{{k}}" {{v|quote_str}} -process "MAP"
+project set "{{k}}" {{v}} -process "Map"
 {% endfor %}
 {% for k, v in settings.pnr_options.items() %}
-project set "{{k}}" {{v|quote_str}} -process "Place & Route"
+project set "{{k}}" {{v}} -process "Place & Route"
 {% endfor %}
 {% for k, v in settings.trace_options.items() %}
-project set "{{k}}" {{v|quote_str}} -process "Generate Post-Place & Route Static Timing"
+project set "{{k}}" {{v}} -process "Generate Post-Place & Route Static Timing"
 {% endfor %}
 
 

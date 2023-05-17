@@ -75,6 +75,12 @@ class Docker(XedaBaseModel):
     cli: str = "docker"
     mounts: Dict[str, str] = {}
 
+    @validator("command", pre=True, always=True)
+    def _validate_command(cls, value):
+        if isinstance(value, str):
+            value = value.split()
+        return value
+
     # NOTE only works for Linux containers
     @cached_property
     def cpuinfo(self) -> Optional[List[List[str]]]:
@@ -92,7 +98,7 @@ class Docker(XedaBaseModel):
 
     @cached_property
     def name(self) -> str:
-        return self.command[0].split("/")[0] if self.command else "???"
+        return self.command[0].rsplit("/")[0] if self.command else "???"
 
     def run(
         self,
@@ -143,6 +149,8 @@ class Docker(XedaBaseModel):
         image_sp = image.split(":")
         if len(image_sp) < 2 and self.tag:
             image = f"{image}:{self.tag}"
+        if self.command:
+            args = tuple(self.command) + args[1:]
         return run_process(
             self.cli,
             ["run", *docker_args, image, *args],
@@ -318,8 +326,11 @@ class Tool(XedaBaseModel):
             self.design_root = flow.design_root
             log.debug("flow.settings.dockerized=%s", flow.settings.dockerized)
             self.dockerized = flow.settings.dockerized
-            if flow.settings.docker and isinstance(flow.settings.docker, str):
-                self.docker = Docker(image=flow.settings.docker)  # pyright: ignore
+            if flow.settings.docker:
+                if self.docker:
+                    self.docker.image = flow.settings.docker
+                else:
+                    self.docker = Docker(image=flow.settings.docker)  # type: ignore
             self.print_command = flow.settings.print_commands
         if self.design_root and self.docker:
             self.docker.mounts[str(self.design_root)] = str(self.design_root)

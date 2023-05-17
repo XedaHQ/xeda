@@ -1,8 +1,11 @@
 """Xilinx ISE Synthesis flow"""
+from functools import cached_property
 import logging
-from typing import Mapping, Union
+from typing import Mapping, Tuple, Union
 
-from ...tool import Tool
+from pydantic import validator
+
+from ...tool import Docker, Tool
 from ...utils import try_convert_to_primitives
 from ...flow import FpgaSynthFlow
 
@@ -12,6 +15,27 @@ OptionValueType = Union[str, int, bool, float]
 OptionsType = Mapping[str, OptionValueType]
 
 
+class XTclSh(Tool):
+    executable: str = "xtclsh"
+    docker: Docker = Docker(
+        image="goreganesh/xilinx:latest",
+        platform="linux/amd64",
+        command="/opt/Xilinx/14.7/ISE_DS/ISE/bin/lin64/xtclsh",
+    )
+
+    @cached_property
+    def version(self) -> Tuple[str, ...]:
+        return ("14", "7")
+
+
+def format_value(v) -> str:
+    if isinstance(v, bool):
+        return "TRUE" if v else "FALSE"
+    if isinstance(v, str):
+        return f'"{v}"'
+    return str(v)
+
+
 class IseSynth(FpgaSynthFlow):
     """FPGA synthesis using Xilinx ISE"""
 
@@ -19,37 +43,53 @@ class IseSynth(FpgaSynthFlow):
         # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx14_7/devref.pdf
         synthesis_options: OptionsType = {
             "Optimization Effort": "High",
+            "Global Optimization Goal": "AllClockNets",  # "AllClockNets", "Inpad To Outpad", "Offset In Before", "Offset Out After", "Maximum Delay"
             "Optimization Goal": "Speed",
-            "Keep Hierarchy": "No",
+            "Keep Hierarchy": "Soft",  # "No", "Yes", "Soft"
+            "Optimize Instantiated Primitives": True,
         }
         map_options: OptionsType = {
-            "Global Optimization": "Speed",
-            "Map Effort Level": "High",
-            "Placer Effort Level": "High",
-            "Perform Timing-Driven Packing and Placement": True,
+            # "Map Effort Level": "High", # "Standard", "High" # (S3/A/E/V4 only)
+            "LUT Combining": "Auto",  # "Off", "Auto", "Area" (S6/V5/V6/7-series/Zynq only)
+            "Placer Effort Level": "High",  # (S6/V5/V6/7-series/Zynq only)
+            "Allow Logic Optimization Across Hierarchy": True,
+            # "Perform Timing-Driven Packing and Placement": True, # (S3/A/E/V4 only()
             "Combinatorial Logic Optimization": True,
         }
         pnr_options: OptionsType = {
             "Place & Route Effort Level (Overall)": "High",
         }
+        translate_options: OptionsType = {}
         trace_options: OptionsType = {
             "Report Type": "Verbose Report",
         }
+
+        @validator(
+            "synthesis_options",
+            "map_options",
+            "pnr_options",
+            "trace_options",
+            pre=True,
+            always=True,
+        )
+        def _pre_process_values(cls, value):
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    value[k] = format_value(v)
+            return value
 
     def run(self) -> None:
         xcf_file = self.copy_from_template("constraints.xcf")
         ucf_file = self.copy_from_template("constraints.ucf")
 
-        self.add_template_filter("quote_str", lambda v: f'"{v}"' if isinstance(v, str) else v)
+        self.add_template_global_func(format_value)
 
         script_path = self.copy_from_template(
             "ise_synth.tcl",
             xcf_file=xcf_file,
             ucf_file=ucf_file,
         )
-        xtclsh = Tool(
-            "xtclsh", docker=dict(image="fpramme/xilinxise:centos6", platform="linux/amd64")
-        )
+        xtclsh = XTclSh()  # type: ignore
         xtclsh.run(script_path)
 
     def parse_reports(self) -> bool:
