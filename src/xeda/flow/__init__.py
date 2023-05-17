@@ -1,4 +1,4 @@
-from ._flow import (
+from .flow import (
     Flow,
     FlowDependencyFailure,
     FlowException,
