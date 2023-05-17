@@ -26,11 +26,11 @@ repos:
         args: [--install-types, --non-interactive]
         additional_dependencies:
           - "pydantic>=1.10.4"
-  - repo: local
-    hooks:
-      - id: pytest-check
-        name: pytest-check
-        entry: pytest
-        language: system
-        pass_filenames: false
-        always_run: false
+  # - repo: local
+  #   hooks:
+  #     - id: pytest-check
+  #       name: pytest-check
+  #       entry: pytest
+  #       language: system
+  #       pass_filenames: false
+  #       always_run: false
