@@ -63,7 +63,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 ss.fpga.family = yosys_family_name.get(ss.fpga.family, "xc7")
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
-
+        # if ss.noabc:
+        #     self.artifacts.utilization_report = None
         # add FPGA-specific synth_xx flags
         if ss.abc9:  # ABC9 is for only FPGAs?
             append_flag(ss.synth_flags, "-abc9")
@@ -119,6 +120,11 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
+        if not self.artifacts.utilization_report:
+            return True
+        report = Path(self.artifacts.utilization_report)
+        if not report.exists():
+            return False
         if Path(self.artifacts.utilization_report).suffix == ".json":
             try:
                 with open(self.artifacts.utilization_report, "r") as f:

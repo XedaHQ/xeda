@@ -57,11 +57,11 @@ class Vcs(SimFlow):
         top = self.design.tb.top[0]
         vcs_args = [top, *ss.vcs_flags]
         vcs_args += [
-            f"-j{ss.nthreads}",
             "-notice",
             "+lint=all,noVCDE,noTFIPC,noIWU,noOUDPE",
         ]
-
+        if ss.nthreads is not None:
+            vcs_args.append(f"-j{ss.nthreads}")
         if ss.vcs_log_file:
             vcs_args += ["-l", ss.vcs_log_file]
 

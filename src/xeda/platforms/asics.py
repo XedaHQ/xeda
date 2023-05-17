@@ -131,7 +131,9 @@ class AsicsPlatform(Platform):
                 if isinstance(v, str):
                     if selected_corner.voltage is not None:
                         v = re.sub(r"\$\(?(\w*)\)?", lambda pat: pat.group(1).lower(), v)
-                    value[k] = float(simple_eval(v, selected_corner.dict()))
+                    print(selected_corner.dict())
+                    print(v)
+                    value[k] = float(simple_eval(v, names=selected_corner.dict()))
         return value
 
     @property

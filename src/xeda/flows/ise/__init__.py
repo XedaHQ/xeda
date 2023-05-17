@@ -47,7 +47,9 @@ class IseSynth(FpgaSynthFlow):
             xcf_file=xcf_file,
             ucf_file=ucf_file,
         )
-        xtclsh = Tool("xtclsh")
+        xtclsh = Tool(
+            "xtclsh", docker=dict(image="fpramme/xilinxise:centos6", platform="linux/amd64")
+        )
         xtclsh.run(script_path)
 
     def parse_reports(self) -> bool:

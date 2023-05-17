@@ -136,14 +136,8 @@ class Quartus(FpgaSynthFlow):
             for src in self.design.rtl.sources:
                 p = str(src.file.parent.resolve())
                 self.quartus_sh.docker.mounts[p] = p
-            if self.settings.dockerized and self.quartus_sh.docker.nproc:
-                self.settings.ncpus = min(self.settings.ncpus, self.quartus_sh.docker.nproc)
-                if self.settings.nthreads:
-                    self.settings.nthreads = min(
-                        self.settings.nthreads, self.quartus_sh.docker.nproc
-                    )
-                else:
-                    self.settings.nthreads = self.quartus_sh.docker.nproc
+            if self.settings.dockerized and self.quartus_sh.docker.nproc and self.settings.nthreads:
+                self.settings.nthreads = min(self.settings.nthreads, self.quartus_sh.docker.nproc)
 
     def create_project(self, **kwargs: Any) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -203,13 +197,13 @@ class Quartus(FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         failed = False
         reports = {
-            "summary": self.reports_dir / "Flow_Summary.csv",
-            "utilization": self.reports_dir
+            "summary": self.settings.reports_dir / "Flow_Summary.csv",
+            "utilization": self.settings.reports_dir
             / "Fitter"
             / "Resource_Section"
             / "Fitter_Resource_Utilization_by_Entity.csv",
-            "timing_dir": self.reports_dir / "Timing_Analyzer",
-            "timing.multicorner_summary": self.reports_dir
+            "timing_dir": self.settings.reports_dir / "Timing_Analyzer",
+            "timing.multicorner_summary": self.settings.reports_dir
             / "Timing_Analyzer"
             / "Multicorner_Timing_Analysis_Summary.csv",
         }

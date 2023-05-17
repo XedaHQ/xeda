@@ -32,8 +32,10 @@ project set "Synthesis Constraints File" "{{xcf_file}}"
 
 
 puts "\n==============================( Setting Options )================================"
+{% if settings.nthreads is not none %}
 project set "Enable Multi-Threading" {{2 if settings.nthreads and settings.nthreads > 1 else "Off"}} -process "MAP"
 project set "Enable Multi-Threading" {{[settings.nthreads, 4]|min if settings.nthreads and settings.nthreads > 1 else "Off"}} -process "Place & Route"
+{% endif %}
 
 {% for k, v in settings.synthesis_options.items() %}
 project set "{{k}}" {{v|quote_str}} -process "Synthesize - XST"

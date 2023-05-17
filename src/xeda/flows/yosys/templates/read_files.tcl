@@ -3,15 +3,15 @@ yosys -import
 yosys echo on
 {% endif %}
 
-{% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=false) %}
-{% if sv_files %}
+{% set sv_files = design.sources_of_type("xxSystemVerilog", rtl=true, tb=false) %}
+{% set uhdm_plugin = settings.use_uhdm_plugin and sv_files %}
+{% if uhdm_plugin %}
 yosys plugin -i systemverilog
 {% endif %}
 
 {% for src in design.rtl.sources %}
-{% if src.type.name == "Verilog" %}
+{% if src.type.name == "Verilog" or (not uhdm_plugin and src.type.name == "SystemVerilog") %}
 yosys log -stdout "Reading {{src}}"
-## -Dname=value -Idir
 yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{src}}
 {% elif src.type.name == "SystemVerilog" %}
 yosys log -stdout "Reading {{src}}"
@@ -44,7 +44,7 @@ yosys chparam -set {{key}} {{value}} {% if design.rtl.top %} {{design.rtl.top}} 
 yosys read_verilog -defer {{settings.clockgate_map}}
 {% endif %}
 
-{% if sv_files %}
+{% if uhdm_plugin %}
 yosys read_systemverilog -link
 {% endif %}
 

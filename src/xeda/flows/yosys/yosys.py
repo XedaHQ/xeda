@@ -165,17 +165,8 @@ class Yosys(YosysBase, SynthFlow):
         liberty: List[Path] = []
         dff_liberty: Optional[Path] = None
         dont_use_cells: List[str] = []
-        gates: Optional[str] = None
+        gates: Optional[List[str]] = None
         lut: Optional[str] = None
-        retime: bool = Field(False, description="Enable flip-flop retiming")
-        sta: bool = Field(
-            False,
-            description="Run a simple static timing analysis (implies `flatten`)",
-        )
-        post_synth_opt: bool = Field(
-            True,
-            description="run additional optimization steps after synthesis if complete",
-        )
         optimize: Optional[Literal["speed", "area", "area+speed"]] = Field(
             "area", description="Optimization target"
         )
@@ -207,6 +198,12 @@ class Yosys(YosysBase, SynthFlow):
                 return AsicsPlatform.from_toml(value)
             return value
 
+        @validator("gates", pre=True, always=True)
+        def _validate_commasep_to_list(cls, value):
+            if isinstance(value, str):
+                value = [x.strip() for x in value.split(",")]
+            return value
+
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         # TODO factor out common code
@@ -234,18 +231,12 @@ class Yosys(YosysBase, SynthFlow):
             os.remove(self.artifacts.utilization_report)
         if os.path.exists(self.artifacts.timing_report):
             os.remove(self.artifacts.timing_report)
-
-        if ss.sta:
-            ss.flatten = True
-        if ss.flatten:
-            append_flag(ss.synth_flags, "-flatten")
-
-        if ss.abc_dff:
-            append_flag(ss.abc_flags, "-dff")
         if ss.gates:
-            append_flag(ss.abc_flags, f"-g {ss.gates}")
+            append_flag(ss.abc_flags, f"-g {','.join(ss.gates)}")
         elif ss.lut:
             append_flag(ss.abc_flags, f"-lut {ss.lut}")
+        elif ss.liberty and ss.netlist_expr is None:
+            ss.netlist_expr = False
 
         for lib in ss.liberty:
             if not lib.exists():
@@ -298,12 +289,17 @@ class Yosys(YosysBase, SynthFlow):
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
+        if not self.artifacts.utilization_report:
+            return True
+        report = Path(self.artifacts.utilization_report)
+        if not report.exists():
+            return False
         try:
-            with open(self.artifacts.utilization_report, "r") as f:
+            with open(report, "r") as f:
                 content = f.read()
-            i = content.find("{")  # yosys bug (FIXED)
-            if i >= 0:
-                content = content[i:]
+            # i = content.find("{")  # yosys bug (FIXED)
+            # if i >= 0:
+            #     content = content[i:]
             utilization = json.loads(content)
             mod_util = utilization.get("modules")
             if mod_util:
@@ -311,13 +307,12 @@ class Yosys(YosysBase, SynthFlow):
             design_util = utilization.get("design")
             if design_util:
                 num_cells_by_type = design_util.get("num_cells_by_type", {})
-                self.results = self.Results(**{**self.results, **num_cells_by_type})
+                self.results.update(**num_cells_by_type)
                 area = design_util.get("area")
                 if area:
                     self.results["area"] = area
                 self.results["_design_utilization"] = design_util
-
         except json.decoder.JSONDecodeError as e:
-            log.error("Failed to decode JSON %s: %s", self.artifacts.utilization_report, e)
-
+            log.error("Failed to decode JSON %s: %s", str(report), e)
+            return False
         return True

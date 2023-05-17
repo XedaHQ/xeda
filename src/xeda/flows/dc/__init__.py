@@ -60,7 +60,7 @@ class Dc(AsicSynthFlow):
         self.dc_shell.run("-64bit", "-topographical_mode", "-f", script_path)
 
     def parse_reports(self) -> bool:
-        reports_dir = self.reports_dir
+        reports_dir = self.settings.reports_dir
 
         top_name = self.design.rtl.top
         failed = False

@@ -1,6 +1,8 @@
 set_propagated_clock [all_clocks]
 
-set_thread_count {{num_cores}}
+{% if settings.nthreads %}
+set_thread_count {{settings.nthreads}}
+{% endif %}
 
 {%- set additional_args = settings.detailed_route_additional_args|join(" ") %}
 {%- if platform.min_routing_layer %}

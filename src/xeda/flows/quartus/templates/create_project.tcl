@@ -11,9 +11,9 @@ package require ::quartus::project
 
 puts "\n===========================( Setting up project and settings )==========================="
 project_new ${design_name} -overwrite
-
-set_global_assignment -name NUM_PARALLEL_PROCESSORS {{settings.ncpus}}
-
+{% if settings.nthreads is not none %}
+set_global_assignment -name NUM_PARALLEL_PROCESSORS {{settings.nthreads}}
+{% endif %}
 puts "supported FPGA families: [get_family_list]"
 
 set fpga_part_report [report_part_info $fpga_part]

@@ -7,8 +7,9 @@ set vhdl_std              {{design.language.vhdl.standard}}
 
 {% include 'util.tcl' %}
 
+{% if settings.nthreads is not none %}
 set_param general.maxThreads {{settings.nthreads}}
-
+{% endif %}
 {%- for msg in settings.suppress_msgs %}
 set_msg_config -id "\[{{msg}}\]" -suppress
 {%- endfor %}
@@ -95,12 +96,12 @@ set_property STEPS.ROUTE_DESIGN.TCL.POST [pwd]/{{reports_tcl}} [get_runs impl_1]
 # create_report_config -report_type report_utilization -report_name post_route_hier_report -steps route_design -runs [get_runs impl_1] -options {-hierarchical -format xml}
 
 puts "\n=============================( Running Synthesis )============================="
-launch_runs synth_1 -jobs {{settings.nthreads}}
+launch_runs synth_1 {%- if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %}
 wait_on_run synth_1
 # renamed to wait_on_runs in Vivado 2021.2
 
 puts "\n===========================( Running Implementation )=========================="
-launch_runs impl_1 -jobs {{settings.nthreads}} {%- if not settings.write_bitstream %} -to_step route_design {%- endif %}
+launch_runs impl_1 {%-if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %} {%- if not settings.write_bitstream %} -to_step route_design {%- endif %}
 wait_on_run impl_1
 
 puts "\n====================================( DONE )==================================="

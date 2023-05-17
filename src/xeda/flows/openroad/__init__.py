@@ -100,9 +100,6 @@ class Openroad(AsicSynthFlow):
         exit: bool = Field(True, description="exit after completion")
         gui: bool = Field(False, description="start in GUI mode")
         copy_platform_files: bool = False
-        nthreads: Optional[int] = Field(
-            None, description="Number of threads to use. If none/0, use max available."
-        )
         extra_liberty_files: List[Path] = []
         # floorplan
         floorplan_def: Optional[Path] = None
@@ -378,7 +375,6 @@ class Openroad(AsicSynthFlow):
             platform=ss.platform,  # for easier reference
             netlist=synth_netlist,
             merged_lib_file=self.merged_lib_file,  # used by resynth
-            num_cores=ss.nthreads or openroad.nproc,
             total_steps=len(flow_steps),
         )
         self.artifacts.logs = []

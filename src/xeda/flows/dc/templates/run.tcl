@@ -23,7 +23,9 @@ set dc_tluplus_max              {{adk.max_tluplus}}
 set dc_tluplus_min              {{adk.min_tluplus}}
 set dc_additional_search_path   {{settings.get('additional_search_path', '{}')}}
 
+{% if settings.nthreads is not none %}
 set_host_options -max_cores {{nthreads}}
+{% endif %}
 
 # Set up alib caching for faster consecutive runs
 set_app_var alib_library_analysis_path {{settings.alib_dir}}

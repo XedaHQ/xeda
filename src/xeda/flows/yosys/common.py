@@ -42,10 +42,13 @@ class YosysBase(Flow):
             "-enum",
             "-width",
         ]
-        ghdl: GhdlSynth.Settings = GhdlSynth.Settings()  # pyright: ignore
+        ghdl: GhdlSynth.Settings = GhdlSynth.Settings()  # type: ignore
+        use_uhdm_plugin: bool = False
         verilog_lib: List[str] = []
-        splitnets: bool = True
+        splitnets: bool = False
         splitnets_driver: bool = False
+        splitnets_ports: bool = False
+        rmports: bool = Field(False, description="Remove unused or un-driven ports.")
         set_attribute: Dict[str, Dict[str, Any]] = {}  # attr -> (path -> value)
         set_mod_attribute: Dict[str, Dict[str, Any]] = {}  # attr -> (path -> value)
         prep: Optional[List[str]] = None
@@ -53,6 +56,10 @@ class YosysBase(Flow):
         defines: Dict[str, Any] = {}
         black_box: List[str] = []
         synth_flags: List[str] = []
+        nosynth: bool = Field(False, description="Do not run `synth`.")
+        noabc: bool = Field(
+            False, description="Do not run `abc` step, also pass `-noabc` to `synth`."
+        )
         abc_dff: bool = Field(True, description="Run abc/abc9 with -dff option")
         abc_flags: List[str] = []
         top_is_vhdl: Optional[bool] = Field(
@@ -60,35 +67,46 @@ class YosysBase(Flow):
             description="set to `true` to specify top module is VHDL, or `false` to override detection based on last source.",
         )
         netlist_verilog: Optional[Path] = Field(Path("netlist.v"), alias="netlist")
-        netlist_attrs: bool = True
-        netlist_expr: bool = False
-        netlist_dec: bool = False
-        netlist_hex: bool = False
-        netlist_blackboxes: bool = False
-        netlist_simple_lhs: bool = False
+        netlist_attrs: Optional[bool] = True
+        netlist_expr: Optional[bool] = None
+        netlist_dec: Optional[bool] = False
+        netlist_hex: Optional[bool] = False
+        netlist_blackboxes: Optional[bool] = False
+        netlist_simple_lhs: Optional[bool] = False
         netlist_verilog_flags: List[str] = []
         netlist_src_attrs: bool = True
         netlist_unset_attributes: List[str] = []
         netlist_json: Optional[Path] = Field(Path("netlist.json"), alias="json_netlist")
         netlist_dot: Optional[str] = None  # prefix
         netlist_dot_flags: List[str] = ["-stretch", "-enum", "-width"]
+        write_blif: Optional[Path] = None
+        retime: bool = Field(False, description="Enable flip-flop retiming")
+        sta: bool = Field(
+            False,
+            description="Run a simple static timing analysis (implies `flatten`)",
+        )
+        post_synth_opt: bool = Field(
+            True,
+            description="run additional optimization steps after synthesis if complete",
+        )
+        ltp: bool = Field(False, description="Print the longest topological path in the design.")
 
         @validator("netlist_verilog_flags", pre=False, always=True)
         def _validate_netlist_flags(cls, value, values):
+            def add_remove(key, flag, neg_flag=True):
+                if values.get(key) is (not neg_flag):
+                    value.append(flag)
+                elif values.get(key) is neg_flag and flag in value:
+                    value.remove(flag)
+
             if value is None:
                 value = []
-            if values.get("netlist_dec") is False:
-                value.append("-nodec")
-            if values.get("netlist_hex") is False:
-                value.append("-nohex")
-            if values.get("netlist_expr") is False:
-                value.append("-noexpr")
-            if values.get("netlist_attrs") is False:
-                value.append("-noattr")
-            if values.get("netlist_blackboxes") is True:
-                value.append("-blackboxes")
-            if values.get("netlist_simple_lhs") is True:
-                value.append("-simple-lhs")
+            add_remove("netlist_dec", "-nodec")
+            add_remove("netlist_hex", "-nohex")
+            add_remove("netlist_expr", "-noexpr")
+            add_remove("netlist_attrs", "-noattr")
+            add_remove("netlist_blackboxes", "-blackboxes", False)
+            add_remove("netlist_simple_lhs", "-simple-lhs", False)
             return unique(value)
 
         @validator("netlist_unset_attributes", pre=False, always=True)
@@ -155,8 +173,14 @@ class YosysBase(Flow):
         ):
             # generics were already handled by GHDL and the synthesized design is no longer parametric
             self.design.rtl.parameters = {}
+        if ss.sta or ss.ltp:
+            ss.flatten = True  # design must be flattened
         if ss.flatten:
             append_flag(ss.synth_flags, "-flatten")
+        if ss.flatten:
+            append_flag(ss.synth_flags, "-flatten")
+        if ss.abc_dff:
+            append_flag(ss.abc_flags, "-dff")
         ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)
 
         if ss.rtl_json:
@@ -179,7 +203,7 @@ class YosysBase(Flow):
     def yosys(self):
         return Tool(
             executable="yosys",
-            docker=Docker(image="hdlc/impl"),
+            docker=Docker(image="hdlc/impl"),  # type: ignore
             minimum_version=(0, 21),
         )
 
