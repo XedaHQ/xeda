@@ -12,7 +12,7 @@ from ..dataclass import (
     validator,
 )
 from ..design import Design
-from ._flow import Flow
+from .flow import Flow
 from ..cocotb import Cocotb, CocotbSettings
 
 log = logging.getLogger(__name__)

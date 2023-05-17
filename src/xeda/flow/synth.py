@@ -11,7 +11,7 @@ from ..dataclass import Field, XedaBaseModel, root_validator, validator
 from ..design import Design
 from ..units import convert_unit
 from ..utils import first_value
-from ._flow import Flow, FlowSettingsError
+from .flow import Flow, FlowSettingsError
 from .fpga import FPGA
 
 log = logging.getLogger(__name__)
