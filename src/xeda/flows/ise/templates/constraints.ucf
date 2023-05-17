@@ -1,2 +1,6 @@
-NET "{{design.rtl.clock_port}}" TNM_NET="{{design.rtl.clock_port}}";
-TIMESPEC "TS{{design.rtl.clock_port}}" = PERIOD "clock" {{settings.clock_period}} ns;
+{% for clock_name, clock in settings.clocks.items() %}
+{% if clock.port %}
+NET "{{clock.port}}" TNM_NET = "{{clock.port}}";
+TIMESPEC "TS{{clock.port}}" = PERIOD "{{clock.port}}" {{"%.03f" % clock.period}} ns HIGH 50%;
+{% endif %}
+{% endfor %}

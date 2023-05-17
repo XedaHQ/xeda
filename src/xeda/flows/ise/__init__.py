@@ -47,6 +47,8 @@ class IseSynth(FpgaSynthFlow):
             "Optimization Goal": "Speed",
             "Keep Hierarchy": "Soft",  # "No", "Yes", "Soft"
             "Optimize Instantiated Primitives": True,
+            "Register Balancing": "NO",
+            "Safe Implementation": "NO",
         }
         map_options: OptionsType = {
             # "Map Effort Level": "High", # "Standard", "High" # (S3/A/E/V4 only)
