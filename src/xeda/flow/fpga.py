@@ -98,7 +98,7 @@ class FPGA(XedaBaseModel):
                 return values
             # Commercial Xilinx # Generation # Family # Logic Cells in 1K units # Speed Grade (-1 slowest, L: low-power) # Package Type
             match_xc6 = re.match(
-                r"^(XC)(6)(?P<f>[A-Z]+)(?P<lc>\d+)(-(?P<gr>\d))?(-(?P<pkg>[A-Z]+)(?P<pins>\d+))?$",
+                r"^(XC)(6)(?P<f>[A-Z]+)(?P<lc>\d+)(-(?P<speed_grade>\d))?(-(?P<pkg>[A-Z]+)(?P<pins>\d+))?$",
                 part,
                 flags=re.IGNORECASE,
             )
@@ -123,7 +123,7 @@ class FPGA(XedaBaseModel):
                 pins = match_xc6.group("pins")
                 set_if_not_exist("package", match_xc6.group("pkg") + pins)
                 set_if_not_exist("pins", try_convert(pins, int))
-                set_if_not_exist("grade", match_xc6.group("gr"))
+                set_if_not_exist("speed", match_xc6.group("speed_grade"))
                 return values
             match_xc7 = re.match(
                 r"^(XC)(?P<g>\d)(?P<f>[A-Z])(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",
