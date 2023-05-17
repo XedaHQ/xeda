@@ -140,8 +140,9 @@ class Docker(XedaBaseModel):
                 f.write("\n".join(f"{k}={v}" for k, v in env.items()))
             docker_args.extend(["--env-file", str(env_file)])
         image = self.image
-        if self.tag:
-            image += self.tag
+        image_sp = image.split(":")
+        if len(image_sp) < 2 and self.tag:
+            image = f"{image}:{self.tag}"
         return run_process(
             self.cli,
             ["run", *docker_args, image, *args],
@@ -317,7 +318,7 @@ class Tool(XedaBaseModel):
             self.design_root = flow.design_root
             log.debug("flow.settings.dockerized=%s", flow.settings.dockerized)
             self.dockerized = flow.settings.dockerized
-            if flow.settings.docker:
+            if flow.settings.docker and isinstance(flow.settings.docker, str):
                 self.docker = Docker(image=flow.settings.docker)  # pyright: ignore
             self.print_command = flow.settings.print_commands
         if self.design_root and self.docker:
@@ -339,6 +340,8 @@ class Tool(XedaBaseModel):
     def validate_docker(cls, value, values):
         default_args = values.get("default_args", [])
         command = [values.get("executable"), *default_args]
+        if isinstance(value, dict):
+            value = Docker(**value)
         if isinstance(value, str):
             split = value.split(":")
             value = Docker(
