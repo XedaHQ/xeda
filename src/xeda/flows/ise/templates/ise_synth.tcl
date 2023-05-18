@@ -12,9 +12,9 @@ project set family {{settings.fpga.family}}
 {% if settings.fpga.device %}
 project set device {{settings.fpga.device}}
 {% endif %}
-# {% if settings.fpga.package %}
-# project set package {{settings.fpga.package}}
-# {% endif %}
+{% if settings.fpga.package %}
+project set package {{settings.fpga.package}}
+{% endif %}
 {% if settings.fpga.speed %}
 project set speed "-{{settings.fpga.speed}}"
 {% endif %}
@@ -34,12 +34,16 @@ project set "Auto Implementation Top" TRUE
 {% endif %}
 
 puts "\n==============================( Adding Constraint Files )================================"
-if { [catch  { xfile add {{ucf_file}} -copy }] } {
+{% for ucf_file in settings.ucf_files %}
+if { [catch  { xfile add {{ucf_file}} }] } {
     puts "unable to add {{ucf_file}}"
 }
+{% endfor %}
 
+{% if settings.xcf_file %}
 project set "Use Synthesis Constraints File" TRUE
-project set "Synthesis Constraints File" "{{xcf_file}}"
+project set "Synthesis Constraints File" "{{settings.xcf_file}}"
+{% endif %}
 
 # puts [project properties] # to see the full list of properties
 

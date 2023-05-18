@@ -75,12 +75,6 @@ class Docker(XedaBaseModel):
     cli: str = "docker"
     mounts: Dict[str, str] = {}
 
-    @validator("command", pre=True, always=True)
-    def _validate_command(cls, value):
-        if isinstance(value, str):
-            value = value.split()
-        return value
-
     # NOTE only works for Linux containers
     @cached_property
     def cpuinfo(self) -> Optional[List[List[str]]]:
@@ -102,11 +96,13 @@ class Docker(XedaBaseModel):
 
     def run(
         self,
+        executable,
         *args: Any,
         env: Optional[Dict[str, Any]] = None,
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
         root_dir: OptionalPath = None,
+        print_command: bool = True,
     ) -> Union[None, str]:
         """Run the tool from a docker container"""
         if self.fix_cpuinfo and self.cpuinfo:
@@ -150,14 +146,18 @@ class Docker(XedaBaseModel):
         if len(image_sp) < 2 and self.tag:
             image = f"{image}:{self.tag}"
         if self.command:
-            args = tuple(self.command) + args[1:]
+            command = self.command
+        else:
+            command = [executable]
+        cmd = ["run", *docker_args, image, *command, *args]
         return run_process(
             self.cli,
-            ["run", *docker_args, image, *args],
+            cmd,
             env=None,
             stdout=stdout,
             check=check,
             tool_name=self.name,
+            print_command=print_command,
         )
 
 
@@ -169,13 +169,18 @@ def run_process(
     check: bool = True,
     cwd: OptionalPath = None,
     tool_name: str = "",
+    print_command: bool = False,
 ) -> Union[None, str]:
     if args is None:
         args = []
     args = [str(a) for a in args]
     if env is not None:
         env = {k: str(v) for k, v in env.items() if v is not None}
-    log.debug("Running `%s`", " ".join(map(lambda x: str(x), [executable, *args])))
+    cmd = " ".join(map(lambda x: str(x), [executable, *args]))
+    if print_command:
+        print("Running `%s`" % cmd)
+    else:
+        log.debug("Running `%s`", cmd)
     if cwd:
         log.debug("cwd=%s", cwd)
     if stdout and isinstance(stdout, (str, os.PathLike)):
@@ -501,11 +506,6 @@ class Tool(XedaBaseModel):
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
         args = tuple(list(self.default_args) + list(args))
-        exec_name = (
-            f"[{self.docker.cli}] {executable}" if self.docker and self.dockerized else executable
-        )
-        if self.print_command:
-            print(exec_name, *args)
         if self.docker and self.dockerized:
             return self.docker.run(
                 executable,
@@ -514,17 +514,19 @@ class Tool(XedaBaseModel):
                 stdout=stdout,
                 check=check,
                 root_dir=self.design_root,
+                print_command=self.print_command,
             )
         if env is not None:
             env = {**os.environ, **env}
         return run_process(
-            self.executable,
+            executable,
             args,
             env=env,
             stdout=stdout,
             check=check,
             cwd=cwd,
             tool_name=self.__class__.__name__,
+            print_command=self.print_command,
         )
 
     def run_get_stdout(self, *args: Any, env: Optional[Dict[str, Any]] = None) -> str:

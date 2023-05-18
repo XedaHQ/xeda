@@ -1,11 +1,12 @@
 """Xilinx ISE Synthesis flow"""
 from functools import cached_property
 import logging
-from typing import Mapping, Tuple, Union
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from pydantic import validator
 
-from ...tool import Docker, Tool
+from ...tool import Docker, OptionalBoolOrPath, OptionalPath, Tool
 from ...utils import try_convert_to_primitives
 from ...flow import FpgaSynthFlow
 
@@ -16,11 +17,40 @@ OptionsType = Mapping[str, OptionValueType]
 
 
 class XTclSh(Tool):
+    class XTclShDocker(Docker):
+        command: List[str] = ["bash"]
+
+        def run(
+            self,
+            executable,
+            *args: Any,
+            env: Optional[Dict[str, Any]] = None,
+            stdout: OptionalBoolOrPath = None,
+            check: bool = True,
+            root_dir: OptionalPath = None,
+            print_command: bool = True,
+        ) -> Union[None, str]:
+            XILINX = "/opt/Xilinx/14.7/ISE_DS"
+            args_str = " ".join(str(a) for a in args)
+            executable = "bash"
+            new_args = [
+                "-c",
+                f"source {XILINX}/settings64.sh && {XILINX}/ISE/bin/lin64/xtclsh {args_str}",
+            ]
+            return super().run(
+                executable,
+                *new_args,
+                env=env,
+                stdout=stdout,
+                check=check,
+                root_dir=root_dir,
+                print_command=print_command,
+            )
+
     executable: str = "xtclsh"
-    docker: Docker = Docker(
+    docker: Docker = XTclShDocker(
         image="goreganesh/xilinx:latest",
         platform="linux/amd64",
-        command="/opt/Xilinx/14.7/ISE_DS/ISE/bin/lin64/xtclsh",
     )
 
     @cached_property
@@ -65,6 +95,8 @@ class IseSynth(FpgaSynthFlow):
         trace_options: OptionsType = {
             "Report Type": "Verbose Report",
         }
+        xcf_file: Union[None, Path, str] = None
+        ucf_files: List[Union[Path, str]] = []
 
         @validator(
             "synthesis_options",
@@ -80,17 +112,19 @@ class IseSynth(FpgaSynthFlow):
                     value[k] = format_value(v)
             return value
 
+    def init(self):
+        logger.info("Deleting previous artifacts as ISE needs to run in a clean direcotry.")
+        self.clean()
+
     def run(self) -> None:
-        xcf_file = self.copy_from_template("constraints.xcf")
-        ucf_file = self.copy_from_template("constraints.ucf")
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.xcf_file is None:
+            self.settings.xcf_file = self.copy_from_template("constraints.xcf")
+        self.settings.ucf_files.append(self.copy_from_template("constraints.ucf"))
 
         self.add_template_global_func(format_value)
 
-        script_path = self.copy_from_template(
-            "ise_synth.tcl",
-            xcf_file=xcf_file,
-            ucf_file=ucf_file,
-        )
+        script_path = self.copy_from_template("ise_synth.tcl")
         xtclsh = XTclSh()  # type: ignore
         xtclsh.run(script_path)
 
