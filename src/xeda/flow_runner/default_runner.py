@@ -83,7 +83,7 @@ def print_results(
     )
     table.add_column(style="bold", no_wrap=True)
     table.add_column(justify="right")
-    skip_fields = ["timestamp", "design", "flow", "tools"]
+    skip_fields = ["timestamp", "design", "flow", "tools", "run_path"]
     for k, v in results.items():
         skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
         if skipable and not v:
