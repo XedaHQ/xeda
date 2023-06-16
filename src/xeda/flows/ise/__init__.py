@@ -49,7 +49,7 @@ class XTclSh(Tool):
 
     executable: str = "xtclsh"
     docker: Docker = XTclShDocker(
-        image="goreganesh/xilinx:latest",
+        image="fpramme/xilinxise:centos6",
         platform="linux/amd64",
     )
 
