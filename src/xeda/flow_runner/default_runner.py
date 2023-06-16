@@ -371,6 +371,14 @@ class FlowLauncher:
             flow.incremental = self.settings.incremental
 
         if not previous_results:
+            with WorkingDirectory(run_path):
+                flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                # flow execution time includes init() as well as execution of all its dependency flows
+                flow.init_time = time.monotonic()
+                if self.settings.clean:
+                    flow.clean()
+                flow.init()
+
             if self.settings.dump_settings_json:
                 log.info("dumping effective settings to %s", settings_json)
                 all_settings = dict(
@@ -391,14 +399,6 @@ class FlowLauncher:
             for res in copy_resources:
                 log.info("Copying %s to %s", str(res), str(copied_res_dir))
                 shutil.copy(res, copied_res_dir)
-
-            with WorkingDirectory(run_path):
-                flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-                # flow execution time includes init() as well as execution of all its dependency flows
-                flow.init_time = time.monotonic()
-                if self.settings.clean:
-                    flow.clean()
-                flow.init()
 
             for dep_cls, dep_settings, dep_resources in flow.dependencies:
                 # merge with existing self.flows[dep].settings
@@ -427,10 +427,7 @@ class FlowLauncher:
                     raise FlowDependencyFailure()
                 flow.completed_dependencies.append(completed_dep)
 
-        flow.results["design"] = flow.design.name
-        flow.results["flow"] = flow.name
         success = True
-
         if previous_results:
             log.warning(
                 "Using previous %s results and artifacts from %s (timestamp: %s)",
@@ -441,6 +438,10 @@ class FlowLauncher:
             flow.results.update(**previous_results)
             flow.artifacts = previous_results._artifacts
         else:
+            flow.results["design"] = flow.design.name
+            flow.results["flow"] = flow.name
+            flow.results["run_path"] = run_path.absolute()
+
             with WorkingDirectory(run_path):
                 if flow.settings.reports_dir:
                     flow.settings.reports_dir.mkdir(exist_ok=True, parents=True)
@@ -462,7 +463,7 @@ class FlowLauncher:
                     if success:  # if so far so good this is a bug!
                         raise e
                 if not success and not flow_settings.quiet:
-                    log.warning("Failure was reported in the parsed results.")
+                    log.debug("Failure was reported in the parsed results.")
                 flow.results.success = success
                 flow.results.timestamp = flow.timestamp
 
