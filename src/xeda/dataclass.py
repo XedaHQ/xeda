@@ -5,7 +5,7 @@ import copy
 import logging
 from abc import ABCMeta
 from functools import cached_property
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
 
 import attrs
 
@@ -19,6 +19,9 @@ from pydantic import (
     root_validator,
     validator,
 )
+
+if TYPE_CHECKING:
+    from pydantic.error_wrappers import ErrorDict
 
 __all__ = [
     "XedaBaseModel",
@@ -97,7 +100,7 @@ def model_with_allow_extra(cls: Type[_XedaModelType]) -> Type[_XedaModelType]:
 
 
 def validation_errors(
-    errors: List[Dict[str, Any]]
+    errors: List[ErrorDict],
 ) -> List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]]:
     return [
         (
