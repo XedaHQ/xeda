@@ -1,66 +1,65 @@
-
 {% include 'read_files.tcl' %}
 
 {% if settings.prep is not none %}
 prep {% if settings.flatten %} -flatten {% endif %} {%if design.rtl.top %} -top {{design.rtl.top}} {% else %} -auto-top {% endif %} {{settings.prep|join(" ")}}
-{% else %}
+{%- else %}
 procs
-{% if settings.flatten %}
+{%- if settings.flatten %}
 flatten
-{% endif %}
-{% endif %}
+{%- endif %}
+{%- endif %}
 
 {% include "post_rtl.tcl" %}
 
-{% if not settings.nosynth %}
+{%- if not settings.nosynth %}
 log -stdout "Running synthesis"
 synth {{settings.synth_flags|join(" ")}} {% if design.rtl.top %} -top {{design.rtl.top}}{% endif %} {%- if settings.noabc %} -noabc {%- endif %}
-{% endif %}
+{%- endif %}
 
 {#- TODO: ##### LSOracle ###### #}
 
-{% if settings.post_synth_opt %}
+{%- if settings.post_synth_opt %}
 log -stdout "Post-synth optimization"
 opt -full -purge -sat
-{% else %}
+{%- else %}
 opt -purge
-{% endif %}
+{%- endif %}
 
-{% if settings.adder_map %}
+{%- if settings.adder_map %}
 extract_fa
 techmap -map {{settings.adder_map}}
 techmap
 opt -purge
-{% endif %}
+{%- endif %}
 
-{% for map in settings.other_maps %}
+{%- for map in settings.other_maps %}
 techmap -map {{map}}
-{% endfor %}
+{%- endfor %}
 
-{% if settings.liberty %}
+{%- if settings.liberty %}
 log -stdout " Mapping FFs to technology library"
 dfflibmap -liberty {% if settings.dff_liberty %} {{settings.dff_liberty}} {% else %} {{settings.liberty[0]}} {% endif %}
 opt
-{% endif %}
+{%- endif %}
 
-{% if not settings.noabc %}
+{%- if not settings.noabc %}
 log -stdout " Running ABC"
 abc {{settings.abc_flags|join(" ")}}
 {%- if settings.main_clock and settings.main_clock.period_ps %} -D {{"%.3f"|format(settings.main_clock.period_ps)}} {% endif %}
 {%- if abc_script_file %} -script {{abc_script_file}} {%- endif %}
 {%- if settings.liberty %} -liberty {{settings.liberty[0]}} {%- endif %}
 {%- if abc_constr_file %} -constr {{abc_constr_file}} {%- endif %}
-{% endif %}
+{%- endif %}
 # replace undefined values with 0
 setundef -zero
 
-{% if settings.splitnets %}
+{%- if settings.splitnets %}
 splitnets {%- if settings.splitnets_driver %} -driver {%- endif %} {%- if settings.splitnets_ports %} -ports {%-endif %}
 {%- endif %}
 
 opt_clean -purge
 
-{% if settings.hilomap %}
+{%- if settings.hilomap %}
 hilomap {% if settings.hilomap.singleton %} -singleton {% endif %} -hicell {{settings.hilomap.hi|join(" ")}} -locell {{settings.hilomap.lo|join(" ")}}
 {%- endif %}
 {% if settings.insbuf %}
@@ -70,7 +69,7 @@ insbuf -buf {{settings.insbuf|join(" ")}}
 opt -full
 clean -purge
 
-{% if settings.rmports %}
+{%- if settings.rmports %}
 rmports
 {%- endif %}
 

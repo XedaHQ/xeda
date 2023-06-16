@@ -162,8 +162,12 @@ class Yosys(YosysBase, SynthFlow):
 
     class Settings(YosysBase.Settings, SynthFlow.Settings):
         platform: Optional[AsicsPlatform] = None
-        liberty: List[Path] = []
-        dff_liberty: Optional[Path] = None
+        liberty: List[Path] = Field(
+            [], alias="library", description="Standard cell (liberty) libraries to use"
+        )
+        dff_liberty: Optional[Path] = Field(
+            None, alias="dff_library", description="Additional liberty file for mapping flip-flops"
+        )
         dont_use_cells: List[str] = []
         gates: Optional[List[str]] = None
         lut: Optional[str] = None
@@ -177,7 +181,7 @@ class Yosys(YosysBase, SynthFlow):
         abc_constr: List[str] = []
         abc_script: Union[None, Path, List[str]] = None
         hilomap: Optional[HiLoMap] = None
-        insbuf: Optional[Tuple[str, str, str]] = None
+        insbuf: Union[None, Tuple[str, str, str], List[str]] = None
         merge_libs_to: Optional[str] = None
 
         @validator("liberty", pre=True, always=True)
@@ -282,9 +286,7 @@ class Yosys(YosysBase, SynthFlow):
         args = ["-c", script_path]
         if ss.log_file:
             log.info("Logging yosys output to %s", ss.log_file)
-            args.extend(["-L", ss.log_file])
-        if ss.quiet or (not ss.verbose and not ss.debug):
-            args.extend(["-T", "-Q"])
+            args += ["-L", ss.log_file]
         self.yosys.run(*args)
 
     def parse_reports(self) -> bool:

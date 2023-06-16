@@ -26,6 +26,7 @@ class YosysBase(Flow):
 
     class Settings(Flow.Settings):
         log_file: Optional[str] = "yosys.log"
+        plugins: List[str] = []
         flatten: bool = Field(True, description="flatten design")
         read_verilog_flags: List[str] = [
             "-noautowire",
@@ -49,7 +50,10 @@ class YosysBase(Flow):
         splitnets_driver: bool = False
         splitnets_ports: bool = False
         rmports: bool = Field(False, description="Remove unused or un-driven ports.")
-        set_attribute: Dict[str, Dict[str, Any]] = {}  # attr -> (path -> value)
+        set_attribute: Dict[str, Any] = Field(
+            {},
+            description="Set attributes from a dict (or a json file) orgranized as attr_name -> (object_path -> attr_value)",
+        )
         set_mod_attribute: Dict[str, Dict[str, Any]] = {}  # attr -> (path -> value)
         prep: Optional[List[str]] = None
         keep_hierarchy: List[str] = []
@@ -66,6 +70,7 @@ class YosysBase(Flow):
             None,
             description="set to `true` to specify top module is VHDL, or `false` to override detection based on last source.",
         )
+        post_synth_rename: List[str] = []
         netlist_verilog: Optional[Path] = Field(Path("netlist.v"), alias="netlist")
         netlist_attrs: Optional[bool] = True
         netlist_expr: Optional[bool] = None
@@ -74,6 +79,7 @@ class YosysBase(Flow):
         netlist_blackboxes: Optional[bool] = False
         netlist_simple_lhs: Optional[bool] = False
         netlist_verilog_flags: List[str] = []
+        netlist_verilog_extmem: List[str] = []
         netlist_src_attrs: bool = True
         netlist_unset_attributes: List[str] = []
         netlist_json: Optional[Path] = Field(Path("netlist.json"), alias="json_netlist")
@@ -126,15 +132,19 @@ class YosysBase(Flow):
         def validate_set_attributes(cls, value):
             def format_attribute_value(v) -> Any:
                 if isinstance(v, str):
-                    try:
-                        return int(v)
-                    except ValueError:
-                        # String values must be passed in double quotes
-                        if v.startswith('"') and v.endswith('"'):
-                            # escape double-quotes for TCL
-                            return f"\\{v}\\"
-                        elif not v.startswith('\\"') and not v.endswith('\\"'):  # conservative
-                            return f'\\"{v}\\"'
+                    # try:
+                    #     return int(v)
+                    # except ValueError:
+                    v = v.replace("[", "\\[")
+                    v = v.replace("\\\\[", "\\[")
+                    v = v.replace("]", "\\]")
+                    v = v.replace("\\\\]", "\\]")
+                    # String values must be passed in double quotes
+                    if v.startswith('"') and v.endswith('"'):
+                        # escape double-quotes for TCL
+                        return "\\" + v + "\\"
+                    elif not v.startswith('\\"') and not v.endswith('\\"'):  # conservative
+                        return f'\\"{v}\\"'
                 return v
 
             if value:
@@ -154,8 +164,11 @@ class YosysBase(Flow):
                     else:
                         raise ValueError(f"Unsupported extension for JSON file: {value}")
                 for attr, attr_val in value.items():
-                    for path, v in attr_val.items():
-                        value[attr][path] = format_attribute_value(v)
+                    if isinstance(attr_val, dict):
+                        for path, v in attr_val.items():
+                            value[attr][path] = format_attribute_value(v)
+                    else:
+                        value[attr] = format_attribute_value(attr_val)
             return value
 
     def init(self):
@@ -201,10 +214,20 @@ class YosysBase(Flow):
 
     @cached_property
     def yosys(self):
+        default_args = []
+        ss = self.settings
+        if ss.quiet or (not ss.verbose and not ss.debug):
+            default_args += ["-T", "-Q"]
+        if ss.quiet:
+            default_args += ["-q"]
+        if ss.debug:
+            default_args += ["-g"]
         return Tool(
             executable="yosys",
             docker=Docker(image="hdlc/impl"),  # type: ignore
+            version_flag="-V",
             minimum_version=(0, 21),
+            default_args=default_args,
         )
 
 
