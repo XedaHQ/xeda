@@ -30,7 +30,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         temp_dir = Path(tmpdirname)
         zip_file = temp_dir / f"{design.name}.zip"
         log.debug(f"temp_dir={temp_dir} zip_file={zip_file}")
-        new_design: Dict[str, Any] = {}  # **design.dict(), "design_root": None}
+        new_design: Dict[str, Any] = {**design.dict(), "design_root": None}
         rtl: Dict[str, Any] = {}  # new_design.get("rtl", {})
         tb: Dict[str, Any] = {}  # new_design.get("tb", {})
         remote_sources_path = Path("sources")
@@ -67,6 +67,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
 def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settings={}, env=None):
     import os
     import zipfile
+    import json
 
     from xeda.flow_runner import DefaultRunner  # pyright: ignore reportMissingImports
 
@@ -91,7 +92,16 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
             design=design_file,
             flow_settings=flow_settings,
         )
-        results = dict(success=False) if f is None else f.results.to_dict()
+
+        results = (
+            "{success: false}"
+            if f is None
+            else json.dumps(
+                f.results.to_dict(),
+                default=str,
+                indent=1,
+            )
+        )
         channel.send(results)
 
 
@@ -111,7 +121,8 @@ class RemoteRunner(FlowLauncher):
         port: Optional[int] = None,
         flow_settings=[],
     ):
-        # to avoid fabric 3.0.0 deprecation warnings we delay imports to when remote feature is requested
+        # imports deferred due to "import imp" deprecation warnings from 'fabric'
+        import execnet
         from fabric import Connection
         from fabric.transfer import Transfer
 
@@ -165,8 +176,6 @@ class RemoteRunner(FlowLauncher):
         )
         dump_json(all_settings, settings_json, backup=self.settings.backups)
 
-        import execnet
-
         ssh_opt = f"{host}"
         if user:
             ssh_opt = f"{user}@{ssh_opt}"
@@ -196,7 +205,8 @@ class RemoteRunner(FlowLauncher):
             flow_settings=flow_settings,
         )
 
-        results = channel.receive()
+        r = channel.receive()
+        results = json.loads(r)
         gw.exit()
         if results:
             print_results(

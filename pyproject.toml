@@ -54,7 +54,7 @@ dependencies = [
     "importlib_resources >= 5.10",                       # backport of importlib.resources, replaces pkg_resources
     "simpleeval          >= 0.9.13",
     # experimental:
-    "pyyaml            ~= 6.0",
+    "pyyaml            >= 6.0",
     "varname           >= 0.10",
     "overrides         >= 6.1",
     "simple_term_menu  >= 1.5.2",
@@ -62,26 +62,14 @@ dependencies = [
     "junitparser       >= 2.4,< 4.0", # TODO: remove
     "pyvcd             ~= 0.3",
     "GitPython         >= 3.1.30",
-    "fabric            ~= 3.0",
-    "execnet           >= 1.9",
+    "fabric            >= 3.1.0",
+    "execnet           @ git+https://github.com/pytest-dev/execnet.git@6dabb0f8bb498d0007c82bee011be36313849bef#egg=execnet",
+    "devtools          >= 0.11",
 ]
 
 [project.optional-dependencies]
-# docs = [
-#     "sphinx",
-#     "sphinx-tabs",
-#     "sphinx-jinja",
-#     "sphinxcontrib.bibtex",
-#     "sphinx_panels",
-#     "sphinxext.rediraffe",
-#     "sphinxcontrib.mermaid",
-#     "sphinxext.opengraph",
-#     "autodoc_pydantic",
-#     "sphinx_book_theme",
-#     "myst-parser",
-# ]
+docs = ["sphinx", "sphinx-tabs", "sphinx-jinja", "autodoc_pydantic"]
 dev = ["pytest", "mypy", "black", "flakeheaven", "tox"]
-tests = ["pytest", "mypy"]
 
 [project.urls]
 homepage = "https://github.com/XedaHQ/xeda"
@@ -99,10 +87,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["xeda*"]
-exclude = [
-    "tests/**",
-    "*/tests/**",
-]
+exclude = ["tests/**", "*/tests/**"]
 namespaces = false
 
 [tool.setuptools.package-data]
