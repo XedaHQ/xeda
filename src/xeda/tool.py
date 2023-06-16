@@ -1,3 +1,4 @@
+from __future__ import annotations
 import contextlib
 import inspect
 import logging
@@ -364,7 +365,7 @@ class Tool(XedaBaseModel):
                 image=split[0],
                 tag=split[1] if len(split) > 1 else None,
                 command=command,
-            )  # pyright: ignore
+            )  # type: ignore
         if value and not value.command:
             value.command = command
         return value

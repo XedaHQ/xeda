@@ -416,8 +416,8 @@ class VhdlSettings(LanguageSettings):
 
 
 class Language(XedaBaseModel):
-    vhdl: VhdlSettings = VhdlSettings()  # pyright: ignore
-    verilog: LanguageSettings = LanguageSettings()  # pyright: ignore
+    vhdl: VhdlSettings = VhdlSettings()  # type: ignore
+    verilog: LanguageSettings = LanguageSettings()  # type: ignore
 
 
 class RtlDep(XedaBaseModel):
@@ -573,6 +573,7 @@ class Design(XedaBaseModel):
     name: str = Field(
         description="Unique name for the design, which should consist of letters, numbers, underscore(_), and dash(-). Name regex: [a-zA-Z][a-zA-Z0-9_\\-]*."
     )
+    design_root: Optional[Path] = None
     description: Optional[str] = Field(None, description="A brief description of the design.")
     authors: List[str] = Field(
         [],
@@ -588,7 +589,6 @@ class Design(XedaBaseModel):
         alias="flows",
         description="Design-specific flow settings. The keys are the name of the flow and values are design-specific overrides for that flow.",
     )
-    design_root: Optional[Path] = None
     license: Union[None, str, List[str]] = None
     version: Optional[str] = None
     url: Optional[str] = None
