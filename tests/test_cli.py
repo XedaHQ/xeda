@@ -1,7 +1,7 @@
 from click.testing import CliRunner
 from xeda.cli import cli
 
-flows = ["ghdl_sim", "nextpnr", "vivado_sim", "vivado_synth"]
+flows = ["ghdl_sim", "yosys", "nextpnr", "vivado_sim", "vivado_synth"]
 
 
 def test_cli_run_help():
@@ -23,5 +23,4 @@ def test_cli_list_settings():
     runner = CliRunner()
     for flow_name in flows:
         result = runner.invoke(cli, ["list-settings", flow_name])
-        assert result.exit_code == 0
-        # assert result.output.count("Usage: run") > 0
+        assert result.exit_code == 0, f"Failed: CLI list-settings {flow_name}"
