@@ -5,9 +5,9 @@ import inspect
 import logging
 import os
 import re
+import shutil
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-import shutil
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 # from attrs import define
@@ -58,6 +58,7 @@ class Flow(metaclass=ABCMeta):
     class Settings(XedaBaseModel):
         """Settings that can affect flow's behavior"""
 
+        # design_root: InitVar[Optional[Path]]
         verbose: int = Field(0)
         # debug: DebugLevel = Field(DebugLevel.NONE.value, hidden_from_schema=True)
         debug: bool = Field(False)
@@ -109,19 +110,24 @@ class Flow(metaclass=ABCMeta):
         dockerized: bool = Field(False, description="Run tools from docker")
         print_commands: bool = Field(True, description="Print executed commands")
 
-        @validator("*", always=True, allow_reuse=True)
-        def _expand_path_vars(cls, v, field: Optional[ModelField]):
-            if field is not None and v and field.type_ and (field.type_ is Path):
-                s = str(v)
-                var = "${design_root}"
+        @validator("*", pre=True, always=True, allow_reuse=True)
+        def _expand_path_vars(cls, value, field: Optional[ModelField]):
+            if field is None or field.type_ is None:
+                return value
+            if field.type_ is Optional[Path] and not value:
+                value = None
+            if field.type_ in (Path, Optional[Path]) and value:
+                s = str(value)
+                # var = "${design_root}"
+                var = "${PWD}"
                 if s.startswith(var):
                     s = s[len(var) :]
                     # remove path separators
                     while s.startswith(os.path.sep):
                         s = s[len(os.path.sep) :]
-                    v = Path.cwd() / s
-                    log.debug("Expanded path value for %s as %s", field.name, v.absolute())
-            return v
+                    value = Path.cwd() / s
+                    log.debug("Expanded path value for %s as %s", field.name, value.absolute())
+            return value
 
         @validator("lib_paths", pre=True, always=True)
         def _lib_paths_validator(cls, value):
@@ -136,9 +142,7 @@ class Flow(metaclass=ABCMeta):
                 log.debug("Settings.__init__(): data=%s", data)
                 super().__init__(**data)
             except ValidationError as e:
-                raise FlowSettingsError(
-                    validation_errors(e.errors()), e.model, e.json()  # type: ignore
-                ) from e
+                raise FlowSettingsError(validation_errors(e.errors()), e.model, e.json()) from e
 
     class Results(Box):
         """Flow results"""
@@ -150,7 +154,10 @@ class Flow(metaclass=ABCMeta):
         ) -> None:
             kwargs = {
                 **kwargs,
-                **dict(box_intact_types=[Box], box_class=dict),
+                **dict(
+                    box_intact_types=[Box],
+                    box_class=Box,
+                ),
             }
             self.success: bool = False
             self.tools: List[Any] = []
@@ -265,7 +272,7 @@ class Flow(metaclass=ABCMeta):
             if path.is_file():
                 path.unlink()
             else:
-                shutil.rmtree(path)
+                shutil.rmtree(path, ignore_errors=True)
 
     def parse_reports(self) -> bool:
         log.debug("No parse_reports action for %s", self.name)
