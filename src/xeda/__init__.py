@@ -4,7 +4,6 @@ from .design import Design
 from .flow import FPGA, Flow, SimFlow, SynthFlow
 from .tool import Tool
 from .flow_runner import FlowRunner, DefaultRunner, Dse
-from .flow_runner.remote import RemoteRunner
 from .version import __version__
 
 __all__ = [
@@ -16,7 +15,6 @@ __all__ = [
     "Dse",
     "flow_runner",
     "FlowRunner",
-    "RemoteRunner",
     "flows",
     "Flow",
     "FPGA",
