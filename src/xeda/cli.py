@@ -1,4 +1,4 @@
-# © 2022 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
+# © 2022-2023 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 """Xeda Command-line interface"""
 from collections import OrderedDict
 import inspect

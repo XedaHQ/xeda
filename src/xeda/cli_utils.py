@@ -201,6 +201,9 @@ def print_flow_settings(flow, options: XedaOptions):
         anyOf = field.get("anyOf")
         if anyOf:
             return join_types(anyOf, " | ")  # union
+        if typ is None:
+            log.error("no type for field: %s", field)
+            return Text("???")
         return Text(typ)
 
     table = Table(
