@@ -313,7 +313,7 @@ class Yosys(YosysBase, SynthFlow):
                 area = design_util.get("area")
                 if area:
                     self.results["area"] = area
-                self.results["_design_utilization"] = design_util
+                self.results["_utilization"] = design_util
         except json.decoder.JSONDecodeError as e:
             log.error("Failed to decode JSON %s: %s", str(report), e)
             return False

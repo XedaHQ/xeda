@@ -144,7 +144,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                             **{k: v for k, v in design_util.items() if k != "num_cells_by_type"},
                             **num_cells_by_type,
                         }
-                    self.results["design_utilization"] = design_util
+                    self.results["_utilization"] = design_util
 
             except json.decoder.JSONDecodeError as e:
                 log.error("Failed to decode JSON %s: %s", self.artifacts.utilization_report, e)
