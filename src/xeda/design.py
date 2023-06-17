@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 from urllib.parse import parse_qs, urlparse
 
+
 from .dataclass import (
     Field,
     ValidationError,
@@ -22,7 +23,7 @@ from .dataclass import (
     validation_errors,
     validator,
 )
-from .utils import WorkingDirectory, hierarchical_merge, removeprefix, toml_load
+from .utils import WorkingDirectory, hierarchical_merge, removeprefix, settings_to_dict, toml_load
 
 log = logging.getLogger(__name__)
 
@@ -592,6 +593,14 @@ class Design(XedaBaseModel):
     license: Union[None, str, List[str]] = None
     version: Optional[str] = None
     url: Optional[str] = None
+
+    @validator("flow", pre=True, always=True)
+    def _flow_settings(cls, value):
+        print(f"in flow validator value={value}  {type(value)}")
+        if value:
+            value = settings_to_dict(value)
+        print(f"in flow validator value set to {value} {type(value)}")
+        return value
 
     @validator("dependencies", pre=True, always=True)
     def _dependencies_from_str(cls, value):

@@ -286,7 +286,7 @@ class FmaxOptimizer(Optimizer):
                     "clock_period": clock_period,
                     **settings_to_dict(
                         variations,
-                        expand_dict_keys=True,
+                        hierarchical_keys=True,
                     ),
                 }
                 h = deep_hash(settings)

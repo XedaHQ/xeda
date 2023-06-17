@@ -15,6 +15,8 @@ from types import TracebackType
 from typing import Any, Dict, Iterable, List, Optional, OrderedDict, Tuple, Type, TypeVar, Union
 import unittest
 from xml.etree import ElementTree
+from git import Sequence
+from pyparsing import Mapping
 
 from varname import argname
 
@@ -261,25 +263,36 @@ def try_convert_to_primitives(
     return str(s)
 
 
-def get_hierarchy(dct: Dict[str, Any], path, sep="."):
+# hierarchical key separator is dot (.), but can be escaped with a \ (e.g., "\\.")
+SEP = r"(?<!\\)\."
+
+
+def get_hierarchy(dct: Dict[str, Any], path):
     if isinstance(path, str):
-        path = path.split(sep)
+        path = path.split(SEP)
     try:
         return reduce(dict.__getitem__, path, dct)
     except ValueError:
         return None
 
 
-def set_hierarchy(dct: Dict[str, Any], path, value, sep="."):
+def set_hierarchy(dct: Dict[str, Any], path, value):
+    print(f"set_hierarchy k={path} v={value}")
     if isinstance(path, str):
-        path = path.split(sep)
+        path = re.split(SEP, path)
     k = path[0]
     if len(path) == 1:
+        if isinstance(value, (dict)):
+            new_value: Dict[str, Any] = {}
+            for k2, v2 in value.items():
+                set_hierarchy(new_value, k2, v2)
+            value = new_value
         dct[k] = value
     else:
         if k not in dct:
             dct[k] = {}
-        set_hierarchy(dct[k], path[1:], value, sep)
+        set_hierarchy(dct[k], path[1:], value)
+    print(f"set_hierarchy dct={dct}")
 
 
 def append_flag(flag_list: List[str], flag: str) -> List[str]:
@@ -448,3 +461,43 @@ class UnitTestUtils(unittest.TestCase):
         self.assertEqual(try_convert("xx", int), None)
         self.assertEqual(try_convert("1234", int), 1234)
         self.assertEqual(try_convert("1234.5", float), 1234.5)
+
+
+# DictStrHier = Dict[str, "StrOrDictStrHier"]
+DictStrHier = Dict[str, Any]
+StrOrDictStrHier = Union[str, DictStrHier]
+
+
+def conv(v):
+    # if not isinstance(v, (dict, Mapping, list, tuple, Sequence, str, int, float, bool)):
+    #     v = try_convert_to_primitives(v, convert_lists=True)
+    return v
+
+
+def settings_to_dict(
+    settings: Union[List[str], Tuple[str, ...], Mapping[str, StrOrDictStrHier]],
+    hierarchical_keys: bool = True,
+) -> Dict[str, Any]:
+    if not settings:
+        return {}
+    if isinstance(settings, str):
+        settings = settings.split(",")
+    if isinstance(settings, (tuple, list)):
+        res: DictStrHier = {}
+        for override in settings:
+            sp = override.split("=")
+            if len(sp) != 2:
+                raise ValueError(
+                    f"Settings should be in KEY=VALUE format! (value given: {override})"
+                )
+            key, val = sp
+            set_hierarchy(res, key, conv(val))
+        return res
+    if isinstance(settings, dict):
+        if not hierarchical_keys:
+            return settings
+        expanded: DictStrHier = {}
+        for k, v in settings.items():
+            set_hierarchy(expanded, k, conv(v))
+        return expanded
+    raise TypeError(f"Unsupported type: {type(settings)}")

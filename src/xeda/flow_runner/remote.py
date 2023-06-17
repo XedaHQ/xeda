@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 
 from ..design import Design
-from ..utils import dump_json
+from ..utils import dump_json, settings_to_dict
 from ..version import __version__
 from .default_runner import (
     DIR_NAME_HASH_LEN,
@@ -121,6 +121,7 @@ class RemoteRunner(FlowLauncher):
         port: Optional[int] = None,
         flow_settings=[],
     ):
+        flow_settings = settings_to_dict(flow_settings)
         # imports deferred due to "import imp" deprecation warnings from 'fabric'
         import execnet
         from fabric import Connection
@@ -130,7 +131,7 @@ class RemoteRunner(FlowLauncher):
             design = Design.from_file(design)
         design_hash = semantic_hash(
             dict(
-                # design=design,
+                lang=design.language,
                 rtl_hash=design.rtl_hash,  # TODO WHY?!!
                 tb_hash=design.tb_hash,
             )

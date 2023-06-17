@@ -1,3 +1,4 @@
+from inspect import isclass
 import logging
 import multiprocessing
 import os
@@ -206,6 +207,8 @@ class Dse(FlowLauncher):
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
 
+        assert isclass(flow_class) and issubclass(flow_class, Flow)
+
         if flow_settings is None:
             flow_settings = {}
 
@@ -226,7 +229,7 @@ class Dse(FlowLauncher):
 
         base_variation = settings_to_dict(
             {k: v[0] for k, v in optimizer.variations.items() if v},
-            expand_dict_keys=True,
+            hierarchical_keys=True,
         )
         flow_settings = {**flow_settings, **base_variation}
 

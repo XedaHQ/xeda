@@ -34,17 +34,17 @@ from rich.table import Table
 from rich.text import Text
 
 from ..console import console
-from ..dataclass import XedaBaseModel, asdict
+from ..dataclass import XedaBaseModel
 from ..design import Design, FileResource
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
 from ..utils import (
+    StrOrDictStrHier,
     WorkingDirectory,
     backup_existing,
     dump_json,
-    set_hierarchy,
+    settings_to_dict,
     snakecase_to_camelcase,
-    try_convert_to_primitives,
     unique,
 )
 from ..version import __version__
@@ -654,7 +654,11 @@ class FlowLauncher:
                             "[ERROR] no design was specified and none were automatically discovered."
                         )
                         raise ValueError("no design was specified or discovered")
-        flow_overrides = settings_to_dict(flow_settings)
+        flow_overrides = (
+            flow_settings.dict()
+            if isinstance(flow_settings, Flow.Settings)
+            else settings_to_dict(flow_settings)
+        )
         log.debug("flow_overrides: %s", flow_overrides)
         if isinstance(flow, str):
             flow_name = flow
@@ -707,39 +711,3 @@ class XedaOptions(XedaBaseModel):
     quiet: bool = False
     debug: bool = False
     detailed_logs: bool = True
-
-
-# DictStrHier = Dict[str, "StrOrDictStrHier"]
-DictStrHier = Dict[str, Any]
-StrOrDictStrHier = Union[str, DictStrHier]
-
-
-def settings_to_dict(
-    settings: Union[List[str], Tuple[str, ...], Mapping[str, StrOrDictStrHier], Flow.Settings],
-    expand_dict_keys: bool = False,
-) -> Dict[str, Any]:
-    if not settings:
-        return {}
-    if isinstance(settings, str):
-        settings = settings.split(",")
-    if isinstance(settings, (tuple, list)):
-        res: DictStrHier = {}
-        for override in settings:
-            sp = override.split("=")
-            if len(sp) != 2:
-                raise ValueError(
-                    f"Settings should be in KEY=VALUE format! (value given: {override})"
-                )
-            key, val = sp
-            set_hierarchy(res, key, try_convert_to_primitives(val, convert_lists=True))
-        return res
-    if isinstance(settings, Flow.Settings):
-        return asdict(settings)
-    if isinstance(settings, dict):
-        if not expand_dict_keys:
-            return settings
-        expanded: DictStrHier = {}
-        for k, v in settings.items():
-            set_hierarchy(expanded, k, try_convert_to_primitives(v, convert_lists=True))
-        return expanded
-    raise TypeError(f"overrides is of unsupported type: {type(settings)}")

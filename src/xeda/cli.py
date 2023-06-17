@@ -39,11 +39,10 @@ from .flow_runner import (
     add_file_logger,
     get_flow_class,
     scrub_runs,
-    settings_to_dict,
 )
 from .flow_runner.dse import Dse
 from .tool import ExecutableNotFound, NonZeroExitCode
-from .utils import removeprefix
+from .utils import removeprefix, settings_to_dict
 
 log = logging.getLogger(__name__)
 
@@ -533,8 +532,8 @@ def dse(
         detailed_logs = True
     setup_logger(log_level, detailed_logs, xeda_run_dir / "Logs")
 
-    opt_settings = settings_to_dict(optimizer_settings, expand_dict_keys=True)
-    dse_settings_dict = settings_to_dict(dse_settings, expand_dict_keys=True)
+    opt_settings = settings_to_dict(optimizer_settings, hierarchical_keys=True)
+    dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
     if max_workers:
         dse_settings_dict["max_workers"] = max_workers  # overrides
 
