@@ -135,7 +135,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 utilization = json.loads(content)
                 mod_util = utilization.get("modules")
                 if mod_util:
-                    self.results["_module_utilization"] = mod_util
+                    self.results["_hierarchical_utilization"] = mod_util
                 design_util = utilization.get("design")
                 if design_util:
                     num_cells_by_type = design_util.get("num_cells_by_type")
