@@ -23,7 +23,14 @@ from .dataclass import (
     validation_errors,
     validator,
 )
-from .utils import WorkingDirectory, hierarchical_merge, removeprefix, settings_to_dict, toml_load
+from .utils import (
+    WorkingDirectory,
+    expand_hierarchy,
+    hierarchical_merge,
+    removeprefix,
+    settings_to_dict,
+    toml_load,
+)
 
 log = logging.getLogger(__name__)
 
@@ -596,10 +603,8 @@ class Design(XedaBaseModel):
 
     @validator("flow", pre=True, always=True)
     def _flow_settings(cls, value):
-        print(f"in flow validator value={value}  {type(value)}")
         if value:
             value = settings_to_dict(value)
-        print(f"in flow validator value set to {value} {type(value)}")
         return value
 
     @validator("dependencies", pre=True, always=True)
@@ -746,6 +751,7 @@ class Design(XedaBaseModel):
         elif design_file.suffix == ".json":
             with open(design_file, "r") as f:
                 design_dict = json.load(f)
+            design_dict = expand_hierarchy(design_dict)
         else:
             raise ValueError(f"File extension `{design_file.suffix}` is not supported.")
         design_dict = hierarchical_merge(design_dict, overrides)

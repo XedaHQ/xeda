@@ -15,7 +15,6 @@ from types import TracebackType
 from typing import Any, Dict, Iterable, List, Optional, OrderedDict, Tuple, Type, TypeVar, Union
 import unittest
 from xml.etree import ElementTree
-from git import Sequence
 from pyparsing import Mapping
 
 from varname import argname
@@ -277,7 +276,6 @@ def get_hierarchy(dct: Dict[str, Any], path):
 
 
 def set_hierarchy(dct: Dict[str, Any], path, value):
-    print(f"set_hierarchy k={path} v={value}")
     if isinstance(path, str):
         path = re.split(SEP, path)
     k = path[0]
@@ -292,7 +290,6 @@ def set_hierarchy(dct: Dict[str, Any], path, value):
         if k not in dct:
             dct[k] = {}
         set_hierarchy(dct[k], path[1:], value)
-    print(f"set_hierarchy dct={dct}")
 
 
 def append_flag(flag_list: List[str], flag: str) -> List[str]:
@@ -474,6 +471,13 @@ def conv(v):
     return v
 
 
+def expand_hierarchy(d: Dict[str, Any]) -> Dict[str, Any]:
+    expanded: DictStrHier = {}
+    for k, v in d.items():
+        set_hierarchy(expanded, k, conv(v))
+    return expanded
+
+
 def settings_to_dict(
     settings: Union[List[str], Tuple[str, ...], Mapping[str, StrOrDictStrHier]],
     hierarchical_keys: bool = True,
@@ -496,8 +500,5 @@ def settings_to_dict(
     if isinstance(settings, dict):
         if not hierarchical_keys:
             return settings
-        expanded: DictStrHier = {}
-        for k, v in settings.items():
-            set_hierarchy(expanded, k, conv(v))
-        return expanded
+        return expand_hierarchy(settings)
     raise TypeError(f"Unsupported type: {type(settings)}")
