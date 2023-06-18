@@ -84,7 +84,7 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
                 "flatten_hierarchy": "full",
                 "control_set_opt_threshold": 1,
                 "shreg_min_size": 3,
-                "resource_sharvng": "on",
+                "resource_sharing": "on",
                 "directive": "AreaOptimized_high",
             },
             "opt": {"directive": "ExploreArea"},
