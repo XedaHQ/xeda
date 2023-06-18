@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import time
+import unittest
 from collections import defaultdict
 from contextlib import AbstractContextManager
 from copy import deepcopy
@@ -12,10 +13,20 @@ from datetime import datetime, timedelta
 from functools import cached_property, reduce
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Dict, Iterable, List, Optional, OrderedDict, Tuple, Type, TypeVar, Union
-import unittest
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    OrderedDict,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 from xml.etree import ElementTree
-from pyparsing import Mapping
 
 from varname import argname
 

@@ -380,7 +380,7 @@ class FlowLauncher:
                 flow.init()
 
             if self.settings.dump_settings_json:
-                log.info("dumping effective settings to %s", settings_json)
+                log.info("writing effective settings to %s", settings_json)
                 all_settings = dict(
                     design=design,
                     design_hash=design_hash,
