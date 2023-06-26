@@ -190,10 +190,6 @@ class Yosys(YosysBase, SynthFlow):
                 value = [value]
             return value
 
-        @validator("dff_liberty", pre=True, always=True)
-        def _validate_dff_liberty(cls, value):
-            return value
-
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value):
             if isinstance(value, str) and not value.endswith(".toml"):
@@ -220,11 +216,12 @@ class Yosys(YosysBase, SynthFlow):
 
         if ss.platform:
             if not ss.liberty:
-                ss.liberty = ss.platform.default_corner_settings.lib_files
+                for p in ss.platform.default_corner_settings.lib_files:
+                    ss.liberty.append(p)
             if not ss.dff_liberty:
                 ss.dff_liberty = ss.platform.default_corner_settings.dff_lib_file
 
-        ss.liberty = [set_file_path(lib) for lib in ss.liberty]
+        # ss.liberty = [set_file_path(lib) for lib in ss.liberty]
         ss.dff_liberty = set_file_path(ss.dff_liberty)
         if isinstance(ss.abc_script, Path):
             ss.abc_script = set_file_path(ss.abc_script)
