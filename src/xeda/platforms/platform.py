@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Type, TypeVar, Union
 
 from importlib_resources import as_file, files
-from pydantic import Field
 
 from ..dataclass import XedaBaseModel
 from ..utils import toml_load
