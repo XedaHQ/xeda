@@ -1,6 +1,6 @@
 # ASU ASAP7 - version 2
 
-platform = "asap7"
+name = "asap7"
 version = "2.0"
 
 process = 7.0

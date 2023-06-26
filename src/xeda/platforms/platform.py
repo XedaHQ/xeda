@@ -17,7 +17,7 @@ PlatformType = TypeVar("PlatformType", bound="Platform")
 
 class Platform(XedaBaseModel):
     root_dir: Path
-    name: str = Field(alias="platform")
+    name: Optional[str] = None
     version: Optional[str] = None
     description: Optional[str] = None
 
@@ -32,13 +32,16 @@ class Platform(XedaBaseModel):
     ) -> PlatformType:
         path = Path(platform_toml)
         kv = {**toml_load(path), **overrides}
-        return cls.create(root_dir=path.parent, **kv)
+        return cls.create(root_dir=path.parent, **kv).with_absolute_paths()
 
     @classmethod
     def from_resource(cls: Type[PlatformType], name: str, overrides={}) -> PlatformType:
         res = files(__package__).joinpath(name, "config.toml")
         with as_file(res) as path:
-            return cls.from_toml(path, overrides)
+            d = cls.from_toml(path, overrides)
+        if not d.name:
+            d.name = name
+        return d
 
     def with_absolute_paths(self: PlatformType) -> PlatformType:
         rd = self.root_dir.absolute()
