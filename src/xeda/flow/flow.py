@@ -116,7 +116,7 @@ class Flow(metaclass=ABCMeta):
                 return value
             if field.type_ is Optional[Path] and not value:
                 value = None
-            if field.type_ in (Path, Optional[Path]) and value:
+            if field.type_ in (Path, Optional[Path]) and value and not os.path.isabs(value):
                 s = str(value)
                 # var = "${design_root}"
                 var = "${PWD}"
