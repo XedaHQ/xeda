@@ -1,6 +1,5 @@
 import contextlib
 import gzip
-import json
 import logging
 import os
 import re
@@ -186,7 +185,7 @@ class Yosys(YosysBase, SynthFlow):
 
         @validator("liberty", pre=True, always=True)
         def _validate_liberty(cls, value):
-            if not isinstance(value, (list, tuple)):
+            if isinstance(value, (Path, str)):
                 value = [value]
             return value
 
@@ -216,12 +215,11 @@ class Yosys(YosysBase, SynthFlow):
 
         if ss.platform:
             if not ss.liberty:
-                for p in ss.platform.default_corner_settings.lib_files:
-                    ss.liberty.append(p)
+                ss.liberty = ss.platform.default_corner_settings.lib_files
             if not ss.dff_liberty:
                 ss.dff_liberty = ss.platform.default_corner_settings.dff_lib_file
 
-        # ss.liberty = [set_file_path(lib) for lib in ss.liberty]
+        ss.liberty = [set_file_path(lib) for lib in ss.liberty]
         ss.dff_liberty = set_file_path(ss.dff_liberty)
         if isinstance(ss.abc_script, Path):
             ss.abc_script = set_file_path(ss.abc_script)
@@ -290,28 +288,18 @@ class Yosys(YosysBase, SynthFlow):
         assert isinstance(self.settings, self.Settings)
         if not self.artifacts.utilization_report:
             return True
-        report = Path(self.artifacts.utilization_report)
-        if not report.exists():
+        utilization = self.get_utilization()
+        if not utilization:
             return False
-        try:
-            with open(report, "r") as f:
-                content = f.read()
-            # i = content.find("{")  # yosys bug (FIXED)
-            # if i >= 0:
-            #     content = content[i:]
-            utilization = json.loads(content)
-            mod_util = utilization.get("modules")
-            if mod_util:
-                self.results["_hierarchical_utilization"] = mod_util
-            design_util = utilization.get("design")
-            if design_util:
-                num_cells_by_type = design_util.get("num_cells_by_type", {})
-                self.results.update(**num_cells_by_type)
-                area = design_util.get("area")
-                if area:
-                    self.results["area"] = area
-                self.results["_utilization"] = design_util
-        except json.decoder.JSONDecodeError as e:
-            log.error("Failed to decode JSON %s: %s", str(report), e)
-            return False
+        mod_util = utilization.get("modules")
+        if mod_util:
+            self.results["_hierarchical_utilization"] = mod_util
+        design_util = utilization.get("design")
+        if design_util:
+            num_cells_by_type = design_util.get("num_cells_by_type", {})
+            self.results.update(**num_cells_by_type)
+            area = design_util.get("area")
+            if area:
+                self.results["area"] = area
+            self.results["_utilization"] = design_util
         return True

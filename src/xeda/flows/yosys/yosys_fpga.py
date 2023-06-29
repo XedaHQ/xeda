@@ -1,4 +1,3 @@
-import json
 import logging
 from pathlib import Path
 from typing import List, Literal, Optional, Union
@@ -122,32 +121,23 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         if not self.artifacts.utilization_report:
             return True
-        report = Path(self.artifacts.utilization_report)
-        if not report.exists():
-            return False
-        if Path(self.artifacts.utilization_report).suffix == ".json":
-            try:
-                with open(self.artifacts.utilization_report, "r") as f:
-                    content = f.read()
-                i = content.find("{")  # yosys bug (FIXED)
-                if i >= 0:
-                    content = content[i:]
-                utilization = json.loads(content)
-                mod_util = utilization.get("modules")
-                if mod_util:
-                    self.results["_hierarchical_utilization"] = mod_util
-                design_util = utilization.get("design")
-                if design_util:
-                    num_cells_by_type = design_util.get("num_cells_by_type")
-                    if num_cells_by_type:
-                        design_util = {
-                            **{k: v for k, v in design_util.items() if k != "num_cells_by_type"},
-                            **num_cells_by_type,
-                        }
-                    self.results["_utilization"] = design_util
 
-            except json.decoder.JSONDecodeError as e:
-                log.error("Failed to decode JSON %s: %s", self.artifacts.utilization_report, e)
+        if Path(self.artifacts.utilization_report).suffix == ".json":
+            utilization = self.get_utilization()
+            if not utilization:
+                return False
+            mod_util = utilization.get("modules")
+            if mod_util:
+                self.results["_hierarchical_utilization"] = mod_util
+            design_util = utilization.get("design")
+            if design_util:
+                num_cells_by_type = design_util.get("num_cells_by_type")
+                if num_cells_by_type:
+                    design_util = {
+                        **{k: v for k, v in design_util.items() if k != "num_cells_by_type"},
+                        **num_cells_by_type,
+                    }
+                    self.results["_utilization"] = design_util
         else:
             if self.settings.fpga:
                 if self.settings.fpga.vendor == "xilinx":

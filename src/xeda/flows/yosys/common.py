@@ -230,6 +230,21 @@ class YosysBase(Flow):
             default_args=default_args,
         )
 
+    def get_utilization(self) -> Optional[dict]:
+        report = Path(self.artifacts.utilization_report)
+        if not report.exists():
+            return None
+        try:
+            with open(report, "r") as f:
+                content = f.read()
+            json_start = content.find("{")
+            if json_start > 0:
+                content = content[json_start:]
+            return json.loads(content)
+        except json.decoder.JSONDecodeError as e:
+            log.error("Failed to decode JSON %s: %s", str(report), e)
+            return None
+
 
 def process_parameters(parameters: Dict[str, Any]) -> Dict[str, str]:
     out = dict()
