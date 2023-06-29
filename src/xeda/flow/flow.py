@@ -41,6 +41,24 @@ __all__ = [
     "FlowFatalError",
 ]
 
+mapping = {
+    "$PWD": Path.cwd(),
+}
+
+
+def expand_paths(field: Optional[ModelField], value):
+    if field is None or field.type_ not in (Path, Optional[Path]):
+        return value
+    if isinstance(value, (tuple, list)):
+        return [expand_paths(field, v) for v in value]
+    if isinstance(value, (str, Path)) and value and not os.path.isabs(value):
+        for pattern, repl in mapping.items():
+            if not os.path.isabs(value):
+                pat = re.escape(pattern + os.pathsep) + r"?"
+                value = Path(re.sub(pat, str(repl), str(value), count=1))
+                log.debug("Expanded path value for %s as %s", field.name, value.absolute())
+    return value
+
 
 registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
 
@@ -110,24 +128,9 @@ class Flow(metaclass=ABCMeta):
         dockerized: bool = Field(False, description="Run tools from docker")
         print_commands: bool = Field(True, description="Print executed commands")
 
-        @validator("*", pre=True, always=True, allow_reuse=True)
+        @validator("*", pre=True, always=True)
         def _expand_path_vars(cls, value, field: Optional[ModelField]):
-            if field is None or field.type_ is None:
-                return value
-            if field.type_ is Optional[Path] and not value:
-                value = None
-            if field.type_ in (Path, Optional[Path]) and value and not os.path.isabs(value):
-                s = str(value)
-                # var = "${design_root}"
-                var = "${PWD}"
-                if s.startswith(var):
-                    s = s[len(var) :]
-                    # remove path separators
-                    while s.startswith(os.path.sep):
-                        s = s[len(os.path.sep) :]
-                    value = Path.cwd() / s
-                    log.debug("Expanded path value for %s as %s", field.name, value.absolute())
-            return value
+            return expand_paths(field, value)
 
         @validator("lib_paths", pre=True, always=True)
         def _lib_paths_validator(cls, value):
@@ -317,9 +320,9 @@ class Flow(metaclass=ABCMeta):
     def add_template_test(self, filter_name: str, func) -> None:
         self.jinja_env.tests[filter_name] = func
 
-    def conv_to_relative_path(self, src):
-        path = Path(src).resolve(strict=True)
-        return os.path.relpath(path, self.run_path)
+    # def conv_to_relative_path(self, src):
+    #     path = Path(src).resolve(strict=True)
+    #     return os.path.relpath(path, self.run_path)
 
     def parse_report_regex(
         self,
