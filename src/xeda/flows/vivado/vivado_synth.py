@@ -5,7 +5,7 @@ import os
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
 from ...design import Design
@@ -92,6 +92,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
         ]
         dummy_io_delay: bool = False  # set a dummy IO delay if they are not specified
+        flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field("rebuilt")
 
         @validator("fpga")
         def _validate_fpga(cls, value):

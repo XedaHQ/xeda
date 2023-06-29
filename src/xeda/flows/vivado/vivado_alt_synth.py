@@ -15,7 +15,6 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             "synth": {
                 "assert": True,
                 "debug_log": True,
-                "flatten_hierarchy": "none",
                 "keep_equivalent_registers": True,
                 "no_lc": True,
                 "fsm_extraction": "off",
@@ -28,12 +27,11 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             "opt": {"directive": "RuntimeOptimized"},
         },
         "Default": {
-            "synth": {"flatten_hierarchy": "rebuilt", "directive": "Default"},
+            "synth": {"directive": "Default"},
             "opt": {"directive": "ExploreWithRemap"},
         },
         "Timing": {
             "synth": {
-                "flatten_hierarchy": "rebuilt",
                 # "retiming": True,
                 "directive": "PerformanceOptimized",
                 "fsm_extraction": "one_hot",
@@ -43,7 +41,6 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
         },
         "ExtraTiming": {
             "synth": {
-                "flatten_hierarchy": "full",
                 "retiming": True,
                 "directive": "PerformanceOptimized",
                 "fsm_extraction": "one_hot",
@@ -55,7 +52,6 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
         },
         "ExtraTimingAlt": {
             "synth": {
-                "flatten_hierarchy": "full",
                 "retiming": True,
                 "directive": "PerformanceOptimized",
                 "fsm_extraction": "one_hot",
@@ -69,7 +65,6 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
         "Area": {
             # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
             "synth": {
-                "flatten_hierarchy": "full",
                 "control_set_opt_threshold": 1,
                 "shreg_min_size": 3,
                 "resource_sharing": "auto",
@@ -81,7 +76,6 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts",
             # but succeeds and post-impl sim is OK too!
             "synth": {
-                "flatten_hierarchy": "full",
                 "control_set_opt_threshold": 1,
                 "shreg_min_size": 3,
                 "resource_sharing": "on",
@@ -92,7 +86,6 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
         "AreaPower": {
             # see the comment above for AreaOptimized_medium directive
             "synth": {
-                "flatten_hierarchy": "full",
                 "control_set_opt_threshold": "1",
                 "shreg_min_size": "3",
                 "resource_sharing": "auto",
@@ -102,24 +95,23 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             "opt": {"directive": "ExploreArea"},
         },
         "AreaTiming": {
-            "synth": {"flatten_hierarchy": "rebuilt", "retiming": None},
+            "synth": {"retiming": None},
             "opt": {"directive": "ExploreWithRemap"},
         },
         "AreaExploreWithRemap": {
-            "synth": {"flatten_hierarchy": "full", "retiming": None},
+            "synth": {"retiming": None},
             "opt": {"directive": "ExploreWithRemap"},
         },
         "AreaExploreWithRemap2": {
-            "synth": {"flatten_hierarchy": "full", "retiming": None},
+            "synth": {"retiming": None},
             "opt": {"directive": "ExploreArea"},
         },
         "AreaExplore": {
-            "synth": {"flatten_hierarchy": "full"},
+            "synth": {},
             "opt": {"directive": "ExploreArea"},
         },
         "Power": {
             "synth": {
-                "flatten_hierarchy": "full",
                 "gated_clock_conversion": "auto",
                 "control_set_opt_threshold": "1",
                 "shreg_min_size": "3",
@@ -391,6 +383,8 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             synth_steps["max_bram"] = 0
         if "dsp" in ss.blacklisted_resources:
             synth_steps["max_dsp"] = 0
+        if ss.flatten_hierarchy:
+            synth_steps["flatten_hierarchy"] = ss.flatten_hierarchy
         ss.synth.steps["synth"] = synth_steps
 
         def flatten_dict(d):
