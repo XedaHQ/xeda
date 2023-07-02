@@ -246,18 +246,6 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             "phys_opt": {"directive": "AggressiveExplore"},
             "route": {"directive": "AlternateCLBRouting"},
         },
-        "Area": {
-            "place": {"directive": "Default"},
-            "place_opt": {"directive": "ExploreArea"},
-            "phys_opt": {"directive": "Explore"},
-            "route": {"directive": "Explore"},
-        },
-        "AreaHigh": {
-            "place": {"directive": "Default"},
-            "place_opt": {"directive": "ExploreArea"},
-            "phys_opt": {"directive": "Explore"},
-            "route": {"directive": "Explore"},
-        },
         "AreaPower": {
             "place": {"directive": "Default"},
             "place_opt": {
