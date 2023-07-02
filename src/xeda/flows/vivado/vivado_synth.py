@@ -206,7 +206,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         if su_fail:
             log.error("%s setup violations. WNS: %s", su_fail, wns)
             failed = True
-        hld_fail = self.results.get("setup_violations")
+        hld_fail = self.results.get("hold_violations")
         if hld_fail:
             log.error("%s hold violations. WHS: %s", hld_fail, self.results.get("whs"))
             failed = True
