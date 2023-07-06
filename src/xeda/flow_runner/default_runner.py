@@ -35,7 +35,7 @@ from rich.text import Text
 
 from ..console import console
 from ..dataclass import XedaBaseModel
-from ..design import Design, FileResource
+from ..design import Design
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
 from ..utils import (
@@ -293,8 +293,7 @@ class FlowLauncher:
         # OTOH removing tb from hash for sim flows creates a mismatch for different flows of the same design
         design_hash = semantic_hash(
             dict(
-                # design=design,
-                rtl_hash=design.rtl_hash,  # TODO WHY?!!
+                rtl_hash=design.rtl_hash,
                 tb_hash=design.tb_hash,
             )
         )
@@ -302,8 +301,8 @@ class FlowLauncher:
             dict(
                 flow_name=flow_name,
                 flow_settings=flow_settings,
-                copied_resources=[FileResource(res) for res in copy_resources],
-                xeda_version=__version__,
+                # copied_resources=[FileResource(res) for res in copy_resources],
+                # xeda_version=__version__,
             ),
         )
         run_path = self.get_flow_run_path(
@@ -436,7 +435,7 @@ class FlowLauncher:
                 previous_results.get("timestamp"),
             )
             flow.results.update(**previous_results)
-            flow.artifacts = previous_results._artifacts
+            flow.artifacts = previous_results.artifacts
         else:
             flow.results["design"] = flow.design.name
             flow.results["flow"] = flow.name
@@ -467,9 +466,11 @@ class FlowLauncher:
                 flow.results.success = success
                 flow.results.timestamp = flow.timestamp
 
-        if flow.artifacts and flow.succeeded:
-            flow.results._artifacts = flow.artifacts
+        for k, v in flow.artifacts.items():
+            if not flow.results.artifacts.get(k):
+                flow.results.artifacts[k] = v
 
+        if flow.artifacts and flow.succeeded:
             table = Table(
                 box=box.SIMPLE,
                 show_header=True,

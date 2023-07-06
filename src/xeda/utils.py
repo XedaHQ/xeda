@@ -445,9 +445,9 @@ def removesuffix(s: str, suffix: str) -> str:
     return s[: -len(suffix)] if suffix and s.endswith(suffix) else s
 
 
-def removeprefix(s: str, suffix: str) -> str:
+def removeprefix(s: str, prefix: str) -> str:
     """similar to str.removeprefix in Python 3.9+"""
-    return s[len(suffix) :] if suffix and s.startswith(suffix) else s
+    return s[len(prefix) :] if prefix and s.startswith(prefix) else s
 
 
 _K = TypeVar("_K")
