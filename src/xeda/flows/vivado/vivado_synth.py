@@ -232,6 +232,20 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
 
+        for report_file in self.settings.reports_dir.glob("**/*"):
+            if report_file.is_file():
+                self.artifacts[report_file] = report_file
+
+        for log_file in self.run_path.glob("**/*.log"):
+            if log_file.is_file():
+                self.artifacts[log_file] = log_file
+
+        if self.settings.write_bitstream:
+            for bitstream in self.run_path.glob("**/*.bit"):
+                if bitstream.is_file():
+                    self.artifacts["bitstream"] = bitstream
+                    break
+
         reports_dir = self.settings.reports_dir / "route_design"
         failed = not self.parse_timing_report(reports_dir)
         hier_util = parse_hier_util(reports_dir / "hierarchical_utilization.xml")
