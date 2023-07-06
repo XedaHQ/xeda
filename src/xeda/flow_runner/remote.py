@@ -1,13 +1,13 @@
 import json
 import logging
+import os
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
-
 from ..design import Design
-from ..utils import dump_json, settings_to_dict
+from ..utils import backup_existing, dump_json, settings_to_dict
 from ..version import __version__
 from .default_runner import (
     DIR_NAME_HASH_LEN,
@@ -29,7 +29,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
     with tempfile.TemporaryDirectory() as tmpdirname:
         temp_dir = Path(tmpdirname)
         zip_file = temp_dir / f"{design.name}.zip"
-        log.debug(f"temp_dir={temp_dir} zip_file={zip_file}")
+        log.info("Preparing design archive: %s", zip_file)
         new_design: Dict[str, Any] = {**design.dict(), "design_root": None}
         rtl: Dict[str, Any] = {}  # new_design.get("rtl", {})
         tb: Dict[str, Any] = {}  # new_design.get("tb", {})
@@ -46,7 +46,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         new_design["rtl"] = rtl
         new_design["tb"] = tb
         new_design["flow"] = design.flow
-        design_file = temp_dir / f"{design.name}.json"
+        design_file = temp_dir / f"{design.name}.xeda.json"
         with open(design_file, "w") as f:
             json.dump(new_design, f)
         with zipfile.ZipFile(zip_file, mode="w") as archive:
@@ -60,6 +60,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         with zipfile.ZipFile(zip_file, mode="r") as archive:
             archive.printdir()
 
+        log.info("Transfering design to %s in %s", conn.host, remote_path)
         conn.put(zip_file, remote=remote_path)
         return zip_file.name, design_file.name
 
@@ -71,38 +72,45 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
 
     from xeda.flow_runner import DefaultRunner  # pyright: ignore reportMissingImports
 
+    print(f"changing directory to {remote_path}")
+
     os.chdir(remote_path)
     if env:
         for k, v in env.items():
             os.environ[k] = v
-    while not channel.isclosed():
-        with zipfile.ZipFile(zip_file, mode="r") as archive:
-            archive.extractall(path=remote_path)
+    if channel.isclosed():
+        return
 
-        xeda_run_dir = "remote_run"
-        launcher = DefaultRunner(
-            xeda_run_dir,
-            cached_dependencies=True,
-            incremental=False,
-            post_cleanup=False,
-            # post_cleanup_purge = True,
-        )
-        f = launcher.run(
-            flow,
-            design=design_file,
-            flow_settings=flow_settings,
-        )
+    with zipfile.ZipFile(zip_file, mode="r") as archive:
+        archive.extractall(path=remote_path)
 
-        results = (
-            "{success: false}"
-            if f is None
-            else json.dumps(
-                f.results.to_dict(),
-                default=str,
-                indent=1,
-            )
+    xeda_run_dir = "remote_run"
+    launcher = DefaultRunner(
+        xeda_run_dir,
+        cached_dependencies=True,
+        backups=True,
+        clean=True,
+        incremental=False,
+        post_cleanup=False,
+        # post_cleanup_purge = True,
+    )
+
+    f = launcher.run(
+        flow,
+        design=design_file,
+        flow_settings=flow_settings,
+    )
+
+    results = (
+        "{success: false}"
+        if f is None
+        else json.dumps(
+            f.results.to_dict(),
+            default=str,
+            indent=1,
         )
-        channel.send(results)
+    )
+    channel.send(results)
 
 
 def get_env_var(conn, var):
@@ -112,6 +120,9 @@ def get_env_var(conn, var):
 
 
 class RemoteRunner(FlowLauncher):
+    class Settings(FlowLauncher.Settings):
+        clean: bool = True
+
     def run_remote(
         self,
         design: Union[str, Path, Design],
@@ -131,8 +142,7 @@ class RemoteRunner(FlowLauncher):
             design = Design.from_file(design)
         design_hash = semantic_hash(
             dict(
-                lang=design.language,
-                rtl_hash=design.rtl_hash,  # TODO WHY?!!
+                rtl_hash=design.rtl_hash,
                 tb_hash=design.tb_hash,
             )
         )
@@ -149,7 +159,8 @@ class RemoteRunner(FlowLauncher):
             dict(
                 flow_name=flow_name,
                 flow_settings=flow_settings,
-                xeda_version=__version__,
+                # copied_resources=[FileResource(res) for res in copy_resources],
+                # xeda_version=__version__,
             ),
         )
 
@@ -191,13 +202,17 @@ class RemoteRunner(FlowLauncher):
         """
         )
         platform, version_info, _ = channel.receive()
+        version_info_str = ".".join(str(v) for v in version_info)
         log.info(
-            f">>{host}: {platform} {'.'.join(str(v) for v in version_info)} path={get_env_var(conn, 'PATH')} shell={get_env_var(conn, 'SHELL')}"
+            f"Hostname:{host} Patform:{platform} Python:{version_info_str} PATH:{get_env_var(conn, 'PATH')} SHELL:{get_env_var(conn, 'SHELL')}"
         )
-        assert version_info[0] == 3
-        assert version_info[1] >= 8
+        PY_MIN_VERSION = (3, 8, 0)
+        assert version_info[0] == PY_MIN_VERSION[0] and (
+            version_info[1] > PY_MIN_VERSION[1]
+            or (version_info[1] == PY_MIN_VERSION[1] and version_info[2] >= PY_MIN_VERSION[2])
+        ), f"Python {'.'.join(str(d) for d in PY_MIN_VERSION)} or newer is required to be installed on the remote but found version {version_info_str}"
 
-        channel = gw.remote_exec(
+        results_channel = gw.remote_exec(
             remote_runner,
             remote_path=remote_path,
             zip_file=zip_file,
@@ -206,9 +221,8 @@ class RemoteRunner(FlowLauncher):
             flow_settings=flow_settings,
         )
 
-        r = channel.receive()
-        results = json.loads(r)
-        gw.exit()
+        results_str = results_channel.receive()
+        results = json.loads(results_str)
         if results:
             print_results(
                 results=results,
@@ -216,6 +230,31 @@ class RemoteRunner(FlowLauncher):
                 skip_if_false={"artifacts", "reports"},
             )
 
+            artifacts = results.get("artifacts")
+            remote_run_path = results.get("run_path")
+
+            artifacts_dir = run_path / "artifacts"
+
+            if remote_run_path and artifacts:
+                assert isinstance(remote_run_path, str)
+                if isinstance(artifacts, (dict)):
+                    artifacts = list(artifacts.values())
+                artifacts_dir.mkdir(exist_ok=True, parents=True)
+                for f in artifacts:
+                    remote_path = f if os.path.isabs(f) else remote_run_path + "/" + f
+                    rel_path = os.path.relpath(f, remote_run_path) if os.path.isabs(f) else f
+                    local_path = artifacts_dir / rel_path
+                    if local_path.exists():
+                        backup = backup_existing(local_path)
+                        log.warning("Backed up exitsting artifact to %s", str(backup))
+                    elif not local_path.parent.exists():
+                        local_path.parent.mkdir(parents=True)
+                    assert local_path.is_relative_to(artifacts_dir)
+                    result = conn.get(remote_path, str(local_path))
+                    log.info("Transferred artifact %s to %s", f, result.local)
+
             dump_json(results, results_json_path, backup=True)
             log.info("Results written to %s", results_json_path)
+        gw.exit()
+        conn.close()
         return results
