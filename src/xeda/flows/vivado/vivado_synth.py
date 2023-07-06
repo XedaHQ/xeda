@@ -234,11 +234,11 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         for report_file in self.settings.reports_dir.glob("**/*"):
             if report_file.is_file():
-                self.artifacts[report_file] = report_file
+                self.artifacts[str(report_file)] = report_file
 
         for log_file in self.run_path.glob("**/*.log"):
             if log_file.is_file():
-                self.artifacts[log_file] = log_file
+                self.artifacts[str(log_file)] = log_file
 
         if self.settings.write_bitstream:
             for bitstream in self.run_path.glob("**/*.bit"):
