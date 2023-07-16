@@ -63,7 +63,7 @@ dependencies = [
     "pyvcd             ~= 0.3",
     "GitPython         >= 3.1.30",
     "fabric            >= 3.1.0",
-    "execnet           @ git+https://github.com/pytest-dev/execnet.git@6dabb0f8bb498d0007c82bee011be36313849bef#egg=execnet",
+    "execnet           >= 2.0.2",
     "devtools          >= 0.11",
 ]
 
