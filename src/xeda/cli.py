@@ -226,6 +226,7 @@ def cli(ctx: click.Context, **kwargs):
 @click.option(
     "--remote",
     type=str,
+    show_envvar=True,
     help="Run on a remote machine with SSH access. Xeda needs to be installed on the remote machine and PATH env variable should be set correctly.",
 )
 @click.pass_context
