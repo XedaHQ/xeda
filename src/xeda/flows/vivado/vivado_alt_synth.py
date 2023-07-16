@@ -63,7 +63,7 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             "opt": {"directive": "ExploreWithRemap"},
         },
         "Area": {
-            # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeeds and post-impl sim is OK too
+            # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeds and post-impl sim is OK too
             "synth": {
                 "control_set_opt_threshold": 1,
                 "shreg_min_size": 3,
@@ -278,6 +278,15 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             "place_opt2": {"directive": "ExploreArea"},
             "phys_opt": {"directive": "AggressiveExplore"},
             "route": {"directive": "Explore"},
+            "post_route_phys_opt": [
+                "-placement_opt",
+                "-routing_opt",
+                "-retime",
+                "-critical_cell_opt",
+                "-slr_crossing_opt",
+                "-hold_fix",
+                "-rewire",
+            ],
         },
         "AreaExploreWithRemap": {
             "place": {"directive": "Default"},
@@ -308,12 +317,31 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
 }
 
 
+def flatten_options(d) -> str:
+    if d is None:
+        return ""
+    if isinstance(d, (list, tuple)):
+        return " ".join(flatten_options(s) for s in d)
+    if isinstance(d, dict):
+        return " ".join(
+            [
+                f"-{k} {flatten_options(v)}"
+                if v is not None and not isinstance(v, bool)
+                else f"-{k}"
+                for k, v in d.items()
+                if v is not False
+            ]
+        )
+    return str(d)
+
+
 class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     """Synthesize with Xilinx Vivado using an alternative TCL-based flow"""
 
     class Settings(VivadoSynth.Settings):
         synth: RunOptions = RunOptions(strategy="Default")
         impl: RunOptions = RunOptions(strategy="Default")
+        out_of_context: bool = False
 
         @validator("synth", "impl", always=True)
         def validate_synth(cls, value, values, field):
@@ -333,9 +361,9 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
                     "power_opt",
                     "place_opt",
                     "place_opt2",
-                    "phys_opt",
-                    "phys_opt2",
+                    "phys_opt",  # post-placement
                     "route",
+                    "post_route_phys_opt",
                 ]
             for step in steps:
                 if step not in value.steps:
@@ -375,26 +403,17 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             synth_steps["flatten_hierarchy"] = ss.flatten_hierarchy
         ss.synth.steps["synth"] = synth_steps
 
-        def flatten_dict(d):
-            return " ".join(
-                [
-                    f"-{k} {v}" if v is not None and not isinstance(v, bool) else f"-{k}"
-                    for k, v in d.items()
-                    if not isinstance(v, bool) or v
-                ]
-            )
-
         def steps_to_str(steps):
             return "\n " + "\n ".join(
-                f"{name}: {flatten_dict(step)}" for name, step in steps.items() if step
+                f"{name}: {flatten_options(step)}" for name, step in steps.items() if step
             )
 
-        log.info("Synthesis steps:%s", steps_to_str(ss.synth.steps))
-        log.info("Implementation steps:%s", steps_to_str(ss.impl.steps))
+        log.debug("Synthesis steps:%s", steps_to_str(ss.synth.steps))
+        log.debug("Implementation steps:%s", steps_to_str(ss.impl.steps))
 
         self.add_template_filter(
-            "flatten_dict",
-            flatten_dict,
+            "flatten_options",
+            flatten_options,
         )
         clock_xdc_path = self.copy_from_template("clock.xdc")
         script_path = self.copy_from_template(

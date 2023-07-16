@@ -67,7 +67,7 @@ read_xdc {{xdc_file}}
 {%- endfor %}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="
-eval synth_design -part $fpga_part -top {{design.rtl.top}} {{settings.synth.steps.synth|flatten_dict}} {{design.rtl.generics|vivado_generics}}
+eval synth_design -part $fpga_part -top {{design.rtl.top}} {{settings.synth.steps.synth|flatten_options}} {{design.rtl.generics|vivado_generics}}
 
 {%- if settings.synth.strategy == "Debug" %}
 set_property KEEP_HIERARCHY true [get_cells -hier * ]
@@ -76,9 +76,9 @@ set_property DONT_TOUCH true [get_cells -hier * ]
 showWarningsAndErrors
 
 
-{%- if settings.synth.steps.opt != None %}
+{%- if settings.synth.steps.opt is not none %}
 puts "\n==============================( Optimize Design )================================"
-eval opt_design {{settings.synth.steps.opt|flatten_dict}}
+eval opt_design {{settings.synth.steps.opt|flatten_options}}
 {%- endif %}
 
 {%- if settings.write_checkpoint %}
@@ -100,7 +100,7 @@ showWarningsAndErrors
 {%- endif %}
 
 puts "\n================================( Place Design )================================="
-eval place_design {{settings.impl.steps.place|flatten_dict}}
+eval place_design {{settings.impl.steps.place|flatten_options}}
 showWarningsAndErrors
 
 
@@ -111,25 +111,26 @@ report_power_opt -file ${reports_dir}/post_place/post_place_power_optimization.r
 showWarningsAndErrors
 {%- endif %}
 
-{%- if settings.impl.steps.place_opt != None %}
+{%- if settings.impl.steps.place_opt is not none %}
 
 puts "\n==============================( Post-place optimization )================================"
-eval opt_design {{settings.impl.steps.place_opt|flatten_dict}}
+eval opt_design {{settings.impl.steps.place_opt|flatten_options}}
 
-{%- if settings.impl.steps.place_opt2 != None %}
+{%- if settings.impl.steps.place_opt2 is not none %}
 puts "\n==============================( Post-place optimization 2)================================"
-eval opt_design {{settings.impl.steps.place_opt2|flatten_dict}}
+eval opt_design {{settings.impl.steps.place_opt2|flatten_options}}
 {%- endif %}
 
 {%- endif %}
 
 
-{%- if settings.impl.steps.phys_opt != None %}
+{%- if settings.impl.steps.phys_opt is not none %}
 puts "\n========================( Post-place Physical Optimization )=========================="
-eval phys_opt_design {{settings.impl.steps.phys_opt|flatten_dict}}
-{%- if settings.impl.steps.phys_opt2 != None %}
+eval phys_opt_design {{settings.impl.steps.phys_opt|flatten_options}}
+
+{%- if settings.impl.steps.phys_opt is not none %}
 puts "\n========================( Post-place Physical Optimization 2 )=========================="
-eval phys_opt_design {{settings.impl.steps.phys_opt2|flatten_dict}}
+eval phys_opt_design {{settings.impl.steps.phys_opt|flatten_options}}
 {%- endif %}
 {%- endif %}
 
@@ -140,12 +141,12 @@ report_utilization -hierarchical -force -file ${reports_dir}/post_place/hierarch
 {%- endif %}
 
 puts "\n================================( Route Design )================================="
-eval route_design {{settings.impl.steps.route|flatten_dict}}
+eval route_design {{settings.impl.steps.route|flatten_options}}
 showWarningsAndErrors
 
-{%- if settings.impl.steps.phys_opt != None %}
+{%- if settings.impl.steps.post_route_phys_opt is not none %}
 puts "\n=========================( Post-Route Physical Optimization )=========================="
-phys_opt_design {{settings.impl.steps.phys_opt|flatten_dict}}
+phys_opt_design {{settings.impl.steps.post_route_phys_opt|flatten_options}}
 showWarningsAndErrors
 {%- endif %}
 

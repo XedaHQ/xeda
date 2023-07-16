@@ -56,7 +56,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )
         input_delay: Optional[float] = None
         output_delay: Optional[float] = None
-        out_of_context: bool = False
         write_checkpoint: bool = False
         write_netlist: bool = False
         write_bitstream: bool = False
