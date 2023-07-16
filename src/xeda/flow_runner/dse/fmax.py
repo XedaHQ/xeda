@@ -81,6 +81,8 @@ class FmaxOptimizer(Optimizer):
         self.last_improvement: float = 0.0
         self.num_iterations: int = 0
         self.last_best_freq: float = 0
+        self.improved_idx: Optional[int] = None
+        self.failed_fmax: Optional[float] = None
 
         # TODO: duplicate
         self.batch_hashes: Set[int] = set()
@@ -272,6 +274,8 @@ class FmaxOptimizer(Optimizer):
             self.freq_step = freq_step
             batch_frequencies.extend(frequencies)
 
+            remove_frequencies = []
+
             for freq in frequencies:
                 clock_period = round(1000.0 / freq, 3)
                 choice_indices = {}
@@ -290,13 +294,17 @@ class FmaxOptimizer(Optimizer):
                     ),
                 }
                 h = deep_hash(settings)
-                if h not in self.batch_hashes:
+                if h in self.batch_hashes:
+                    remove_frequencies.append(freq)
+                else:
                     self.variation_choices.append(choice_indices)
                     batch_settings.append(settings)
                     self.batch_hashes.add(h)
                     if len(batch_settings) >= self.max_workers:
                         stop = True
                         break
+            for freq in remove_frequencies:
+                frequencies.remove(freq)
         batch_frequencies = sorted(unique(batch_frequencies))
         log.info(
             "Trying following frequencies (MHz): %s",

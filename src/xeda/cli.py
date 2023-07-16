@@ -375,8 +375,8 @@ def list_settings(ctx: click.Context, flow):
 
 @cli.command(
     context_settings=CONTEXT_SETTINGS,
-    short_help="Run DSE",
-    help="Design-space exploration: runs several instances of a flow for finding optimal settings and results",
+    short_help="Execute multiple runs in parallel",
+    help="Runs multiple instances of a flow in parallel to find optimum value(s) of a settings key with respect to a specified objective function.",
     no_args_is_help=False,
 )
 @click.argument(
