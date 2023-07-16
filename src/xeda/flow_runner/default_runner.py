@@ -81,9 +81,9 @@ def print_results(
         box=box.ROUNDED,
         show_lines=True,
     )
-    table.add_column(style="bold", no_wrap=True)
-    table.add_column(justify="right")
-    skip_fields = ["timestamp", "design", "flow", "tools", "run_path"]
+    table.add_column(style="bold", min_width=8, no_wrap=True)
+    table.add_column(justify="right", min_width=8)
+    skip_fields = ["timestamp", "design", "flow", "tools", "run_path", "artifacts"]
     for k, v in results.items():
         skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
         if skipable and not v:
@@ -470,7 +470,7 @@ class FlowLauncher:
             if not flow.results.artifacts.get(k):
                 flow.results.artifacts[k] = v
 
-        if flow.artifacts and flow.succeeded:
+        if self.settings.display_results and flow.artifacts and flow.succeeded:
             table = Table(
                 box=box.SIMPLE,
                 show_header=True,
