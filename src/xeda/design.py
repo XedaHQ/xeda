@@ -296,13 +296,26 @@ class Clock(XedaBaseModel):
     port: str
 
 
+class Generator(XedaBaseModel):
+    cwd: Union[None, str] = None
+    executable: Optional[str] = None
+    args: Union[str, list[str]] = []
+    shell: bool = False
+    check: bool = True
+    env: Optional[Dict[str, str]] = None
+    # sweepable parameters used in command
+    parameters: dict = {}
+    # for xeda to know dependencies, clean previous artifacts, check after generation:
+    generated_sources: List[str] = []
+
+
 class RtlSettings(DVSettings):
     """design.rtl"""
 
     top: Optional[str] = Field(
         description="Toplevel RTL module/entity",
     )
-    generator: Union[None, str, List[str]] = None
+    generator: Union[None, str, List[str], Generator] = None
     attributes: Dict[str, Dict[str, Any]] = Field(
         dict(),
         description="""
@@ -635,19 +648,30 @@ class Design(XedaBaseModel):
         with WorkingDirectory(design_root):
             generator = data.get("rtl", {}).get("generator", None)
             if generator:
+                log.info("Running generator: %s", generator)
                 if isinstance(generator, str):
-                    args = generator.split()
+                    os.system(generator)
+                elif isinstance(generator, (dict, Generator)):
+                    if isinstance(generator, (dict)):
+                        generator = Generator(**generator)
+                    subprocess.run(
+                        generator.args,
+                        executable=generator.executable,
+                        cwd=generator.cwd,
+                        shell=generator.shell,
+                        check=generator.check,
+                        env=generator.env,
+                    )
                 else:
                     args = generator
-                gen_script = Path(args[0])
-                extension = gen_script.suffix
-                if extension == ".py":
-                    if not gen_script.exists():
-                        log.critical("Generator script not found: %s", gen_script)
-                        raise FileNotFoundError(gen_script)
-                    args.insert(0, sys.executable)
-                log.info("Running generator: %s", " ".join(args))
-                subprocess.run(args, check=True, cwd=design_root)
+                    # gen_script = Path(args[0])
+                    # extension = gen_script.suffix
+                    # if extension == ".py":
+                    #     if not gen_script.exists():
+                    #         log.critical("Generator script not found: %s", gen_script)
+                    #         raise FileNotFoundError(gen_script)
+                    #     args.insert(0, sys.executable)
+                    subprocess.run(args, check=True, cwd=design_root)
             try:
                 super().__init__(**data)
             except ValidationError as e:

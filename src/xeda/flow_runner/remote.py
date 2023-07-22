@@ -119,7 +119,7 @@ def get_env_var(conn, var):
     return result.stdout.strip()
 
 
-def get_login_env(conn) -> dict[str, str]:
+def get_login_env(conn) -> Dict[str, str]:
     result = conn.run("$SHELL -l -c env", hide=True, pty=False)
     assert result.ok
     lines_split = [line.split("=") for line in result.stdout.strip().split("\n")]
