@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import subprocess
-import sys
 from enum import Enum, auto
 from functools import cached_property
 from pathlib import Path
@@ -264,7 +263,7 @@ class DVSettings(XedaBaseModel):
     )
     defines: Dict[str, DefineType] = Field(default={})
 
-    @root_validator(pre=True)
+    @root_validator(pre=True, allow_reuse=True)
     def the_root_validator(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         value = values.get("parameters")
         if not value:
@@ -287,7 +286,9 @@ class DVSettings(XedaBaseModel):
                 try:
                     src = DesignSource(src)
                 except FileNotFoundError as e:
-                    raise ValueError(f"Source file: {src} was not found: {e.strerror} {e.filename}")
+                    raise ValueError(
+                        f"Source file: {src} was not found: {e.strerror} {e.filename}"
+                    ) from e
             sources.append(src)
         return sources
 
@@ -650,7 +651,7 @@ class Design(XedaBaseModel):
             if generator:
                 log.info("Running generator: %s", generator)
                 if isinstance(generator, str):
-                    os.system(generator)
+                    os.system(generator)  # nosec S605
                 elif isinstance(generator, (dict, Generator)):
                     if isinstance(generator, (dict)):
                         generator = Generator(**generator)
@@ -658,7 +659,7 @@ class Design(XedaBaseModel):
                         generator.args,
                         executable=generator.executable,
                         cwd=generator.cwd,
-                        shell=generator.shell,
+                        shell=generator.shell,  # nosec S602
                         check=generator.check,
                         env=generator.env,
                     )
@@ -677,7 +678,7 @@ class Design(XedaBaseModel):
             except ValidationError as e:
                 raise DesignValidationError(
                     validation_errors(e.errors()), data=data, design_root=design_root  # type: ignore
-                )
+                ) from e
 
             for dep in self.dependencies:
                 dep_design = dep.fetch_design()
@@ -743,10 +744,14 @@ class Design(XedaBaseModel):
         cls: Type[DesignType],
         design_file: Union[str, os.PathLike],
         design_root: Union[None, str, os.PathLike] = None,
-        overrides: Dict[str, Any] = {},
+        overrides: Optional[Dict[str, Any]] = None,
         allow_extra: bool = False,
-        remove_extra: List[str] = [],
+        remove_extra: Optional[List[str]] = None,
     ) -> DesignType:
+        if overrides is None:
+            overrides = {}
+        if remove_extra is None:
+            remove_extra = []
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
         assert design_file.suffix == ".toml"
@@ -763,11 +768,15 @@ class Design(XedaBaseModel):
         cls: Type[DesignType],
         design_file: Union[str, os.PathLike],
         design_root: Union[None, str, os.PathLike] = None,
-        overrides: Dict[str, Any] = {},
+        overrides: Optional[Dict[str, Any]] = None,
         allow_extra: bool = False,
-        remove_extra: List[str] = [],
+        remove_extra: Optional[List[str]] = None,
     ) -> DesignType:
         """Load and validate a design description from TOML file"""
+        if overrides is None:
+            overrides = {}
+        if remove_extra is None:
+            remove_extra = []
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
         if design_file.suffix == ".toml":
@@ -805,7 +814,7 @@ class Design(XedaBaseModel):
                 design_root=e.design_root,
                 design_name=e.design_name,
                 file=str(design_file.absolute()),
-            )
+            ) from e
         except Exception as e:
             log.error("Error processing design file: %s", design_file.absolute())
             raise e
