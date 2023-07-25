@@ -183,12 +183,16 @@ class Yosys(YosysBase, SynthFlow):
         insbuf: Union[None, Tuple[str, str, str], List[str]] = None
         merge_libs_to: Optional[str] = None
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("liberty", pre=True, always=True)
         def _validate_liberty(cls, value):
             if isinstance(value, (Path, str)):
                 value = [value]
             return value
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value):
             if isinstance(value, str) and not value.endswith(".toml"):
@@ -197,6 +201,8 @@ class Yosys(YosysBase, SynthFlow):
                 return AsicsPlatform.from_toml(value)
             return value
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("gates", pre=True, always=True)
         def _validate_commasep_to_list(cls, value):
             if isinstance(value, str):

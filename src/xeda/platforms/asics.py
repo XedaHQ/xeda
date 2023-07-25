@@ -3,7 +3,7 @@ from pathlib import Path
 import re
 from typing import Dict, List, Optional
 
-from pydantic import Field, validator
+from pydantic import model_validator, Field, validator
 from simpleeval import simple_eval
 
 from ..dataclass import XedaBaseModel, root_validator
@@ -86,6 +86,8 @@ class AsicsPlatform(Platform):
     klayout_lvs_file: Optional[Path] = None
     klayout_layer_prop_file: Optional[Path] = None
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator(
         "tiehi_cell",
         "tielo_cell",
@@ -111,7 +113,8 @@ class AsicsPlatform(Platform):
             return cnp_val[1]
         return value
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def _root_validator(cls, values):
         # log.debug("AsicsPlatform.root_validator: values=%s", str(values))
         for k in ["gds_files"]:
@@ -146,6 +149,8 @@ class AsicsPlatform(Platform):
         values["default_corner"] = default_corner
         return values
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("pwr_nets_voltages", "gnd_nets_voltages", always=True, pre=True)
     def _validate_nets_voltages(cls, value, values, field):
         if isinstance(value, str):

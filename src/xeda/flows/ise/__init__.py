@@ -98,6 +98,8 @@ class IseSynth(FpgaSynthFlow):
         xcf_file: Union[None, Path, str] = None
         ucf_files: List[Union[Path, str]] = []
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator(
             "synthesis_options",
             "map_options",

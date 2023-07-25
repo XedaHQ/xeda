@@ -343,6 +343,8 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         impl: RunOptions = RunOptions(strategy="Default")
         out_of_context: bool = False
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("synth", "impl", always=True)
         def validate_synth(cls, value, values, field):
             if value.strategy:

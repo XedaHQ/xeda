@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
-from pydantic.fields import ModelField
+from pydantic import FieldValidationInfo, field_validator
 
 from ..dataclass import (
     Field,
@@ -46,17 +46,17 @@ mapping = {
 }
 
 
-def expand_paths(field: Optional[ModelField], value):
-    if field is None or field.type_ not in (Path, Optional[Path]):
+def expand_paths(info: Optional[FieldValidationInfo], value):
+    if info is None or info.context.get() (Path, Optional[Path]):
         return value
     if isinstance(value, (tuple, list)):
-        return [expand_paths(field, v) for v in value]
+        return [expand_paths(info, v) for v in value]
     if isinstance(value, (str, Path)) and value and not os.path.isabs(value):
         for pattern, repl in mapping.items():
             if not os.path.isabs(value):
                 pat = re.escape(pattern + os.pathsep) + r"?"
                 value = Path(re.sub(pat, str(repl), str(value), count=1))
-                log.debug("Expanded path value for %s as %s", field.name, value.absolute())
+                log.debug("Expanded path value for %s as %s", info.field_name, value.absolute())
     return value
 
 
@@ -85,28 +85,32 @@ class Flow(metaclass=ABCMeta):
             False, description="Redirect stdout from execution of tools to files."
         )
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("verbose", pre=True, always=True)
         def _validate_verbose(cls, value):
             if not isinstance(value, int):
                 return try_convert(value, int, 0)
             return value
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("quiet", pre=True, always=True)
         def _validate_quiet(cls, value, values):
             if values.get("verbose") or values.get("debug"):
                 return False
             return value
 
-        timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
+        timeout_seconds: int = Field(3600 * 2)
         nthreads: Optional[int] = Field(
             None,
             alias="ncpus",
             description="Max number of threads",
         )
-        no_console: bool = Field(False, hidden_from_schema=True)
-        reports_dir: Path = Field(Path("reports"), hidden_from_schema=True)
-        checkpoints_dir: Path = Field(Path("checkpoints"), hidden_from_schema=True)
-        outputs_dir: Path = Field(Path("outputs"), hidden_from_schema=True)
+        no_console: bool = Field(False)
+        reports_dir: Path = Field(Path("reports"))
+        checkpoints_dir: Path = Field(Path("checkpoints"))
+        outputs_dir: Path = Field(Path("outputs"))
         clean: bool = False  # TODO remove!
         lib_paths: List[
             Union[
@@ -128,10 +132,14 @@ class Flow(metaclass=ABCMeta):
         dockerized: bool = Field(False, description="Run tools from docker")
         print_commands: bool = Field(True, description="Print executed commands")
 
-        @validator("*", pre=True, always=True)
-        def _expand_path_vars(cls, value, field: Optional[ModelField]):
-            return expand_paths(field, value)
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
+        @field_validator("*", mode="before")
+        def _expand_path_vars(cls, value, info: FieldValidationInfo):
+            return expand_paths(info, value)
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("lib_paths", pre=True, always=True)
         def _lib_paths_validator(cls, value):
             if isinstance(value, str):
@@ -145,7 +153,7 @@ class Flow(metaclass=ABCMeta):
                 log.debug("Settings.__init__(): data=%s", data)
                 super().__init__(**data)
             except ValidationError as e:
-                raise FlowSettingsError(validation_errors(e.errors()), e.model, e.json()) from e
+                raise FlowSettingsError(validation_errors(e.errors()), e.title, e.json()) from e
 
     class Results(Box):
         """Flow results"""

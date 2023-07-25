@@ -12,6 +12,7 @@ from ...design import Design
 from ...utils import HierDict, parse_xml, try_convert
 from ...flow import FpgaSynthFlow
 from ..vivado import Vivado
+from pydantic import field_validator
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +94,8 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         dummy_io_delay: bool = False  # set a dummy IO delay if they are not specified
         flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field("rebuilt")
 
-        @validator("fpga")
+        @field_validator("fpga")
+        @classmethod
         def _validate_fpga(cls, value):
             if not value or not value.part:
                 raise ValueError("FPGA.part must be specified")

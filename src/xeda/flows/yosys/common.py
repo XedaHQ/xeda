@@ -97,6 +97,8 @@ class YosysBase(Flow):
         )
         ltp: bool = Field(False, description="Print the longest topological path in the design.")
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("netlist_verilog_flags", pre=False, always=True)
         def _validate_netlist_flags(cls, value, values):
             def add_remove(key, flag, neg_flag=True):
@@ -115,12 +117,16 @@ class YosysBase(Flow):
             add_remove("netlist_simple_lhs", "-simple-lhs", False)
             return unique(value)
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("netlist_unset_attributes", pre=False, always=True)
         def _validate_netlist_unset_attributes(cls, value, values):
             if values.get("netlist_attrs") is True and values.get("netlist_src_attrs") is False:
                 value.append("src")
             return unique(value)
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("verilog_lib", pre=True, always=True)
         def validate_verilog_lib(cls, value):
             if isinstance(value, str):
@@ -128,6 +134,8 @@ class YosysBase(Flow):
             value = [str(Path(v).resolve(strict=True)) for v in value]
             return value
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("set_attribute", "set_mod_attribute", pre=True, always=True)
         def validate_set_attributes(cls, value):
             def format_attribute_value(v) -> Any:

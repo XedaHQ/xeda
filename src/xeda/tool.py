@@ -356,6 +356,8 @@ class Tool(XedaBaseModel):
             if self.info not in flow.results.tools:
                 flow.results.tools.append(self.info)
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("docker", pre=True, always=True)
     def validate_docker(cls, value, values):
         default_args = values.get("default_args", [])

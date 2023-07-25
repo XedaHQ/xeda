@@ -41,10 +41,14 @@ class EcpPLL(Tool):
             clock.name = "clk_i" if out_clk is None else f"clk_o_{out_clk}"
         return clock
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("clkin", always=True)
     def _validate_clockin(cls, value):
         return cls._fix_clock(value)
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("clkouts", always=True)
     def _validate_clockouts(cls, value):
         new_value = []
@@ -52,6 +56,8 @@ class EcpPLL(Tool):
             new_value.append(cls._fix_clock(v, i))
         return new_value
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("file", always=True)
     def _validate_outfile(cls, value, values):
         if not value:
@@ -115,6 +121,8 @@ class Nextpnr(FpgaSynthFlow):
         parallel_refine: bool = False
         yosys: Optional[YosysFpga.Settings] = None
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("yosys", always=True, pre=False)
         def _validate_yosys(cls, value, values):
             clocks = values.get("clocks")

@@ -30,6 +30,7 @@ from .utils import (
     settings_to_dict,
     toml_load,
 )
+from pydantic import model_validator
 
 log = logging.getLogger(__name__)
 
@@ -253,17 +254,16 @@ class DVSettings(XedaBaseModel):
         default={},
         description="Top-level generics/defines specified as a mapping",
         alias="parameters",
-        has_alias=True,
     )  # top defines/generics
     parameters: Dict[str, DefineType] = Field(
         default={},
         description="Top-level generics/defines specified as a mapping",
         alias="generics",
-        has_alias=True,
     )
     defines: Dict[str, DefineType] = Field(default={})
 
-    @root_validator(pre=True, allow_reuse=True)
+    @model_validator(mode="before")
+    @classmethod
     def the_root_validator(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         value = values.get("parameters")
         if not value:
@@ -276,6 +276,8 @@ class DVSettings(XedaBaseModel):
             values["parameters"] = value
         return values
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("sources", pre=True, always=True)
     def sources_to_files(cls, value):
         if isinstance(value, (str, Path, DesignSource)):
@@ -334,7 +336,8 @@ class RtlSettings(DVSettings):
     clock: Optional[Clock] = None  # DEPRECATED # TODO remove
     clock_port: Optional[str] = None  # TODO remove?
 
-    @root_validator(pre=False)
+    @model_validator()
+    @classmethod
     def rtl_settings_validate(cls, values):  # pylint: disable=no-self-argument
         """copy equivalent clock fields (backward compatibility)"""
         clock = values.get("clock")
@@ -371,6 +374,8 @@ class TbSettings(DVSettings):
     )
     cocotb: bool = Field(False, description="testbench is based on cocotb framework")
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("top", pre=True, always=True)
     def _tb_top_validate(cls, value) -> Tuple012:
         if value:
@@ -382,7 +387,8 @@ class TbSettings(DVSettings):
                 return tuple(value)
         return tuple()
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def _tb_root_validate(cls, values):
         sources_value = values.get("sources", [])
         if isinstance(sources_value, (str, Path)):
@@ -411,6 +417,8 @@ class LanguageSettings(XedaBaseModel):
         has_alias=True,
     )
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("standard", pre=True)
     def two_digit_standard(cls, value, values):
         if not value:
@@ -426,7 +434,8 @@ class LanguageSettings(XedaBaseModel):
                 value = value[2:]
         return value
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def language_root_validator(cls, values):
         if "standard" in values:
             values["version"] = values["standard"]
@@ -490,6 +499,8 @@ class GitReference(DesignReference):
     branch: Optional[str] = None
     clone_dir: Optional[Path] = None
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("clone_dir", pre=True, always=True)
     def validate_clone_dir(cls, value, values):
         repo_url = values.get("repo_url")
@@ -508,7 +519,8 @@ class GitReference(DesignReference):
                 return Path(local_cache) / uri.netloc / uri_path
         return value
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_repo(cls, values):
         repo_url = None
         design_file_path = None
@@ -615,18 +627,24 @@ class Design(XedaBaseModel):
     version: Optional[str] = None
     url: Optional[str] = None
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("flow", pre=True, always=True)
     def _flow_settings(cls, value):
         if value:
             value = settings_to_dict(value)
         return value
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("dependencies", pre=True, always=True)
     def _dependencies_from_str(cls, value):
         if value and isinstance(value, list):
             value = [DesignReference.from_data(v) for v in value]
         return value
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("authors", pre=True, always=True)
     def _authors_from_str(cls, value):
         if isinstance(value, str):

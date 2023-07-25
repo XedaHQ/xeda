@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Literal, Optional, Union
 
 from importlib_resources import as_file, files
-from pydantic import Field, confloat, validator
+from pydantic import Field, validator
 
 from ...design import SourceType
 from ...flow import AsicSynthFlow
@@ -112,16 +112,16 @@ class Openroad(AsicSynthFlow):
         io_place_random: bool = False
         # place
         place_density: Union[None, float, str] = None
-        place_density_lb_addon: Optional[confloat(ge=0.0, lt=1)] = None  # type: ignore
+        place_density_lb_addon: Optional[Field(ge=0.0, lt=1)] = None  # type: ignore
         dont_use_cells: List[str] = []
         place_pins_args: List[str] = []
         blocks: List[str] = []
         global_placement_args: List[str] = []
-        min_phi_coef: Optional[confloat(ge=0.95, le=1.05)] = Field(  # type: ignore
+        min_phi_coef: Optional[Field(ge=0.95, le=1.05)] = Field(  # type: ignore
             None,
             description="set pcof_min (µ_k Lower Bound). Default value is 0.95. Allowed values are [0.95-1.05]",
         )
-        max_phi_coef: Optional[confloat(ge=1.00, le=1.20)] = Field(  # type: ignore
+        max_phi_coef: Optional[Field(ge=1.00, le=1.20)] = Field(  # type: ignore
             None,
             description="set  pcof_max (µ_k Upper Bound) . Default value is 1.05. Allowed values are [1.00-1.20]",
         )
@@ -129,7 +129,7 @@ class Openroad(AsicSynthFlow):
         congestion_iterations: int = 100
         global_routing_layer_adjustment: float = 0.5
         repair_antennas: bool = False
-        update_sdc_margin: Optional[confloat(gt=0.0, lt=1.0)] = Field(0.05, description="If set, write an SDC file with clock periods that result in slightly (value * clock_period) negative slack (failing).")  # type: ignore
+        update_sdc_margin: Optional[Field(gt=0.0, lt=1.0)] = Field(0.05, description="If set, write an SDC file with clock periods that result in slightly (value * clock_period) negative slack (failing).")  # type: ignore
         # detailed_route
         detailed_route_or_seed: Optional[int] = None
         detailed_route_or_k: Optional[int] = None
@@ -165,6 +165,8 @@ class Openroad(AsicSynthFlow):
         save_images: bool = True
         generate_gds: bool = True
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value, values):
             if isinstance(value, str) and not value.endswith(".toml"):
@@ -179,6 +181,8 @@ class Openroad(AsicSynthFlow):
                     value.default_corner = corner
             return value
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("input_delay", "output_delay", pre=True, always=True)
         def _validate_values_units_to_ps(cls, value):
             if isinstance(value, str):

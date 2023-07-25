@@ -7,6 +7,7 @@ from importlib_resources import as_file, files
 from .dataclass import root_validator
 from .flow import FPGA, FpgaSynthFlow
 from .utils import toml_load
+from pydantic import model_validator
 
 __all__ = [
     "get_board_file_path",
@@ -51,7 +52,8 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
     board: Optional[str] = None
     custom_boards_file: Optional[str] = None
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def _fpga_validate(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         board_name = values.get("board")
         log.debug("_fpga_validate! board_name=%s", board_name)

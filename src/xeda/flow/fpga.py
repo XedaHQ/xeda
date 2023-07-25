@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 from ..dataclass import Field, XedaBaseModel, root_validator
 from ..utils import try_convert
+from pydantic import model_validator
 
 log = logging.getLogger(__name__)
 
@@ -16,16 +17,16 @@ class FPGA(XedaBaseModel):
 
     # definition order: part > device > vendor > {family, speed, package, etc}
     part: Optional[str] = Field(None, description="full device part identifier")
-    device: Optional[str]
-    vendor: Optional[str]
-    family: Optional[str]
-    generation: Optional[str]
-    type: Optional[str]
+    device: Optional[str] = None
+    vendor: Optional[str] = None
+    family: Optional[str] = None
+    generation: Optional[str] = None
+    type: Optional[str] = None
     speed: Optional[str] = Field(None, description="speed-grade")
-    package: Optional[str]
-    capacity: Optional[str]
-    pins: Optional[int]
-    grade: Optional[str]
+    package: Optional[str] = None
+    capacity: Optional[str] = None
+    pins: Optional[int] = None
+    grade: Optional[str] = None
 
     def __init__(self, *args: str, **data: Any) -> None:
         if args:
@@ -46,7 +47,8 @@ class FPGA(XedaBaseModel):
         super().__init__(**data)
 
     # this is called before all field validators!
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def _fpga_root_validator(cls, values):  # pylint: disable=no-self-argument
         if not values:
             return values

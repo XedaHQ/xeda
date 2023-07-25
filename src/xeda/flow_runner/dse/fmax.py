@@ -65,6 +65,8 @@ class FmaxOptimizer(Optimizer):
         # min improvement inf frequency before increasing variations
         variation_min_improv: float = 2.0
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("init_freq_high")
         def validate_init_freq(cls, value, values):
             assert (

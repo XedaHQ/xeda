@@ -70,6 +70,8 @@ def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str
 
 
 class XedaBaseModel(BaseModel):
+    # TODO[pydantic]: The `Config` class inherits from another class, please create the `model_config` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-config for more information.
     class Config(BaseConfig):
         validate_assignment = True
         extra = Extra.forbid
@@ -86,6 +88,8 @@ class XedaBaseModel(BaseModel):
 
 
 class XedaBaseModelAllowExtra(XedaBaseModel, metaclass=ABCMeta):
+    # TODO[pydantic]: The `Config` class inherits from another class, please create the `model_config` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-config for more information.
     class Config(XedaBaseModel.Config):
         extra = Extra.allow
 

@@ -5,7 +5,7 @@ from abc import ABCMeta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pydantic import confloat
+from pydantic import model_validator, Field
 
 from ..dataclass import Field, XedaBaseModel, root_validator, validator
 from ..design import Design
@@ -13,6 +13,7 @@ from ..units import convert_unit
 from ..utils import first_value
 from .flow import Flow, FlowSettingsError
 from .fpga import FPGA
+from typing_extensions import Annotated
 
 log = logging.getLogger(__name__)
 
@@ -33,15 +34,19 @@ class PhysicalClock(XedaBaseModel):
         description="Clock frequency (MHz). Either (and only one of) 'period' OR 'freq' have to be specified."
     )
     rise: float = Field(0.0, description="Rising time of clock (ns)")
-    duty_cycle: confloat(gt=0.0, lt=1.0) = Field(0.5, description="Duty cycle (0.0..1.0)")  # type: ignore
+    duty_cycle: Annotated[float, Field(gt=0.0, lt=1.0)] = Field(0.5, description="Duty cycle (0.0..1.0)")  # type: ignore
     uncertainty: Optional[float] = Field(None, description="Clock uncertainty")
     skew: Optional[float] = Field(None, description="skew")
     port: Optional[str] = Field(None, description="associated design port")
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("freq", pre=True, always=True)
     def freq_validator(cls, value):
         return convert_unit(value, "MHz")
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("period", "rise", "duty_cycle", "uncertainty", "skew", pre=True, always=True)
     def time_validator(cls, value):
         if value is not None:
@@ -80,7 +85,8 @@ class PhysicalClock(XedaBaseModel):
             return self.period
         return convert_unit(self.period, to_unit=unit, from_unit="nanosecond")
 
-    @root_validator(pre=True, skip_on_failure=True)
+    @model_validator(mode="before", skip_on_failure=True)
+    @classmethod
     @classmethod
     def root_validate_phys_clock(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         freq = values.get("freq")
@@ -115,6 +121,8 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         clocks: Dict[str, PhysicalClock] = Field({}, description="Design clocks")
         blacklisted_resources: List[str] = []
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("clocks", pre=True, always=True)
         def _clocks_validate(cls, value, values):  # pylint: disable=no-self-argument
             clock_period = values.get("clock_period")
@@ -124,6 +132,8 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                 }
             return value
 
+        # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+        # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
         @validator("clock_period", pre=True, always=True)
         def _clock_period_validate(cls, value, values):  # pylint: disable=no-self-argument
             clocks = values.get("clocks")
@@ -133,7 +143,8 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                     value = clk.period
             return value
 
-        @root_validator(pre=True)
+        @model_validator(mode="before")
+        @classmethod
         def _synthflow_settings_root_validator(cls, values):
             """
             if we only have 1 clock OR a clock named main_clock:

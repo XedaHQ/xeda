@@ -14,6 +14,7 @@ from ..dataclass import (
 from ..design import Design
 from .flow import Flow
 from ..cocotb import Cocotb, CocotbSettings
+from pydantic import field_validator
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +34,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
         cocotb: CocotbSettings = CocotbSettings()  # pyright: reportGeneralTypeIssues=none
         optimization_flags: List[str] = Field([], description="Optimization flags")
 
-        @validator("vcd", pre=True)
+        @field_validator("vcd", mode="before")
+        @classmethod
         def _validate_vcd(cls, vcd):  # pylint: disable=no-self-argument
             if vcd is not None:
                 if isinstance(vcd, bool) and vcd is True:

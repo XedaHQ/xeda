@@ -4,6 +4,7 @@ from typing import List, Literal, Optional
 from ...dataclass import validator
 from ...tool import Tool
 from ...flow import FpgaSynthFlow
+from pydantic import field_validator
 
 log = logging.getLogger(__name__)
 
@@ -15,7 +16,8 @@ class DiamondSynth(FpgaSynthFlow):
         syn_cmdline_args: Optional[List[str]] = None
         synthesis_engine: Literal["lse", "synplify"] = "lse"
 
-        @validator("syn_cmdline_args", pre=True)
+        @field_validator("syn_cmdline_args", mode="before")
+        @classmethod
         def validate_syn_cmdline_args(cls, syn_cmdline_args: Optional[List[str]]) -> List[str]:
             if syn_cmdline_args is None:
                 syn_cmdline_args = []
