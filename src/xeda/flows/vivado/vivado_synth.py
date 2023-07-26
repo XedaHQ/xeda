@@ -16,7 +16,7 @@ from ..vivado import Vivado
 log = logging.getLogger(__name__)
 
 
-StepsValType = Optional[Dict[str, Any]]
+StepsValType = Union[None, List[str], Dict[str, Any]]
 
 
 def vivado_synth_generics(design: Design) -> List[str]:

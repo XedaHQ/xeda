@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Union
 
 from ...dataclass import validator
 from ...flow import FpgaSynthFlow
@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 
 # curated options based on experiments and Vivado documentations
 # and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
-strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
+strategies: Dict[str, Dict[str, Union[None, List[str], Dict[str, Any]]]] = {
     "synth": {
         "Debug": {
             "synth": {
