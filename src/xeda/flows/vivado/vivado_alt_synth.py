@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional
 
 from ...dataclass import validator
 from ...flow import FpgaSynthFlow
@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 
 # curated options based on experiments and Vivado documentations
 # and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
-strategies: Dict[str, Dict[str, Union[None, List[str], Dict[str, Any]]]] = {
+strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
     "synth": {
         "Debug": {
             "synth": {
@@ -386,14 +386,21 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
-        if ss.out_of_context:
-            if "synth" in ss.synth.steps and ss.synth.steps["synth"] is not None:
-                ss.synth.steps["synth"]["mode"] = "out_of_context"
-
-        # always need a synth step?
         synth_steps = ss.synth.steps.get("synth")
         if synth_steps is None:
             synth_steps = {}
+        if not isinstance(synth_steps, dict):
+            synth_steps = {s: None for s in synth_steps}
+
+        if ss.out_of_context:
+            if "synth" in ss.synth.steps and ss.synth.steps["synth"] is not None:
+                if isinstance(ss.synth.steps["synth"], dict):
+                    ss.synth.steps["synth"]["mode"] = "out_of_context"
+                else:
+                    ss.synth.steps["synth"].append("-mode out_of_context")
+
+            # always need a synth step?
+            ss.synth.steps["synth"] = synth_steps
         if any(x in ss.blacklisted_resources for x in ("bram_tile", "bram")):
             # FIXME also add "max_uram 0", only for UltraScale+ devices
             synth_steps["max_bram"] = 0

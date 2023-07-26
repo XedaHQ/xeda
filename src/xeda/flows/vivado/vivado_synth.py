@@ -152,7 +152,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         if settings.synth.steps["SYNTH_DESIGN"] is None:
             settings.synth.steps["SYNTH_DESIGN"] = {}
-        assert settings.synth.steps["SYNTH_DESIGN"] is not None
+        assert isinstance(settings.synth.steps["SYNTH_DESIGN"], dict)
         if any(item in settings.blacklisted_resources for item in ("bram_tile", "bram")):
             # FIXME also add -max_uram 0 for ultrascale+
             settings.synth.steps["SYNTH_DESIGN"]["MAX_BRAM"] = 0
