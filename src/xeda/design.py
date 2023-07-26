@@ -300,7 +300,7 @@ class Clock(XedaBaseModel):
 class Generator(XedaBaseModel):
     cwd: Union[None, str] = None
     executable: Optional[str] = None
-    args: Union[str, list[str]] = []
+    args: Union[str, List[str]] = []
     shell: bool = False
     check: bool = True
     env: Optional[Dict[str, str]] = None
