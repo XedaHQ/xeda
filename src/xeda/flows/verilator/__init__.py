@@ -101,8 +101,6 @@ class Verilator(SimFlow):
 
         args += ["-Mdir", ss.sim_dir]
 
-        args.append("--public-flat-rw")
-
         if top:
             args += ["--top-module", top]
         else:
@@ -115,6 +113,7 @@ class Verilator(SimFlow):
 
         if self.cocotb or ss.vpi:
             args.append("--vpi")
+            args.append("--public-flat-rw")
 
         if verilator.version_gte(5):
             if ss.timing:
