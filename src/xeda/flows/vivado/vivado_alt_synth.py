@@ -288,21 +288,15 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
                 "-rewire",
             ],
         },
-        "AreaExploreWithRemap": {
-            "place": {"directive": "Default"},
-            "place_opt": {"directive": "ExploreWithRemap"},
-            "phys_opt": {"directive": "Explore"},
-            "route": {"directive": "Explore"},
-        },
-        "AreaExploreWithRemap2": {
-            "place": {"directive": "Default"},
-            "place_opt": {"directive": "ExploreWithRemap"},
-            "phys_opt": {"directive": "Explore"},
-            "route": {"directive": "Explore"},
-        },
         "AreaExplore": {
             "place": {"directive": "Default"},
             "place_opt": {"directive": "ExploreArea"},
+            "phys_opt": {"directive": "Explore"},
+            "route": {"directive": "Explore"},
+        },
+        "AreaExploreWithRemap": {
+            "place": {"directive": "Default"},
+            "place_opt": {"directive": "ExploreWithRemap"},
             "phys_opt": {"directive": "Explore"},
             "route": {"directive": "Explore"},
         },
