@@ -1,10 +1,12 @@
 from __future__ import annotations
+from glob import glob
 
 import hashlib
 import inspect
 import json
 import logging
 import os
+import re
 import subprocess
 from enum import Enum, auto
 from functools import cached_property
@@ -26,7 +28,6 @@ from .utils import (
     WorkingDirectory,
     expand_hierarchy,
     hierarchical_merge,
-    removeprefix,
     settings_to_dict,
     toml_load,
 )
@@ -278,10 +279,26 @@ class DVSettings(XedaBaseModel):
 
     @validator("sources", pre=True, always=True)
     def sources_to_files(cls, value):
+        def src_with_type(src, stc_type):
+            if stc_type:
+                return {"file": src, "type": src_type}
+            return src
+
         if isinstance(value, (str, Path, DesignSource)):
             value = [value]
         sources = []
         for src in value:
+            if isinstance(src, str):
+                src_type = None
+                m = re.match(r"^([a-zA-Z0-9_]*)\:(.*)", src)
+                if m:
+                    src = m.group(2)
+                    src_type = SourceType.from_str(m.group(1))
+                if src.count("*") > 0:
+                    glob_sources = glob(src)
+                    sources.extend([DesignSource(src_with_type(s, src_type)) for s in glob_sources])
+                    continue  # skip the append at the bottom
+                src = src_with_type(src, src_type)
             if not isinstance(src, DesignSource):
                 try:
                     src = DesignSource(src)
@@ -362,6 +379,7 @@ class RtlSettings(DVSettings):
 class TbSettings(DVSettings):
     """design.tb"""
 
+    sources: List[DesignSource] = []
     top: Tuple012 = Field(
         tuple(),
         description="Toplevel testbench module(s), specified as a tuple of strings. In addition to the primary toplevel, a secondary toplevel module can also be specified.",
@@ -369,7 +387,7 @@ class TbSettings(DVSettings):
     uut: Optional[str] = Field(
         None, description="instance name of the unit under test in the testbench"
     )
-    cocotb: bool = Field(False, description="testbench is based on cocotb framework")
+    cocotb: Optional[bool] = Field(None, description="testbench is based on cocotb framework")
 
     @validator("top", pre=True, always=True)
     def _tb_top_validate(cls, value) -> Tuple012:
@@ -382,19 +400,33 @@ class TbSettings(DVSettings):
                 return tuple(value)
         return tuple()
 
-    @root_validator(pre=True)
-    def _tb_root_validate(cls, values):
-        sources_value = values.get("sources", [])
-        if isinstance(sources_value, (str, Path)):
-            sources_value = [sources_value]
-        sources = []
-        for src in sources_value:
-            if isinstance(src, str) and src.startswith("cocotb:") and src.endswith(".py"):
-                src = {"file": removeprefix(src, "cocotb:"), "type": SourceType.Cocotb}
-                values["cocotb"] = True
-            sources.append(src)
-        values["sources"] = sources
-        return values
+    @validator("cocotb", pre=False, always=True)
+    def _auto_set_cocotb(cls, value, values):
+        if value is None:
+            sources = values.get("sources", [])
+            for src in sources:
+                if isinstance(src, DesignSource) and src.type == SourceType.Cocotb:
+                    return True
+                if isinstance(src, dict) and src.get("type") in ["cocotb", SourceType.Cocotb]:
+                    return True
+                if isinstance(src, str) and src.startswith("cocotb:") and src.endswith(".py"):
+                    return True
+            return False
+        return value
+
+    # @root_validator(pre=True)
+    # def _tb_root_validate(cls, values):
+    #     sources_value = values.get("sources", [])
+    #     if isinstance(sources_value, (str, Path)):
+    #         sources_value = [sources_value]
+    #     sources = []
+    #     for src in sources_value:
+    #         if isinstance(src, str) and src.startswith("cocotb:") and src.endswith(".py"):
+    #             src = {"file": removeprefix(src, "cocotb:"), "type": SourceType.Cocotb}
+    #             values["cocotb"] = True
+    #         sources.append(src)
+    #     values["sources"] = sources
+    #     return values
 
 
 class LanguageSettings(XedaBaseModel):
