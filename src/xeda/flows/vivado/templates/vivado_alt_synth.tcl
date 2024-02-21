@@ -41,7 +41,7 @@ if {[lsearch -exact $parts $fpga_part] < 0} {
 puts "Targeting device: $fpga_part"
 
 {% for src in design.rtl.sources %}
-{%- if src.type.name == "Verilog" %}
+{% if src.type.name == "Verilog" %}
 puts "Reading Verilog file {{src.file}}"
 if { [catch {eval read_verilog {{src.file}} } myError]} {
     errorExit $myError
@@ -53,7 +53,7 @@ if { [catch {eval read_verilog -sv {{src.file}} } myError]} {
 }
 {%- elif src.type.name == "Vhdl" %}
 puts "Reading VHDL file {{src.file}}"
-if { [catch {eval read_vhdl {%- if design.language.vhdl.standard == "08" %} -vhdl2008 {%- endif %} {{src.file}} } myError]} {
+if { [catch {eval read_vhdl {% if design.language.vhdl.standard == "08" %} -vhdl2008 {%- endif %} {{src.file}} } myError]} {
     errorExit $myError
 }
 {%- endif %}
@@ -69,19 +69,19 @@ read_xdc {{xdc_file}}
 puts "\n===========================( RTL Synthesize and Map )==========================="
 eval synth_design -part $fpga_part -top {{design.rtl.top}} {{settings.synth.steps.synth|flatten_options}} {{design.rtl.generics|vivado_generics}}
 
-{%- if settings.synth.strategy == "Debug" %}
+{% if settings.synth.strategy == "Debug" %}
 set_property KEEP_HIERARCHY true [get_cells -hier * ]
 set_property DONT_TOUCH true [get_cells -hier * ]
 {%- endif %}
 showWarningsAndErrors
 
 
-{%- if settings.synth.steps.opt is not none %}
+{% if settings.synth.steps.opt is not none %}
 puts "\n==============================( Optimize Design )================================"
 eval opt_design {{settings.synth.steps.opt|flatten_options}}
 {%- endif %}
 
-{%- if settings.write_checkpoint %}
+{% if settings.write_checkpoint %}
 write_checkpoint -force ${checkpoints_dir}/post_synth
 {%- endif %}
 report_timing_summary -file ${reports_dir}/post_synth/timing_summary.rpt
@@ -91,7 +91,7 @@ report_utilization -hierarchical -force -file ${reports_dir}/post_synth/hierarch
 
 {# post-synth and post-place power optimization steps are mutually exclusive! #}
 {# TODO: check this is still the case with the most recent versions of Vivado #}
-{%- if settings.synth.steps.power_opt and not settings.impl.steps.power_opt %}
+{% if settings.synth.steps.power_opt and not settings.impl.steps.power_opt %}
 puts "\n===============================( Post-synth Power Optimization )================================"
 # this is more effective than Post-placement Power Optimization but can hurt timing
 eval power_opt_design
@@ -104,19 +104,19 @@ eval place_design {{settings.impl.steps.place|flatten_options}}
 showWarningsAndErrors
 
 
-{%- if settings.impl.steps.power_opt %}
+{% if settings.impl.steps.power_opt %}
 puts "\n===============================( Post-placement Power Optimization )================================"
 eval power_opt_design
 report_power_opt -file ${reports_dir}/post_place/post_place_power_optimization.rpt
 showWarningsAndErrors
 {%- endif %}
 
-{%- if settings.impl.steps.place_opt is not none %}
+{% if settings.impl.steps.place_opt is not none %}
 
 puts "\n==============================( Post-place optimization )================================"
 eval opt_design {{settings.impl.steps.place_opt|flatten_options}}
 
-{%- if settings.impl.steps.place_opt2 is not none %}
+{% if settings.impl.steps.place_opt2 is not none %}
 puts "\n==============================( Post-place optimization 2)================================"
 eval opt_design {{settings.impl.steps.place_opt2|flatten_options}}
 {%- endif %}
@@ -124,17 +124,17 @@ eval opt_design {{settings.impl.steps.place_opt2|flatten_options}}
 {%- endif %}
 
 
-{%- if settings.impl.steps.phys_opt is not none %}
+{% if settings.impl.steps.phys_opt is not none %}
 puts "\n========================( Post-place Physical Optimization )=========================="
 eval phys_opt_design {{settings.impl.steps.phys_opt|flatten_options}}
 
-{%- if settings.impl.steps.phys_opt is not none %}
+{% if settings.impl.steps.phys_opt is not none %}
 puts "\n========================( Post-place Physical Optimization 2 )=========================="
 eval phys_opt_design {{settings.impl.steps.phys_opt|flatten_options}}
 {%- endif %}
 {%- endif %}
 
-{%- if settings.write_checkpoint %}
+{% if settings.write_checkpoint %}
 write_checkpoint -force ${checkpoints_dir}/post_place
 report_timing_summary -file ${reports_dir}/post_place/timing_summary.rpt
 report_utilization -hierarchical -force -file ${reports_dir}/post_place/hierarchical_utilization.rpt
@@ -144,13 +144,13 @@ puts "\n================================( Route Design )========================
 eval route_design {{settings.impl.steps.route|flatten_options}}
 showWarningsAndErrors
 
-{%- if settings.impl.steps.post_route_phys_opt is not none %}
+{% if settings.impl.steps.post_route_phys_opt is not none %}
 puts "\n=========================( Post-Route Physical Optimization )=========================="
 phys_opt_design {{settings.impl.steps.post_route_phys_opt|flatten_options}}
 showWarningsAndErrors
 {%- endif %}
 
-{%- if settings.write_checkpoint %}
+{% if settings.write_checkpoint %}
 puts "\n=============================( Writing Checkpoint )=============================="
 write_checkpoint -force ${checkpoints_dir}/post_route
 {%- endif %}
@@ -167,14 +167,14 @@ report_utilization                 -file [file join ${rep_dir} utilization.rpt]
 report_utilization                 -file [file join ${rep_dir} utilization.xml] -format xml
 report_utilization -hierarchical   -file [file join ${rep_dir} hierarchical_utilization.xml] -format xml
 
-{%- if settings.extra_reports %}
+{% if settings.extra_reports -%}
 report_clock_utilization           -file [file join ${rep_dir} clock_utilization.rpt]
 report_power                       -file [file join ${rep_dir} power.rpt]
 report_drc                         -file [file join ${rep_dir} drc.rpt]
 report_methodology                 -file [file join ${rep_dir} methodology.rpt]
 {%- endif %}
 
-{%- if settings.qor_suggestions %}
+{% if settings.qor_suggestions -%}
 report_qor_suggestions             -file [file join ${rep_dir} qor_suggestions.rpt]
 {%- endif %}
 
@@ -185,13 +185,13 @@ if {[string is double -strict $timing_slack]} {
 
     if {[string is double -strict $timing_slack] && ($timing_slack < 0)} {
         puts "ERROR: Failed to meet timing by $timing_slack, see ${timing_summary_file} for details"
-        {%- if settings.fail_timing %}
+        {% if settings.fail_timing %}
         exit 1
         {%- endif %}
     }
 }
 
-{%- if settings.write_netlist %}
+{% if settings.write_netlist -%}
 puts "\n==========================( Writing Netlist and SDF )============================="
 write_verilog -mode funcsim -force ${settings.outputs_dir}/impl_funcsim.v
 write_sdf -mode timesim -process_corner slow -force -file ${settings.outputs_dir}/impl_timesim.sdf
@@ -201,7 +201,7 @@ write_verilog -mode timesim -sdf_anno false -force -file ${settings.outputs_dir}
 write_xdc -no_fixed_only -force ${settings.outputs_dir}/impl.xdc
 {%- endif %}
 
-{%- if settings.write_bitstream %}
+{% if settings.write_bitstream -%}
 puts "\n==============================( Writing Bitstream )==============================="
 write_bitstream -force ${settings.outputs_dir}/bitstream.bit
 {%- endif %}

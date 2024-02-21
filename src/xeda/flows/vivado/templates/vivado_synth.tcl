@@ -16,7 +16,7 @@ set_msg_config -id "\[{{msg}}\]" -suppress
 
 puts "\n=====================( Read Design Files and Constraints )====================="
 {%- for src in design.rtl.sources %}
-{%- if src.type.name == "Verilog" %}
+{% if src.type.name == "Verilog" %}
 puts "Reading Verilog file {{src.file}}"
 if { [catch {eval read_verilog {{src.file}} } myError]} {
     errorExit $myError
@@ -52,12 +52,12 @@ set_property strategy {{settings.synth.strategy}} [get_runs synth_1]
 set avail_impl_strategies [join [list_property_value strategy [get_runs impl_1] ] " "]
 puts "\n Available implementation strategies:\n  $avail_impl_strategies\n"
 
-{%- if settings.impl.strategy %}
+{% if settings.impl.strategy %}
 puts "Using {{settings.impl.strategy}} strategy for implementation."
 set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
 {%- endif %}
 
-{%- if generics %}
+{% if generics %}
 set_property generic {% raw -%} { {%- endraw -%} {{generics}} {%- raw -%} } {%- endraw %} [current_fileset]
 {%- endif %}
 
@@ -65,7 +65,7 @@ set_property generic {% raw -%} { {%- endraw -%} {{generics}} {%- raw -%} } {%- 
 #{# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug835-vivado-tcl-commands.pdf #}
 {%- for step,options in settings.synth.steps.items() %}
 {%- for name,value in options.items() %}
-{%- if value is mapping %}
+{% if value is mapping %}
 {%- for k,v in value.items() %}
 set_property STEPS.{{step}}.{{name}}.{{k}} {{v}} [get_runs synth_1]
 {%- endfor %}
@@ -77,7 +77,7 @@ set_property STEPS.{{step}}.{{name}} {{value}} [get_runs synth_1]
 
 {%- for step,options in settings.impl.steps.items() %}
 {%- for name,value in options.items() %}
-{%- if value is mapping %}
+{% if value is mapping %}
 {%- for k,v in value.items() %}
 set_property STEPS.{{step}}.{{name}}.{{k}} {{v}} [get_runs impl_1]
 {%- endfor %}
@@ -96,12 +96,12 @@ set_property STEPS.ROUTE_DESIGN.TCL.POST [pwd]/{{reports_tcl}} [get_runs impl_1]
 # create_report_config -report_type report_utilization -report_name post_route_hier_report -steps route_design -runs [get_runs impl_1] -options {-hierarchical -format xml}
 
 puts "\n=============================( Running Synthesis )============================="
-launch_runs synth_1 {%- if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %}
+launch_runs synth_1 {% if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %}
 wait_on_run synth_1
 # renamed to wait_on_runs in Vivado 2021.2
 
 puts "\n===========================( Running Implementation )=========================="
-launch_runs impl_1 {%-if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %} {%- if not settings.write_bitstream %} -to_step route_design {%- endif %}
+launch_runs impl_1 {%-if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %} {% if not settings.write_bitstream %} -to_step route_design {%- endif %}
 wait_on_run impl_1
 
 puts "\n====================================( DONE )==================================="
