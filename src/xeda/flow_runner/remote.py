@@ -145,6 +145,10 @@ class RemoteRunner(FlowLauncher):
         from fabric import Connection
         from fabric.transfer import Transfer
 
+        host_split = host.split(":")
+        if port is None and len(host_split) == 2 and host_split[1].isnumeric():
+            host = host_split[0]
+            port = int(host_split[1])
         if not isinstance(design, Design):
             design = Design.from_file(design)
         design_hash = semantic_hash(
@@ -153,11 +157,11 @@ class RemoteRunner(FlowLauncher):
                 tb_hash=design.tb_hash,
             )
         )
-        conn = Connection(host=host, user=user, port=port)
         log.info(
             "Connecting to %s%s%s...", f"{user}@" if user else "", host, f":{port}" if port else ""
         )
-
+        conn = Connection(host=host, user=user, port=port)
+        log.info("logging in...")
         remote_env = get_login_env(conn)
         remote_env_path = remote_env.get("PATH", "")
         remote_home = remote_env.get("HOME")
@@ -186,7 +190,7 @@ class RemoteRunner(FlowLauncher):
         if user:
             ssh_opt = f"{user}@{ssh_opt}"
         if port:
-            ssh_opt += f"-p {port}"
+            ssh_opt += f" -p {port}"
 
         python_exec = "python3"
 
