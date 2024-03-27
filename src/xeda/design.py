@@ -30,6 +30,7 @@ from .utils import (
     hierarchical_merge,
     settings_to_dict,
     toml_load,
+    removesuffix,
 )
 
 log = logging.getLogger(__name__)
@@ -139,6 +140,9 @@ class FileResource:
     def __repr__(self) -> str:
         return f"file:{self.file}"
 
+    def get_specified_path(self):
+        return self._specified_path
+
 
 class SourceType(str, Enum):
     Bluespec = auto()
@@ -156,16 +160,16 @@ class SourceType(str, Enum):
         return str(self.name)
 
     @classmethod
-    def from_str(cls, type: str) -> Optional[SourceType]:
+    def from_str(cls, source_type: str) -> Optional[SourceType]:
         try:
-            return cls[type]
+            return cls[source_type]
         except KeyError:
             pass
         try:
-            return cls[type.capitalize()]
+            return cls[source_type.capitalize()]
         except KeyError:
             for k, v in cls.__members__.items():
-                if k.lower() == type.lower():
+                if k.lower() == source_type.lower():
                     return v
             return None
 
@@ -498,10 +502,10 @@ class DesignReference(XedaBaseModel):
             if uri_str.startswith(GIT_PREFIX):
                 uri_str = uri_str[len(GIT_PREFIX) :]
                 data["uri"] = uri_str
-                return GitReference(**data)
+                return GitReference(**data)  # type: ignore
         if "repo_url" in data:
-            return GitReference(**data)
-        return DesignReference(**data)
+            return GitReference(**data)  # type: ignore
+        return DesignReference(**data)  # type: ignore
 
     def fetch_design(self) -> Design:
         toml_path = Path(self.uri)
@@ -821,11 +825,13 @@ class Design(XedaBaseModel):
             raise ValueError(f"File extension `{design_file.suffix}` is not supported.")
         design_dict = hierarchical_merge(design_dict, overrides)
         if "name" not in design_dict:
+            design_name = design_file.stem
+            design_name = removesuffix(design_name, ".xeda")
             log.warning(
                 "'design.name' not specified! Inferring design name: `%s` from design file name.",
-                design_file.stem,
+                design_name,
             )
-            design_dict["name"] = design_file.stem
+            design_dict["name"] = design_name
         if allow_extra:
             cls = model_with_allow_extra(cls)
         else:
@@ -859,7 +865,7 @@ class Design(XedaBaseModel):
                 return file.relative_to(root)
             except ValueError:
                 pass
-        return src._specified_path
+        return src.get_specified_path()
 
     @cached_property
     def rtl_fingerprint(self) -> Dict[str, Dict[str, str]]:

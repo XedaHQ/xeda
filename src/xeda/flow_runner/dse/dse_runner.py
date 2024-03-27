@@ -19,13 +19,12 @@ from ...dataclass import Field, XedaBaseModel
 from ...design import Design
 from ...flow import Flow, FlowFatalError
 from ...tool import NonZeroExitCode
-from ...utils import Timer, dump_json, load_class
+from ...utils import Timer, dump_json, load_class, settings_to_dict
 from ..default_runner import (
     FlowLauncher,
     add_file_logger,
     get_flow_class,
     print_results,
-    settings_to_dict,
 )
 
 log = logging.getLogger(__name__)
@@ -58,8 +57,7 @@ class Optimizer:
         self.failed_fmax: Optional[float] = None  # failed due to negative slack
         self.best: Optional[FlowOutcome] = None
 
-    def next_batch(self) -> Union[None, List[Dict[str, Any]]]:
-        ...
+    def next_batch(self) -> Union[None, List[Dict[str, Any]]]: ...
 
     def process_outcome(self, outcome: FlowOutcome, idx: int) -> bool:
         ...
@@ -146,7 +144,7 @@ class Dse(FlowLauncher):
         self,
         optimizer_class: Union[str, Type[Optimizer]],
         optimizer_settings: Union[Dict[str, Any], Optimizer.Settings] = {},
-        xeda_run_dir: Union[str, os.PathLike] = "xeda_run_dse",
+        xeda_run_dir: Union[str, Path] = "xeda_run_dse",
         **kwargs,
     ) -> None:
         super().__init__(
@@ -167,6 +165,7 @@ class Dse(FlowLauncher):
             assert cls and issubclass(cls, Optimizer)
             optimizer_class = cls
         if not isinstance(optimizer_settings, Optimizer.Settings):
+            assert isinstance(optimizer_settings, dict)
             optimizer_settings = optimizer_class.Settings(**optimizer_settings)
         self.optimizer: Optimizer = optimizer_class(
             max_workers=self.settings.max_workers, settings=optimizer_settings

@@ -3,8 +3,7 @@ import random
 from typing import Any, Dict, List, Optional, Set, Union
 
 from ...dataclass import validator
-from ...utils import unique
-from ..default_runner import settings_to_dict
+from ...utils import unique, settings_to_dict
 from ..dse.dse_runner import FlowOutcome, Optimizer, deep_hash, linspace
 
 log = logging.getLogger(__name__)

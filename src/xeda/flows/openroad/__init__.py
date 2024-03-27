@@ -217,7 +217,8 @@ class Openroad(AsicSynthFlow):
                 files_to_copy += corner.lib_files
                 if corner.dff_lib_file:
                     files_to_copy.append(corner.dff_lib_file)
-            files_to_copy.append(ss.platform.tech_lef)
+            if ss.platform.tech_lef:
+                files_to_copy.append(ss.platform.tech_lef)
             if ss.platform.std_cell_lef:
                 files_to_copy.append(ss.platform.std_cell_lef)
             files_to_copy += ss.platform.gds_files
@@ -268,15 +269,22 @@ class Openroad(AsicSynthFlow):
         yosys_settings.adder_map = str(ss.platform.adder_map_file)
         yosys_settings.clockgate_map = str(ss.platform.clkgate_map_file)
         yosys_settings.other_maps = [str(ss.platform.latch_map_file)]
-        yosys_settings.hilomap = HiLoMap(
-            hi=(ss.platform.tiehi_cell, ss.platform.tiehi_port),
-            lo=(ss.platform.tielo_cell, ss.platform.tielo_port),
-        )
-        yosys_settings.insbuf = (
-            ss.platform.min_buf_cell,
-            ss.platform.min_buf_ports[0],
-            ss.platform.min_buf_ports[1],
-        )
+        if (
+            ss.platform.tiehi_cell
+            and ss.platform.tiehi_port
+            and ss.platform.tielo_cell
+            and ss.platform.tielo_port
+        ):
+            yosys_settings.hilomap = HiLoMap(
+                hi=(ss.platform.tiehi_cell, ss.platform.tiehi_port),
+                lo=(ss.platform.tielo_cell, ss.platform.tielo_port),
+            )
+        if ss.platform.min_buf_cell:
+            yosys_settings.insbuf = (
+                ss.platform.min_buf_cell,
+                ss.platform.min_buf_ports[0],
+                ss.platform.min_buf_ports[1],
+            )
         self.add_dependency(Yosys, yosys_settings, copy_resources)
 
     def run(self):
@@ -387,6 +395,7 @@ class Openroad(AsicSynthFlow):
             self.artifacts.logs.append(log_file)
             tcl_script = self.copy_from_template(
                 "orflow.tcl",
+                lstrip_blocks=False,
                 trim_blocks=True,
                 script_filename=f"orflow_{start_idx}_{end_idx-1}.tcl",
                 **defines,

@@ -4,7 +4,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from junitparser import JUnitXml
+from junitparser import JUnitXml  # type: ignore[import-untyped, attr-defined]
 
 from .dataclass import Field, XedaBaseModel, validator
 from .design import Design

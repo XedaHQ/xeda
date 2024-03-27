@@ -69,6 +69,7 @@ __all__ = [
     "set_hierarchy",
     "first_value",
     "first_key",
+    "settings_to_dict",
 ]
 
 log = logging.getLogger(__name__)
@@ -219,9 +220,11 @@ def hierarchical_merge(
 
     rtn_dct.update(
         {
-            key: hierarchical_merge(rtn_dct[key], overrides[key], add_new_keys=add_new_keys)
-            if isinstance(rtn_dct.get(key), dict) and isinstance(overrides[key], dict)
-            else overrides[key]
+            key: (
+                hierarchical_merge(rtn_dct[key], overrides[key], add_new_keys=add_new_keys)
+                if isinstance(rtn_dct.get(key), dict) and isinstance(overrides[key], dict)
+                else overrides[key]
+            )
             for key in overrides
         }
     )

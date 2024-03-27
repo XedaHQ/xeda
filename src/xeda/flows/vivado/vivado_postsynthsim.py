@@ -65,7 +65,9 @@ class VivadoPostsynthSim(VivadoSim):
         postsynth_sources = [DesignSource(synth_netlist_path)]
         log.info("Setting post-synthesis sources to: %s", postsynth_sources)
         # also removing top-level generics and everything else
-        self.design.rtl = RtlSettings(top=self.design.rtl.top, sources=postsynth_sources)
+        self.design.rtl = RtlSettings(
+            top=self.design.rtl.top, sources=postsynth_sources, attributes={}
+        )
         assert self.design.tb and self.design.tb.top
         self.design.tb.top = (self.design.tb.top[0], "glbl")
 

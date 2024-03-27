@@ -335,7 +335,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
 
 def parse_hier_util(
-    report: Union[Path, os.PathLike, str],
+    report: Union[Path, str],
     skip_zero_or_empty=True,
     skip_headers=None,
 ) -> Optional[HierDict]:
@@ -402,8 +402,7 @@ def parse_hier_util(
                 OrderedDict(
                     (k, vv)
                     for k, v in zip(headers, lcontents)
-                    if k in select_headers  # type: ignore
-                    and ((vv := conv_val(v)) or not skip_zero_or_empty)
+                    if k in select_headers and ((vv := conv_val(v)) or not skip_zero_or_empty)
                 )
             )
             # if parent:

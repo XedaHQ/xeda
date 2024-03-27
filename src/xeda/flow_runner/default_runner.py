@@ -1,4 +1,5 @@
 """Launch execution of flows"""
+
 from __future__ import annotations
 
 import hashlib
@@ -121,7 +122,7 @@ class FlowNotFoundError(Exception):
 
 
 def get_flow_class(
-    flow_name: str, module_name: str = "xeda.flows", package: str = __package__
+    flow_name: str, module_name: str = "xeda.flows", package: str = __package__ or "xeda"
 ) -> Type[Flow]:
     _mod, flow_class = registered_flows.get(flow_name, (None, None))
     if flow_class is None:
@@ -230,7 +231,7 @@ class FlowLauncher:
         # remove previous flow directories _before_ running the flow:
         scrub_old_runs: bool = False
 
-    def __init__(self, xeda_run_dir: Union[None, str, os.PathLike] = None, **kwargs) -> None:
+    def __init__(self, xeda_run_dir: Union[None, str, Path] = None, **kwargs) -> None:
         if "xeda_run_dir" in kwargs:
             xeda_run_dir = kwargs.pop("xeda_run_dir")
         if not xeda_run_dir:

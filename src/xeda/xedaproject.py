@@ -29,11 +29,15 @@ class XedaProject:
         cls: Type["XedaProject"],
         file: Union[str, Path],
         skip_designs: bool = False,
-        design_overrides: Dict[str, Any] = {},
+        design_overrides: Union[None, Dict[str, Any]] = None,
         design_allow_extra: bool = False,
-        design_remove_extra: List[str] = [],
+        design_remove_extra: Union[None, List[str]] = None,
     ) -> "XedaProject":
         """load xedaproject from file"""
+        if design_overrides is None:
+            design_overrides = {}
+        if design_remove_extra is None:
+            design_remove_extra = []
         if not isinstance(file, Path):
             file = Path(file)
         ext = file.suffix.lower()
@@ -73,7 +77,7 @@ class XedaProject:
 
         with WorkingDirectory(file.parent):
             try:
-                return cls(  # type: ignore[call-arg]
+                return cls(
                     designs=[
                         hierarchical_merge(d, design_overrides)
                         for d in designs

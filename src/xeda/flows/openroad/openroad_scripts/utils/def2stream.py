@@ -104,10 +104,10 @@ def read_fills(top):
                 xhi = int(m.group("xhi")) / units
                 yhi = int(m.group("yhi")) / units
                 top.shapes(layer).insert(pya.DBox(xlo, ylo, xhi, yhi))
-            elif re.match("FILLS \d+ ;", line):
+            elif re.match(r"FILLS \d+ ;", line):
                 in_fills = True
             elif not units:
-                m = re.match("UNITS DISTANCE MICRONS (\d+)", line)
+                m = re.match(r"UNITS DISTANCE MICRONS (\d+)", line)
                 if m:
                     units = float(m.group(1))
 
@@ -123,7 +123,7 @@ if len(layer_map) > 0:
 main_layout = pya.Layout()
 print("[INFO] Reporting cells prior to loading DEF ...")
 for i in main_layout.each_cell():
-    print("[INFO] '{0}'".format(i.name))
+    print(f"[INFO] '{i.name}'")
 
 print("[INFO] Reading DEF ...")
 main_layout.read(in_def, layoutOptions)
@@ -204,7 +204,7 @@ if seal_file:
             top.insert(pya.CellInstArray(cell.cell_index(), pya.Trans()))
 
 # Write out the GDS
-print("[INFO] Writing out GDS/OAS '{0}'".format(out_file))
+print(f"[INFO] Writing out GDS/OAS '{out_file}'")
 top_only_layout.write(out_file)
 
 sys.exit(errors)
