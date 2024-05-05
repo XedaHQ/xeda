@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import tempfile
-from turtle import st
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
@@ -12,7 +11,7 @@ import execnet
 from fabric import Connection
 from fabric.transfer import Transfer
 
-from ..design import Design
+from ..design import Design, DesignSource
 from ..utils import backup_existing, dump_json, settings_to_dict
 from ..version import __version__
 from .default_runner import (
@@ -30,6 +29,9 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
 
     assert isinstance(conn, Connection)
 
+    def translate_filename(src: DesignSource) -> str:
+        return src.file.stem + f"_{src.content_hash[:8]}" + src.file.suffix
+
     with tempfile.TemporaryDirectory() as tmpdirname:
         temp_dir = Path(tmpdirname)
         zip_file = temp_dir / f"{design.name}.zip"
@@ -39,7 +41,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         tb: Dict[str, Any] = {}
         remote_sources_path = Path(design.name) / "sources"
         rtl["sources"] = [
-            str(remote_sources_path / src.path.relative_to(root_path)) for src in design.rtl.sources
+            str(remote_sources_path / translate_filename(src)) for src in design.rtl.sources
         ]
         rtl["defines"] = design.rtl.defines
         rtl["attributes"] = design.rtl.attributes
@@ -48,7 +50,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         rtl["clocks"] = list(map(lambda kv: (kv[0], kv[1].dict()), design.rtl.clocks.items()))
         # FIXME add src type/attributes
         tb["sources"] = [
-            str(remote_sources_path / src.file.relative_to(root_path)) for src in design.tb.sources
+            str(remote_sources_path / translate_filename(src)) for src in design.tb.sources
         ]
         tb["top"] = design.tb.top
         tb["cocotb"] = design.tb.cocotb
@@ -62,16 +64,11 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         new_design["tb"] = tb
         new_design["flow"] = design.flow
         design_file = temp_dir / f"{design.name}.xeda.json"
-        print(f"Design: {new_design}")
         with open(design_file, "w") as f:
             json.dump(new_design, f)
-        print(f"Design file: {design_file}")
         with zipfile.ZipFile(zip_file, mode="w") as archive:
             for src in design.sources_of_type("*", rtl=True, tb=True):
-                file_path = src.path
-                archive.write(
-                    file_path, arcname=remote_sources_path / file_path.relative_to(root_path)
-                )
+                archive.write(src.path, arcname=remote_sources_path / translate_filename(src))
             archive.write(design_file, arcname=design_file.relative_to(temp_dir))
 
         with zipfile.ZipFile(zip_file, mode="r") as archive:
