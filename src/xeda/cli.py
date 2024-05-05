@@ -74,9 +74,11 @@ def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
     logging.getLogger().setLevel(log_level)
     coloredlogs.install(
         level=log_level,
-        fmt="[%(name)s] %(asctime)s %(levelname)s %(message)s"
-        if detailed_logs
-        else "%(levelname)s %(message)s",
+        fmt=(
+            "[%(name)s] %(asctime)s %(levelname)s %(message)s"
+            if detailed_logs
+            else "%(levelname)s %(message)s"
+        ),
         logger=log.root,
     )
     if detailed_logs:
@@ -106,6 +108,18 @@ def cli(ctx: click.Context, **kwargs):
     "flow",
     metavar="FLOW_NAME",
     type=click.Choice(all_flow_names),
+)
+@click.argument(
+    "design_file",
+    metavar="DESIGN",
+    type=click.Path(
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        path_type=Path,
+    ),
+    default=None,
+    required=False,
 )
 @click.option(
     "--xeda-run-dir",
@@ -155,12 +169,6 @@ def cli(ctx: click.Context, **kwargs):
     help="Path to Xeda project file.",
 )
 @click.option(
-    "--design-name",
-    # cls=ClickMutex,
-    # mutually_exclusive_with=["design_file"],
-    help="Specify design.name in case multiple designs are available in a xedaproject.",
-)
-@click.option(
     "--design",
     "--design-file",
     type=click.Path(
@@ -176,6 +184,12 @@ def cli(ctx: click.Context, **kwargs):
     cls=ClickMutex,
     mutually_exclusive_with=["design_name"],
     help="Path to Xeda design file containing the description of a single design.",
+)
+@click.option(
+    "--design-name",
+    cls=ClickMutex,
+    mutually_exclusive_with=["design_file"],
+    help="Specify design.name in case multiple designs are available in a xedaproject.",
 )
 @click.option(
     "--design-overrides",
@@ -201,7 +215,7 @@ def cli(ctx: click.Context, **kwargs):
     default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
     Example: --settings clock_period=2.345 impl.strategy=Debug
-    """
+    """,
     #  examples: # FIXME move to docs
     # - xeda vivado_sim --flow-settings stop_time=100us
     # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock_period=2.345
@@ -233,8 +247,9 @@ def cli(ctx: click.Context, **kwargs):
 def run(
     ctx: click.Context,
     flow: str,
-    cached_dependencies: bool,
-    flow_settings: Union[None, str, Iterable[str]],
+    design_file: Optional[str] = None,
+    cached_dependencies: bool = True,
+    flow_settings: Union[None, str, Iterable[str]] = None,
     incremental: bool = True,
     clean: bool = False,
     xeda_run_dir: Optional[Path] = None,
@@ -267,6 +282,11 @@ def run(
         flow_settings = list(flow_settings)
     else:
         flow_settings = []
+
+    if not design and design_file:
+        design = design_file
+    if not design:
+        sys.exit("No design file specified!")
 
     if remote:
         from .flow_runner.remote import RemoteRunner
@@ -674,7 +694,7 @@ def completion(_ctx: click.Context, stdout, shell=None):
         completion_class = get_completion_class(shell)
         if completion_class:
             complete = completion_class(
-                cli=cli, ctx_args={}, prog_name=__package__, complete_var="source_xeda"
+                cli=cli, ctx_args={}, prog_name=__package__ or "xeda", complete_var="source_xeda"
             )
             print(complete.source())
     else:

@@ -10,7 +10,7 @@ from pydantic import confloat
 from ..dataclass import Field, XedaBaseModel, root_validator, validator
 from ..design import Design
 from ..units import convert_unit
-from ..utils import first_value
+from ..utils import first_value, first_key
 from .flow import Flow, FlowSettingsError
 from .fpga import FPGA
 
@@ -99,7 +99,7 @@ class PhysicalClock(XedaBaseModel):
             else:
                 raise ValueError("Neither freq or period were specified")
         if not values.get("name"):
-            values["name"] = "main_clock"
+            values["name"] = ""
         return values
 
 
@@ -140,22 +140,34 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                 clock_period value takes priority for that particular value and overrides that clock's period
             """
             clocks = values.get("clocks")
+            # main_clock_name = "main_clock"
+            clock = values.pop("clock", None)
             clock_period = values.get("clock_period")
-            main_clock_name = "main_clock"
-            if clocks is None and "clock" in values:
-                clocks = {main_clock_name: values.pop("clock")}
-            if clocks and (len(clocks) == 1 or main_clock_name in clocks):
-                if main_clock_name in clocks:
-                    main_clock = clocks[main_clock_name]
-                else:
-                    main_clock = list(clocks.values())[0]
-                    main_clock_name = list(clocks.keys())[0]
-                if isinstance(main_clock, PhysicalClock):
-                    main_clock = dict(main_clock)
-                if clock_period:
-                    log.debug("Setting main_clock period to %s", clock_period)
-                    main_clock["period"] = clock_period
-                clocks[main_clock_name] = PhysicalClock(**main_clock)
+            if (not clocks) and (clock or clock_period):
+                if not clock:
+                    clock = {"period": clock_period}
+                if not isinstance(clock, PhysicalClock):
+                    assert isinstance(
+                        clock, dict
+                    ), "clock should be a dictionary or PhysicalClock instance"
+                    if clock_period:  # overrides the period value
+                        clock["period"] = clock_period
+                    clock = PhysicalClock(**clock)
+                # if not clock.name:
+                #     clock.name = main_clock_name
+                clocks = {clock.name: clock}
+            #     if clocks and (len(clocks) == 1 or main_clock_name in clocks):
+            #         if main_clock_name in clocks:
+            #             main_clock = clocks[main_clock_name]
+            #         else:
+            #             main_clock = list(clocks.values())[0]
+            #             main_clock_name = list(clocks.keys())[0]
+            #         if isinstance(main_clock, PhysicalClock):
+            #             main_clock = dict(main_clock)
+            #         if clock_period:
+            #             log.debug("Setting main_clock period to %s", clock_period)
+            #             main_clock["period"] = clock_period
+            #         clocks[main_clock_name] = PhysicalClock(**main_clock)
             if clocks:
                 values["clocks"] = clocks
             return values
@@ -165,6 +177,20 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             return self.clocks.get("main_clock") or first_value(self.clocks)
 
     def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
+        # shorthand for single clock specification
+        if len(flow_settings.clocks) == 1 and len(design.rtl.clocks) == 1:
+            clock_name = first_key(flow_settings.clocks)
+            assert clock_name is not None
+            clock_obj = flow_settings.clocks.pop(clock_name)
+            design_clock = first_value(design.rtl.clocks)
+            assert design_clock is not None
+            if not clock_obj.port:
+                clock_obj.port = design_clock.port
+            if not clock_obj.name:
+                clock_obj.name = design_clock.name
+            clock_name = clock_obj.name
+            assert clock_name is not None
+            flow_settings.clocks[clock_name] = clock_obj
         for clock_name, physical_clock in flow_settings.clocks.items():
             if not physical_clock.port:
                 if clock_name not in design.rtl.clocks:
@@ -188,7 +214,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                 physical_clock.port = design.rtl.clocks[clock_name].port
                 flow_settings.clocks[clock_name] = physical_clock
         for clock_name, clock in design.rtl.clocks.items():
-            if clock_name not in flow_settings.clocks:
+            if clock.port not in (c.port for c in flow_settings.clocks.values()):
                 log.critical(
                     "No clock period or frequency was specified for clock: %s (design clock port: '%s')",
                     clock_name,

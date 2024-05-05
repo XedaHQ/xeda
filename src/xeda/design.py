@@ -316,6 +316,11 @@ class DVSettings(XedaBaseModel):
 
 class Clock(XedaBaseModel):
     port: str
+    name: Optional[str] = None
+
+    @validator("name", pre=True, always=True)
+    def _name_validate(cls, value, values) -> str:
+        return value or values.get("port", None)
 
 
 class Generator(XedaBaseModel):
@@ -669,22 +674,40 @@ class Design(XedaBaseModel):
             return [value]
         return value
 
-    def __init__(
-        self,
-        design_root: Union[None, str, os.PathLike] = None,
-        **data: Any,
-    ) -> None:
+    @classmethod
+    def process_compatibility(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        if "rtl" not in data:
+            clocks = data.pop("clocks", None)
+            if clocks is None:
+                clock = data.pop("clock", None)
+                if clock:
+                    clocks = list(clock) if isinstance(clock, (list, tuple)) else [clock]
+            if (
+                clocks
+                and isinstance(clocks, (list, tuple))
+                and all(isinstance(c, str) for c in clocks)
+            ):
+                clocks = {c: {"port": c} for c in clocks}
+            data["rtl"] = {
+                "generator": data.pop("generator", None),
+                "sources": data.pop("sources", []),
+                "parameters": data.pop("parameters", []),
+                "defines": data.pop("defines", []),
+                "top": data.pop("top", None),
+                "clocks": clocks,
+            }
+        return data
+
+    @classmethod
+    def process_generation(cls, data: Dict[str, Any]):
+        design_root = data.get("design_root")
         if not design_root:
-            design_root = data.pop("design_root", Path.cwd())
-        assert design_root
-        if not isinstance(design_root, Path):
+            design_root = Path.cwd()
+        else:
             design_root = Path(design_root)
-        design_root = design_root.resolve()
-        if not data.get("design_root"):
-            data["design_root"] = design_root
-        with WorkingDirectory(design_root):
-            generator = data.get("rtl", {}).get("generator", None)
-            if generator:
+        generator = data.get("rtl", {}).get("generator", None)
+        if generator:
+            with WorkingDirectory(design_root):
                 log.info("Running generator: %s", generator)
                 if isinstance(generator, str):
                     os.system(generator)  # nosec S605
@@ -709,6 +732,28 @@ class Design(XedaBaseModel):
                     #         raise FileNotFoundError(gen_script)
                     #     args.insert(0, sys.executable)
                     subprocess.run(args, check=True, cwd=design_root)
+
+    @classmethod
+    def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        data = cls.process_compatibility(data)
+        cls.process_generation(data)
+        return data
+
+    def __init__(
+        self,
+        design_root: Union[None, str, os.PathLike] = None,
+        **data: Any,
+    ) -> None:
+        if not design_root:
+            design_root = data.pop("design_root", Path.cwd())
+        assert design_root
+        if not isinstance(design_root, Path):
+            design_root = Path(design_root)
+        design_root = design_root.resolve()
+        if not data.get("design_root"):
+            data["design_root"] = design_root
+        data = Design.process_dict(data)
+        with WorkingDirectory(design_root):
             try:
                 super().__init__(**data)
             except ValidationError as e:
@@ -784,13 +829,6 @@ class Design(XedaBaseModel):
         allow_extra: bool = False,
         remove_extra: Optional[List[str]] = None,
     ) -> DesignType:
-        if overrides is None:
-            overrides = {}
-        if remove_extra is None:
-            remove_extra = []
-        if not isinstance(design_file, Path):
-            design_file = Path(design_file)
-        assert design_file.suffix == ".toml"
         return cls.from_file(
             design_file,
             design_root=design_root,
@@ -827,7 +865,7 @@ class Design(XedaBaseModel):
         if "name" not in design_dict:
             design_name = design_file.stem
             design_name = removesuffix(design_name, ".xeda")
-            log.warning(
+            log.debug(
                 "'design.name' not specified! Inferring design name: `%s` from design file name.",
                 design_name,
             )
@@ -889,10 +927,13 @@ class Design(XedaBaseModel):
     @cached_property
     def tb_hash(self) -> str:
         hashes = list(sorted(src.content_hash for src in self.tb.sources))
-        param_strs = [f"{p}={v}" for p, v in self.tb.parameters.items()]
+        param_strs = [
+            f"{p}={v}" for p, v in self.tb.parameters.items()  # pylint: disable=no-member
+        ]
         r = bytes(", ".join(hashes + param_strs), "utf-8")
         return hashlib.sha3_256(r).hexdigest()
 
+    # pylint: disable=arguments-differ
     def dict(self):
         return super().dict(
             exclude_unset=True,

@@ -57,6 +57,7 @@ __all__ = [
     "FlowRunner",
     "DefaultRunner",
     "print_results",
+    "add_file_logger",
 ]
 
 log = logging.getLogger(__name__)
@@ -692,11 +693,13 @@ class DefaultRunner(FlowRunner):
     """Executes a flow and its dependencies and then reports selected results"""
 
 
-def add_file_logger(logdir: Path, timestamp: Union[None, str, datetime] = None):
+def add_file_logger(logdir: Union[Path, str], timestamp: Union[None, str, datetime] = None):
     if timestamp is None:
         timestamp = datetime.now()
     if not isinstance(timestamp, str):
         timestamp = timestamp.strftime("%Y-%m-%d-%H%M%S%f")[:-3]
+    if not isinstance(logdir, Path):
+        logdir = Path(logdir)
     logdir.mkdir(exist_ok=True, parents=True)
     logfile = logdir / f"xeda_{timestamp}.log"
     log.info("Logging to %s", logfile)
