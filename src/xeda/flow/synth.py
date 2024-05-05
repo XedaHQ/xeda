@@ -113,7 +113,6 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             None, description="target clock period in nanoseconds"
         )
         clocks: Dict[str, PhysicalClock] = Field({}, description="Design clocks")
-        blacklisted_resources: List[str] = []
 
         @validator("clocks", pre=True, always=True)
         def _clocks_validate(cls, value, values):  # pylint: disable=no-self-argument

@@ -50,7 +50,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             True, description="flow fails if timing is not met"
         )  # pyright: ignore
         blacklisted_resources: List[str] = Field(  # TODO: remove
-            # ["latch"],
             [],
             description="list of FPGA resources which are not allowed to be inferred or exist in the results. Valid values: latch, dsp, bram",
         )
@@ -158,6 +157,8 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             settings.synth.steps["SYNTH_DESIGN"]["MAX_BRAM"] = 0
         if "dsp" in settings.blacklisted_resources:
             settings.synth.steps["SYNTH_DESIGN"]["MAX_DSP"] = 0
+        if settings.flatten_hierarchy:
+            settings.synth.steps["SYNTH_DESIGN"]["flatten_hierarchy"] = settings.flatten_hierarchy
 
         reports_tcl = self.copy_from_template("vivado_report_helper.tcl")
 

@@ -37,7 +37,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         new_design: Dict[str, Any] = {**design.dict(), "design_root": None}
         rtl: Dict[str, Any] = {}
         tb: Dict[str, Any] = {}
-        remote_sources_path = Path("sources")
+        remote_sources_path = Path(design.name) / "sources"
         rtl["sources"] = [
             str(remote_sources_path / src.path.relative_to(root_path)) for src in design.rtl.sources
         ]
