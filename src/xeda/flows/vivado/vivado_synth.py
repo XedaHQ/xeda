@@ -141,8 +141,8 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         }
 
         if not self.design.rtl.clocks:
-            log.critical(
-                "No clocks specified for top RTL design. Continuing with synthesis anyways."
+            log.warning(
+                "No clocks specified for top RTL design."
             )
 
         clock_xdc_path = self.copy_from_template("clock.xdc")

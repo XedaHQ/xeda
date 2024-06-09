@@ -514,7 +514,7 @@ def settings_to_dict(
                     )
                 key, val = sp
                 set_hierarchy(res, key, conv(val))
-            elif isinstance(override, dict):
+            elif override and isinstance(override, dict):
                 for key, val in override.items():
                     set_hierarchy(res, key, conv(val))
         return res

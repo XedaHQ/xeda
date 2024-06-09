@@ -5,7 +5,7 @@ from typing import Optional
 from ...flow import FlowFatalError
 from ...dataclass import Field
 from ...design import DesignSource, RtlSettings
-from ...utils import SDF
+from ...utils import SDF, first_value
 from .vivado_sim import VivadoSim
 from .vivado_synth import VivadoSynth
 
@@ -43,7 +43,7 @@ class VivadoPostsynthSim(VivadoSim):
             if ss.synth.input_delay is None:
                 input_delay = 0.0
                 # need to explicitly set synth.input_delay if this input is being captured by a different clock
-                main_clock = ss.synth.clocks.get("main_clock")
+                main_clock = ss.synth.clocks.get("main_clock") or first_value(ss.synth.clocks)
                 if main_clock:
                     input_delay = 0.25 * main_clock.period
                 ss.synth.input_delay = input_delay

@@ -407,7 +407,7 @@ class RtlSettings(DVSettings):
         """,
     )
     # preferred way to specify a design's clock ports:
-    clocks: Dict[str, Clock] = {}
+    clocks: list[Clock] = []
     # short-hand alternatives for a single clock designs:
     clock: Optional[Clock] = None  # DEPRECATED # TODO remove
     clock_port: Optional[str] = None  # TODO remove?
@@ -415,36 +415,30 @@ class RtlSettings(DVSettings):
     @root_validator(pre=True)
     def rtl_settings_validate(cls, values):  # pylint: disable=no-self-argument
         """copy equivalent clock fields (backward compatibility)"""
-        clock = values.get("clock")
-        clock_port = values.get("clock_port")
+        clock = values.get("clock") or values.get("clock_port")
         clocks = values.get("clocks")
 
         def conv_clock(clock):
-            if isinstance(clock, dict):
+            if isinstance(clock, Clock):
+                return clock
+            elif isinstance(clock, dict):
                 clock = Clock(**clock)
             elif isinstance(clock, str):
-                clock = Clock(port=clock_port)
+                clock = Clock(port=clock)
             return clock
 
         if clocks is None:
-            clocks = {}
-        elif isinstance(clocks, list):
-            clocks = {clk.name or clk.port: clk for clk in map(conv_clock, clocks) if clk}
-        if not clock:
-            if clock_port:
-                clock = Clock(port=clock_port)
-            elif len(clocks) == 1:
-                clock = list(clocks.values())[0]
-        if clock:
-            clock = conv_clock(clock)
-            if not clock_port:
-                clock_port = clock.port
-            if not clocks:
-                clocks = {"main_clock": clock}
-            values["clock"] = clock
+            if clock:
+                clock = conv_clock(clock)
+                clocks = [clock]
+            else:
+                clocks = []
+        else:
+            assert isinstance(clocks, list)
+            clocks = [conv_clock(clk) for clk in clocks]
         values["clocks"] = clocks
-        if clock_port:
-            values["clock_port"] = clock_port
+        if clocks:
+            values["clock"] = clocks[0]
         return values
 
 
@@ -743,16 +737,7 @@ class Design(XedaBaseModel):
             clocks = data.pop("clocks", None)
             if clocks is None:
                 clock = data.pop("clock", None)
-                if clock:
-                    clocks = list(clock) if isinstance(clock, (list, tuple)) else [clock]
-            if clocks and isinstance(clocks, (list, tuple)):
-                if all(isinstance(c, str) for c in clocks):
-                    clocks = {c: {"port": c} for c in clocks}
-                elif all(isinstance(c, dict) for c in clocks):
-                    clocks = {
-                        c.get("name", c.get("port")): {"port": c.get("port"), "name": c.get("name")}
-                        for c in clocks
-                    }
+                clocks = [clock]
             data["rtl"] = {
                 "sources": data.pop("sources", []),
                 "generator": data.pop("generator", None),

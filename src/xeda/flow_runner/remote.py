@@ -47,7 +47,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         rtl["attributes"] = design.rtl.attributes
         rtl["parameters"] = design.rtl.parameters
         rtl["top"] = design.rtl.top
-        rtl["clocks"] = list(map(lambda kv: (kv[0], kv[1].dict()), design.rtl.clocks.items()))
+        rtl["clocks"] = design.rtl.clocks
         # FIXME add src type/attributes
         tb["sources"] = [
             str(remote_sources_path / translate_filename(src)) for src in design.tb.sources
