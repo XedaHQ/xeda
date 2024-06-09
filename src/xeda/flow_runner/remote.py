@@ -47,7 +47,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         rtl["attributes"] = design.rtl.attributes
         rtl["parameters"] = design.rtl.parameters
         rtl["top"] = design.rtl.top
-        rtl["clocks"] = design.rtl.clocks
+        rtl["clocks"] = [clk.dict() for clk in design.rtl.clocks]
         # FIXME add src type/attributes
         tb["sources"] = [
             str(remote_sources_path / translate_filename(src)) for src in design.tb.sources
@@ -143,7 +143,7 @@ class RemoteLogger:
         if data is None:
             log.info("Remote channel closed.")
             return
-        print(data)
+        print(data, end="")
 
 
 class RemoteRunner(FlowLauncher):
