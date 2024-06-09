@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import Iterable, List, Literal, Optional, Union
 
 from ...dataclass import Field
 from ...flow import FpgaSynthFlow
@@ -138,26 +138,30 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                         **num_cells_by_type,
                     }
                     self.results["_utilization"] = design_util
-        else:
-            if self.settings.fpga:
                 if self.settings.fpga.vendor == "xilinx":
-                    self.parse_report_regex(
-                        self.artifacts.utilization_report,
-                        r"=+\s*design hierarchy\s*=+",
-                        r"DSP48(E\d+)?\s*(?P<DSP48>\d+)",
-                        r"FDRE\s*(?P<_FDRE>\d+)",
-                        r"FDSE\s*(?P<_FDSE>\d+)",
-                        r"number of LCs:\s*(?P<Estimated_LCs>\d+)",
-                        sequential=True,
-                        required=False,
+                    self.results["LUT"] = sum_all_resources(
+                        design_util, [f"LUT{i}" for i in range(2, 7)]
                     )
-                    self.results["FFs"] = int(self.results.get("_FDRE", 0)) + int(
-                        self.results.get("_FDSE", 0)
-                    )
-                if self.settings.fpga.family == "ecp5":
-                    self.parse_report_regex(
-                        self.artifacts.utilization_report,
-                        r"TRELLIS_FF\s+(?P<FFs>\d+)",
-                        r"LUT4\s+(?P<LUT4>\d+)",
-                    )
+                    ram32m = sum_all_resources(design_util, ["RAM32M"])
+                    if ram32m:
+                        self.results["LUT"] += ram32m
+                        self.results["LUT:RAM"] = ram32m
+                    self.results["FF"] = sum_all_resources(design_util, ["FDRE", "FDSE"])
+                    carry4 = sum_all_resources(design_util, ["CARRY4"])
+                    if carry4:
+                        self.results["CARRY"] = carry4
+                    brams = sum_all_resources(design_util, ["RAMB36"])
+                    brams_half = sum_all_resources(design_util, ["RAMB18"])
+                    brams += brams_half / 2
+                    if brams:
+                        self.results["BRAM"] = brams
+                    dsps = sum_all_resources(design_util, ["DSP48E"])
+                    if dsps:
+                        self.results["DSP"] = dsps
+
+        # if self.settings.fpga:
         return True
+
+
+def sum_all_resources(design_util: dict, lst: Iterable) -> int:
+    return sum(int(design_util.get(t, 0)) for t in lst)

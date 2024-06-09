@@ -43,6 +43,7 @@ from .flow_runner import (
 from .flow_runner.dse import Dse
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import removeprefix, settings_to_dict
+from .design import DesignValidationError
 
 log = logging.getLogger(__name__)
 
@@ -328,12 +329,12 @@ def run(
         )
         if options.debug:
             raise e
-        sys.exit(2)
+        sys.exit(1)
     except NonZeroExitCode as e:
         log.critical("Flow %s failed: NonZeroExitCode %s", flow, " ".join(str(a) for a in e.args))
         if options.debug:
             raise e
-        sys.exit(3)
+        sys.exit(1)
     except ExecutableNotFound as e:
         log.critical(
             "Executable '%s' was not found! (tool:%s, flow:%s, PATH:%s)",
@@ -342,17 +343,22 @@ def run(
             flow,
             e.path,
         )
-        sys.exit(4)
+        sys.exit(1)
     except FlowSettingsError as e:
         log.critical("%s", e)
         if options.debug:
             raise e
-        sys.exit(5)
+        sys.exit(1)
     except FlowException as e:  # any flow exception
         log.critical("%s", e)
         if options.debug:
             raise e
-        sys.exit(6)
+        sys.exit(1)
+    except DesignValidationError as e:  # any flow exception
+        log.critical("%s", e)
+        if options.debug:
+            raise e
+        sys.exit(1)
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")

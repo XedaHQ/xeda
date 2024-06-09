@@ -1,6 +1,5 @@
 from __future__ import annotations
 from glob import glob
-
 import hashlib
 import inspect
 import json
@@ -12,6 +11,7 @@ from enum import Enum, auto
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+import yaml
 from urllib.parse import parse_qs, urlparse
 
 
@@ -31,6 +31,7 @@ from .utils import (
     settings_to_dict,
     toml_load,
     removesuffix,
+    NonZeroExitCode,
 )
 
 log = logging.getLogger(__name__)
@@ -324,16 +325,67 @@ class Clock(XedaBaseModel):
 
 
 class Generator(XedaBaseModel):
-    cwd: Union[None, str] = None
+    cwd: Optional[str] = None
     executable: Optional[str] = None
+    class_: Optional[str] = Field(None, alias="class")
     args: Union[str, List[str]] = []
-    shell: bool = False
     check: bool = True
     env: Optional[Dict[str, str]] = None
     # sweepable parameters used in command
     parameters: dict = {}
     # for xeda to know dependencies, clean previous artifacts, check after generation:
     generated_sources: List[str] = []
+
+    def run(self):
+        assert self.executable
+        self.run_cmd([self.executable, *self.args])
+
+    def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
+        log.info("Running command: '%s'", " ".join(cmd))
+        p = subprocess.run(
+            cmd,
+            cwd=self.cwd,
+            check=False if check is None else self.check,
+            stdout=stdout,
+            stderr=stderr,
+            env=self.env,
+        )
+        if self.check and p.returncode:
+            raise NonZeroExitCode(cmd, p.returncode)
+        return p
+
+    @property
+    def name(self) -> str:
+        return str(self.__class__.__qualname__ or "generator")
+
+
+class ChiselGenerator(Generator):
+    main: Optional[str] = None
+    project: Optional[str] = None
+    # executable = "bloop"
+
+    def run(self):
+        self.check = True
+        if self.project is None:
+            p = self.run_cmd(["bloop", "projects"], stdout=subprocess.PIPE)
+            projects_str = p.stdout.decode()
+            projects = re.split(r"\s+", projects_str)
+            if projects:
+                log.info(f"Found projects: {', '.join(projects)}")
+                self.project = projects[0]
+            else:
+                log.error("No projects found!")
+                raise ValueError("No projects found!")
+        assert self.project, "project not set!"
+        cmd = ["bloop", "run", self.project]
+        if self.main:
+            cmd += ["--main", self.main]
+        if self.args:
+            if isinstance(self.args, str):
+                self.args = self.args.split()
+            cmd.append("--")
+            cmd += self.args
+        self.run_cmd(cmd)
 
 
 class RtlSettings(DVSettings):
@@ -360,26 +412,29 @@ class RtlSettings(DVSettings):
     clock: Optional[Clock] = None  # DEPRECATED # TODO remove
     clock_port: Optional[str] = None  # TODO remove?
 
-    @root_validator(pre=False)
+    @root_validator(pre=True)
     def rtl_settings_validate(cls, values):  # pylint: disable=no-self-argument
         """copy equivalent clock fields (backward compatibility)"""
         clock = values.get("clock")
         clock_port = values.get("clock_port")
         clocks = values.get("clocks")
 
+        if clocks is None:
+            clocks = {}
         if not clock:
             if clock_port:
                 clock = Clock(port=clock_port)
             elif len(clocks) == 1:
                 clock = list(clocks.values())[0]
         if clock:
+            if isinstance(clock, dict):
+                clock = Clock(**clock)
             if not clock_port:
                 clock_port = clock.port
             if not clocks:
                 clocks = {"main_clock": clock}
             values["clock"] = clock
-        if clocks:
-            values["clocks"] = clocks
+        values["clocks"] = clocks
         if clock_port:
             values["clock_port"] = clock_port
         return values
@@ -682,15 +737,17 @@ class Design(XedaBaseModel):
                 clock = data.pop("clock", None)
                 if clock:
                     clocks = list(clock) if isinstance(clock, (list, tuple)) else [clock]
-            if (
-                clocks
-                and isinstance(clocks, (list, tuple))
-                and all(isinstance(c, str) for c in clocks)
-            ):
-                clocks = {c: {"port": c} for c in clocks}
+            if clocks and isinstance(clocks, (list, tuple)):
+                if all(isinstance(c, str) for c in clocks):
+                    clocks = {c: {"port": c} for c in clocks}
+                elif all(isinstance(c, dict) for c in clocks):
+                    clocks = {
+                        c.get("name", c.get("port")): {"port": c.get("port"), "name": c.get("name")}
+                        for c in clocks
+                    }
             data["rtl"] = {
-                "generator": data.pop("generator", None),
                 "sources": data.pop("sources", []),
+                "generator": data.pop("generator", None),
                 "parameters": data.pop("parameters", []),
                 "defines": data.pop("defines", []),
                 "top": data.pop("top", None),
@@ -705,23 +762,27 @@ class Design(XedaBaseModel):
             design_root = Path.cwd()
         else:
             design_root = Path(design_root)
-        generator = data.get("rtl", {}).get("generator", None)
+        generator = data.get("rtl", {}).pop("generator", None)
         if generator:
             with WorkingDirectory(design_root):
-                log.info("Running generator: %s", generator)
                 if isinstance(generator, str):
+                    log.info("Running generator: %s", generator)
                     os.system(generator)  # nosec S605
                 elif isinstance(generator, (dict, Generator)):
                     if isinstance(generator, (dict)):
-                        generator = Generator(**generator)
-                    subprocess.run(
-                        generator.args,
-                        executable=generator.executable,
-                        cwd=generator.cwd,
-                        shell=generator.shell,  # nosec S602
-                        check=generator.check,
-                        env=generator.env,
-                    )
+                        clazz = generator.get("class")
+                        if clazz:
+                            assert isinstance(clazz, str)
+                            if clazz.lower() == "chisel":
+                                generator = ChiselGenerator(**generator)
+                            else:
+                                raise Exception(f"unkown generator class: {clazz}")
+                        else:
+                            generator = Generator(**generator)
+                    if generator.cwd is None:
+                        generator.cwd = str(design_root)
+                    log.info("Running generator: %s", generator.name)
+                    generator.run()
                 else:
                     args = generator
                     # gen_script = Path(args[0])
@@ -858,6 +919,10 @@ class Design(XedaBaseModel):
         elif design_file.suffix == ".json":
             with open(design_file, "r") as f:
                 design_dict = json.load(f)
+            design_dict = expand_hierarchy(design_dict)
+        elif design_file.suffix in {".yaml", ".yml"}:
+            with open(design_file, "r") as f:
+                design_dict = yaml.safe_load(f)
             design_dict = expand_hierarchy(design_dict)
         else:
             raise ValueError(f"File extension `{design_file.suffix}` is not supported.")

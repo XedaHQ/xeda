@@ -11,8 +11,9 @@ from sys import stderr
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from .dataclass import Field, XedaBaseModel, validator
-from .utils import cached_property, try_convert
+from .utils import cached_property, try_convert, ToolException, NonZeroExitCode, ExecutableNotFound
 from .flow import Flow
+from .proc_utils import run_process
 
 log = logging.getLogger(__name__)
 
@@ -24,31 +25,6 @@ __all__ = [
     "Tool",
     "run_process",
 ]
-
-
-class ToolException(Exception):
-    """Super-class of all tool exceptions"""
-
-
-class NonZeroExitCode(ToolException):
-    def __init__(self, command_args: Any, exit_code: int, *args: object) -> None:
-        self.command_args = command_args
-        self.exit_code = exit_code
-        super().__init__(*args)
-
-
-class ExecutableNotFound(ToolException):
-    def __init__(self, executable: str, tool: str, path: str, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.exec = executable
-        self.tool = tool
-        self.path = path
-
-    def __str__(self) -> str:
-        return f"Executable '{self.exec}' (for {self.tool}) was not found (PATH={self.path})"
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}: {self.__str__()}"
 
 
 class RemoteSettings(XedaBaseModel):
@@ -154,98 +130,18 @@ class Docker(XedaBaseModel):
         else:
             command = [executable]
         cmd = ["run", *docker_args, image, *command, *args]
-        return run_process(
-            self.cli,
-            cmd,
-            env=None,
-            stdout=stdout,
-            check=check,
-            tool_name=self.name,
-            print_command=print_command,
-        )
-
-
-def run_process(
-    executable: str,
-    args: Optional[Sequence[Any]] = None,
-    env: Optional[Dict[str, Any]] = None,
-    stdout: OptionalBoolOrPath = None,
-    check: bool = True,
-    cwd: OptionalPath = None,
-    tool_name: str = "",
-    print_command: bool = False,
-) -> Union[None, str]:
-    if args is None:
-        args = []
-    args = [str(a) for a in args]
-    if env is not None:
-        env = {k: str(v) for k, v in env.items() if v is not None}
-    cmd = " ".join(map(lambda x: str(x), [executable, *args]))
-    if print_command:
-        print("Running `%s`" % cmd)
-    else:
-        log.debug("Running `%s`", cmd)
-    if cwd:
-        log.debug("cwd=%s", cwd)
-    if stdout and isinstance(stdout, (str, os.PathLike)):
-        stdout = Path(stdout)
-
-        def cm_call():
-            assert stdout
-            return open(stdout, "w")
-
-        cm = cm_call
-    else:
-        cm = contextlib.nullcontext
-
-    with cm() as f:
         try:
-            with subprocess.Popen(
-                [executable, *args],
-                cwd=cwd,
-                shell=False,
-                stdout=f if f else subprocess.PIPE if stdout else None,
-                bufsize=1,
-                universal_newlines=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-            ) as proc:
-                log.debug("Started %s[%d]", executable, proc.pid)
-                try:
-                    if stdout:
-                        if isinstance(stdout, bool):
-                            out, err = proc.communicate(timeout=None)
-                            if check and proc.returncode != 0:
-                                raise NonZeroExitCode(proc.args, proc.returncode)
-                            if err:
-                                print(err, file=stderr)
-                            return out.strip()
-                        else:
-                            log.info(
-                                "Standard output is redirected to: %s",
-                                os.path.abspath(stdout),
-                            )
-                    proc.wait()
-                except KeyboardInterrupt as e:
-                    try:
-                        log.debug(
-                            "Received KeyboardInterrupt! Terminating %s(pid=%s)",
-                            executable,
-                            proc.pid,
-                        )
-                        proc.terminate()
-                    except OSError as e2:
-                        log.warning("Terminate failed: %s", e2)
-                    finally:
-                        proc.wait()
-                        raise e from None
-            if check and proc.returncode != 0:
-                raise NonZeroExitCode(proc.args, proc.returncode)
+            return run_process(
+                self.cli,
+                cmd,
+                env=None,
+                stdout=stdout,
+                check=check,
+                print_command=print_command,
+            )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
-            raise ExecutableNotFound(e.filename, tool_name, path, *e.args) from None
-    return None
+            raise ExecutableNotFound(e.filename, self.name, path, *e.args) from None
 
 
 def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
@@ -268,7 +164,7 @@ def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
 
 
 def _run_processes(commands: List[List[Any]], cwd: OptionalPath = None, env=None) -> None:
-    """Run a list commands to completion. Raises an exception if any of them did not execute and exit normally"""
+    """Run a list commands to completion. Raises an exception if any command/process failed."""
     for args in commands:
         args = [str(a) for a in args]
     if env:
@@ -522,16 +418,19 @@ class Tool(XedaBaseModel):
             )
         if env is not None:
             env = {**os.environ, **env}
-        return run_process(
-            executable,
-            args,
-            env=env,
-            stdout=stdout,
-            check=check,
-            cwd=cwd,
-            tool_name=self.__class__.__name__,
-            print_command=self.print_command,
-        )
+        try:
+            return run_process(
+                executable,
+                args,
+                env=env,
+                stdout=stdout,
+                check=check,
+                cwd=cwd,
+                print_command=self.print_command,
+            )
+        except FileNotFoundError as e:
+            path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")
+            raise ExecutableNotFound(e.filename, self.__class__.__name__, path, *e.args) from None
 
     def run_get_stdout(self, *args: Any, env: Optional[Dict[str, Any]] = None) -> str:
         out = self.run(*args, env=env, stdout=True)

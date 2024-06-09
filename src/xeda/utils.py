@@ -70,6 +70,9 @@ __all__ = [
     "first_value",
     "first_key",
     "settings_to_dict",
+    "ToolException",
+    "NonZeroExitCode",
+    "ExecutableNotFound",
 ]
 
 log = logging.getLogger(__name__)
@@ -503,16 +506,58 @@ def settings_to_dict(
     if isinstance(settings, (tuple, list)):
         res: DictStrHier = {}
         for override in settings:
-            sp = override.split("=")
-            if len(sp) != 2:
-                raise ValueError(
-                    f"Settings should be in KEY=VALUE format! (value given: {override})"
-                )
-            key, val = sp
-            set_hierarchy(res, key, conv(val))
+            if isinstance(override, str):
+                sp = override.split("=")
+                if len(sp) != 2:
+                    raise ValueError(
+                        f"Settings should be in KEY=VALUE format! (value given: {override})"
+                    )
+                key, val = sp
+                set_hierarchy(res, key, conv(val))
+            elif isinstance(override, dict):
+                for key, val in override.items():
+                    set_hierarchy(res, key, conv(val))
         return res
     if isinstance(settings, dict):
         if not hierarchical_keys:
             return settings
         return expand_hierarchy(settings)
     raise TypeError(f"Unsupported type: {type(settings)}")
+
+
+class ToolException(Exception):
+    """Super-class of all tool exceptions"""
+
+
+class NonZeroExitCode(ToolException):
+    def __init__(self, command_args: Any, exit_code: int, *args: object) -> None:
+        self.command_args = command_args
+        self.exit_code = exit_code
+        super().__init__(*args)
+
+
+class ExecutableNotFound(ToolException):
+    def __init__(
+        self,
+        executable: str,
+        tool: Optional[str] = None,
+        path: Optional[str] = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.exec = executable
+        self.tool = tool
+        self.path = path
+
+    def __str__(self) -> str:
+        msg = f"Executable '{self.exec}' "
+        if self.tool:
+            msg += f"(for {self.tool}) "
+        msg += "was not found!"
+        if self.path is not None:
+            msg += f" (PATH={self.path})"
+        return msg
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}: {self.__str__()}"

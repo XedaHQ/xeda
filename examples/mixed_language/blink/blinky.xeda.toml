@@ -1,0 +1,17 @@
+sources = ["blink.sv"]
+top = "blink"
+clock.port = "clk"
+
+[tb]
+sources = ["blink_tb.cpp"]
+
+[flows.cxxrtl]
+cxxrtl.filename = "blink.cpp"
+
+[flows.yosys_fpga]
+fpga.vendor = "xilinx"
+fpga.family = "xc7"
+
+[flows.vivado_synth]
+fpga.part = "xc7a100tftg256-2L"
+clock.period = 5.0
