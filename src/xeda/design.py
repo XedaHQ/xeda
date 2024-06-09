@@ -419,16 +419,24 @@ class RtlSettings(DVSettings):
         clock_port = values.get("clock_port")
         clocks = values.get("clocks")
 
+        def conv_clock(clock):
+            if isinstance(clock, dict):
+                clock = Clock(**clock)
+            elif isinstance(clock, str):
+                clock = Clock(port=clock_port)
+            return clock
+
         if clocks is None:
             clocks = {}
+        elif isinstance(clocks, list):
+            clocks = {clk.name or clk.port: clk for clk in map(conv_clock, clocks) if clk}
         if not clock:
             if clock_port:
                 clock = Clock(port=clock_port)
             elif len(clocks) == 1:
                 clock = list(clocks.values())[0]
         if clock:
-            if isinstance(clock, dict):
-                clock = Clock(**clock)
+            clock = conv_clock(clock)
             if not clock_port:
                 clock_port = clock.port
             if not clocks:
