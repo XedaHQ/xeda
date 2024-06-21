@@ -33,7 +33,7 @@ def vivado_generics(is_sim_flow: bool):
             if v is True:
                 return "1\\'b1"
             if isinstance(v, str):
-                return f'{{\\"{v}\\"}}'
+                return f'\\"{v}\\"'
             return str(v).strip()
 
         return " ".join(
@@ -49,7 +49,6 @@ def vivado_generics(is_sim_flow: bool):
 
 def vivado_defines(is_sim_flow: bool):
     def defines_to_str(mapping) -> str:
-
         def value_to_str(v):
             if is_sim_flow:
                 return v
@@ -58,7 +57,7 @@ def vivado_defines(is_sim_flow: bool):
             if v is True:
                 return "1\\'b1"
             if isinstance(v, str):
-                return '{\\"{v}\\"}'
+                return f'\\"{v}\\"'
             return str(v).strip()
 
         return " ".join(
