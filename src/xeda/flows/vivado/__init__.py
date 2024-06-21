@@ -10,39 +10,65 @@ from xml.etree import ElementTree
 from ...dataclass import Field
 from ...design import Design
 from ...tool import Docker, Tool
-from ...flow import Flow
+from ...flow import Flow, SynthFlow
 
 log = logging.getLogger(__name__)
 
+all = [
+    "Vivado",
+    "VivadoTool",
+]
 
-def vivado_generics(kvdict, sim=False):
-    def supported_vivado_generic(v, sim):
-        if sim:
-            return True
-        if isinstance(v, int):
-            return True
-        if isinstance(v, bool):
-            return True
-        v = str(v)
-        return v.isnumeric() or (v.strip().lower() in {"true", "false"})
 
-    def vivado_gen_convert(k, x, sim):
-        if sim:
-            return x
-        xl = str(x).strip().lower()
-        if xl == "false":
-            return "1\\'b0"
-        if xl == "true":
-            return "1\\'b1"
-        return x
+def vivado_generics(is_sim_flow: bool):
+    def vivado_generics_to_str(kvdict) -> str:
+        def supported_vivado_generic(v):
+            return v is not None
 
-    return " ".join(
-        [
-            f"-generic{'_top' if sim else ''} {k}={vivado_gen_convert(k, v, sim)}"
-            for k, v in kvdict.items()
-            if supported_vivado_generic(v, sim)
-        ]
-    )
+        def value_to_str(v):
+            if is_sim_flow:
+                return v
+            if v is False:
+                return "1\\'b0"
+            if v is True:
+                return "1\\'b1"
+            if isinstance(v, str):
+                return f'{{\\"{v}\\"}}'
+            return str(v).strip()
+
+        return " ".join(
+            [
+                f"-generic{'_top' if is_sim_flow else ''} {{{k}={value_to_str(v)}}}"
+                for k, v in kvdict.items()
+                if supported_vivado_generic(v)
+            ]
+        )
+
+    return vivado_generics_to_str
+
+
+def vivado_defines(is_sim_flow: bool):
+    def defines_to_str(mapping) -> str:
+
+        def value_to_str(v):
+            if is_sim_flow:
+                return v
+            if v is False:
+                return "1\\'b0"
+            if v is True:
+                return "1\\'b1"
+            if isinstance(v, str):
+                return '{\\"{v}\\"}'
+            return str(v).strip()
+
+        return " ".join(
+            [
+                f"-define {k}" + ("" if v is None else f"={value_to_str(v)}")
+                for k, v in mapping.items()
+            ]
+        )
+
+    return defines_to_str
 
 
 class VivadoTool(Tool):
@@ -97,7 +123,13 @@ class Vivado(Flow, metaclass=ABCMeta):
         )  # pyright: ignore
         if self.settings.redirect_stdout:
             self.vivado.redirect_stdout = Path(f"{self.name}_stdout.log")
-        self.add_template_filter("vivado_generics", vivado_generics)
+        self.add_template_filter(
+            "vivado_generics", vivado_generics(not isinstance(self, SynthFlow))
+        )
+
+        self.add_template_filter(  # defines to an option string
+            "vivado_defines", vivado_defines(not isinstance(self, SynthFlow))
+        )
 
     @staticmethod
     def parse_xml_report(report_xml) -> Optional[Dict[str, Any]]:

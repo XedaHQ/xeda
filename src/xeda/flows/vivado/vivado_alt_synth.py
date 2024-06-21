@@ -319,9 +319,11 @@ def flatten_options(d) -> str:
     if isinstance(d, dict):
         return " ".join(
             [
-                f"-{k} {flatten_options(v)}"
-                if v is not None and not isinstance(v, bool)
-                else f"-{k}"
+                (
+                    f"-{k} {flatten_options(v)}"
+                    if v is not None and not isinstance(v, bool)
+                    else f"-{k}"
+                )
                 for k, v in d.items()
                 if v is not False
             ]
@@ -395,11 +397,6 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
 
             # always need a synth step?
             ss.synth.steps["synth"] = synth_steps
-        if any(x in ss.blacklisted_resources for x in ("bram_tile", "bram")):
-            # FIXME also add "max_uram 0", only for UltraScale+ devices
-            synth_steps["max_bram"] = 0
-        if "dsp" in ss.blacklisted_resources:
-            synth_steps["max_dsp"] = 0
         if ss.flatten_hierarchy:
             synth_steps["flatten_hierarchy"] = ss.flatten_hierarchy
         ss.synth.steps["synth"] = synth_steps
@@ -411,7 +408,6 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
 
         log.debug("Synthesis steps:%s", steps_to_str(ss.synth.steps))
         log.debug("Implementation steps:%s", steps_to_str(ss.impl.steps))
-
         self.add_template_filter(
             "flatten_options",
             flatten_options,
@@ -421,5 +417,4 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             "vivado_alt_synth.tcl",
             xdc_files=[clock_xdc_path],
         )
-
         self.vivado.run("-source", script_path)

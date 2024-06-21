@@ -19,9 +19,9 @@ log = logging.getLogger(__name__)
 StepsValType = Union[None, List[str], Dict[str, Any]]
 
 
-def vivado_synth_generics(design: Design) -> List[str]:
+def vivado_synth_generics(parameters: dict) -> List[str]:
     generics = []
-    for k, v in design.rtl.parameters.items():
+    for k, v in parameters.items():
         if isinstance(v, bool):
             v = f"1'b{int(v)}"
         elif isinstance(v, str) and not re.match(r"\d+'b[01]+", v):
@@ -49,10 +49,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         fail_timing: bool = Field(
             True, description="flow fails if timing is not met"
         )  # pyright: ignore
-        blacklisted_resources: List[str] = Field(  # TODO: remove
-            [],
-            description="list of FPGA resources which are not allowed to be inferred or exist in the results. Valid values: latch, dsp, bram",
-        )
         input_delay: Optional[float] = None
         output_delay: Optional[float] = None
         write_checkpoint: bool = False
@@ -141,22 +137,13 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         }
 
         if not self.design.rtl.clocks:
-            log.warning(
-                "No clocks specified for top RTL design."
-            )
+            log.warning("No clocks specified for top RTL design.")
 
         clock_xdc_path = self.copy_from_template("clock.xdc")
-
-        log.debug("blacklisted_resources: %s", settings.blacklisted_resources)
 
         if settings.synth.steps["SYNTH_DESIGN"] is None:
             settings.synth.steps["SYNTH_DESIGN"] = {}
         assert isinstance(settings.synth.steps["SYNTH_DESIGN"], dict)
-        if any(item in settings.blacklisted_resources for item in ("bram_tile", "bram")):
-            # FIXME also add -max_uram 0 for ultrascale+
-            settings.synth.steps["SYNTH_DESIGN"]["MAX_BRAM"] = 0
-        if "dsp" in settings.blacklisted_resources:
-            settings.synth.steps["SYNTH_DESIGN"]["MAX_DSP"] = 0
         if settings.flatten_hierarchy:
             settings.synth.steps["SYNTH_DESIGN"]["flatten_hierarchy"] = settings.flatten_hierarchy
 
@@ -171,7 +158,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             "vivado_synth.tcl",
             xdc_files=xdc_files,
             reports_tcl=reports_tcl,
-            generics=" ".join(vivado_synth_generics(self.design)),
+            generics=" ".join(vivado_synth_generics(self.design.rtl.parameters)),
         )
         self.vivado.run("-source", script_path)
 
@@ -305,24 +292,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             self.results["_utilization"] = utilization
         if failed:
             return False
-        for resource in self.settings.blacklisted_resources:
-            res_util = self.results.get(resource)
-            if res_util is not None:
-                try:
-                    res_util = int(res_util)
-                    if res_util > 0:
-                        log.critical(
-                            "utilization report lists %s use(s) of blacklisted resource: %s",
-                            res_util,
-                            resource,
-                        )
-                        failed = True
-                except ValueError:
-                    log.warning(
-                        "Unknown utilization value: %s for blacklisted resource %s. Assuming results are not violating the blacklist criteria.",
-                        res_util,
-                        resource,
-                    )
+
         # TODO better fail analysis for vivado
         wns = self.results.get("wns")
         if wns is not None and isinstance(wns, (float, int, str)):
