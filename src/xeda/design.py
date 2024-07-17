@@ -422,7 +422,7 @@ class RtlSettings(DVSettings):
         """,
     )
     # preferred way to specify a design's clock ports:
-    clocks: list[Clock] = []
+    clocks: List[Clock] = []
     # short-hand alternatives for a single clock designs:
     clock: Optional[Clock] = None  # DEPRECATED # TODO remove
     clock_port: Optional[str] = None  # TODO remove?
