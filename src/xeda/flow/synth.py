@@ -208,7 +208,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             if not physical_clock.port:
                 if clock_name not in (clk.name for clk in design.rtl.clocks):
                     if design.rtl.clocks:
-                        msg = f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {", ".join(c.name for c in design.rtl.clocks if c and c.name)}"
+                        msg = f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c.name for c in design.rtl.clocks if c and c.name)}"
                     else:
                         msg = f"No clock ports specified in 'design.rtl', while physical '{clock_name}' is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
                     raise FlowSettingsError(
