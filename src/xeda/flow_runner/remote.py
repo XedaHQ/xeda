@@ -105,7 +105,7 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
         xeda_run_dir,
         cached_dependencies=True,
         backups=True,
-        clean=True,
+        cleanup_before_run=True,
         incremental=False,
         post_cleanup=False,
         display_results=False,
