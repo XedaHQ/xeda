@@ -15,8 +15,12 @@ from .utils import NonZeroExitCode, ExecutableNotFound
 
 log = logging.getLogger(__name__)
 
+
 def proc_output(is_stderr: bool, line):
-    print(f"{"[E] " if is_stderr else ""}{line}", end="", file=sys.stderr if is_stderr else sys.stdout)
+    print(
+        f"{'[E] ' if is_stderr else ''}{line}", end="", file=sys.stderr if is_stderr else sys.stdout
+    )
+
 
 def run_process(
     executable: str,
@@ -168,7 +172,7 @@ def run_capture_pty(command, env=None, cwd=None, check=True, encoding="utf-8"):
         elif remainder:
             data_str = remainder + data_str
             remainder = ""
-        # spl = re.split(r"\r?\n", data_str) # 
+        # spl = re.split(r"\r?\n", data_str) #
         spl = data_str.splitlines(keepends=True)
         if spl and not spl[-1].endswith(os.linesep) and not spl[-1].endswith("\n"):
             if is_stderr:
