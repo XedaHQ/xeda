@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 import unittest
 from collections import defaultdict
@@ -32,12 +33,10 @@ from varname import argname
 
 from .dataclass import XedaBaseModel
 
-try:
-    import tomllib  # pyright: ignore reportMissingImports
-except ModuleNotFoundError:
-    # python_version < "3.11":
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
     import tomli as tomllib  # type: ignore
-
 
 # install_import_hook("xeda")
 
@@ -448,12 +447,18 @@ def regex_match(string: str, pattern: str, ignorecase: bool = False) -> Optional
 
 def removesuffix(s: str, suffix: str) -> str:
     """similar to str.removesuffix in Python 3.9+"""
-    return s[: -len(suffix)] if suffix and s.endswith(suffix) else s
+    if sys.version_info >= (3, 9):
+        return s.removesuffix(suffix)
+    else:
+        return s[: -len(suffix)] if suffix and s.endswith(suffix) else s
 
 
 def removeprefix(s: str, prefix: str) -> str:
     """similar to str.removeprefix in Python 3.9+"""
-    return s[len(prefix) :] if prefix and s.startswith(prefix) else s
+    if sys.version_info >= (3, 9):
+        return s.removeprefix(prefix)
+    else:
+        return s[len(prefix) :] if prefix and s.startswith(prefix) else s
 
 
 _K = TypeVar("_K")
@@ -515,7 +520,7 @@ def settings_to_dict(
                 key, val = sp
                 set_hierarchy(res, key, conv(val))
             elif override and isinstance(override, dict):
-                for key, val in override.items():
+                for key, val in override.items():  # type: ignore
                     set_hierarchy(res, key, conv(val))
         return res
     if isinstance(settings, dict):

@@ -150,6 +150,11 @@ def cli(ctx: click.Context, **kwargs):
     help="Incremental build. Useful during development. Flows run under a <design_name>/<flow_name>_<flow_settings_hash> subfolder in incremental mode.",
 )
 @click.option(
+    "--cwd",
+    is_flag=True,
+    help="Run incremental execution in the current working directory.",
+)
+@click.option(
     "--clean",
     is_flag=True,
     default=False,
@@ -265,13 +270,19 @@ def run(
     post_cleanup_purge: bool = False,
     scrub: bool = False,
     remote: Optional[str] = None,
+    cwd: bool = False,
 ):
     """`run` command"""
     assert ctx
     options: XedaOptions = ctx.obj or XedaOptions()
-    assert xeda_run_dir
-    if not xeda_run_dir:
+    if cwd and remote:
+        log.critical("--cwd and --remote are mutually exclusive!")
+        sys.exit(1)
+    if cwd:
+        xeda_run_dir = Path.cwd()
+    elif xeda_run_dir is None:
         xeda_run_dir = Path.cwd() / "xeda_run"
+
     if log_level is None:
         log_level = (
             logging.DEBUG if options.debug else logging.WARNING if options.quiet else logging.INFO
@@ -304,11 +315,16 @@ def run(
             xeda_run_dir,
             cached_dependencies=cached_dependencies,
         )
-        launcher.settings.incremental = incremental
-        launcher.settings.clean = clean
-        launcher.settings.post_cleanup = post_cleanup
-        launcher.settings.post_cleanup_purge = post_cleanup_purge
-        launcher.settings.scrub_old_runs = scrub
+        launcher.settings.cleanup_before_run = clean
+        if cwd:
+            launcher.settings.incremental = True
+            launcher.settings.run_path = Path.cwd()
+            launcher.settings.dump_results_json = False
+        else:
+            launcher.settings.incremental = incremental
+            launcher.settings.post_cleanup = post_cleanup
+            launcher.settings.post_cleanup_purge = post_cleanup_purge
+            launcher.settings.scrub_old_runs = scrub
         launcher.settings.debug = options.debug
         f = launcher.run(
             flow,
@@ -318,7 +334,6 @@ def run(
             select_design_in_project=select_design_in_project,
             design_overrides=design_overrides,
             design_allow_extra=design_allow_extra,
-            design_remove_extra=["lwc"],
         )
         sys.exit(1 if not f or not f.results.success else 0)
     except FlowFatalError as e:
@@ -585,7 +600,6 @@ def dse(
         design=design or design_name,
         flow_settings=list(flow_settings),
         select_design_in_project=select_design_in_project,
-        design_remove_extra=["lwc"],
         design_allow_extra=design_allow_extra,
     )
 

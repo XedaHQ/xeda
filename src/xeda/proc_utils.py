@@ -4,6 +4,7 @@ import os
 import logging
 from pathlib import Path
 import pty
+import re
 import subprocess
 import signal
 import select
@@ -39,7 +40,7 @@ def run_process(
         log.debug("Running `%s`", cmd_str)
     if cwd:
         log.debug("cwd=%s", cwd)
-    if not stdout:
+    if False and not stdout:
         for is_stderr, line in run_capture_pty(command, env=env, cwd=cwd, check=check):
             proc_output(is_stderr, line)
         return None
@@ -132,7 +133,7 @@ def _subprocess_tty(command, env, cwd, check):
             ready, _, _ = select.select(readable, [], [], timeout)
             for fd in ready:
                 try:
-                    data = os.read(fd, 512)
+                    data = os.read(fd, 64)
                 except OSError as e:
                     # EIO means EOF on some systems
                     if e.errno != errno.EIO:
@@ -167,6 +168,7 @@ def run_capture_pty(command, env=None, cwd=None, check=True, encoding="utf-8"):
         elif remainder:
             data_str = remainder + data_str
             remainder = ""
+        # spl = re.split(r"\r?\n", data_str) # 
         spl = data_str.splitlines(keepends=True)
         if spl and not spl[-1].endswith(os.linesep) and not spl[-1].endswith("\n"):
             if is_stderr:
@@ -175,7 +177,7 @@ def run_capture_pty(command, env=None, cwd=None, check=True, encoding="utf-8"):
                 remainder = spl[0]
             spl = spl[1:]
         for line in spl:
-            yield (is_stderr, line)
+            yield (is_stderr, line + os.linesep)
     if remainder:
         yield (False, remainder + os.linesep)
     if err_remainder:

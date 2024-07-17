@@ -1,6 +1,9 @@
+from glob import glob
 import logging
 import os
 from pathlib import Path
+import shutil
+import sys
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import Field
@@ -50,6 +53,8 @@ class Verilator(SimFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+
+        self.rm_dep_files()
 
         verilator = Tool(
             "verilator",
@@ -142,6 +147,9 @@ class Verilator(SimFlow):
         ]
 
         cflags = list(ss.cflags)  # copy
+        if sys.platform == "darwin":
+            if ss.timing:
+                cflags += ["-std=c++2a", "-fcoroutines-ts"]
 
         if self.cocotb:
             if verilator.docker is not None:
@@ -204,8 +212,22 @@ class Verilator(SimFlow):
         plus_args = list(ss.plus_args)
         if ss.random_init:
             random_seed = (
-                1 if ss.debug else 0
+                12345 if ss.debug else 0
             )  # 0 = choose value from system random number generator
             plus_args += [f"+verilator+seed+{random_seed}", "+verilator+rand+reset+2"]
         model = verilator.derive(verilated_bin)
         model.run(*ss.plus_args, env=env)
+
+    def rm_dep_files(self):
+        assert isinstance(self.settings, self.Settings)
+        log.info("Removing dependency files to trigger verilator")
+        if self.settings.sim_dir and os.path.exists(self.settings.sim_dir):
+            for p in glob(f"{self.settings.sim_dir}{os.sep}*.d"):
+                if os.path.exists(p):
+                    log.debug("Deleting %s", p)
+                    os.unlink(p)
+
+    def clean(self):
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.sim_dir and os.path.exists(self.settings.sim_dir):
+            shutil.rmtree(self.settings.sim_dir)

@@ -5,6 +5,7 @@ import inspect
 import json
 import logging
 import os
+import pprint
 import re
 import subprocess
 from enum import Enum, auto
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 import yaml
 from urllib.parse import parse_qs, urlparse
+
+import yaml.scanner
 
 
 from .dataclass import (
@@ -38,6 +41,7 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "Design",
+    "DesignFileParseError",
     "DesignValidationError",
     "DesignSource",
     "FileResource",
@@ -46,6 +50,14 @@ __all__ = [
     "LanguageSettings",
     "Clock",
 ]
+
+
+def pformat(data):
+    return pprint.pformat(data, compact=True, sort_dicts=False).removeprefix("{").removesuffix("}")
+
+
+class DesignFileParseError(Exception):
+    pass
 
 
 class DesignValidationError(Exception):
@@ -76,7 +88,7 @@ class DesignValidationError(Exception):
                 "{}{} ({})\n".format(f"{loc}:\n   " if loc else "", msg, ctx)
                 for loc, msg, ctx, typ in self.errors
             ),
-        )
+        ) + (f"\nDesign:\n{pformat(self.data)}\n" if self.data else "")
 
 
 class FileResource:
@@ -206,6 +218,7 @@ class DesignSource(FileResource):
                 (SourceType.Xdc, None): ["xdc"],
                 (SourceType.Sdc, None): ["sdc"],
                 (SourceType.Tcl, None): ["tcl"],
+                (SourceType.Cocotb, None): ["py"],
             }
             for (typ, vari), suffixes in type_variants_map.items():
                 if path.suffix[1:] in suffixes:
@@ -337,7 +350,8 @@ class Generator(XedaBaseModel):
     generated_sources: List[str] = []
 
     def run(self):
-        assert self.executable
+        if not self.executable:
+            raise ValueError("executable is not set")
         self.run_cmd([self.executable, *self.args])
 
     def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
@@ -376,7 +390,8 @@ class ChiselGenerator(Generator):
             else:
                 log.error("No projects found!")
                 raise ValueError("No projects found!")
-        assert self.project, "project not set!"
+        if not self.project:
+            ValueError("`project` must be specified for Chisel generator")
         cmd = ["bloop", "run", self.project]
         if self.main:
             cmd += ["--main", self.main]
@@ -419,9 +434,7 @@ class RtlSettings(DVSettings):
         clocks = values.get("clocks")
 
         def conv_clock(clock):
-            if isinstance(clock, Clock):
-                return clock
-            elif isinstance(clock, dict):
+            if isinstance(clock, dict):
                 clock = Clock(**clock)
             elif isinstance(clock, str):
                 clock = Clock(port=clock)
@@ -429,17 +442,27 @@ class RtlSettings(DVSettings):
 
         if clocks is None:
             if clock:
-                clock = conv_clock(clock)
                 clocks = [clock]
             else:
                 clocks = []
-        else:
-            assert isinstance(clocks, list)
-            clocks = [conv_clock(clk) for clk in clocks]
+        elif isinstance(clocks, (str, dict, Clock)):
+            clocks = [clocks]
+        if not isinstance(clocks, list):
+            raise ValueError(f"Expecting 'clocks' to be a list but found {clocks}")
+        clocks = [conv_clock(clk) for clk in clocks if clk]
         values["clocks"] = clocks
         if clocks:
             values["clock"] = clocks[0]
         return values
+
+
+class CocotbTestbench(XedaBaseModel):
+    module: Optional[str] = None
+    toplevel: Optional[str] = None
+    testcase: List[str] = Field(
+        default=[],
+        description="List of test-cases for this design. Will be overridden by flow settings: cocotb.testcase",
+    )
 
 
 class TbSettings(DVSettings):
@@ -453,7 +476,9 @@ class TbSettings(DVSettings):
     uut: Optional[str] = Field(
         None, description="instance name of the unit under test in the testbench"
     )
-    cocotb: Optional[bool] = Field(None, description="testbench is based on cocotb framework")
+    cocotb: Optional[CocotbTestbench] = Field(
+        None, description="testbench is based on cocotb framework"
+    )
 
     @validator("top", pre=True, always=True)
     def _tb_top_validate(cls, value) -> Tuple012:
@@ -466,10 +491,13 @@ class TbSettings(DVSettings):
                 return tuple(value)
         return tuple()
 
-    @validator("cocotb", pre=False, always=True)
+    @validator("cocotb", pre=True, always=True)
     def _auto_set_cocotb(cls, value, values):
-        if value is None:
-            sources = values.get("sources", [])
+        if value is False:
+            return None
+
+        def has_cocotb(tb):
+            sources = tb.get("sources", [])
             for src in sources:
                 if isinstance(src, DesignSource) and src.type == SourceType.Cocotb:
                     return True
@@ -478,21 +506,10 @@ class TbSettings(DVSettings):
                 if isinstance(src, str) and src.startswith("cocotb:") and src.endswith(".py"):
                     return True
             return False
-        return value
 
-    # @root_validator(pre=True)
-    # def _tb_root_validate(cls, values):
-    #     sources_value = values.get("sources", [])
-    #     if isinstance(sources_value, (str, Path)):
-    #         sources_value = [sources_value]
-    #     sources = []
-    #     for src in sources_value:
-    #         if isinstance(src, str) and src.startswith("cocotb:") and src.endswith(".py"):
-    #             src = {"file": removeprefix(src, "cocotb:"), "type": SourceType.Cocotb}
-    #             values["cocotb"] = True
-    #         sources.append(src)
-    #     values["sources"] = sources
-    #     return values
+        if value is True or (value is None and has_cocotb(values)):
+            return CocotbTestbench()
+        return value
 
 
 class LanguageSettings(XedaBaseModel):
@@ -571,7 +588,8 @@ class DesignReference(XedaBaseModel):
 
     def fetch_design(self) -> Design:
         toml_path = Path(self.uri)
-        assert toml_path.exists(), f"file {toml_path} does not exist!"
+        if not toml_path.exists():
+            raise ValueError(f"file {toml_path} does not exist!")
         return Design.from_toml(toml_path)
 
 
@@ -594,7 +612,8 @@ class GitReference(DesignReference):
         if not value and repo_url:
             uri = urlparse(repo_url)
             uri_path = uri.path.lstrip("/.")
-            assert uri.netloc, "invalid URL"
+            if not uri.netloc:
+                raise ValueError(f"invalid URL: {uri}")
             commit = values.get("commit")
             branch = values.get("branch")
             if commit:
@@ -616,14 +635,15 @@ class GitReference(DesignReference):
             uri_str = values["uri"]
             # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
             uri = urlparse(uri_str)
-            assert uri.scheme and uri.netloc, "invalid git URL"
+            if not uri.scheme or not uri.netloc:
+                raise ValueError(f"invalid git URL: {uri}")
             # git design file path should be relative to root
             design_file_path = uri.fragment.lstrip("/.")  # Removes /, ../, etc.
             if not design_file_path:
                 raise ValueError(
                     inspect.cleandoc(
                         """path to design_file must be specified using URL fragment (#...), e.g.,
-                    https://github.com/user/repo.git#sub_dir1/design_file2.toml when design file is
+                    https://github.com/SOME_USERNAME/SOME_REPOSITORY.git#PATH_TO_DESIGN_FILE when design file is
                     'sub_dir1/design_file2.toml' relative to the the repository's root."""
                     )
                 )
@@ -649,12 +669,14 @@ class GitReference(DesignReference):
         import git
         from git.repo import Repo
 
-        assert self.clone_dir, "clone_dir not set"
+        if not self.clone_dir:
+            raise ValueError(f"'clone_dir' not set for GitReference: {self}")
         repo = None
         if self.clone_dir.exists():
             try:
                 repo = Repo(self.clone_dir)
-                assert repo.git_dir
+                if not repo.git_dir:
+                    raise ValueError(f"repo={repo} is missing 'git_dir'")
                 log.info("Updating existing git repository at %s", self.clone_dir)
                 repo.remotes.origin.fetch()
                 if not self.commit:
@@ -674,7 +696,8 @@ class GitReference(DesignReference):
                 depth=1,
                 branch=self.branch,
             )
-        assert repo is not None
+        if repo is None:
+            ValueError("repo is None!")
         if self.commit:
             log.info("Checking out commit: %s", self.commit)
             repo.git.checkout(self.commit)
@@ -737,7 +760,7 @@ class Design(XedaBaseModel):
             clocks = data.pop("clocks", None)
             if clocks is None:
                 clock = data.pop("clock", None)
-                clocks = [clock]
+                clocks = [clock] if clock else []
             data["rtl"] = {
                 "sources": data.pop("sources", []),
                 "generator": data.pop("generator", None),
@@ -746,6 +769,19 @@ class Design(XedaBaseModel):
                 "top": data.pop("top", None),
                 "clocks": clocks,
             }
+        tb = data.get("tb", {})
+        tests = data.pop("tests", [])
+        if tests and not isinstance(tests, list):
+            tests = [tests]
+        test = data.pop("test", None)
+        if test:
+            tests.append(test)
+        if tests and not tb:
+            # TODO add support for multiple tests per design
+            test = tests[0]
+            if not isinstance(test, dict):
+                raise ValueError(f"test: {test} is not a dictionary")
+            data["tb"] = test
         return data
 
     @classmethod
@@ -765,7 +801,8 @@ class Design(XedaBaseModel):
                     if isinstance(generator, (dict)):
                         clazz = generator.get("class")
                         if clazz:
-                            assert isinstance(clazz, str)
+                            if not isinstance(clazz, str):
+                                raise ValueError(f"clazz={clazz} must be a string")
                             if clazz.lower() == "chisel":
                                 generator = ChiselGenerator(**generator)
                             else:
@@ -790,6 +827,7 @@ class Design(XedaBaseModel):
     @classmethod
     def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         data = cls.process_compatibility(data)
+        log.debug("Design data: %s", data)
         cls.process_generation(data)
         return data
 
@@ -800,7 +838,8 @@ class Design(XedaBaseModel):
     ) -> None:
         if not design_root:
             design_root = data.pop("design_root", Path.cwd())
-        assert design_root
+        if not design_root:
+            raise ValueError("design_root is not set")
         if not isinstance(design_root, Path):
             design_root = Path(design_root)
         design_root = design_root.resolve()
@@ -871,7 +910,8 @@ class Design(XedaBaseModel):
 
     @property
     def root_path(self) -> Path:
-        assert self.design_root, "design_root is not set!"
+        if not self.design_root:
+            raise ValueError("design_root is not set")
         return self.design_root
 
     @classmethod
@@ -907,18 +947,42 @@ class Design(XedaBaseModel):
             remove_extra = []
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
+        error_msg_parts = [f'File "{design_file.absolute()}"']
         if design_file.suffix == ".toml":
             design_dict = toml_load(design_file)
         elif design_file.suffix == ".json":
             with open(design_file, "r") as f:
-                design_dict = json.load(f)
-            design_dict = expand_hierarchy(design_dict)
+                try:
+                    design_dict = json.load(f)
+                except json.JSONDecodeError as e:
+                    error_msg_parts += [
+                        f"line {e.lineno + 1}",
+                        f"column {e.colno + 1}",
+                        e.msg,
+                    ]
+                    raise DesignFileParseError(", ".join(error_msg_parts)) from None
         elif design_file.suffix in {".yaml", ".yml"}:
             with open(design_file, "r") as f:
-                design_dict = yaml.safe_load(f)
-            design_dict = expand_hierarchy(design_dict)
+                try:
+                    design_dict = yaml.safe_load(f)
+                except yaml.error.MarkedYAMLError as e:
+                    if e.context_mark:
+                        # context_mark's line and column start from 0, but most IDEs use 1 indexing for source locators
+                        error_msg_parts += [
+                            f"line {e.context_mark.line + 1}",
+                            f"column {e.context_mark.column + 1}",
+                        ]
+                        if e.problem:
+                            error_msg_parts.append(e.problem)
+                        if e.note:
+                            error_msg_parts.append("Note: " + e.note)
+
+                    raise DesignFileParseError(", ".join(error_msg_parts)) from None
+                except yaml.YAMLError as e:
+                    raise DesignFileParseError(f"{e.args}") from None
         else:
             raise ValueError(f"File extension `{design_file.suffix}` is not supported.")
+        design_dict = expand_hierarchy(design_dict)
         design_dict = hierarchical_merge(design_dict, overrides)
         if "name" not in design_dict:
             design_name = design_file.stem

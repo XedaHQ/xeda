@@ -96,7 +96,7 @@ class Executioner:
     def __call__(self, args: Tuple[int, Dict[str, Any]]) -> Tuple[Optional[FlowOutcome], int]:
         idx, flow_settings = args
         try:
-            flow = self.launcher._launch_flow(self.flow_class, self.design, flow_settings)
+            flow = self.launcher.launch_flow(self.flow_class, self.design, flow_settings)
             return (
                 FlowOutcome(
                     settings=deepcopy(flow.settings),  # type: ignore[call-arg]
@@ -176,6 +176,8 @@ class Dse(FlowLauncher):
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
+        *args,
+        **kwargs,
     ):
         assert isinstance(self.settings, self.Settings)
         timer = Timer()

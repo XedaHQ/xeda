@@ -1,4 +1,5 @@
 """EDA flow abstraction"""
+
 from __future__ import annotations
 
 import inspect
@@ -54,7 +55,7 @@ def expand_paths(field: Optional[ModelField], value):
     if isinstance(value, (str, Path)) and value and not os.path.isabs(value):
         for pattern, repl in mapping.items():
             if not os.path.isabs(value):
-                pat = re.escape(pattern + os.pathsep) + r"?"
+                pat = re.escape(pattern + os.sep) + r"?"
                 value = Path(re.sub(pat, str(repl), str(value), count=1))
                 log.debug("Expanded path value for %s as %s", field.name, value.absolute())
     return value
@@ -271,6 +272,9 @@ class Flow(metaclass=ABCMeta):
         """return False on failure"""
 
     def clean(self):
+        pass
+
+    def purge_run_path(self):
         for path in self.run_path.iterdir():
             if path.is_file():
                 path.unlink()

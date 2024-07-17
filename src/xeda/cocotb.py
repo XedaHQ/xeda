@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Literal, Optional
 from junitparser import JUnitXml  # type: ignore[import-untyped, attr-defined]
 
 from .dataclass import Field, XedaBaseModel, validator
-from .design import Design
+from .design import Design, SourceType
 from .tool import Tool
 
 log = logging.getLogger(__name__)
@@ -104,38 +104,59 @@ class Cocotb(CocotbSettings, Tool):
         ret = {}
         if design.tb.cocotb:
             if design.tb is None or not design.tb.sources:
-                raise ValueError("'design.tb.cocotb' is true, but 'design.tb.sources' is empty.")
+                raise ValueError("'design.tb.cocotb' is set, but 'design.tb.sources' is empty.")
             if not design.tb.top:
                 if not design.rtl.top:
                     raise ValueError(
                         f"[cocotb] In design {design.name}: Either `tb.top` or `rtl.top` must be specified."
                     )
                 design.tb.top = (design.rtl.top,)
-            coco_module = design.tb.sources[0].file.stem
-            tb_top_path = design.tb.sources[0].file.parent
-            ppath = []
-            current_ppath = os.environ.get("PYTHONPATH")
-            if current_ppath:
-                ppath = current_ppath.split(os.pathsep)
-            ppath.append(str(tb_top_path))
-            top: str = design.tb.top if isinstance(design.tb.top, str) else design.tb.top[0]
+            cocotb_sources = design.sources_of_type(SourceType.Cocotb, rtl=False, tb=True)
+            if cocotb_sources:
+                top_cocotb_source = cocotb_sources[-1].file
+            else:
+                top_cocotb_source = None
+
+            py_path = []
+            current_py_path = os.environ.get("PYTHONPATH")
+            if current_py_path:
+                py_path += current_py_path.split(os.pathsep)
+            coco_module = None
+            if design.tb.cocotb.module:
+                design_module_split = design.tb.cocotb.module.split("/")
+                coco_module = design_module_split[-1]
+                if len(design_module_split) > 1:
+                    module_path = os.sep.join(design_module_split[:-1])
+                    if not os.path.isabs(module_path):
+                        module_path = os.path.join(design.root_path, module_path)
+                else:
+                    module_path = design.root_path
+                py_path.append(str(module_path))
+            elif top_cocotb_source:
+                coco_module = top_cocotb_source.stem
+            if top_cocotb_source:
+                py_path.append(str(top_cocotb_source.parent))
+            toplevel = design.tb.cocotb.toplevel
+            if not toplevel and design.tb.top:
+                toplevel = design.tb.top if isinstance(design.tb.top, str) else design.tb.top[0]
             ret = {
                 "MODULE": coco_module,
-                "TOPLEVEL": top,  # TODO
+                "TOPLEVEL": toplevel,  # TODO
                 "COCOTB_REDUCED_LOG_FMT": int(self.reduced_log_fmt),
-                "PYTHONPATH": os.pathsep.join(ppath),
+                "PYTHONPATH": os.pathsep.join(py_path),
                 "COCOTB_RESULTS_FILE": self.results_xml,
                 "COCOTB_RESOLVE_X": self.resolve_x,
             }
             if self.coverage:
                 ret["COVERAGE"] = 1
-            if self.testcase:
-                ret["TESTCASE"] = ",".join(self.testcase)
+            testcases = self.testcase or design.tb.cocotb.testcase
+            if testcases:
+                ret["TESTCASE"] = ",".join(testcases)
             if self.random_seed is not None:
                 ret["RANDOM_SEED"] = self.random_seed
             if self.gpi_extra:
                 ret["GPI_EXTRA"] = ",".join(self.gpi_extra)
-            log.info("Cocotb env: %s", ret)
+            log.debug("Cocotb env: %s", ret)
         return ret
 
     @cached_property
