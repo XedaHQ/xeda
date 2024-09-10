@@ -1,3 +1,4 @@
+yosys logger -notime -stderr
 {% include 'read_files.tcl' %}
 
 {% if settings.prep is not none %}

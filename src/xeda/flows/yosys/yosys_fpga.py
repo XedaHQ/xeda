@@ -17,6 +17,9 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
 
     class Settings(YosysBase.Settings, FpgaSynthFlow.Settings):
         abc9: bool = Field(True, description="Use abc9")
+        flow3: bool = Field(
+            True, description="Use flow3, which runs the mapping several times, if abc9 is set"
+        )
         retime: bool = Field(False, description="Enable flip-flop retiming")
         nobram: bool = Field(False, description="Do not map to block RAM cells")
         nodsp: bool = Field(False, description="Do not use DSP resources")
@@ -26,19 +29,22 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             description="Run a simple static timing analysis (requires `flatten`)",
         )
         nowidelut: bool = Field(
-            False,
+            True,
             description="Do not use MUX resources to implement LUTs larger than native for the target",
         )
-        abc_dff: bool = Field(True, description="Run abc/abc9 with -dff option")
+        abc_dff: bool = Field(False, description="Run abc/abc9 with -dff option")
         widemux: int = Field(
             0,
             description="enable inference of hard multiplexer resources for muxes at or above this number of inputs"
             " (minimum value 2, recommended value >= 5 or disabled = 0)",
         )
         synth_flags: List[str] = []
-        abc_flags: List[str] = []
+        pre_synth_opt: bool = Field(
+            False,
+            description="run additional optimization steps before synthesis",
+        )
         post_synth_opt: bool = Field(
-            True,
+            False,
             description="run additional optimization steps after synthesis if complete",
         )
         optimize: Optional[Literal["speed", "area"]] = Field(
@@ -146,18 +152,20 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                     if ram32m:
                         self.results["LUT"] += ram32m
                         self.results["LUT:RAM"] = ram32m
-                    self.results["FF"] = sum_all_resources(design_util, ["FDRE", "FDSE"])
-                    carry4 = sum_all_resources(design_util, ["CARRY4"])
-                    if carry4:
-                        self.results["CARRY"] = carry4
+                    self.results["FF"] = sum_all_resources(
+                        design_util, ["FDCE", "FDPE", "FDRE", "FDSE"]
+                    )
                     brams = sum_all_resources(design_util, ["RAMB36"])
                     brams_half = sum_all_resources(design_util, ["RAMB18"])
                     brams += brams_half / 2
                     if brams:
                         self.results["BRAM"] = brams
-                    dsps = sum_all_resources(design_util, ["DSP48E"])
+                    dsps = sum_all_resources(design_util, ["DSP48E1", "DSP48E2", "DSP48E"])
                     if dsps:
                         self.results["DSP"] = dsps
+                    carry_chains = sum_all_resources(design_util, ["CARRY4", "CARRY2"])
+                    if carry_chains:
+                        self.results["CARRY"] = carry_chains
 
         # if self.settings.fpga:
         return True

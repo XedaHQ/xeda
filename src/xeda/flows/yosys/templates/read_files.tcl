@@ -11,17 +11,17 @@ yosys plugin -i systemverilog
 
 {%- for src in design.rtl.sources %}
 {%- if src.type.name == "Verilog" or (not uhdm_plugin and src.type.name == "SystemVerilog") %}
-yosys log -stdout "Reading {{src}}"
+yosys log -stdout "** Reading {{src}} **"
 yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{src}}
 {%- elif src.type.name == "SystemVerilog" %}
-yosys log -stdout "Reading {{src}}"
+yosys log -stdout "** Reading {{src}} **"
 yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src}}
 {%- endif %}
 {%- endfor %}
 
 {% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) %}
 {%- if vhdl_files %}
-yosys log -stdout "Elaborating VHDL files"
+yosys log -stdout "** Elaborating VHDL files **"
 yosys plugin -i ghdl
 yosys ghdl {{ghdl_args|join(" ")}}
 {% endif %}

@@ -104,7 +104,7 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
     launcher = DefaultRunner(
         xeda_run_dir,
         cached_dependencies=True,
-        backups=True,
+        backups=False,
         cleanup_before_run=True,
         incremental=False,
         post_cleanup=False,
@@ -149,6 +149,7 @@ class RemoteLogger:
 class RemoteRunner(FlowLauncher):
     class Settings(FlowLauncher.Settings):
         clean: bool = True
+        backups: bool = False
 
     def run_remote(
         self,

@@ -1,3 +1,5 @@
+yosys logger -notime -stderr
+
 {% for src in design.rtl.sources %}
 {%- if src.type == 'verilog' %}
 log -stdout yosys> Reading {{src}}
