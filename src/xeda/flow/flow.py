@@ -254,6 +254,7 @@ class Flow(metaclass=ABCMeta):
         self.artifacts = Box()
         self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
+        self.add_template_filter("quote", lambda x: f'"{x}"')
         self.add_template_test("match", regex_match)
         self.dependencies: List[Tuple[Union[Type["Flow"], str], Flow.Settings, List[str]]] = []
         self.completed_dependencies: List[Flow] = []
@@ -304,10 +305,11 @@ class Flow(metaclass=ABCMeta):
             f.write(rendered_content)
         return script_path.resolve().relative_to(self.run_path)
 
-    def add_template_filter(self, filter_name: str, func) -> None:
+    def add_template_filter(self, filter_name: str, func, replace_existing=False) -> None:
         assert filter_name
         if filter_name in self.jinja_env.filters:
-            raise ValueError(f"Template filter with name {filter_name} already exists!")
+            if not replace_existing:
+                raise ValueError(f"Template filter with name {filter_name} already exists!")
         self.jinja_env.filters[filter_name] = func
 
     def add_template_filter_func(self, func) -> None:

@@ -39,7 +39,7 @@ dependencies = [
     "jinja2              ~= 3.1",
     "pydantic            >= 1.10, < 2.0",
     "tomli               ~= 2.0; python_version<'3.11'",
-    "python-box[]        ~= 7.0",
+    "python-box[]        ~= 7.2",
     "attrs               >= 22.1,< 24.0",
     "cattrs              >= 22.2,< 24.0",
     "attrs_strict        ~= 1.0",
@@ -49,21 +49,21 @@ dependencies = [
     "coloredlogs         ~= 15.0",
     "rich                >= 12.6,< 14.0",
     "pebble              ~= 5.0",
-    "pint                ~= 0.20",
+    "pint                ~= 0.24",
     "importlib_resources >= 5.10",                       # backport of importlib.resources, replaces pkg_resources
-    "simpleeval          >= 0.9.13",
+    "simpleeval          ~= 0.9",
     # experimental:
-    "pyyaml            >= 6.0",
-    "varname           >= 0.10",
-    "overrides         >= 6.1",
-    "simple_term_menu  >= 1.5.2",
-    "psutil            >= 5.9",
+    "pyyaml            ~= 6.0",
+    "varname           ~= 0.13",
+    "overrides         ~= 7.7",
+    "simple_term_menu  ~= 1.6",
+    "psutil            ~= 6.0",
     "junitparser       >= 2.4,< 4.0", # TODO: remove
-    "pyvcd             ~= 0.3",
-    "GitPython         >= 3.1.30",
-    "fabric            >= 3.1.0",
-    "execnet           >= 2.1.1",
-    "devtools          >= 0.11",
+    "pyvcd             ~= 0.4",
+    "GitPython         ~= 3.1",
+    "fabric            ~= 3.2",
+    "execnet           ~= 2.1",
+    "devtools          ~= 0.12",
 ]
 
 [project.optional-dependencies]

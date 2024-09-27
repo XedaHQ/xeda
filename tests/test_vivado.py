@@ -26,7 +26,7 @@ def test_vivado_synth_template() -> None:
         "vivado_synth.tcl",
         xdc_files=[],
         reports_tcl="reports_tcl",
-        generics=" ".join(vivado_synth_generics(design)),
+        generics=" ".join(vivado_synth_generics(design.rtl.parameters)),
     )
     with open(run_dir / tcl_file) as f:
         vivado_tcl = f.read()
@@ -44,10 +44,11 @@ def test_vivado_synth_py() -> None:
     assert path.exists()
     design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
-    with tempfile.TemporaryDirectory() as run_dir:
+    with tempfile.TemporaryDirectory(dir=Path.cwd()) as run_dir:
         print("Xeda run dir: ", run_dir)
         xeda_runner = DefaultRunner(run_dir, debug=True)
         flow = xeda_runner.run_flow(VivadoSynth, design, settings)
+        assert flow is not None, "run_flow returned None"
         settings_json = flow.run_path / "settings.json"
         results_json = flow.run_path / "results.json"
         assert settings_json.exists()

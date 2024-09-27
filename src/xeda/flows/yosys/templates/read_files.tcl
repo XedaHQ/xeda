@@ -12,18 +12,19 @@ yosys plugin -i systemverilog
 {%- for src in design.rtl.sources %}
 {%- if src.type.name == "Verilog" or (not uhdm_plugin and src.type.name == "SystemVerilog") %}
 yosys log -stdout "** Reading {{src}} **"
-yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{src}}
+yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} "{{src}}"
 {%- elif src.type.name == "SystemVerilog" %}
 yosys log -stdout "** Reading {{src}} **"
-yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src}}
+yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} "{{src}}"
 {%- endif %}
 {%- endfor %}
 
-{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) %}
+{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) | map('quote') %}
 {%- if vhdl_files %}
 yosys log -stdout "** Elaborating VHDL files **"
 yosys plugin -i ghdl
-yosys ghdl {{ghdl_args|join(" ")}}
+set ghdl_args "{{ghdl_args|join(" ")}}"
+yosys ghdl {*}$ghdl_args {{vhdl_files|join (" ")}} -e
 {% endif %}
 
 {%- if settings.liberty is defined %}
@@ -33,7 +34,7 @@ yosys read_liberty -lib {{lib}}
 {%- endif %}
 
 {%- for src in settings.verilog_lib %}
-yosys read_verilog -lib {{src}}
+yosys read_verilog -lib "{{src}}"
 {% endfor %}
 
 {%- for key, value in parameters.items() %}

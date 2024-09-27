@@ -39,17 +39,17 @@ puts "Targeting device: $fpga_part"
 {% for src in design.rtl.sources %}
 {% if src.type.name == "Verilog" %}
 puts "Reading Verilog file {{src.file}}"
-if { [catch {eval read_verilog {{src.file}} } myError]} {
+if { [catch {eval read_verilog \"{{src.file}}\" } myError]} {
     errorExit $myError
 }
 {%- elif src.type.name == "SystemVerilog" %}
 puts "Reading SystemVerilog file {{src.file}}"
-if { [catch {eval read_verilog -sv {{src.file}} } myError]} {
+if { [catch {eval read_verilog -sv \"{{src.file}}\" } myError]} {
     errorExit $myError
 }
 {%- elif src.type.name == "Vhdl" %}
 puts "Reading VHDL file {{src.file}}"
-if { [catch {eval read_vhdl {% if design.language.vhdl.standard == "08" %} -vhdl2008 {%- endif %} {{src.file}} } myError]} {
+if { [catch {eval read_vhdl {% if design.language.vhdl.standard == "08" %} -vhdl2008 {%- endif %} \"{{src.file}}\" } myError]} {
     errorExit $myError
 }
 {%- endif %}
