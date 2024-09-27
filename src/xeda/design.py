@@ -71,7 +71,7 @@ class DesignValidationError(Exception):
         file: Optional[str] = None,
     ) -> None:
         super().__init__(*args)
-        self.errors = errors  # location, msg, type/context
+        self.errors = errors  # (location, message, context, type)
         self.data = data
         self.design_root = design_root
         self.design_name = design_name

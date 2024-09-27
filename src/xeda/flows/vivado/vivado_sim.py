@@ -2,6 +2,7 @@ import logging
 from typing import List, Optional
 
 from ...dataclass import Field
+from ...design import DesignValidationError
 from ...utils import SDF
 from ...flow import SimFlow
 from ..vivado import Vivado
@@ -45,8 +46,30 @@ class VivadoSim(Vivado, SimFlow):
         if elab_debug:
             ss.elab_flags.append(f"-debug {elab_debug}")
 
-        assert self.design.tb
-        # assert self.design.sim_tops, "tb.top was not specified"
+        if not self.design.tb:
+            raise DesignValidationError(
+                [
+                    (
+                        None,
+                        "No testbench ('tb') is specified in the design",
+                        None,
+                        None,
+                    )
+                ],
+                self.design.dict(),
+            )
+        if not self.design.sim_tops:
+            raise DesignValidationError(
+                [
+                    (
+                        None,
+                        "VivadoSim requires simulation top but 'tb.top' was not specified in the design",
+                        None,
+                        None,
+                    )
+                ],
+                self.design.dict(),
+            )
         if ss.vcd:
             log.info("Dumping VCD to %s", self.run_path / ss.vcd)
         sdf_root = ss.sdf.root
