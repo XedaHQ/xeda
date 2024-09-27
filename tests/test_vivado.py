@@ -40,7 +40,7 @@ def test_vivado_synth_template() -> None:
 def test_vivado_synth_py() -> None:
     path = RESOURCES_DIR / "design0/design0.toml"
     # Append to PATH so if the actual tool exists, would take precedences.
-    os.environ["PATH"] += os.pathsep + os.path.join(TESTS_DIR, "fake_tools")
+    os.environ["PATH"] = os.path.join(TESTS_DIR, "fake_tools") + os.pathsep + os.environ.get("PATH", "")
     assert path.exists()
     design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
