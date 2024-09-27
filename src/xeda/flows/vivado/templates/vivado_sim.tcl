@@ -28,7 +28,7 @@ if { [catch {eval exec xvlog ${analyze_flags} -sv \"{{src.file}}\" } error]} {
     errorExit $error
 }
 {%- elif src.type.name == "Vhdl" %}
-puts "Analyzing VHDL file {{src.file}} VHDL Standard: {{design.language.vhdl.standard}}"
+puts "Analyzing VHDL file {{src.file}} {% if design.language.vhdl.standard -%} [VHDL {{design.language.vhdl.standard}}]" {%- endif %}
 if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standard == "08" %} -2008 {% elif design.language.vhdl.standard == "93" %} -93_mode {% endif %} \"{{src.file}}\" } error]} {
     errorExit $error
 }
