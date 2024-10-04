@@ -19,7 +19,7 @@ yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} 
 {%- endif %}
 {%- endfor %}
 
-{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) | map('quote') %}
+{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) | map('quote') | list %}
 {%- if vhdl_files %}
 yosys log -stdout "** Elaborating VHDL files **"
 yosys plugin -i ghdl

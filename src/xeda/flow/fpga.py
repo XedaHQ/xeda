@@ -121,8 +121,9 @@ class FPGA(XedaBaseModel):
                 )
                 set_if_not_exist("capacity", lc + "K")
                 pins = match_xc6.group("pins")
-                set_if_not_exist("package", match_xc6.group("pkg") + pins)
-                set_if_not_exist("pins", try_convert(pins, int))
+                if pins:
+                    set_if_not_exist("package", match_xc6.group("pkg") + pins)
+                    set_if_not_exist("pins", try_convert(pins, int))
                 set_if_not_exist("speed", match_xc6.group("speed_grade"))
                 return values
             match_xc7 = re.match(
