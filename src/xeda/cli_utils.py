@@ -1,4 +1,5 @@
 """Utilities for command line interface"""
+
 import logging
 import re
 import sys

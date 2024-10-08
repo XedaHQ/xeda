@@ -194,13 +194,19 @@ def _run_processes(commands: List[List[Any]], cwd: OptionalPath = None, env=None
             raise NonZeroExitCode(p.args, p.returncode)
 
 
+VERSION_PATTERN = r"(\d+)((\.[a-zA-Z\d]+)*)(-\w+)+"
+VERSION_REGEXP1 = re.compile(r"version[:\s]?\s*" + VERSION_PATTERN, flags=re.IGNORECASE)
+VERSION_REGEXP2 = re.compile(VERSION_PATTERN)
+
+
 class Tool(XedaBaseModel):
     """abstraction for an EDA tool"""
 
     executable: str
     minimum_version: Union[None, Tuple[Union[int, str], ...]] = None
     default_args: List[str] = []
-    version_flag: str = "--version"
+    version_flag: List[str] = ["--version"]
+    version_regexps: List[Union[re.Pattern[str], str]] = [VERSION_REGEXP1, VERSION_REGEXP2]
 
     remote: Optional[RemoteSettings] = Field(None)
     docker: Optional[Docker] = Field(None)
@@ -209,6 +215,12 @@ class Tool(XedaBaseModel):
     design_root: Optional[Path] = None
     dockerized: bool = False
     print_command: bool = True
+
+    @validator("version_flag", pre=True, always=True)
+    def validate_version_flag(cls, value, values):
+        if isinstance(value, str):
+            return [value]
+        return value
 
     def __init__(
         self,
@@ -270,20 +282,60 @@ class Tool(XedaBaseModel):
         return value
 
     @cached_property
-    def info(self) -> Dict[str, str]:
+    def info(self) -> Dict[str, Optional[str]]:
         try:
             version = self.version_str
         except:  # noqa
-            version = "unknown"
+            version = None
         return {"executable": self.executable, "version": version}
+
+    def _get_version_output(self, *version_flags) -> Optional[str]:
+        if not version_flags:
+            version_flags = tuple(self.version_flag)
+        try:
+            return self.run_get_stdout(*version_flags)
+        except:  # noqa
+            return None
+
+    @cached_property
+    def version_output(self) -> Optional[str]:
+        return self._get_version_output()
+
+    def process_version_output(self, out: Optional[str]) -> Tuple[str, ...]:
+        if not out:
+            return ()
+        assert isinstance(out, str)
+        lines = [line for line in (line.strip() for line in out.splitlines(keepends=False)) if line]
+        if not lines:
+            return ()
+        for line in lines:
+            for reg_expr in self.version_regexps:
+                match = (
+                    re.search(reg_expr, line)
+                    if isinstance(reg_expr, str)
+                    else reg_expr.search(line)
+                )
+                if match:
+                    version = match.groupdict().get("version", None)
+                    if version:
+                        return tuple(x for x in re.split(r"\.|-", version.strip()) if x)
+                    num_groups = len(match.groups())
+                    log.debug(f"Matched version string: {match.group(0)} with {num_groups} groups")
+                    if num_groups == 1:
+                        return tuple(match.group(1).strip().removeprefix(".").split("."))
+                    elif num_groups >= 5:
+                        return (
+                            match.group(1),
+                            *match.group(2).removeprefix(".").split("."),
+                            *match.group(4).removeprefix("-").split("-"),
+                        )
+        l0_splt = re.split(r"\s+", lines[0])
+        version_string = l0_splt[1] if len(l0_splt) > 1 else l0_splt[0] if len(l0_splt) > 0 else ""
+        return tuple(re.split(r"\.|-", version_string))
 
     @cached_property
     def version(self) -> Tuple[str, ...]:
-        out = self.run_get_stdout(self.version_flag)
-        assert isinstance(out, str)
-        so = re.split(r"\s+", out)
-        version_string = so[1] if len(so) > 1 else so[0] if len(so) > 0 else ""
-        return tuple(version_string.split("."))
+        return self.process_version_output(self.version_output)
 
     @cached_property
     def version_str(self) -> str:
@@ -436,9 +488,12 @@ class Tool(XedaBaseModel):
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")
             raise ExecutableNotFound(e.filename, self.__class__.__name__, path, *e.args) from None
 
-    def run_get_stdout(self, *args: Any, env: Optional[Dict[str, Any]] = None) -> str:
-        out = self.run(*args, env=env, stdout=True)
-        assert isinstance(out, str)
+    def run_get_stdout(
+        self, *args: Any, env: Optional[Dict[str, Any]] = None, raise_on_error: bool = True
+    ) -> Optional[str]:
+        out = self.run(*args, env=env, stdout=True, check=raise_on_error)
+        if raise_on_error or out is not None:
+            assert isinstance(out, str)
         return out
 
     def run_stdout_to_file(

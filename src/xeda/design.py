@@ -1036,7 +1036,17 @@ class Design(XedaBaseModel):
         return hashlib.sha3_256(r).hexdigest()
 
     # pylint: disable=arguments-differ
-    def dict(self):
+    def dict(
+        self,
+        *,
+        include=None,
+        exclude=None,
+        by_alias: bool = False,
+        skip_defaults: Optional[bool] = None,
+        exclude_unset: bool = False,
+        exclude_defaults: bool = False,
+        exclude_none: bool = False,
+    ) -> Dict[str, Any]:
         return super().dict(
             exclude_unset=True,
             exclude_defaults=True,

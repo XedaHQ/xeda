@@ -5,7 +5,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
-from ...dataclass import Field
+from ...dataclass import Field  # type: ignore
 from ...design import DesignSource, SourceType, VhdlSettings
 from ...flow import SimFlow
 from ...tool import Tool
@@ -34,20 +34,6 @@ class NvcTool(Tool):
     # docker: Optional[Docker] = None
     executable: str = "nvc"
 
-    @cached_property
-    def info(self) -> Dict[str, str]:
-        out = self.run_get_stdout(
-            "--version",
-        )
-        lines = [line.strip() for line in out.splitlines()]
-        if len(lines) < 3:
-            return {}
-        return {
-            "version": ".".join(self.version),
-            "compiler": lines[1],
-            "backend": lines[2],
-        }
-
 
 class Nvc(SimFlow):
     """Simulate a VHDL design using NVC"""
@@ -55,9 +41,6 @@ class Nvc(SimFlow):
     cocotb_sim_name = "nvc"
 
     class Settings(SimFlow.Settings):
-        analysis_flags: List[str] = []
-        elab_flags: List[str] = []
-        run_flags: List[str] = []
         one_shot: bool = Field(
             True,
             description="Run the analysis, elaboration, and execution in a single command. Set to False to run each step separately, which might be helpful in.",
@@ -84,6 +67,7 @@ class Nvc(SimFlow):
         work: Optional[str] = Field(None, description="Set the name of the WORK library")
         # clean: bool = Field(False, description="Run 'clean' before elaboration")
         ## analysis flags
+        analysis_flags: List[str] = []
         psl: Optional[bool] = Field(
             None, description="Enable parsing of PSL directives in comments during analysis."
         )
@@ -92,6 +76,7 @@ class Nvc(SimFlow):
             description="Disable certain pedantic LRM conformance checks or rules that were relaxed by later standards.",
         )
         ## elaboration flags
+        elab_flags: List[str] = []
         cover: List[str] = Field([], description="Enable code coverage reporting ")
         cover_spec: Optional[Path] = Field(
             None, description="Specify the coverage specification file"
@@ -142,7 +127,7 @@ class Nvc(SimFlow):
 
     @cached_property
     def nvc(self):
-        return NvcTool()  # pyright: reportGeneralTypeIssues=none
+        return NvcTool()  # pyright: ignore[reportCallIssue]
 
     def common_flags(self) -> List[str]:
         cf: List[str] = []
@@ -214,7 +199,7 @@ class Nvc(SimFlow):
         flags = self.common_flags() + self.analyze_flags()
         self.nvc.run("-a", *sources, *flags)
 
-    def elaborate_flags(self) -> list:
+    def elaborate_flags(self) -> List[str]:
         ss = self.settings
         assert isinstance(ss, self.Settings)
         flags = ss.elab_flags
@@ -237,7 +222,7 @@ class Nvc(SimFlow):
         if ss.cover:
             flags += [f"--cover={','.join(ss.cover)}"]
         if ss.cover_spec:
-            flags += ["--cover-spec", ss.cover_spec]
+            flags += ["--cover-spec", str(ss.cover_spec)]
         return flags
 
     def elaborate(self):

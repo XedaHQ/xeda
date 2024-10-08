@@ -7,7 +7,10 @@ import platform
 from abc import ABCMeta
 from functools import cached_property
 from pathlib import Path
+import re
+from tkinter import NO
 from typing import Any, Dict, List, Literal, Optional, Union
+
 
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
@@ -36,22 +39,42 @@ def _get_wave_opt_signals(wave_opt_file, extra_top=None):
 class GhdlTool(Tool):
     """GHDL VHDL simulation, synthesis, and linting tool: https://ghdl.readthedocs.io"""
 
-    docker: Optional[Docker] = Docker(image="hdlc/sim:osvb")
+    docker: Optional[Docker] = Docker(image="hdlc/sim:osvb")  # type: ignore
     executable: str = "ghdl"
+    version_regexps: List[Union[str, re.Pattern[str]]] = [
+        re.compile(r, re.IGNORECASE)
+        for r in (
+            r"GHDL\s+(?P<version>\d+\.\d+\.\d+).*",
+            r"GHDL\s+(?P<version>\d+\.\d+\.\d+).*",
+        )
+    ]
 
     @cached_property
-    def info(self) -> Dict[str, str]:
-        out = self.run_get_stdout(
-            "--version",
-        )
-        lines = [line.strip() for line in out.splitlines()]
-        if len(lines) < 3:
-            return {}
-        return {
-            "version": ".".join(self.version),
-            "compiler": lines[1],
-            "backend": lines[2],
-        }
+    def info(self) -> Dict[str, Optional[str]]:
+        out = self.version_output
+        lines = [l for l in (line.strip() for line in out.splitlines()) if l] if out else []
+        compiler = None
+        backend = None
+        for line in lines:
+            m = re.match(r"\s*Compiled with\s+(.*)\s*$", line, re.IGNORECASE)
+            if m:
+                compiler = m.group(1).strip()
+                break
+        for line in lines:
+            m = re.match(r"\s*(.*)\s+code generator\s*$", line, re.IGNORECASE)
+            if m:
+                backend = m.group(1).strip()
+                break
+        info = super().info
+        if compiler is None and len(lines) >= 2:
+            compiler = lines[1]
+        if backend is None and compiler and len(lines) >= 3:
+            backend = lines[2]
+        if compiler:
+            info["compiler"] = compiler
+        if backend:
+            info["backend"] = backend
+        return info
 
 
 class Ghdl(Flow, metaclass=ABCMeta):
@@ -85,13 +108,14 @@ class Ghdl(Flow, metaclass=ABCMeta):
             True,
             description="Slightly relax some rules to be compatible with various other simulators or synthesizers.",
         )
-        clean: bool = Field(False, description="Run 'clean' before elaboration")
+        # clean_before_elab: bool = Field(False, description="Run 'clean' before elaboration")
         diagnostics: bool = Field(
             True, description="Enable both color and source line carret diagnostics."
         )
         work: Optional[str] = Field(None, description="Set the name of the WORK library")
         expect_failure: bool = False
         synopsys: bool = False
+        compiler_flags: List[str] = []
 
         def common_flags(self, vhdl: VhdlSettings) -> List[str]:
             cf: List[str] = []
@@ -162,7 +186,26 @@ class Ghdl(Flow, metaclass=ABCMeta):
 
     @cached_property
     def ghdl(self):
-        return GhdlTool()  # pyright: reportGeneralTypeIssues=none
+        return GhdlTool()  # pyright: ignore[reportCallIssue]
+
+    def find_top(self, *args, sources=None):
+        out = self.ghdl.run_get_stdout("--find-top", *args, raise_on_error=False)
+        tops = out.strip().split() if out else []
+        if not tops and sources:
+            sources = sources or []
+            find_out = self.ghdl.run_get_stdout(
+                "-f", *args, *[str(s) for s in sources], raise_on_error=True
+            )
+            entities: List[str] = []
+            if find_out:
+                for line in find_out.split("\n"):
+                    sp = line.split()
+                    if len(sp) >= 2 and sp[0] == "entity":
+                        entities.append(sp[1])
+                log.info("discovered entities: %s", ", ".join(entities))
+                if entities:
+                    tops = (entities[-1],)
+        return tops
 
     def elaborate(
         self,
@@ -185,46 +228,60 @@ class Ghdl(Flow, metaclass=ABCMeta):
             steps.insert(steps.index("import") + 1, "find-top")
         for step in steps:
             args = ss.get_flags(vhdl, step)
-            if isinstance(ss, SimFlow.Settings):
-                args += ss.optimization_flags
             if step in ["import", "analyze"]:
                 args += [str(s) for s in sources]
             elif step in ["make", "elaborate"]:
+                if isinstance(ss, SimFlow.Settings):
+                    args += ss.optimization_flags
                 if not top:
                     raise Exception("Unable to determine the `top` entity")
-                if self.ghdl.info.get("backend", "").lower().startswith("llvm"):
-                    if platform.system() == "Darwin" and platform.machine() == "arm64":
-                        args += ["-Wl,-Wl,-no_compact_unwind"]
+                backend = self.ghdl.info.get("backend", None)
+                if backend:
+                    log.info("GHDL backend: %s", backend)
+                    backend_split = backend.split()
+                    compiler = backend_split[0].lower() if backend_split else None
+                    backend_version = backend_split[1].split(".") if len(backend_split) > 1 else []
+                    if compiler in ("llvm", "gcc"):
+                        args += ss.compiler_flags
+                    # Workaround for annoying warnings on macOS/arm64 with earlier versions of the toolchains.
+                    # Not required when using the latest versions of Xcode/CommandLineTools, LLVM, GNAT, and GHDL.
+                    if compiler == "llvm" and backend_version and backend_version[0].isdigit():
+                        llvm_major = int(backend_version[0])
+                        lw = "-Wl,-Wl,-no_compact_unwind"
+                        if (
+                            platform.system() == "Darwin"
+                            and platform.machine() == "arm64"
+                            and llvm_major
+                            < 19  # TODO Probably need to check the GNAT version? Also, no idea about the version number.
+                            and ss.compiler_flags.count(lw) == 0
+                        ):
+                            log.info(
+                                "Adding no_compact_unwind linker flags for macOS/arm64 %s" % backend
+                            )
+                            args.append(lw)
+
                 args += list(top)
             if step == "find-top":
-                out = self.ghdl.run_get_stdout(step, *args)
-                top_list = out.strip().split()
-                # clunky way of converting to tuple, just to be safe and also keep mypy happy
-                top = (
-                    ()
-                    if len(top_list) == 0
-                    else (top_list[0],) if len(top_list) == 1 else (top_list[0], top_list[1])
-                )
-                if top:
-                    log.info("[ghdl:find-top] `top` entity was set to %s", top)
+                tops = self.find_top(*args, sources=sources)
+                if tops:
+                    # clunky way of converting to tuple, just to be safe and also keep mypy happy
+                    top = (
+                        ()
+                        if len(tops) == 0
+                        else (tops[0],) if len(tops) == 1 else (tops[0], tops[1])
+                    )
+                    log.warning(
+                        "[ghdl:find-top] discovered `top` entity: %s. Set `top` explicitly if this was not the indtended top-level entity/architecture.",
+                        ", ".join(top),
+                    )
                 else:
-                    find_out = self.ghdl.run_get_stdout("-f", *args, *[str(s) for s in sources])
-                    entities: List[str] = []
-                    for line in find_out.split("\n"):
-                        sp = line.split()
-                        if len(sp) >= 2 and sp[0] == "entity":
-                            entities.append(sp[1])
-                    log.info("discovered entities: %s", ", ".join(entities))
-                    if entities:
-                        top = (entities[-1],)
-                        log.warning("[ghdl:find-top] `top` entity was set to %s", top[0])
-                    else:
-                        log.error(
-                            inspect.cleandoc(
-                                """[ghdl:find-top] Unable to determine the `top` entity.
-                                Please specify `tb.top` (for simulation) and/or `rtl.top` (for synthesis) in the design description."""
-                            )
+                    log.error(
+                        inspect.cleandoc(
+                            """[ghdl:find-top] Unable to determine the `top` entity.
+                            Please specify `tb.top` (for simulation) and/or `rtl.top` (for synthesis) in the design description."""
                         )
+                    )
+
             else:
                 self.ghdl.run(step, *args)
         if top is None:

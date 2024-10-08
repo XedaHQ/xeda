@@ -1,4 +1,5 @@
 """Xilinx ISE Synthesis flow"""
+
 from functools import cached_property
 import logging
 from pathlib import Path
@@ -51,7 +52,7 @@ class XTclSh(Tool):
     docker: Docker = XTclShDocker(
         image="fpramme/xilinxise:centos6",
         platform="linux/amd64",
-    )
+    )  # pyright: ignore[reportCallIssue]
 
     @cached_property
     def version(self) -> Tuple[str, ...]:

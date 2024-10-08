@@ -155,7 +155,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                     self.results["FF"] = sum_all_resources(
                         design_util, ["FDCE", "FDPE", "FDRE", "FDSE"]
                     )
-                    brams = sum_all_resources(design_util, ["RAMB36"])
+                    brams: float = sum_all_resources(design_util, ["RAMB36"])
                     brams_half = sum_all_resources(design_util, ["RAMB18"])
                     brams += brams_half / 2
                     if brams:

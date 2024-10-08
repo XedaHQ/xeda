@@ -1,4 +1,5 @@
 """Intel Quartus flows"""
+
 import csv
 import logging
 from pathlib import Path

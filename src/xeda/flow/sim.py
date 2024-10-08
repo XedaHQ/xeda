@@ -1,4 +1,5 @@
 """simulation flow"""
+
 from __future__ import annotations
 
 import logging
@@ -28,7 +29,9 @@ class SimFlow(Flow, metaclass=ABCMeta):
     cocotb_sim_name: Optional[str] = None
 
     class Settings(Flow.Settings):
-        vcd: Union[None, str, Path] = Field(None, alias="waveform", description="Write waveform to file")
+        vcd: Union[None, str, Path] = Field(
+            None, alias="waveform", description="Write waveform to file"
+        )
         stop_time: Union[None, str, int, float] = None
         cocotb: CocotbSettings = CocotbSettings()  # pyright: reportGeneralTypeIssues=none
         optimization_flags: List[str] = Field([], description="Optimization flags")

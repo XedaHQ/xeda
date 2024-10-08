@@ -126,7 +126,7 @@ class Cocotb(CocotbSettings, Tool):
                 design_module_split = design.tb.cocotb.module.split("/")
                 coco_module = design_module_split[-1]
                 if len(design_module_split) > 1:
-                    module_path = os.sep.join(design_module_split[:-1])
+                    module_path = Path(os.sep.join(design_module_split[:-1]))
                     if not os.path.isabs(module_path):
                         module_path = os.path.join(design.root_path, module_path)
                 else:

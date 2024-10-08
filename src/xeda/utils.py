@@ -29,7 +29,7 @@ from typing import (
 )
 from xml.etree import ElementTree
 
-from varname import argname
+from varname import argname  # type: ignore
 
 from .dataclass import XedaBaseModel
 
