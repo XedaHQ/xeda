@@ -271,7 +271,11 @@ class Tool(XedaBaseModel):
 
     @cached_property
     def info(self) -> Dict[str, str]:
-        return {"executable": self.executable, "version": self.version_str}
+        try:
+            version = self.version_str
+        except:  # noqa
+            version = "unknown"
+        return {"executable": self.executable, "version": version}
 
     @cached_property
     def version(self) -> Tuple[str, ...]:

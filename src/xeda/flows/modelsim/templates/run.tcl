@@ -6,7 +6,7 @@ if { [catch {eval vlog {{src.file}} {% if src.variant == "systemverilog" -%} -sv
     exit 1
 }
 {% elif src.type == 'vhdl' -%}
-if { [catch {eval vcom {{src.file}} {{vcom_opts}} {%- if design.language.vhdl.standard == "08" %} -2008 {% elif design.language.vhdl.standard == "02" %} -2002 {% elif design.language.vhdl.standard == "93" %} -93 {% endif -%} } error]} {
+if { [catch {eval vcom {{src.file}} {{vcom_opts}} {%- if design.language.vhdl.standard in ("93", "1993") %} -93 {% elif design.language.vhdl.standard in ("08", "2008") %} -2008 {% elif design.language.vhdl.standard %} -{{design.language.vhdl.standard}} {% endif -%} } error]} {
     puts $error
     exit 1
 }

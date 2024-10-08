@@ -135,10 +135,12 @@ query_objects [get_libs -quiet *]
 # the -path option is customizable.
 define_design_lib WORK -path ${dc_results_dir}/WORK
 
-{%- if design.language.vhdl.standard == "08" %}
+{%- if design.language.vhdl.standard in ("08", "2008") %}
 set hdlin_vhdl_std 2008
-{% elif design.language.vhdl.standard == "93" %}
+{% elif design.language.vhdl.standard in ("93", "1993") %}
 set hdlin_vhdl_std 1993
+{% elif design.language.vhdl.standard %}
+set hdlin_vhdl_std {{design.language.vhdl.standard}}
 {%- endif %}
 
 {% for src in design.rtl.sources %}

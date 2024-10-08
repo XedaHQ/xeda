@@ -91,12 +91,15 @@ class Ghdl(Flow, metaclass=ABCMeta):
         )
         work: Optional[str] = Field(None, description="Set the name of the WORK library")
         expect_failure: bool = False
+        synopsys: bool = False
 
         def common_flags(self, vhdl: VhdlSettings) -> List[str]:
             cf: List[str] = []
             if vhdl.standard:
+                if len(vhdl.standard) == 4 and vhdl.standard[:2] in ("20", "19"):
+                    vhdl.standard = vhdl.standard[2:]
                 cf.append(f"--std={vhdl.standard}")
-            if vhdl.synopsys:
+            if self.synopsys:
                 cf.append("-fsynopsys")
             if self.work:
                 cf.append(f"--work={self.work}")
@@ -200,9 +203,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 top = (
                     ()
                     if len(top_list) == 0
-                    else (top_list[0],)
-                    if len(top_list) == 1
-                    else (top_list[0], top_list[1])
+                    else (top_list[0],) if len(top_list) == 1 else (top_list[0], top_list[1])
                 )
                 if top:
                     log.info("[ghdl:find-top] `top` entity was set to %s", top)
@@ -325,6 +326,7 @@ class GhdlSim(Ghdl, SimFlow):
     """Simulate a VHDL design using GHDL"""
 
     cocotb_sim_name = "ghdl"
+    aliases = ["ghdl"]
 
     class Settings(Ghdl.Settings, SimFlow.Settings):
         run_flags: List[str] = []
@@ -436,9 +438,7 @@ class GhdlSim(Ghdl, SimFlow):
         vpi = (
             []
             if ss.vpi is None
-            else [ss.vpi]
-            if not isinstance(ss.vpi, (list, tuple))
-            else list(ss.vpi)
+            else [ss.vpi] if not isinstance(ss.vpi, (list, tuple)) else list(ss.vpi)
         )
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:

@@ -233,9 +233,6 @@ class DesignSource(FileResource):
             self.type = SourceType.from_str(type)
         if not self.type:
             self.type, self.variant = type_from_suffix(self.file)
-        if standard and len(standard) == 4:
-            if standard.startswith("20") or standard.startswith("19"):
-                standard = standard[2:]
         self.standard = standard
 
     def __eq__(self, other: Any) -> bool:  # pylint: disable=useless-super-delegation
@@ -519,33 +516,16 @@ class LanguageSettings(XedaBaseModel):
         alias="version",
         has_alias=True,
     )
-    version: Optional[str] = Field(
-        None,
-        description="Standard version",
-        alias="standard",
-        has_alias=True,
-    )
 
     @validator("standard", pre=True)
     def two_digit_standard(cls, value, values):
-        if not value:
-            value = values.get("version")
         if not value:
             return None
         if isinstance(value, int):
             value = str(value)
         elif not isinstance(value, str):
             raise ValueError("standard should be of type string")
-        if value and len(value) == 4:
-            if value.startswith("20") or value.startswith("19"):
-                value = value[2:]
         return value
-
-    @root_validator(pre=True)
-    def language_root_validator(cls, values):
-        if "standard" in values:
-            values["version"] = values["standard"]
-        return values
 
 
 class VhdlSettings(LanguageSettings):

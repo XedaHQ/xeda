@@ -50,8 +50,9 @@ log = logging.getLogger(__name__)
 all_flows = OrderedDict(
     sorted(
         [
-            (f.name, f)
+            (name, f)
             for f in set(__builtin_flows__).union(set(v for _, v in registered_flows.values()))
+            for name in [f.name] + f.aliases
         ]
     )
 )

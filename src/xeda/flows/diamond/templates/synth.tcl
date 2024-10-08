@@ -39,7 +39,7 @@ eval prj_src add constraints.ldc
 
 
 
-{% if design.language.vhdl.standard == "08" %}
+{% if design.language.vhdl.standard in ("08", "2008") %}
 prj_strgy set_value -strategy custom_strategy syn_vhdl2008=True
 prj_strgy set_value -strategy custom_strategy lse_vhdl2008=True
 {% endif %}

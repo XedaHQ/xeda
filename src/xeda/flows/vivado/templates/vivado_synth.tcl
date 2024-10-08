@@ -2,7 +2,6 @@
 create_project -part {{settings.fpga.part}} -force -verbose {{design.name}}
 
 set design_name           {{design.name}}
-set vhdl_std              {{design.language.vhdl.standard}}
 
 {%- if settings.nthreads is not none %}
 set_param general.maxThreads {{settings.nthreads}}
@@ -25,7 +24,7 @@ if { [catch {eval read_verilog -sv \"{{src.file}}\" } myError]} {
 }
 {%- elif src.type.name == "Vhdl" %}
 puts "Reading VHDL file {{src.file}}"
-if { [catch {eval read_vhdl {% if design.language.vhdl.standard == "08" or design.language.vhdl.standard == "2008" %} -vhdl2008 {%- endif %} \"{{src.file}}\" } myError]} {
+if { [catch {eval read_vhdl {% if design.language.vhdl.standard in ("08", "2008") %} -vhdl2008 {%- endif %} \"{{src.file}}\" } myError]} {
   errorExit $myError
 }
 {%- endif %}

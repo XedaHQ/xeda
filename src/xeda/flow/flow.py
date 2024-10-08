@@ -71,6 +71,7 @@ class Flow(metaclass=ABCMeta):
     All tool executables should be available on the installed system or on the same docker image."""
 
     name: str  # set automatically
+    aliases: List[str] = []  # list of alternative names for the flow
     incremental: bool = False
     copied_resources_dir: str = "copied_resources"
 
@@ -183,7 +184,10 @@ class Flow(metaclass=ABCMeta):
         log.info("registering flow %s from %s", cls_name, mod_name)
         cls.name = camelcase_to_snakecase(cls_name)
         if not inspect.isabstract(cls):
-            registered_flows[cls.name] = (mod_name, cls)
+            for name in [cls_name] + cls.aliases:
+                if name in registered_flows:
+                    log.warning("Duplicate name: %s while registering flow %s", name, cls_name)
+                registered_flows[name] = (mod_name, cls)
 
     def init(self) -> None:
         """Flow custom initialization stage. At this point, more properties have been set than during __init__

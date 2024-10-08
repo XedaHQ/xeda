@@ -14,6 +14,7 @@ from .ghdl import GhdlSim, GhdlSynth
 from .ise import IseSynth
 from .modelsim import Modelsim
 from .nextpnr import Nextpnr
+from .nvc import Nvc
 from .openfpgaloader import Openfpgaloader
 from .openroad import Openroad
 from .quartus import Quartus
@@ -38,6 +39,7 @@ __all__ = [
     "IseSynth",
     "Modelsim",
     "Nextpnr",
+    "Nvc",
     "Openfpgaloader",
     "Openroad",
     "Quartus",

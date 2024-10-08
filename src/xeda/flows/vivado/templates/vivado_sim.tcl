@@ -29,7 +29,7 @@ if { [catch {eval exec xvlog ${analyze_flags} -sv {" {{- src.file -}} "} } error
 }
 {%- elif src.type.name == "Vhdl" %}
 puts "Analyzing VHDL file {{src.file}} {% if design.language.vhdl.standard -%} [VHDL {{design.language.vhdl.standard}}] {%- endif %}"
-if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standard == "08" %} -2008 {% elif design.language.vhdl.standard == "93" %} -93_mode {% endif %} {" {{- src.file -}} "} } error]} {
+if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standard in ("08", "2008") %} -2008 {% elif design.language.vhdl.standard in ("93", "1993") %} -93_mode {% endif %} {" {{- src.file -}} "} } error]} {
     errorExit $error
 }
 {%- endif %}
