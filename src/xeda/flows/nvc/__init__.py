@@ -68,7 +68,7 @@ class Nvc(SimFlow):
         # clean: bool = Field(False, description="Run 'clean' before elaboration")
         ## analysis flags
         analysis_flags: List[str] = []
-        psl: Optional[bool] = Field(
+        psl_in_comments: Optional[bool] = Field(
             None, description="Enable parsing of PSL directives in comments during analysis."
         )
         relaxed: bool = Field(
@@ -179,7 +179,7 @@ class Nvc(SimFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
         flags = ss.analysis_flags
-        if ss.psl:
+        if ss.psl_in_comments:
             flags.append("--psl")
         if ss.relaxed:
             flags.append("--relaxed")
