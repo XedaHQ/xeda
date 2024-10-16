@@ -95,6 +95,10 @@ class Ghdl(Flow, metaclass=ABCMeta):
             "--warn-specs",
             "--warn-no-hide",
             "--warn-parenthesis",
+            "--warn-port",  # Emit a warning on unconnected input port without defaults (in relaxed mode).
+            "--warn-static",
+            "--warn-port-bounds",  # Emit a warning on bounds mismatch between the actual and formal in a scalar port association
+            "--warn-universal",  # Emit a warning on incorrect use of universal values.
         ]
         werror: bool = Field(
             False, alias="warn_error", description="warnings are always considered as errors"
@@ -116,6 +120,11 @@ class Ghdl(Flow, metaclass=ABCMeta):
         expect_failure: bool = False
         synopsys: bool = False
         compiler_flags: List[str] = []
+        assembler_flags: List[str] = []
+        linker_flags: List[str] = []
+        psl_in_comments: bool = Field(
+            False, description="Parse PSL assertions within comments (for VHDL-2002 and earlier)"
+        )
 
         def common_flags(self, vhdl: VhdlSettings) -> List[str]:
             cf: List[str] = []
@@ -124,7 +133,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
                     vhdl.standard = vhdl.standard[2:]
                 cf.append(f"--std={vhdl.standard}")
             if self.synopsys:
-                cf.append("-fsynopsys")
+                cf += ["-fsynopsys", "-fexplicit"]
             if self.work:
                 cf.append(f"--work={self.work}")
             cf += [f"-P{p}" for p in self.lib_paths]
@@ -159,6 +168,8 @@ class Ghdl(Flow, metaclass=ABCMeta):
             if self.relaxed:
                 analysis_flags.extend(["-frelaxed-rules", "-frelaxed", "--mb-comments"])
                 elab_flags.extend(["-frelaxed"])
+            if self.psl_in_comments:
+                analysis_flags.append("--psl")
             if self.verbose:
                 analysis_flags.append("-v")
                 elab_flags.append("-v")
@@ -175,7 +186,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
             if self.expect_failure:
                 elab_flags.append("--expect-failure")
             if vhdl.synopsys:
-                analysis_flags.append("--ieee=synopsys")
+                analysis_flags += ["-fsynopsys", "-fexplicit"]
             if stage in ("import", "analyze"):
                 return analysis_flags + warn_flags
             if stage in ("make", "elaborate"):
@@ -189,7 +200,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
         return GhdlTool()  # pyright: ignore[reportCallIssue]
 
     def find_top(self, *args, sources=None):
-        out = self.ghdl.run_get_stdout("--find-top", *args, raise_on_error=False)
+        out = self.ghdl.run_get_stdout("find-top", *args, raise_on_error=False)
         tops = out.strip().split() if out else []
         if not tops and sources:
             sources = sources or []
@@ -213,52 +224,58 @@ class Ghdl(Flow, metaclass=ABCMeta):
         top: Union[None, str, Tuple012],
         vhdl: VhdlSettings,
     ) -> Tuple012:
-        """returns top(s) as a Tuple012"""
+        """returns top unit(s) as a Tuple012"""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         sources = [src for src in sources if src.type == SourceType.Vhdl]
         if isinstance(top, str):
             top = (top,)
-        steps = ["import", "make"]
-        if ss.clean:
-            steps.insert(0, "remove")
+        steps = ["remove"] if ss.clean else []
+        steps.extend(["analyze", "make"])
         if not top:
             # run find-top after import
-            log.warning("added find-top to steps")
-            steps.insert(steps.index("import") + 1, "find-top")
+            log.info("No top units were specified. Will try to discover by adding a find-top step")
+            find_top_index = (
+                steps.index("analyze")
+                if "analyze" in steps
+                else steps.index("import") if "import" in steps else -1
+            )
+            steps.insert(find_top_index + 1, "find-top")
         for step in steps:
             args = ss.get_flags(vhdl, step)
-            if step in ["import", "analyze"]:
+            if step in ("import", "analyze"):
                 args += [str(s) for s in sources]
-            elif step in ["make", "elaborate"]:
+            elif step in ("make", "elaborate"):
                 if isinstance(ss, SimFlow.Settings):
                     args += ss.optimization_flags
                 if not top:
-                    raise Exception("Unable to determine the `top` entity")
+                    raise Exception("Unable to determine the top unit")
                 backend = self.ghdl.info.get("backend", None)
                 if backend:
                     log.info("GHDL backend: %s", backend)
                     backend_split = backend.split()
                     compiler = backend_split[0].lower() if backend_split else None
                     backend_version = backend_split[1].split(".") if len(backend_split) > 1 else []
-                    if compiler in ("llvm", "gcc"):
-                        args += ss.compiler_flags
                     # Workaround for annoying warnings on macOS/arm64 with earlier versions of the toolchains.
                     # Not required when using the latest versions of Xcode/CommandLineTools, LLVM, GNAT, and GHDL.
                     if compiler == "llvm" and backend_version and backend_version[0].isdigit():
                         llvm_major = int(backend_version[0])
-                        lw = "-Wl,-Wl,-no_compact_unwind"
+                        link_flag = "-Wl,-no_compact_unwind"
                         if (
                             platform.system() == "Darwin"
                             and platform.machine() == "arm64"
                             and llvm_major
                             < 19  # TODO Probably need to check the GNAT version? Also, no idea about the version number.
-                            and ss.compiler_flags.count(lw) == 0
+                            and ss.linker_flags.count(link_flag) == 0
                         ):
                             log.info(
                                 "Adding no_compact_unwind linker flags for macOS/arm64 %s" % backend
                             )
-                            args.append(lw)
+                            ss.linker_flags.append(link_flag)
+                    if compiler in ("llvm", "gcc"):
+                        args += (f"-Wc,{x}" for x in ss.compiler_flags)
+                        args += (f"-Wa,{x}" for x in ss.assembler_flags)
+                        args += (f"-Wl,{x}" for x in ss.linker_flags)
 
                 args += list(top)
             if step == "find-top":
@@ -270,14 +287,14 @@ class Ghdl(Flow, metaclass=ABCMeta):
                         if len(tops) == 0
                         else (tops[0],) if len(tops) == 1 else (tops[0], tops[1])
                     )
-                    log.warning(
-                        "[ghdl:find-top] discovered `top` entity: %s. Set `top` explicitly if this was not the indtended top-level entity/architecture.",
+                    log.info(
+                        "[ghdl:find-top] discovered top unit: %s. Set `top` explicitly if this was not the indtended top-level unit.",
                         ", ".join(top),
                     )
                 else:
                     log.error(
                         inspect.cleandoc(
-                            """[ghdl:find-top] Unable to determine the `top` entity.
+                            """[ghdl:find-top] Unable to determine the top unit.
                             Please specify `tb.top` (for simulation) and/or `rtl.top` (for synthesis) in the design description."""
                         )
                     )
@@ -324,6 +341,7 @@ class GhdlSynth(Ghdl, SynthFlow):
             flags += setting_flag(ss.assert_assumes, name="assert_assumes")
             flags += setting_flag(ss.assume_asserts, name="assume_asserts")
             flags += ss.generics_flags(design.rtl.generics)
+            flags += ["--warn-nowrite"]
             flags.append("--out=verilog")
             self.artifacts.generated_verilog = []
             for src in design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False):
