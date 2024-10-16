@@ -102,8 +102,8 @@ class Nvc(SimFlow):
         )
         ## run flags
         run_flags: List[str] = []
-        ieee_warnings: bool = Field(
-            False,
+        ieee_warnings: Optional[bool] = Field(
+            None,
             description="Enable or disable warning messages from the standard IEEE packages. The default is warnings enabled.",
         )
         wave: Union[None, bool, str, Path] = Field(
@@ -114,16 +114,18 @@ class Nvc(SimFlow):
             None,
             description="Generate waveform data in this format. The default is FST if this option is not provided and `wave` is not a filename. If this option is None `wave` is a filename, the format is selected automatically based on the file extension.",
         )
-        stop_delta: Optional[str] = Field(
+        wave_arrays: Optional[int] = Field(
+            None,
+            description="Include memories and nested arrays in the waveform data. This is disabled by default as it can have significant performance, memory, and disk space overhead. With optional argument N only arrays with up to this many elements will be dumped.",
+        )
+        exit_severity: Optional[Literal["note", "warning", "error", "failure"]] = Field(
+            None,
+            description="Terminate the simulation after an assertion failures of severity greater than or equal to level.",
+        )
+        stop_delta: Optional[int] = Field(
             None,
             description="Stop the simulation after N delta cycles in the same current time.",
         )
-
-        vpi: Union[None, str, List[str]] = Field(
-            None,
-            description="Load VPI library (or multiple libraries)",
-        )
-        # TODO workdir?
 
     @cached_property
     def nvc(self):
@@ -251,6 +253,17 @@ class Nvc(SimFlow):
                         ss.wave_format = "fst"
                 if ss.wave_format:
                     execute_flags.append(f"--format={ss.wave_format}")
+            if ss.wave_arrays:
+                execute_flags.append(f"--dump-arrays={ss.wave_arrays}")
+
+        if ss.exit_severity:
+            execute_flags.append(f"--exit-severity={ss.exit_severity}")
+        if ss.ieee_warnings is not None:
+            execute_flags.append("--ieee-warnings=" + ("on") if ss.ieee_warnings else "off")
+        if ss.stop_delta is not None:
+            execute_flags.append(f"--stop-delta={ss.stop_delta}")
+        if ss.stop_time is not None:
+            execute_flags.append(f"--stop-time={ss.stop_time}")
         if one_shot:
             sources = self.design.sim_sources_of_type(SourceType.Vhdl)
             self.nvc.run(
