@@ -19,17 +19,17 @@ puts "\n===========================( Analyzing HDL Sources )====================
 {%- for src in design.sim_sources %}
 {%- if src.type.name == "Verilog" %}
 puts "Analyzing Verilog file {{src.file}}"
-if { [catch {eval exec xvlog ${analyze_flags} {"{{src.file}}"}} error]} {
+if { [catch {eval exec xvlog ${analyze_flags} "{{src.file}}"} error]} {
     errorExit $error
 }
 {%- elif src.type.name == "SystemVerilog" %}
 puts "Analyzing SystemVerilog file {{src.file}}"
-if { [catch {eval exec xvlog ${analyze_flags} -sv {"{{src.file}}"}} error]} {
+if { [catch {eval exec xvlog ${analyze_flags} -sv "{{src.file}}"} error]} {
     errorExit $error
 }
 {%- elif src.type.name == "Vhdl" %}
 puts "Analyzing VHDL file {{src.file}} {% if design.language.vhdl.standard -%} \[VHDL {{design.language.vhdl.standard}}\] {%- endif %}"
-if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standard in ("08", "2008") %} -2008 {% elif design.language.vhdl.standard in ("93", "1993") %} -93_mode {% endif %} {"{{src.file}}"}} error]} {
+if { [catch {eval exec xvhdl ${analyze_flags} {% if design.language.vhdl.standard in ("08", "2008") %} -2008 {% elif design.language.vhdl.standard in ("93", "1993") %} -93_mode {% endif %} "{{src.file}}"} error]} {
     errorExit $error
 }
 {%- endif %}

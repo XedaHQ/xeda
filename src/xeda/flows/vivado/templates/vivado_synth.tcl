@@ -14,17 +14,17 @@ puts "\n=====================( Read Design Files and Constraints )==============
 {%- for src in design.rtl.sources %}
 {%- if src.type.name == "Verilog" %}
 puts "Reading Verilog file {{src.file}}"
-if { [catch {read_verilog {"{{src.file}}"}} myError]} {
+if { [catch {read_verilog "{{src.file}}"} myError]} {
   errorExit $myError
 }
 {%- elif src.type.name == "SystemVerilog" %}
 puts "Reading SystemVerilog file {{src.file}}"
-if { [catch {read_verilog -sv {"{{src.file}}"}} myError]} {
+if { [catch {read_verilog -sv "{{src.file}}"} myError]} {
   errorExit $myError
 }
 {%- elif src.type.name == "Vhdl" %}
 puts "Reading VHDL file {{src.file}}"
-if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") -%} -vhdl2008 {% endif -%} {"{{src.file}}"}} myError]} {
+if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") -%} -vhdl2008 {% endif -%} "{{src.file}}"} myError]} {
   errorExit $myError
 }
 {%- endif %}
@@ -86,13 +86,9 @@ set reports_tcl_path [file normalize {{reports_tcl}}]
 
 add_files -fileset utils_1 -norecurse {{reports_tcl}}
 
-puts 1
-set_property STEPS.OPT_DESIGN.TCL.POST {$reports_tcl_path} [get_runs impl_1]
-puts 2
-set_property STEPS.PLACE_DESIGN.TCL.POST {$reports_tcl_path} [get_runs impl_1]
-puts 3
-set_property STEPS.ROUTE_DESIGN.TCL.POST {$reports_tcl_path} [get_runs impl_1]
-puts 3
+set_property STEPS.OPT_DESIGN.TCL.POST $reports_tcl_path [get_runs impl_1]
+set_property STEPS.PLACE_DESIGN.TCL.POST $reports_tcl_path [get_runs impl_1]
+set_property STEPS.ROUTE_DESIGN.TCL.POST $reports_tcl_path [get_runs impl_1]
 
 puts "\n=============================( Running Synthesis )============================="
 reset_run synth_1
