@@ -22,6 +22,7 @@ from .verilator import Verilator
 from .vivado.vivado_alt_synth import VivadoAltSynth
 from .vivado.vivado_postsynthsim import VivadoPostsynthSim
 from .vivado.vivado_power import VivadoPower
+from .vivado.vivado_project import VivadoProject
 from .vivado.vivado_sim import VivadoSim
 from .vivado.vivado_synth import VivadoSynth
 from .yosys import CxxRtl, Yosys, YosysFpga
@@ -47,6 +48,7 @@ __all__ = [
     "VivadoAltSynth",
     "VivadoPostsynthSim",
     "VivadoPower",
+    "VivadoProject",
     "VivadoSim",
     "VivadoSynth",
     "Yosys",
