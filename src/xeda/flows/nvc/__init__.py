@@ -114,7 +114,7 @@ class Nvc(SimFlow):
             None,
             description="Generate waveform data in this format. The default is FST if this option is not provided and `wave` is not a filename. If this option is None `wave` is a filename, the format is selected automatically based on the file extension.",
         )
-        wave_arrays: Optional[int] = Field(
+        wave_arrays: Union[int, bool, None] = Field(
             None,
             description="Include memories and nested arrays in the waveform data. This is disabled by default as it can have significant performance, memory, and disk space overhead. With optional argument N only arrays with up to this many elements will be dumped.",
         )
@@ -254,7 +254,11 @@ class Nvc(SimFlow):
                 if ss.wave_format:
                     execute_flags.append(f"--format={ss.wave_format}")
             if ss.wave_arrays:
-                execute_flags.append(f"--dump-arrays={ss.wave_arrays}")
+                if isinstance(ss.wave_arrays, bool):
+                    execute_flags.append("--dump-arrays")
+                else:
+                    assert isinstance(ss.wave_arrays, int)
+                    execute_flags.append(f"--dump-arrays={ss.wave_arrays}")
 
         if ss.exit_severity:
             execute_flags.append(f"--exit-severity={ss.exit_severity}")
