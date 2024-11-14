@@ -6,7 +6,7 @@ import copy
 import logging
 from abc import ABCMeta
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, get_origin
 
 import attrs
 
@@ -20,6 +20,7 @@ from pydantic import (
     root_validator,
     validator,
 )
+from pydantic.fields import ModelField, SHAPE_LIST
 
 if TYPE_CHECKING:
     from pydantic.error_wrappers import ErrorDict
@@ -84,6 +85,14 @@ class XedaBaseModel(BaseModel):
             if isinstance(value, cached_property):
                 log.debug("invalidating: %s", str(key))
                 self.__dict__.pop(key, None)
+
+    @validator("*", pre=True, always=False)
+    def _base_all_fields_validator(cls, v, field: ModelField):
+        if v is not None:
+            origin = get_origin(field.annotation)
+            if field.shape == SHAPE_LIST and origin == list and isinstance(v, str):
+                v = v.split(",")
+        return v
 
 
 class XedaBaseModelAllowExtra(XedaBaseModel, metaclass=ABCMeta):

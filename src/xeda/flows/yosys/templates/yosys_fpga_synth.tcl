@@ -3,7 +3,7 @@ yosys logger -notime -stderr
 {% include 'read_files.tcl' %}
 
 {% if settings.prep is not none %}
-yosys prep {% if settings.flatten %} -flatten {% endif %} {%if design.rtl.top %} -top {{design.rtl.top}} {% else %} -auto-top {% endif %} {{settings.prep|join(" ")}}
+yosys prep {%- if settings.flatten %} -flatten {%- endif %} {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %} {{settings.prep|join(" ")}}
 {% else %}
 yosys proc
 {% if settings.flatten %}
@@ -19,9 +19,9 @@ yosys opt -full -purge -sat
 {% endif %}
 
 {% if settings.abc9 -%}
-{% if settings.flow3 %} yosys scratchpad -copy abc9.script.flow3 abc9.script {% endif %}
+{% if settings.flow3 -%} yosys scratchpad -copy abc9.script.flow3 abc9.script {%- endif %}
 {# decrease the target delay to account for interconnect delay #}
-{% if settings.main_clock and settings.main_clock.period_ps %} yosys scratchpad -set abc9.D {{settings.main_clock.period_ps / 1.5}} {% endif %}
+{% if settings.main_clock and settings.main_clock.period_ps -%} yosys scratchpad -set abc9.D {{settings.main_clock.period_ps / 1.5}} {%- endif %}
 {%- endif %}
 
 yosys log -stdout "** FPGA synthesis for device {{settings.fpga}} **"

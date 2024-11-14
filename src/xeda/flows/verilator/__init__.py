@@ -2,6 +2,7 @@ from glob import glob
 import logging
 import os
 from pathlib import Path
+from random import randint
 import shutil
 import sys
 from typing import Any, Dict, List, Optional, Union
@@ -27,9 +28,11 @@ class Verilator(SimFlow):
         ]
         warnings_fatal: bool = False
         include_dirs: List[str] = []
-        optimize: bool = True
+        optimize: bool | str = True
         timing: bool = False
-        plus_args: List[str] = []
+        model_args: List[str] = Field(
+            default=[], description="Arguments to pass to the model executable"
+        )
         verilog_libs: List[str] = []
         build: bool = True
         vpi: bool = False
@@ -83,10 +86,11 @@ class Verilator(SimFlow):
 
         if ss.build:
             args.append("--build")
-            args += [
-                "--build-jobs",
-                0,  # auto
-            ]
+
+        args += [
+            "-j",  # Parallelism for --build-jobs/--verilate-jobs
+            0,  # 0: auto
+        ]
 
         for wf in ss.warn_flags:
             args.append(wf)
@@ -125,6 +129,11 @@ class Verilator(SimFlow):
                 args.append("--timing")
             else:
                 args.append("--no-timing")
+
+        # supres unhelpful warnings
+        args += [
+            "-Wno-DECLFILENAME",
+        ]
         if not ss.timing:
             args += [
                 "-Wno-STMTDLY",
@@ -137,7 +146,10 @@ class Verilator(SimFlow):
             args += ["--trace-threads", ss.trace_threads]
 
         if ss.optimize:
-            args += ["-O3"]
+            if isinstance(ss.optimize, str):
+                args += ["-O" + ss.optimize]
+            else:
+                args += ["-O3"]
 
         args += [
             "--x-initial",
@@ -209,14 +221,14 @@ class Verilator(SimFlow):
             sources.append(cocotb_cpp)
 
         verilator.run(*args, *sources)
-        plus_args = list(ss.plus_args)
+        model_args = ss.model_args
         if ss.random_init:
             random_seed = (
-                12345 if ss.debug else 0
+                1 if ss.debug else randint(1, 2147483648)
             )  # 0 = choose value from system random number generator
-            plus_args += [f"+verilator+seed+{random_seed}", "+verilator+rand+reset+2"]
+            model_args += [f"+verilator+seed+{random_seed}", "+verilator+rand+reset+2"]
         model = verilator.derive(verilated_bin)
-        model.run(*ss.plus_args, env=env)
+        model.run(*ss.model_args, env=env)
 
     def rm_dep_files(self):
         assert isinstance(self.settings, self.Settings)

@@ -285,6 +285,8 @@ class DVSettings(XedaBaseModel):
         if not value:
             value = values.get("generics")
         if value:
+            if not isinstance(value, dict):
+                raise ValueError("parameters/generics must be a dictionary")
             for k, v in value.items():
                 if isinstance(v, dict) and ("file" in v or "path" in v):
                     value[k] = str(FileResource(v))
