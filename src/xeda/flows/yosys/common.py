@@ -3,7 +3,7 @@ import logging
 import re
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from ...dataclass import Field, validator
 from ...design import SourceType
@@ -44,7 +44,8 @@ class YosysBase(Flow):
             "-width",
         ]
         ghdl: GhdlSynth.Settings = GhdlSynth.Settings()  # type: ignore
-        use_uhdm_plugin: bool = False
+        systemverilog: Literal["default", "uhdm", "slang"] = "slang"
+        use_slang_plugin: bool = True
         verilog_lib: List[str] = []
         splitnets: bool = False
         splitnets_driver: bool = False

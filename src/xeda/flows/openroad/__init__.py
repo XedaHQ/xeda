@@ -206,7 +206,7 @@ class Openroad(AsicSynthFlow):
             netlist_hex=False,
             netlist_dec=False,
             netlist_blackboxes=False,
-            use_uhdm_plugin=True,
+            # systemverilog="slang",
         )  # pyright: ignore
 
         if not ss.copy_platform_files:

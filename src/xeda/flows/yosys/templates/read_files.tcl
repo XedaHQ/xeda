@@ -4,18 +4,28 @@ yosys echo on
 {%- endif %}
 
 {%- set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=false) %}
-{%- set uhdm_plugin = settings.use_uhdm_plugin and sv_files %}
+{%- set uhdm_plugin = (settings.systemverilog == "uhdm") and sv_files %}
 {%- if uhdm_plugin %}
 yosys plugin -i systemverilog
 {%- endif %}
+{%- set slang_plugin = (settings.systemverilog == "slang") and sv_files %}
+{%- if slang_plugin %}
+yosys plugin -i slang
+{%- endif %}
 
 {%- for src in design.rtl.sources %}
-{%- if src.type.name == "Verilog" or (not uhdm_plugin and src.type.name == "SystemVerilog") %}
+{%- if src.type.name == "Verilog" %}
 yosys log -stdout "** Reading {{src}} **"
 yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} "{{src}}"
 {%- elif src.type.name == "SystemVerilog" %}
 yosys log -stdout "** Reading {{src}} **"
+{% if slang_plugin -%}
+yosys read_slang --extern-modules --best-effort-hierarchy "{{src}}"
+{%- elif uhdm_plugin -%}
 yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} "{{src}}"
+{%- else -%}
+yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} "{{src}}"
+{%- endif %}
 {%- endif %}
 {%- endfor %}
 
