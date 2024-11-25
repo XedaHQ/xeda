@@ -153,8 +153,23 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                         self.results["LUT"] += ram32m
                         self.results["LUT:RAM"] = ram32m
                     self.results["FF"] = sum_all_resources(
-                        design_util, ["FDCE", "FDPE", "FDRE", "FDSE"]
+                        design_util,
+                        [
+                            "FDCE",  # D Flip-Flop with Clock Enable and Asynchronous Clear
+                            "FDPE",  # D Flip-Flop with Clock Enable and Asynchronous Preset
+                            "FDRE",  # D Flip-Flop with Clock Enable and Synchronous Reset
+                            "FDSE",  # D Flip-Flop with Clock Enable and Synchronous Set
+                        ],
                     )
+                    latches = sum_all_resources(
+                        design_util,
+                        [
+                            "LDCE",  # Transparent Data Latch with Asynchronous Clear and Gate Enable
+                            "LDPE",  # Transparent Data Latch with Asynchronous Preset and Gate Enable
+                        ],
+                    )
+                    if latches:
+                        self.results["LATCH"] = latches
                     brams: float = sum_all_resources(design_util, ["RAMB36"])
                     brams_half = sum_all_resources(design_util, ["RAMB18"])
                     brams += brams_half / 2
@@ -163,9 +178,12 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                     dsps = sum_all_resources(design_util, ["DSP48E1", "DSP48E2", "DSP48E"])
                     if dsps:
                         self.results["DSP"] = dsps
-                    carry_chains = sum_all_resources(design_util, ["CARRY4", "CARRY2"])
+                    carry_chains = sum_all_resources(design_util, ["CARRY8", "CARRY4", "CARRY2"])
                     if carry_chains:
                         self.results["CARRY"] = carry_chains
+                    muxf78 = sum_all_resources(design_util, ["MUXF7", "MUXF8"])
+                    if carry_chains:
+                        self.results["MUXF7/F8"] = muxf78
 
         # if self.settings.fpga:
         return True

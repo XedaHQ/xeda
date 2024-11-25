@@ -191,8 +191,6 @@ class YosysBase(Flow):
             ss.flatten = True  # design must be flattened
         if ss.flatten:
             append_flag(ss.synth_flags, "-flatten")
-        else:
-            append_flag(ss.synth_flags, "-noflatten")
         if ss.abc_dff:
             append_flag(ss.abc_flags, "-dff")
         ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)

@@ -15,8 +15,10 @@ yosys flatten
 
 {% if settings.pre_synth_opt %}
 yosys log -stdout "** Pre-synthesis optimization **"
-yosys opt -full -purge -sat
+yosys opt -undriven -purge -keepdc -noff
 {% endif %}
+
+yosys opt_clean -purge
 
 {% if settings.abc9 -%}
 {% if settings.flow3 -%} yosys scratchpad -copy abc9.script.flow3 abc9.script {%- endif %}
@@ -38,8 +40,10 @@ yosys log -stdout "[ERROR] Unknown FPGA vendor, family, or device"
 
 {% if settings.post_synth_opt %}
 yosys log -stdout "** Post-synthesis optimization **"
-yosys opt -full -purge -sat
+yosys opt -full -fine -purge -sat -undriven
 {% endif %}
+
+yosys opt_clean -purge
 
 {% if settings.splitnets %}
 yosys splitnets
