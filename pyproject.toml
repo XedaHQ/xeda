@@ -59,7 +59,7 @@ dependencies = [
     "overrides         ~= 7.7",
     "simple_term_menu  ~= 1.6",
     "psutil            ~= 6.0",
-    "junitparser       >= 2.4, < 4.0", # TODO: remove
+    "junitparser       >= 2.4, < 4.0",     # TODO: remove
     "pyvcd             ~= 0.4",
     "GitPython         ~= 3.1",
     "fabric            ~= 3.2",
@@ -87,7 +87,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["xeda*"]
-exclude = ["tests/**", "*/tests/**"]
+exclude = ["tests/**", "*/tests/**", "platforms", "*/platforms", "**/platforms/**"]
 namespaces = false
 
 [tool.setuptools.package-data]
@@ -108,19 +108,14 @@ namespaces = false
     "*.xcf",
     "*.xdc",
     "*.ys",
-    "*/platforms/**",
-    "resources/**",
+    # "*/platforms/**",
 ]
 
 [tool.setuptools.exclude-package-data]
 "xeda" = [
-    "tests*",
-    # # must keep PyPI dist archive size < 100MB
-    # # TODO: move platforms to separate xeda_platforms_xx packages
-    # "*platforms/gf180*",
-    # "platforms/asap7/lib/*_LVT_*",
-    # "platforms/asap7/lib/*_SLVT_*",
-    # "platforms/asap7/lib/*_SRAM_*",
+    "tests/*",
+    # moving the platforms to the xeda_platforms* packages
+    "**/platforms/",
 ]
 
 [tool.setuptools_scm]
