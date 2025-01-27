@@ -81,12 +81,12 @@ class Cocotb(CocotbSettings, Tool):
     def get_lib_name(self, simulator, interface="vpi") -> str:
         return self.run_get_stdout("--lib_name", interface, simulator)
 
-    def vpi_path(self) -> str:
+    def lib_path(self, interface="vpi") -> Optional[str]:
         so_ext = "so"  # TODO windows?
         if self.version_gte(1, 6):
             so_path = self.run_get_stdout(
                 "--lib-name-path",
-                "vpi",
+                interface,
                 self.sim_name,
             )
         else:
@@ -94,10 +94,10 @@ class Cocotb(CocotbSettings, Tool):
                 self.prefix,
                 "cocotb",
                 "libs",
-                f"libcocotbvpi_{self.sim_name}.{so_ext}",
+                f"libcocotb{interface}_{self.sim_name}.{so_ext}",
             )
 
-        log.info("cocotb.vpi_path: %s", so_path)
+        log.info("cocotb.lib_path: %s", so_path)
         return so_path
 
     def env(self, design: Design) -> Dict[str, Any]:

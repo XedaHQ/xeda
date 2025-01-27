@@ -8,7 +8,6 @@ from abc import ABCMeta
 from functools import cached_property
 from pathlib import Path
 import re
-from tkinter import NO
 from typing import Any, Dict, List, Literal, Optional, Union
 
 
@@ -517,7 +516,9 @@ class GhdlSim(Ghdl, SimFlow):
         )
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:
-            vpi.append(self.cocotb.vpi_path())
+            vpi_path = self.cocotb.lib_path()
+            assert vpi_path, "cocotb VPI library for GHDL was not found"
+            vpi.append(vpi_path)
             # tb_generics = list(design.tb.generics)  # TODO pass to cocotb?
             design.tb.generics = design.rtl.generics
             if not design.tb.top and design.rtl.top:
