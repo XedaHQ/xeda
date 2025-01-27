@@ -177,8 +177,6 @@ class Yosys(YosysBase, SynthFlow):
         adder_map: Optional[str] = None
         clockgate_map: Optional[str] = None
         other_maps: List[str] = []
-        abc_constr: List[str] = []
-        abc_script: Union[None, Path, List[str]] = None
         hilomap: Optional[HiLoMap] = None
         insbuf: Union[None, Tuple[str, str, str], List[str]] = None
         merge_libs_to: Optional[str] = None
@@ -221,8 +219,8 @@ class Yosys(YosysBase, SynthFlow):
 
         ss.liberty = [set_file_path(lib) for lib in ss.liberty]
         ss.dff_liberty = set_file_path(ss.dff_liberty)
-        if isinstance(ss.abc_script, Path):
-            ss.abc_script = set_file_path(ss.abc_script)
+        if isinstance(ss.abc_script, str) and not ss.abc_script.startswith("+"):
+            ss.abc_script = str(set_file_path(ss.abc_script))
 
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
@@ -258,14 +256,6 @@ class Yosys(YosysBase, SynthFlow):
             abc_constr_file = "abc.constr"
             with open(abc_constr_file, "w") as f:
                 f.write("\n".join(ss.abc_constr) + "\n")
-        abc_script_file = None
-        if ss.abc_script:
-            if isinstance(ss.abc_script, list):
-                abc_script_file = "abc.script"
-                with open(abc_script_file, "w") as f:
-                    f.write("\n".join(ss.abc_script) + "\n")
-            else:
-                abc_script_file = str(ss.abc_script)
 
         script_path = self.copy_from_template(
             "yosys_synth.tcl",
@@ -275,7 +265,6 @@ class Yosys(YosysBase, SynthFlow):
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
-            abc_script_file=abc_script_file,
         )
         log.info("Yosys script: %s", script_path.absolute())
         args = ["-c", script_path]

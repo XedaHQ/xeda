@@ -67,6 +67,8 @@ class YosysBase(Flow):
         )
         abc_dff: bool = Field(True, description="Run abc/abc9 with -dff option")
         abc_flags: List[str] = []
+        abc_constr: List[str] = []
+        abc_script: Optional[str] = None
         top_is_vhdl: Optional[bool] = Field(
             None,
             description="set to `true` to specify top module is VHDL, or `false` to override detection based on last source.",
@@ -76,12 +78,12 @@ class YosysBase(Flow):
         netlist_attrs: Optional[bool] = True
         netlist_expr: Optional[bool] = None
         netlist_dec: Optional[bool] = False
-        netlist_hex: Optional[bool] = False
+        netlist_hex: Optional[bool] = True
         netlist_blackboxes: Optional[bool] = False
         netlist_simple_lhs: Optional[bool] = False
         netlist_verilog_flags: List[str] = []
         netlist_verilog_extmem: List[str] = []
-        netlist_src_attrs: bool = True
+        netlist_src_attrs: bool = False
         netlist_unset_attributes: List[str] = []
         netlist_json: Optional[Path] = Field(Path("netlist.json"), alias="json_netlist")
         netlist_dot: Optional[str] = None  # prefix
@@ -93,7 +95,7 @@ class YosysBase(Flow):
             description="Run a simple static timing analysis (implies `flatten`)",
         )
         post_synth_opt: bool = Field(
-            True,
+            False,
             description="run additional optimization steps after synthesis if complete",
         )
         ltp: bool = Field(False, description="Print the longest topological path in the design.")
@@ -121,6 +123,12 @@ class YosysBase(Flow):
             if values.get("netlist_attrs") is True and values.get("netlist_src_attrs") is False:
                 value.append("src")
             return unique(value)
+
+        @validator("abc_script", pre=True, always=True)
+        def validate_abc_script(cls, value):
+            if isinstance(value, str) and value.startswith("+"):
+                return value.replace(" ", ",")
+            return value
 
         @validator("verilog_lib", pre=True, always=True)
         def validate_verilog_lib(cls, value):

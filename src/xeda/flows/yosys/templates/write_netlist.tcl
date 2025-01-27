@@ -42,5 +42,3 @@ yosys write_blif -noalias {{settings.write_blif}}
 yosys log -stdout "Writing netlist graph to {{settings.netlist_dot}}"
 yosys show -prefix {{settings.netlist_dot.rsplit(".", 1)[0]}} -format dot {{settings.netlist_dot_flags|join(" ")}}
 {%- endif %}
-
-puts "***** Yosys DONE *****"

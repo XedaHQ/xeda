@@ -38,21 +38,30 @@ techmap -map {{map}}
 {%- endfor %}
 
 {%- if settings.liberty %}
-log -stdout " Mapping FFs to technology library"
-dfflibmap -liberty {% if settings.dff_liberty %} {{settings.dff_liberty}} {% else %} {{settings.liberty[0]}} {% endif %}
-opt
+log -stdout "Prepare mapping FFs to technology"
+dfflibmap -prepare -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty}} {%- else -%} {{settings.liberty[0]}} {%- endif %}
+opt -purge
 {%- endif %}
 
 {%- if not settings.noabc %}
-log -stdout " Running ABC"
+log -stdout "Running ABC"
 abc {{settings.abc_flags|join(" ")}}
 {%- if settings.main_clock and settings.main_clock.period_ps %} -D {{"%.3f"|format(settings.main_clock.period_ps)}} {% endif %}
-{%- if abc_script_file %} -script {{abc_script_file}} {%- endif %}
-{%- if settings.liberty %} -liberty {{settings.liberty[0]}} {%- endif %}
-{%- if abc_constr_file %} -constr {{abc_constr_file}} {%- endif %}
+{%- if settings.abc_script %} -script "{{settings.abc_script}}" {%- endif %}
+{%- if settings.liberty %} -liberty "{{settings.liberty[0]}}" {%- endif %}
+{%- if abc_constr_file %} -constr "{{abc_constr_file}}" {%- endif %}
+opt -purge
 {%- endif %}
+
+{%- if settings.liberty %}
+log -stdout "Mapping FFs to technology"
+dfflibmap -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty}} {%- else -%} {{settings.liberty[0]}} {%- endif %}
+opt -purge
+{%- endif %}
+
 # replace undefined values with 0
 setundef -zero
+opt -full -purge
 
 {%- if settings.splitnets %}
 splitnets {%- if settings.splitnets_driver %} -driver {%- endif %} {%- if settings.splitnets_ports %} -ports {%-endif %}
@@ -67,11 +76,16 @@ hilomap {% if settings.hilomap.singleton %} -singleton {% endif %} -hicell {{set
 insbuf -buf {{settings.insbuf|join(" ")}}
 {%- endif %}
 
-opt -full
+opt -full -purge
 clean -purge
 
 {%- if settings.rmports %}
 rmports
 {%- endif %}
 
+{%- if settings.liberty %}
+check {% if settings.check_assert -%} -assert {% endif -%} -mapped
+{%- endif %}
 {% include "write_netlist.tcl" %}
+
+log -stdout "***** Synthesis Completed *****"

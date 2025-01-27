@@ -55,8 +55,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         adder_map: Optional[str] = None
         clockgate_map: Optional[str] = None
         other_maps: List[str] = []
-        abc_constr: List[str] = []
-        abc_script: Union[None, Path, List[str]] = None
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -93,14 +91,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             abc_constr_file = "abc.constr"
             with open(abc_constr_file, "w") as f:
                 f.write("\n".join(ss.abc_constr) + "\n")
-        abc_script_file = None
-        if ss.abc_script:
-            if isinstance(ss.abc_script, list):
-                abc_script_file = "abc.script"
-                with open(abc_script_file, "w") as f:
-                    f.write("\n".join(ss.abc_script) + "\n")
-            else:
-                abc_script_file = str(ss.abc_script)
 
         script_path = self.copy_from_template(
             "yosys_fpga_synth.tcl",
@@ -110,7 +100,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
-            abc_script_file=abc_script_file,
         )
         log.info("Yosys script: %s", script_path.absolute())
         args = ["-c", script_path]
