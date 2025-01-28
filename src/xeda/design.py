@@ -11,12 +11,12 @@ import subprocess
 from enum import Enum, auto
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 import yaml
 from urllib.parse import parse_qs, urlparse
 
 import yaml.scanner
-
+from pydantic.fields import ModelField
 
 from .dataclass import (
     Field,
@@ -250,6 +250,16 @@ class DesignSource(FileResource):
         if self.standard:
             s += f" standard: {self.standard}"
         return s
+
+    def __json_encoder__(self) -> str:
+        return json.dumps(
+            {
+                "file": (self.file),
+                "type": (self.type),
+                "variant": (self.variant),
+                "standard": (self.standard),
+            }
+        )
 
 
 DefineType = Any
@@ -520,7 +530,7 @@ class LanguageSettings(XedaBaseModel):
     )
 
     @validator("standard", pre=True)
-    def two_digit_standard(cls, value, values):
+    def two_digit_standard(cls, value):
         if not value:
             return None
         if isinstance(value, int):
@@ -528,6 +538,10 @@ class LanguageSettings(XedaBaseModel):
         elif not isinstance(value, str):
             raise ValueError("standard should be of type string")
         return value
+
+    @classmethod
+    def from_version(cls, version: str | int):
+        return cls(version=cls.two_digit_standard(version))  # type: ignore
 
 
 class VhdlSettings(LanguageSettings):
@@ -537,6 +551,15 @@ class VhdlSettings(LanguageSettings):
 class Language(XedaBaseModel):
     vhdl: VhdlSettings = VhdlSettings()  # type: ignore
     verilog: LanguageSettings = LanguageSettings()  # type: ignore
+
+    @validator("verilog", "vhdl", pre=True, always=True)
+    def _language_settings(cls, value, field: Optional[ModelField]):
+        if isinstance(value, (str, int)) and field is not None:
+            if field.name == "vhdl":
+                return VhdlSettings.from_version(value)
+            elif field.name == "verilog":
+                return LanguageSettings.from_version(value)
+        return value
 
 
 class RtlDep(XedaBaseModel):
@@ -708,7 +731,11 @@ class Design(XedaBaseModel):
     dependencies: List[DesignReference] = []
     rtl: RtlSettings
     tb: TbSettings = TbSettings()  # type: ignore
-    language: Language = Language()
+    language: Language = Field(
+        Language(),
+        alias="hdl",
+        description="HDL language settings",
+    )
     flow: Dict[str, Dict[str, Any]] = Field(
         dict(),
         alias="flows",
@@ -1038,19 +1065,24 @@ class Design(XedaBaseModel):
         return hashlib.sha3_256(r).hexdigest()
 
     # pylint: disable=arguments-differ
-    def dict(
-        self,
-        *,
-        include=None,
-        exclude=None,
-        by_alias: bool = False,
-        skip_defaults: Optional[bool] = None,
-        exclude_unset: bool = False,
-        exclude_defaults: bool = False,
-        exclude_none: bool = False,
-    ) -> Dict[str, Any]:
+    def dict(self) -> Dict[str, Any]:
         return super().dict(
             exclude_unset=True,
             exclude_defaults=True,
             exclude={"rtl_hash", "tb_hash", "rtl_fingerprint"},
+        )
+
+    def json(
+        self,
+        encoder: Optional[Callable[[Any], Any]] = None,
+        models_as_dict: bool = True,
+        **dumps_kwargs,
+    ) -> str:
+        return super().json(
+            exclude_unset=True,
+            exclude_defaults=True,
+            exclude={"rtl_hash", "tb_hash", "rtl_fingerprint"},
+            encoder=encoder,
+            models_as_dict=models_as_dict,
+            **dumps_kwargs,
         )

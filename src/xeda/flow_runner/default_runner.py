@@ -128,8 +128,8 @@ def get_flow_class(
 ) -> Type[Flow]:
     _mod, flow_class = registered_flows.get(flow_name, (None, None))
     if flow_class is None:
-        log.warning(
-            "Flow %s was not found in registered flows. Trying to load using importlib.import_module",
+        log.debug(
+            "Flow %s was not found in registered flows. Trying to load using `importlib`.",
             flow_name,
         )
         try:

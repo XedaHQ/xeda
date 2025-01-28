@@ -65,7 +65,15 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         new_design["flow"] = design.flow
         design_file = temp_dir / f"{design.name}.xeda.json"
         with open(design_file, "w") as f:
-            json.dump(new_design, f)
+            json.dump(
+                new_design,
+                f,
+                default=lambda obj: (
+                    obj.__json_encoder__
+                    if hasattr(obj, "__json_encoder__")
+                    else obj.__dict__ if hasattr(obj, "__dict__") else str(obj)
+                ),
+            )
         with zipfile.ZipFile(zip_file, mode="w") as archive:
             for src in design.sources_of_type("*", rtl=True, tb=True):
                 archive.write(src.path, arcname=remote_sources_path / translate_filename(src))
