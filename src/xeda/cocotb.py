@@ -2,6 +2,7 @@ import logging
 import os
 from functools import cached_property
 from pathlib import Path
+import sys
 from typing import Any, Dict, List, Literal, Optional
 
 from junitparser import JUnitXml  # type: ignore[import-untyped, attr-defined]
@@ -56,18 +57,20 @@ class Cocotb(CocotbSettings, Tool):
     """Not a stand-alone tool, but is used from a SimFlow"""
 
     @cached_property
-    def prefix(self) -> str:
+    def prefix(self) -> Optional[str]:
         return self.run_get_stdout("--prefix")
 
     @cached_property
-    def share_dir(self) -> str:
+    def share_dir(self) -> Optional[str]:
         return self.run_get_stdout("--share")
 
     @cached_property
-    def lib_dir(self) -> str:
+    def lib_dir(self) -> Optional[str]:
         if self.version_gte(1, 6):
             return self.run_get_stdout("--lib-dir")
         else:
+            if self.prefix is None:
+                return None
             return os.path.join(
                 self.prefix,
                 "cocotb",
@@ -75,33 +78,46 @@ class Cocotb(CocotbSettings, Tool):
             )
 
     @cached_property
-    def vpi_lib_name(self) -> str:
+    def vpi_lib_name(self) -> Optional[str]:
         return self.get_lib_name(self.sim_name)
 
-    def get_lib_name(self, simulator, interface="vpi") -> str:
+    def get_lib_name(self, simulator, interface="vpi") -> Optional[str]:
         return self.run_get_stdout("--lib_name", interface, simulator)
 
-    def lib_path(self, interface="vpi") -> Optional[str]:
+    def lib_path(self, interface: str = "vpi", sim_name=None) -> Optional[str]:
         so_ext = "so"  # TODO windows?
+        if sim_name is None:
+            sim_name = self.sim_name
         if self.version_gte(1, 6):
             so_path = self.run_get_stdout(
                 "--lib-name-path",
                 interface,
-                self.sim_name,
+                sim_name,
             )
+            if not so_path:
+                log.error("[cocotb] %s failed!", self.executable)
+                return None
         else:
-            so_path = os.path.join(
-                self.prefix,
-                "cocotb",
-                "libs",
-                f"libcocotb{interface}_{self.sim_name}.{so_ext}",
-            )
-
+            if self.prefix is None:
+                so_path = None
+            else:
+                so_path = os.path.join(
+                    self.prefix,
+                    "cocotb",
+                    "libs",
+                    f"libcocotb{interface}_{sim_name}.{so_ext}",
+                )
         log.info("cocotb.lib_path: %s", so_path)
+        if so_path:
+            if not Path(so_path).exists():
+                log.error("[cocotb] shared library %s does not exist.", so_path)
+                return None
+        else:
+            log.error("[cocotb] %s library for %s is not available.", interface.upper(), sim_name)
         return so_path
 
     def env(self, design: Design) -> Dict[str, Any]:
-        ret = {}
+        environ = {}
         if design.tb.cocotb:
             if design.tb is None or not design.tb.sources:
                 raise ValueError("'design.tb.cocotb' is set, but 'design.tb.sources' is empty.")
@@ -139,25 +155,33 @@ class Cocotb(CocotbSettings, Tool):
             toplevel = design.tb.cocotb.toplevel
             if not toplevel and design.tb.top:
                 toplevel = design.tb.top if isinstance(design.tb.top, str) else design.tb.top[0]
-            ret = {
+            environ = {
                 "MODULE": coco_module,
-                "TOPLEVEL": toplevel,  # TODO
-                "COCOTB_REDUCED_LOG_FMT": int(self.reduced_log_fmt),
+                "COCOTB_TEST_MODULES": coco_module,
+                "TOPLEVEL": toplevel,
+                "COCOTB_REDUCED_LOG_FMT": os.environ.get(
+                    "COCOTB_REDUCED_LOG_FMT", "1" if self.reduced_log_fmt else "0"
+                ),
                 "PYTHONPATH": os.pathsep.join(py_path),
                 "COCOTB_RESULTS_FILE": self.results_xml,
                 "COCOTB_RESOLVE_X": self.resolve_x,
+                "PYGPI_PYTHON_BIN": os.environ.get(
+                    # Use the current Python executable if not set in the environment
+                    "PYGPI_PYTHON_BIN",
+                    os.path.abspath(sys.executable),
+                ),
             }
             if self.coverage:
-                ret["COVERAGE"] = 1
+                environ["COVERAGE"] = 1
             testcases = self.testcase or design.tb.cocotb.testcase
             if testcases:
-                ret["TESTCASE"] = ",".join(testcases)
+                environ["TESTCASE"] = ",".join(testcases)
             if self.random_seed is not None:
-                ret["RANDOM_SEED"] = self.random_seed
+                environ["RANDOM_SEED"] = self.random_seed
             if self.gpi_extra:
-                ret["GPI_EXTRA"] = ",".join(self.gpi_extra)
-            log.debug("Cocotb env: %s", ret)
-        return ret
+                environ["GPI_EXTRA"] = ",".join(self.gpi_extra)
+            log.debug("Cocotb env: %s", environ)
+        return environ
 
     @cached_property
     def _results(self):

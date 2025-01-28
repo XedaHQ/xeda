@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from functools import cached_property
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from ...dataclass import Field  # type: ignore
 from ...design import DesignSource, SourceType, VhdlSettings
@@ -126,12 +126,15 @@ class Nvc(SimFlow):
             None,
             description="Stop the simulation after N delta cycles in the same current time.",
         )
+        vhpi: Optional[str] = Field(
+            None, description="Specify the VHPI library to load at startup."
+        )
 
     @cached_property
     def nvc(self):
         return NvcTool()  # pyright: ignore[reportCallIssue]
 
-    def common_flags(self) -> List[str]:
+    def global_options(self) -> List[str]:
         cf: List[str] = []
         ss = self.settings
         assert isinstance(ss, self.Settings)
@@ -198,8 +201,7 @@ class Nvc(SimFlow):
         assert isinstance(ss, self.Settings)
         if sources is None:
             sources = self.design.sim_sources_of_type(SourceType.Vhdl)
-        flags = self.common_flags() + self.analyze_flags()
-        self.nvc.run("-a", *sources, *flags)
+        self.nvc.run(*self.global_options(), "-a", *sources, *self.analyze_flags())
 
     def elaborate_flags(self) -> List[str]:
         ss = self.settings
@@ -231,8 +233,7 @@ class Nvc(SimFlow):
         """
         Elaborate a previously analysed top level design unit.
         """
-        flags = self.common_flags() + self.elaborate_flags()
-        self.nvc.run("-e", *self.design.sim_tops, *flags)
+        self.nvc.run(*self.global_options(), "-e", *self.design.sim_tops, *self.elaborate_flags())
 
     def execute(self, one_shot=False) -> None:
         """Run the simulation"""
@@ -268,10 +269,23 @@ class Nvc(SimFlow):
             execute_flags.append(f"--stop-delta={ss.stop_delta}")
         if ss.stop_time is not None:
             execute_flags.append(f"--stop-time={ss.stop_time}")
+
+        vhpi = [] if ss.vhpi is None else ss.vhpi.split(",")
+        # TODO factor out cocotb handling
+        if self.design.tb.cocotb and self.cocotb:
+            vpi_path = self.cocotb.lib_path(interface="vhpi")
+            assert vpi_path, "cocotb VHPI library for NVC was not found"
+            vhpi.append(vpi_path)
+            self.design.tb.generics = self.design.rtl.generics
+            if not self.design.tb.top and self.design.rtl.top:
+                self.design.tb.top = (self.design.rtl.top,)
+
+        execute_flags += [f"--load={p}" for p in vhpi]
+
         if one_shot:
             sources = self.design.sim_sources_of_type(SourceType.Vhdl)
             self.nvc.run(
-                *self.common_flags(),
+                *self.global_options(),
                 "-a",
                 *sources,
                 *self.analyze_flags(),
@@ -280,13 +294,15 @@ class Nvc(SimFlow):
                 *self.elaborate_flags(),
                 "-r",
                 *execute_flags,
+                env=self.cocotb.env(self.design) if self.cocotb else {},
             )
         else:
             self.nvc.run(
-                *self.common_flags(),
+                *self.global_options(),
                 "-r",
                 *self.design.sim_tops,
                 *execute_flags,
+                env=self.cocotb.env(self.design) if self.cocotb else {},
             )
 
     def gen_makefile(self, units: List[str]) -> None:

@@ -44,6 +44,7 @@ __all__ = [
     "Openfpgaloader",
     "Openroad",
     "Quartus",
+    "Nvc",
     "Verilator",
     "VivadoAltSynth",
     "VivadoPostsynthSim",
