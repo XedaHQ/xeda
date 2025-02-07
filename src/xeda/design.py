@@ -295,8 +295,22 @@ class DVSettings(XedaBaseModel):
         if not value:
             value = values.get("generics")
         if value:
-            if not isinstance(value, dict):
-                raise ValueError("parameters/generics must be a dictionary")
+            if isinstance(value, (list)):
+                d = dict()
+                for e in value:
+                    e_name = e.get("name")
+                    e_value = e.get("value")
+                    if e_name and e_value is not None:
+                        d[e_name] = e_value
+                    else:
+                        raise ValueError(
+                            "parameters/generics must be a dictionary or a list of objects with 'name' and 'value' attributes"
+                        )
+                value = d
+            elif not isinstance(value, dict):
+                raise ValueError(
+                    "parameters/generics must be a dictionary or a list of objects with 'name' and 'value' attributes"
+                )
             for k, v in value.items():
                 if isinstance(v, dict) and ("file" in v or "path" in v):
                     value[k] = str(FileResource(v))

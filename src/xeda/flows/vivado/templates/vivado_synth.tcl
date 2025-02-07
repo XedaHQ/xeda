@@ -58,27 +58,29 @@ set_property generic {% raw -%} { {%- endraw -%} {{generics}} {%- raw -%} } {%- 
 
 {# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
 {# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug835-vivado-tcl-commands.pdf #}
-{%- for step,options in settings.synth.steps.items() %}
+{%- for run,run_name in [(settings.synth, "synth_1"), (settings.impl, "impl_1")] %}
+{%- for step,options in run.steps.items() %}
 {%- for name,value in options.items() %}
 {% if value is mapping %}
-{%- for k,v in value.items() %}
-set_property STEPS.{{step}}.{{name}}.{{k}} {{v}} [get_runs synth_1]
-{%- endfor %}
+  {%- for k,v in value.items() %}
+    {% if v is mapping %}
+      {%- for kk,vv in v.items() %}
+        {%- if vv is iterable and (vv is not string) %}
+          {%- set vv = vv | join(" ") %}
+        {%- endif %}
+set_property -name {{"{"}}STEPS.{{step}}.{{name}}.{{k}} {{kk}}{{"}"}} -value {{"{"}}{{vv}}{{"}"}} -objects [get_runs {{run_name}}]
+      {%- endfor %}
+    {%- else %}
+      {% if v is iterable and (v is not string) %}
+        {%- set v = v | join(" ") %}
+      {%- endif %}
+set_property -name {{"{"}}STEPS.{{step}}.{{name}}.{{k}}{{"}"}} -value {{"{"}}{{v}}{{"}"}} -objects [get_runs {{run_name}}]
+    {%- endif %}
+  {%- endfor %}
 {%- else %}
-set_property STEPS.{{step}}.{{name}} {{value}} [get_runs synth_1]
+set_property -name {{"{"}}STEPS.{{step}}.{{name}}{{"}"}} -value {{"{"}}{{value}}{{"}"}} -objects [get_runs {{run_name}}]
 {%- endif %}
 {%- endfor %}
-{%- endfor %}
-
-{%- for step,options in settings.impl.steps.items() %}
-{%- for name,value in options.items() %}
-{% if value is mapping %}
-{%- for k,v in value.items() %}
-set_property STEPS.{{step}}.{{name}}.{{k}} {{v}} [get_runs impl_1]
-{%- endfor %}
-{%- else %}
-set_property STEPS.{{step}}.{{name}} {{value}} [get_runs impl_1]
-{%- endif %}
 {%- endfor %}
 {%- endfor %}
 

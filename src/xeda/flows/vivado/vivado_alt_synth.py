@@ -1,9 +1,11 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+from pydantic import Field
 
 from ...dataclass import validator
 from ...flow import FpgaSynthFlow
-from .vivado_synth import RunOptions, VivadoSynth
+from .vivado_synth import RunOptions, VivadoSynth, StepsValType
 
 log = logging.getLogger(__name__)
 
@@ -337,7 +339,6 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     class Settings(VivadoSynth.Settings):
         synth: RunOptions = RunOptions(strategy="Default")
         impl: RunOptions = RunOptions(strategy="Default")
-        out_of_context: bool = False
 
         @validator("synth", "impl", always=True)
         def validate_synth(cls, value, values, field):
@@ -382,11 +383,12 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
-        synth_steps = ss.synth.steps.get("synth")
+        synth_steps: Optional[StepsValType] = ss.synth.steps.get("synth")
         if synth_steps is None:
             synth_steps = {}
-        if not isinstance(synth_steps, dict):
+        if isinstance(synth_steps, list):
             synth_steps = {s: None for s in synth_steps}
+        assert isinstance(synth_steps, dict), f"synth_steps: {synth_steps} is not a dict"
 
         if ss.out_of_context:
             if "synth" in ss.synth.steps and ss.synth.steps["synth"] is not None:

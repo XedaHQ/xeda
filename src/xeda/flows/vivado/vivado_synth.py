@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
-from ...design import Design
 from ...utils import HierDict, parse_xml, try_convert
 from ...flow import FpgaSynthFlow
 from ..vivado import Vivado
+
+__all__ = ["RunOptions", "StepsValType", "VivadoSynth"]
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 "OPT_DESIGN": {},
                 "POWER_OPT_DESIGN": {},
             },
+        )
+        out_of_context: bool = Field(
+            False,
+            description="Use out-of-context flow for synthesis",
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug904-vivado-implementation.pdf
         impl: RunOptions = RunOptions(
@@ -146,6 +151,22 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         assert isinstance(settings.synth.steps["SYNTH_DESIGN"], dict)
         if settings.flatten_hierarchy:
             settings.synth.steps["SYNTH_DESIGN"]["flatten_hierarchy"] = settings.flatten_hierarchy
+        if settings.out_of_context:
+            args = settings.synth.steps["SYNTH_DESIGN"].get("ARGS", {})
+            args_more = args.get("MORE", {})
+            assert isinstance(
+                args_more, dict
+            ), f"SYNTH_DESIGN.ARGS.MORE: {args_more} must be a dict"
+            args_more_options = args.get("OPTIONS", [])
+            if isinstance(args_more_options, str):
+                args_more_options = [args_more_options]
+            assert isinstance(
+                args_more_options, list
+            ), f"SYNTH_DESIGN.ARGS.OPTIONS: {args_more_options} must be a list/str"
+            args_more_options.append("-mode out_of_context")
+            args_more["OPTIONS"] = args_more_options
+            args["MORE"] = args_more
+            settings.synth.steps["SYNTH_DESIGN"]["ARGS"] = args
 
         reports_tcl = self.copy_from_template("vivado_report_helper.tcl")
 

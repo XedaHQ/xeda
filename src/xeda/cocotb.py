@@ -153,12 +153,15 @@ class Cocotb(CocotbSettings, Tool):
             if top_cocotb_source:
                 py_path.append(str(top_cocotb_source.parent))
             toplevel = design.tb.cocotb.toplevel
-            if not toplevel and design.tb.top:
-                toplevel = design.tb.top if isinstance(design.tb.top, str) else design.tb.top[0]
+            if not toplevel:
+                toplevel = design.rtl.top
+            # if not toplevel and design.tb.top:
+            #     toplevel = design.tb.top if isinstance(design.tb.top, str) else design.tb.top[0]
             environ = {
                 "MODULE": coco_module,
                 "COCOTB_TEST_MODULES": coco_module,
                 "TOPLEVEL": toplevel,
+                "COCOTB_TOPLEVEL": toplevel,
                 "COCOTB_REDUCED_LOG_FMT": os.environ.get(
                     "COCOTB_REDUCED_LOG_FMT", "1" if self.reduced_log_fmt else "0"
                 ),
@@ -177,7 +180,7 @@ class Cocotb(CocotbSettings, Tool):
             if testcases:
                 environ["TESTCASE"] = ",".join(testcases)
             if self.random_seed is not None:
-                environ["RANDOM_SEED"] = self.random_seed
+                environ["COCOTB_RANDOM_SEED"] = self.random_seed
             if self.gpi_extra:
                 environ["GPI_EXTRA"] = ",".join(self.gpi_extra)
             log.debug("Cocotb env: %s", environ)
