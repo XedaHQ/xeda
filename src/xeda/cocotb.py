@@ -1,11 +1,11 @@
+from dataclasses import dataclass
+from functools import cached_property
 import logging
 import os
-from functools import cached_property
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Literal, Optional
-
-from junitparser import JUnitXml  # type: ignore[import-untyped, attr-defined]
+from xml.etree import ElementTree
 
 from .dataclass import Field, XedaBaseModel, validator
 from .design import Design, SourceType
@@ -46,6 +46,119 @@ class CocotbSettings(XedaBaseModel):
         if isinstance(value, str):
             value = [s.strip() for s in value.split(",")]
         return value
+
+
+@dataclass
+class TestCase:
+    name: str
+    classname: str
+    file: str
+    lineno: str
+    time: float
+    sim_time_ns: Optional[float]
+    ratio_time: float
+    status: str
+
+
+@dataclass
+class TestSuite:
+    random_seed: int
+    test_cases: list["TestCase"]
+    errors: int
+    failures: int
+    skipped: int
+    total_sim_time_ns: float
+
+
+@dataclass
+class TestResults:
+    tests: int
+    errors: int
+    failures: int
+    skipped: int
+    time: float
+    total_sim_time_ns: float
+    test_suites: List[TestSuite]
+
+    @property
+    def success(self):
+        return not self.errors and not self.failures
+
+    @staticmethod
+    def from_test_suites(test_suites: List[TestSuite]) -> "TestResults":
+        tests = 0
+        errors = 0
+        failures = 0
+        skipped = 0
+        time = 0
+        total_sim_time_ns = 0
+        for ts in test_suites:
+            tests += len(ts.test_cases)
+            errors += ts.errors
+            failures += ts.failures
+            skipped += ts.skipped
+            time += sum(tc.time for tc in ts.test_cases)
+            total_sim_time_ns += ts.total_sim_time_ns
+        return TestResults(
+            tests, errors, failures, skipped, time, total_sim_time_ns, test_suites=test_suites
+        )
+
+    @staticmethod
+    def parse_results(results_xml_file) -> "TestResults":
+        tree = ElementTree.parse(results_xml_file)
+        results = []
+        for ts in tree.iter("testsuite"):
+            random_seed = ts.get("random_seed")
+            test_cases = []
+            num_errors = 0
+            num_failures = 0
+            num_skipped = 0
+            total_sim_time_ns = 0
+            for tc in ts.iter("testcase"):
+                sim_time_ns = tc.get("sim_time_ns")
+                if sim_time_ns is None:
+                    sim_time_ps = tc.get("sim_time_ps")
+                    if sim_time_ps is not None:
+                        try:
+                            sim_time_ns = float(sim_time_ps) / 1e3
+                        except ValueError:
+                            sim_time_ns = 0
+                    else:
+                        sim_time_ns = 0
+                else:
+                    try:
+                        sim_time_ns = float(sim_time_ns or 0)
+                    except ValueError:
+                        sim_time_ns = 0
+                time_s = float(tc.get("time") or 0)
+                failures = [e.tag.upper() for e in tc]
+                test_cases.append(
+                    TestCase(
+                        name=tc.get("name", "???"),
+                        classname=tc.get("classname", "???"),
+                        file=tc.get("file", "???"),
+                        lineno=tc.get("lineno", "???"),
+                        time=time_s,
+                        sim_time_ns=sim_time_ns,
+                        ratio_time=sim_time_ns / time_s if time_s > 0 else 0,
+                        status=", ".join(failures) or "PASSED",
+                    )
+                )
+                num_errors += len(list(filter(lambda e: e == "ERROR", failures)))
+                num_failures += len(list(filter(lambda e: e == "FAILURE", failures)))
+                num_skipped += len(list(filter(lambda e: e == "SKIPPED", failures)))
+                total_sim_time_ns += sim_time_ns
+            results.append(
+                TestSuite(
+                    random_seed=int(random_seed or "-1"),
+                    test_cases=test_cases,
+                    errors=num_errors,
+                    failures=num_failures,
+                    skipped=num_skipped,
+                    total_sim_time_ns=total_sim_time_ns,
+                )
+            )
+        return TestResults.from_test_suites(results)
 
 
 class Cocotb(CocotbSettings, Tool):
@@ -187,48 +300,31 @@ class Cocotb(CocotbSettings, Tool):
         return environ
 
     @cached_property
-    def _results(self):
-        results_xml = self.results_xml
-        if not Path(results_xml).exists():
-            return JUnitXml()
-        return JUnitXml.fromfile(results_xml)
-
-    @property
-    def results(self):
-        return self._results
-
-    @property
-    def result_testcases(self):
-        for ts in self.results:
-            if ts is not None:
-                for tc in ts:
-                    if tc is not None:
-                        yield {
-                            "name": tc.name,
-                            "result": str(tc),
-                            "classname": tc.classname,
-                            "time": None if tc.time is None else round(tc.time, 3),
-                        }
+    def results(self) -> Optional[TestResults]:
+        results_xml = Path(self.results_xml)
+        if not results_xml.exists():
+            return None
+        return TestResults.parse_results(results_xml)
 
     def add_results(self, flow_results: Dict[str, Any], prefix: str = "cocotb.") -> bool:
         """adds cocotb results to parent flow's results. returns success status"""
-        xml = self.results
-        flow_results[prefix + "tests"] = xml.tests
-        flow_results[prefix + "errors"] = xml.errors
-        flow_results[prefix + "failures"] = xml.failures
-        flow_results[prefix + "skipped"] = xml.skipped
-        flow_results[prefix + "time"] = xml.time
-        failed = False
-        if not xml.tests:
-            failed = True
-            log.error("No tests were discovered")
-        if xml.errors:
-            failed = True
-            log.error("Cocotb: %d error(s)", xml.errors)
-        if xml.failures:
-            failed = True
-            log.critical("Cocotb: %d failure(s)", xml.failures)
-        if failed:
-            flow_results["success"] = False
-
-        return not failed
+        results = self.results
+        flow_results["success"] = False
+        if results is not None:
+            flow_results[prefix + "tests"] = results.tests
+            flow_results[prefix + "errors"] = results.errors
+            flow_results[prefix + "failures"] = results.failures
+            flow_results[prefix + "skipped"] = results.skipped
+            flow_results[prefix + "time"] = results.time
+            flow_results[prefix + "sim_time_ns"] = results.total_sim_time_ns
+            if results.errors:
+                log.error("Cocotb: %d error(s)", results.errors)
+                return False
+            if results.failures:
+                log.critical("Cocotb: %d failure(s)", results.failures)
+                return False
+            flow_results["success"] = True
+            return True
+        else:
+            log.error("No tests results were found.")
+            return False

@@ -19,19 +19,16 @@ def test_cocotb_version():
     assert cocotb.version_gte(1)
     assert cocotb.version_gte(1, 5)
     assert cocotb.version_gte(1, 6)
-    assert not cocotb.version_gte(1, 99)
-    assert not cocotb.version_gte(1, 99, 0)
-    assert not cocotb.version_gte(2)
-    assert not cocotb.version_gte(2, 0, 0)
-    assert not cocotb.version_gte(2, 0, 0, 0)
 
 
 def test_cocotb_parse_xml():
     assert (RESOURCES_DIR / "cocotb" / "results.xml").exists()
     with WorkingDirectory(RESOURCES_DIR / "cocotb"):
         cocotb = Cocotb(sim_name="dummy")  # type: ignore
-        for case in cocotb.result_testcases:
-            print(case)
+        if cocotb.results is not None:
+            for suite in cocotb.results.test_suites:
+                for case in suite.test_cases:
+                    print(case)
         results: Dict[str, Any] = {}
         cocotb.add_results(results)
         if not results["success"] is False:

@@ -114,7 +114,9 @@ def print_results(
                     table.add_row(Text(" " + xk), str(xv))
                 continue
             if isinstance(v, float):
-                v = f"{v:.3f}"
+                v = f"{v:,.3f}"
+            elif isinstance(v, int):
+                v = f"{v:,}"
             table.add_row(k, str(v))
     console.print(table)
 
