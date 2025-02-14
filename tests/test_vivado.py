@@ -25,8 +25,8 @@ def test_vivado_synth_template() -> None:
     tcl_file = flow.copy_from_template(
         "vivado_synth.tcl",
         xdc_files=[],
-        reports_tcl="reports_tcl",
-        generics=" ".join(vivado_synth_generics(design.rtl.parameters)),
+        tcl_files=[],
+        generics=vivado_synth_generics(design.rtl.parameters),
     )
     with open(run_dir / tcl_file) as f:
         vivado_tcl = f.read()
