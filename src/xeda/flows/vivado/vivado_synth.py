@@ -7,6 +7,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
+from ...design import SourceType
 from ...dataclass import Field, XedaBaseModel, validator
 from ...utils import HierDict, parse_xml, try_convert
 from ...flow import FpgaSynthFlow
@@ -45,10 +46,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         # FIXME implement and verify all
         fail_critical_warning: bool = Field(
             False,
-            description="flow fails if any Critical Warnings are reported by Vivado",
+            description="Flow fails if any Critical Warnings are reported by Vivado",
         )  # pyright: ignore
         fail_timing: bool = Field(
-            True, description="flow fails if timing is not met"
+            True, description="Flow fails if timing is not met"
         )  # pyright: ignore
         input_delay: Optional[float] = None
         output_delay: Optional[float] = None
@@ -86,12 +87,18 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug903-vivado-using-constraints.pdf
         xdc_files: List[Union[str, Path]] = Field([], description="List of XDC constraint files.")
+        tcl_files: List[Union[str, Path]] = Field([], description="List of user TCL files.")
         suppress_msgs: List[str] = [
             "Synth 8-7080",  # "Parallel synthesis criteria is not met"
             "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
         ]
-        dummy_io_delay: bool = False  # set a dummy IO delay if they are not specified
+        dummy_io_delay: bool = Field(
+            False, description="Set a dummy IO delays in case I/O delays are not specified"
+        )
         flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field("rebuilt")
+        show_available_strategies: bool = Field(
+            False, description="Show available synthesis and implementation strategies"
+        )
 
         @validator("fpga")
         def _validate_fpga(cls, value):
@@ -122,32 +129,34 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             ]:
                 self.artifacts[o] = os.path.join(settings.outputs_dir, o)
 
-        settings.synth.steps = {
-            **{
-                "SYNTH_DESIGN": {},
-                "OPT_DESIGN": {},
-                "POWER_OPT_DESIGN": {},
-            },
-            **settings.synth.steps,
-        }
-        settings.impl.steps = {
-            **{
-                "PLACE_DESIGN": {},
-                "POST_PLACE_POWER_OPT_DESIGN": {},
-                "PHYS_OPT_DESIGN": {},
-                "ROUTE_DESIGN": {},
-                "WRITE_BITSTREAM": {},
-            },
-            **settings.impl.steps,
-        }
+        for run_settings, steps in (
+            (settings.synth, ["SYNTH_DESIGN", "OPT_DESIGN", "POWER_OPT_DESIGN"]),
+            (
+                settings.impl,
+                [
+                    "PLACE_DESIGN",
+                    "POST_PLACE_POWER_OPT_DESIGN",
+                    "PHYS_OPT_DESIGN",
+                    "ROUTE_DESIGN",
+                    "WRITE_BITSTREAM",
+                ],
+            ),
+        ):
+            for step in steps:
+                step_setting: Union[Dict[str, Any], List[str]] = (
+                    run_settings.steps.get(step, {}) or {}
+                )
+                if isinstance(step_setting, list):
+                    step_setting = {k: None for k in step_setting}
+                assert isinstance(step_setting, dict)
+                for sub in ["ARGS", "TCL"]:
+                    if step_setting.get(sub) is None:
+                        step_setting[sub] = {}
+                run_settings.steps[step] = step_setting
 
         if not self.design.rtl.clocks:
             log.warning("No clocks specified for top RTL design.")
 
-        clock_xdc_path = self.copy_from_template("clock.xdc")
-
-        if settings.synth.steps["SYNTH_DESIGN"] is None:
-            settings.synth.steps["SYNTH_DESIGN"] = {}
         assert isinstance(settings.synth.steps["SYNTH_DESIGN"], dict)
         if settings.flatten_hierarchy:
             settings.synth.steps["SYNTH_DESIGN"]["flatten_hierarchy"] = settings.flatten_hierarchy
@@ -168,18 +177,54 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             args["MORE"] = args_more
             settings.synth.steps["SYNTH_DESIGN"]["ARGS"] = args
 
-        reports_tcl = self.copy_from_template("vivado_report_helper.tcl")
+        tcl_files = [p.file for p in self.design.rtl.sources if p.type == "tcl"]
+        tcl_files += [self.normalize_path_to_design_root(p) for p in settings.tcl_files]
 
-        xdc_files = [p.file for p in self.design.rtl.sources if p.type == "xdc"]
-        xdc_files += [self.normalize_path_to_design_root(p) for p in settings.xdc_files]
-        assert clock_xdc_path not in xdc_files, f"XDC file {xdc_files} was already included."
-        xdc_files.append(clock_xdc_path)
+        for run_settings, steps in (
+            (settings.synth, ["SYNTH_DESIGN"]),
+            (
+                settings.impl,
+                [
+                    "PLACE_DESIGN",
+                    "PHYS_OPT_DESIGN",
+                    "ROUTE_DESIGN",
+                ],
+            ),
+        ):
+            for step in steps:
+                step_settings = run_settings.steps.get(step)
+                assert isinstance(step_settings, dict)
+                tcl_settings = step_settings.get("TCL")
+                assert isinstance(tcl_settings, dict)
+                current_hook = tcl_settings.get("POST")
+                user_hooks = []  # TODO add alternative methods for adding multiple user hooks?
+                if current_hook:
+                    user_hooks.append(current_hook)
+                post_step_hook = self.copy_from_template(
+                    "post_step_hook.tcl",
+                    script_filename=f"post_{step.lower()}_hook.tcl",
+                    run_dir=self.run_path,
+                    user_hooks=user_hooks,
+                ).resolve()
+                tcl_settings["POST"] = post_step_hook
+                tcl_files += [post_step_hook]
+
+        xdc_files = [self.copy_from_template("clock.xdc")]
+        xdc_files += (
+            p.file
+            for p in self.design.rtl.sources
+            if p.type is SourceType.Xdc or p.type is SourceType.Sdc
+        )
+        xdc_files += (self.normalize_path_to_design_root(p) for p in settings.xdc_files)
+
+        log.debug("XDC files: %s", ", ".join(str(s) for s in xdc_files))
+        log.debug("TCL files: %s", ", ".join(str(s) for s in tcl_files))
 
         script_path = self.copy_from_template(
             "vivado_synth.tcl",
             xdc_files=xdc_files,
-            reports_tcl=reports_tcl,
-            generics=" ".join(vivado_synth_generics(self.design.rtl.parameters)),
+            tcl_files=tcl_files,
+            generics=vivado_synth_generics(self.design.rtl.parameters),
         )
         self.vivado.run("-source", script_path)
 

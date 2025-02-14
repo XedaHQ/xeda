@@ -30,22 +30,30 @@ if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") -%}
 {%- endif %}
 {%- endfor %}
 
-{%- for xdc_file in xdc_files %}
-read_xdc {{xdc_file}}
-{%- endfor %}
-
 set_property top {{design.rtl.top}} [get_fileset sources_1]
 
+{%- for file in tcl_files %}
+add_files -fileset utils_1 -norecurse {{file}}
+{%- endfor %}
+{%- for file in xdc_files %}
+add_files -fileset constrs_1 -norecurse {{file}}
+{%- endfor %}
+
+{%- for file in xdc_files %}
+# read_xdc {{file}}
+{%- endfor %}
+
+{%- if settings.show_available_strategies %}
 set avail_synth_strategies [join [list_property_value strategy [get_runs synth_1] ] " "]
 puts "\n Available synthesis strategies:\n  $avail_synth_strategies\n"
+set avail_impl_strategies [join [list_property_value strategy [get_runs impl_1] ] " "]
+puts "\n Available implementation strategies:\n  $avail_impl_strategies\n"
+{%- endif %}
 
 {%- if settings.synth.strategy %}
 puts "Using {{settings.synth.strategy}} strategy for synthesis."
 set_property strategy {{settings.synth.strategy}} [get_runs synth_1]
 {%- endif %}
-
-set avail_impl_strategies [join [list_property_value strategy [get_runs impl_1] ] " "]
-puts "\n Available implementation strategies:\n  $avail_impl_strategies\n"
 
 {%- if settings.impl.strategy %}
 puts "Using {{settings.impl.strategy}} strategy for implementation."
@@ -53,7 +61,7 @@ set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
 {%- endif %}
 
 {%- if generics %}
-set_property generic {% raw -%} { {%- endraw -%} {{generics}} {%- raw -%} } {%- endraw %} [current_fileset]
+set_property generic {% raw -%} { {%- endraw -%} {{generics | join(" ")}} {%- raw -%} } {%- endraw %} [current_fileset]
 {%- endif %}
 
 {# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
@@ -84,13 +92,6 @@ set_property -name {{"{"}}STEPS.{{step}}.{{name}}{{"}"}} -value {{"{"}}{{value}}
 {%- endfor %}
 {%- endfor %}
 
-set reports_tcl_path [file normalize {{reports_tcl}}]
-
-add_files -fileset utils_1 -norecurse {{reports_tcl}}
-
-set_property STEPS.OPT_DESIGN.TCL.POST $reports_tcl_path [get_runs impl_1]
-set_property STEPS.PLACE_DESIGN.TCL.POST $reports_tcl_path [get_runs impl_1]
-set_property STEPS.ROUTE_DESIGN.TCL.POST $reports_tcl_path [get_runs impl_1]
 
 puts "\n=============================( Running Synthesis )============================="
 reset_run synth_1

@@ -163,11 +163,11 @@ class SourceType(str, Enum):
     Cpp = auto()
     Cocotb = auto()
     Sdc = auto()
+    Xdc = auto()
     SystemVerilog = auto()
     Tcl = auto()
     Verilog = auto()
     Vhdl = auto()
-    Xdc = auto()
 
     def __str__(self) -> str:
         return str(self.name)
@@ -191,14 +191,14 @@ class DesignSource(FileResource):
     def __init__(
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
-        type: Union[None, str, SourceType] = None,
+        typ: Union[None, str, SourceType] = None,
         standard: Optional[str] = None,
         variant: Optional[str] = None,
         _root_path: Optional[Path] = None,
         **kwargs: Any,
     ) -> None:
         if isinstance(path, dict):
-            type = type or path.pop("type", None)
+            typ = typ or path.pop("type", None)
             standard = standard or path.pop("standard", None)
             variant = variant or path.pop("variant", None)
             rp = path.pop("root_path", None)
@@ -227,10 +227,10 @@ class DesignSource(FileResource):
 
         self.variant = variant
         self.type = None
-        if isinstance(type, SourceType):
-            self.type = type
-        elif isinstance(type, str):
-            self.type = SourceType.from_str(type)
+        if isinstance(typ, SourceType):
+            self.type = typ
+        elif isinstance(typ, str):
+            self.type = SourceType.from_str(typ)
         if not self.type:
             self.type, self.variant = type_from_suffix(self.file)
         self.standard = standard
