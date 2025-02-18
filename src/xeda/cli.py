@@ -321,6 +321,7 @@ def run(
         if cwd:
             launcher.settings.incremental = True
             launcher.settings.run_path = Path.cwd()
+            launcher.settings.dump_settings_json = False
             launcher.settings.dump_results_json = False
         else:
             launcher.settings.incremental = incremental

@@ -34,10 +34,11 @@ def get_board_data(
         log.debug("Retrieving board data for %s from %s", board, custom_toml_file)
         boards_data = toml_load(custom_toml_file)
     else:
-        log.info("Retrieving board data for %s", board)
         res = files("xeda.data").joinpath("boards.toml")
         with as_file(res) as p:
             boards_data = toml_load(p)
+        if boards_data and board in boards_data:
+            log.info("Retrieved board data for %s", board)
         # else:
         #     log.error(
         #         "Unable to get resource %s.%s. Please check xeda installation.",

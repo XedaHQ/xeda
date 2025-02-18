@@ -2,6 +2,7 @@ from datetime import datetime
 import json
 import logging
 import os
+import socket
 import tempfile
 import zipfile
 from pathlib import Path
@@ -29,7 +30,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
 
     assert isinstance(conn, Connection)
 
-    def translate_filename(src: DesignSource) -> str:
+    def uniquify_filename(src: DesignSource) -> str:
         return src.file.stem + f"_{src.content_hash[:8]}" + src.file.suffix
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -40,18 +41,26 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         rtl: Dict[str, Any] = {}
         tb: Dict[str, Any] = {}
         remote_sources_path = Path(design.name) / "sources"
-        rtl["sources"] = [
-            str(remote_sources_path / translate_filename(src)) for src in design.rtl.sources
-        ]
+        rtl_sources: Dict[DesignSource, str] = {}
+        for src in design.rtl.sources:
+            filename = src.file.name
+            if filename in rtl_sources:
+                filename = uniquify_filename(src)
+            rtl_sources[src] = filename
+        rtl["sources"] = [remote_sources_path / s for s in rtl_sources.values()]
         rtl["defines"] = design.rtl.defines
         rtl["attributes"] = design.rtl.attributes
         rtl["parameters"] = design.rtl.parameters
         rtl["top"] = design.rtl.top
         rtl["clocks"] = [clk.dict() for clk in design.rtl.clocks]
         # FIXME add src type/attributes
-        tb["sources"] = [
-            str(remote_sources_path / translate_filename(src)) for src in design.tb.sources
-        ]
+        tb_sources: Dict[DesignSource, str] = {}
+        for src in design.tb.sources:
+            filename = src.file.name
+            if filename in tb_sources:
+                filename = uniquify_filename(src)
+            tb_sources[src] = filename
+        tb["sources"] = [remote_sources_path / s for s in tb_sources.values()]
         tb["top"] = design.tb.top
         tb["cocotb"] = design.tb.cocotb
         if design.tb.uut:
@@ -74,9 +83,11 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
                     else obj.__dict__ if hasattr(obj, "__dict__") else str(obj)
                 ),
             )
+        all_sources = rtl_sources
+        all_sources.update(tb_sources)
         with zipfile.ZipFile(zip_file, mode="w") as archive:
-            for src in design.sources_of_type("*", rtl=True, tb=True):
-                archive.write(src.path, arcname=remote_sources_path / translate_filename(src))
+            for src, server_path in all_sources.items():
+                archive.write(src.path, arcname=remote_sources_path / server_path)
             archive.write(design_file, arcname=design_file.relative_to(temp_dir))
 
         with zipfile.ZipFile(zip_file, mode="r") as archive:
@@ -92,7 +103,6 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
     import os
     import zipfile
     import json
-    from datetime import datetime
     from pathlib import Path
 
     from xeda.flow_runner import DefaultRunner
@@ -138,9 +148,15 @@ def get_env_var(conn, var):
     return result.stdout.strip()
 
 
-def get_login_env(conn) -> Dict[str, str]:
-    result = conn.run("$SHELL -l -c env", hide=True, pty=False)
+def get_login_env(conn: Connection) -> Dict[str, str]:
+    try:
+        result = conn.run("$SHELL -l -c env", hide=True, pty=False)
+    except socket.gaierror as e:
+        log.critical("Error connecting to %s: %s", conn.host, e)
+        raise e from None
+
     assert result.ok
+
     lines_split = [line.split("=") for line in result.stdout.strip().split("\n")]
     return {kv[0]: kv[1] for kv in lines_split if len(kv) == 2}
 
@@ -196,6 +212,7 @@ class RemoteRunner(FlowLauncher):
 
         remote_xeda = Path(remote_home) / ".xeda"
         if not Transfer(conn).is_remote_dir(str(remote_xeda)):
+
             conn.sftp().mkdir(str(remote_xeda))
         remote_xeda_run = remote_xeda / "remote_run"
         if not Transfer(conn).is_remote_dir(str(remote_xeda_run)):
@@ -311,29 +328,48 @@ class RemoteRunner(FlowLauncher):
             artifacts = results.get("artifacts")
             remote_run_path = results.get("run_path")
 
-            artifacts_dir = run_path / "artifacts"
+            local_artifacts_dir = run_path / "artifacts"
 
             if remote_run_path and artifacts:
                 assert isinstance(remote_run_path, str)
                 if isinstance(artifacts, (dict)):
                     artifacts = list(artifacts.values())
-                artifacts_dir.mkdir(exist_ok=True, parents=True)
+                local_artifacts_dir.mkdir(exist_ok=True, parents=True)
                 num_transferred = 0
+
+                # TODO: compress artifacts in a single Zip file before transfer, unzip after transfer
+                # conn.sftp().chdir(remote_run_path)
+                # artifacts_zipfile = run_path / "artifacts.zip"
+                # with zipfile.ZipFile(artifacts_zipfile, mode="w") as archive:
+                #     for f in artifacts:
+                #         remote_path = f if os.path.isabs(f) else remote_run_path + "/" + f
+                #         rel_path = os.path.relpath(f, remote_run_path) if os.path.isabs(f) else f
+                #         archive.write(remote_path, arcname=rel_path)
+                # log.info("Transferring artifacts to %s", local_artifacts_dir.relative_to(Path.cwd()))
+                # conn.get(str(artifacts_zipfile), str(local_artifacts_dir / "artifacts.zip"))
+                # with zipfile.ZipFile(artifacts_zipfile, mode="r") as archive:
+                #     archive.extractall(path=local_artifacts_dir)
+                # artifacts_zipfile.unlink()
+
                 for f in artifacts:
                     remote_path = f if os.path.isabs(f) else remote_run_path + "/" + f
                     rel_path = os.path.relpath(f, remote_run_path) if os.path.isabs(f) else f
-                    local_path = artifacts_dir / rel_path
+                    local_path = local_artifacts_dir / rel_path
                     if local_path.exists():
                         backup = backup_existing(local_path)
                         log.warning("Backed up exitsting artifact to %s", str(backup))
                     elif not local_path.parent.exists():
                         local_path.parent.mkdir(parents=True)
-                    assert local_path.is_relative_to(artifacts_dir)
+                    assert local_path.is_relative_to(local_artifacts_dir)
                     result = conn.get(remote_path, str(local_path))
                     log.debug("Transferred artifact %s to %s", f, result.local)
                     num_transferred += 1
                 if num_transferred > 0:
-                    log.info("Transferred %d artifact(s) to %s", num_transferred, artifacts_dir)
+                    log.info(
+                        "Transferred %d artifact(s) to %s",
+                        num_transferred,
+                        local_artifacts_dir.relative_to(Path.cwd()),
+                    )
 
             dump_json(results, results_json_path, backup=True)
             log.info("Results written to %s", results_json_path)

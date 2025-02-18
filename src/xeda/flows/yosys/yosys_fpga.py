@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Iterable, List, Literal, Optional, Union
 
 from ...dataclass import Field
-from ...flow import FpgaSynthFlow
+from ...flow import FpgaSynthFlow, FPGA, FlowFatalError
 from ...flows.ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
 
@@ -16,6 +16,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     """
 
     class Settings(YosysBase.Settings, FpgaSynthFlow.Settings):
+        fpga: Optional[FPGA] = None
         abc9: bool = Field(True, description="Use abc9")
         flow3: bool = Field(
             True, description="Use flow3, which runs the mapping several times, if abc9 is set"
@@ -64,6 +65,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             assert ss.fpga.family or ss.fpga.vendor == "xilinx"
             if ss.fpga.vendor == "xilinx" and ss.fpga.family:
                 ss.fpga.family = yosys_family_name.get(ss.fpga.family, "xc7")
+        else:
+            raise FlowFatalError("FPGA target device not specified")
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
         # if ss.noabc:
@@ -133,6 +136,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                         **num_cells_by_type,
                     }
                     self.results["_utilization"] = design_util
+                assert self.settings.fpga
                 if self.settings.fpga.vendor == "xilinx":
                     self.results["LUT"] = sum_all_resources(
                         design_util, [f"LUT{i}" for i in range(2, 7)]

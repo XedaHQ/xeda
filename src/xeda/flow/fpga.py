@@ -70,6 +70,8 @@ class FPGA(XedaBaseModel):
                 if gen:
                     family += str(gen)
                 set_if_not_exist("family", family)
+                return family
+            return None
 
         if part:
             part = part.strip()
@@ -127,7 +129,7 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("speed", match_xc6.group("speed_grade"))
                 return values
             match_xc7 = re.match(
-                r"^(XC)(?P<g>\d)(?P<f>[A-Z])(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",
+                r"^(XC)(?P<g>\d)(?P<f>[A-Z]+)(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",
                 part,
                 flags=re.IGNORECASE,
             )
@@ -139,7 +141,12 @@ class FPGA(XedaBaseModel):
                 )
                 set_if_not_exist("vendor", "xilinx")
                 set_if_not_exist("generation", match_xc7.group("g"))
-                set_xc_family(match_xc7.group("f") + "-7")
+                fam = match_xc7.group("f")
+                family = set_xc_family(fam, "-7")
+                if family:
+                    log.info("Detected FPGA family: %s", family)
+                else:
+                    log.warning("Could not determine the FPGA family for device %s", part)
                 lc = match_xc7.group("lc")
                 set_if_not_exist(
                     "device",

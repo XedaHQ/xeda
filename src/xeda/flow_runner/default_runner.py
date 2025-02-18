@@ -292,6 +292,7 @@ class FlowLauncher:
         depender: Optional[Flow] = None,
         copy_resources: List[str] = [],
         run_path: Optional[Path] = None,
+        all_flows_settings: Union[None, Dict] = None,
     ) -> Flow:
         """
         Low-level interface for launching flows.
@@ -429,10 +430,26 @@ class FlowLauncher:
             for res in copy_resources:
                 log.info("Copying %s to %s", str(res), str(copied_res_dir))
                 shutil.copy(res, copied_res_dir)
-
             for dep_cls, dep_settings, dep_resources in flow.dependencies:
-                # merge with existing self.flows[dep].settings
                 # NOTE this allows dependency flow to make changes to 'design'
+                # merge with existing self.flows[dep].settings
+                dep_cls_name = dep_cls if isinstance(dep_cls, str) else dep_cls.name
+                if all_flows_settings and dep_cls_name in all_flows_settings:
+                    print(f"dep_cls: {dep_cls}")
+                    meta_dep_settings = all_flows_settings[dep_cls_name]
+                    for field_name, mod_value in dep_settings.__fields__.items():
+                        if field_name in meta_dep_settings:
+                            meta_val = meta_dep_settings[field_name]
+                            if mod_value.default != meta_val:
+                                log.warning(
+                                    "Overriding %s.%s (%s) with %s",
+                                    dep_cls_name,
+                                    field_name,
+                                    mod_value,
+                                    meta_val,
+                                )
+                                setattr(dep_settings, field_name, meta_val)
+
                 if isinstance(dep_cls, str):
                     dep_cls = get_flow_class(dep_cls)
                 log.info(
@@ -456,6 +473,7 @@ class FlowLauncher:
                     depender=flow,
                     copy_resources=resources,
                     run_path=run_path / dep_cls.name if run_path else None,
+                    all_flows_settings=all_flows_settings,
                 )
                 if not completed_dep.succeeded:
                     log.critical("Dependency flow: %s failed!", dep_cls.name)
@@ -583,6 +601,7 @@ class FlowLauncher:
         depender: Optional[Flow] = None,
         copy_resources: List[str] = [],
         run_path: Optional[Path] = None,
+        all_flows_settings: Union[None, Dict] = None,
     ) -> Optional[Flow]:
         # default run_flow() is launch_flow() but can be overridden in a subclass
         return self.launch_flow(
@@ -592,6 +611,7 @@ class FlowLauncher:
             depender=depender,
             copy_resources=copy_resources,
             run_path=run_path,
+            all_flows_settings=all_flows_settings,
         )
 
     def run(
@@ -722,7 +742,7 @@ class FlowLauncher:
         else:
             flow_name = flow.name
             flow_class = flow
-        flows_settings = {**flows_settings.get(flow_name, {}), **flow_overrides}
+        flow_settings = {**flows_settings.get(flow_name, {}), **flow_overrides}
         if not design or not flow_class:
             log.critical("Failed to parse design and/or flow")
             raise ValueError(f"design={design} flow_class={flow_class}")
@@ -737,8 +757,9 @@ class FlowLauncher:
         return self.run_flow(
             flow_class,
             design,
-            flows_settings,
+            flow_settings,
             run_path=run_path,
+            all_flows_settings=flows_settings,
         )
 
 

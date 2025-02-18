@@ -4,6 +4,7 @@ import inspect
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -211,7 +212,6 @@ class Tool(XedaBaseModel):
     remote: Optional[RemoteSettings] = Field(None)
     docker: Optional[Docker] = Field(None)
     redirect_stdout: Optional[Path] = Field(None, description="Redirect stdout to a file")
-    bin_path: Optional[str] = Field(None, description="Path to the tool binary")
     design_root: Optional[Path] = None
     dockerized: bool = False
     print_command: bool = True
@@ -381,6 +381,19 @@ class Tool(XedaBaseModel):
     def version_gte(self, *args: Union[int, str]) -> bool:
         """Tool version is greater than or equal to version specified in args"""
         return self._version_is_gte(self.version, args)
+
+    def executable_path(self) -> Path | None:
+        """Return the absolute path if the tool executable is in the PATH"""
+        if (
+            os.path.isabs(self.executable)
+            and os.path.exists(self.executable)
+            and os.access(self.executable, os.X_OK)
+        ):
+            return Path(self.executable).resolve()
+        which = shutil.which(self.executable)
+        if which is not None:
+            return Path(which).resolve()
+        return None
 
     def _run_remote(
         self,

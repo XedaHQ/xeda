@@ -234,17 +234,6 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                     clock_name,
                     clock.port,
                 )
-                # raise FlowSettingsError(
-                #     [
-                #         (
-                #             None,
-                #             f"No clock period or frequency was specified for clock: '{clock_name}' (clock port: '{clock.port})'",
-                #             None,
-                #             None,
-                #         )
-                #     ],
-                #     self.Settings,
-                # )
         super().__init__(flow_settings, design, run_path)
 
 
