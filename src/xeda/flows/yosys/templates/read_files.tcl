@@ -34,7 +34,7 @@ yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{define
 yosys log -stdout "** Elaborating VHDL files **"
 yosys plugin -i ghdl
 set ghdl_args "{{ghdl_args|join(" ")}}"
-yosys ghdl {*}$ghdl_args {{vhdl_files|join (" ")}} -e
+yosys ghdl {*}$ghdl_args {{vhdl_files|join (" ")}} -e {% if design.rtl.top %} {{design.rtl.top}} {% endif %}
 {% endif %}
 
 {%- if settings.liberty is defined %}

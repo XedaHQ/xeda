@@ -96,7 +96,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             "yosys_fpga_synth.tcl",
             lstrip_blocks=True,
             trim_blocks=False,
-            ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design, one_shot_elab=False),
+            ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design, one_shot_elab=True),
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
