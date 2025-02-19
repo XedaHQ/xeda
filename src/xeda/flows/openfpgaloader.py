@@ -53,8 +53,7 @@ class Openfpgaloader(FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if ss.nextpnr is not None or ss.bitsream is None:
-            ss.nextpnr = ss.nextpnr or {} # type: ignore
-            self.add_dependency(Nextpnr, ss.nextpnr)
+            self.add_dependency(Nextpnr, ss.nextpnr) # type: ignore
         if ss.fpga and ss.fpga.family == "ecp5":  # FIXME from fpga/board
             self.packer = Tool("ecppack")
 

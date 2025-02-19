@@ -17,6 +17,7 @@ from .nextpnr import Nextpnr
 from .nvc import Nvc
 from .openfpgaloader import Openfpgaloader
 from .openroad import Openroad
+from .openxc7 import OpenXC7
 from .quartus import Quartus
 from .verilator import Verilator
 from .vivado.vivado_alt_synth import VivadoAltSynth
@@ -43,6 +44,7 @@ __all__ = [
     "Nvc",
     "Openfpgaloader",
     "Openroad",
+    "OpenXC7",
     "Quartus",
     "Nvc",
     "Verilator",
