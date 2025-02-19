@@ -379,13 +379,6 @@ class GhdlSynth(Ghdl, SynthFlow):
         flags.extend(ss.generics_flags(design.rtl.generics))
         if one_shot_elab:
             flags += map(str, design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False))
-            flags.append("-e")
-        if (
-            design.rtl.sources[-1].type == SourceType.Vhdl
-        ):  # add top if last source (top source) is VHDL
-            if not top and design.rtl.top:
-                top = (design.rtl.top,)
-            flags.extend(list(top))
         return flags
 
 
