@@ -322,7 +322,7 @@ def run(
             launcher.settings.incremental = True
             launcher.settings.run_path = Path.cwd()
             launcher.settings.dump_settings_json = False
-            launcher.settings.dump_results_json = False
+            launcher.settings.dump_results_json = True
         else:
             launcher.settings.incremental = incremental
             launcher.settings.post_cleanup = post_cleanup
