@@ -27,7 +27,7 @@ class YosysBase(Flow):
     class Settings(Flow.Settings):
         log_file: Optional[str] = "yosys.log"
         plugins: List[str] = []
-        flatten: bool = Field(True, description="flatten design")
+        flatten: bool = Field(False, description="flatten design")
         read_verilog_flags: List[str] = [
             "-noautowire",
             "-sv",

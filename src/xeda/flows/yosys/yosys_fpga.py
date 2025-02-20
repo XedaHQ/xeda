@@ -60,11 +60,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        yosys_family_name = {"artix-7": "xc7"}
         if ss.fpga:
             assert ss.fpga.family or ss.fpga.vendor == "xilinx"
-            if ss.fpga.vendor == "xilinx" and ss.fpga.family:
-                ss.fpga.family = yosys_family_name.get(ss.fpga.family, "xc7")
         else:
             raise FlowFatalError("FPGA target device not specified")
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
