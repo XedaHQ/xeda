@@ -108,7 +108,15 @@ def print_results(
                 table.add_row(k + ":", "", style=Style(bold=True))
                 for xk, xv in v.items():
                     if isinstance(xv, dict):
-                        xv = json.dumps(xv, indent=1)
+                        xv = json.dumps(
+                            xv,
+                            indent=1,
+                            default=lambda obj: (
+                                obj.__json_encoder__
+                                if hasattr(obj, "__json_encoder__")
+                                else obj.__dict__ if hasattr(obj, "__dict__") else str(obj)
+                            ),
+                        )
                     else:
                         xv = str(xv)
                     table.add_row(Text(" " + xk), str(xv))
@@ -434,24 +442,32 @@ class FlowLauncher:
                 # NOTE this allows dependency flow to make changes to 'design'
                 # merge with existing self.flows[dep].settings
                 dep_cls_name = dep_cls if isinstance(dep_cls, str) else dep_cls.name
+                if isinstance(dep_cls, str):
+                    dep_cls = get_flow_class(dep_cls)
                 if all_flows_settings and dep_cls_name in all_flows_settings:
-                    print(f"dep_cls: {dep_cls}")
-                    meta_dep_settings = all_flows_settings[dep_cls_name]
-                    for field_name, mod_value in dep_settings.__fields__.items():
-                        if field_name in meta_dep_settings:
-                            meta_val = meta_dep_settings[field_name]
-                            if mod_value.default != meta_val:
+                    meta_dep_settings = dep_cls.Settings(**all_flows_settings[dep_cls_name])
+                    md = meta_dep_settings.dict(
+                        exclude_defaults=True, exclude_unset=True
+                    )  # post validation
+                    if dep_settings is None:
+                        dep_settings = meta_dep_settings
+                    dsd = dep_settings.dict(exclude_defaults=True, exclude_unset=True)
+                    for field_name, field_info in dep_settings.__fields__.items():
+                        # if field is not already overriden in the dependent flow settings (dep_settings) and exists in the top level (meta_dep_settings)
+                        if (
+                            field_name in md
+                            and field_name not in dsd
+                            and field_name in meta_dep_settings.__fields__
+                        ):
+                            meta_val = md[field_name]
+                            if field_info.default != meta_val:
                                 log.warning(
-                                    "Overriding %s.%s (%s) with %s",
+                                    "Updating dependent flow %s '%s' unset setting with the value '%s' from the top level 'flows' settings",
                                     dep_cls_name,
                                     field_name,
-                                    mod_value,
                                     meta_val,
                                 )
                                 setattr(dep_settings, field_name, meta_val)
-
-                if isinstance(dep_cls, str):
-                    dep_cls = get_flow_class(dep_cls)
                 log.info(
                     "Running dependency: %s (%s.%s)",
                     dep_cls.name,
@@ -459,6 +475,8 @@ class FlowLauncher:
                     dep_cls.__qualname__,
                 )
                 resources: List[str] = []
+                if dep_settings is None:
+                    dep_settings = dep_cls.Settings()
                 dep_settings.debug |= flow.settings.debug
                 if not dep_settings.verbose and flow.settings.verbose > 1:
                     dep_settings.verbose = flow.settings.verbose
