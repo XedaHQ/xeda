@@ -101,6 +101,7 @@ class OpenXC7(FpgaSynthFlow):
             clocks = values.get("clocks")
             fpga = values.get("fpga")
             if value is None:
+                # return None
                 value = YosysFpga.Settings(
                     fpga=fpga,
                     clocks=clocks,
@@ -108,8 +109,10 @@ class OpenXC7(FpgaSynthFlow):
             else:
                 if not isinstance(value, YosysFpga.Settings):
                     value = YosysFpga.Settings(**value)
-                value.fpga = fpga
-                value.clocks = clocks
+                if fpga:
+                    value.fpga = fpga
+                if clocks and not value.clocks:
+                    value.clocks = clocks
             return value
 
     def init(self) -> None:
@@ -140,14 +143,17 @@ class OpenXC7(FpgaSynthFlow):
 
     def generate_bitstream(self, fasm_path: Path) -> Path | None:
         assert isinstance(self.settings, self.Settings)
-        self.check_settings(self.settings)
-
-        assert (
-            self.settings.fpga and self.settings.fpga.part and self.settings.fpga.family
-        ), "FPGA part must be set!"
-        family = self.settings.fpga.family
+        ss = self.settings
+        assert ss.fpga and ss.fpga.part and ss.fpga.family, "FPGA part must be set!"
+        family = ss.fpga.family
+        if family.lower() in ["artix-7", "xc7"]:
+            family = "artix7"
+        elif family.lower() in ["kintex-7", "k7"]:
+            family = "kintex7"
+        elif family.lower() in ["zynq-7", "z7"]:
+            family = "zynq7"
         family = family.replace("-", "")
-        prjxraydb_dir = self.settings.prjxray_db_dir or os.environ.get("PRJXRAY_DB_DIR")
+        prjxraydb_dir = ss.prjxray_db_dir or os.environ.get("PRJXRAY_DB_DIR")
         if not prjxraydb_dir:
             log.error(
                 "prjxray_db_dir settings was not specified and PRJXRAY_DB_DIR environment variable not set!"
@@ -157,37 +163,38 @@ class OpenXC7(FpgaSynthFlow):
 
         assert fasm_path.exists(), f"FASM file {fasm_path} not found!"
         frames_path = fasm_path.with_suffix(".frames")
+        cmd = [
+            "fasm2frames",
+            "--part",
+            ss.fpga.part,
+            "--db-root",
+            prjxraydb_dir / family,
+            fasm_path,
+            frames_path,
+        ]
+        log.info("Running: %s", " ".join(map(str, cmd)))
         subprocess.run(
-            [
-                "fasm2frames",
-                "--part",
-                self.settings.fpga.part,
-                "--db-root",
-                prjxraydb_dir / family,
-                fasm_path,
-                frames_path,
-            ],
+            cmd,
             check=True,
         )
         assert frames_path.exists(), f"Frames file {frames_path} not found!"
-        bitstream_path = Path(self.settings.bitstream or fasm_path.with_suffix(".bit"))
-        self.settings.bitstream = bitstream_path.resolve()
-        part_yaml = prjxraydb_dir / family / self.settings.fpga.part / "part.yaml"
+        bitstream_path = Path(ss.bitstream or fasm_path.with_suffix(".bit"))
+        ss.bitstream = bitstream_path.resolve()
+        part_yaml = prjxraydb_dir / family / ss.fpga.part / "part.yaml"
         assert part_yaml.exists(), f"Part YAML file {part_yaml} not found!"
-        subprocess.run(
-            [
-                "xc7frames2bit",
-                "--part_file",
-                part_yaml,
-                "--part_name",
-                self.settings.fpga.part,
-                "--frm_file",
-                frames_path,
-                "--output_file",
-                bitstream_path,
-            ],
-            check=True,
-        )
+        cmd = [
+            "xc7frames2bit",
+            "--part_file",
+            part_yaml,
+            "--part_name",
+            ss.fpga.part,
+            "--frm_file",
+            frames_path,
+            "--output_file",
+            bitstream_path,
+        ]
+        log.info("Running: %s", " ".join(map(str, cmd)))
+        subprocess.run(cmd, check=True)
         return bitstream_path
 
     def run(self) -> None:
@@ -196,15 +203,23 @@ class OpenXC7(FpgaSynthFlow):
         yosys_flow = self.completed_dependencies[0]
         assert isinstance(yosys_flow, YosysFpga)
         assert isinstance(yosys_flow.settings, YosysFpga.Settings)
+        self.results["_yosys"] = yosys_flow.results
         assert yosys_flow.settings.netlist_json
         netlist_json = yosys_flow.run_path / yosys_flow.settings.netlist_json
+
+        if not ss.fpga and ss.yosys and ss.yosys.fpga:
+            ss.fpga = ss.yosys.fpga
+        if not ss.clocks and ss.yosys and ss.yosys.clocks:
+            ss.clocks = ss.yosys.clocks
+
+        self.check_settings(ss)
 
         if self.next_pnr.executable_path() is None:
             raise FlowFatalError("nextpnr executable not found!")
 
         if not netlist_json.exists():
             raise FlowFatalError(f"netlist json file {netlist_json} does not exist!")
-        board_data = get_board_data(ss.board)
+        board_data = get_board_data(ss.board)  # TODO
 
         args = setting_flag(netlist_json, name="json")
         if ss.main_clock:
@@ -236,17 +251,26 @@ class OpenXC7(FpgaSynthFlow):
         args += setting_flag(ss.placer_budgets)
         if not ss.chipdb:
             ss.chipdb = os.environ.get("CHIPDB_DIR")
+        if not ss.chipdb and self.design_root:
+            ss.chipdb = self.design_root / "chipdb"
+            if not ss.chipdb.exists():
+                ss.chipdb.mkdir(parents=True)
         if not ss.chipdb:
             raise FlowFatalError("Xilinx chip database (chipdb) is required!")
         if not isinstance(ss.chipdb, Path):
             ss.chipdb = Path(ss.chipdb)
-        if ss.chipdb.is_dir() and ss.chipdb.exists():
+        if ss.chipdb.is_dir():
             assert ss.fpga, "FPGA settings must be set!"
             assert ss.fpga.part
             f = next(ss.chipdb.glob(f"{ss.fpga.part}*.bin"), None)
             if not f:
                 part_no_speed = ss.fpga.part.split("-")[0]
                 f = next(ss.chipdb.glob(f"{part_no_speed}*.bin"), None)
+            if not f or not f.exists():
+                nextpnr_xilinx_python_dir = os.environ.get("NEXTPNR_XILINX_PYTHON_DIR")
+                if nextpnr_xilinx_python_dir:
+                    nextpnr_xilinx_python_dir = Path(nextpnr_xilinx_python_dir)
+                    f = self.generate_chipdb(nextpnr_xilinx_python_dir, ss.chipdb)
             if not f:
                 raise FlowFatalError(
                     f"Xilinx chip database file for part {ss.fpga.part} not found in {ss.chipdb}!"
@@ -368,6 +392,53 @@ class OpenXC7(FpgaSynthFlow):
             # still OK
         return True
 
+    def generate_chipdb(
+        self, nextpnr_xilinx_python_dir: Path, output_dir: Optional[Path], force=False
+    ) -> Optional[Path]:
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        python_executable = "pypy3.11"
+        bbasm_executable = "bbasm"
+        if output_dir is None:
+            if ss.chipdb is not None:
+                output_dir = Path(ss.chipdb).parent if os.path.isdir(ss.chipdb) else Path(ss.chipdb)
+            else:
+                output_dir = Path.cwd() / "chipdb"
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+        if ss.fpga and ss.fpga.part:
+            part = ss.fpga.part
+            bin_path = output_dir / f"{part}.bin"
+            if bin_path.exists():
+                if not force:
+                    log.info("Chip database already exists: %s", bin_path)
+                    return bin_path
+                log.info("Forcing regeneration of chip database: %s", bin_path)
+                bin_path.unlink()
+            bba_path = output_dir / f"{part}.bba"
+            cmd = [
+                python_executable,
+                nextpnr_xilinx_python_dir / "bbaexport.py",
+                "--device",
+                part,
+                "--bba",
+                bba_path,
+            ]
+            log.info(f"Running: {' '.join(map(str,cmd))}")
+            subprocess.run(cmd, check=True)
+            assert bba_path.exists(), f"bbaexport failed: {bba_path} not found!"
+
+            cmd = [bbasm_executable, "-l", bba_path, bin_path]
+            log.info(f"Running: {' '.join(map(str,cmd))}")
+            subprocess.run(cmd, check=True)
+            assert (
+                bin_path.exists() and bin_path.is_file()
+            ), f"Failed to generate chipdb: {bin_path} not found!"
+            bba_path.unlink()
+            log.info("Chip database generated: %s", bin_path)
+            return bin_path
+        return None
+
 
 def parse_nextpnr_logfile(log_path: Path) -> Dict:
     """
@@ -478,6 +549,17 @@ def parse_nextpnr_logfile(log_path: Path) -> Dict:
         cp_re + r"\s+'(?P<clock_name>\S+)'\s*"
         r"\(\s*(?P<from_edge>\S+)\s*->\s*(?P<to_edge>\S+)\s*\)"
     )
+    # process all matches of:
+    # Info:  0.1  0.1  Source $auto$ff.cc:266:slice$5358.Q
+    # Info:  0.3  0.4    Net breath_effect_inst.counter[0] budget 0.320000 ns (33,125) -> (33,125)
+    # Info:                Sink $abc$32698$lut$not$aiger32697$13.A1
+    path_re = re.compile(
+        r"\s*(\w+:)?\s*(?P<delay>\d+(\.\d+)?)\s+(?P<slack>\d+(\.\d+)?)\s*Source\s+(?P<source>\S+)\s*"
+        r"\s*(\w+:)?\s+(?P<net_delay>\d+(\.\d+)?)\s+(?P<slack_delay>\d+(\.\d+)?)\s*Net\s+(?P<net>\S+)\s*budget\s+(?P<budget>\d+(\.\d+)?)\s*ns\s*\((?P<from>\d+,\d+)\)\s*->\s*\((?P<to>\d+,\d+)\)"
+    )
+    delay_breakdown_re = re.compile(
+        r"\s*(\w+:)?\s*(?P<logic_delay>\d+(\.\d+)?)\s*(?P<logic_delay_unit>\w+)\s+logic,?\s*(?P<routing_delay>\d+(\.\d+)?)\s*(?P<routing_delay_unit>\w+)\s*"
+    )
 
     for cp_section in find_all_sections(lines, cp_re):
         match = critical_path_re.search(cp_section[0])
@@ -487,14 +569,6 @@ def parse_nextpnr_logfile(log_path: Path) -> Dict:
                 "from_edge": match.group("from_edge"),
                 "to_edge": match.group("to_edge"),
             }
-            # process all matches of:
-            # Info:  0.1  0.1  Source $auto$ff.cc:266:slice$5358.Q
-            # Info:  0.3  0.4    Net breath_effect_inst.counter[0] budget 0.320000 ns (33,125) -> (33,125)
-            # Info:                Sink $abc$32698$lut$not$aiger32697$13.A1
-            path_re = re.compile(
-                r"\s*(\w+:)?\s*(?P<delay>\d+(\.\d+)?)\s+(?P<slack>\d+(\.\d+)?)\s*Source\s+(?P<source>\S+)\s*"
-                r"\s*(\w+:)?\s+(?P<net_delay>\d+(\.\d+)?)\s+(?P<slack_delay>\d+(\.\d+)?)\s*Net\s+(?P<net>\S+)\s*budget\s+(?P<budget>\d+(\.\d+)?)\s*ns\s*\((?P<from>\d+,\d+)\)\s*->\s*\((?P<to>\d+,\d+)\)"
-            )
 
             paths = []
             secs = "\n".join(cp_section[2:])
@@ -513,6 +587,13 @@ def parse_nextpnr_logfile(log_path: Path) -> Dict:
                     }
                 )
             crit_path["paths"] = paths
+            match = delay_breakdown_re.search(cp_section[-1])
+            if match:
+                crit_path["logic_delay"] = try_convert(match.group("logic_delay"), float)
+                crit_path["logic_delay_unit"] = match.group("logic_delay_unit")
+                crit_path["routing_delay"] = try_convert(match.group("routing_delay"), float)
+                crit_path["routing_delay_unit"] = match.group("routing_delay_unit")
+
             critical_path_reports.append(crit_path)
     return {
         "_device_utilization": device_utilization,
