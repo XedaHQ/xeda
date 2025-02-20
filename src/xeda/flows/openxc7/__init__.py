@@ -1,8 +1,9 @@
 import logging
 import os
 from pathlib import Path
+import re
 import subprocess
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from ...board import WithFpgaBoardSettings, get_board_data
 from ...dataclass import Field, validator
@@ -43,12 +44,7 @@ class OpenXC7(FpgaSynthFlow):
         extra_args: List[str] = []
         py_script: Optional[str] = None
         sdf: Optional[str] = None
-        log: Optional[str] = "nextpnr.log"
-        report: Optional[str] = "report.json"
-        detailed_timing_report: bool = False  # buggy and likely to segfault
-        placed_svg: Optional[str] = None  # "placed.svg"
-        routed_svg: Optional[str] = None  # "routed.svg"
-        parallel_refine: bool = False
+        log: Union[str, Path] = "nextpnr.log"
         chipdb: Union[Path, str, None] = Field(
             None,
             description="Xilinx: the path to the chip database, either the full binary path or the directory containing the database. If the value points to an existing directory, the binary file is automatically selected based on the FPGA part.",
@@ -95,7 +91,7 @@ class OpenXC7(FpgaSynthFlow):
             None, description="Xilinx: Bitstream file to write"
         )
         yosys: Optional[YosysFpga.Settings] = None
-        program: Union[str, bool, None] = Field(
+        program: Union[str, bool, Dict, None] = Field(
             None,
             description="Program the FPGA after bitstream generation. Can specify the cable type.",
         )
@@ -125,14 +121,31 @@ class OpenXC7(FpgaSynthFlow):
             ss.yosys,
         )
 
+    @classmethod
+    def check_settings(cls, settings: Settings) -> None:
+        def check_true(assertion: bool, message: str) -> None:
+            if not assertion:
+                raise FlowFatalError(message)
+            assert assertion
+
+        check_true(
+            (settings.nthreads or 0) < 2,
+            "Unsupported flow setting 'nthreads'. Multithreading is not supported.",
+        )
+        check_true(
+            settings.fpga is not None, "Missing flow setting: 'fpga'. FPGA settings are required!"
+        )
+        check_true(settings.fpga.part is not None, "Missing flow setting: 'fpga.part'. FPGA part must be specified!")  # type: ignore
+        check_true(settings.fpga.family is not None, "'fpga.family' was not automatically inferred. Please specify the family in the settings.")  # type: ignore
+
     def generate_bitstream(self, fasm_path: Path) -> Path | None:
         assert isinstance(self.settings, self.Settings)
-        if self.settings.fpga is None:
-            log.error("FPGA settings not set!")
-            return None
+        self.check_settings(self.settings)
+
+        assert (
+            self.settings.fpga and self.settings.fpga.part and self.settings.fpga.family
+        ), "FPGA part must be set!"
         family = self.settings.fpga.family
-        assert self.settings.fpga.part, "FPGA part must be set!"
-        assert family, "FPGA family must be set!"
         family = family.replace("-", "")
         prjxraydb_dir = self.settings.prjxray_db_dir or os.environ.get("PRJXRAY_DB_DIR")
         if not prjxraydb_dir:
@@ -268,12 +281,6 @@ class OpenXC7(FpgaSynthFlow):
         if ss.extra_args:
             args += ss.extra_args
         self.next_pnr.run(*args)
-        if ss.log:
-            log_path = Path(ss.log).resolve()
-            if log_path.exists():
-                log.info("Nextpnr log written to %s", log_path)
-            else:
-                log.warning("Nextpnr log file %s not found!", log_path)
 
         if ss.fasm_output:
             fasm_path = Path(ss.fasm_output)
@@ -287,17 +294,228 @@ class OpenXC7(FpgaSynthFlow):
                 log.warning("Bitstream generation failed!")
 
         if ss.program or ss.board:
-            cable = ss.program if isinstance(ss.program, str) else None
+            if isinstance(ss.program, dict):
+                programmer = ss.program.get("programmer")
+                cable = ss.program.get("cable")
+                board = ss.program.get("board")
+                freq = ss.program.get("freq")
+                reset = ss.program.get("reset", False)
+                flash = ss.program.get("flash", False)
+            else:
+                programmer = "openFPGALoader"
+                cable = ss.program if isinstance(ss.program, str) else None
+                freq = None
+                reset = False
+                flash = False
 
-            args = ["--bitstream", bitstream_path]
-            if cable:
-                args.extend(["--cable", cable])
-            elif ss.board:
-                args.extend(["--board", ss.board])
-            if ss.fpga and ss.fpga.part:
-                args.extend(["--fpga-part", ss.fpga.part])
-            # if ss.reset:
-            #     args.append("--reset")
-            if ss.verbose:
-                args.append("--verbose")
-            self.ofpga_loader.run(*args)
+            if programmer not in ["openFPGALoader"]:
+                raise FlowFatalError(f"Unsupported programmer: {programmer}")
+
+            if programmer == "openFPGALoader":
+                args = ["--bitstream", bitstream_path]
+                if cable:
+                    args.extend(["--cable", cable])
+                elif ss.board or board:
+                    args.extend(["--board", ss.board or board])
+                if ss.fpga and ss.fpga.part:
+                    args.extend(["--fpga-part", ss.fpga.part])
+                if reset:
+                    args.append("--reset")
+                if flash:
+                    args.append("--flash")
+                if freq:
+                    args += ["--freq", freq]
+                if ss.verbose:
+                    args.append("--verbose")
+                self.ofpga_loader.run(*args)
+
+    def parse_reports(self):
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        if ss.log:
+            log_path = Path(ss.log).resolve()
+            if log_path.exists():
+                log.info("Nextpnr log was found in %s", log_path)
+                parsed_data = parse_nextpnr_logfile(log_path)
+                if parsed_data:
+                    self.results.update(**parsed_data)
+
+                    util = parsed_data.get("_device_utilization", {})
+
+                    def get_used(resource: str):
+                        return util.get(resource, {}).get("used", 0)
+
+                    self.results["LUT"] = get_used("SLICE_LUTX") or None
+                    self.results["FF"] = get_used("SLICE_FFX") or None
+                    self.results["RAMB18E1"] = get_used("RAMB18E1") or None
+                    self.results["RAMB36E1"] = get_used("RAMB36E1") or None
+                    self.results["RAMBFIFO36E1"] = get_used("RAMBFIFO36E1") or None
+                    self.results["DSP48E1"] = get_used("DSP48E1") or None
+
+                    f_max = None
+                    for clock in parsed_data.get("_clocks", []):
+                        clock_max_freq = clock.get("max_freq", 0)
+                        if f_max is None or clock_max_freq > f_max:
+                            f_max = clock_max_freq
+                    if f_max:
+                        self.results["f_max"] = f_max
+
+            else:
+                log.error("Nextpnr log file %s not found!", log_path)
+                return False  # fail
+        else:
+            log.warning("Logging was disabled, so cannot analyse Nextpnr reports!")
+            # still OK
+        return True
+
+
+def parse_nextpnr_logfile(log_path: Path) -> Dict:
+    """
+    Parse the output log of nextpnr and return a hierarchical dictionary
+    """
+
+    # Read the entire file as lines
+    with log_path.open("r", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+
+    # Prepare the data structures to hold results
+    device_utilization = {}
+    critical_path_reports = []
+    clocks_reports = []
+
+    # Helper functions find the section(s) between two regex patterns
+    # end_section_re is NOT part of the section, it's the first line after
+    def find_section_bounds(lines_list, start_section_re, end_section_re, re_flags=re.IGNORECASE):
+        start_line = None
+        end_line = None
+        for idx, text in enumerate(lines_list):
+            if re.search(start_section_re, text, re_flags):
+                start_line = idx
+            elif start_line is not None and re.search(end_section_re, text, re_flags):
+                end_line = idx
+                break
+        return start_line, end_line
+
+    def find_all_sections(
+        lines, start_section_re, end_section_re=r"^\s*$", re_flags=re.IGNORECASE
+    ) -> list[list[str]]:
+
+        sections = []
+        # fist occurence
+        while True:
+            start_line, end_line = find_section_bounds(
+                lines, start_section_re, end_section_re, re_flags
+            )
+            if start_line is None:
+                break
+            if end_line is None:
+                sections.append(lines[start_line:])
+                break
+            sections.append(lines[start_line:end_line])
+            lines = lines[end_line:]
+
+        return sections
+
+    def find_section(lines_list, start_section_re, end_section_re=r"^\s*$", re_flags=re.IGNORECASE):
+        start_line, end_line = find_section_bounds(
+            lines_list, start_section_re, end_section_re, re_flags
+        )
+        if start_line is not None:
+            if end_line is None:
+                end_line = -1
+            return lines[start_line:end_line]
+        return None
+
+    def try_convert(value: str, typ: type):
+        try:
+            return typ(value)
+        except ValueError:
+            return value
+
+    ## device utilization
+    device_util_re = re.compile(
+        r"^\s*(\w+:)?\s*(?P<resource>[^:]+?)\s*:\s*"
+        r"(?P<used>\d+)\s*/\s*(?P<available>\d+)\s+"
+        r"(?P<percentage>\d[\d\.]*)\s*%"
+    )
+
+    section = find_section(lines, r"Device utili.ation:")
+    if section is not None:
+        for line in section:
+            match = device_util_re.match(line)
+            if match:
+                res_name = match.group("resource").strip()
+                used_val = try_convert(match.group("used"), int)
+                avail_val = try_convert(match.group("available"), int)
+                perc_val = try_convert(match.group("percentage"), float)
+
+                device_utilization[res_name] = {
+                    "used": used_val,
+                    "available": avail_val,
+                    "percentage": perc_val,
+                }
+
+    with log_path.open("r", encoding="utf-8") as f:
+        full_text = f.read()
+
+    clock_regex = re.compile(
+        r"frequency for clock\s*'(?P<clock_name>\S+)':\s*(?P<max_freq>\d[\d\.]*)\s*(?P<max_freq_unit>\w+)\s*\(?(?P<status>\w+)\s+at\s*(?P<requested_freq>\d[\d\.]*)\s*(?P<requested_freq_unit>\w+)\s*\)?"
+    )
+    for match in clock_regex.finditer(full_text):
+        clocks_reports.append(
+            {
+                "clock_name": match.group("clock_name"),
+                "max_freq": try_convert(match.group("max_freq"), float),
+                "max_freq_unit": match.group("max_freq_unit"),
+                "status": match.group("status"),
+                "requested_freq": try_convert(match.group("requested_freq"), float),
+                "requested_freq_unit": match.group("requested_freq_unit"),
+            }
+        )
+
+    cp_re = r"Critical path report for clock"
+    critical_path_re = re.compile(
+        cp_re + r"\s+'(?P<clock_name>\S+)'\s*"
+        r"\(\s*(?P<from_edge>\S+)\s*->\s*(?P<to_edge>\S+)\s*\)"
+    )
+
+    for cp_section in find_all_sections(lines, cp_re):
+        match = critical_path_re.search(cp_section[0])
+        if match:
+            crit_path = {
+                "clock_name": match.group("clock_name"),
+                "from_edge": match.group("from_edge"),
+                "to_edge": match.group("to_edge"),
+            }
+            # process all matches of:
+            # Info:  0.1  0.1  Source $auto$ff.cc:266:slice$5358.Q
+            # Info:  0.3  0.4    Net breath_effect_inst.counter[0] budget 0.320000 ns (33,125) -> (33,125)
+            # Info:                Sink $abc$32698$lut$not$aiger32697$13.A1
+            path_re = re.compile(
+                r"\s*(\w+:)?\s*(?P<delay>\d+(\.\d+)?)\s+(?P<slack>\d+(\.\d+)?)\s*Source\s+(?P<source>\S+)\s*"
+                r"\s*(\w+:)?\s+(?P<net_delay>\d+(\.\d+)?)\s+(?P<slack_delay>\d+(\.\d+)?)\s*Net\s+(?P<net>\S+)\s*budget\s+(?P<budget>\d+(\.\d+)?)\s*ns\s*\((?P<from>\d+,\d+)\)\s*->\s*\((?P<to>\d+,\d+)\)"
+            )
+
+            paths = []
+            secs = "\n".join(cp_section[2:])
+            for match in path_re.finditer(secs, re.MULTILINE | re.DOTALL):
+                paths.append(
+                    {
+                        "delay": try_convert(match.group("delay"), float),
+                        "slack": try_convert(match.group("slack"), float),
+                        "source": match.group("source"),
+                        "net_delay": try_convert(match.group("net_delay"), float),
+                        "slack_delay": try_convert(match.group("slack_delay"), float),
+                        "net": match.group("net"),
+                        "budget": try_convert(match.group("budget"), float),
+                        "from": match.group("from"),
+                        "to": match.group("to"),
+                    }
+                )
+            crit_path["paths"] = paths
+            critical_path_reports.append(crit_path)
+    return {
+        "_device_utilization": device_utilization,
+        "_clocks": clocks_reports,
+        "_critical_path_reports": critical_path_reports,
+    }
