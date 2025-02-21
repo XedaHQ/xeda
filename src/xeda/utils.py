@@ -69,6 +69,7 @@ __all__ = [
     "first_value",
     "first_key",
     "settings_to_dict",
+    "XedaException",
     "ToolException",
     "NonZeroExitCode",
     "ExecutableNotFound",
@@ -530,7 +531,13 @@ def settings_to_dict(
     raise TypeError(f"Unsupported type: {type(settings)}")
 
 
-class ToolException(Exception):
+class XedaException(Exception):
+    """Super-class of all xeda exceptions
+    should be catched by CLI and handled appropriately
+    """
+
+
+class ToolException(XedaException):
     """Super-class of all tool exceptions"""
 
 

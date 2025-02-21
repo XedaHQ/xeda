@@ -31,6 +31,7 @@ from ..utils import (
     try_convert,
     try_convert_to_primitives,
     unique,
+    XedaException,
 )
 
 log = logging.getLogger(__name__)
@@ -428,7 +429,7 @@ class Flow(metaclass=ABCMeta):
         return path
 
 
-class FlowException(Exception):
+class FlowException(XedaException):
     """Super-class of all flow exceptions"""
 
 

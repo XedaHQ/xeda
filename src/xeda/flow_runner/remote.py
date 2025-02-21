@@ -13,7 +13,7 @@ from fabric import Connection
 from fabric.transfer import Transfer
 
 from ..design import Design, DesignSource
-from ..utils import backup_existing, dump_json, settings_to_dict
+from ..utils import backup_existing, dump_json, settings_to_dict, XedaException
 from ..version import __version__
 from .default_runner import (
     DIR_NAME_HASH_LEN,
@@ -152,8 +152,7 @@ def get_login_env(conn: Connection) -> Dict[str, str]:
     try:
         result = conn.run("$SHELL -l -c env", hide=True, pty=False)
     except socket.gaierror as e:
-        log.critical("Error connecting to %s: %s", conn.host, e)
-        raise e from None
+        raise XedaException(f"Error connecting to {conn.host}: {e}")
 
     assert result.ok
 

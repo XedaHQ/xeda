@@ -42,7 +42,7 @@ from .flow_runner import (
 )
 from .flow_runner.dse import Dse
 from .tool import ExecutableNotFound, NonZeroExitCode
-from .utils import removeprefix, settings_to_dict
+from .utils import removeprefix, settings_to_dict, XedaException
 from .design import DesignValidationError
 
 log = logging.getLogger(__name__)
@@ -310,7 +310,14 @@ def run(
             cached_dependencies=cached_dependencies,
         )
         assert design
-        rl.run_remote(design, flow, host=remote, flow_settings=flow_settings)
+        try:
+            rl.run_remote(design, flow, host=remote, flow_settings=flow_settings)
+
+        except XedaException as e:
+            log.critical("XedaException: %s", e)
+            if options.debug:
+                raise e
+            sys.exit(1)
         sys.exit(0)
     try:
         launcher = DefaultRunner(
@@ -374,6 +381,11 @@ def run(
         sys.exit(1)
     except DesignValidationError as e:  # any flow exception
         log.critical("%s", e)
+        if options.debug:
+            raise e
+        sys.exit(1)
+    except XedaException as e:
+        log.critical("XedaException: %s", e)
         if options.debug:
             raise e
         sys.exit(1)
