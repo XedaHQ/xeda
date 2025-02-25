@@ -133,6 +133,17 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                         **num_cells_by_type,
                     }
                     self.results["_utilization"] = design_util
+
+                def add_util_if_nonzero(name: str) -> None:
+                    util = int(design_util.get(name, 0))
+                    if util:
+                        self.results[name] = util
+
+                def add_util_sum_if_nonzero(group_name: str, names: List[str]):
+                    util = sum(int(design_util.get(t, 0)) for t in names)
+                    if util:
+                        self.results[group_name] = util
+
                 assert self.settings.fpga
                 if self.settings.fpga.vendor == "xilinx":
                     self.results["LUT"] = sum_all_resources(
@@ -142,8 +153,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                     if ram32m:
                         self.results["LUT"] += ram32m
                         self.results["LUT:RAM"] = ram32m
-                    self.results["FF"] = sum_all_resources(
-                        design_util,
+                    add_util_sum_if_nonzero(
+                        "FF",
                         [
                             "FDCE",  # D Flip-Flop with Clock Enable and Asynchronous Clear
                             "FDPE",  # D Flip-Flop with Clock Enable and Asynchronous Preset
@@ -151,29 +162,19 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                             "FDSE",  # D Flip-Flop with Clock Enable and Synchronous Set
                         ],
                     )
-                    latches = sum_all_resources(
-                        design_util,
+                    add_util_sum_if_nonzero(
+                        "LATCH",
                         [
                             "LDCE",  # Transparent Data Latch with Asynchronous Clear and Gate Enable
                             "LDPE",  # Transparent Data Latch with Asynchronous Preset and Gate Enable
                         ],
                     )
-                    if latches:
-                        self.results["LATCH"] = latches
-                    brams: float = sum_all_resources(design_util, ["RAMB36"])
-                    brams_half = sum_all_resources(design_util, ["RAMB18"])
-                    brams += brams_half / 2
-                    if brams:
-                        self.results["BRAM"] = brams
-                    dsps = sum_all_resources(design_util, ["DSP48E1", "DSP48E2", "DSP48E"])
-                    if dsps:
-                        self.results["DSP"] = dsps
-                    carry_chains = sum_all_resources(design_util, ["CARRY8", "CARRY4", "CARRY2"])
-                    if carry_chains:
-                        self.results["CARRY"] = carry_chains
-                    muxf78 = sum_all_resources(design_util, ["MUXF7", "MUXF8"])
-                    if carry_chains:
-                        self.results["MUXF7/F8"] = muxf78
+
+                    add_util_sum_if_nonzero("RAMB18", ["RAMB18", "RAMB18E1", "RAMB18E2"])
+                    add_util_sum_if_nonzero("RAMB36", ["RAMB36", "RAMB36E1", "RAMB36E2"])
+                    add_util_sum_if_nonzero("DSP", ["DSP48E1", "DSP48E2", "DSP48E"])
+                    for res in ["CARRY4", "CARRY8", "MUXF7", "MUXF8", "MUXF9"]:
+                        add_util_if_nonzero(res)
 
         # if self.settings.fpga:
         return True
