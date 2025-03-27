@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ from ...dataclass import Field, validator
 from ...flow import FlowFatalError, FpgaSynthFlow, FPGA
 from ...tool import Tool
 from ...utils import setting_flag
-from ...design import SourceType
+from ...design import Design, SourceType
 from ..yosys import YosysFpga
 
 __all__ = ["OpenXC7"]
@@ -27,6 +28,10 @@ class OpenXC7(FpgaSynthFlow):
 
     next_pnr = Tool("nextpnr-xilinx")
     ofpga_loader = Tool("openFPGALoader")
+
+    def __init__(self, flow_settings: FpgaSynthFlow.Settings, design: Design, run_path: Path):
+        super().__init__(flow_settings, design, run_path)
+        self.skip_parse_reports = False
 
     class Settings(WithFpgaBoardSettings):
         fpga: Optional[FPGA] = None
@@ -197,9 +202,89 @@ class OpenXC7(FpgaSynthFlow):
         subprocess.run(cmd, check=True)
         return bitstream_path
 
+    def use_existing_results(self) -> bool:
+        results_json = self.run_path / "results.json"
+        if results_json.exists() and results_json.is_file():
+            prev_results = None
+            try:
+                with open(results_json) as f:
+                    prev_results = json.load(f)
+            except TypeError:
+                pass
+            except ValueError:
+                pass
+            if (
+                prev_results
+                and prev_results.get("success") == True
+                and prev_results.get("design") == self.design.name
+                and prev_results.get("design_hash") == self.design_hash
+                and prev_results.get("flow") == self.name
+                and prev_results.get("flow_hash") == self.flow_hash
+            ):
+                self.results.update(**prev_results)
+                if "artifacts" in prev_results:
+                    self.artifacts = prev_results["artifacts"]
+                    return True
+            else:
+                log.debug(
+                    "No valid previous results found in %s. Running %s from scratch.",
+                    self.run_path,
+                    self.name,
+                )
+        return False
+
+    def program_fpga(self, bitstream_path) -> None:
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        if ss.program or ss.board:
+            if isinstance(ss.program, dict):
+                programmer = ss.program.get("programmer")
+                cable = ss.program.get("cable")
+                board = ss.program.get("board")
+                freq = ss.program.get("freq")
+                reset = ss.program.get("reset", False)
+                flash = ss.program.get("flash", False)
+            else:
+                programmer = "openFPGALoader"
+                cable = ss.program if isinstance(ss.program, str) else None
+                freq = None
+                reset = False
+                flash = False
+
+            if programmer not in ["openFPGALoader"]:
+                raise FlowFatalError(f"Unsupported programmer: {programmer}")
+
+            if programmer == "openFPGALoader":
+                args = ["--bitstream", bitstream_path]
+                if cable:
+                    args.extend(["--cable", cable])
+                elif ss.board or board:
+                    args.extend(["--board", ss.board or board])
+                if ss.fpga and ss.fpga.part:
+                    args.extend(["--fpga-part", ss.fpga.part])
+                if reset:
+                    args.append("--reset")
+                if flash:
+                    args.append("--flash")
+                if freq:
+                    args += ["--freq", freq]
+                if ss.verbose:
+                    args.append("--verbose")
+                self.ofpga_loader.run(*args)
+
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        print(self.design_hash, self.flow_hash)
+        if self.use_existing_results():
+            bitstream_path = self.results.get("_bitstream_path")
+            if bitstream_path:
+                bitstream_path = Path(bitstream_path)
+                if bitstream_path.exists():
+                    log.info("Bitstream file found: %s", bitstream_path)
+                    self.program_fpga(bitstream_path)
+                    self.skip_parse_reports = True
+                    return
         yosys_flow = self.completed_dependencies[0]
         assert isinstance(yosys_flow, YosysFpga)
         assert isinstance(yosys_flow.settings, YosysFpga.Settings)
@@ -313,47 +398,14 @@ class OpenXC7(FpgaSynthFlow):
             bitstream_path = self.generate_bitstream(fasm_path)
             if bitstream_path and bitstream_path.exists():
                 log.info("Bitstream file written to %s", bitstream_path.resolve())
-                self.results["bitstream_path"] = bitstream_path.resolve()
+                self.results["_bitstream_path"] = bitstream_path.resolve()
             else:
                 log.warning("Bitstream generation failed!")
-
-        if ss.program or ss.board:
-            if isinstance(ss.program, dict):
-                programmer = ss.program.get("programmer")
-                cable = ss.program.get("cable")
-                board = ss.program.get("board")
-                freq = ss.program.get("freq")
-                reset = ss.program.get("reset", False)
-                flash = ss.program.get("flash", False)
-            else:
-                programmer = "openFPGALoader"
-                cable = ss.program if isinstance(ss.program, str) else None
-                freq = None
-                reset = False
-                flash = False
-
-            if programmer not in ["openFPGALoader"]:
-                raise FlowFatalError(f"Unsupported programmer: {programmer}")
-
-            if programmer == "openFPGALoader":
-                args = ["--bitstream", bitstream_path]
-                if cable:
-                    args.extend(["--cable", cable])
-                elif ss.board or board:
-                    args.extend(["--board", ss.board or board])
-                if ss.fpga and ss.fpga.part:
-                    args.extend(["--fpga-part", ss.fpga.part])
-                if reset:
-                    args.append("--reset")
-                if flash:
-                    args.append("--flash")
-                if freq:
-                    args += ["--freq", freq]
-                if ss.verbose:
-                    args.append("--verbose")
-                self.ofpga_loader.run(*args)
+        self.program_fpga(bitstream_path)
 
     def parse_reports(self):
+        if self.skip_parse_reports:
+            return True
         ss = self.settings
         assert isinstance(ss, self.Settings)
         if ss.log:
