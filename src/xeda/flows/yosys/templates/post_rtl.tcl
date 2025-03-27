@@ -10,8 +10,9 @@ yosys write_verilog {{settings.rtl_verilog}}
 yosys log -stdout " Writing VHDL {{settings.rtl_vhdl}}"
 yosys write_vhdl {{settings.rtl_vhdl}}
 {%- endif %}
-{%- if settings.show_rtl %}
-yosys show -prefix rtl_show -format dot {{settings.show_rtl_flags|join(" ")}}
+{%- if settings.rtl_graph %}
+yosys log -stdout "Writing RTL graph to {{settings.rtl_graph.with_suffix('dot')}}"
+yosys show -prefix {{settings.rtl_graph.with_suffix("")}} -format dot {{settings.rtl_graph_flags|join(" ")}}
 {%- endif %}
 
 {%- if settings.stop_after == "rtl" %}

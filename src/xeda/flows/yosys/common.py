@@ -37,11 +37,14 @@ class YosysBase(Flow):
         rtl_verilog: Optional[Path] = None  # "rtl.v"
         rtl_vhdl: Optional[Path] = None  # "rtl.vhdl"
         rtl_json: Optional[Path] = None  # "rtl.json"
-        show_rtl: bool = False
-        show_rtl_flags: List[str] = [
+        rtl_graph: Optional[Path] = None
+        rtl_graph_flags: List[str] = [
+            "-notitle",
             "-stretch",
-            "-enum",
             "-width",
+            "-enum",
+            "-href",
+            "-color maroon3 t:*dff",
         ]
         ghdl: GhdlSynth.Settings = GhdlSynth.Settings()  # type: ignore
         systemverilog: Literal["default", "uhdm", "slang"] = "slang"
@@ -86,8 +89,14 @@ class YosysBase(Flow):
         netlist_src_attrs: bool = False
         netlist_unset_attributes: List[str] = []
         netlist_json: Optional[Path] = Field(Path("netlist.json"), alias="json_netlist")
-        netlist_dot: Optional[str] = None  # prefix
-        netlist_dot_flags: List[str] = ["-stretch", "-enum", "-width"]
+        netlist_graph: Optional[Path] = None  # prefix
+        netlist_graph_flags: List[str] = [
+            "-stretch",
+            "-enum",
+            "-width",
+            "-href",
+            "-color maroon3 t:*dff",
+        ]
         write_blif: Optional[Path] = None
         retime: bool = Field(False, description="Enable flip-flop retiming")
         sta: bool = Field(

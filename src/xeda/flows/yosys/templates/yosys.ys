@@ -49,8 +49,9 @@ write_verilog {{settings.rtl_verilog}}
 log -stdout yosys> Writing VHDL {{settings.rtl_vhdl}}
 write_vhdl {{settings.rtl_vhdl}}
 {%- endif %}
-{% if settings.show_rtl -%}
-show -prefix rtl_show -format dot {{settings.show_rtl_flags|join(" ")}}
+{%- if settings.rtl_graph %}
+log -stdout "Writing RTL graph to {{settings.rtl_graph}}"
+show -prefix {{settings.rtl_graph}} -format dot {{settings.rtl_graph_flags|join(" ")}}
 {%- endif %}
 
 {%- if settings.fpga %}
