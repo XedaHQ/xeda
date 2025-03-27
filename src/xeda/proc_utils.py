@@ -9,9 +9,12 @@ import subprocess
 import signal
 import select
 import sys
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
+
+import colorama
 
 from .utils import NonZeroExitCode, ExecutableNotFound
+from .console import console
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +33,7 @@ def run_process(
     check: bool = True,
     cwd: Union[None, str, os.PathLike] = None,
     print_command: bool = False,
+    highlight_rules: Optional[Dict[str, str]] = None,
 ) -> Union[None, str]:
     if args is None:
         args = []
@@ -37,6 +41,7 @@ def run_process(
     if env is not None:
         env = {k: str(v) for k, v in env.items() if v is not None}
     command = [executable, *args]
+    command: List[str] = [str(c) for c in command]
     cmd_str = " ".join(map(lambda x: str(x), command))
     if print_command:
         print("Running `%s`" % cmd_str)
@@ -44,6 +49,29 @@ def run_process(
         log.debug("Running `%s`", cmd_str)
     if cwd:
         log.debug("cwd=%s", cwd)
+    if highlight_rules:
+        assert stdout is None, "stdout redirection is not supported with filter_rules"
+        with subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            env=env,
+            cwd=cwd,
+            universal_newlines=True,
+            bufsize=1,
+        ) as proc:
+            assert proc.stdout is not None, f"Popen for '{cmd_str}' failed: stdout is None!"
+
+            with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
+                for line in proc_stdout:
+                    for pattern, subs in highlight_rules.items():
+                        line, matches = re.subn(pattern, subs + colorama.Style.RESET_ALL, line, 1)
+                        if matches > 0:
+                            break
+                    print(line, end="\r")
+            ret = proc.wait()
+            if check and ret != 0:
+                raise NonZeroExitCode(command, ret)
+            return None
     if False and not stdout:
         for is_stderr, line in run_capture_pty(command, env=env, cwd=cwd, check=check):
             proc_output(is_stderr, line)

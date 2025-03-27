@@ -53,17 +53,18 @@ dependencies = [
     "pint                ~= 0.24",
     "importlib_resources >= 6.0",                       # backport of importlib.resources, replaces pkg_resources
     "simpleeval          ~= 1.0",
+    "PyYAML              ~= 6.0",
     # experimental:
-    "PyYAML            ~= 6.0",
     "varname           >= 0.13.3, < 0.15",
     "overrides         ~= 7.7",
     "simple_term_menu  ~= 1.6",
-    "psutil            ~= 6.0",
+    "psutil            ~= 7.0",
     "pyvcd             ~= 0.4",
     "GitPython         ~= 3.1",
     "fabric            ~= 3.2",
     "execnet           ~= 2.1",
     "devtools          ~= 0.12",
+    "colorama          ~= 0.4",
 ]
 
 [project.optional-dependencies]

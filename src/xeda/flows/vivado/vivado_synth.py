@@ -56,6 +56,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         write_checkpoint: bool = False
         write_netlist: bool = False
         write_bitstream: bool = False
+        bitstream: Optional[Union[str, Path]] = None
         extra_reports: bool = False
         qor_suggestions: bool = False
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
@@ -179,6 +180,20 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         tcl_files = [p.file for p in self.design.rtl.sources if p.type == "tcl"]
         tcl_files += [self.normalize_path_to_design_root(p) for p in settings.tcl_files]
+
+        if self.settings.bitstream:
+            self.settings.write_bitstream = True
+        elif self.settings.write_bitstream:
+            self.settings.bitstream = (
+                self.settings.outputs_dir / f"{self.design.rtl.top or 'bitstream'}.bit"
+            )
+
+        if self.settings.bitstream:
+            bs_str = str(self.settings.bitstream)
+            print(bs_str)
+            if self.runner_cwd and bs_str.startswith("$PWD/"):
+                self.settings.bitstream = self.runner_cwd / bs_str[5:]
+            self.settings.bitstream = Path(self.settings.bitstream).resolve()
 
         for run_settings, steps in (
             (settings.synth, ["SYNTH_DESIGN"]),

@@ -257,6 +257,9 @@ class Flow(metaclass=ABCMeta):
         self.flow_hash: Optional[str] = None
         self.design_hash: Optional[str] = None
 
+        # the path from which the runner was invoked, e.g., where xeda CLI was invoked
+        self.runner_cwd: Optional[Path] = None
+
         # generated artifacts as a dict of category to list of file paths
         self.artifacts = Box()
         self.results = self.Results()
@@ -462,8 +465,8 @@ class FlowSettingsError(FlowException):
                 "{}{}{}{}\n".format(
                     f"{loc}:\n   " if loc else "",
                     msg,
-                    f"\ntype: {typ}" if typ else "",
-                    f"\ncontext: {ctx}" if ctx else "",
+                    f"\nType of error: {typ}" if typ else "",
+                    f"\nError context: {ctx}" if ctx else "",
                 )
                 for loc, msg, ctx, typ in self.errors
             ),

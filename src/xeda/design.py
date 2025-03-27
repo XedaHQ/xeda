@@ -168,6 +168,7 @@ class SourceType(str, Enum):
     Tcl = auto()
     Verilog = auto()
     Vhdl = auto()
+    MemoryFile = auto()
 
     def __str__(self) -> str:
         return str(self.name)
@@ -219,6 +220,7 @@ class DesignSource(FileResource):
                 (SourceType.Sdc, None): ["sdc"],
                 (SourceType.Tcl, None): ["tcl"],
                 (SourceType.Cocotb, None): ["py"],
+                (SourceType.MemoryFile, None): ["mem"],
             }
             for (typ, vari), suffixes in type_variants_map.items():
                 if path.suffix[1:] in suffixes:

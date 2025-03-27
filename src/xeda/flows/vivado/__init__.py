@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree
 
+import colorama
+
 from ...dataclass import Field
 from ...design import Design
 from ...tool import Docker, Tool
@@ -77,6 +79,26 @@ class VivadoTool(Tool):
         command=["/tools/Xilinx/Vivado/2021.1/bin/vivado"],
         tag="stable",
     )  # pyright: ignore
+    console_subs_rules: Optional[Dict[str, str]] = {
+        r"^(ERROR:)(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
+        r"^(CRITICAL WARNING:)(.+)$": colorama.Fore.RED + r"\g<1>" + r"\g<2>",
+        r"^(WARNING:)(.+)$": colorama.Fore.YELLOW
+        + colorama.Style.BRIGHT
+        + r"\g<1>"
+        + colorama.Style.NORMAL
+        + r"\g<2>",
+        r"^(INFO:)(.+)$": colorama.Fore.GREEN
+        + colorama.Style.BRIGHT
+        + r"\g<1>"
+        + colorama.Style.NORMAL
+        + r"\g<2>",
+        r"^(====[=]+\()(.*)(\)[=]+====)$": colorama.Fore.BLUE
+        + r"\g<1>"
+        + colorama.Fore.CYAN
+        + r"\g<2>"
+        + colorama.Fore.BLUE
+        + r"\g<3>",
+    }
 
     @cached_property
     def version(self) -> Tuple[str, ...]:

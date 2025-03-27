@@ -5,7 +5,6 @@ import logging
 import os
 import re
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 from sys import stderr
@@ -84,6 +83,7 @@ class Docker(XedaBaseModel):
         check: bool = True,
         root_dir: OptionalPath = None,
         print_command: bool = True,
+        highlight_rules: Optional[Dict[str, str]] = None,
     ) -> Union[None, str]:
         """Run the tool from a docker container"""
         if self.fix_cpuinfo and self.cpuinfo:
@@ -139,6 +139,7 @@ class Docker(XedaBaseModel):
                 stdout=stdout,
                 check=check,
                 print_command=print_command,
+                highlight_rules=highlight_rules,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
@@ -164,37 +165,6 @@ def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
                 f.write(f"{k}{ws}: {v}")
 
 
-def _run_processes(commands: List[List[Any]], cwd: OptionalPath = None, env=None) -> None:
-    """Run a list commands to completion. Raises an exception if any command/process failed."""
-    for args in commands:
-        args = [str(a) for a in args]
-    if env:
-        env = {str(k): str(v) for k, v in env.items() if v is not None}
-    processes: List[subprocess.Popen] = []
-    for cmd in commands:
-        log.info("Running `%s`", " ".join(cmd))
-        with subprocess.Popen(
-            cmd,
-            cwd=cwd,
-            shell=False,
-            bufsize=1,
-            universal_newlines=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-        ) as proc:
-            assert isinstance(proc.args, list)
-            log.info("Started %s[%d]", str(proc.args[0]), proc.pid)
-            processes.append(proc)
-
-    for p in processes:
-        p.wait()
-
-    for p in processes:
-        if p.returncode != 0:
-            raise NonZeroExitCode(p.args, p.returncode)
-
-
 VERSION_PATTERN = r"(\d+)((\.[a-zA-Z\d]+)*)(-\w+)+"
 VERSION_REGEXP1 = re.compile(r"version[:\s]?\s*" + VERSION_PATTERN, flags=re.IGNORECASE)
 VERSION_REGEXP2 = re.compile(VERSION_PATTERN)
@@ -215,6 +185,7 @@ class Tool(XedaBaseModel):
     design_root: Optional[Path] = None
     dockerized: bool = False
     print_command: bool = True
+    highlight_rules: Optional[Dict[str, str]] = None
 
     @validator("version_flag", pre=True, always=True)
     def validate_version_flag(cls, value, values):
@@ -395,73 +366,22 @@ class Tool(XedaBaseModel):
             return Path(which).resolve()
         return None
 
-    def _run_remote(
-        self,
-        *args: Any,
-        env: Optional[Dict[str, Any]] = None,
-        stdout: OptionalBoolOrPath = None,
-        check: bool = True,
-        cwd: OptionalPath = None,
-    ) -> None:
-        # FIXME remote execution is broken
-        #
-        # if env is not None:
-        # env = {**os.environ, **env}
-        assert self.remote, "tool.remote settings not available!"
-
-        remote_sshfs_mount_dir = "~/mnt"
-        wd = str(cwd) if cwd else os.curdir
-        self.remote.junest_mounts[remote_sshfs_mount_dir] = wd
-        mount_opts = [f"--bind {k} {v}" for k, v in self.remote.junest_mounts.items()]
-        junest_backend_opts = ["-b"] + mount_opts
-        executable = self.executable
-        if self.remote.exec_path:
-            executable = os.path.join(self.remote.exec_path, executable)
-        junest_cmd = (
-            [self.remote.junest_path] + junest_backend_opts + ["--", executable] + list(*args)
-        )
-
-        remote_cmd = junest_cmd
-        client_nc_port = 34567
-        reverse_sftp_port = 10000
-
-        sshfs_opts = ["directport=10000", "idmap=user", "exec", "compression=yes"]
-
-        sshfs_cmd = ["sshfs", "-o", ",".join(sshfs_opts), f"localhost:{wd}", remote_sshfs_mount_dir]
-
-        ssh_proc = ["ssh", self.remote.hostname, "-p", str(self.remote.port)]
-
-        sshfs_proc = (
-            ssh_proc
-            + [
-                "-R",
-                f"{reverse_sftp_port}:localhost:{client_nc_port}",
-                "mkdir",
-                "-p",
-                remote_sshfs_mount_dir,
-                "&&",
-            ]
-            + sshfs_cmd
-            + ["&&"]
-            + remote_cmd
-        )
-
-        ncat_proc = ["ncat", "-l", "-p", f"{client_nc_port}", "-e", "/usr/libexec/sftp-server"]
-        _run_processes([sshfs_proc, ncat_proc])
-
     def run(
         self,
         *args: Any,
         env: Optional[Dict[str, Any]] = None,
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
+        highlight_rules: Optional[Dict[str, str]] = None,
     ) -> Union[None, str]:
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
             env_file = "env.sh"
             with open(env_file, "w") as f:
                 f.write("\n".join(f'export {k}="{v}"' for k, v in env.items()))
-        return self.execute(self.executable, *args, env=env, stdout=stdout, check=check)
+        return self.execute(
+            self.executable, *args, env=env, stdout=stdout, check=check, highlight_rules=highlight_rules
+        )
 
     def execute(
         self,
@@ -471,10 +391,12 @@ class Tool(XedaBaseModel):
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
         cwd: Optional[Path] = None,
+        highlight_rules: Optional[Dict[str, str]] = None,
     ) -> Union[None, str]:
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
         args = tuple(list(self.default_args) + list(args))
+        highlight_rules = highlight_rules or self.highlight_rules
         if self.docker and self.dockerized:
             return self.docker.run(
                 executable,
@@ -484,6 +406,7 @@ class Tool(XedaBaseModel):
                 check=check,
                 root_dir=self.design_root,
                 print_command=self.print_command,
+                highlight_rules=highlight_rules,
             )
         if env is not None:
             env = {**os.environ, **env}
@@ -496,6 +419,7 @@ class Tool(XedaBaseModel):
                 check=check,
                 cwd=cwd,
                 print_command=self.print_command,
+                highlight_rules=highlight_rules,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")

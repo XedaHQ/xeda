@@ -37,8 +37,9 @@ proc showWarningsAndErrors {} {
     exit 1
     {%- endif %}
   }
-  if {$num_warns > 0} {
-    puts "** Number of Warnings:           $num_warns"
+  # if $num_warns is non-emty and not zero
+  if { [string length $num_warns] > 0 && $num_warns != 0 } {
+    puts "** Number of Warnings:      $num_warns"
   }
   puts "\n"
 }

@@ -6,7 +6,19 @@ import copy
 import logging
 from abc import ABCMeta
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, get_origin
+from pathlib import Path
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    get_origin,
+)
 
 import attrs
 
@@ -20,6 +32,7 @@ from pydantic import (
     root_validator,
     validator,
 )
+from pydantic.main import ModelMetaclass
 from pydantic.fields import ModelField, SHAPE_LIST
 
 if TYPE_CHECKING:
@@ -35,6 +48,7 @@ __all__ = [
     "asdict",
     "ValidationError",
     "validation_errors",
+    "XedaPathField",
 ]
 
 log = logging.getLogger(__name__)
@@ -71,7 +85,18 @@ def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str
     return attrs.asdict(inst, filter=filter_)
 
 
-class XedaBaseModel(BaseModel):
+class XedaPathField(Path):
+    pass
+
+
+class InnerMeta(ModelMetaclass):
+    def __get__(cls, instance, owner):
+        cls._outer_class = owner
+        cls._outer_instance = instance
+        return cls
+
+
+class XedaBaseModel(BaseModel, metaclass=InnerMeta):
     class Config(BaseConfig):
         validate_assignment = True
         extra = Extra.forbid

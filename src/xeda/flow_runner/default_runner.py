@@ -86,7 +86,16 @@ def print_results(
     )
     table.add_column(style="bold", min_width=8, no_wrap=True)
     table.add_column(justify="right", min_width=8)
-    skip_fields = ["timestamp", "design", "flow", "tools", "run_path", "artifacts"]
+    skip_fields = [
+        "timestamp",
+        "design",
+        "design_hash",
+        "flow",
+        "flow_hash",
+        "tools",
+        "run_path",
+        "artifacts",
+    ]
     for k, v in results.items():
         skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
         if skipable and not v:
@@ -402,18 +411,32 @@ class FlowLauncher:
         if not run_path.exists():
             run_path.mkdir(parents=True)
 
+        cwd = Path.cwd()
+
         with WorkingDirectory(run_path):
             log.debug("Instantiating flow from %s", flow_class)
             flow = flow_class(flow_settings, design, run_path)
-            flow.design_hash = design_hash
-            flow.flow_hash = flowrun_hash
-            flow.incremental = self.settings.incremental
 
-        if not previous_results:
+        flow.design_hash = design_hash
+        flow.flow_hash = flowrun_hash
+
+        flow.incremental = self.settings.incremental
+        flow.runner_cwd = cwd
+        flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        # flow execution time includes init() as well as execution of all its dependency flows
+        flow.init_time = time.monotonic()
+
+        if previous_results:
+            log.warning(
+                "Using previous %s results and artifacts from %s (timestamp: %s)",
+                flow_name,
+                run_path.absolute(),
+                previous_results.get("timestamp"),
+            )
+            flow.results.update(**previous_results)
+            flow.artifacts = previous_results.artifacts
+        else:
             with WorkingDirectory(run_path):
-                flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-                # flow execution time includes init() as well as execution of all its dependency flows
-                flow.init_time = time.monotonic()
                 if self.settings.cleanup_before_run:
                     flow.clean()
                 flow.init()
@@ -498,20 +521,13 @@ class FlowLauncher:
                     raise FlowDependencyFailure()
                 flow.completed_dependencies.append(completed_dep)
 
-        success = True
-        if previous_results:
-            log.warning(
-                "Using previous %s results and artifacts from %s (timestamp: %s)",
-                flow_name,
-                run_path.absolute(),
-                previous_results.get("timestamp"),
-            )
-            flow.results.update(**previous_results)
-            flow.artifacts = previous_results.artifacts
-        else:
             flow.results["design"] = flow.design.name
+            flow.results["design_hash"] = flow.design_hash
             flow.results["flow"] = flow.name
+            flow.results["flow_hash"] = flow.flow_hash
             flow.results["run_path"] = run_path.absolute()
+
+            success = True
 
             with WorkingDirectory(run_path):
                 if flow.settings.reports_dir:

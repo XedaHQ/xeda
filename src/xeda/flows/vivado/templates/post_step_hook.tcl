@@ -12,16 +12,16 @@ puts "** RUN_DIR is $RUN_DIR"
 if { ![info exists ACTIVE_STEP] } {
   set ACTIVE_STEP "synth_design"
   set reports_dir [file join ${RUN_DIR} {{settings.reports_dir}} $ACTIVE_STEP]
-  if { [file exists ${reports_dir}] } {
-    puts "Found reports from previous $ACTIVE_STEP step, assuming we are in an unknown step"
-    set ACTIVE_STEP "unknown"
-  }
+  # if { [file exists ${reports_dir}] } {
+  #   puts "Found reports from previous $ACTIVE_STEP step, assuming we are in an unknown step"
+  #   set ACTIVE_STEP "unknown"
+  # }
 }
 
 set reports_dir [file join ${RUN_DIR} {{settings.reports_dir}} $ACTIVE_STEP]
 set outputs_dir [file join ${RUN_DIR} {{settings.outputs_dir}} $ACTIVE_STEP]
 
-puts "\n==========================( Writing Reports after $ACTIVE_STEP )============================"
+puts "\n=======================( Writing reports after $ACTIVE_STEP )========================"
 puts "Writing reports to ${reports_dir}"
 file mkdir ${reports_dir}
 
@@ -37,9 +37,10 @@ report_utilization -force -file [file join ${reports_dir} utilization.xml] -form
 report_utilization -force -file [file join ${reports_dir} hierarchical_utilization.xml] -format xml -hierarchical
 reportCriticalPaths [file join ${reports_dir} critical_paths.csv]
 
-puts "\n=======================( Finished $ACTIVE_STEP reports )========================"
 showWarningsAndErrors
+
 if {$ACTIVE_STEP == "route_design"} {
+  report_drc  -file [file join ${reports_dir} drc.rpt]
   report_utilization -force -file [file join ${reports_dir} utilization.rpt]
   report_utilization -force -file [file join ${reports_dir} hierarchical_utilization.rpt] -hierarchical_percentages -hierarchical
   report_route_status -file [file join ${reports_dir} route_status.rpt]
@@ -74,8 +75,8 @@ if {$ACTIVE_STEP == "route_design"} {
   write_xdc -no_fixed_only -force ${outputs_dir}/impl.xdc
   {%- endif %}
 
-  {%- if settings.write_bitstream %}
-  puts "\n===========================( Writing bitstream )================================="
-  write_bitstream -force [ file join $outputs_dir {{design.rtl.top}}.bit ]
+  {%- if settings.bitstream %}
+  puts "\n=============================( Writing bitstream )=============================="
+  write_bitstream -force {{settings.bitstream}}
   {%- endif %}
 }
