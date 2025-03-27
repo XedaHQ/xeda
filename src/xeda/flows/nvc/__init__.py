@@ -5,7 +5,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
-from ...dataclass import Field  # type: ignore
+from ...dataclass import Field, XedaPathField  # type: ignore
 from ...design import DesignSource, SourceType, VhdlSettings
 from ...flow import SimFlow
 from ...tool import Tool
@@ -68,6 +68,10 @@ class Nvc(SimFlow):
         # clean: bool = Field(False, description="Run 'clean' before elaboration")
         ## analysis flags
         analysis_flags: List[str] = []
+        check_synthesis: bool = Field(
+            True,
+            description="Issue warnings for common coding mistakes that may cause problems during synthesis such as missing signals from process sensitivity lists.",
+        )
         psl_in_comments: Optional[bool] = Field(
             None, description="Enable parsing of PSL directives in comments during analysis."
         )
@@ -94,7 +98,7 @@ class Nvc(SimFlow):
             description="Do not save the elaborated design to a file. Normally nvc saves the elaborated design to a file in the work library. This file is used by the simulator to load the design quickly. The --no-save option disables this saving and the simulator will have to re-elaborate the design each time it is run. This option is useful for debugging the elaboration process.",
         )
         optimization_level: Optional[Literal[0, 1, 2, 3]] = Field(
-            None,
+            3,
             description="Set the optimization level. The default is 0. Higher levels may improve simulation performance but may also increase elaboration time. The maximum level is 3.",
         )
         print_verbose: bool = Field(
@@ -115,7 +119,7 @@ class Nvc(SimFlow):
             description="Generate waveform data in this format. The default is FST if this option is not provided and `wave` is not a filename. If this option is None `wave` is a filename, the format is selected automatically based on the file extension.",
         )
         wave_arrays: Union[int, bool, None] = Field(
-            None,
+            2048,
             description="Include memories and nested arrays in the waveform data. This is disabled by default as it can have significant performance, memory, and disk space overhead. With optional argument N only arrays with up to this many elements will be dumped.",
         )
         exit_severity: Optional[Literal["note", "warning", "error", "failure"]] = Field(
@@ -191,6 +195,8 @@ class Nvc(SimFlow):
         for k, v in self.design.tb.defines.items():
             assert v is not None
             flags += ["-D", f"{k}={v}"]
+        if ss.check_synthesis:
+            flags.append("--check-synthesis")
         return flags
 
     def analyze(self, sources=None) -> None:
@@ -245,6 +251,8 @@ class Nvc(SimFlow):
             if isinstance(ss.wave, bool):
                 execute_flags += ["--wave"]
             else:
+                if self.runner_cwd and isinstance(ss.wave, str) and ss.wave.startswith("$PWD/"):
+                    ss.wave = self.runner_cwd / ss.wave[5:]
                 execute_flags += [f"--wave={ss.wave}"]
                 if not ss.wave_format and isinstance(ss.wave, (str, Path)):
                     ss.wave = Path(ss.wave)
@@ -259,7 +267,8 @@ class Nvc(SimFlow):
                     execute_flags.append("--dump-arrays")
                 else:
                     assert isinstance(ss.wave_arrays, int)
-                    execute_flags.append(f"--dump-arrays={ss.wave_arrays}")
+                    if ss.wave_arrays > 0:
+                        execute_flags.append(f"--dump-arrays={ss.wave_arrays}")
 
         if ss.exit_severity:
             execute_flags.append(f"--exit-severity={ss.exit_severity}")
