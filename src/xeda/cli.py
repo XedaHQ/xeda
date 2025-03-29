@@ -35,6 +35,7 @@ from .flow import (
 from .flow_runner import (
     DIR_NAME_HASH_LEN,
     DefaultRunner,
+    FlowNotFoundError,
     XedaOptions,
     add_file_logger,
     get_flow_class,
@@ -346,6 +347,15 @@ def run(
             design_allow_extra=design_allow_extra,
         )
         sys.exit(1 if not f or not f.results.success else 0)
+    except FlowNotFoundError as e:
+        log.critical(
+            "Flow %s not found: FlowNotFoundError %s",
+            flow,
+            " ".join(str(a) for a in e.args),
+        )
+        if options.debug:
+            raise e
+        sys.exit(1)
     except FlowFatalError as e:
         log.critical(
             "Flow %s failed: FlowFatalException %s",
