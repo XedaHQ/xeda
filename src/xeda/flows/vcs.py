@@ -11,13 +11,13 @@ log = logging.getLogger(__name__)
 class Vcs(SimFlow):
     """Synopsys VCS simulator"""
 
-    dc_shell = Tool(executable="dc_shell-xg-t")
     vlogan = Tool("vlogan")
     vhdlan = Tool("vhdlan")
     vcs = Tool("vcs")
 
     class Settings(SimFlow.Settings):
         simv: str = "simv"
+        simv_flags = ["-nc", "-lca"]
         work_dir: Optional[str] = "work"
         timescale: Optional[str] = "1ns/1ps"
         vlogan_flags: List[str] = ["-full64", "-nc", "+warn=all"]  # TODO
@@ -49,7 +49,7 @@ class Vcs(SimFlow):
             vlogan_args.append(f"+incdir+{d}")
         vhdlan_args.append("-cycle")  # ???
         vhdlan_args.extend("-event")  # ???
-        if self.design.language.vhdl.standard == "2008":
+        if self.design.language.vhdl.standard in ("08", "2008"):
             vhdlan_args.extend("-vhdl08")
 
         # FIXME
@@ -73,7 +73,7 @@ class Vcs(SimFlow):
         self.vcs.run(*vcs_args)
 
         simv = Tool("./simv")  # ???
-        simv_args = ["-nc", "-lca"]
+        simv_args = ss.simv_flags
         for k, v in self.design.tb.parameters.items():
             simv_args.append(f"+define+{k}={v}")
         simv_args.extend(["-l", top])
