@@ -19,6 +19,7 @@ from .openfpgaloader import Openfpgaloader
 from .openroad import Openroad
 from .quartus import Quartus
 from .verilator import Verilator
+from .vcs import Vcs
 from .vivado.vivado_alt_synth import VivadoAltSynth
 from .vivado.vivado_postsynthsim import VivadoPostsynthSim
 from .vivado.vivado_power import VivadoPower
@@ -54,6 +55,7 @@ __all__ = [
     "VivadoSynth",
     "Yosys",
     "YosysFpga",
+    "Vcs",
 ]
 
 for loader, module_name, is_pkg in pkgutil.walk_packages(__path__):
