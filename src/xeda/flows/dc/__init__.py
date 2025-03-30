@@ -1,9 +1,7 @@
 import logging
-import os
 import re
 from pathlib import Path
-from turtle import st
-from typing import Any, Dict, List, Mapping, Optional, Union
+from typing import Any, List, Mapping, Optional, Union
 
 from box import Box
 
@@ -35,7 +33,7 @@ def get_hier(dct, dotted_path, default=None):
 
 
 class Dc(AsicSynthFlow):
-    dc_shell = Tool(executable="dc_shell-xg-t")  # pyright: ignore
+    dc_shell = Tool(executable="dc_shell")  # pyright: ignore
 
     class Settings(AsicSynthFlow.Settings):
         topographical_mode: bool = False
@@ -66,9 +64,7 @@ class Dc(AsicSynthFlow):
             },
             description="Set compile_<key> variables. See the DC documentation for details.",
         )
-        target_libraries: List[Path] = Field(
-            alias="libraries", description="Target library or libraries"
-        )
+        target_libraries: List[str] = Field(description="Target library or libraries")
         extra_link_libraries: List[Path] = Field([], description="Additional link libraries")
         tluplus_map: Optional[str] = None
         tluplus_max: Optional[str] = None
@@ -100,11 +96,13 @@ class Dc(AsicSynthFlow):
             k: self.normalize_path_to_design_root(v) if v else None for k, v in ss.hooks.items()
         }
 
-        if ss.platform:
-            if not ss.target_libraries:
-                ss.liberty = ss.platform.default_corner_settings.lib_files
+        # if ss.platform:
+        #     if not ss.target_libraries:
+        #         ss.liberty = ss.platform.default_corner_settings.lib_files
 
-        script_path = self.copy_from_template("run.tcl")
+        if not ss.sdc_files:
+            ss.sdc_files.append(self.copy_from_template("constraints.tcl"))
+        script_path = self.copy_from_template("simple.tcl")
         cmd = [
             "-64bit",
         ]
@@ -112,7 +110,7 @@ class Dc(AsicSynthFlow):
             cmd.append("-topographical_mode")
         cmd += [
             "-f",
-            script_path,
+            str(script_path),
         ]
 
         self.dc_shell.run(*cmd)

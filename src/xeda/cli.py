@@ -372,11 +372,11 @@ def run(
         sys.exit(1)
     except ExecutableNotFound as e:
         log.critical(
-            "Executable '%s' was not found! (tool:%s, flow:%s, PATH:%s)",
+            "Executable '%s' was not found in PATH. flow:%s, tool:%s"
+            + (f", PATH:{e.path}" if options.debug else ""),
             e.exec,
-            e.tool,
             flow,
-            e.path,
+            e.tool,
         )
         sys.exit(1)
     except FlowSettingsError as e:

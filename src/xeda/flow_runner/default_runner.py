@@ -422,6 +422,7 @@ class FlowLauncher:
 
         flow.incremental = self.settings.incremental
         flow.runner_cwd = cwd
+        flow.settings.runner_cwd_ = cwd
         flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         # flow execution time includes init() as well as execution of all its dependency flows
         flow.init_time = time.monotonic()
@@ -764,11 +765,13 @@ class FlowLauncher:
                             "[ERROR] no design was specified and none were automatically discovered."
                         )
                         raise ValueError("no design was specified or discovered")
-        flow_overrides = (
-            flow_settings.dict()
-            if isinstance(flow_settings, Flow.Settings)
-            else settings_to_dict(flow_settings)
-        )
+        if isinstance(flow_settings, Flow.Settings):
+            flow_overrides = flow_settings.dict()
+        else:
+            assert isinstance(
+                flow_settings, (list, tuple, dict)
+            ), "flow_settings should be a list, tuple or dict"
+            flow_overrides = settings_to_dict(flow_settings)
         log.debug("flow_overrides: %s", flow_overrides)
         if isinstance(flow, str):
             flow_name = flow

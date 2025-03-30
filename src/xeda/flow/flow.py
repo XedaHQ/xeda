@@ -83,7 +83,7 @@ class Flow(metaclass=ABCMeta):
         redirect_stdout: bool = Field(
             False, description="Redirect stdout from execution of tools to files."
         )
-        
+        runner_cwd_: Optional[Path] = None
 
         @validator("verbose", pre=True, always=True)
         def _validate_verbose(cls, value):
@@ -130,11 +130,12 @@ class Flow(metaclass=ABCMeta):
 
         @validator("*", pre=True, always=True)
         def _expand_path_vars(cls, value, field: Optional[ModelField]):
-
-            mapping = {
-                "$PWD": Path.cwd(),
-            }
-            return expand_paths(field, value, mapping)
+            # if cls._runner_cwd:
+            #     mapping = {
+            #         "$PWD": cls._runner_cwd,
+            #     }
+            #     return expand_paths(field, value, mapping)
+            return value
 
         @validator("lib_paths", pre=True, always=True)
         def _lib_paths_validator(cls, value):
@@ -457,20 +458,12 @@ class FlowSettingsError(FlowException):
         self.model = model
 
     def __str__(self) -> str:
-        return "{}: {} error{} validating {}:\n{}".format(
+        return "{}: {} error{} validating {}\n{}".format(
             self.__class__.__qualname__,
             len(self.errors),
             "s" if len(self.errors) > 1 else "",
             self.model.__qualname__,
-            "\n".join(
-                "{}{}{}{}\n".format(
-                    f"{loc}:\n   " if loc else "",
-                    msg,
-                    f"\nType of error: {typ}" if typ else "",
-                    f"\nError context: {ctx}" if ctx else "",
-                )
-                for loc, msg, ctx, typ in self.errors
-            ),
+            "\n".join(f"   {msg}: {loc} ({typ})" for loc, msg, _, typ in self.errors),
         )
 
 

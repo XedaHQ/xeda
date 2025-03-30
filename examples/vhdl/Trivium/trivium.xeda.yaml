@@ -1,0 +1,25 @@
+hdl.vhdl.standard: 2008
+
+sources:
+    - trivium.vhdl
+
+parameters:
+  G_IN_BITS: 64
+  G_OUT_BITS: 64 # 96
+  G_SETUP_ROUNDS: 4
+
+top: trivium
+clock.port: clk
+
+test:
+  sources:
+  - trivium_tb.py
+  - cref/trivium64.c
+
+flows:
+  vivado_synth:
+    fpga.part: xc7a12tcsg325-3
+    clock.freq: 200MHz
+  dc:
+    target_libraries:
+      - /Users/kamyar/Downloads/lib/SAED90/saed90nm_typ_ht.db

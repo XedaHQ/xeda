@@ -78,7 +78,9 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
                 new_design,
                 f,
                 default=lambda obj: (
-                    obj.__json_encoder__
+                    obj.json
+                    if hasattr(obj, "json")
+                    else obj.__json_encoder__
                     if hasattr(obj, "__json_encoder__")
                     else obj.__dict__ if hasattr(obj, "__dict__") else str(obj)
                 ),

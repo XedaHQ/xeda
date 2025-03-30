@@ -101,7 +101,7 @@ void trivium_api(const uint8_t *key, const uint8_t *iv, size_t ks_size,
 
     const size_t remainder = ks_size % 8;
 
-    for (int i = 0; i < ks_size - remainder; i += 8) {
+    for (size_t i = 0; i < ks_size - remainder; i += 8) {
         ks64 = trivium64_next();
         // print_state("next");
         uint64_to_bytes(ks64, &ks[i]);
@@ -110,7 +110,7 @@ void trivium_api(const uint8_t *key, const uint8_t *iv, size_t ks_size,
     if (remainder) {
         ks64 = trivium64_next();
         // print_state("next");
-        for (int i = 0; i < remainder; i++) {
+        for (size_t i = 0; i < remainder; i++) {
             ks[ks_size - remainder + i] = (ks64 >> (7 - i)) & 0xff;
         }
     }

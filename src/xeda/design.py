@@ -85,8 +85,8 @@ class DesignValidationError(Exception):
             "s" if len(self.errors) > 1 else "",
             f" {name}" if name else "",
             "\n".join(
-                "{}{} ({})\n".format(f"{loc}:\n   " if loc else "", msg, ctx)
-                for loc, msg, ctx, typ in self.errors
+                "{}{}\n".format(f"{loc}:\n   " if loc else "", msg)
+                for loc, msg, _, _ in self.errors
             ),
         ) + (f"\nDesign:\n{pformat(self.data)}\n" if self.data else "")
 
@@ -1081,7 +1081,7 @@ class Design(XedaBaseModel):
         return hashlib.sha3_256(r).hexdigest()
 
     # pylint: disable=arguments-differ
-    def dict(self) -> Dict[str, Any]:
+    def dict(self) -> Dict[str, Any]:  # type: ignore
         return super().dict(
             exclude_unset=True,
             exclude_defaults=True,

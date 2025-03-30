@@ -143,7 +143,7 @@ class Docker(XedaBaseModel):
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
-            raise ExecutableNotFound(e.filename, self.name, path, *e.args) from None
+            raise ExecutableNotFound(e.filename, self.__class__.__qualname__, path, *e.args) from None
 
 
 def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
@@ -423,7 +423,7 @@ class Tool(XedaBaseModel):
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")
-            raise ExecutableNotFound(e.filename, self.__class__.__name__, path, *e.args) from None
+            raise ExecutableNotFound(e.filename, self.__class__.__qualname__, path, *e.args) from None
 
     def run_get_stdout(
         self, *args: Any, env: Optional[Dict[str, Any]] = None, raise_on_error: bool = True

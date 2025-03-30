@@ -95,8 +95,10 @@ async def test_trivium(dut: DUT):
 
     # get bound parameters/generics from the simulator
     IN_BITS = tb.get_int_value("G_IN_BITS")
+    # IN_BITS = dut.G_IN_BITS
     assert IN_BITS
     OUT_BITS = tb.get_int_value("G_OUT_BITS")
+    # OUT_BITS = dut.G_OUT_BITS
     assert OUT_BITS
 
     print(f"IN_BITS:{IN_BITS}, OUT_BITS:{OUT_BITS}")

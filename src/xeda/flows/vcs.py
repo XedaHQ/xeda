@@ -25,7 +25,7 @@ class Vcs(SimFlow):
         time_unit: Optional[str] = "1ns"
         time_resolution: Optional[str] = "1ps"
         warn: Optional[str] = "all"
-        lint: Optional[str] = "all,noVCDE,noTFIPC,noIWU,noOUDPE"
+        lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE"
         debug_access: Optional[str] = None
         timing_sim: bool = Field(False, description="Enable timing simulation for VITAL")
         init_std_logic: Optional[Literal[ "U", "X", "0", "1", "Z", "W", "L", "H", "-"]] = Field(None, description="Initialize std_logic to this value")
