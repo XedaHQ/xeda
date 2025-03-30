@@ -1,14 +1,8 @@
-# Based on DC scripts for mflowgen by Christopher Torng, 05/05/2020
-# https://github.com/cornell-brg/mflowgen/tree/master/steps/synopsys-dc-synthesis
-#
+# Remove new variable info messages from the end of the log file
+set_app_var sh_new_variable_message false
 
 set dc_design_name                {{design.rtl.top}}
-set dc_clock_period               {{settings.clock_period}} 
-set dc_topographical              {{settings.get("topographical", True)}}
-set adk_dir                       {{adk.path}}
-set dc_target_libraries           { {{- adk.target_libraries|join(' ') -}} }
-set mw_ref_libs                   "$adk_dir/{{- adk.milkeyway_reference_libraries|join(' $adk_dir/') -}}"
-set mw_tf                         $adk_dir/{{adk.milkeyway_technology_file}}
+set dc_clock_period               {{settings.clock_period}}
 set dc_reports_dir                {{settings.reports_dir}}
 set dc_results_dir                {{settings.outputs_dir}}
 
@@ -17,114 +11,78 @@ file mkdir ${dc_results_dir}
 file delete -force {*}[glob -nocomplain ${dc_reports_dir}/*]
 file delete -force {*}[glob -nocomplain ${dc_results_dir}/*]
 
-#stdcells.mwlib
-set dc_tluplus_map              {{adk.tluplus_map}}
-set dc_tluplus_max              {{adk.max_tluplus}}
-set dc_tluplus_min              {{adk.min_tluplus}}
-set dc_additional_search_path   {{settings.get('additional_search_path', '{}')}}
-
 {% if settings.nthreads is not none %}
 set_host_options -max_cores {{nthreads}}
 {% endif %}
 
+{% if settings.alib_dir is not none %}
 # Set up alib caching for faster consecutive runs
 set_app_var alib_library_analysis_path {{settings.alib_dir}}
+{% endif %}
 
 # Set up search path for libraries and design files
-set_app_var search_path ". $adk_dir $dc_additional_search_path $search_path"
+{-% if settings.additional_search_path is not none %}
+set_app_var search_path "{{settings.additional_search_path}} $search_path"
+{% endif -%}
+set_app_var search_path ". $search_path"
 
 # - target_library    -- DC maps the design to gates in this library (db)
 # - synthetic_library -- DesignWare library (sldb)
 # - link_library      -- Libraries for any other design references (e.g.,
 #                        SRAMs, hierarchical blocks, macros, IO libs) (db)
-set_app_var target_library     $dc_target_libraries
+set_app_var target_library     "{{settings.target_libraries |join(' ')}}"
 set_app_var synthetic_library  dw_foundation.sldb
 set_app_var link_library       [join "
-                                 *
-                                 $target_library
-                                 {{settings.get('extra_link_libraries',[])|join(' ')}}
-                                 $synthetic_library
-                               "]
+*
+$target_library
+{{settings.extra_link_libraries|join(' ')}}
+$synthetic_library
+"]
 
 
-# Only create new Milkyway design library if it doesn't already exist
+# Create a new Milkyway design library
 set milkyway_library ${dc_design_name}_lib
-if {![file isdirectory $milkyway_library ]} {
-  # By default, Milkyway libraries only have 180 or so layers available to
-  # use (255 total, but some are reserved).
-  # Expand the Milkyway library to accommodate up to 4095 layers.
-  extend_mw_layers
-  # Create a new Milkyway library
-  create_mw_lib -technology $mw_tf -mw_reference_library $mw_ref_libs $milkyway_library
-} else {
-  # Reuse existing Milkyway library, but ensure that it is consistent with
-  # the provided reference Milkyway libraries.
-  set_mw_lib_reference $milkyway_library -mw_reference_library $mw_ref_libs
-}
-
+# By default, Milkyway libraries only have 180 or so layers available to
+# use (255 total, but some are reserved).
+# Expand the Milkyway library to accommodate up to 4095 layers.
+extend_mw_layers
+create_mw_lib {{%-if settings.mw_tf is not none%}} -technology {{settings.mw_tf}} {{%-endif%}} {{%-if settings.mw_ref_lib is not none%}} -mw_reference_library {{settings.mw_ref_lib}} {{%-endif%}} $milkyway_library
 open_mw_lib $milkyway_library
 
+## FIXME:
+{% if settings.tluplus_map is not none %}
 # Set up TLU plus (if the files exist)
-# TODO -min_tluplus  $dc_tluplus_min
-# if { $dc_topographical == True } {
+# TODO -min_tluplus  {{settings.tluplus_min}}
+if {[shell_is_in_topographical_mode]} {
   if {[file exists [which $dc_tluplus_max]]} {
-    set_tlu_plus_files -max_tluplus $dc_tluplus_max -tech2itf_map $dc_tluplus_map
+    set_tlu_plus_files {{%-if settings.tluplus_max is not none%}} -max_tluplus {{settings.tluplus_max}}  {{%-endif%}} {{%-if settings.tluplus_min is not none%}} -min_tluplus {{settings.tluplus_min}} {{%-endif%}} -tech2itf_map {{settings.tluplus_map}}
     check_tlu_plus_files
   }
-# }
+}
+{% endif %}
 
 # Set up tracking for Synopsys Formality
-# set_svf ${dc_results_dir}/${dc_design_name}.mapped.svf
+set_svf ${dc_results_dir}/${dc_design_name}.mapped.svf
 
 # SAIF mapping
 saif_map -start
 
-# Avoiding X-propagation for synchronous reset DFFs
-#
-# There are two key variables that help avoid X-propagation for
-# synchronous reset DFFs:
-#
-# - set hdlin_ff_always_sync_set_reset true
-#
-#     - Tells DC to use every constant 0 loaded into a DFF with a clock
-#       for synchronous reset, and every constant 1 loaded into a DFF with a
-#       clock for synchronous set
-#
-# - set compile_seqmap_honor_sync_set_reset true
-#
-#     - Tells DC to preserve synchronous reset or preset logic close to
-#       the flip-flop
-#
-# So the hdlin variable first tells DC to treat resets as synchronous, and
-# the compile variable tells DC that for all these synchronous reset DFFs,
-# keep the logic simple and close to the DFF to avoid X-propagation. The
-# hdlin variable applies to the analyze step when we read in the RTL, so
-# it must be set before we read in the Verilog. The second variable
-# applies to compile and must be set before we run compile_ultra.
-#
-# Note: Instead of setting the hdlin_ff_always_sync_set_reset variable to
-# true, you can specifically tell DC about a particular DFF reset using
-# the //synopsys sync_set_reset "reset, int_reset" pragma.
-#
-# By default, the hdlin_ff_always_async_set_reset variable is set to true,
-# and the hdlin_ff_always_sync_set_reset variable is set to false.
+{%- if design.language.vhdl.standard in ("08", "2008") %}
+set hdlin_vhdl_std 2008
+{% elif design.language.vhdl.standard in ("93", "1993") %}
+set hdlin_vhdl_std 1993
+{% elif design.language.vhdl.standard %}
+set hdlin_vhdl_std {{design.language.vhdl.standard}}
+{%- endif %}
 
-# set hdlin_ff_always_sync_set_reset      true
-# set hdlin_ff_always_async_set_reset     true 
-set compile_seqmap_honor_sync_set_reset true
+{%- for k,v in settings.hdlin.items() %}
+set hdlin_{{k}} {{v}}
+{%- endfor %}
 
-# When boundary optimizations are off, set this variable to true to still
-# allow unconnected registers to be removed.
-set compile_optimize_unloaded_seq_logic_with_no_bound_opt true
+{%- for k,v in settings.compile.items() %}
+set compile_{{k}} {{v}}
+{%- endfor %}
 
-#???
-# set hdlin_infer_mux all
-# set hdlin_infer_mux "default"
-set hdlin_dont_infer_mux_for_resource_sharing "true"
-set hdlin_mux_size_limit 32
-
-# Remove new variable info messages from the end of the log file
-set_app_var sh_new_variable_message false
 
 puts "\n===========================( Checking Libraries )==========================="
 check_library > $dc_reports_dir/${dc_design_name}.check_library.rpt
@@ -135,13 +93,6 @@ query_objects [get_libs -quiet *]
 # the -path option is customizable.
 define_design_lib WORK -path ${dc_results_dir}/WORK
 
-{%- if design.language.vhdl.standard in ("08", "2008") %}
-set hdlin_vhdl_std 2008
-{% elif design.language.vhdl.standard in ("93", "1993") %}
-set hdlin_vhdl_std 1993
-{% elif design.language.vhdl.standard %}
-set hdlin_vhdl_std {{design.language.vhdl.standard}}
-{%- endif %}
 
 {% for src in design.rtl.sources %}
 {%- if src.type.name == "Verilog" %}
@@ -153,6 +104,9 @@ if { ![analyze -format sverilog {{src.file}}] } { exit 1 }
 {%- elif src.type.name == "Vhdl" %}
 puts "\n===========================( Analyzing VHDL file {{src.file}} )==========================="
 if { ![analyze -format vhdl {{src.file}}] } { exit 1 }
+{%- elif src.type.name == "Tcl" %}
+puts "\n===========================( Sourcing TCL file {{src.file}} )==========================="
+if { ![source -echo {{src.file}}] } { exit 1 }
 {% endif %}
 {% endfor %}
 
@@ -183,12 +137,12 @@ create_clock -name ${clock_name} -period ${dc_clock_period} [get_ports {{design.
 
 # This constraint sets the load capacitance in picofarads of the
 # output pins of your design.
-set_load -pin_load {{adk.typical_on_chip_load}} [all_outputs]
+# set_load -pin_load {{adk.typical_on_chip_load}} [all_outputs]
 
 # drive strength of the input pins from specific standard cell which models what
 # would be driving the inputs. This should usually be a small inverter
 # which is reasonable if another block of on-chip logic is driving your inputs.
-set_driving_cell -no_design_rule -lib_cell {{adk.driving_cell}} [all_inputs]
+# set_driving_cell -no_design_rule -lib_cell {{adk.driving_cell}} [all_inputs]
 
 # - make this non-zero to avoid hold buffers on input-registered designs
 set_input_delay -clock ${clock_name} [expr ${dc_clock_period}/2.0] [filter [all_inputs] {NAME != {{design.rtl.clock_port}} } ]
@@ -269,11 +223,11 @@ set_app_var verilogout_no_tri true
 set_fix_multiple_port_nets -all -buffer_constants
 
 # Set the minimum and maximum routing layers used in DC topographical mode
-# if { $dc_topographical == True } {
-  set_ignored_layers -min_routing_layer {{adk.min_routing_layer_dc}}
-  set_ignored_layers -max_routing_layer {{adk.max_routing_layer_dc}}
-  report_ignored_layers
-# }
+if {[shell_is_in_topographical_mode]} {
+  # set_ignored_layers -min_routing_layer {{adk.min_routing_layer_dc}}
+  # set_ignored_layers -max_routing_layer {{adk.max_routing_layer_dc}}
+}
+report_ignored_layers
 
 # The check_timing command checks for constraint problems such as
 # undefined clocking, undefined input arrival times, and undefined output
@@ -345,9 +299,9 @@ write_file -format vhdl -hierarchy -output ${dc_results_dir}/${dc_design_name}.m
 write_file -format verilog -output ${dc_results_dir}/${dc_design_name}.mapped.top.v
 
 # Floorplan
-# if { $dc_topographical == True } {
-write_floorplan -all ${dc_results_dir}/${dc_design_name}.mapped.fp
-# }
+if {[shell_is_in_topographical_mode]} {
+  write_floorplan -all ${dc_results_dir}/${dc_design_name}.mapped.fp
+}
 
 # Parasitics
 write_parasitics -output ${dc_results_dir}/${dc_design_name}.mapped.spef
@@ -410,11 +364,11 @@ report_power -nosplit -analysis_effort high -hierarchy -levels 3 > ${dc_reports_
 report_clock_gating -nosplit > ${dc_reports_dir}/${dc_design_name}.mapped.clock_gating.rpt
 
 # for computing gate-equivalent
-set NAND2_AREA [get_attribute {{adk.lib_name}}/{{adk.nand2_gate}} area]
+# set NAND2_AREA [get_attribute {{adk.lib_name}}/{{adk.nand2_gate}} area]
 
-set f [open ${dc_reports_dir}/${dc_design_name}.mapped.area.rpt "a"]
-puts $f "Area of cell library's basic NAND2 gate ({{adk.nand2_gate}}) is: $NAND2_AREA\n"
-close $f
+# set f [open ${dc_reports_dir}/${dc_design_name}.mapped.area.rpt "a"]
+# puts $f "Area of cell library's basic NAND2 gate ({{adk.nand2_gate}}) is: $NAND2_AREA\n"
+# close $f
 
 puts "\n\n---*****===( DC synthesis successfully completed )===*****---\n"
 

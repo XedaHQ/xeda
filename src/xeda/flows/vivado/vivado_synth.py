@@ -178,7 +178,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             args["MORE"] = args_more
             settings.synth.steps["SYNTH_DESIGN"]["ARGS"] = args
 
-        tcl_files = [p.file for p in self.design.rtl.sources if p.type == "tcl"]
+        tcl_files = [p.file for p in self.design.rtl.sources if p.type and p.type is SourceType.Tcl]
         tcl_files += [self.normalize_path_to_design_root(p) for p in settings.tcl_files]
 
         if self.settings.bitstream:

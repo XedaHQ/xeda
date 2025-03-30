@@ -33,7 +33,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             None, alias="waveform", description="Write waveform to file"
         )
         stop_time: Union[None, str, int, float] = None
-        cocotb: CocotbSettings = CocotbSettings()  # pyright: reportGeneralTypeIssues=none
+        cocotb: CocotbSettings = CocotbSettings()  # type: ignore
         optimization_flags: List[str] = Field([], description="Optimization flags")
 
         @validator("vcd", pre=True)

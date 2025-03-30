@@ -43,16 +43,12 @@ __all__ = [
     "FlowFatalError",
 ]
 
-mapping = {
-    "$PWD": Path.cwd(),
-}
 
-
-def expand_paths(field: Optional[ModelField], value):
+def expand_paths(field: Optional[ModelField], value, mapping):
     if field is None or field.type_ not in (Path, Optional[Path]):
         return value
     if isinstance(value, (tuple, list)):
-        return [expand_paths(field, v) for v in value]
+        return [expand_paths(field, v, mapping) for v in value]
     if isinstance(value, (str, Path)) and value and not os.path.isabs(value):
         for pattern, repl in mapping.items():
             if not os.path.isabs(value):
@@ -87,6 +83,7 @@ class Flow(metaclass=ABCMeta):
         redirect_stdout: bool = Field(
             False, description="Redirect stdout from execution of tools to files."
         )
+        
 
         @validator("verbose", pre=True, always=True)
         def _validate_verbose(cls, value):
@@ -133,7 +130,11 @@ class Flow(metaclass=ABCMeta):
 
         @validator("*", pre=True, always=True)
         def _expand_path_vars(cls, value, field: Optional[ModelField]):
-            return expand_paths(field, value)
+
+            mapping = {
+                "$PWD": Path.cwd(),
+            }
+            return expand_paths(field, value, mapping)
 
         @validator("lib_paths", pre=True, always=True)
         def _lib_paths_validator(cls, value):

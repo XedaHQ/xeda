@@ -206,21 +206,17 @@ class Yosys(YosysBase, SynthFlow):
         # TODO factor out common code
         ss = self.settings
 
-        def set_file_path(p):
-            if not p or os.path.isabs(p):
-                return p
-            return self.design.root_path / p
-
         if ss.platform:
             if not ss.liberty:
                 ss.liberty = ss.platform.default_corner_settings.lib_files
             if not ss.dff_liberty:
                 ss.dff_liberty = ss.platform.default_corner_settings.dff_lib_file
 
-        ss.liberty = [set_file_path(lib) for lib in ss.liberty]
-        ss.dff_liberty = set_file_path(ss.dff_liberty)
+        ss.liberty = [self.normalize_path_to_design_root(lib) for lib in ss.liberty]
+        if ss.dff_liberty:
+            ss.dff_liberty = self.normalize_path_to_design_root(ss.dff_liberty)
         if isinstance(ss.abc_script, str) and not ss.abc_script.startswith("+"):
-            ss.abc_script = str(set_file_path(ss.abc_script))
+            ss.abc_script = str(self.normalize_path_to_design_root(ss.abc_script))
 
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"

@@ -435,12 +435,11 @@ class GhdlSim(Ghdl, SimFlow):
             if value is not None:
                 ext = ".ghw" if field.name == "wave" else ".fst" if field.name == "fst" else ""
                 if isinstance(value, bool):
-                    value = "dump" + ext if value else None
-                else:
-                    if not isinstance(value, str):
-                        value = str(value)
-                    if not value.endswith(ext):
-                        value += ext
+                    return "dump" + ext if value else None
+                elif isinstance(value, str):
+                    # if value.startswith("$PWD/"):
+                    #     value = os.path.join(self.r, value[5:])
+                    pass
             return value
 
     def run(self) -> None:
@@ -461,16 +460,26 @@ class GhdlSim(Ghdl, SimFlow):
                 return str(self.run_path.relative_to(Path.cwd()) / s)
             return str(s)
 
+        if ss.wave:
+            if ss.wave.endswith(".vcd") or ss.wave.endswith(".vcdgz"):
+                ss.vcd = ss.wave
+                ss.wave = None
+            elif ss.wave.endswith(".fst"):
+                ss.fst = ss.wave
+                ss.wave = None
+            elif not ss.wave.endswith(".ghw"):
+                ss.wave += ".ghw"
+
         if ss.vcd:
             if str(ss.vcd).endswith((".gz", ".vcdgz")):
                 run_flags.append(f"--vcdgz={ss.vcd}")
             else:
                 run_flags.append(f"--vcd={ss.vcd}")
             log.warning("Dumping VCD to %s", fp(ss.vcd))
-        if ss.fst:
+        elif ss.fst:
             run_flags += setting_flag(ss.fst, name="fst")
             log.warning("Dumping fst to %s", fp(ss.fst))
-        if ss.wave:
+        elif ss.wave:
             run_flags += setting_flag(ss.wave, name="wave")
             log.warning("Dumping GHW to %s", fp(ss.wave))
 
@@ -548,17 +557,6 @@ class GhdlSim(Ghdl, SimFlow):
         success = True
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-
-        dump_file = ss.wave or ss.vcd or ss.fst
-        if dump_file:
-            log.debug("Generating GtkWave save-file form dump_file=%s", dump_file)
-            opt_file = ss.read_wave_opt or ss.write_wave_opt
-            extra_top = "top" if ss.wave else None
-            signals, root_group = _get_wave_opt_signals(opt_file, extra_top)
-            if dump_file == ss.fst:  # fst removes the common hierarchy
-                signals = [s[len(root_group) :] for s in signals]
-                root_group = []
-            gen_gtkw(dump_file, signals, root_group)
 
         # TODO move
         if self.cocotb and self.design.tb and self.design.tb.cocotb:

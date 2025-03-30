@@ -2,12 +2,15 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Mapping
+from turtle import st
+from typing import Any, Dict, List, Mapping, Optional, Union
 
 from box import Box
 
+from ...dataclass import Field, validator
 from ...tool import Tool
-from ...utils import hierarchical_merge, toml_load, try_convert_to_primitives
+from ...platforms import AsicsPlatform
+from ...utils import try_convert_to_primitives
 from ...flow import AsicSynthFlow
 
 log = logging.getLogger(__name__)
@@ -35,29 +38,84 @@ class Dc(AsicSynthFlow):
     dc_shell = Tool(executable="dc_shell-xg-t")  # pyright: ignore
 
     class Settings(AsicSynthFlow.Settings):
-        adk: str
+        topographical_mode: bool = False
+        sdc_files: List[Union[str, Path]] = Field(
+            [], description="List of user SDC constraint files."
+        )
+        hooks: Mapping[str, Optional[Union[str, Path]]] = Field(
+            {
+                "pre_elab": None,
+                "post_elab": None,
+                "post_link": None,
+                "finalize": None,
+            },
+            description="Custom TCL hooks to be run at the specified point in the flow.",
+        )
+        platform: Optional[AsicsPlatform] = None
+        hdlin: Mapping[str, str] = Field(
+            {
+                "infer_mux": "default",
+                "dont_infer_mux_for_resource_sharing": "true",
+            },
+            description="Set hdlin_<key> variables. See the DC documentation for details.",
+        )
+        compile: Mapping[str, str] = Field(
+            {
+                "seqmap_honor_sync_set_reset": "true",
+                "optimize_unloaded_seq_logic_with_no_bound_opt": "true",  # allow unconnected registers to be removed
+            },
+            description="Set compile_<key> variables. See the DC documentation for details.",
+        )
+        target_libraries: List[Path] = Field(
+            alias="libraries", description="Target library or libraries"
+        )
+        extra_link_libraries: List[Path] = Field([], description="Additional link libraries")
+        tluplus_map: Optional[str] = None
+        tluplus_max: Optional[str] = None
+        tluplus_min: Optional[str] = None
+        mw_ref_lib: Optional[str] = None
+        mw_tf: Optional[str] = None
+        alib_dir: Optional[str] = None
+        additional_search_path: Optional[str] = None
+
+        @validator("target_libraries", pre=True, always=True)
+        def _validate_target_libraries(cls, value):
+            if isinstance(value, (Path, str)):
+                value = [value]
+            return value
+
+        @validator("platform", pre=True, always=True)
+        def _validate_platform(cls, value):
+            if isinstance(value, str) and not value.endswith(".toml"):
+                return AsicsPlatform.from_resource(value)
+            elif isinstance(value, (str, Path)):
+                return AsicsPlatform.from_toml(value)
+            return value
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        adk_id = ss.adk
-        adk_root = Path.home() / "adk"
-        adk_config: Dict[str, Any] = {}
-        for toml_file in adk_root.glob("*.toml"):
-            adk_config = hierarchical_merge(adk_config, toml_load(toml_file), add_new_keys=True)
 
-        adk = get_hier(adk_config, adk_id)
-        assert adk is not None
-        if not os.path.isabs(adk.path):
-            adk.path = os.path.join(str(adk_root), adk.path)
+        ss.hooks = {
+            k: self.normalize_path_to_design_root(v) if v else None for k, v in ss.hooks.items()
+        }
 
-        log.debug("adk=%s", adk)
+        if ss.platform:
+            if not ss.target_libraries:
+                ss.liberty = ss.platform.default_corner_settings.lib_files
 
-        script_path = self.copy_from_template(
-            "run.tcl",
-            adk=adk,
-        )
-        self.dc_shell.run("-64bit", "-topographical_mode", "-f", script_path)
+        script_path = self.copy_from_template("run.tcl")
+        cmd = [
+            "-64bit",
+        ]
+        if self.settings.topographical_mode:
+            cmd.append("-topographical_mode")
+        cmd += [
+            "-f",
+            script_path,
+        ]
+
+        self.dc_shell.run(*cmd)
 
     def parse_reports(self) -> bool:
         reports_dir = self.settings.reports_dir

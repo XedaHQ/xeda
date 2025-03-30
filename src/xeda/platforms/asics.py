@@ -16,7 +16,8 @@ DEFAULT_CORNER_FALLBACK = "tt"
 
 
 class CornerSettings(XedaBaseModel):
-    lib_files: List[Path]
+    lib_files: List[Path] = []
+    db_files: List[Path] = []
     dff_lib_file: Optional[Path] = None
     rcx_rules: Optional[Path] = None
     voltage: Optional[float] = None
