@@ -111,7 +111,10 @@ class Ghdl(Flow, metaclass=ABCMeta):
             True,
             description="Slightly relax some rules to be compatible with various other simulators or synthesizers.",
         )
-        # clean_before_elab: bool = Field(False, description="Run 'clean' before elaboration")
+        clean: bool = Field(
+            True,
+            description="Run 'clean' before analysis. This will remove all generated files.",
+        )
         diagnostics: bool = Field(
             True, description="Enable both color and source line carret diagnostics."
         )
