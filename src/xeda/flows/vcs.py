@@ -19,7 +19,7 @@ class Vcs(SimFlow):
 
     class Settings(SimFlow.Settings):
         simv: str = "simv"
-        simv_flags = ["-nc"]
+        simv_flags = ["-nc", "-no_save"]
         work_dir: Optional[str] = "work"
         vhdl_xlrm: bool = Field(False, description="Enables VHDL features beyond those described in LRM")
         time_unit: Optional[str] = "1ns"
