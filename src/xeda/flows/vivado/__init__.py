@@ -79,7 +79,7 @@ class VivadoTool(Tool):
         command=["/tools/Xilinx/Vivado/2021.1/bin/vivado"],
         tag="stable",
     )  # pyright: ignore
-    console_subs_rules: Optional[Dict[str, str]] = {
+    highlight_rules: Optional[Dict[str, str]] = {
         r"^(ERROR:)(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
         r"^(CRITICAL WARNING:)(.+)$": colorama.Fore.RED + r"\g<1>" + r"\g<2>",
         r"^(WARNING:)(.+)$": colorama.Fore.YELLOW

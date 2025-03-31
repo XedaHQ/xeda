@@ -1,95 +1,79 @@
+set_app_var sh_new_variable_message false
+
 set SCRIPTS_DIR [file dirname [info script]]
 
-set RESULTS_DIR {{settings.outputs_dir}}
+set OUTPUTS_DIR {{settings.outputs_dir}}
 set REPORTS_DIR {{settings.reports_dir}}
 
 set TOP_MODULE {{design.rtl.top}}
 
-set OPTIMIZATION "area"
+set OPTIMIZATION {{settings.optimization}}
 
 set TARGET_LIBRARY_FILES "{{settings.target_libraries | join(' ')}}"
 
+{% if settings.nthreads is not none %}
+set_host_options -max_cores {{nthreads}}
+{% endif %}
 
-if { [file exists $RESULTS_DIR] } {
-    file delete -force $RESULTS_DIR
+if { ![file exists $OUTPUTS_DIR] } {
+    file mkdir $OUTPUTS_DIR
 }
-if { [file exists $REPORTS_DIR] } {
-    file delete -force $REPORTS_DIR
+if { ![file exists $REPORTS_DIR] } {
+    file mkdir $REPORTS_DIR
 }
-file mkdir $RESULTS_DIR
-file mkdir $REPORTS_DIR
 
+{%- if design.language.vhdl.standard in ("08", "2008") %}
+set_app_var hdlin_vhdl_std 2008
+{% elif design.language.vhdl.standard in ("93", "1993") %}
+set_app_var hdlin_vhdl_std 1993
+{% elif design.language.vhdl.standard %}
+set_app_var hdlin_vhdl_std {{design.language.vhdl.standard}}
+{%- endif %}
+
+set_app_var hdlin_enable_upf_compatible_naming true
+
+{%- for k,v in settings.hdlin.items() %}
+set_app_var hdlin_{{k}} {{v}}
+{%- endfor %}
 
 puts "Optimization: $OPTIMIZATION"
 
-# if MAX_AREA TCL variable does not exist and  OPTIMIZATION == area set it to 0.0
-if { $OPTIMIZATION == "area" && ![info exists MAX_AREA] } {
-    set MAX_AREA 0.0
+set_app_var spg_enable_via_resistance_support true
+
+if { $OPTIMIZATION == "area" } {
+    set_app_var hdlin_infer_multibit default_all
 }
 
-set compile_command "compile_ultra"
+saif_map -start
 
-
-if { [info exists ::env(COMPILE_ARGS)] } {
-    set compile_options $::env(COMPILE_ARGS)
-} else {
-    set compile_options {}
-
-    if { $compile_command == "compile" } {
-        if { $OPTIMIZATION == "area" } {
-            set compile_options { {*}$compile_options -area_effort high -map_effort high -auto_ungroup area -boundary_optimization}
-        } elseif { $OPTIMIZATION == "timing" } {
-            set compile_options { {*}$compile_options -area_effort medium -map_effort high -auto_ungroup area -boundary_optimization}
-        } elseif { $OPTIMIZATION == "power" } {
-            set compile_options {-area_effort high -map_effort high -auto_ungroup area -boundary_optimization -gate_clock -power_effort high}
-        } else {
-            puts "Unknown optimization: $OPTIMIZATION"
-            exit 1
-        }
-    } elseif { $compile_command == "compile_ultra" } {
-        if [shell_is_in_topographical_mode] then {
-            set compile_options { {*}$compile_options -spg}
-        }
-        if { $OPTIMIZATION == "area" } {
-        } elseif { $OPTIMIZATION == "timing" } {
-            set compile_options { {*}$compile_options -retime}
-
-        } elseif { $OPTIMIZATION == "power" } {
-            set compile_options { {*}$compile_options -gate_clock}
-            if [shell_is_in_topographical_mode] then {
-                set compile_options { {*}$compile_options -self_gating}
-            }
-        } else {
-            puts "Unknown optimization: $OPTIMIZATION"
-            exit 1
-        }
-    } else {
-        puts "Unknown compile command: $compile_command"
-    }
+if { $OPTIMIZATION == "area" } {
+    set_max_area 0.0
 }
-
-# set_app_var search_path ". $search_path"
-
 if { [shell_is_dcnxt_shell] } {
     if { $OPTIMIZATION == "area" } {
         set_app_var compile_high_effort_area true
         set_app_var compile_optimize_netlist_area true
-    } elseif { $OPTIMIZATION == "timing" } {
+    } elseif { $OPTIMIZATION == "speed" } {
         set_app_var compile_timing_high_effort true
     }
 }
-
+set_app_var search_path ". $search_path"
 set_app_var target_library ${TARGET_LIBRARY_FILES}
 set_app_var synthetic_library {dw_foundation.sldb}
 set_app_var link_library "* $synthetic_library $target_library"
 
-# puts "\n========== Removing existing design(s) =========="
+redirect -file ${REPORTS_DIR}/check_library.rpt {check_library}
+
+# puts "\n==========( Removing existing design(s) )=========="
 remove_design -all
 
+define_design_lib WORK -path ./WORK
+
+set_app_var hdlin_enable_hier_map true
 
 set SOURCE_FILES { {{- design.rtl.sources | join(' ') -}} }
 
-foreach src $SOURCE_FILES {	;# Now loop and print...
+foreach src $SOURCE_FILES {
     set ext [file extension $src]
     switch -- $ext {
         ".v" {
@@ -112,70 +96,107 @@ foreach src $SOURCE_FILES {	;# Now loop and print...
             exit 1
         }
     }
-    puts "=================== Analysing $src ($format) ==================="
+    puts "===================( Analysing $src ($format) )==================="
     if  { [ analyze -format $format $src ] != 1 } {
         puts stderr "\[ERROR]\ Analysing $format file $src failed!\n"
         exit 1
     }
 }
 
-
-puts "\n=================== Elaborating design ${TOP_MODULE} ==================="
-if { [elaborate -library WORK ${TOP_MODULE}] != 1 } {
+puts "\n===================( Elaborating design ${TOP_MODULE} )==================="
+# if { [elaborate -update -ref ${TOP_MODULE}] != 1 } {
+if { [elaborate ${TOP_MODULE}] != 1 } {
     puts stderr "\[ERROR]\ Elaborating design ${TOP_MODULE} failed!\n"
     exit 1
 }
+
+set_verification_top
+
+puts "list of designs: [list_designs]"
+
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/elab.ddc
 
 if { [catch {current_design ${TOP_MODULE} } $err] } {
     puts stderr "\[ERROR]\ Setting current design to ${TOP_MODULE} failed!\n$err"
     exit 1
 }
 
-if { [info exists MAX_AREA] } {
-    set_max_area ${MAX_AREA}
-}
-
-puts "\n=================== Linking design ==================="
+puts "\n===================( Linking design )==================="
 if { [link] != 1 } {
     puts stderr "\[ERROR]\ Linking design failed!\n"
     exit 1
 }
 
-puts "\n========= Uniquify design ========="
-if { [catch {uniquify} err] } {
-    puts stderr "\[ERROR]\ Uniquify failed!\n$err"
+list_designs -show_file
+check_design -summary
+
+puts "\n=========( Loading the constraints )========="
+{% for constraint_file in settings.sdc_files -%}
+puts "Loading constraints file: {{constraint_file}}"
+if { [catch {source {{constraint_file}}} err] } {
+    puts stderr "\[ERROR]\ Loading constraints file {{constraint_file}} failed!\n$err"
+    exit 1
+}
+{% endfor -%}
+
+set compile_command "compile_ultra"
+
+set compile_options [list ]
+
+if { $compile_command == "compile" } {
+    if { $OPTIMIZATION == "area" } {
+        set compile_options [list {*}$compile_options -area_effort high -map_effort high -auto_ungroup area -boundary_optimization]
+    } elseif { $OPTIMIZATION == "speed" } {
+        set compile_options [list {*}$compile_options -area_effort medium -map_effort high -auto_ungroup area -boundary_optimization]
+    } elseif { $OPTIMIZATION == "power" } {
+        set compile_options [list {*}$compile_options -area_effort high -map_effort high -auto_ungroup area -boundary_optimization -gate_clock -power_effort high]
+    } else {
+        puts "Unknown optimization: $OPTIMIZATION"
+        exit 1
+    }
+} elseif { $compile_command == "compile_ultra" } {
+    if [shell_is_in_topographical_mode] then {
+        set compile_options [list {*}$compile_options -spg]
+    }
+    if { $OPTIMIZATION == "area" } {
+    } elseif { $OPTIMIZATION == "speed" } {
+        set compile_options [list {*}$compile_options -retime]
+    } elseif { $OPTIMIZATION == "power" } {
+        set compile_options [list {*}$compile_options -gate_clock]
+        if [shell_is_in_topographical_mode] then {
+            set compile_options [list {*}$compile_options -self_gating]
+        }
+    } else {
+        puts "Unknown optimization: $OPTIMIZATION"
+        exit 1
+    }
+} else {
+    puts "Unknown compile command: $compile_command"
     exit 1
 }
 
-check_design -summary
-
-puts "\n========= Loading the constraints ========="
-{% for constraint_file in settings.sdc_files -%}
-    puts "Loading constraints file: {{constraint_file}}"
-    if { [catch {source {{constraint_file}}} err] } {
-        puts stderr "\[ERROR]\ Loading constraints file {{constraint_file}} failed!\n$err"
-        exit 1
-    }
-{% endfor -%}
-
-if {[info exists MAX_AREA]} {
-    set_max_area ${MAX_AREA}
-}
-
-puts "\n========= Synthesize the design: ${compile_command} ========="
-if { [catch {${compile_command} {*}$compile_options } err] } {
+puts "\n=========( Synthesize the design: ${compile_command} )========="
+if { [catch {${compile_command} {*}$compile_options} err] } {
     puts stderr "\[ERROR]\ Compile failed!\n$err"
     exit 1
 }
 
-puts "\n========= Optimize Design ========="
+redirect -tee $REPORTS_DIR/units.rpt {report_units}
+
+redirect -tee $REPORTS_DIR/synth.timing.max.rpt {report_timing -delay max -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
+redirect -tee $REPORTS_DIR/synth.timing.min.rpt {report_timing -delay min -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
+redirect -tee $REPORTS_DIR/synth.area.rpt {report_area -nosplit}
+
+
 if { $OPTIMIZATION == "area" } {
+    puts "\n========= Optimizing Netlist ========="
     optimize_netlist -area
-} else {
-    optimize_netlist
+} elseif { $OPTIMIZATION == "power" } {
+    puts "\n========= Optimizing Netlist ========="
+    optimize_netlist -area
 }
 
-check_design -unmapped -cells -ports -designs -nets -tristates -html_file_name $REPORTS_DIR/design_summary.html
+check_design -unmapped -cells -ports -designs -nets -tristates -html_file_name $REPORTS_DIR/mapped.design_summary.html
 
 if { [catch {check_design -summary -unmapped -cells -ports -designs -nets -tristates} err] } {
     puts stderr "\[ERROR]\ check_design failed!\n$err"
@@ -187,52 +208,54 @@ if { [catch {check_timing} err] } {
     exit 1
 }
 
-################################################################################
-#                             Generate Reports
-################################################################################
+puts "==========================( Generating Reports )=========================="
 
-redirect -tee $REPORTS_DIR/design.rpt {report_design -nosplit}
+update_timing
+
+redirect -tee $REPORTS_DIR/mapped.design.rpt {report_design -nosplit}
 
 # library units
-puts "========================== Units =========================="
-redirect -tee $REPORTS_DIR/units.rpt {report_units}
+redirect -tee $REPORTS_DIR/mapped.units.rpt {report_units}
 
-redirect $REPORTS_DIR/vars.rpt {report_app_var}
+redirect $REPORTS_DIR/mapped.vars.rpt {report_app_var}
 
-report_constraint -nosplit -all_vio -significant_digits 3 > $REPORTS_DIR/constraints.rpt
+report_constraint -nosplit -all_vio -significant_digits 3 > $REPORTS_DIR/mapped.constraints.rpt
 
 # report cell usage
-report_reference -nosplit > $REPORTS_DIR/reference.rpt
+report_reference -nosplit > $REPORTS_DIR/mapped.reference.rpt
 
-report_cell > $REPORTS_DIR/cell.rpt
+report_cell > $REPORTS_DIR/mapped.cell.rpt
 
-# Quality of Results
-report_qor -nosplit > $REPORTS_DIR/qor.rpt
-
-report_auto_ungroup -nosplit -nosplit > $REPORTS_DIR/auto_ungrou.rpt
-
-puts "====================== Timing Reports ======================"
-redirect -tee $REPORTS_DIR/timing.max.rpt {report_timing -delay max -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
-redirect -tee $REPORTS_DIR/timing.min.rpt {report_timing -delay min -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
-
-puts "======================== Area Report ======================="
-redirect -tee $REPORTS_DIR/area.rpt {report_area -nosplit}
-
-puts "======================= Power Report ======================="
-redirect -tee $REPORTS_DIR/power.rpt {report_power -nosplit -net -cell -analysis_effort medium}
-
-report_clock > $REPORTS_DIR/clocks.rpt
+report_clock > $REPORTS_DIR/mapped.clocks.rpt
 if {[sizeof_collection [all_clocks]]>0} {
-   report_net [all_clocks] > $REPORTS_DIR/clock_nets.rpt
+    report_net [all_clocks] > $REPORTS_DIR/clock_nets.rpt
 }
 
-###################################################################
-#                  Write resulting netlist
-###################################################################
+report_qor -nosplit > $REPORTS_DIR/mapped.qor.rpt
+report_auto_ungroup -nosplit -nosplit > $REPORTS_DIR/mapped.auto_ungroup.rpt
 
-write -format ddc -hierarchy -compress gzip -output $RESULTS_DIR/${TOP_MODULE}.ddc
-write -format verilog -output $RESULTS_DIR/${TOP_MODULE}_netlist.v
-write -format vhdl -output $RESULTS_DIR/${TOP_MODULE}_netlist.vhdl
+redirect -tee $REPORTS_DIR/mapped.timing.max.rpt {report_timing -delay max -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
+redirect -tee $REPORTS_DIR/mapped.timing.min.rpt {report_timing -delay min -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
+redirect -tee $REPORTS_DIR/mapped.area.rpt {report_area -nosplit}
 
-write_sdf -version 2.1 $RESULTS_DIR/${TOP_MODULE}.sdf
+redirect -tee $REPORTS_DIR/mapped.power.rpt {report_power -nosplit -net -cell -analysis_effort medium}
 
+
+puts "==========================( Writing Generated Netlist )=========================="
+
+write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/mapped.ddc
+write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
+write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
+
+write_sdf -version 2.1 $OUTPUTS_DIR/${TOP_MODULE}.sdf
+
+saif_map -type ptpx -essential -write_map ${OUTPUTS_DIR}/mapped.saif.ptpx.map
+saif_map -write_map ${OUTPUTS_DIR}/mapped.saif.dc.map
+
+if {[shell_is_in_topographical_mode]} {
+    save_lib
+}
+
+puts "==========================( DONE )=========================="
+
+exit

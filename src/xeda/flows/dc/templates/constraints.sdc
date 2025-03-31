@@ -8,12 +8,3 @@ set_output_delay -clock {{clock_name}} -min 0 [get_ports  -filter {@port_directi
 {% endfor -%}
 
 # set_dont_touch_network [find port $CLOCK_PORT]
-
-
-
-
-###################################################################
-#                 Area Constraints
-###################################################################
-set MAX_AREA 0.0
-

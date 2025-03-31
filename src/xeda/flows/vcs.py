@@ -27,7 +27,7 @@ class Vcs(SimFlow):
         warn: Optional[str] = "all"
         lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE"
         debug_access: Optional[str] = None
-        timing_sim: bool = Field(False, description="Enable timing simulation for VITAL")
+        timing_sim: bool = Field(True, description="Enable timing simulation for VITAL")
         init_std_logic: Optional[Literal[ "U", "X", "0", "1", "Z", "W", "L", "H", "-"]] = Field(None, description="Initialize std_logic to this value")
         vlogan_flags: List[str] = ["-full64", "-nc"]  # TODO
         vhdlan_flags: List[str] = ["-full64", "-nc"]  # "-cycle", "-event"?
@@ -55,7 +55,7 @@ class Vcs(SimFlow):
         vlogan_args.append(f"-timescale={ss.time_resolution}/{ss.time_resolution}")
         if ss.vhdl_xlrm:
             vhdlan_args.append("-xlrm")
-        if ss.timing_sim:
+        if not ss.timing_sim:
             vhdlan_args.append("-functional_vital")
         incdirs: List[str] = []
         for d in incdirs:

@@ -325,23 +325,24 @@ class GhdlSynth(Ghdl, SynthFlow):
         out: Optional[Literal["vhdl", "raw-vhdl", "verilog", "dot", "none", "raw", "dump"]] = Field(
             None, description="Type of output to generate"
         )
-        out_file: Optional[str] = None
+        out_file: Optional[str] = "converted.v"
         convert_files: bool = Field(False, description="Convert each VHDL source file to Verilog.")
 
     def run(self) -> None:
         design = self.design
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        top = self.elaborate(design.rtl.sources, design.rtl.top, design.language.vhdl)
+        # flags = ss.get_flags(design.language.vhdl, "elaborate")
+        flags = self.synth_args(ss, design, one_shot_elab=False)
+        flags += setting_flag(ss.vendor_library, name="vendor_library")
+        flags += setting_flag(ss.no_formal, name="no_formal")
+        flags += setting_flag(ss.no_assert_cover, name="no_assert_cover")
+        flags += setting_flag(ss.assert_assumes, name="assert_assumes")
+        flags += setting_flag(ss.assume_asserts, name="assume_asserts")
+        flags += ss.generics_flags(design.rtl.generics)
+        flags += ["--out=verilog", "--warn-nowrite"]
         if ss.convert_files:
-            flags = ss.get_flags(design.language.vhdl, "elaborate")
-            flags += setting_flag(ss.vendor_library, name="vendor_library")
-            flags += setting_flag(ss.no_formal, name="no_formal")
-            flags += setting_flag(ss.no_assert_cover, name="no_assert_cover")
-            flags += setting_flag(ss.assert_assumes, name="assert_assumes")
-            flags += setting_flag(ss.assume_asserts, name="assume_asserts")
-            flags += ss.generics_flags(design.rtl.generics)
-            flags += ["--warn-nowrite"]
-            flags.append("--out=verilog")
             self.artifacts.generated_verilog = []
             for src in design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False):
                 verilog = self.ghdl.run_get_stdout("synth", *flags, str(src.path), "-e")
@@ -361,14 +362,12 @@ class GhdlSynth(Ghdl, SynthFlow):
                     f.write(verilog)
                 self.artifacts.generated_verilog.append(out_file)
         else:
-            top = self.elaborate(design.rtl.sources, design.rtl.top, design.language.vhdl)
-            args = self.synth_args(ss, design, one_shot_elab=False, top=top)
-            self.ghdl.run("synth", *args, stdout=ss.out_file)
+            if top:
+                flags += [top[0]]
+            self.ghdl.run("synth", *flags, stdout=ss.out_file)
 
     @staticmethod
-    def synth_args(
-        ss: Settings, design: Design, one_shot_elab: bool = True, top: Tuple012 = ()
-    ) -> List[str]:
+    def synth_args(ss: Settings, design: Design, one_shot_elab: bool = True) -> List[str]:
         flags = ss.get_flags(design.language.vhdl, "elaborate")
         flags += setting_flag(ss.vendor_library, name="vendor_library")
         flags += setting_flag(ss.out, name="out")

@@ -1,15 +1,17 @@
 import logging
+import os
 import re
 from pathlib import Path
-from typing import Any, List, Mapping, Optional, Union
+from typing import List, Literal, Mapping, Optional, Union
 
 from box import Box
+import colorama
 
 from ...dataclass import Field, validator
-from ...tool import Tool
-from ...platforms import AsicsPlatform
-from ...utils import try_convert_to_primitives
 from ...flow import AsicSynthFlow
+from ...platforms import AsicsPlatform
+from ...tool import Tool
+from ...utils import try_convert_to_primitives
 
 log = logging.getLogger(__name__)
 
@@ -33,12 +35,37 @@ def get_hier(dct, dotted_path, default=None):
 
 
 class Dc(AsicSynthFlow):
-    dc_shell = Tool(executable="dc_shell")  # pyright: ignore
+    dc_shell = Tool(
+        executable="dc_shell",
+        highlight_rules={
+            r"^(Error:)(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
+            r"^(\[ERROR\])(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
+            r"^(Warning:)(.+)$": colorama.Fore.YELLOW
+            + colorama.Style.BRIGHT
+            + r"\g<1>"
+            + colorama.Style.NORMAL
+            + r"\g<2>",
+            r"^(Information:)(.+)$": colorama.Fore.GREEN
+            + colorama.Style.BRIGHT
+            + r"\g<1>"
+            + colorama.Style.NORMAL
+            + r"\g<2>",
+            r"^(====[=]+\()(.*)(\)[=]+====)$": colorama.Fore.BLUE
+            + r"\g<1>"
+            + colorama.Fore.CYAN
+            + r"\g<2>"
+            + colorama.Fore.BLUE
+            + r"\g<3>",
+        },
+    )  # pyright: ignore
 
     class Settings(AsicSynthFlow.Settings):
         topographical_mode: bool = False
         sdc_files: List[Union[str, Path]] = Field(
             [], description="List of user SDC constraint files."
+        )
+        optimization: Literal["area", "speed", "power", "none"] = Field(
+            "area", description="Optimization goal for synthesis."
         )
         hooks: Mapping[str, Optional[Union[str, Path]]] = Field(
             {
@@ -75,9 +102,14 @@ class Dc(AsicSynthFlow):
         additional_search_path: Optional[str] = None
 
         @validator("target_libraries", pre=True, always=True)
-        def _validate_target_libraries(cls, value):
+        def _validate_target_libraries(cls, value, values):
             if isinstance(value, (Path, str)):
                 value = [value]
+            assert isinstance(value, list)
+            runner_cwd = values.get("runner_cwd_")
+            value = [
+                v if os.path.isabs(v) or not runner_cwd else str(runner_cwd / v) for v in value
+            ]
             return value
 
         @validator("platform", pre=True, always=True)
@@ -101,7 +133,7 @@ class Dc(AsicSynthFlow):
         #         ss.liberty = ss.platform.default_corner_settings.lib_files
 
         if not ss.sdc_files:
-            ss.sdc_files.append(self.copy_from_template("constraints.tcl"))
+            ss.sdc_files.append(self.copy_from_template("constraints.sdc"))
         script_path = self.copy_from_template("simple.tcl")
         cmd = [
             "-64bit",
@@ -117,11 +149,9 @@ class Dc(AsicSynthFlow):
 
     def parse_reports(self) -> bool:
         reports_dir = self.settings.reports_dir
-
-        top_name = self.design.rtl.top
         failed = False
         self.parse_report_regex(
-            reports_dir / f"{top_name}.mapped.area.rpt",
+            reports_dir / f"mapped.area.rpt",
             r"Number of ports:\s*(?P<num_ports>\d+)",
             r"Number of nets:\s*(?P<num_nets>\d+)",
             r"Number of cells:\s*(?P<num_cells>\d+)",
@@ -143,7 +173,7 @@ class Dc(AsicSynthFlow):
             dotall=False,
         )
 
-        reportfile_path = reports_dir / f"{top_name}.mapped.qor.rpt"
+        reportfile_path = reports_dir / f"mapped.qor.rpt"
 
         def parse_kvs(kvs):
             kvs = re.split(r"\s*\n\s*", kvs)
