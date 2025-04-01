@@ -319,7 +319,6 @@ class FlowLauncher:
         if flow_settings is None:
             flow_settings = {}
         cwd = Path.cwd()
-        print(f"flow_settings: {type(flow_settings)}")
         if isinstance(flow_settings, dict):
             if flow_settings.get("runner_cwd_") is None:
                 flow_settings["runner_cwd_"] = cwd
@@ -440,8 +439,10 @@ class FlowLauncher:
             flow.results.update(**previous_results)
             flow.artifacts = previous_results.artifacts
         else:
+            if self.settings.cleanup_before_run:
+                flow.settings.clean = True
             with WorkingDirectory(run_path):
-                if self.settings.cleanup_before_run:
+                if flow.settings.clean:
                     flow.clean()
                 flow.init()
 
