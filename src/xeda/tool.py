@@ -1,5 +1,4 @@
 from __future__ import annotations
-import contextlib
 import inspect
 import logging
 import os
@@ -8,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 from sys import stderr
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .dataclass import Field, XedaBaseModel, validator
 from .utils import cached_property, try_convert, ToolException, NonZeroExitCode, ExecutableNotFound
@@ -143,7 +142,9 @@ class Docker(XedaBaseModel):
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
-            raise ExecutableNotFound(e.filename, self.__class__.__qualname__, path, *e.args) from None
+            raise ExecutableNotFound(
+                e.filename, self.__class__.__qualname__, path, *e.args
+            ) from None
 
 
 def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
@@ -176,7 +177,7 @@ class Tool(XedaBaseModel):
     executable: str
     minimum_version: Union[None, Tuple[Union[int, str], ...]] = None
     default_args: List[str] = []
-    version_flag: List[str] = ["--version"]
+    version_flag: Optional[List[str]] = ["--version"]
     version_regexps: List[Union[re.Pattern[str], str]] = [VERSION_REGEXP1, VERSION_REGEXP2]
 
     remote: Optional[RemoteSettings] = Field(None)
@@ -188,7 +189,7 @@ class Tool(XedaBaseModel):
     highlight_rules: Optional[Dict[str, str]] = None
 
     @validator("version_flag", pre=True, always=True)
-    def validate_version_flag(cls, value, values):
+    def validate_version_flag(cls, value):
         if isinstance(value, str):
             return [value]
         return value
@@ -261,6 +262,8 @@ class Tool(XedaBaseModel):
         return {"executable": self.executable, "version": version}
 
     def _get_version_output(self, *version_flags) -> Optional[str]:
+        if self.version_flag is None:
+            return None
         if not version_flags:
             version_flags = tuple(self.version_flag)
         try:
@@ -274,11 +277,11 @@ class Tool(XedaBaseModel):
 
     def process_version_output(self, out: Optional[str]) -> Tuple[str, ...]:
         if not out:
-            return ()
+            return tuple()
         assert isinstance(out, str)
         lines = [line for line in (line.strip() for line in out.splitlines(keepends=False)) if line]
         if not lines:
-            return ()
+            return tuple()
         for line in lines:
             for reg_expr in self.version_regexps:
                 match = (
@@ -380,7 +383,12 @@ class Tool(XedaBaseModel):
             with open(env_file, "w") as f:
                 f.write("\n".join(f'export {k}="{v}"' for k, v in env.items()))
         return self.execute(
-            self.executable, *args, env=env, stdout=stdout, check=check, highlight_rules=highlight_rules
+            self.executable,
+            *args,
+            env=env,
+            stdout=stdout,
+            check=check,
+            highlight_rules=highlight_rules,
         )
 
     def execute(
@@ -423,7 +431,9 @@ class Tool(XedaBaseModel):
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")
-            raise ExecutableNotFound(e.filename, self.__class__.__qualname__, path, *e.args) from None
+            raise ExecutableNotFound(
+                e.filename, self.__class__.__qualname__, path, *e.args
+            ) from None
 
     def run_get_stdout(
         self, *args: Any, env: Optional[Dict[str, Any]] = None, raise_on_error: bool = True
