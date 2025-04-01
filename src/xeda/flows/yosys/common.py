@@ -46,7 +46,7 @@ class YosysBase(Flow):
             "-href",
             "-color maroon3 t:*dff",
         ]
-        ghdl: GhdlSynth.Settings = GhdlSynth.Settings()  # type: ignore
+        ghdl: Optional[GhdlSynth.Settings] = None
         systemverilog: Literal["default", "uhdm", "slang"] = "slang"
         use_slang_plugin: bool = True
         verilog_lib: List[str] = []
@@ -192,6 +192,8 @@ class YosysBase(Flow):
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        if ss.ghdl is None:
+            ss.ghdl = GhdlSynth.Settings()
         if ss.keep_hierarchy:
             kh = "keep_hierarchy"
             if kh not in ss.set_mod_attribute:
