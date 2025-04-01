@@ -146,7 +146,7 @@ class OpenXC7(FpgaSynthFlow):
         check_true(settings.fpga.part is not None, "Missing flow setting: 'fpga.part'. FPGA part must be specified!")  # type: ignore
         check_true(settings.fpga.family is not None, "'fpga.family' was not automatically inferred. Please specify the family in the settings.")  # type: ignore
 
-    def generate_bitstream(self, fasm_path: Path) -> Path | None:
+    def generate_bitstream(self, fasm_path: Path) -> Optional[Path]:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         assert ss.fpga and ss.fpga.part and ss.fpga.family, "FPGA part must be set!"
