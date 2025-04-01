@@ -10,7 +10,7 @@ from ...dataclass import Field, validator
 from ...flow import AsicSynthFlow
 from ...platforms import AsicsPlatform
 from ...tool import Tool
-from ...utils import try_convert_to_primitives
+from ...utils import try_convert_to_primitives, try_convert
 
 log = logging.getLogger(__name__)
 
@@ -174,17 +174,31 @@ class Dc(AsicSynthFlow):
         slack_pattern = re.compile(
             r"^\s*slack\s*\(\s*(?P<status>\w+)\s*\)\s+(?P<slack>[\+-]?\d+\.\d+)\s*$"
         )
+        clock_pattern = re.compile(
+            r"^\s*clock\s*(?P<clock_name>\w+)\s+\(\w+ edge\)\s+(?P<clock_time>\d+\.\d+)\s+(?P<clock_period>\d+\.\d+)\s*$"
+        )
         max_report_path = self.settings.reports_dir / "mapped.timing.max.rpt"
         if max_report_path.exists():
             with open(max_report_path) as f:
                 for line in f.readlines():
+                    if "clock_period" not in self.results:
+                        matches = clock_pattern.search(line)
+                        if matches:
+                            clock_period = try_convert(matches.group("clock_period"), float)
+                            if clock_period:
+                                clock_name = matches.group("clock_name")
+                                clock_time = try_convert(matches.group("clock_time"), float)
+                                self.results["clock_name"] = clock_name
+                                self.results["_clock_time"] = clock_time
+                                self.results["clock_period"] = clock_period
+                                continue
                     matches = slack_pattern.search(line)
                     if matches:
-                        wns = float(matches.group("slack"))
+                        wns = try_convert(matches.group("slack"), float)
                         status = matches.group("status")
                         self.results["setup_wns"] = wns
                         self.results["_setup_status"] = status
-                        if wns < 0 or status != "MET":
+                        if not isinstance(wns, float) or wns < 0 or status != "MET":
                             log.error(
                                 "Setup time violation: WNS = %s, status = %s",
                                 wns,
@@ -220,6 +234,13 @@ class Dc(AsicSynthFlow):
                 "Timing report %s was not found. Please check the synthesis run for errors.",
                 min_report_path,
             )
+        if "clock_period" in self.results and "setup_wns" in self.results:
+            clock_period = self.results["clock_period"]
+            assert isinstance(clock_period, float)
+            wns = self.results["setup_wns"]
+            if isinstance(wns, float):
+                self.results["Fmax"] = 1000.0 / (clock_period - wns)
+
         return not failed
 
     def parse_reports(self) -> bool:
