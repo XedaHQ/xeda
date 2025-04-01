@@ -83,20 +83,7 @@ class Flow(metaclass=ABCMeta):
         redirect_stdout: bool = Field(
             False, description="Redirect stdout from execution of tools to files."
         )
-        runner_cwd_: Optional[Path] = None
-
-        @validator("verbose", pre=True, always=True)
-        def _validate_verbose(cls, value):
-            if not isinstance(value, int):
-                return try_convert(value, int, 0)
-            return value
-
-        @validator("quiet", pre=True, always=True)
-        def _validate_quiet(cls, value, values):
-            if values.get("verbose") or values.get("debug"):
-                return False
-            return value
-
+        runner_cwd_: Optional[Path] = Field(None, hidden_from_schema=True)
         timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
         nthreads: Optional[int] = Field(
             None,
@@ -107,7 +94,7 @@ class Flow(metaclass=ABCMeta):
         reports_dir: Path = Field(Path("reports"), hidden_from_schema=True)
         checkpoints_dir: Path = Field(Path("checkpoints"), hidden_from_schema=True)
         outputs_dir: Path = Field(Path("outputs"), hidden_from_schema=True)
-        clean: bool = False  # TODO remove!
+        clean: bool = False
         lib_paths: List[
             Union[
                 Tuple[
@@ -128,21 +115,24 @@ class Flow(metaclass=ABCMeta):
         dockerized: bool = Field(False, description="Run tools from docker")
         print_commands: bool = Field(True, description="Print executed commands")
 
-        @validator("*", pre=True, always=True)
-        def _expand_path_vars(cls, value, field: Optional[ModelField]):
-            # if cls._runner_cwd:
-            #     mapping = {
-            #         "$PWD": cls._runner_cwd,
-            #     }
-            #     return expand_paths(field, value, mapping)
+        @validator("verbose", pre=True, always=True)
+        def _validate_verbose(cls, value):
+            if not isinstance(value, int):
+                return try_convert(value, int, 0)
             return value
 
-        @validator("lib_paths", pre=True, always=True)
-        def _lib_paths_validator(cls, value):
-            if isinstance(value, str):
-                value = [(value, None)]
-            elif isinstance(value, (list, tuple)):
-                value = [(x, None) if isinstance(x, str) else x for x in value]
+        @validator("quiet", pre=True, always=True)
+        def _validate_quiet(cls, value, values):
+            if values.get("verbose") or values.get("debug"):
+                return False
+            return value
+
+        @validator("outputs_dir", pre=False, always=True)
+        def _outputs_dir_validator(cls, value, values):
+            runner_cwd = values.get("runner_cwd_")
+            outputs_dir_str = str(value)
+            if runner_cwd is not None and outputs_dir_str.startswith("$PWD/"):
+                return Path(runner_cwd) / outputs_dir_str[5:]
             return value
 
         def __init__(self, **data: Any) -> None:
@@ -250,8 +240,9 @@ class Flow(metaclass=ABCMeta):
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         self.run_path = run_path
+        assert isinstance(settings, self.Settings)
         self.settings = settings
-        assert isinstance(self.settings, self.Settings)
+
         self.design: Design = design
 
         self.init_time: Optional[float] = None
@@ -337,10 +328,6 @@ class Flow(metaclass=ABCMeta):
 
     def add_template_test(self, filter_name: str, func) -> None:
         self.jinja_env.tests[filter_name] = func
-
-    # def conv_to_relative_path(self, src):
-    #     path = Path(src).resolve(strict=True)
-    #     return os.path.relpath(path, self.run_path)
 
     def parse_report_regex(
         self,

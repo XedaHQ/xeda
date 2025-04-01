@@ -319,8 +319,10 @@ class FlowLauncher:
         if flow_settings is None:
             flow_settings = {}
         cwd = Path.cwd()
+        print(f"flow_settings: {type(flow_settings)}")
         if isinstance(flow_settings, dict):
-            flow_settings["runner_cwd_"] = cwd
+            if flow_settings.get("runner_cwd_") is None:
+                flow_settings["runner_cwd_"] = cwd
             flow_settings = flow_class.Settings(**flow_settings)
         elif isinstance(flow_settings, Flow.Settings):
             flow_settings.runner_cwd_ = cwd
