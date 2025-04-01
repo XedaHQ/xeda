@@ -127,13 +127,13 @@ class Flow(metaclass=ABCMeta):
                 return False
             return value
 
-        @validator("outputs_dir", pre=False, always=True)
-        def _outputs_dir_validator(cls, value, values):
-            runner_cwd = values.get("runner_cwd_")
-            outputs_dir_str = str(value)
-            if runner_cwd is not None and outputs_dir_str.startswith("$PWD/"):
-                return Path(runner_cwd) / outputs_dir_str[5:]
-            return value
+        # @validator("outputs_dir", pre=False, always=True)
+        # def _outputs_dir_validator(cls, value, values):
+        #     runner_cwd = values.get("runner_cwd_")
+        #     outputs_dir_str = str(value)
+        #     if runner_cwd is not None and outputs_dir_str.startswith("$PWD/"):
+        #         return Path(runner_cwd) / outputs_dir_str[5:]
+        #     return value
 
         def __init__(self, **data: Any) -> None:
             try:
@@ -240,18 +240,17 @@ class Flow(metaclass=ABCMeta):
 
     def __init__(self, settings: Settings, design: Design, run_path: Path):
         self.run_path = run_path
-        assert isinstance(settings, self.Settings)
-        self.settings = settings
-
         self.design: Design = design
-
+        # the path from which the runner was invoked, e.g., where xeda CLI was invoked
+        self.runner_cwd: Optional[Path] = None
         self.init_time: Optional[float] = None
         self.timestamp: Optional[str] = None
         self.flow_hash: Optional[str] = None
         self.design_hash: Optional[str] = None
 
-        # the path from which the runner was invoked, e.g., where xeda CLI was invoked
-        self.runner_cwd: Optional[Path] = None
+        assert isinstance(settings, self.Settings)
+        settings.outputs_dir = self.process_path(settings.outputs_dir)
+        self.settings = settings
 
         # generated artifacts as a dict of category to list of file paths
         self.artifacts = Box()
@@ -427,6 +426,8 @@ class Flow(metaclass=ABCMeta):
         subs_vars: bool = True,
         resolve_to: Optional[Path] = None,
     ) -> Path:
+        if isinstance(path, Path):
+            path = str(path)
         if subs_vars and isinstance(path, str) and path.startswith("$"):
             # intentionally limiting the pattern to uppercase and 2 characters or more + "/"
             env_re = re.compile(r"^\$(?P<var>[A-Z][A-Z_]+)/")
@@ -435,19 +436,30 @@ class Flow(metaclass=ABCMeta):
                 var = env_match.group("var")
                 if var:  # redundant check
                     remainder = path[len(env_match.group(0)) :]
+                    var_value: Optional[Path] = None
                     if var == "PWD" and self.runner_cwd:
-                        return self.runner_cwd / remainder
+                        var_value = self.runner_cwd
                     elif var == "DESIGN_ROOT" and self.design.design_root:
-                        return self.design.design_root / remainder
+                        var_value = self.design.design_root
                     else:
                         env_var = os.getenv(var)
                         if env_var:
-                            return Path(env_var) / remainder
+                            var_value = Path(env_var)
                         else:
                             log.warning(
                                 "Environment variable %s not set. Using it as a literal string",
                                 var,
                             )
+                    if var_value:
+                        p = var_value / remainder
+                        log.info(
+                            "Substituting variable %s in path %s with %s. Updated path is: %s.",
+                            var,
+                            path,
+                            var_value,
+                            str(p),
+                        )
+                        return p
         if not isinstance(path, Path):
             path = Path(path)
         if resolve_to is not None and not path.is_absolute():
