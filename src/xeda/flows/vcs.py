@@ -44,13 +44,6 @@ class Vcs(SimFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        # with open("synopsys_sim.setup", "w", encoding="utf-8") as f:
-        #     f.writelines(
-        #         [
-        #             "WORK  > default",
-        #             f"default : {ss.work_dir}",
-        #         ]
-        #     )
         if ss.top_is_vhdl is None:
             ss.top_is_vhdl = self.design.tb.sources[-1].type is SourceType.Vhdl
 
@@ -130,6 +123,7 @@ class Vcs(SimFlow):
             vcs_args += ["-l", ss.vcs_log_file]
         # if ss.time_unit:
         #     vcs_args.append(f"-unit_timescale={ss.time_unit}")
+
         log.info("Running vcs")
         if top:
             vcs_args += ["-top", top]
