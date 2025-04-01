@@ -28,7 +28,7 @@ class Verilator(SimFlow):
         ]
         warnings_fatal: bool = False
         include_dirs: List[str] = []
-        optimize: bool | str = True
+        optimize: Union[bool, str] = True
         timing: bool = False
         model_args: List[str] = Field(
             default=[], description="Arguments to pass to the model executable"
