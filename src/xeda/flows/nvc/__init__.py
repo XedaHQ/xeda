@@ -138,6 +138,12 @@ class Nvc(SimFlow):
     def nvc(self):
         return NvcTool()  # pyright: ignore[reportCallIssue]
 
+    def init(self) -> None:
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        if ss.wave and isinstance(ss.wave, (str, Path)):
+            ss.wave = self.process_path(ss.wave)
+
     def global_options(self) -> List[str]:
         cf: List[str] = []
         ss = self.settings
@@ -177,7 +183,7 @@ class Nvc(SimFlow):
             cf.append(f"--work={ss.work}")
         return cf
 
-    def init_lib(self, vhdl: VhdlSettings) -> None:
+    def init_lib(self) -> None:
         """Initialize the library
         Initialise the working library directory.
         This is not normally necessary as the library will be automatically created when using other commands such as `analyze`.
@@ -251,8 +257,6 @@ class Nvc(SimFlow):
             if isinstance(ss.wave, bool):
                 execute_flags += ["--wave"]
             else:
-                if self.runner_cwd and isinstance(ss.wave, str) and ss.wave.startswith("$PWD/"):
-                    ss.wave = self.runner_cwd / ss.wave[5:]
                 execute_flags += [f"--wave={ss.wave}"]
                 if not ss.wave_format and isinstance(ss.wave, (str, Path)):
                     ss.wave = Path(ss.wave)

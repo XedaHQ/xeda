@@ -100,7 +100,7 @@ class Dc(AsicSynthFlow):
             },
             description="Set compile_<key> variables. See the DC documentation for details.",
         )
-        target_libraries: List[Path] = Field(description="Target library or libraries")
+        target_libraries: List[Union[Path, str]] = Field(description="Target library or libraries")
         extra_link_libraries: List[Path] = Field([], description="Additional link libraries")
         tluplus_map: Optional[str] = None
         tluplus_max: Optional[str] = None
@@ -132,13 +132,16 @@ class Dc(AsicSynthFlow):
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        ss.sdc_files = [self.normalize_path_to_design_root(s) for s in ss.sdc_files]
+        ss.sdc_files = self.resolve_paths_to_design_or_cwd(ss.sdc_files)
 
         ss.hooks = {
-            k: self.normalize_path_to_design_root(v) for k, v in ss.hooks.items() if v is not None
+            stage: self.process_path(p, subs_vars=True, resolve_to=self.design.root_path)
+            for stage, p in ss.hooks.items()
+            if p is not None
         }
         ss.target_libraries = [
-            self.normalize_path_to_design_root(Path(s)) for s in ss.target_libraries
+            self.process_path(p, subs_vars=True, resolve_to=self.design.root_path)
+            for p in ss.target_libraries
         ]
 
     def run(self):

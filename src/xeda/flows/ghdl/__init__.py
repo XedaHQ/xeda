@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
 from ...flow import Flow, FlowSettingsError, SimFlow, SynthFlow, FlowException
-from ...gtkwave import gen_gtkw
 from ...tool import Docker, Tool
 from ...utils import SDF, common_root, setting_flag
 
@@ -406,8 +405,9 @@ class GhdlSim(Ghdl, SimFlow):
             SDF(),
             description="Do VITAL annotation using SDF files(s). A single string is interpreted as a MAX SDF file.",
         )
-        wave: Optional[str] = Field(
-            None, description="Write the waveforms into a GHDL Waveform (GHW) file."
+        wave: Optional[Union[str, Path]] = Field(
+            None,
+            description="Write the waveforms. The file name can be an absolute path or a name. If the name is used, the file will be created in flow's run_dir.",
         )
         read_wave_opt: Optional[str] = Field(
             None,
@@ -417,7 +417,9 @@ class GhdlSim(Ghdl, SimFlow):
             None,
             description="Creates a wave option file with all the signals of the design. Overwrites the file if it already exists.",
         )
-        fst: Optional[str] = Field(None, description="Write the waveforms into an _fst_ file.")
+        fst: Optional[Union[str, Path]] = Field(
+            None, description="Write the waveforms into an _fst_ file."
+        )
         stop_delta: Optional[str] = Field(
             None,
             description="Stop the simulation after N delta cycles in the same current time.",
@@ -457,33 +459,35 @@ class GhdlSim(Ghdl, SimFlow):
                 assert sdf_root, "neither SDF root nor tb.uut are provided"
                 run_flags.append(f"--sdf={delay_type}={sdf_root}={sdf_file}")
 
-        def fp(s: Union[str, os.PathLike]) -> str:
-            if not os.path.isabs(s):
-                return str(self.run_path.relative_to(Path.cwd()) / s)
-            return str(s)
-
         if ss.wave:
-            if ss.wave.endswith(".vcd") or ss.wave.endswith(".vcdgz"):
-                ss.vcd = ss.wave
+            wave = self.process_path(ss.wave, subs_vars=True, resolve_to=None)
+            if wave.suffix in (".vcd", ".vcdgz"):
+                ss.vcd = wave
                 ss.wave = None
-            elif ss.wave.endswith(".fst"):
-                ss.fst = ss.wave
+            elif wave.suffix == ".fst":
+                ss.fst = wave
                 ss.wave = None
-            elif not ss.wave.endswith(".ghw"):
-                ss.wave += ".ghw"
+            elif not wave.suffix != ".ghw":
+                ss.wave = wave.with_suffix(".ghw")
+            else:
+                ss.wave = wave
 
         if ss.vcd:
-            if str(ss.vcd).endswith((".gz", ".vcdgz")):
+            # FIXME: process_path might be run twice
+            ss.vcd = self.process_path(ss.vcd, subs_vars=True, resolve_to=None)
+            if ss.vcd.suffix in (".gz", ".vcdgz"):
                 run_flags.append(f"--vcdgz={ss.vcd}")
             else:
                 run_flags.append(f"--vcd={ss.vcd}")
-            log.warning("Dumping VCD to %s", fp(ss.vcd))
+            log.warning("Dumping VCD to %s", ss.vcd)
         elif ss.fst:
+            # FIXME: process_path might be run twice
+            ss.fst = self.process_path(ss.fst, subs_vars=True, resolve_to=None)
             run_flags += setting_flag(ss.fst, name="fst")
-            log.warning("Dumping fst to %s", fp(ss.fst))
+            log.warning("Dumping fst to %s", ss.fst)
         elif ss.wave:
             run_flags += setting_flag(ss.wave, name="wave")
-            log.warning("Dumping GHW to %s", fp(ss.wave))
+            log.warning("Dumping GHW to %s", ss.wave)
 
         if ss.wave or ss.vcd or ss.fst:
             if not ss.read_wave_opt and not ss.write_wave_opt:

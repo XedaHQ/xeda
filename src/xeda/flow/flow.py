@@ -413,12 +413,53 @@ class Flow(metaclass=ABCMeta):
                     return None
         return results
 
-    def normalize_path_to_design_root(self, path: Union[str, os.PathLike, Path]) -> Path:
+    def resolve_paths_to_design_or_cwd(self, paths: list) -> List[Path]:
+        """Resolve relative paths to variables ($PWD), design_root if needed"""
+        return [
+            self.process_path(path, subs_vars=True, resolve_to=self.design.design_root)
+            for path in paths
+        ]
+
+    def process_path(
+        self,
+        path: Union[str, os.PathLike, Path],
+        *,
+        subs_vars: bool = True,
+        resolve_to: Optional[Path] = None,
+    ) -> Path:
+        if subs_vars and isinstance(path, str) and path.startswith("$"):
+            # intentionally limiting the pattern to uppercase and 2 characters or more + "/"
+            env_re = re.compile(r"^\$(?P<var>[A-Z][A-Z_]+)/")
+            env_match = env_re.match(path)
+            if env_match:
+                var = env_match.group("var")
+                if var:  # redundant check
+                    remainder = path[len(env_match.group(0)) :]
+                    if var == "PWD" and self.runner_cwd:
+                        return self.runner_cwd / remainder
+                    elif var == "DESIGN_ROOT" and self.design.design_root:
+                        return self.design.design_root / remainder
+                    else:
+                        env_var = os.getenv(var)
+                        if env_var:
+                            return Path(env_var) / remainder
+                        else:
+                            log.warning(
+                                "Environment variable %s not set. Using it as a literal string",
+                                var,
+                            )
         if not isinstance(path, Path):
             path = Path(path)
-        if self.design.design_root and not path.is_absolute():
-            return self.design.design_root / path
+        if resolve_to is not None and not path.is_absolute():
+            return resolve_to / path
         return path
+
+    def normalize_path_to_design_root(self, path: Union[str, os.PathLike, Path]) -> Path:
+        return self.process_path(
+            path,
+            subs_vars=False,
+            resolve_to=self.design.design_root,
+        )
 
 
 class FlowException(XedaException):
