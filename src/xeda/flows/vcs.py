@@ -1,9 +1,10 @@
 import logging
 from copy import deepcopy
-from typing import List, Literal, Optional
+from pathlib import Path
+from typing import List, Literal, Optional, Union
 
 from ..tool import Tool
-from ..flow import SimFlow
+from ..flow import SimFlow, FlowException
 from ..dataclass import Field
 from ..design import SourceType
 
@@ -26,6 +27,16 @@ class Vcs(SimFlow):
         )
         time_unit: Optional[str] = "1ns"
         time_resolution: Optional[str] = "1ps"
+        sdf_file: Optional[Union[str, Path]] = Field(
+            None, description="SDF file for back-annotating delays using the unified SDF feature"
+        )
+        sdf_instance: Optional[str] = Field(
+            None,
+            description="Hierarchy instance to use as the root path for back-annotating delays",
+        )
+        sdf_type: Literal["min", "typ", "max"] = Field(
+            "typ", description="SDF type for back-annotating delays"
+        )
         warn: Optional[str] = "all"
         lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE"
         debug_access: Optional[str] = None
@@ -40,6 +51,14 @@ class Vcs(SimFlow):
         top_is_vhdl: Optional[bool] = Field(
             None, description="Top module is VHDL"
         )  # TODO: move to design?
+
+    def init(self):
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        if ss.sdf_file:
+            if ss.sdf_instance is None:
+                raise FlowException(f"SDF instance is required when SDF file is provided")
+            ss.sdf_file = self.process_path(ss.sdf_file, resolve_to=self.design.design_root)
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
@@ -88,6 +107,12 @@ class Vcs(SimFlow):
             vcs_args.append(f"-debug_access+{ss.debug_access}")
         if ss.time_resolution:
             vcs_args.append(f"-sim_res={ss.time_resolution}")
+
+        if ss.sdf_file and ss.sdf_instance:
+            vcs_args += [
+                "-sdf",
+                f"{ss.sdf_type}:{ss.sdf_instance}:{ss.sdf_file}",
+            ]
 
         # vcs_args.append("-kdb") # Verdi database
         if self.design.tb.parameters:
