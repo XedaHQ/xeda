@@ -1,7 +1,10 @@
 import pathlib
 import random
 
-from cocolight import DUT, ValidReadyTb, cocotest
+from cocotb import test
+from cocotb.handle import HierarchyObject
+
+from cocolight import ValidReadyTb
 from cocolight.utils import bytes_to_words
 
 # We create this TB object in every test so that all the required functions can be accessed
@@ -62,7 +65,7 @@ class CModel:
 class TriviumTb(ValidReadyTb):
     """trivium testbench"""
 
-    def __init__(self, dut: DUT, debug: bool = False):
+    def __init__(self, dut: HierarchyObject, debug: bool = False):
         super().__init__(dut, "clk", "rst", debug)
         self.din = self.driver("din", "data")
         self.ks = self.monitor("ks", "data")
@@ -79,8 +82,8 @@ class TriviumTb(ValidReadyTb):
         self.dut.rekey.value = 0
 
 
-@cocotest
-async def test_trivium(dut: DUT):
+@test()
+async def test_trivium(dut: HierarchyObject):
     c_model = CModel()
     c_model.compile()
 
@@ -94,10 +97,9 @@ async def test_trivium(dut: DUT):
     await tb.reset()
 
     # get bound parameters/generics from the simulator
-    IN_BITS = tb.get_int_value("G_IN_BITS")
-    # IN_BITS = dut.G_IN_BITS
+    IN_BITS = tb.get_int_value("G_IN_BITS", len(dut.din_data))
     assert IN_BITS
-    OUT_BITS = tb.get_int_value("G_OUT_BITS")
+    OUT_BITS = tb.get_int_value("G_OUT_BITS", len(dut.ks_data))
     # OUT_BITS = dut.G_OUT_BITS
     assert OUT_BITS
 
@@ -125,7 +127,7 @@ async def test_trivium(dut: DUT):
 
         for i, golden in enumerate(golden_words):
             data = await tb.ks.dequeue()
-            data = data.data.hex()
+            data = hex(data.data)
             # golden = hex(c_model.next())
             golden = hex(golden)
             # print(f"{i}: received {data} expected: {golden}")
