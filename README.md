@@ -11,8 +11,13 @@ For further details, visit the [Xeda's documentations](http://xeda.rtfd.io/) (Wo
 
 ## Installation
 
-Python 3.9 or newer is required. To install the latest published version from [pypi](https://pypi.org/project/xeda) run:
+Python 3.9 or newer is required. You can install the latest published version from [pypi](https://pypi.org/project/xeda). If you only need the command line interface, you can install xeda using [pipx](https://pipx.pypa.io/stable/).
 
+```
+pipx install --force xeda
+```
+
+If you want to use Xeda in a virtual environment, you can install it using `pip`:
 ```
 python3 -m pip install -U xeda
 ```
@@ -22,7 +27,10 @@ python3 -m pip install -U xeda
 ```
 git clone --recursive https://github.com/XedaHQ/xeda.git
 cd xeda
-python3 -m pip install -U --editable . --config-settings editable_mode=strict
+python3 -m venv venv
+source venv/bin/activate
+python3 -m pip install -U pip setuptools wheel
+python3 -m pip install -U --editable .
 ```
 
 ## Usage
@@ -33,7 +41,35 @@ Run `xeda --help` to see a list of available commands and options.
 
 Xeda design-specific descriptions and settings are organized through project files specified in [TOML](https://toml.io/). Every project contains one or more HDL designs. The default name for the project file is `xedaproject.toml`.
 
-Sample Xeda design description [file](./examples/vhdl/sqrt/sqrt.toml):
+Sample Xeda design description [file](./examples/vhdl/Trivium/trivium.xeda.yaml) in YAML format:
+
+```yaml
+hdl.vhdl.standard: 2008
+
+sources:
+    - trivium.vhdl
+parameters:
+  G_IN_BITS: 64
+  G_OUT_BITS: 64
+  G_SETUP_ROUNDS: 4
+top: trivium
+clock.port: clk
+
+test:
+  sources:
+  - trivium_tb.py
+  - cref/trivium64.c
+
+flows:
+  vivado_synth:
+    fpga.part: xc7a12tcsg325-3
+    clock.freq: 200MHz
+  dc:
+    target_libraries:
+      - $PWD/lib/SAED90/saed90nm_typ_ht.db
+```
+
+Sample Xeda design description [file](./examples/vhdl/sqrt/sqrt.toml) in TOML format:
 
 ```toml
 name = "sqrt"
@@ -45,12 +81,10 @@ sources = ["sqrt.vhdl"]
 top = "sqrt"
 clock_port = "clk"
 parameters = { G_IN_WIDTH = 32 }
-# parameters = { G_IN_WIDTH = 32, G_ITERATIVE = true, G_STR= "abcd", G_BITVECTOR="7'b0101001" }
 
 [tb]
 sources = ["tb_sqrt.py"]
 cocotb = true
-# top = "tb_sqrt"  # FIXME
 
 [flows.vivado_synth]
 fpga.part = 'xc7a12tcsg325-1'

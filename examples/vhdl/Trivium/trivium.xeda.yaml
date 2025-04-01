@@ -2,12 +2,10 @@ hdl.vhdl.standard: 2008
 
 sources:
     - trivium.vhdl
-
 parameters:
   G_IN_BITS: 64
-  G_OUT_BITS: 64 # 96
+  G_OUT_BITS: 64
   G_SETUP_ROUNDS: 4
-
 top: trivium
 clock.port: clk
 
@@ -22,4 +20,4 @@ flows:
     clock.freq: 200MHz
   dc:
     target_libraries:
-      - /Users/kamyar/Downloads/lib/SAED90/saed90nm_typ_ht.db
+      - $PWD/lib/SAED90/saed90nm_typ_ht.db
