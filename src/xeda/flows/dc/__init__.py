@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 from pathlib import Path
 from typing import List, Literal, Mapping, Optional, Union
@@ -61,11 +60,21 @@ class Dc(AsicSynthFlow):
 
     class Settings(AsicSynthFlow.Settings):
         topographical_mode: bool = False
-        sdc_files: List[Union[str, Path]] = Field(
-            [], description="List of user SDC constraint files."
-        )
+        sdc_files: List[Path] = Field([], description="List of user SDC constraint files.")
         optimization: Literal["area", "speed", "power", "none"] = Field(
             "area", description="Optimization goal for synthesis."
+        )
+        compile_command: str = Field(
+            "compile",
+            description="Synthesis command to run. Supported commands: 'compile', 'compile_ultra'",
+        )
+        compile_args: List[str] = Field(
+            [],
+            description="Additional arguments to pass to the compile command.",
+        )
+        flatten: bool = Field(
+            False,
+            description="Flatten the design hierarchy before synthesis.",
         )
         hooks: Mapping[str, Optional[Union[str, Path]]] = Field(
             {
@@ -91,7 +100,7 @@ class Dc(AsicSynthFlow):
             },
             description="Set compile_<key> variables. See the DC documentation for details.",
         )
-        target_libraries: List[str] = Field(description="Target library or libraries")
+        target_libraries: List[Path] = Field(description="Target library or libraries")
         extra_link_libraries: List[Path] = Field([], description="Additional link libraries")
         tluplus_map: Optional[str] = None
         tluplus_max: Optional[str] = None
@@ -101,16 +110,16 @@ class Dc(AsicSynthFlow):
         alib_dir: Optional[str] = None
         additional_search_path: Optional[str] = None
 
-        @validator("target_libraries", pre=True, always=True)
-        def _validate_target_libraries(cls, value, values):
-            if isinstance(value, (Path, str)):
-                value = [value]
-            assert isinstance(value, list)
-            runner_cwd = values.get("runner_cwd_")
-            value = [
-                v if os.path.isabs(v) or not runner_cwd else str(runner_cwd / v) for v in value
-            ]
-            return value
+        # @validator("target_libraries", pre=True, always=True)
+        # def _validate_target_libraries(cls, value, values):
+        #     if isinstance(value, (Path, str)):
+        #         value = [value]
+        #     assert isinstance(value, list)
+        #     runner_cwd = values.get("runner_cwd_")
+        #     value = [
+        #         v if os.path.isabs(v) or not runner_cwd else str(runner_cwd / v) for v in value
+        #     ]
+        #     return value
 
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value):
@@ -120,21 +129,31 @@ class Dc(AsicSynthFlow):
                 return AsicsPlatform.from_toml(value)
             return value
 
+    def init(self):
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        ss.sdc_files = [self.normalize_path_to_design_root(s) for s in ss.sdc_files]
+
+        ss.hooks = {
+            k: self.normalize_path_to_design_root(v) for k, v in ss.hooks.items() if v is not None
+        }
+        ss.target_libraries = [
+            self.normalize_path_to_design_root(Path(s)) for s in ss.target_libraries
+        ]
+
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-
-        ss.hooks = {
-            k: self.normalize_path_to_design_root(v) if v else None for k, v in ss.hooks.items()
-        }
 
         # if ss.platform:
         #     if not ss.target_libraries:
         #         ss.liberty = ss.platform.default_corner_settings.lib_files
 
-        if not ss.sdc_files:
-            ss.sdc_files.append(self.copy_from_template("constraints.sdc"))
-        script_path = self.copy_from_template("simple.tcl")
+        # prepend the generated constraints.sdc file to the list of user SDC files
+        # if you don't want to use the generated clock and I/O constraints, simply don't set
+        #   any PhysicalClock settings (clock.freq, etc) in the flow settings
+        ss.sdc_files.insert(0, self.copy_from_template("constraints.sdc"))
+        script_path = self.copy_from_template("dc_script.tcl")
         cmd = [
             "-64bit",
         ]
@@ -147,9 +166,63 @@ class Dc(AsicSynthFlow):
 
         self.dc_shell.run(*cmd)
 
+    def parse_timing_reports(self) -> bool:
+        failed = False
+        slack_pattern = re.compile(
+            r"^\s*slack\s*\(\s*(?P<status>\w+)\s*\)\s+(?P<slack>[\+-]?\d+\.\d+)\s*$"
+        )
+        max_report_path = self.settings.reports_dir / "mapped.timing.max.rpt"
+        if max_report_path.exists():
+            with open(max_report_path) as f:
+                for line in f.readlines():
+                    matches = slack_pattern.search(line)
+                    if matches:
+                        wns = float(matches.group("slack"))
+                        status = matches.group("status")
+                        self.results["setup_wns"] = wns
+                        self.results["_setup_status"] = status
+                        if wns < 0 or status != "MET":
+                            log.error(
+                                "Setup time violation: WNS = %s, status = %s",
+                                wns,
+                                status,
+                            )
+                            failed = True
+                        break
+        else:
+            log.warning(
+                "Timing report %s was not found. Please check the synthesis run for errors.",
+                max_report_path,
+            )
+        min_report_path = self.settings.reports_dir / "mapped.timing.min.rpt"
+        if min_report_path.exists():
+            with open(min_report_path) as f:
+                for line in f.readlines():
+                    matches = slack_pattern.search(line)
+                    if matches:
+                        wns = float(matches.group("slack"))
+                        status = matches.group("status")
+                        self.results["hold_wns"] = wns
+                        self.results["_hold_status"] = status
+                        if wns < 0 or status != "MET":
+                            log.error(
+                                "Hold time violation: WNS = %s, status = %s",
+                                wns,
+                                status,
+                            )
+                            failed = True
+                        break
+        else:
+            log.warning(
+                "Timing report %s was not found. Please check the synthesis run for errors.",
+                min_report_path,
+            )
+        return not failed
+
     def parse_reports(self) -> bool:
         reports_dir = self.settings.reports_dir
-        failed = False
+        failed = not self.parse_timing_reports()
+
         self.parse_report_regex(
             reports_dir / f"mapped.area.rpt",
             r"Number of ports:\s*(?P<num_ports>\d+)",
@@ -227,28 +300,20 @@ class Dc(AsicSynthFlow):
                         else:
                             match = wns_re.match(sec)
                             if match:
-                                self.results["wns"] = float(match.group("wns"))
-                                self.results["tns"] = float(match.group("tns"))
+                                self.results["_wns"] = float(match.group("wns"))
+                                self.results["_tns"] = float(match.group("tns"))
                                 self.results["num_violating_paths"] = int(match.group("nvp"))
-                                if (
-                                    self.results["wns"] > 0
-                                    or self.results["tns"] > 0
-                                    or self.results["num_violating_paths"] != 0
-                                ):
+                                if self.results["num_violating_paths"] != 0:
                                     failed = True
                             else:
                                 match = hold_wns_re.match(sec)
                                 if match:
-                                    self.results["hold_wns"] = float(match.group("wns"))
-                                    self.results["hold_tns"] = float(match.group("tns"))
+                                    self.results["_hold_wns"] = float(match.group("wns"))
+                                    self.results["_hold_tns"] = float(match.group("tns"))
                                     self.results["hold_num_violating_paths"] = int(
                                         match.group("nvp")
                                     )
-                                    if (
-                                        self.results["hold_wns"] > 0
-                                        or self.results["hold_tns"] > 0
-                                        or self.results["hold_num_violating_paths"] != 0
-                                    ):
+                                    if self.results["hold_num_violating_paths"] != 0:
                                         failed = True
             self.results["path_groups"] = path_groups
 
