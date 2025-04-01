@@ -40,8 +40,7 @@ def run_process(
     args = [str(a) for a in args]
     if env is not None:
         env = {k: str(v) for k, v in env.items() if v is not None}
-    command = [executable, *args]
-    command: List[str] = [str(c) for c in command]
+    command: List[str] = [str(c) for c in (executable, *args)]
     cmd_str = " ".join(map(lambda x: str(x), command))
     if print_command:
         print("Running `%s`" % cmd_str)
@@ -64,7 +63,7 @@ def run_process(
             with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
                 for line in proc_stdout:
                     for pattern, subs in highlight_rules.items():
-                        line, matches = re.subn(pattern, subs + colorama.Style.RESET_ALL, line, 1)
+                        line, matches = re.subn(pattern, subs + colorama.Style.RESET_ALL, line, count=1)
                         if matches > 0:
                             break
                     print(line, end="\r")
