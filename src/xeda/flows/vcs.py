@@ -1,5 +1,5 @@
 import logging
-from copy import deepcopy
+import os
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
@@ -19,12 +19,25 @@ class Vcs(SimFlow):
     vcs = Tool("vcs")
 
     class Settings(SimFlow.Settings):
-        simv: str = "simv"
-        simv_flags = ["-nc", "-no_save"]
+        clean: bool = Field(True, description="Clean the run path before running")
+        simv_flags: List[str] = []
         work_dir: Optional[str] = "work"
+        sim_no_save: bool = True
+        generate_kdb: bool = False
+        supress_banner: bool = True
         vhdl_xlrm: bool = Field(
-            False, description="Enables VHDL features beyond those described in LRM"
+            True, description="Enables VHDL features beyond those described in LRM"
         )
+        one_shot_run: bool = Field(
+            True,
+            description="Run the simulation using the vcs step. If set to true, simv_flags will be ignored.",
+        )
+        ucli: bool = Field(
+            False,
+            description="Enable UCLI (Universal Command Line Interface) when running simulator executable (simv)",
+        )
+        gui: bool = False
+        full64: bool = True
         time_unit: Optional[str] = "1ns"
         time_resolution: Optional[str] = "1ps"
         sdf_file: Optional[Union[str, Path]] = Field(
@@ -37,20 +50,23 @@ class Vcs(SimFlow):
         sdf_type: Literal["min", "typ", "max"] = Field(
             "typ", description="SDF type for back-annotating delays"
         )
-        warn: Optional[str] = "all"
-        lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE"
+        warn: Optional[str] = "all,noTFIPC,noLCA_FEATURES_ENABLED"
+        lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE,noUI"
         debug_access: Optional[str] = None
         timing_sim: bool = Field(True, description="Enable timing simulation for VITAL")
         init_std_logic: Optional[Literal["U", "X", "0", "1", "Z", "W", "L", "H", "-"]] = Field(
             None, description="Initialize std_logic to this value"
         )
-        vlogan_flags: List[str] = ["-full64", "-nc"]  # TODO
-        vhdlan_flags: List[str] = ["-full64", "-nc"]  # "-cycle", "-event"?
-        vcs_flags: List[str] = ["-full64", "-nc"]
+        vlogan_flags: List[str] = []
+        vhdlan_flags: List[str] = []
+        vcs_flags: List[str] = []
         vcs_log_file: Optional[str] = "vcs.log"
         top_is_vhdl: Optional[bool] = Field(
             None, description="Top module is VHDL"
         )  # TODO: move to design?
+
+    def clean(self):
+        super().purge_run_path()
 
     def init(self):
         assert isinstance(self.settings, self.Settings)
@@ -65,11 +81,29 @@ class Vcs(SimFlow):
         ss = self.settings
         if ss.top_is_vhdl is None:
             ss.top_is_vhdl = self.design.tb.sources[-1].type is SourceType.Vhdl
-
-        vlogan_args = deepcopy(ss.vlogan_flags)
-        vhdlan_args = deepcopy(ss.vhdlan_flags)
-        vlogan_args.extend(["-work", "WORK"])
-        vhdlan_args.extend(["-work", "WORK"])
+        os.environ["VCS_TARGET_ARCH"] = "amd64"
+        os.environ["VCS_ARCH_OVERRIDE"] = "linux"
+        vlogan_args = ss.vlogan_flags
+        vhdlan_args = ss.vhdlan_flags
+        vcs_args = ss.vcs_flags
+        simv_args = ss.simv_flags
+        if ss.gui:
+            ss.generate_kdb = True
+        if ss.supress_banner:
+            vlogan_args.append("-nc")
+            vhdlan_args.append("-nc")
+            vcs_args.append("-nc")
+            simv_args.append("-nc")
+        if ss.full64:
+            vlogan_args.append("-full64")
+            vhdlan_args.append("-full64")
+            vcs_args.append("-full64")
+        if ss.generate_kdb:
+            vlogan_args.append("-kdb")
+            vhdlan_args.append("-kdb")
+            vcs_args.append("-kdb")
+        # vlogan_args.extend(["-work", "WORK"])
+        # vhdlan_args.extend(["-work", "WORK"])
         vlogan_args.append(f"-timescale={ss.time_resolution}/{ss.time_resolution}")
         if ss.vhdl_xlrm:
             vhdlan_args.append("-xlrm")
@@ -78,8 +112,6 @@ class Vcs(SimFlow):
         incdirs: List[str] = []
         for d in incdirs:
             vlogan_args.append(f"+incdir+{d}")
-        # vhdlan_args.append("-cycle")  # ???
-        # vhdlan_args.extend("-event")  # ???
         if self.design.language.vhdl.standard in ("08", "2008"):
             vhdlan_args.append("-vhdl08")
         elif self.design.language.vhdl.standard in ("02", "2002"):
@@ -97,10 +129,10 @@ class Vcs(SimFlow):
             log.info("analyzing VHDL files")
             self.vhdlan.run(*vhdlan_args, *(str(f) for f in vhdl_files))
         top = self.design.tb.top[0]
-        vcs_args = [*ss.vcs_flags]
         vcs_args += ["-notice"]
         if ss.lint:
             vcs_args.append(f"+lint={ss.lint}")
+            simv_args.append(f"+lint={ss.lint}")
         if ss.warn:
             vcs_args.append(f"+warn={ss.warn}")
         if ss.debug_access:
@@ -114,7 +146,6 @@ class Vcs(SimFlow):
                 f"{ss.sdf_type}:{ss.sdf_instance}:{ss.sdf_file}",
             ]
 
-        # vcs_args.append("-kdb") # Verdi database
         if self.design.tb.parameters:
             gfile = f"{top}.params"
             with open(gfile, "w", encoding="utf-8") as f:
@@ -128,20 +159,6 @@ class Vcs(SimFlow):
                         v = f'"{v}"'
                     f.write(f"assign {v} {k}\n")
             vcs_args += ["-lca", "-gfile", gfile]
-        # for k, v in self.design.tb.parameters.items():
-        #     # kv = f"/{top}/{k}={v}"
-        #     if v is None:
-        #         continue
-        #     elif isinstance(v, bool):
-        #         v = "1" if v else "0"
-        #     elif isinstance(v, str):
-        #         v = f"'{v}'"
-        #     kv = f"{k}={v}"
-        #     # exit(1)
-        #     # if ss.top_is_vhdl:
-        #     #     vcs_args += [f"-gvalue", kv]
-        #     # else:
-        #     vcs_args.append(f"-pvalue+{kv}")
         if ss.nthreads is not None:
             vcs_args.append(f"-j{ss.nthreads}")
         if ss.vcs_log_file:
@@ -152,10 +169,20 @@ class Vcs(SimFlow):
         log.info("Running vcs")
         if top:
             vcs_args += ["-top", top]
-        simv_args = deepcopy(ss.simv_flags)
-        if not simv_args:
-            vcs_args.append("-R")
-        self.vcs.run(*vcs_args)
 
-        simv = Tool("./simv", version_flag=None)
-        simv.run(*simv_args)
+        one_shot_run = ss.one_shot_run
+        common_run_args = []
+
+        if ss.ucli:
+            common_run_args.append("-ucli")
+        if ss.gui:
+            common_run_args.append("-gui")
+        if one_shot_run:
+            vcs_args.append("-R")
+            vcs_args += common_run_args
+        self.vcs.run(*vcs_args)
+        if ss.sim_no_save:
+            simv_args.append("-no_save")
+        if not one_shot_run:
+            simv = Tool("./simv", version_flag=None)
+            simv.run(*simv_args, *common_run_args)
