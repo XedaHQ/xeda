@@ -13,27 +13,33 @@ log = logging.getLogger(__name__)
 class Vcs(SimFlow):
     """Synopsys VCS simulator"""
 
-    vlogan = Tool("vlogan")
-    vhdlan = Tool("vhdlan")
+    vlogan = Tool("vlogan", version_flag=None)
+    vhdlan = Tool("vhdlan", version_flag=None)
     vcs = Tool("vcs")
 
     class Settings(SimFlow.Settings):
         simv: str = "simv"
         simv_flags = ["-nc", "-no_save"]
         work_dir: Optional[str] = "work"
-        vhdl_xlrm: bool = Field(False, description="Enables VHDL features beyond those described in LRM")
+        vhdl_xlrm: bool = Field(
+            False, description="Enables VHDL features beyond those described in LRM"
+        )
         time_unit: Optional[str] = "1ns"
         time_resolution: Optional[str] = "1ps"
         warn: Optional[str] = "all"
         lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE"
         debug_access: Optional[str] = None
         timing_sim: bool = Field(True, description="Enable timing simulation for VITAL")
-        init_std_logic: Optional[Literal[ "U", "X", "0", "1", "Z", "W", "L", "H", "-"]] = Field(None, description="Initialize std_logic to this value")
+        init_std_logic: Optional[Literal["U", "X", "0", "1", "Z", "W", "L", "H", "-"]] = Field(
+            None, description="Initialize std_logic to this value"
+        )
         vlogan_flags: List[str] = ["-full64", "-nc"]  # TODO
         vhdlan_flags: List[str] = ["-full64", "-nc"]  # "-cycle", "-event"?
         vcs_flags: List[str] = ["-full64", "-nc"]
         vcs_log_file: Optional[str] = "vcs.log"
-        top_is_vhdl: Optional[bool] = Field(None, description="Top module is VHDL") # TODO: move to design?
+        top_is_vhdl: Optional[bool] = Field(
+            None, description="Top module is VHDL"
+        )  # TODO: move to design?
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
@@ -101,7 +107,7 @@ class Vcs(SimFlow):
                     elif isinstance(v, bool):
                         v = "1" if v else "0"
                     elif isinstance(v, str):
-                        v = f"\"{v}\""
+                        v = f'"{v}"'
                     f.write(f"assign {v} {k}\n")
             vcs_args += ["-lca", "-gfile", gfile]
         # for k, v in self.design.tb.parameters.items():
@@ -132,8 +138,5 @@ class Vcs(SimFlow):
             vcs_args.append("-R")
         self.vcs.run(*vcs_args)
 
-        simv = Tool("./simv")  # ???
-        # for k, v in self.design.tb.parameters.items():
-        #     simv_args.append(f"+define+{k}={v}")
-        # simv_args.extend(["-l", top])
+        simv = Tool("./simv", version_flag=None)
         simv.run(*simv_args)
