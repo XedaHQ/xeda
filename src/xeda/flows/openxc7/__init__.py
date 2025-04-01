@@ -102,7 +102,7 @@ class OpenXC7(FpgaSynthFlow):
         )
 
         @validator("yosys", always=True, pre=False)
-        def _validate_yosys(cls, value, values):
+        def _validate_dep_yosys_settings(cls, value, values):
             clocks = values.get("clocks")
             fpga = values.get("fpga")
             if value is None:

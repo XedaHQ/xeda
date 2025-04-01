@@ -63,7 +63,9 @@ def run_process(
             with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
                 for line in proc_stdout:
                     for pattern, subs in highlight_rules.items():
-                        line, matches = re.subn(pattern, subs + colorama.Style.RESET_ALL, line, count=1)
+                        line, matches = re.subn(
+                            pattern, subs + colorama.Style.RESET_ALL, line, count=1
+                        )
                         if matches > 0:
                             break
                     print(line, end="\r")
