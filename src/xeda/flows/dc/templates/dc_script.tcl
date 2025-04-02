@@ -27,7 +27,7 @@ if { ![file exists $REPORTS_DIR] } {
     file mkdir $REPORTS_DIR
 }
 
-{%- if design.language.vhdl.standard in ("08", "2008") %}
+{%- if design.language.vhdl.standard in ("02", "2002", "08", "2008") %}
 set_app_var hdlin_vhdl_std 2008
 {% elif design.language.vhdl.standard in ("93", "1993") %}
 set_app_var hdlin_vhdl_std 1993
@@ -35,7 +35,11 @@ set_app_var hdlin_vhdl_std 1993
 set_app_var hdlin_vhdl_std {{design.language.vhdl.standard}}
 {%- endif %}
 
+
+# improve the SAIF annotation
 set_app_var hdlin_enable_upf_compatible_naming true
+
+set_app_var vhdlout_dont_create_dummy_nets true
 
 {%- for k,v in settings.hdlin.items() %}
 set_app_var hdlin_{{k}} {{v}}
@@ -45,9 +49,7 @@ puts "Optimization: $OPTIMIZATION"
 
 set_app_var spg_enable_via_resistance_support true
 
-if { $OPTIMIZATION == "area" } {
-    set_app_var hdlin_infer_multibit default_all
-}
+set_app_var hdlin_infer_multibit default_all
 
 saif_map -start
 

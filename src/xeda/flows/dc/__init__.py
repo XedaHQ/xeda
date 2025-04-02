@@ -36,6 +36,7 @@ def get_hier(dct, dotted_path, default=None):
 class Dc(AsicSynthFlow):
     dc_shell = Tool(
         executable="dc_shell",
+        version_flag="-version",
         highlight_rules={
             r"^(Error:)(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
             r"^(\[ERROR\])(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
@@ -65,7 +66,7 @@ class Dc(AsicSynthFlow):
             "area", description="Optimization goal for synthesis."
         )
         compile_command: str = Field(
-            "compile",
+            "compile_ultra",
             description="Synthesis command to run. Supported commands: 'compile', 'compile_ultra'",
         )
         compile_args: List[str] = Field(
@@ -75,6 +76,10 @@ class Dc(AsicSynthFlow):
         flatten: bool = Field(
             False,
             description="Flatten the design hierarchy before synthesis.",
+        )
+        gui: bool = Field(
+            False,
+            description="Run the synthesis tool in GUI mode.",
         )
         hooks: Mapping[str, Optional[Union[str, Path]]] = Field(
             {
@@ -162,6 +167,8 @@ class Dc(AsicSynthFlow):
         ]
         if self.settings.topographical_mode:
             cmd.append("-topographical_mode")
+        if self.settings.gui:
+            cmd.append("-gui")
         cmd += [
             "-f",
             str(script_path),
