@@ -29,7 +29,7 @@ class Vcs(SimFlow):
             True, description="Enables VHDL features beyond those described in LRM"
         )
         one_shot_run: bool = Field(
-            True,
+            False,
             description="Run the simulation using the vcs step. If set to true, simv_flags will be ignored.",
         )
         ucli: bool = Field(
@@ -132,7 +132,6 @@ class Vcs(SimFlow):
         vcs_args += ["-notice"]
         if ss.lint:
             vcs_args.append(f"+lint={ss.lint}")
-            simv_args.append(f"+lint={ss.lint}")
         if ss.warn:
             vcs_args.append(f"+warn={ss.warn}")
         if ss.debug_access:
