@@ -1,17 +1,17 @@
 import itertools
-import json
 import logging
 import os
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from ...dataclass import Field, XedaBaseModel, validator
-from ...design import Design
-from ...utils import HierDict, parse_xml, try_convert
-from ...flow import FPGA, FpgaSynthFlow, SimFlow
+from ...dataclass import Field, XedaBaseModel
+from ...utils import HierDict, parse_xml
+from ...flow import FpgaSynthFlow
 from ..vivado import Vivado
+from ..vivado.vivado_synth import VivadoSynth
+from ..vivado.vivado_sim import VivadoSim
 
 log = logging.getLogger(__name__)
 
@@ -38,71 +38,14 @@ class RunOptions(XedaBaseModel):
 class VivadoProject(Vivado, FpgaSynthFlow):
     """Synthesize with Xilinx Vivado using a project-based flow"""
 
-    class Settings(Vivado.Settings, FpgaSynthFlow.Settings, SimFlow.Settings):
-        """Settings for Vivado synthesis in project mode"""
+    class Settings(VivadoSynth.Settings, VivadoSim.Settings):
+        """Settings for Vivado synthesis and simulation in project mode"""
 
-        fpga: Optional[FPGA] = None
-
-        # FIXME implement and verify all
-        fail_critical_warning: bool = Field(
-            False,
-            description="flow fails if any Critical Warnings are reported by Vivado",
-        )  # pyright: ignore
-        fail_timing: bool = Field(
-            True, description="flow fails if timing is not met"
-        )  # pyright: ignore
-        input_delay: Optional[float] = None
-        output_delay: Optional[float] = None
-        write_checkpoint: bool = False
-        write_netlist: bool = False
-        write_bitstream: bool = False
-        extra_reports: bool = False
-        qor_suggestions: bool = False
-        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
-        synth: RunOptions = RunOptions(
-            # Performance strategies: "Flow_PerfOptimized_high" (no LUT combining, fanout limit: 400), "Flow_AlternateRoutability",
-            strategy="",  # Empty for Vivado Default strategy
-            steps={
-                "SYNTH_DESIGN": {},
-                "OPT_DESIGN": {},
-                "POWER_OPT_DESIGN": {},
-            },
-        )
-        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug904-vivado-implementation.pdf
-        impl: RunOptions = RunOptions(
-            # Performance strategies: "Performance_ExploreWithRemap", "Flow_RunPostRoutePhysOpt",
-            #   "Flow_RunPhysOpt", "Performance_ExtraTimingOpt",
-            strategy="",  # Empty for Vivado Default strategy
-            steps={
-                "PLACE_DESIGN": {},
-                "POST_PLACE_POWER_OPT_DESIGN": {},
-                "PHYS_OPT_DESIGN": {},
-                "ROUTE_DESIGN": {},
-                "WRITE_BITSTREAM": {},
-            },
-        )
-        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug903-vivado-using-constraints.pdf
-        xdc_files: List[Union[str, Path]] = Field([], description="List of XDC constraint files.")
-        suppress_msgs: List[str] = [
-            "Synth 8-7080",  # "Parallel synthesis criteria is not met"
-            "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
-        ]
-        dummy_io_delay: bool = False  # set a dummy IO delay if they are not specified
-        flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field("rebuilt")
+        pass
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
-        if (
-            settings.main_clock
-            and settings.main_clock.period
-            and settings.dummy_io_delay
-            and (settings.input_delay is None)
-            and (settings.output_delay is None)
-        ):
-            dummy_delay = max(0.001, 0.001 * settings.main_clock.period)
-            settings.input_delay = dummy_delay
-            settings.output_delay = dummy_delay
         if settings.write_netlist:
             for o in [
                 "timesim.min.sdf",

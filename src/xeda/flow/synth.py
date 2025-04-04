@@ -243,7 +243,7 @@ class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
     class Settings(SynthFlow.Settings):
         """base FPGA Synthesis flow settings"""
 
-        fpga: FPGA
+        fpga: Optional[FPGA] = None
 
 
 class AsicSynthFlow(SynthFlow, metaclass=ABCMeta):

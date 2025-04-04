@@ -114,6 +114,12 @@ class Dc(AsicSynthFlow):
         mw_tf: Optional[str] = None
         alib_dir: Optional[str] = None
         additional_search_path: Optional[str] = None
+        default_max_input_delay: Optional[float] = Field(
+            0.0, description="Default max delay to set on all non-clock input ports"
+        )
+        default_max_output_delay: Optional[float] = Field(
+            0.0, description="Default max delay to set on all output ports"
+        )
 
         # @validator("target_libraries", pre=True, always=True)
         # def _validate_target_libraries(cls, value, values):
