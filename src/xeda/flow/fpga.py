@@ -74,6 +74,7 @@ class FPGA(XedaBaseModel):
             return None
 
         if part:
+            log.debug("FPGA validator: part=%s", part)
             part = part.strip()
             values["part"] = part
             # speed: 6 = slowest, 8 = fastest
@@ -129,7 +130,7 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("speed", match_xc6.group("speed_grade"))
                 return values
             match_xc7 = re.match(
-                r"^(XC)(?P<g>\d)(?P<f>[A-Z]+)(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",
+                r"^(XC)(?P<g>\d)(?P<f>[A-Z]+)(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?",
                 part,
                 flags=re.IGNORECASE,
             )
@@ -207,6 +208,14 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("grade", match_usp.group("gr"))
                 return values
         elif not values.get("device") and not values.get("vendor"):
+            family = values.get("family")
+            if family:
+                if family in ("spartan", "artix", "kintex", "virtex", "zynq"):
+                    values["vendor"] = "xilinx"
+                    return values
+                elif family in ("ecp5", "ice40", "ice5"):
+                    values["vendor"] = "lattice"
+                    return values
             raise ValueError(
                 "Missing enough information about the FPGA device. Please set the 'part' number and/or device, vendor, family, etc."
             )

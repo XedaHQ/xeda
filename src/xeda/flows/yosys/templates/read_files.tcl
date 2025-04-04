@@ -19,13 +19,13 @@ yosys log -stdout "** Reading {{src}} **"
 yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} "{{src}}"
 {% elif src.type.name == "SystemVerilog" %}
 yosys log -stdout "** Reading {{src}} **"
-{% if slang_plugin -%}
+ {%- if slang_plugin %}
 yosys read_slang --extern-modules --best-effort-hierarchy "{{src}}"
-{% elif uhdm_plugin -%}
+ {%- elif uhdm_plugin %}
 yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} "{{src}}"
-{% else -%}
+ {%- else %}
 yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} "{{src}}"
-{% endif -%}
+ {%- endif %}
 {% endif -%}
 {% endfor -%}
 
@@ -35,6 +35,7 @@ yosys log -stdout "** Elaborating VHDL files **"
 yosys plugin -i ghdl
 set ghdl_args "{{ghdl_args|join(" ")}}"
 yosys ghdl {*}$ghdl_args {{vhdl_files|join (" ")}} -e {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
+{% endif -%}
 
 {% if settings.liberty is defined -%}
 {% for lib in settings.liberty -%}

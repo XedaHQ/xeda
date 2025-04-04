@@ -14,6 +14,10 @@ sources = ["tb_sqrt.py"]
 cocotb = true
 # top = "tb_sqrt"  # FIXME
 
+[flows.yosys_fpga]
+fpga.part = "xc7a100tftg256-2L"
+clock.freq = "100MHz"
+
 [flows.vivado_synth]
 fpga.part = "xc7a100tftg256-2L"
 clock_period = 5.0

@@ -20,3 +20,7 @@ cocotb = true
 [flow.vivado_synth]
 fpga.part = "xc7a12tcsg325-3"
 clock.freq = "200 MHz"
+
+[flow.yosys_fpga]
+fpga.part = "xc7a12tcsg325-3"
+clock.freq = "200 MHz"

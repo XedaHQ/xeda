@@ -658,13 +658,21 @@ class FlowLauncher:
         flow: Union[Type[Flow], str],
         design: Union[str, Path, Design, Dict[str, Any], None] = None,
         xedaproject: Optional[str] = None,
-        flow_settings: Union[
-            List[str], Tuple[str, ...], Mapping[str, StrOrDictStrHier], Flow.Settings
+        flow_settings: Union[  # FIXME: this should only set defaults if not available in design/project
+            List[str],
+            Tuple[str, ...],
+            Mapping[str, Any],
+            Flow.Settings,
+        ] = [],
+        flow_overrides: Union[
+            List[str],
+            Tuple[str, ...],
+            Mapping[str, Any],
         ] = [],
         select_design_in_project=None,
         design_overrides: Union[None, Iterable[str], Dict[str, Any]] = None,
         design_allow_extra: bool = False,
-        design_remove_extra: List[str] = [],
+        design_remove_fields: List[str] = [],
     ) -> Optional[Flow]:
         """
         Flexible API for launching flows.
@@ -698,7 +706,7 @@ class FlowLauncher:
                     skip_designs=design_not_in_project,
                     design_overrides=design_overrides,
                     design_allow_extra=design_allow_extra,
-                    design_remove_extra=design_remove_extra,
+                    design_remove_extra=design_remove_fields,
                 )
             except FileNotFoundError:
                 log.critical(
@@ -713,7 +721,7 @@ class FlowLauncher:
                         design,
                         overrides=design_overrides,
                         allow_extra=design_allow_extra,
-                        remove_extra=design_remove_extra,
+                        remove_extra=design_remove_fields,
                     )
                 except DesignFileParseError as e:
                     log.critical(f"Error parsing design file {design}: {e}")
@@ -770,20 +778,35 @@ class FlowLauncher:
                         )
                         raise ValueError("no design was specified or discovered")
         if isinstance(flow_settings, Flow.Settings):
-            flow_overrides = flow_settings.dict()
+            flow_settings = flow_settings.dict()
         else:
             assert isinstance(
                 flow_settings, (list, tuple, dict)
             ), "flow_settings should be a list, tuple or dict"
-            flow_overrides = settings_to_dict(flow_settings)
-        log.debug("flow_overrides: %s", flow_overrides)
+            flow_settings = settings_to_dict(flow_settings)
+        if not isinstance(flow_overrides, dict):
+            flow_overrides = settings_to_dict(flow_overrides)
+        assert isinstance(
+            flow_settings, dict
+        ), f"flow_settings should be a dict at this stage, but was {type(flow_settings)}"
+        assert isinstance(
+            flow_overrides, dict
+        ), f"flow_overrides should be a dict at this stage, but was {type(flow_overrides)}"
         if isinstance(flow, str):
             flow_name = flow
             flow_class = get_flow_class(flow)
         else:
             flow_name = flow.name
             flow_class = flow
-        flow_settings = {**flows_settings.get(flow_name, {}), **flow_overrides}
+
+        final_flow_settings = flows_settings.get(flow_name, {})
+        if not isinstance(final_flow_settings, dict):
+            final_flow_settings = settings_to_dict(final_flow_settings)
+        if flow_settings:
+            final_flow_settings.update(flow_settings)
+        if flow_overrides:
+            log.debug("flow_overrides: %s", flow_overrides)
+            final_flow_settings.update(flow_overrides)
         if not design or not flow_class:
             log.critical("Failed to parse design and/or flow")
             raise ValueError(f"design={design} flow_class={flow_class}")
@@ -798,7 +821,7 @@ class FlowLauncher:
         return self.run_flow(
             flow_class,
             design,
-            flow_settings,
+            final_flow_settings,
             run_path=run_path,
             all_flows_settings=flows_settings,
         )
