@@ -98,6 +98,16 @@ foreach src $SOURCE_FILES {
         ".sv" {
             set format sverilog
         }
+        ".sdc" {
+            puts "Loading design SDC file: $src"
+            source -echo $src
+            continue
+        }
+        ".tcl" {
+            puts "Loading design TCL file: $src"
+            source -echo $src
+            continue
+        }
         default {
             puts "Unknown file extension: $ext"
             exit 1
@@ -133,15 +143,16 @@ if { [link] != 1 } {
 
 puts "list of designs: [list_designs]"
 
-write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/elab.ddc
-write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/elab.v
+redirect -tee $REPORTS_DIR/elab.design.rpt {report_design -nosplit}
+redirect -tee $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
+redirect -tee $REPORTS_DIR/elab.list_designs.rpt {list_designs}
+
+
+check_design -summary
 
 {% if settings.flatten -%}
 ungroup -flatten -all
 {%- endif %}
-
-list_designs -show_file
-check_design -summary
 
 puts "\n=========( Loading the constraints )========="
 {% for constraint_file in settings.sdc_files -%}
@@ -152,7 +163,9 @@ if { [catch {source -echo {{constraint_file}}} err] } {
 }
 {% endfor -%}
 
-write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/elab.ddc
+
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
+write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
 
 redirect -tee $REPORTS_DIR/elab.check_design.rpt {check_design}
 redirect -tee $REPORTS_DIR/elab.check_timing.rpt {check_timing}
@@ -270,7 +283,7 @@ set_fix_multiple_port_nets -all -buffer_constants
 
 change_names -rules verilog -hierarchy
 
-write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/mapped.ddc
+write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
 write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
 write -format svsim -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.svwrapper.v
 write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
