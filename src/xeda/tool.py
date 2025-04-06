@@ -6,7 +6,6 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from sys import stderr
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .dataclass import Field, XedaBaseModel, validator

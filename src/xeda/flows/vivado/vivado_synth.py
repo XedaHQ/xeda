@@ -59,8 +59,14 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         default_max_input_delay: Optional[float] = Field(
             0.0, description="Default max delay to set on all non-clock input ports"
         )
+        default_min_input_delay: Optional[float] = Field(
+            None, description="Default min delay to set on all non-clock input ports"
+        )
         default_max_output_delay: Optional[float] = Field(
             0.0, description="Default max delay to set on all output ports"
+        )
+        default_min_output_delay: Optional[float] = Field(
+            None, description="Default min delay to set on all output ports"
         )
 
         # FIXME implement and verify all

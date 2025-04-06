@@ -6,7 +6,7 @@ from ..board import WithFpgaBoardSettings, get_board_data
 from ..dataclass import validator
 from ..design import Design
 from ..tool import Tool
-from ..flow import FpgaSynthFlow
+from ..flow import FpgaSynthFlow, FlowSettingsException
 from .nextpnr import Nextpnr
 
 __all__ = ["Openfpgaloader"]
@@ -47,6 +47,8 @@ class Openfpgaloader(FpgaSynthFlow):
         ss = self.settings
         assert ss.nextpnr is not None
         self.add_dependency(Nextpnr, ss.nextpnr)
+        if ss.fpga is None:
+            raise FlowSettingsException("")
         if ss.fpga.family == "ecp5":  # FIXME from fpga/board
             self.packer = Tool("ecppack")
 
@@ -73,6 +75,7 @@ class Openfpgaloader(FpgaSynthFlow):
             args.extend(["--cable", ss.cable])
         elif board_name:
             args.extend(["--board", board_name])
+        assert ss.fpga is not None
         if ss.fpga.part:
             args.extend(["--fpga-part", ss.fpga.part])
         if ss.reset:

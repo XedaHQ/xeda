@@ -48,10 +48,10 @@ dependencies = [
     "click               ~= 8.1",
     "click_help_colors   ~= 0.9",
     "coloredlogs         ~= 15.0",
-    "rich                >= 13.0, < 14.0",
+    "rich                >= 14.0",
     "pebble              ~= 5.0",
     "pint                ~= 0.24",
-    "importlib_resources >= 6.0",                       # backport of importlib.resources, replaces pkg_resources
+    "importlib_resources >= 6.0",                        # backport of importlib.resources, replaces pkg_resources
     "simpleeval          ~= 1.0",
     "PyYAML              ~= 6.0",
     # experimental:
@@ -87,7 +87,13 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["xeda*"]
-exclude = ["tests/**", "*/tests/**", "platforms", "*/platforms", "**/platforms/**"]
+exclude = [
+    "tests/**",
+    "*/tests/**",
+    "platforms",
+    "*/platforms",
+    "**/platforms/**",
+]
 namespaces = false
 
 [tool.setuptools.package-data]

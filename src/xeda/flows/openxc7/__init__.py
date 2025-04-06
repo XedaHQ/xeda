@@ -75,9 +75,6 @@ class OpenXC7(FpgaSynthFlow):
         pack_only: bool = Field(
             False, description="Xilinx: only run packing, do not place and route"
         )
-        ignore_loops: bool = Field(
-            False, description="Xilinx: ignore combinational loops in timing analysis"
-        )
         no_route: bool = Field(False, description="Xilinx: process design without routing")
         no_place: bool = Field(False, description="Xilinx: process design without placement")
         no_pack: bool = Field(False, description="Xilinx: process design without packing")
@@ -168,18 +165,18 @@ class OpenXC7(FpgaSynthFlow):
 
         assert fasm_path.exists(), f"FASM file {fasm_path} not found!"
         frames_path = fasm_path.with_suffix(".frames")
-        cmd = [
+        cmd: List[str] = [
             "fasm2frames",
             "--part",
             ss.fpga.part,
             "--db-root",
-            prjxraydb_dir / family,
-            fasm_path,
-            frames_path,
+            str(prjxraydb_dir / family),
+            str(fasm_path),
+            str(frames_path),
         ]
         log.info("Running: %s", " ".join(map(str, cmd)))
         subprocess.run(
-            cmd,
+            [str(a) for a in cmd],
             check=True,
         )
         assert frames_path.exists(), f"Frames file {frames_path} not found!"
@@ -190,15 +187,15 @@ class OpenXC7(FpgaSynthFlow):
         cmd = [
             "xc7frames2bit",
             "--part_file",
-            part_yaml,
+            str(part_yaml),
             "--part_name",
             ss.fpga.part,
             "--frm_file",
-            frames_path,
+            str(frames_path),
             "--output_file",
-            bitstream_path,
+            str(bitstream_path),
         ]
-        log.info("Running: %s", " ".join(map(str, cmd)))
+        log.info("Running: %s", " ".join(cmd))
         subprocess.run(cmd, check=True)
         return bitstream_path
 
@@ -338,6 +335,7 @@ class OpenXC7(FpgaSynthFlow):
             ss.chipdb = os.environ.get("CHIPDB_DIR")
         if not ss.chipdb and self.design_root:
             ss.chipdb = self.design_root / "chipdb"
+            assert isinstance(ss.chipdb, Path)
             if not ss.chipdb.exists():
                 ss.chipdb.mkdir(parents=True)
         if not ss.chipdb:
@@ -347,20 +345,22 @@ class OpenXC7(FpgaSynthFlow):
         if ss.chipdb.is_dir():
             assert ss.fpga, "FPGA settings must be set!"
             assert ss.fpga.part
-            f = next(ss.chipdb.glob(f"{ss.fpga.part}*.bin"), None)
-            if not f:
+            xdc_file = next(ss.chipdb.glob(f"{ss.fpga.part}*.bin"), None)
+            if not xdc_file:
                 part_no_speed = ss.fpga.part.split("-")[0]
-                f = next(ss.chipdb.glob(f"{part_no_speed}*.bin"), None)
-            if not f or not f.exists():
-                nextpnr_xilinx_python_dir = os.environ.get("NEXTPNR_XILINX_PYTHON_DIR")
+                xdc_file = next(ss.chipdb.glob(f"{part_no_speed}*.bin"), None)
+            if not xdc_file or not xdc_file.exists():
+                nextpnr_xilinx_python_dir: Union[None, str, Path] = os.environ.get(
+                    "NEXTPNR_XILINX_PYTHON_DIR"
+                )
                 if nextpnr_xilinx_python_dir:
                     nextpnr_xilinx_python_dir = Path(nextpnr_xilinx_python_dir)
-                    f = self.generate_chipdb(nextpnr_xilinx_python_dir, ss.chipdb)
-            if not f:
+                    xdc_file = self.generate_chipdb(nextpnr_xilinx_python_dir, ss.chipdb)
+            if not xdc_file:
                 raise FlowFatalError(
                     f"Xilinx chip database file for part {ss.fpga.part} not found in {ss.chipdb}!"
                 )
-            ss.chipdb = f
+            ss.chipdb = xdc_file
         if not ss.chipdb.exists():
             raise FlowFatalError(f"Xilinx chip database file {ss.chipdb} does not exist!")
         args += setting_flag(ss.chipdb)
@@ -372,15 +372,15 @@ class OpenXC7(FpgaSynthFlow):
         )
         xdc_files += (self.normalize_path_to_design_root(p) for p in ss.xdc_files)
         other_constraints = ""
-        for f in xdc_files:
-            log.debug("Appending user XDC: %s", f)
-            if not f.exists():
-                raise FlowFatalError(f"XDC file {f} does not exist!")
-            with f.open() as xdc:
-                other_constraints += xdc.read() + "\n"
+        for xdc_file in xdc_files:
+            log.debug("Appending user XDC: %s", xdc_file)
+            if not xdc_file.exists():
+                raise FlowFatalError(f"XDC file {xdc_file} does not exist!")
+            with xdc_file.open() as f:
+                other_constraints += f.read() + "\n"
 
         xdc = self.copy_from_template("constraints.xdc", other_constraints=other_constraints)
-        args += ["--xdc", xdc]
+        args += ["--xdc", str(xdc)]
         if not ss.fasm_output:
             result_basename = self.design.rtl.top or "top"
             ss.fasm_output = result_basename + ".fasm"
@@ -469,18 +469,18 @@ class OpenXC7(FpgaSynthFlow):
                 bin_path.unlink()
             bba_path = output_dir / f"{part}.bba"
             cmd = [
-                python_executable,
-                nextpnr_xilinx_python_dir / "bbaexport.py",
+                str(python_executable),
+                str(nextpnr_xilinx_python_dir / "bbaexport.py"),
                 "--device",
                 part,
                 "--bba",
-                bba_path,
+                str(bba_path),
             ]
             log.info(f"Running: {' '.join(map(str,cmd))}")
             subprocess.run(cmd, check=True)
             assert bba_path.exists(), f"bbaexport failed: {bba_path} not found!"
 
-            cmd = [bbasm_executable, "-l", bba_path, bin_path]
+            cmd = [bbasm_executable, "-l", str(bba_path), str(bin_path)]
             log.info(f"Running: {' '.join(map(str,cmd))}")
             subprocess.run(cmd, check=True)
             assert (

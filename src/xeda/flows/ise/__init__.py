@@ -30,6 +30,7 @@ class XTclSh(Tool):
             check: bool = True,
             root_dir: OptionalPath = None,
             print_command: bool = True,
+            highlight_rules: Optional[Dict[str, str]] = None,
         ) -> Union[None, str]:
             XILINX = "/opt/Xilinx/14.7/ISE_DS"
             args_str = " ".join(str(a) for a in args)
@@ -46,6 +47,7 @@ class XTclSh(Tool):
                 check=check,
                 root_dir=root_dir,
                 print_command=print_command,
+                highlight_rules=highlight_rules,
             )
 
     executable: str = "xtclsh"
