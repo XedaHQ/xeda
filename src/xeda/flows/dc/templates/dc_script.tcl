@@ -51,11 +51,6 @@ set_app_var spg_enable_via_resistance_support true
 
 set_app_var hdlin_infer_multibit default_all
 
-saif_map -start
-
-if { $OPTIMIZATION == "area" } {
-    set_max_area 0.0
-}
 if { [shell_is_dcnxt_shell] } {
     if { $OPTIMIZATION == "area" } {
         set_app_var compile_high_effort_area true
@@ -134,25 +129,34 @@ if { [catch {current_design ${TOP_MODULE} } $err] } {
     exit 1
 }
 
+check_design -summary
+
+puts "list of designs: [list_designs]"
+
+redirect -tee $REPORTS_DIR/elab.check_design.rpt {check_design}
+redirect -tee $REPORTS_DIR/elab.design.rpt {report_design -nosplit}
+redirect -tee $REPORTS_DIR/elab.list_designs.rpt {list_designs}
+redirect -file $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
+
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
+write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
+
 puts "\n===================( Linking design )==================="
 if { [link] != 1 } {
     puts "\[ERROR]\ Linking design failed!\n"
     exit 1
 }
-
-
-puts "list of designs: [list_designs]"
-
-redirect -tee $REPORTS_DIR/elab.design.rpt {report_design -nosplit}
-redirect -tee $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
-redirect -tee $REPORTS_DIR/elab.list_designs.rpt {list_designs}
-
-
 check_design -summary
 
 {% if settings.flatten -%}
 ungroup -flatten -all
 {%- endif %}
+
+saif_map -start
+
+if { $OPTIMIZATION == "area" } {
+    set_max_area 0.0
+}
 
 puts "\n=========( Loading the constraints )========="
 {% for constraint_file in settings.sdc_files -%}
@@ -163,13 +167,13 @@ if { [catch {source -echo {{constraint_file}}} err] } {
 }
 {% endfor -%}
 
+redirect -tee ${REPORTS_DIR}/linked.check_library.rpt {check_library}
+redirect -tee ${REPORTS_DIR}/linked.check_design.rpt {check_design}
+redirect -file ${REPORTS_DIR}/linked.check_timing.rpt {check_timing}
+redirect -file ${REPORTS_DIR}/linked.constraints.rpt {report_constraint -nosplit}
 
-write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
-write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
-
-redirect -tee $REPORTS_DIR/elab.check_design.rpt {check_design}
-redirect -tee $REPORTS_DIR/elab.check_timing.rpt {check_timing}
-
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.ddc
+write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.v
 
 set compile_command {{settings.compile_command}}
 
