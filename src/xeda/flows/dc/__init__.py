@@ -120,17 +120,10 @@ class Dc(AsicSynthFlow):
         default_max_output_delay: Optional[float] = Field(
             0.0, description="Default max delay to set on all output ports"
         )
-
-        # @validator("target_libraries", pre=True, always=True)
-        # def _validate_target_libraries(cls, value, values):
-        #     if isinstance(value, (Path, str)):
-        #         value = [value]
-        #     assert isinstance(value, list)
-        #     runner_cwd = values.get("runner_cwd_")
-        #     value = [
-        #         v if os.path.isabs(v) or not runner_cwd else str(runner_cwd / v) for v in value
-        #     ]
-        #     return value
+        clean: bool = Field(
+            True,
+            description="Delete all the existing files in run_dir before running synthesis.",
+        )
 
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value):
@@ -154,6 +147,10 @@ class Dc(AsicSynthFlow):
             self.process_path(p, subs_vars=True, resolve_to=self.design.root_path)
             for p in ss.target_libraries
         ]
+
+    def clean(self):
+        # completely erase the content of the run directory
+        self.purge_run_path()
 
     def run(self):
         assert isinstance(self.settings, self.Settings)

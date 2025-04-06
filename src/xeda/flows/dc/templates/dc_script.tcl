@@ -39,7 +39,9 @@ set_app_var hdlin_vhdl_std {{design.language.vhdl.standard}}
 # improve the SAIF annotation
 set_app_var hdlin_enable_upf_compatible_naming true
 
-set_app_var vhdlout_dont_create_dummy_nets true
+# To prevent assign statements in the netlist
+set_app_var verilogout_no_tri true
+set_fix_multiple_port_nets -all -buffer_constants
 
 {%- for k,v in settings.hdlin.items() %}
 set_app_var hdlin_{{k}} {{v}}
@@ -139,6 +141,7 @@ redirect -tee $REPORTS_DIR/elab.list_designs.rpt {list_designs}
 redirect -file $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
 
 write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
+change_names -rules verilog -hierarchy
 write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
 
 puts "\n===================( Linking design )==================="
@@ -173,6 +176,7 @@ redirect -file ${REPORTS_DIR}/linked.check_timing.rpt {check_timing}
 redirect -file ${REPORTS_DIR}/linked.constraints.rpt {report_constraint -nosplit}
 
 write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.ddc
+change_names -rules verilog -hierarchy
 write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.v
 
 set compile_command {{settings.compile_command}}
@@ -275,21 +279,24 @@ redirect -tee $REPORTS_DIR/mapped.area.rpt {report_area -nosplit}
 redirect -tee $REPORTS_DIR/mapped.power.rpt {report_power -nosplit -net -cell -analysis_effort medium}
 redirect -tee $REPORTS_DIR/mapped.power.hier.rpt {report_power -nosplit -hierarchy -levels 3 -analysis_effort medium}
 
-define_name_rules verilog -preserve_struct_ports
-report_names -rules verilog > $REPORTS_DIR/mapped.naming.rpt
+define_name_rules -special verilog -preserve_struct_ports
+define_name_rules -special vhdl -preserve_struct_ports
+
+change_names -rules verilog -hierarchy
+report_names -rules verilog > $REPORTS_DIR/mapped.naming.verilog.rpt
 
 
 puts "==========================( Writing Generated Netlist )=========================="
 
-# To prevent assign statements in the netlist
-set_app_var verilogout_no_tri true
-set_fix_multiple_port_nets -all -buffer_constants
-
-change_names -rules verilog -hierarchy
 
 write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
+change_names -rules verilog -hierarchy
 write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
 write -format svsim -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.svwrapper.v
+
+# set_app_var vhdlout_dont_create_dummy_nets true
+
+change_names -rules vhdl -hierarchy
 write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
 
 write_sdf -version 2.1 $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
