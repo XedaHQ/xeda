@@ -39,10 +39,6 @@ set_app_var hdlin_vhdl_std {{design.language.vhdl.standard}}
 # improve the SAIF annotation
 set_app_var hdlin_enable_upf_compatible_naming true
 
-# To prevent assign statements in the netlist
-set_app_var verilogout_no_tri true
-set_fix_multiple_port_nets -all -buffer_constants
-
 {%- for k,v in settings.hdlin.items() %}
 set_app_var hdlin_{{k}} {{v}}
 {%- endfor %}
@@ -131,6 +127,11 @@ if { [catch {current_design ${TOP_MODULE} } $err] } {
     exit 1
 }
 
+# To prevent assign statements in the netlist
+set_app_var verilogout_no_tri true
+set_fix_multiple_port_nets -all -buffer_constants
+saif_map -start
+
 check_design -summary
 
 puts "list of designs: [list_designs]"
@@ -143,6 +144,11 @@ redirect -file $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
 write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
 change_names -rules verilog -hierarchy
 write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
+change_names -rules vhdl -hierarchy
+
+set_app_var vhdlout_dont_create_dummy_nets true
+write_file -hierarchy -format vhdl -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.vhd
+set_app_var vhdlout_dont_create_dummy_nets false
 
 puts "\n===================( Linking design )==================="
 if { [link] != 1 } {
@@ -155,7 +161,6 @@ check_design -summary
 ungroup -flatten -all
 {%- endif %}
 
-saif_map -start
 
 if { $OPTIMIZATION == "area" } {
     set_max_area 0.0
