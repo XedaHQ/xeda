@@ -49,6 +49,9 @@ set_app_var spg_enable_via_resistance_support true
 
 set_app_var hdlin_infer_multibit default_all
 
+define_name_rules verilog -special verilog -preserve_struct_ports
+define_name_rules vhdl -special vhdl -preserve_struct_ports
+
 if { [shell_is_dcnxt_shell] } {
     if { $OPTIMIZATION == "area" } {
         set_app_var compile_high_effort_area true
@@ -284,9 +287,6 @@ redirect -tee $REPORTS_DIR/mapped.area.rpt {report_area -nosplit}
 redirect -tee $REPORTS_DIR/mapped.power.rpt {report_power -nosplit -net -cell -analysis_effort medium}
 redirect -tee $REPORTS_DIR/mapped.power.hier.rpt {report_power -nosplit -hierarchy -levels 3 -analysis_effort medium}
 
-define_name_rules -special verilog -preserve_struct_ports
-define_name_rules -special vhdl -preserve_struct_ports
-
 change_names -rules verilog -hierarchy
 report_names -rules verilog > $REPORTS_DIR/mapped.naming.verilog.rpt
 
@@ -297,11 +297,10 @@ puts "==========================( Writing Generated Netlist )===================
 write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
 change_names -rules verilog -hierarchy
 write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
-write -format svsim -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.svwrapper.v
-
-# set_app_var vhdlout_dont_create_dummy_nets true
+# write -format svsim -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.svwrapper.v
 
 change_names -rules vhdl -hierarchy
+set_app_var vhdlout_dont_create_dummy_nets true
 write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
 
 write_sdf -version 2.1 $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
