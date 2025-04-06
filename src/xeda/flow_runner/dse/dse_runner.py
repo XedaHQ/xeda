@@ -1,7 +1,6 @@
 from inspect import isclass
 import logging
 import multiprocessing
-import os
 import shutil
 import traceback
 from concurrent.futures import CancelledError, TimeoutError
@@ -12,7 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
 
 import psutil
 from attrs import define
-from pebble.common import ProcessExpired
+from pebble.common import ProcessExpired  # type: ignore
 from pebble.pool.process import ProcessPool
 
 from ...dataclass import Field, XedaBaseModel
@@ -134,7 +133,7 @@ class Dse(FlowLauncher):
         max_failed_iters: int = 6
         max_failed_iters_with_best: int = 4
         max_workers: int = Field(
-            psutil.cpu_count(logical=False),
+            psutil.cpu_count(logical=False) or 2,
             description="Number of parallel executions.",
         )
         timeout: int = 90 * 60  # in seconds
@@ -232,6 +231,9 @@ class Dse(FlowLauncher):
             {k: v[0] for k, v in optimizer.variations.items() if v},
             hierarchical_keys=True,
         )
+        if isinstance(flow_settings, Flow.Settings):
+            flow_settings = flow_settings.dict()
+        assert isinstance(flow_settings, dict)
         flow_settings = {**flow_settings, **base_variation}
 
         base_settings = flow_class.Settings(**flow_settings)
@@ -258,7 +260,7 @@ class Dse(FlowLauncher):
 
         flow_setting_hashes: Set[int] = set()
 
-        num_cpus = psutil.cpu_count()
+        num_cpus = psutil.cpu_count() or multiprocessing.cpu_count() or 1
         iterate = True
         try:
             with ProcessPool(max_workers=optimizer.max_workers) as pool:

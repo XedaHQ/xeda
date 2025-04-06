@@ -1,9 +1,9 @@
 import logging
 from pathlib import Path
-from typing import Iterable, List, Literal, Optional, Union
+from typing import Iterable, List, Literal, Optional
 
 from ...dataclass import Field
-from ...flow import FpgaSynthFlow, FPGA, FlowFatalError
+from ...flow import FpgaSynthFlow, FlowFatalError
 from ...flows.ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
 
@@ -16,7 +16,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     """
 
     class Settings(YosysBase.Settings, FpgaSynthFlow.Settings):
-        fpga: Optional[FPGA] = None
         abc9: bool = Field(True, description="Use abc9")
         flow3: bool = Field(
             True, description="Use flow3, which runs the mapping several times, if abc9 is set"

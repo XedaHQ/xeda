@@ -18,6 +18,9 @@ flows:
   vivado_synth:
     fpga.part: xc7a12tcsg325-3
     clock.freq: 200MHz
+  yosys_fpga:
+    fpga.part: xc7a12tcsg325-3
+    clock.freq: 200MHz
   dc:
     target_libraries:
       - $PWD/lib/SAED90/saed90nm_typ_ht.db

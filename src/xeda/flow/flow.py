@@ -39,6 +39,7 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "Flow",
+    "FlowSettingsException",
     "FlowSettingsError",
     "FlowFatalError",
 ]
@@ -482,8 +483,16 @@ class FlowDependencyFailure(FlowException):
     """Error during execution of a dependency flow"""
 
 
-class FlowSettingsError(FlowException):
-    """Validation of settings failed"""
+class FlowSettingsException(FlowException):
+    """Validation of settings failed
+    This is a fatal error and the flow should not be run.
+    """
+
+
+class FlowSettingsError(FlowSettingsException):
+    """Validation of settings failed.
+    The constructor of this subclass takes a list of tuples from pydantic validation errors.
+    """
 
     def __init__(
         self,

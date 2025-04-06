@@ -4,20 +4,21 @@ from abc import ABCMeta
 from functools import cached_property, reduce
 from html import unescape
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from xml.etree import ElementTree
 
 import colorama
 
 from ...dataclass import Field
 from ...design import Design
+from ...flow import Flow, FpgaSynthFlow, SynthFlow
 from ...tool import Docker, Tool
-from ...flow import Flow, SynthFlow
 
 log = logging.getLogger(__name__)
 
 all = [
     "Vivado",
+    "VivadoSynthSettings",
     "VivadoTool",
 ]
 

@@ -7,10 +7,10 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from ...design import SourceType
 from ...dataclass import Field, XedaBaseModel, validator
-from ...utils import HierDict, parse_xml, try_convert
+from ...design import SourceType
 from ...flow import FpgaSynthFlow
+from ...utils import HierDict, parse_xml, try_convert
 from ..vivado import Vivado
 
 __all__ = ["RunOptions", "StepsValType", "VivadoSynth"]
@@ -41,9 +41,8 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     """Synthesize with Xilinx Vivado using a project-based flow"""
 
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
-        """Settings for Vivado synthesis in project mode"""
+        """Vivado synthesis settings"""
 
-        # FIXME implement and verify all
         fail_critical_warning: bool = Field(
             False,
             description="Flow fails if any Critical Warnings are reported by Vivado",
@@ -51,14 +50,27 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         fail_timing: bool = Field(
             True, description="Flow fails if timing is not met"
         )  # pyright: ignore
-        input_delay: Optional[float] = None
-        output_delay: Optional[float] = None
         write_checkpoint: bool = False
         write_netlist: bool = False
         write_bitstream: bool = False
-        bitstream: Optional[Union[str, Path]] = None
+        bitstream: Optional[Union[str, Path]] = None  # TODO: implement for VivadoA
         extra_reports: bool = False
         qor_suggestions: bool = False
+        default_max_input_delay: Optional[float] = Field(
+            0.0, description="Default max delay to set on all non-clock input ports"
+        )
+        default_min_input_delay: Optional[float] = Field(
+            None, description="Default min delay to set on all non-clock input ports"
+        )
+        default_max_output_delay: Optional[float] = Field(
+            0.0, description="Default max delay to set on all output ports"
+        )
+        default_min_output_delay: Optional[float] = Field(
+            None, description="Default min delay to set on all output ports"
+        )
+
+        # FIXME implement and verify all
+
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
         synth: RunOptions = RunOptions(
             # Performance strategies: "Flow_PerfOptimized_high" (no LUT combining, fanout limit: 400), "Flow_AlternateRoutability",
@@ -93,9 +105,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             "Synth 8-7080",  # "Parallel synthesis criteria is not met"
             "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
         ]
-        dummy_io_delay: bool = Field(
-            False, description="Set a dummy IO delays in case I/O delays are not specified"
-        )
         flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field("rebuilt")
         show_available_strategies: bool = Field(
             False, description="Show available synthesis and implementation strategies"
@@ -110,16 +119,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
-        if (
-            settings.main_clock
-            and settings.main_clock.period
-            and settings.dummy_io_delay
-            and (settings.input_delay is None)
-            and (settings.output_delay is None)
-        ):
-            dummy_delay = max(0.001, 0.001 * settings.main_clock.period)
-            settings.input_delay = dummy_delay
-            settings.output_delay = dummy_delay
         if settings.write_netlist:
             for o in [
                 "timesim.min.sdf",

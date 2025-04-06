@@ -4,6 +4,7 @@ from .flow import (
     FlowException,
     FlowFatalError,
     FlowSettingsError,
+    FlowSettingsException,
     registered_flows,
 )
 
@@ -28,6 +29,7 @@ __all__ = [
     "registered_flows",
     "FlowDependencyFailure",
     "FlowFatalError",
+    "FlowSettingsException",
     "FlowSettingsError",
     "FlowException",
 ]

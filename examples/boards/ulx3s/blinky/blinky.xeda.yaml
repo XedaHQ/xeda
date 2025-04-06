@@ -1,0 +1,12 @@
+sources: ["blinky.v"]
+top: blinky
+clock.port: "clk_25mhz"
+
+flows:
+  openfpgaloader:
+    clock.freq: 25MHz
+  nextpnr:
+    board: ULX3S_85F
+  yosys_fpga:
+    fpga.family: ecp5
+    clock.freq: 25MHz

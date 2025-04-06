@@ -23,7 +23,7 @@ clock_port = 'clk_25mhz'
 
 [flows.openfpgaloader]
 board = 'ULX3S_85F'
-clock_period = 40   # 25 MHz
+clock_period = 40                      # 25 MHz
 nextpnr.detailed_timing_report = false
 nextpnr.timing_allow_fail = true
 
@@ -34,14 +34,3 @@ clock_period = 40   # 25 MHz
 [flows.yosys_fpga]
 fpga.family = 'ecp5'
 clock_period = 40    #
-
-[flows.vivado_synth]
-fpga.part = 'xc7a12tcsg325-1'
-clock_period = 4.0
-synth.strategy = 'Flow_PerfOptimized_high'
-impl.strategy = 'Performance_Explore'
-blacklisted_resources = ['bram', 'dsp']
-
-[flows.vivado_custom_synth]
-fpga.part = 'xc7a12tcsg325-1'
-clock_period = 4.0

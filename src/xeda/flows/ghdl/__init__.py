@@ -369,7 +369,10 @@ class GhdlSynth(Ghdl, SynthFlow):
             self.ghdl.run("synth", *flags, stdout=ss.out_file)
 
     @staticmethod
-    def synth_args(ss: Settings, design: Design, one_shot_elab: bool = True) -> List[str]:
+    def synth_args(ss: Optional[Settings], design: Design, one_shot_elab: bool = True) -> List[str]:
+        assert ss is not None and isinstance(
+            ss, GhdlSynth.Settings
+        ), "GHDL settings must be set at this point"
         flags = ss.get_flags(design.language.vhdl, "elaborate")
         flags += setting_flag(ss.vendor_library, name="vendor_library")
         flags += setting_flag(ss.out, name="out")

@@ -1,4 +1,5 @@
 """test Intel Quartus flow"""
+
 import os
 import tempfile
 import logging
@@ -45,7 +46,7 @@ def test_parse_csv():
             "Block Memory Bits",
             "Pins",
             "I/O Registers",
-        }
+        },
         # ['Logic Cells', 'Memory Bits', 'M10Ks', 'M9Ks', 'DSP Elements', 'ALMs needed [=A-B+C]',
         #                     'Combinational ALUTs', 'ALMs used for memory', 'DSP Blocks', 'Pins'
         #                     'LUT-Only LCs',	'Register-Only LCs', 'LUT/Register LCs', 'Block Memory Bits']
@@ -130,6 +131,7 @@ def test_quartus_synth_py() -> None:
         print("Xeda run dir: ", run_dir)
         xeda_runner = DefaultRunner(run_dir, debug=True)
         flow = xeda_runner.run_flow(Quartus, design, settings)
+        assert flow is not None, "run_flow returned None"
         settings_json = flow.run_path / "settings.json"
         results_json = flow.run_path / "results.json"
         assert settings_json.exists()

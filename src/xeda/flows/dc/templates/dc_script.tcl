@@ -39,8 +39,6 @@ set_app_var hdlin_vhdl_std {{design.language.vhdl.standard}}
 # improve the SAIF annotation
 set_app_var hdlin_enable_upf_compatible_naming true
 
-set_app_var vhdlout_dont_create_dummy_nets true
-
 {%- for k,v in settings.hdlin.items() %}
 set_app_var hdlin_{{k}} {{v}}
 {%- endfor %}
@@ -51,11 +49,9 @@ set_app_var spg_enable_via_resistance_support true
 
 set_app_var hdlin_infer_multibit default_all
 
-saif_map -start
+define_name_rules verilog -special verilog -preserve_struct_ports
+define_name_rules vhdl -special vhdl -preserve_struct_ports
 
-if { $OPTIMIZATION == "area" } {
-    set_max_area 0.0
-}
 if { [shell_is_dcnxt_shell] } {
     if { $OPTIMIZATION == "area" } {
         set_app_var compile_high_effort_area true
@@ -98,6 +94,16 @@ foreach src $SOURCE_FILES {
         ".sv" {
             set format sverilog
         }
+        ".sdc" {
+            puts "Loading design SDC file: $src"
+            source -echo $src
+            continue
+        }
+        ".tcl" {
+            puts "Loading design TCL file: $src"
+            source -echo $src
+            continue
+        }
         default {
             puts "Unknown file extension: $ext"
             exit 1
@@ -124,24 +130,44 @@ if { [catch {current_design ${TOP_MODULE} } $err] } {
     exit 1
 }
 
+# To prevent assign statements in the netlist
+set_app_var verilogout_no_tri true
+set_fix_multiple_port_nets -all -buffer_constants
+saif_map -start
+
+check_design -summary
+
+puts "list of designs: [list_designs]"
+
+redirect -tee $REPORTS_DIR/elab.check_design.rpt {check_design}
+redirect -tee $REPORTS_DIR/elab.design.rpt {report_design -nosplit}
+redirect -tee $REPORTS_DIR/elab.list_designs.rpt {list_designs}
+redirect -file $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
+
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
+change_names -rules verilog -hierarchy
+write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
+change_names -rules vhdl -hierarchy
+
+set_app_var vhdlout_dont_create_dummy_nets true
+write_file -hierarchy -format vhdl -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.vhd
+set_app_var vhdlout_dont_create_dummy_nets false
+
 puts "\n===================( Linking design )==================="
 if { [link] != 1 } {
     puts "\[ERROR]\ Linking design failed!\n"
     exit 1
 }
-
-
-puts "list of designs: [list_designs]"
-
-write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/elab.ddc
-write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/elab.v
+check_design -summary
 
 {% if settings.flatten -%}
 ungroup -flatten -all
 {%- endif %}
 
-list_designs -show_file
-check_design -summary
+
+if { $OPTIMIZATION == "area" } {
+    set_max_area 0.0
+}
 
 puts "\n=========( Loading the constraints )========="
 {% for constraint_file in settings.sdc_files -%}
@@ -152,11 +178,14 @@ if { [catch {source -echo {{constraint_file}}} err] } {
 }
 {% endfor -%}
 
-write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/elab.ddc
+redirect -tee ${REPORTS_DIR}/linked.check_library.rpt {check_library}
+redirect -tee ${REPORTS_DIR}/linked.check_design.rpt {check_design}
+redirect -file ${REPORTS_DIR}/linked.check_timing.rpt {check_timing}
+redirect -file ${REPORTS_DIR}/linked.constraints.rpt {report_constraint -nosplit}
 
-redirect -tee $REPORTS_DIR/elab.check_design.rpt {check_design}
-redirect -tee $REPORTS_DIR/elab.check_timing.rpt {check_timing}
-
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.ddc
+change_names -rules verilog -hierarchy
+write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.v
 
 set compile_command {{settings.compile_command}}
 
@@ -258,21 +287,20 @@ redirect -tee $REPORTS_DIR/mapped.area.rpt {report_area -nosplit}
 redirect -tee $REPORTS_DIR/mapped.power.rpt {report_power -nosplit -net -cell -analysis_effort medium}
 redirect -tee $REPORTS_DIR/mapped.power.hier.rpt {report_power -nosplit -hierarchy -levels 3 -analysis_effort medium}
 
-define_name_rules verilog -preserve_struct_ports
-report_names -rules verilog > $REPORTS_DIR/mapped.naming.rpt
+change_names -rules verilog -hierarchy
+report_names -rules verilog > $REPORTS_DIR/mapped.naming.verilog.rpt
 
 
 puts "==========================( Writing Generated Netlist )=========================="
 
-# To prevent assign statements in the netlist
-set_app_var verilogout_no_tri true
-set_fix_multiple_port_nets -all -buffer_constants
 
+write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
 change_names -rules verilog -hierarchy
-
-write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/mapped.ddc
 write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
-write -format svsim -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.svwrapper.v
+# write -format svsim -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.svwrapper.v
+
+change_names -rules vhdl -hierarchy
+set_app_var vhdlout_dont_create_dummy_nets true
 write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
 
 write_sdf -version 2.1 $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf

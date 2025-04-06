@@ -123,7 +123,7 @@ class Nextpnr(FpgaSynthFlow):
                 value = YosysFpga.Settings(
                     fpga=fpga,
                     clocks=clocks,
-                )  # type: ignore  pyright: reportGeneralTypeIssues=none
+                )  # type: ignore
             else:
                 if not isinstance(value, YosysFpga.Settings):
                     value = YosysFpga.Settings(**value)
@@ -148,6 +148,7 @@ class Nextpnr(FpgaSynthFlow):
         assert isinstance(yosys_flow.settings, YosysFpga.Settings)
         assert yosys_flow.settings.netlist_json
         netlist_json = yosys_flow.run_path / yosys_flow.settings.netlist_json
+        assert ss.fpga is not None, "FPGA settings is None!"
         fpga_family = ss.fpga.family if ss.fpga.family else "generic"
         assert fpga_family in {
             "generic",

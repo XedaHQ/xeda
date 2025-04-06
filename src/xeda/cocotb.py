@@ -90,8 +90,8 @@ class TestResults:
         errors = 0
         failures = 0
         skipped = 0
-        time = 0
-        total_sim_time_ns = 0
+        time = 0.0
+        total_sim_time_ns = 0.0
         for ts in test_suites:
             tests += len(ts.test_cases)
             errors += ts.errors
@@ -113,21 +113,22 @@ class TestResults:
             num_errors = 0
             num_failures = 0
             num_skipped = 0
-            total_sim_time_ns = 0
+            total_sim_time_ns = 0.0
             for tc in ts.iter("testcase"):
-                sim_time_ns = tc.get("sim_time_ns")
+                sim_time_ns_ = tc.get("sim_time_ns")
+                sim_time_ns: Optional[float] = None
                 if sim_time_ns is None:
                     sim_time_ps = tc.get("sim_time_ps")
                     if sim_time_ps is not None:
                         try:
                             sim_time_ns = float(sim_time_ps) / 1e3
                         except ValueError:
-                            sim_time_ns = 0
+                            sim_time_ns = 0.0
                     else:
-                        sim_time_ns = 0
+                        sim_time_ns = 0.0
                 else:
                     try:
-                        sim_time_ns = float(sim_time_ns or 0)
+                        sim_time_ns = float(sim_time_ns_ or 0)
                     except ValueError:
                         sim_time_ns = 0
                 time_s = float(tc.get("time") or 0)
@@ -230,7 +231,7 @@ class Cocotb(CocotbSettings, Tool):
         return so_path
 
     def env(self, design: Design) -> Dict[str, Any]:
-        environ = {}
+        environ: Dict[str, Any] = dict()
         if design.tb.cocotb:
             if design.tb is None or not design.tb.sources:
                 raise ValueError("'design.tb.cocotb' is set, but 'design.tb.sources' is empty.")
@@ -257,7 +258,7 @@ class Cocotb(CocotbSettings, Tool):
                 if len(design_module_split) > 1:
                     module_path = Path(os.sep.join(design_module_split[:-1]))
                     if not os.path.isabs(module_path):
-                        module_path = os.path.join(design.root_path, module_path)
+                        module_path = design.root_path / module_path
                 else:
                     module_path = design.root_path
                 py_path.append(str(module_path))
