@@ -124,6 +124,14 @@ class Dc(AsicSynthFlow):
             True,
             description="Delete all the existing files in run_dir before running synthesis.",
         )
+        sdf_version: Optional[str] = Field(
+            "1.0",
+            description="SDF version to use for the SDF output. If not set (=None), the default version (2.1) will be used.",
+        )
+        sdf_inst_name: Optional[str] = Field(
+            None,
+            description="Instance name to use for the SDF output.",
+        )
 
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value):

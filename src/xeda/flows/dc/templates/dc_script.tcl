@@ -303,7 +303,7 @@ change_names -rules vhdl -hierarchy
 set_app_var vhdlout_dont_create_dummy_nets true
 write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
 
-write_sdf -version 2.1 $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
+write_sdf -version {{settings.sdf_version}} {%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name}} {%endif-%} $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
 
 set_app_var write_sdc_output_lumped_net_capacitance false
 set_app_var write_sdc_output_net_resistance false
