@@ -5,27 +5,13 @@ from functools import cached_property
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
-from ...dataclass import Field, XedaPathField  # type: ignore
+from ...dataclass import Field
 from ...design import DesignSource, SourceType, VhdlSettings
 from ...flow import SimFlow
 from ...tool import Tool
 from ...utils import common_root
 
 log = logging.getLogger(__name__)
-
-
-def _get_wave_opt_signals(wave_opt_file, extra_top=None):
-    signals = []
-    with open(wave_opt_file, "r") as f:
-        for line in f.read().splitlines():
-            line = line.strip()
-            if line.startswith("/"):
-                sig = line[1:].split("/")
-                if extra_top:
-                    sig.insert(0, extra_top)
-                signals.append(sig)
-    root_group = common_root(signals)
-    return signals, root_group
 
 
 class NvcTool(Tool):
@@ -122,6 +108,18 @@ class Nvc(SimFlow):
             2048,
             description="Include memories and nested arrays in the waveform data. This is disabled by default as it can have significant performance, memory, and disk space overhead. With optional argument N only arrays with up to this many elements will be dumped.",
         )
+        wave_include_glob: Optional[str] = Field(
+            None,
+            description="""Include signals matching this glob pattern in the waveform data.
+            Examples: ‘:top:*:x’  ‘*:x’  ‘:top:sub:*’
+            See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.""",
+        )
+        wave_exclude_glob: Optional[str] = Field(
+            None,
+            description="""Exclude signals matching this glob pattern from the waveform data.
+            Examples: ‘:top:*:x’  ‘*:x’  ‘:top:sub:*’
+            See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.""",
+        )
         exit_severity: Optional[Literal["note", "warning", "error", "failure"]] = Field(
             None,
             description="Terminate the simulation after an assertion failures of severity greater than or equal to level.",
@@ -132,6 +130,17 @@ class Nvc(SimFlow):
         )
         vhpi: Optional[str] = Field(
             None, description="Specify the VHPI library to load at startup."
+        )
+        shuffle: bool = Field(
+            False,
+            description="""Run processes in random order.
+            The VHDL standard does not specify the execution order of processes and different simulators may exhibit subtly different orderings.
+            This option can help to find and debug code that inadvertently depends on a particular process execution order.
+            This option should only be used during debug as it incurs a significant performance overhead as well as introducing potentially non-deterministic behavior.""",
+        )
+        stats: bool = Field(
+            False,
+            description="Print a summary of the time taken and memory used at the end of the run.",
         )
 
     @cached_property
@@ -251,13 +260,13 @@ class Nvc(SimFlow):
         """Run the simulation"""
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        execute_flags = ss.run_flags
+        run_flags = ss.run_flags
 
         if ss.wave:
             if isinstance(ss.wave, bool):
-                execute_flags += ["--wave"]
+                run_flags += ["--wave"]
             else:
-                execute_flags += [f"--wave={ss.wave}"]
+                run_flags += [f"--wave={ss.wave}"]
                 if not ss.wave_format and isinstance(ss.wave, (str, Path)):
                     ss.wave = Path(ss.wave)
                     if ss.wave.suffix == ".vcd":
@@ -265,23 +274,27 @@ class Nvc(SimFlow):
                     elif ss.wave.suffix == ".fst":
                         ss.wave_format = "fst"
                 if ss.wave_format:
-                    execute_flags.append(f"--format={ss.wave_format}")
+                    run_flags.append(f"--format={ss.wave_format}")
             if ss.wave_arrays:
                 if isinstance(ss.wave_arrays, bool):
-                    execute_flags.append("--dump-arrays")
+                    run_flags.append("--dump-arrays")
                 else:
                     assert isinstance(ss.wave_arrays, int)
                     if ss.wave_arrays > 0:
-                        execute_flags.append(f"--dump-arrays={ss.wave_arrays}")
+                        run_flags.append(f"--dump-arrays={ss.wave_arrays}")
 
         if ss.exit_severity:
-            execute_flags.append(f"--exit-severity={ss.exit_severity}")
+            run_flags.append(f"--exit-severity={ss.exit_severity}")
         if ss.ieee_warnings is not None:
-            execute_flags.append("--ieee-warnings=" + ("on") if ss.ieee_warnings else "off")
+            run_flags.append("--ieee-warnings=" + ("on") if ss.ieee_warnings else "off")
         if ss.stop_delta is not None:
-            execute_flags.append(f"--stop-delta={ss.stop_delta}")
+            run_flags.append(f"--stop-delta={ss.stop_delta}")
         if ss.stop_time is not None:
-            execute_flags.append(f"--stop-time={ss.stop_time}")
+            run_flags.append(f"--stop-time={ss.stop_time}")
+        if ss.stats:
+            run_flags.append("--stats")
+        if ss.shuffle:
+            run_flags.append("--shuffle")
 
         vhpi = [] if ss.vhpi is None else ss.vhpi.split(",")
         # TODO factor out cocotb handling
@@ -293,7 +306,7 @@ class Nvc(SimFlow):
             if not self.design.tb.top and self.design.rtl.top:
                 self.design.tb.top = (self.design.rtl.top,)
 
-        execute_flags += [f"--load={p}" for p in vhpi]
+        run_flags += [f"--load={p}" for p in vhpi]
 
         if one_shot:
             sources = self.design.sim_sources_of_type(SourceType.Vhdl)
@@ -306,7 +319,7 @@ class Nvc(SimFlow):
                 *self.design.sim_tops,
                 *self.elaborate_flags(),
                 "-r",
-                *execute_flags,
+                *run_flags,
                 env=self.cocotb.env(self.design) if self.cocotb else {},
             )
         else:
@@ -314,7 +327,7 @@ class Nvc(SimFlow):
                 *self.global_options(),
                 "-r",
                 *self.design.sim_tops,
-                *execute_flags,
+                *run_flags,
                 env=self.cocotb.env(self.design) if self.cocotb else {},
             )
 
