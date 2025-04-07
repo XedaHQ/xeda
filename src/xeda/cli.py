@@ -92,9 +92,9 @@ def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
 
 
 @click.group(cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
-@click.option("--verbose", is_flag=True, help="Enables verbose mode.")
-@click.option("--quiet", is_flag=True, help="Enable quiet mode.")
-@click.option("--debug", show_envvar=True, is_flag=True)
+@click.option("--verbose", "-v", is_flag=True, help="Enables verbose mode.")
+@click.option("--quiet", "-q", is_flag=True, help="Enable quiet mode.")
+@click.option("--debug", "-d", show_envvar=True, is_flag=True)
 @click.version_option(message="Xeda v%(version)s")
 @click.pass_context
 def cli(ctx: click.Context, **kwargs):
@@ -253,6 +253,13 @@ def cli(ctx: click.Context, **kwargs):
     show_envvar=True,
     help="Run on a remote machine with SSH access. Xeda needs to be installed on the remote machine and PATH env variable should be set correctly.",
 )
+@click.option(
+    "--debug",
+    "-d",
+    is_flag=True,
+    default=False,
+    help="Run in debug mode.",
+)
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -275,10 +282,12 @@ def run(
     scrub: bool = False,
     remote: Optional[str] = None,
     cwd: bool = False,
+    debug: bool = False,
 ):
     """`run` command"""
     assert ctx
     options: XedaOptions = ctx.obj or XedaOptions()
+    debug |= options.debug
     if cwd and remote:
         log.critical("--cwd and --remote are mutually exclusive!")
         sys.exit(1)
@@ -288,11 +297,8 @@ def run(
         xeda_run_dir = Path.cwd() / "xeda_run"
 
     if log_level is None:
-        log_level = (
-            logging.DEBUG if options.debug else logging.WARNING if options.quiet else logging.INFO
-        )
-    if options.debug:
-        detailed_logs = True
+        log_level = logging.DEBUG if debug else logging.WARNING if options.quiet else logging.INFO
+    detailed_logs |= debug
     setup_logger(log_level, detailed_logs)
     if flow_settings is not None:
         flow_settings = list(flow_settings)
@@ -317,7 +323,7 @@ def run(
 
         except XedaException as e:
             log.critical("XedaException: %s", e)
-            if options.debug:
+            if debug:
                 raise e
             sys.exit(1)
         sys.exit(0)
@@ -337,7 +343,7 @@ def run(
             launcher.settings.post_cleanup = post_cleanup
             launcher.settings.post_cleanup_purge = post_cleanup_purge
             launcher.settings.scrub_old_runs = scrub
-        launcher.settings.debug = options.debug
+        launcher.settings.debug = debug
         f = launcher.run(
             flow,
             xedaproject=xedaproject,
@@ -354,7 +360,7 @@ def run(
             flow,
             " ".join(str(a) for a in e.args),
         )
-        if options.debug:
+        if debug:
             raise e
         sys.exit(1)
     except FlowFatalError as e:
@@ -363,18 +369,18 @@ def run(
             flow,
             " ".join(str(a) for a in e.args),
         )
-        if options.debug:
+        if debug:
             raise e
         sys.exit(1)
     except NonZeroExitCode as e:
         log.critical("Flow %s failed: NonZeroExitCode %s", flow, " ".join(str(a) for a in e.args))
-        if options.debug:
+        if debug:
             raise e
         sys.exit(1)
     except ExecutableNotFound as e:
         log.critical(
             "Executable '%s' was not found in PATH. flow:%s, tool:%s"
-            + (f", PATH:{e.path}" if options.debug else ""),
+            + (f", PATH:{e.path}" if debug else ""),
             e.exec,
             flow,
             e.tool,
@@ -382,22 +388,22 @@ def run(
         sys.exit(1)
     except FlowSettingsError as e:
         log.critical("%s", e)
-        if options.debug:
+        if debug:
             raise e
         sys.exit(1)
     except FlowException as e:  # any flow exception
         log.critical("%s", e)
-        if options.debug:
+        if debug:
             raise e
         sys.exit(1)
     except DesignValidationError as e:  # any flow exception
         log.critical("%s", e)
-        if options.debug:
+        if debug:
             raise e
         sys.exit(1)
     except XedaException as e:
         log.critical("XedaException: %s", e)
-        if options.debug:
+        if debug:
             raise e
         sys.exit(1)
 
@@ -567,6 +573,13 @@ def list_settings(ctx: click.Context, flow):
     "--init-freq-high",
     type=float,
 )
+@click.option(
+    "--debug",
+    "-d",
+    is_flag=True,
+    default=False,
+    help="Run in debug mode.",
+)
 @click.pass_context
 def dse(
     ctx: click.Context,
@@ -585,6 +598,7 @@ def dse(
     design_allow_extra: bool = True,
     log_level: Optional[int] = None,
     detailed_logs: bool = True,
+    debug: bool = False,
 ):
     """Design-space exploration (e.g. fmax)"""
     options: XedaOptions = ctx.obj or XedaOptions()
