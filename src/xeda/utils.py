@@ -508,13 +508,13 @@ def settings_to_dict(
 ) -> Dict[str, Any]:
     if not settings:
         return {}
-    if isinstance(settings, str):
-        settings = settings.split(",")
+    # if isinstance(settings, str):
+    #     settings = settings.split(",")
     if isinstance(settings, (tuple, list)):
         res: DictStrHier = {}
         for override in settings:
             if isinstance(override, str):
-                sp = override.split("=")
+                sp = override.split("=", maxsplit=1)
                 if len(sp) != 2:
                     raise ValueError(
                         f"Settings should be in KEY=VALUE format! (value given: {override})"
