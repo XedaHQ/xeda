@@ -53,13 +53,14 @@ class Vcs(SimFlow):
         )
         sdf_instance: Optional[str] = Field(
             None,
-            description="Hierarchy instance to use as the root path for back-annotating delays",
+            description="Hierarchy instance to use as the root path for back-annotating delays. Use dot to separate hierarchy levels, e.g.: TB_NAME.UUT_NAME. This setting is required when sdf_file is provided.",
         )
         sdf_type: Literal["min", "typ", "max"] = Field(
             "typ", description="SDF type for back-annotating delays"
         )
         vcs_warn: Optional[str] = "all,noTFIPC,noLCA_FEATURES_ENABLED"
         vlogan_warns: Optional[str] = None
+        vcs_nowarn: List[str] = []
         lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE,noUI"
         debug_access: Optional[Union[str, bool]] = True
         debug_region: Optional[str] = None
@@ -176,7 +177,9 @@ class Vcs(SimFlow):
         if ss.lint:
             vcs_args.append(f"+lint={ss.lint}")
         if ss.vcs_warn:
-            vcs_args.append(f"+warn={ss.vcs_warn}")
+            warns = ss.vcs_warn.split(",")
+            warns += [f"no{w}" for w in ss.vcs_nowarn]
+            vcs_args.append(f"+warn={','.join(warns)}")
         if ss.debug_region is not None:
             vcs_args.append(f"-debug_region={ss.debug_region}")
         if ss.debug_access:
