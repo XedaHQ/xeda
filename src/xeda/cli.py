@@ -218,6 +218,7 @@ def cli(ctx: click.Context, **kwargs):
 @click.option(
     "--flow-settings",
     "--settings",
+    "-s",
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
