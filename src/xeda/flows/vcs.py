@@ -41,7 +41,10 @@ class Vcs(SimFlow):
             None,
             description="Run this UCLI script executing the simulator (simv)",
         )
-        gui: bool = False
+        gui: Optional[Union[bool, str]] = Field(
+            None,
+            description="Enable GUI (Graphical User Interface) when running simulator executable. A string can be used to specify the GUI type, either 'dve' or 'verdi', otherwise VCS will start verdi if VC_HOME is set.",
+        )
         full64: bool = True
         time_unit: Optional[str] = "1ns"
         time_resolution: Optional[str] = "1ps"
@@ -60,12 +63,15 @@ class Vcs(SimFlow):
         lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE,noUI"
         debug_access: Optional[Union[str, bool]] = True
         debug_region: Optional[str] = None
-        timing_sim: bool = Field(True, description="Enable timing simulation for VITAL")
+        functional_vital: bool = Field(False, description="Disable timing simulation for VITAL")
         init_std_logic: Optional[Literal["U", "X", "0", "1", "Z", "W", "L", "H", "-"]] = Field(
             None, description="Initialize std_logic to this value"
         )
-        initreg: Optional[str] = None
-        lic_wait: bool = Field(True, description="Wait for license if not available.")
+        initreg: Optional[str] = Field(
+            None,
+            description="Initialize registers to this value. Use 'random' for random initialization.",
+        )
+        lic_wait: Optional[int] = Field(100, description="Wait for license if not available.")
         vlogan_flags: List[str] = ["+v2k"]
         vhdlan_flags: List[str] = []
         vcs_flags: List[str] = []
@@ -74,6 +80,10 @@ class Vcs(SimFlow):
         top_is_vhdl: Optional[bool] = Field(
             None, description="Top module is VHDL"
         )  # TODO: move to design?
+        fsdb: Optional[Path] = Field(
+            None,
+            description="Enable FSDB (Fast Signal DataBase) for waveform generation",
+        )
 
     def clean(self):
         super().purge_run_path()
@@ -122,18 +132,18 @@ class Vcs(SimFlow):
             vlogan_args.append("-kdb")
             vhdlan_args.append("-kdb")
             vcs_args.append("-kdb")
-        if ss.lic_wait:
-            vhdlan_args += ["-licw", "100"]
-            vcs_args.append("-vc_lic_wait")
+        if ss.lic_wait is not None:
+            vhdlan_args += ["-licw", str(ss.lic_wait)]
+            vcs_args += ["-vc_lic_wait", str(ss.lic_wait)]
             common_run_args.append("+vcs+lic+wait")
-        for flag in ss.cflags:
-            vcs_args += ["-CFLAGS", flag]
+        if ss.cflags:
+            vcs_args += ["-CFLAGS", " ".join(ss.cflags)]
         # vlogan_args.extend(["-work", "WORK"])
         # vhdlan_args.extend(["-work", "WORK"])
-        vlogan_args.append(f"-timescale={ss.time_resolution}/{ss.time_resolution}")
+        vlogan_args.append(f"-timescale={ss.time_unit}/{ss.time_resolution}")
         if ss.vhdl_xlrm:
             vhdlan_args.append("-xlrm")
-        if not ss.timing_sim:
+        if ss.functional_vital:
             vhdlan_args.append("-functional_vital")
         incdirs: List[str] = []
         for d in incdirs:
@@ -184,11 +194,21 @@ class Vcs(SimFlow):
         if ss.time_resolution:
             vcs_args.append(f"-sim_res={ss.time_resolution}")
 
+        if ss.fsdb:
+            vcs_args += [
+                "+vcs+fsdbon",
+                "+vcs+dumpvars",
+            ]
+            common_run_args += [
+                "+vcs+dumparrays",
+            ]
+
         if ss.sdf_file and ss.sdf_instance:
             vcs_args += [
                 "-sdf",
                 f"{ss.sdf_type}:{ss.sdf_instance}:{ss.sdf_file}",
             ]
+            vcs_args.append("+sdfverbose")
 
         if self.design.tb.parameters:
             gfile = f"{top}.params"
@@ -214,15 +234,18 @@ class Vcs(SimFlow):
         if top:
             vcs_args += ["-top", top]
         if ss.initreg is not None:
-                vcs_args.append(f"+vcs+initreg+random")
-                simv_args.append(f"+vcs+initreg+{ss.initreg}")
+            vcs_args.append(f"+vcs+initreg+random")
+            simv_args.append(f"+vcs+initreg+{ss.initreg}")
 
         if ss.ucli:
             common_run_args.append("-ucli")
         if ss.ucli_script:
             common_run_args += ["-do", ss.ucli_script]
         if ss.gui:
-            common_run_args.append("-gui")
+            if isinstance(ss.gui, str) and not ss.gui.lower() in ("true", "false", "1", "0"):
+                common_run_args.append(f"-gui={ss.gui}")
+            elif ss.gui is True:
+                common_run_args.append("-gui")
         if ss.one_shot_run:
             vcs_args.append("-R")
             vcs_args += common_run_args
