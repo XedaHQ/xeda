@@ -3,10 +3,13 @@ import os
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
-from ..tool import Tool
-from ..flow import SimFlow, FlowSettingsException
+from colorama import Fore as fg
+from colorama import Style as style
+
 from ..dataclass import Field
 from ..design import SourceType
+from ..flow import FlowSettingsException, SimFlow
+from ..tool import Tool
 
 log = logging.getLogger(__name__)
 
@@ -14,9 +17,28 @@ log = logging.getLogger(__name__)
 class Vcs(SimFlow):
     """Synopsys VCS simulator"""
 
-    vlogan = Tool("vlogan", version_flag=None)
-    vhdlan = Tool("vhdlan", version_flag=None)
-    vcs = Tool("vcs")
+    highlight_rules = {
+        r"^(Error:)(.+)$": fg.RED + style.BRIGHT + r"\g<0>",
+        r"^(\*+ERROR\*+)(.+)$": fg.RED + style.BRIGHT + r"\g<0>",
+        r"^(Error-\s*\[\s*\w+\s*\])(.+)$": fg.RED + style.BRIGHT + r"\g<0>",
+        r"^(\s*SDF Error:)(.+)$": fg.RED + style.BRIGHT + r"\g<0>",
+        r"^(\s*Total errors:)(\s+[1-9]\d*\s*.+)$": fg.RED + style.BRIGHT + r"\g<0>",
+        r"^(Lint-\[\w+\])(.+)$": fg.YELLOW + style.BRIGHT + r"\g<1>" + style.NORMAL + r"\g<2>",
+        r"^(Warning:)(.+)$": fg.YELLOW + style.BRIGHT + r"\g<1>" + style.NORMAL + r"\g<2>",
+        r"^(\*+WARN\*+)(.+)$": fg.YELLOW + style.BRIGHT + r"\g<1>" + style.NORMAL + r"\g<2>",
+        r"^(.WARN)(.+)$": fg.YELLOW + style.BRIGHT + r"\g<1>" + style.NORMAL + r"\g<2>",
+        r"^(Warning-\s*\[\s*\w+\s*\])(.+)$": fg.YELLOW
+        + style.BRIGHT
+        + r"\g<1>"
+        + style.NORMAL
+        + r"\g<2>",
+        r"^(Information[:-])(.+)$": fg.GREEN + style.BRIGHT + r"\g<1>" + style.NORMAL + r"\g<2>",
+    }
+
+    vlogan = Tool("vlogan", version_flag=None, highlight_rules=highlight_rules)
+    vhdlan = Tool("vhdlan", version_flag=None, highlight_rules=highlight_rules)
+    vcs = Tool("vcs", highlight_rules=highlight_rules)
+    fsdb2vcd = Tool("fsdb2vcd", version_flag=None, highlight_rules=highlight_rules)
 
     class Settings(SimFlow.Settings):
         clean: bool = Field(True, description="Clean the run path before running")
@@ -78,12 +100,17 @@ class Vcs(SimFlow):
         vcs_flags: List[str] = []
         cflags: List[str] = ["-O3", "-march=native", "-mtune=native"]
         vcs_log_file: Optional[str] = "vcs.log"
-        top_is_vhdl: Optional[bool] = Field(
-            None, description="Top module is VHDL"
-        )  # TODO: move to design?
         fsdb: Optional[Path] = Field(
             None,
             description="Enable FSDB (Fast Signal DataBase) for waveform generation",
+        )
+        fsdb_size_limit: Optional[int] = Field(
+            128,
+            description="Set the FSDB size limit in MB. If not set, the default value will be used.",
+        )
+        fsdb2vcd: bool = Field(
+            False,
+            description="Convert FSDB to VCD (Value Change Dump) format after simulation. The VCD file will be saved in the same directory as the FSDB file and with the same stem (base name), but with a .vcd extension.",
         )
 
     def clean(self):
@@ -99,12 +126,12 @@ class Vcs(SimFlow):
         if ss.ucli_script:
             ss.ucli_script = str(self.process_path(ss.ucli_script))
             ss.ucli = True
+        if ss.fsdb:
+            ss.fsdb = self.process_path(ss.fsdb, resolve_to=self.design.design_root)
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        if ss.top_is_vhdl is None:
-            ss.top_is_vhdl = self.design.tb.sources[-1].type is SourceType.Vhdl
         if not os.environ.get("VCS_TARGET_ARCH"):
             os.environ["VCS_TARGET_ARCH"] = "amd64"
         if not os.environ.get("VCS_ARCH_OVERRIDE"):
@@ -198,12 +225,17 @@ class Vcs(SimFlow):
             vcs_args.append(f"-sim_res={ss.time_resolution}")
 
         if ss.fsdb:
+            ss.fsdb = self.process_path(ss.fsdb, resolve_to=self.design.design_root)
             vcs_args += [
                 "+vcs+fsdbon",
                 "+vcs+dumpvars",
             ]
+            if ss.fsdb_size_limit:
+                f"+fsdb+dump_limit={ss.fsdb_size_limit}"
             common_run_args += [
+                "+vcs+dumpvars",
                 "+vcs+dumparrays",
+                f"+fsdbfile+{ss.fsdb}",
             ]
 
         if ss.sdf_file and ss.sdf_instance:
@@ -258,3 +290,11 @@ class Vcs(SimFlow):
         if not ss.one_shot_run:
             simv = Tool("./simv", version_flag=None)
             simv.run(*simv_args, *common_run_args)
+        if ss.fsdb and ss.fsdb2vcd:
+            fsdb2vcd_args = [
+                "-consolidate_bus",
+                "-sv",
+            ]
+            self.fsdb2vcd.run(
+                ss.fsdb, *fsdb2vcd_args, "-o", ss.fsdb.with_suffix(".vcd"), check=False
+            )
