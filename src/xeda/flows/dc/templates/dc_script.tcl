@@ -50,7 +50,7 @@ set_app_var spg_enable_via_resistance_support true
 set_app_var hdlin_infer_multibit default_all
 
 define_name_rules verilog -special verilog -preserve_struct_ports
-define_name_rules vhdl -special vhdl -preserve_struct_ports
+define_name_rules vhdl -special vhdl
 
 if { [shell_is_dcnxt_shell] } {
     if { $OPTIMIZATION == "area" } {
@@ -147,11 +147,11 @@ redirect -file $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
 write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
 change_names -rules verilog -hierarchy
 write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
-change_names -rules vhdl -hierarchy
 
-set_app_var vhdlout_dont_create_dummy_nets true
+# change_names -rules vhdl -hierarchy
+# set_app_var vhdlout_dont_create_dummy_nets true
 write_file -hierarchy -format vhdl -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.vhd
-set_app_var vhdlout_dont_create_dummy_nets false
+# set_app_var vhdlout_dont_create_dummy_nets false
 
 puts "\n===================( Linking design )==================="
 if { [link] != 1 } {
@@ -289,27 +289,21 @@ redirect -tee $REPORTS_DIR/mapped.power.hier.rpt {report_power -nosplit -hierarc
 
 change_names -rules verilog -hierarchy
 report_names -rules verilog > $REPORTS_DIR/mapped.naming.verilog.rpt
+print_variable_group all > $REPORTS_DIR/mapped.vars.rpt
 
 
 puts "==========================( Writing Generated Netlist )=========================="
-
 
 write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
 change_names -rules verilog -hierarchy
 write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
 # write -format svsim -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.svwrapper.v
 
-change_names -rules vhdl -hierarchy
-set_app_var vhdlout_dont_create_dummy_nets true
-write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
-
 write_sdf -version {{settings.sdf_version}} {%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name}} {%endif-%} $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
 
 set_app_var write_sdc_output_lumped_net_capacitance false
 set_app_var write_sdc_output_net_resistance false
 write_sdc -nosplit $OUTPUTS_DIR/mapped.sdc
-
-print_variable_group all > $OUTPUTS_DIR/vars.rpt
 
 write_icc2_files -force -output $OUTPUTS_DIR/icc2_files
 
@@ -320,6 +314,11 @@ if {[shell_is_in_topographical_mode]} {
     write_floorplan -all ${OUTPUTS_DIR}/mapped.fp
     save_lib
 }
+
+change_names -rules vhdl -hierarchy
+set_app_var vhdlout_dont_create_dummy_nets true
+write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
+change_names -rules verilog -hierarchy
 
 puts "==========================( DONE )=========================="
 
