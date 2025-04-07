@@ -57,7 +57,6 @@ class Vcs(SimFlow):
         )
         vcs_warn: Optional[str] = "all,noTFIPC,noLCA_FEATURES_ENABLED"
         vlogan_warns: Optional[str] = None
-        vhdlan_warn: Optional[str] = "noAGGRNULLRANGE"
         lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE,noUI"
         debug_access: Optional[Union[str, bool]] = True
         debug_region: Optional[str] = None
@@ -145,8 +144,6 @@ class Vcs(SimFlow):
             vhdlan_args.append("-vhdl02")
         if ss.vlogan_warns:
             vlogan_args.append(f"+warn={ss.vlogan_warns}")
-        if ss.vhdlan_warn:
-            vhdlan_args.append(f"+warn={ss.vhdlan_warn}")
         if ss.init_std_logic:
             vhdlan_args += ["-init_std_logic", str(ss.init_std_logic)]
         vlog_files = self.design.sources_of_type(SourceType.Verilog, rtl=True, tb=True)
