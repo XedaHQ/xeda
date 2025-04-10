@@ -5,8 +5,8 @@ from typing import Optional
 from ..board import WithFpgaBoardSettings, get_board_data
 from ..dataclass import validator
 from ..design import Design
+from ..flow import FlowSettingsException, FpgaSynthFlow
 from ..tool import Tool
-from ..flow import FpgaSynthFlow, FlowSettingsException
 from .nextpnr import Nextpnr
 
 __all__ = ["Openfpgaloader"]
@@ -38,11 +38,8 @@ class Openfpgaloader(FpgaSynthFlow):
             value["clocks"] = clocks
             return Nextpnr.Settings(**value)
 
-    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
-        super().__init__(flow_settings, design, run_path)
-        self.packer: Optional[Tool] = None
-
     def init(self) -> None:
+        self.packer: Optional[Tool] = None
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         assert ss.nextpnr is not None

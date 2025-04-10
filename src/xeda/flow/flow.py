@@ -28,11 +28,11 @@ from ..design import Design
 from ..utils import (
     XedaException,
     camelcase_to_snakecase,
+    expand_env_vars,
     regex_match,
     try_convert,
     try_convert_to_primitives,
     unique,
-    expand_env_vars,
 )
 
 log = logging.getLogger(__name__)
@@ -86,6 +86,7 @@ class Flow(metaclass=ABCMeta):
             False, description="Redirect stdout from execution of tools to files."
         )
         runner_cwd_: Optional[Path] = Field(None, hidden_from_schema=True)
+        design_root_: Optional[Path] = Field(None, hidden_from_schema=True)
         timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
         nthreads: Optional[int] = Field(
             None,
@@ -135,7 +136,7 @@ class Flow(metaclass=ABCMeta):
                         # fmt: off
                         {
                             "PWD": values.get("runner_cwd_"), 
-                            "DESIGN_ROOT": None # we don't know DESIGN_ROOT, so just ignore it
+                            "DESIGN_ROOT": values.get("design_root_") # we don't know DESIGN_ROOT, so just ignore it
                         },
                         # fmt: on
                     )
@@ -152,14 +153,6 @@ class Flow(metaclass=ABCMeta):
             if values.get("verbose") or values.get("debug"):
                 return False
             return value
-
-        # @validator("outputs_dir", pre=False, always=True)
-        # def _outputs_dir_validator(cls, value, values):
-        #     runner_cwd = values.get("runner_cwd_")
-        #     outputs_dir_str = str(value)
-        #     if runner_cwd is not None and outputs_dir_str.startswith("$PWD/"):
-        #         return Path(runner_cwd) / outputs_dir_str[5:]
-        #     return value
 
         def __init__(self, **data: Any) -> None:
             try:
@@ -264,19 +257,48 @@ class Flow(metaclass=ABCMeta):
     def design_root(self):
         return self.design.design_root
 
-    def __init__(self, settings: Settings, design: Design, run_path: Path):
+    def __init__(
+        self,
+        settings: Union[Settings, Dict],
+        design: Union[Design, Dict],
+        run_path: Optional[Path] = None,
+        runner_cwd: Optional[Path] = None,
+    ):
+        """Flow constructor
+        should avoid overriding in subclasses unless absolutely needed.
+        """
+        if run_path is None:
+            run_path = Path.cwd()
         self.run_path = run_path
+
+        if isinstance(design, dict):
+            if design.get("design_root") is None:
+                design["design_root"] = run_path
+            design = Design(**design)
+        assert isinstance(design, Design), "design is not a Design object"
+
         self.design: Design = design
         # the path from which the runner was invoked, e.g., where xeda CLI was invoked
-        self.runner_cwd: Optional[Path] = None
+        self.runner_cwd: Optional[Path] = runner_cwd
         self.init_time: Optional[float] = None
         self.timestamp: Optional[str] = None
         self.flow_hash: Optional[str] = None
         self.design_hash: Optional[str] = None
 
+        if isinstance(settings, dict):
+            settings = self.Settings(**settings)
+
         assert isinstance(settings, self.Settings)
+        # if we don't have a runner_cwd, use the one in Settings, otherwise set settings.runner_cwd_ if it's None
+        if runner_cwd is None:
+            runner_cwd = settings.runner_cwd_
+        elif settings.runner_cwd_ is None:
+            settings.runner_cwd_ = runner_cwd
         settings.outputs_dir = self.process_path(settings.outputs_dir)
+        settings.reports_dir = self.process_path(settings.reports_dir)
+        settings.checkpoints_dir = self.process_path(settings.checkpoints_dir)
         self.settings = settings
+        assert isinstance(self.settings, self.Settings)
 
         # generated artifacts as a dict of category to list of file paths
         self.artifacts = Box()

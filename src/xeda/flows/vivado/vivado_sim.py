@@ -3,8 +3,8 @@ from typing import List, Optional
 
 from ...dataclass import Field
 from ...design import DesignValidationError
-from ...utils import SDF
 from ...flow import SimFlow
+from ...utils import SDF
 from ..vivado import Vivado
 
 log = logging.getLogger(__name__)

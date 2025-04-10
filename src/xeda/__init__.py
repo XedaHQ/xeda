@@ -2,8 +2,8 @@ from . import design, flow_runner, flows
 from .cocotb import Cocotb
 from .design import Design
 from .flow import FPGA, Flow, SimFlow, SynthFlow
+from .flow_runner import DefaultRunner, Dse, FlowRunner
 from .tool import Tool
-from .flow_runner import FlowRunner, DefaultRunner, Dse
 from .version import __version__
 
 __all__ = [

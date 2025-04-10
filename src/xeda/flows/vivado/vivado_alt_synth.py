@@ -5,7 +5,7 @@ from pydantic import Field
 
 from ...dataclass import validator
 from ...flow import FpgaSynthFlow
-from .vivado_synth import RunOptions, VivadoSynth, StepsValType
+from .vivado_synth import RunOptions, StepsValType, VivadoSynth
 
 log = logging.getLogger(__name__)
 

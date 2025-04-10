@@ -1,20 +1,20 @@
 import contextlib
 import errno
-import os
 import logging
-from pathlib import Path
+import os
 import pty
 import re
-import subprocess
-import signal
 import select
+import signal
+import subprocess
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import colorama
 
-from .utils import NonZeroExitCode, ExecutableNotFound
 from .console import console
+from .utils import ExecutableNotFound, NonZeroExitCode
 
 log = logging.getLogger(__name__)
 

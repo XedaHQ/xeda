@@ -2,9 +2,9 @@
 
 from typing import Optional
 
+from ...flow import SimFlow
 from ...tool import Tool
 from ...utils import SDF
-from ...flow import SimFlow
 
 
 class Modelsim(SimFlow):

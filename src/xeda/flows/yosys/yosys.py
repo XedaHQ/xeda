@@ -3,8 +3,8 @@ import gzip
 import logging
 import os
 import re
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, validator

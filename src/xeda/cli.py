@@ -1,11 +1,11 @@
 # © 2022-2023 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 """Xeda Command-line interface"""
-from collections import OrderedDict
 import inspect
 import logging
 import os
 import re
 import sys
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple, Union
 
@@ -16,7 +16,6 @@ from rich import box
 from rich.style import Style
 from rich.table import Table
 
-from .flows import __builtin_flows__
 from .cli_utils import (
     ClickMutex,
     OptionEatAll,
@@ -25,6 +24,7 @@ from .cli_utils import (
     select_design_in_project,
 )
 from .console import console
+from .design import DesignValidationError
 from .flow import (
     Flow,
     FlowException,
@@ -42,9 +42,9 @@ from .flow_runner import (
     scrub_runs,
 )
 from .flow_runner.dse import Dse
+from .flows import __builtin_flows__
 from .tool import ExecutableNotFound, NonZeroExitCode
-from .utils import removeprefix, settings_to_dict, XedaException
-from .design import DesignValidationError
+from .utils import XedaException, removeprefix, settings_to_dict
 
 log = logging.getLogger(__name__)
 

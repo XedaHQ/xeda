@@ -3,14 +3,14 @@ import re
 from pathlib import Path
 from typing import List, Literal, Mapping, Optional, Union
 
-from box import Box
 import colorama
+from box import Box
 
 from ...dataclass import Field, validator
 from ...flow import AsicSynthFlow
 from ...platforms import AsicsPlatform
 from ...tool import Tool
-from ...utils import try_convert_to_primitives, try_convert
+from ...utils import try_convert, try_convert_to_primitives
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +60,6 @@ class Dc(AsicSynthFlow):
     )  # pyright: ignore
 
     class Settings(AsicSynthFlow.Settings):
-        topographical_mode: bool = False
         sdc_files: List[Path] = Field([], description="List of user SDC constraint files.")
         optimization: Literal["area", "speed", "power", "none"] = Field(
             "area", description="Optimization goal for synthesis."
@@ -107,9 +106,6 @@ class Dc(AsicSynthFlow):
         )
         target_libraries: List[Union[Path, str]] = Field(description="Target library or libraries")
         extra_link_libraries: List[Path] = Field([], description="Additional link libraries")
-        tluplus_map: Optional[str] = None
-        tluplus_max: Optional[str] = None
-        tluplus_min: Optional[str] = None
         mw_ref_lib: Optional[str] = None
         mw_tf: Optional[str] = None
         alib_dir: Optional[str] = None
@@ -131,6 +127,31 @@ class Dc(AsicSynthFlow):
         sdf_inst_name: Optional[str] = Field(
             None,
             description="Instance name to use for the SDF output.",
+        )
+        # topographical mode settings
+        topographical_mode: bool = Field(
+            False,
+            description="Run synthesis in topographical mode. This mode is used for physical-aware synthesis and requires additional parameters to be set.",
+        )
+        min_routing_layer: Optional[int] = Field(
+            None,
+            description="Minimum routing layer to use for topographical mode.",
+        )
+        max_routing_layer: Optional[int] = Field(
+            None,
+            description="Maximum routing layer to use for topographical mode.",
+        )
+        max_tluplus: Optional[str] = Field(
+            None,
+            description="Path to the Max TLUplus file to use for topographical mode. Required if topographical_mode is set to True.",
+        )
+        min_tluplus: Optional[str] = Field(
+            None,
+            description="Path to the Min TLUplus file to use for topographical mode. Optional.",
+        )
+        tluplus_map: Optional[str] = Field(
+            None,
+            description="Path to the TLUplus (tech2itf) map file. Required if topographical_mode is set to True.",
         )
 
         @validator("platform", pre=True, always=True)

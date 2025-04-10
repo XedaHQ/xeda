@@ -7,12 +7,13 @@
 # https://www.klayout.de/doc-qt5/programming/python.html
 # https://onehwengineer.com/category/klayout-python/
 
-import pya
-import re
-import json
 import copy
-import sys
+import json
 import os
+import re
+import sys
+
+import pya
 
 errors = 0
 

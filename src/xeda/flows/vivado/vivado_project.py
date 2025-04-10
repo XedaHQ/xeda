@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel
-from ...utils import HierDict, parse_xml
 from ...flow import FpgaSynthFlow
+from ...utils import HierDict, parse_xml
 from ..vivado import Vivado
-from ..vivado.vivado_synth import VivadoSynth
 from ..vivado.vivado_sim import VivadoSim
+from ..vivado.vivado_synth import VivadoSynth
 
 log = logging.getLogger(__name__)
 

@@ -1,4 +1,3 @@
-from inspect import isclass
 import logging
 import multiprocessing
 import shutil
@@ -6,6 +5,7 @@ import traceback
 from concurrent.futures import CancelledError, TimeoutError
 from copy import deepcopy
 from datetime import datetime
+from inspect import isclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
 
