@@ -74,6 +74,8 @@ __all__ = [
     "ToolException",
     "NonZeroExitCode",
     "ExecutableNotFound",
+    # etc
+    "expand_env_vars",
 ]
 
 log = logging.getLogger(__name__)
@@ -530,6 +532,53 @@ def settings_to_dict(
             return settings
         return expand_hierarchy(settings)
     raise TypeError(f"Unsupported type: {type(settings)}")
+
+
+def expand_env_vars(
+    path: Union[str, Path], overrides: Optional[Dict[str, Any]] = None
+) -> Union[str, Path]:
+    """Substitute environment variables in path with their values.
+    if the value for a variable in overrides is None, then the variable is ignored (not expanded).
+    """
+    # intentionally limiting the pattern to uppercase and 2 characters or more + "/"
+    ENVVAR_START_RE = re.compile(r"^\$(?P<var>[A-Z][A-Z_]+)/")
+
+    if overrides is None:
+        overrides = {}
+    if not isinstance(path, str):
+        path = str(path)
+    # fast check
+    if len(path) < 2 or path[0] != "$":
+        return path
+    env_match = ENVVAR_START_RE.match(path)
+    if not env_match:
+        return path
+    var = env_match.group("var")
+    if not var:
+        return path
+    if var in overrides:
+        var_value = overrides[var]
+        if var_value is None:
+            return path
+    else:
+        var_value = os.getenv(var)
+        if var_value is None:
+            log.warning(
+                "Environment variable %s not set. Using it as a literal string",
+                var,
+            )
+    if var_value is not None:
+        remainder = path[len(env_match.group(0)) :]
+        p = Path(var_value) / remainder
+        log.info(
+            "Substituting variable %s in path %s with %s. Updated path is: %s.",
+            var,
+            path,
+            var_value,
+            str(p),
+        )
+        return p
+    return path
 
 
 class XedaException(Exception):

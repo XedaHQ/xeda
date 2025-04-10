@@ -9,13 +9,13 @@ import re
 import shutil
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Type, Union, get_origin
 
 # from attrs import define
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
-from pydantic.fields import ModelField
+from pydantic.fields import SHAPE_LIST, SHAPE_SINGLETON, ModelField
 
 from ..dataclass import (
     Field,
@@ -26,12 +26,13 @@ from ..dataclass import (
 )
 from ..design import Design
 from ..utils import (
+    XedaException,
     camelcase_to_snakecase,
     regex_match,
     try_convert,
     try_convert_to_primitives,
     unique,
-    XedaException,
+    expand_env_vars,
 )
 
 log = logging.getLogger(__name__)
@@ -115,6 +116,30 @@ class Flow(metaclass=ABCMeta):
         )
         dockerized: bool = Field(False, description="Run tools from docker")
         print_commands: bool = Field(True, description="Print executed commands")
+
+        @validator("*", pre=True, always=False)
+        def _all_fields_validator_subs_env_vars(
+            cls, value, values: Dict[str, Any], field: ModelField
+        ):
+            if value is not None:
+                origin = get_origin(field.annotation)
+                if field.shape == SHAPE_LIST and origin == list and isinstance(value, str):
+                    return value.split(",")
+                if (
+                    field.shape == SHAPE_SINGLETON
+                    and isinstance(value, (str, Path))
+                    and isinstance(values, dict)
+                ):
+                    return expand_env_vars(
+                        value,
+                        # fmt: off
+                        {
+                            "PWD": values.get("runner_cwd_"), 
+                            "DESIGN_ROOT": None # we don't know DESIGN_ROOT, so just ignore it
+                        },
+                        # fmt: on
+                    )
+            return value
 
         @validator("verbose", pre=True, always=True)
         def _validate_verbose(cls, value):
@@ -422,52 +447,26 @@ class Flow(metaclass=ABCMeta):
 
     def process_path(
         self,
-        path: Union[str, os.PathLike, Path],
+        path: Union[str, Path],
         *,
         subs_vars: bool = True,
         resolve_to: Optional[Path] = None,
     ) -> Path:
-        if isinstance(path, Path):
-            path = str(path)
-        if subs_vars and isinstance(path, str) and path.startswith("$"):
-            # intentionally limiting the pattern to uppercase and 2 characters or more + "/"
-            env_re = re.compile(r"^\$(?P<var>[A-Z][A-Z_]+)/")
-            env_match = env_re.match(path)
-            if env_match:
-                var = env_match.group("var")
-                if var:  # redundant check
-                    remainder = path[len(env_match.group(0)) :]
-                    var_value: Optional[Path] = None
-                    if var == "PWD" and self.runner_cwd:
-                        var_value = self.runner_cwd
-                    elif var == "DESIGN_ROOT" and self.design.design_root:
-                        var_value = self.design.design_root
-                    else:
-                        env_var = os.getenv(var)
-                        if env_var:
-                            var_value = Path(env_var)
-                        else:
-                            log.warning(
-                                "Environment variable %s not set. Using it as a literal string",
-                                var,
-                            )
-                    if var_value:
-                        p = var_value / remainder
-                        log.info(
-                            "Substituting variable %s in path %s with %s. Updated path is: %s.",
-                            var,
-                            path,
-                            var_value,
-                            str(p),
-                        )
-                        return p
+        if subs_vars and isinstance(path, (str, Path)):
+            path = expand_env_vars(
+                path,
+                overrides={
+                    "DESIGN_ROOT": self.design.design_root,
+                    "PWD": self.run_path,
+                },
+            )
         if not isinstance(path, Path):
             path = Path(path)
         if resolve_to is not None and not path.is_absolute():
             return resolve_to / path
         return path
 
-    def normalize_path_to_design_root(self, path: Union[str, os.PathLike, Path]) -> Path:
+    def normalize_path_to_design_root(self, path: Union[str, Path]) -> Path:
         return self.process_path(
             path,
             subs_vars=False,

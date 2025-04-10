@@ -1,8 +1,8 @@
 """Interchangable dataclass abstraction"""
 
 from __future__ import annotations
-import copy
 
+import copy
 import logging
 from abc import ABCMeta
 from functools import cached_property
@@ -17,7 +17,6 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
-    get_origin,
 )
 
 import attrs
@@ -32,22 +31,23 @@ from pydantic import (
     root_validator,
     validator,
 )
+from pydantic.fields import ModelField
 from pydantic.main import ModelMetaclass
-from pydantic.fields import ModelField, SHAPE_LIST
 
 if TYPE_CHECKING:
     from pydantic.error_wrappers import ErrorDict
 
 __all__ = [
-    "XedaBaseModel",
-    "XedaBaseModelAllowExtra",
-    "Field",
+    "asdict",
     "validator",
+    "validation_errors",
     "root_validator",
     "Extra",
-    "asdict",
+    "Field",
+    "ModelField",
     "ValidationError",
-    "validation_errors",
+    "XedaBaseModel",
+    "XedaBaseModelAllowExtra",
     "XedaPathField",
 ]
 
@@ -110,14 +110,6 @@ class XedaBaseModel(BaseModel, metaclass=InnerMeta):
             if isinstance(value, cached_property):
                 log.debug("invalidating: %s", str(key))
                 self.__dict__.pop(key, None)
-
-    @validator("*", pre=True, always=False)
-    def _base_all_fields_validator(cls, v, field: ModelField):
-        if v is not None:
-            origin = get_origin(field.annotation)
-            if field.shape == SHAPE_LIST and origin == list and isinstance(v, str):
-                v = v.split(",")
-        return v
 
 
 class XedaBaseModelAllowExtra(XedaBaseModel, metaclass=ABCMeta):

@@ -30,11 +30,13 @@ from .dataclass import (
 from .utils import (
     WorkingDirectory,
     expand_hierarchy,
+    expand_env_vars,
     hierarchical_merge,
     settings_to_dict,
     toml_load,
     removesuffix,
     NonZeroExitCode,
+    unique,
 )
 
 log = logging.getLogger(__name__)
@@ -321,34 +323,49 @@ class DVSettings(XedaBaseModel):
         return values
 
     @validator("sources", pre=True, always=True)
-    def sources_to_files(cls, value):
-        def src_with_type(src, stc_type):
-            if stc_type:
+    def _sources_to_files(cls, value, values):
+        def src_with_type(src, src_type):
+            if src_type:
                 return {"file": src, "type": src_type}
             return src
+
+        def ds(src: Union[str, Path], typ=None):
+            src = expand_env_vars(
+                src,
+                # fmt: off
+                    {
+                        "PWD": None, 
+                        "DESIGN_ROOT": values.get("design_root")
+                    },
+                # fmt: on
+            )
+            return DesignSource(src, typ=typ, _root_path=values.get("design_root"))
 
         if isinstance(value, (str, Path, DesignSource)):
             value = [value]
         sources = []
-        for src in value:
+        for src in unique(value):
             if isinstance(src, str):
                 src_type = None
-                m = re.match(r"^([a-zA-Z0-9_]*)\:(.*)", src)
-                if m:
-                    src = m.group(2)
-                    src_type = SourceType.from_str(m.group(1))
+                # m = re.match(r"^([a-zA-Z0-9_]*)\:(.*)", src)
+                # if m:
+                #     src = m.group(2)
+                #     src_type = SourceType.from_str(m.group(1))
                 if src.count("*") > 0:
                     glob_sources = glob(src)
-                    sources.extend([DesignSource(src_with_type(s, src_type)) for s in glob_sources])
+                    sources.extend([ds(s, src_type) for s in glob_sources])
                     continue  # skip the append at the bottom
                 src = src_with_type(src, src_type)
             if not isinstance(src, DesignSource):
-                try:
-                    src = DesignSource(src)
-                except FileNotFoundError as e:
-                    raise ValueError(
-                        f"Source file: {src} was not found: {e.strerror} {e.filename}"
-                    ) from e
+                if isinstance(src, (str, Path)):
+                    src = ds(src, None)
+                else:
+                    try:
+                        src = DesignSource(src)
+                    except FileNotFoundError as e:
+                        raise ValueError(
+                            f"Source file: {src} was not found: {e.strerror} {e.filename}"
+                        ) from e
             sources.append(src)
         return sources
 
