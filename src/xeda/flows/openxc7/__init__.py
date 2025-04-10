@@ -1,17 +1,17 @@
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from ...board import WithFpgaBoardSettings, get_board_data
 from ...dataclass import Field, validator
-from ...flow import FlowFatalError, FpgaSynthFlow, FPGA
+from ...design import Design, SourceType
+from ...flow import FPGA, FlowFatalError, FpgaSynthFlow
 from ...tool import Tool
 from ...utils import setting_flag
-from ...design import Design, SourceType
 from ..yosys import YosysFpga
 
 __all__ = ["OpenXC7"]
@@ -28,10 +28,6 @@ class OpenXC7(FpgaSynthFlow):
 
     next_pnr = Tool("nextpnr-xilinx")
     ofpga_loader = Tool("openFPGALoader")
-
-    def __init__(self, flow_settings: FpgaSynthFlow.Settings, design: Design, run_path: Path):
-        super().__init__(flow_settings, design, run_path)
-        self.skip_parse_reports = False
 
     class Settings(WithFpgaBoardSettings):
         fpga: Optional[FPGA] = None
@@ -119,6 +115,7 @@ class OpenXC7(FpgaSynthFlow):
 
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
+        self.skip_parse_reports = False
         ss = self.settings
         assert ss.yosys is not None
         self.add_dependency(

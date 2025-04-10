@@ -2,8 +2,8 @@ import logging
 from typing import List, Literal, Optional
 
 from ...dataclass import validator
-from ...tool import Tool
 from ...flow import FpgaSynthFlow
+from ...tool import Tool
 
 log = logging.getLogger(__name__)
 

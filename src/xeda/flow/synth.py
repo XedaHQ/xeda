@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 from abc import ABCMeta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional, Union
 
 from pydantic import confloat
 
 from ..dataclass import Field, XedaBaseModel, root_validator, validator
-from ..design import Design, Clock
+from ..design import Clock, Design
 from ..units import convert_unit
-from ..utils import first_value, first_key
+from ..utils import first_key, first_value
 from .flow import Flow, FlowSettingsError
 from .fpga import FPGA
 
@@ -187,13 +187,23 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         def main_clock(self) -> Optional[PhysicalClock]:
             return self.clocks.get("main_clock") or first_value(self.clocks)
 
-    def __init__(self, flow_settings: Settings, design: Design, run_path: Path):
+    def __init__(
+        self,
+        settings: Union[Settings, Dict],
+        design: Union[Design, Dict],
+        run_path: Optional[Path] = None,
+        **kwargs,
+    ):
+        super().__init__(settings, design, run_path, **kwargs)
+        assert isinstance(
+            self.settings, self.Settings
+        ), "self.settings is not an instance of self.Settings class"
         # shorthand for single clock specification
-        if len(flow_settings.clocks) == 1 and len(design.rtl.clocks) == 1:
-            clock_name = first_key(flow_settings.clocks)
+        if len(self.settings.clocks) == 1 and len(self.design.rtl.clocks) == 1:
+            clock_name = first_key(self.settings.clocks)
             assert clock_name is not None
-            clock_obj = flow_settings.clocks.pop(clock_name)
-            design_clock = design.rtl.clocks[0]
+            clock_obj = self.settings.clocks.pop(clock_name)
+            design_clock = self.design.rtl.clocks[0]
             assert design_clock is not None
             if not clock_name:
                 clock_name = design_clock.name
@@ -203,12 +213,12 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                 clock_obj.port = design_clock.port
             if not clock_obj.name:
                 clock_obj.name = clock_name
-            flow_settings.clocks[clock_name] = clock_obj
-        for clock_name, physical_clock in flow_settings.clocks.items():
+            self.settings.clocks[clock_name] = clock_obj
+        for clock_name, physical_clock in self.settings.clocks.items():
             if not physical_clock.port:
-                if clock_name not in (clk.name for clk in design.rtl.clocks):
-                    if design.rtl.clocks:
-                        msg = f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c.name for c in design.rtl.clocks if c and c.name)}"
+                if clock_name not in (clk.name for clk in self.design.rtl.clocks):
+                    if self.design.rtl.clocks:
+                        msg = f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c.name for c in self.design.rtl.clocks if c and c.name)}"
                     else:
                         msg = f"No clock ports specified in 'design.rtl', while physical '{clock_name}' is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
                     raise FlowSettingsError(
@@ -222,19 +232,18 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                         ],
                         self.Settings,
                     )
-                matched_clock = find_matching_clock(design.rtl.clocks, clock_name)
+                matched_clock = find_matching_clock(self.design.rtl.clocks, clock_name)
                 if matched_clock:
                     physical_clock.port = matched_clock.port
-                flow_settings.clocks[clock_name] = physical_clock
-        for clock in design.rtl.clocks:
+                self.settings.clocks[clock_name] = physical_clock
+        for clock in self.design.rtl.clocks:
             clock_name = clock.name
-            if clock.port not in (c.port for c in flow_settings.clocks.values()):
+            if clock.port not in (c.port for c in self.settings.clocks.values()):
                 log.critical(
                     "No clock period or frequency was specified for clock: %s (design clock port: '%s')",
                     clock_name,
                     clock.port,
                 )
-        super().__init__(flow_settings, design, run_path)
 
 
 class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):

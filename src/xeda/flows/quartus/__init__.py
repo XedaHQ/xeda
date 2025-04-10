@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from ...dataclass import Field
+from ...flow import FpgaSynthFlow
 from ...tool import Docker, Tool
 from ...types import PathLike
 from ...utils import try_convert_to_primitives
-from ...flow import FpgaSynthFlow
 
 log = logging.getLogger(__name__)
 

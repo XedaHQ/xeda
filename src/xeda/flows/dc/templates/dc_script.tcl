@@ -49,9 +49,6 @@ set_app_var spg_enable_via_resistance_support true
 
 set_app_var hdlin_infer_multibit default_all
 
-define_name_rules verilog -special verilog -preserve_struct_ports
-define_name_rules vhdl -special vhdl
-
 if { [shell_is_dcnxt_shell] } {
     if { $OPTIMIZATION == "area" } {
         set_app_var compile_high_effort_area true
@@ -145,13 +142,11 @@ redirect -tee $REPORTS_DIR/elab.list_designs.rpt {list_designs}
 redirect -file $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
 
 write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
-change_names -rules verilog -hierarchy
 write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
 
 # change_names -rules vhdl -hierarchy
 # set_app_var vhdlout_dont_create_dummy_nets true
 write_file -hierarchy -format vhdl -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.vhd
-# set_app_var vhdlout_dont_create_dummy_nets false
 
 puts "\n===================( Linking design )==================="
 if { [link] != 1 } {
@@ -184,12 +179,27 @@ redirect -file ${REPORTS_DIR}/linked.check_timing.rpt {check_timing}
 redirect -file ${REPORTS_DIR}/linked.constraints.rpt {report_constraint -nosplit}
 
 write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.ddc
-change_names -rules verilog -hierarchy
 write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.v
 
 set compile_command {{settings.compile_command}}
 
 set compile_options [list {{settings.compile_args | join(' ')}}]
+
+if {[shell_is_in_topographical_mode]} {
+    {%if settings.max_tluplus or settings.min_tluplus -%}
+    set_tlu_plus_files {%if settings.min_tluplus -%} -max_tluplus {{settings.max_tluplus}} {%endif-%} {%if settings.min_tluplus -%} -min_tluplus {{settings.min_tluplus}} {%endif-%} {%if settings.tluplus_map -%} -tech2itf_map {{settings.tluplus_map}} {%endif-%}
+    check_tlu_plus_files
+    {% endif -%}
+
+    {% if settings.min_routing_layer -%}
+    set_ignored_layers -min_routing_layer {{settings.min_routing_layer}}
+    {% endif -%}
+    {% if settings.max_routing_layer -%}
+    set_ignored_layers -max_routing_layer {{settings.max_routing_layer}}
+    {% endif -%}
+    report_ignored_layers
+    report_physical_constraints > ${REPORTS_DIR}/physical_constraints.rpt
+}
 
 if { $compile_command == "compile" } {
     if { $OPTIMIZATION == "area" } {
@@ -202,7 +212,7 @@ if { $compile_command == "compile" } {
         set compile_options [list {*}$compile_options -exact_map]
     }
 } elseif { $compile_command == "compile_ultra" } {
-    if [shell_is_in_topographical_mode] then {
+    if {[shell_is_in_topographical_mode]} {
         set compile_options [list {*}$compile_options -spg]
     }
     if { $OPTIMIZATION == "area" } {
@@ -210,7 +220,7 @@ if { $compile_command == "compile" } {
         set compile_options [list {*}$compile_options -retime]
     } elseif { $OPTIMIZATION == "power" } {
         set compile_options [list {*}$compile_options -gate_clock]
-        if [shell_is_in_topographical_mode] then {
+        if {[shell_is_in_topographical_mode]} {
             set compile_options [list {*}$compile_options -self_gating]
         }
     }
@@ -226,37 +236,47 @@ if { [catch {${compile_command} {*}$compile_options} err] } {
 
 redirect -tee $REPORTS_DIR/synth.timing.max.rpt {report_timing -delay max -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
 redirect -tee $REPORTS_DIR/synth.timing.min.rpt {report_timing -delay min -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
-redirect -tee $REPORTS_DIR/synth.area.rpt {report_area -nosplit -designware}
-redirect -tee $REPORTS_DIR/synth.area.hierarchy.rpt {report_area -nosplit -hierarchy -physical -designware}
+redirect -tee $REPORTS_DIR/synth.area.rpt {report_area -nosplit}
+redirect -tee $REPORTS_DIR/synth.area.physical.rpt {report_area -nosplit  -physical}
+redirect -tee $REPORTS_DIR/synth.area.designware.rpt {report_area -nosplit -designware}
+redirect -tee $REPORTS_DIR/synth.area.hierarchy.rpt {report_area -nosplit -hierarchy}
+redirect -tee $REPORTS_DIR/synth.area.hierarchy.physical.rpt {report_area -nosplit -hierarchy -physical}
 
 
-if { $OPTIMIZATION == "area" } {
-    puts "\n========= Optimizing Netlist ========="
-    optimize_netlist -area
-} elseif { $OPTIMIZATION == "power" } {
-    puts "\n========= Optimizing Netlist ========="
-    optimize_netlist -area
+if { $OPTIMIZATION != "none" } {
+    puts "\n========= Optimizing Netlist for Area ========="
+    if { [catch {optimize_netlist -area} -errorinfo err] } {
+        puts "\[ERROR]\ Netlist area optimization failed!\n$err"
+        exit 1
+    }
 }
 
-check_design -unmapped -cells -ports -designs -nets -tristates -html_file_name $REPORTS_DIR/mapped.design_summary.html
+set_app_var uniquify_naming_style "${DESIGN_NAME}_%s_%d"
 
-if { [catch {check_design -summary -unmapped -cells -ports -designs -nets -tristates} err] } {
-    puts "\[ERROR]\ check_design failed!\n$err"
+if { [catch {uniquify -force} -errorinfo err] } {
+    puts "\[ERROR]\ Uniquify failed!\n$err"
     exit 1
 }
 
-if { [catch {check_timing} err] } {
-    puts "\[ERROR]\ check_timing failed!\n$err"
+if { [catch {change_names -rules verilog -hierarchy} -errorinfo err] } {
+    puts "\[ERROR]\ Failed in change_names!\n$err"
     exit 1
 }
 
 puts "==========================( Generating Reports )=========================="
 
+if { [catch {check_design -summary -unmapped -cells -ports -designs -nets -tristates} err] } {
+    puts "\[ERROR]\ check_design failed!\n$err"
+    exit 1
+}
+redirect -file $REPORTS_DIR/mapped.checkdesign.rpt {check_design -unmapped -cells -ports -designs -nets -tristates}
+
 update_timing
 
-redirect -tee $REPORTS_DIR/mapped.checkdesign.rpt {check_design}
-
-redirect -tee $REPORTS_DIR/mapped.design.rpt {report_design -nosplit}
+if { [catch {redirect -tee $REPORTS_DIR/mapped.checktiming.rpt {check_timing}} err] } {
+    puts "\[ERROR]\ check_timing failed!\n$err"
+    exit 1
+}
 
 # library units
 redirect -tee $REPORTS_DIR/mapped.units.rpt {report_units}
@@ -287,7 +307,6 @@ redirect -tee $REPORTS_DIR/mapped.area.rpt {report_area -nosplit}
 redirect -tee $REPORTS_DIR/mapped.power.rpt {report_power -nosplit -net -cell -analysis_effort medium}
 redirect -tee $REPORTS_DIR/mapped.power.hier.rpt {report_power -nosplit -hierarchy -levels 3 -analysis_effort medium}
 
-change_names -rules verilog -hierarchy
 report_names -rules verilog > $REPORTS_DIR/mapped.naming.verilog.rpt
 print_variable_group all > $REPORTS_DIR/mapped.vars.rpt
 
@@ -295,7 +314,6 @@ print_variable_group all > $REPORTS_DIR/mapped.vars.rpt
 puts "==========================( Writing Generated Netlist )=========================="
 
 write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
-change_names -rules verilog -hierarchy
 write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
 # write -format svsim -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.svwrapper.v
 
@@ -307,11 +325,11 @@ write_sdc -nosplit $OUTPUTS_DIR/mapped.sdc
 
 write_icc2_files -force -output $OUTPUTS_DIR/icc2_files
 
-saif_map -type ptpx -essential -write_map ${OUTPUTS_DIR}/mapped.saif.ptpx.map
+saif_map -type ptpx -essential -write_map ${OUTPUTS_DIR}/${TOP_MODULE}.mapped.saif.ptpx.map
 saif_map -write_map ${OUTPUTS_DIR}/mapped.saif.dc.map
 
 if {[shell_is_in_topographical_mode]} {
-    write_floorplan -all ${OUTPUTS_DIR}/mapped.fp
+    write_floorplan -all ${OUTPUTS_DIR}/${TOP_MODULE}.mapped.fp
     save_lib
 }
 

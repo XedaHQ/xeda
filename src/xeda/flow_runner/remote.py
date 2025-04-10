@@ -1,10 +1,10 @@
-from datetime import datetime
 import json
 import logging
 import os
 import socket
 import tempfile
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
@@ -13,7 +13,7 @@ from fabric import Connection
 from fabric.transfer import Transfer
 
 from ..design import Design, DesignSource
-from ..utils import backup_existing, dump_json, settings_to_dict, XedaException
+from ..utils import XedaException, backup_existing, dump_json, settings_to_dict
 from ..version import __version__
 from .default_runner import (
     DIR_NAME_HASH_LEN,
@@ -104,9 +104,9 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
 
 def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settings, env=None):
     # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
+    import json
     import os
     import zipfile
-    import json
     from pathlib import Path
 
     try:

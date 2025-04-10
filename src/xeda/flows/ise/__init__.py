@@ -1,15 +1,15 @@
 """Xilinx ISE Synthesis flow"""
 
-from functools import cached_property
 import logging
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from pydantic import validator
 
+from ...flow import FpgaSynthFlow
 from ...tool import Docker, OptionalBoolOrPath, OptionalPath, Tool
 from ...utils import try_convert_to_primitives
-from ...flow import FpgaSynthFlow
 
 logger = logging.getLogger(__name__)
 

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Iterable, List, Literal, Optional
 
 from ...dataclass import Field
-from ...flow import FpgaSynthFlow, FlowFatalError
+from ...flow import FlowFatalError, FpgaSynthFlow
 from ...flows.ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
 

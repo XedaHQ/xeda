@@ -318,13 +318,12 @@ class FlowLauncher:
             flow_class = get_flow_class(flow_class)
         if flow_settings is None:
             flow_settings = {}
-        cwd = Path.cwd()
+        runner_cwd = Path.cwd()
         if isinstance(flow_settings, dict):
-            if flow_settings.get("runner_cwd_") is None:
-                flow_settings["runner_cwd_"] = cwd
+            flow_settings["runner_cwd_"] = runner_cwd
             flow_settings = flow_class.Settings(**flow_settings)
         elif isinstance(flow_settings, Flow.Settings):
-            flow_settings.runner_cwd_ = cwd
+            flow_settings.runner_cwd_ = runner_cwd
         assert isinstance(flow_settings, Flow.Settings)
         if self.debug:
             print("flow_settings: ", flow_settings)
@@ -418,13 +417,14 @@ class FlowLauncher:
 
         with WorkingDirectory(run_path):
             log.debug("Instantiating flow from %s", flow_class)
-            flow = flow_class(flow_settings, design, run_path)
+            flow = flow_class(flow_settings, design, run_path, runner_cwd=runner_cwd)
 
         flow.design_hash = design_hash
         flow.flow_hash = flowrun_hash
 
         flow.incremental = self.settings.incremental
-        flow.runner_cwd = cwd
+        if flow.runner_cwd is None:  # redundant, but OK
+            flow.runner_cwd = runner_cwd
         flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         # flow execution time includes init() as well as execution of all its dependency flows
         flow.init_time = time.monotonic()

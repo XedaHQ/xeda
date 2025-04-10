@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import inspect
 import logging
 import os
@@ -9,9 +10,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .dataclass import Field, XedaBaseModel, validator
-from .utils import cached_property, try_convert, ToolException, NonZeroExitCode, ExecutableNotFound
 from .flow import Flow
 from .proc_utils import run_process
+from .utils import (
+    ExecutableNotFound,
+    NonZeroExitCode,
+    ToolException,
+    cached_property,
+    try_convert,
+)
 
 log = logging.getLogger(__name__)
 

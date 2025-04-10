@@ -5,16 +5,12 @@ from __future__ import annotations
 import logging
 from abc import ABCMeta
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
-
-from ..dataclass import (
-    Field,
-    validator,
-)
+from ..cocotb import Cocotb, CocotbSettings
+from ..dataclass import Field, validator
 from ..design import Design
 from .flow import Flow
-from ..cocotb import Cocotb, CocotbSettings
 
 log = logging.getLogger(__name__)
 
@@ -48,8 +44,14 @@ class SimFlow(Flow, metaclass=ABCMeta):
                         vcd += ".vcd"
             return vcd
 
-    def __init__(self, settings: Settings, design: Design, run_path: Path):
-        super().__init__(settings, design, run_path)
+    def __init__(
+        self,
+        settings: Union[Settings, Dict],
+        design: Union[Design, Dict],
+        run_path: Optional[Path] = None,
+        **kwargs,
+    ):
+        super().__init__(settings, design, run_path, **kwargs)
         assert isinstance(
             self.settings, self.Settings
         ), "self.settings is not an instance of self.Settings class"

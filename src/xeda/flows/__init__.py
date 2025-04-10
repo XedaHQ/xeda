@@ -19,8 +19,8 @@ from .openfpgaloader import Openfpgaloader
 from .openroad import Openroad
 from .openxc7 import OpenXC7
 from .quartus import Quartus
-from .verilator import Verilator
 from .vcs import Vcs
+from .verilator import Verilator
 from .vivado.vivado_alt_synth import VivadoAltSynth
 from .vivado.vivado_postsynthsim import VivadoPostsynthSim
 from .vivado.vivado_power import VivadoPower

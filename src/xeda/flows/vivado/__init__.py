@@ -125,8 +125,8 @@ class Vivado(Flow, metaclass=ABCMeta):
             "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found in run
         ]
 
-    def __init__(self, settings: Settings, design: Design, run_path: Path):
-        super().__init__(settings, design, run_path)
+    def init(self):
+        super().init()
         assert isinstance(self.settings, self.Settings)
         default_args = [
             "-nojournal",

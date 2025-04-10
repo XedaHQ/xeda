@@ -1,5 +1,5 @@
 from __future__ import annotations
-from glob import glob
+
 import hashlib
 import inspect
 import json
@@ -10,11 +10,24 @@ import re
 import subprocess
 from enum import Enum, auto
 from functools import cached_property
+from glob import glob
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
-import yaml
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    OrderedDict,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 from urllib.parse import parse_qs, urlparse
 
+import yaml
 import yaml.scanner
 from pydantic.fields import ModelField
 
@@ -28,14 +41,14 @@ from .dataclass import (
     validator,
 )
 from .utils import (
+    NonZeroExitCode,
     WorkingDirectory,
-    expand_hierarchy,
     expand_env_vars,
+    expand_hierarchy,
     hierarchical_merge,
+    removesuffix,
     settings_to_dict,
     toml_load,
-    removesuffix,
-    NonZeroExitCode,
     unique,
 )
 
@@ -138,7 +151,7 @@ class FileResource:
     def content_hash(self) -> str:
         """return hash of file content"""
         with open(self.file, "rb") as f:
-            return hashlib.sha3_256(f.read()).hexdigest()
+            return hashlib.sha3_256(f.read()).hexdigest()[:32]  # first 128 bits is more than enough
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, FileResource):
@@ -1069,40 +1082,63 @@ class Design(XedaBaseModel):
                 pass
         return src.get_specified_path()
 
-    @cached_property
-    def rtl_fingerprint(self) -> Dict[str, Dict[str, str]]:
+    @property
+    def rtl_fingerprint(self) -> Dict[str, Any]:
         return {
-            "sources": {str(self.relative_path(src)): src.content_hash for src in self.rtl.sources},
-            "parameters": {p: str(v) for p, v in self.rtl.parameters.items()},
+            "sources": OrderedDict(
+                sorted((str(self.relative_path(src)), src.content_hash) for src in self.rtl.sources)
+            ),
+            "parameters": OrderedDict((p, str(v)) for p, v in sorted(self.rtl.parameters.items())),
+            "top": self.rtl.top,
         }
 
-    @cached_property
+    @property
+    def tb_fingerprint(self) -> Dict[str, Any]:
+        return {
+            "sources": OrderedDict(
+                sorted((str(self.relative_path(src)), src.content_hash) for src in self.tb.sources)
+            ),
+            "parameters": OrderedDict((p, str(v)) for p, v in sorted(self.tb.parameters.items())),
+            "top": self.tb.top,
+        }
+
+    @property
     def rtl_hash(self) -> str:
         # assumptions:
         #  - source file names/paths do not matter
         #  - order of sources does not matter
         #       -> alphabetically sort all file _hashes_
         #  - order of parameters does not matter
-        hashes = list(sorted(self.rtl_fingerprint["sources"].values()))
-        param_strs = [f"{p}={v}" for p, v in sorted(self.rtl.parameters.items())]
-        r = bytes(", ".join(hashes + param_strs), "utf-8")
-        return hashlib.sha3_256(r).hexdigest()
+        # fingerprint = str(self.rtl_fingerprint)
+        # log.debug("RTL fingerprint: %s", fingerprint)
+        # return hashlib.sha3_256(bytes(fingerprint, "utf-8")).hexdigest()[:32]  # 128 bits
 
-    @cached_property
+        src_hashes = "|".join(sorted(src.content_hash for src in self.rtl.sources))
+        params = "|".join(f"{p}={v}" for p, v in sorted(self.rtl.parameters.items()))
+        defines = "|".join(f"{p}={v}" for p, v in sorted(self.rtl.defines.items()))
+        r = bytes(
+            f"sources={src_hashes},params={params},defines={defines},top={self.rtl.top}", "utf-8"
+        )
+        log.debug("RTL fingerprint: %s", r)
+        return hashlib.sha3_256(r).hexdigest()[:32]  # 128 bits
+
+    @property
     def tb_hash(self) -> str:
-        hashes = list(sorted(src.content_hash for src in self.tb.sources))
-        param_strs = [
-            f"{p}={v}" for p, v in self.tb.parameters.items()  # pylint: disable=no-member
-        ]
-        r = bytes(", ".join(hashes + param_strs), "utf-8")
-        return hashlib.sha3_256(r).hexdigest()
+        src_hashes = "|".join(sorted(src.content_hash for src in self.tb.sources))
+        params = "|".join(f"{p}={v}" for p, v in sorted(self.tb.parameters.items()))
+        defines = "|".join(f"{p}={v}" for p, v in sorted(self.tb.defines.items()))
+        r = bytes(
+            f"sources={src_hashes},params={params},defines={defines},top={self.tb.top}", "utf-8"
+        )
+        log.debug("TB fingerprint: %s", r)
+        return hashlib.sha3_256(r).hexdigest()[:32]  # 128 bits
 
     # pylint: disable=arguments-differ
     def dict(self) -> Dict[str, Any]:  # type: ignore
         return super().dict(
             exclude_unset=True,
             exclude_defaults=True,
-            exclude={"rtl_hash", "tb_hash", "rtl_fingerprint"},
+            exclude={"rtl_hash", "tb_hash", "rtl_fingerprint", "tb_fingerprint"},
         )
 
     def json(
@@ -1114,7 +1150,7 @@ class Design(XedaBaseModel):
         return super().json(
             exclude_unset=True,
             exclude_defaults=True,
-            exclude={"rtl_hash", "tb_hash", "rtl_fingerprint"},
+            exclude={"rtl_hash", "tb_hash", "rtl_fingerprint", "tb_fingerprint"},
             encoder=encoder,
             models_as_dict=models_as_dict,
             **dumps_kwargs,

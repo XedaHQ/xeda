@@ -4,16 +4,15 @@ import inspect
 import logging
 import os
 import platform
+import re
 from abc import ABCMeta
 from functools import cached_property
 from pathlib import Path
-import re
 from typing import Any, Dict, List, Literal, Optional, Union
-
 
 from ...dataclass import Field, validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
-from ...flow import Flow, FlowSettingsError, SimFlow, SynthFlow, FlowException
+from ...flow import Flow, FlowException, FlowSettingsError, SimFlow, SynthFlow
 from ...tool import Docker, Tool
 from ...utils import SDF, common_root, setting_flag
 
