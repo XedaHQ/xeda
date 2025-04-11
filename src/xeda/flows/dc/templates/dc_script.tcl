@@ -6,11 +6,8 @@ set OUTPUTS_DIR {{settings.outputs_dir}}
 set REPORTS_DIR {{settings.reports_dir}}
 
 set TOP_MODULE {{design.rtl.top}}
+set DESIGN_NAME {{design.name}}
 
-if { $TOP_MODULE == "" } {
-    puts "\[ERROR]\ No top module specified."
-    exit 1
-}
 
 set OPTIMIZATION {{settings.optimization}}
 
@@ -27,17 +24,13 @@ if { ![file exists $REPORTS_DIR] } {
     file mkdir $REPORTS_DIR
 }
 
-{%- if design.language.vhdl.standard in ("02", "2002", "08", "2008") %}
-set_app_var hdlin_vhdl_std 2008
-{% elif design.language.vhdl.standard in ("93", "1993") %}
-set_app_var hdlin_vhdl_std 1993
-{% elif design.language.vhdl.standard %}
-set_app_var hdlin_vhdl_std {{design.language.vhdl.standard}}
-{%- endif %}
+set_message_info -id LINT-1   -limit 5 ;# cell does not drive any nets
+set_message_info -id LINT-2   -limit 5 ;# net has no loads
+set_message_info -id LINT-8   -limit 5 ;# input port is unloaded
+set_message_info -id LINT-28  -limit 5 ;# port is not connected to any nets
+set_message_info -id VHDL-290 -limit 1 ;# VHDL: a dummy net is created
+set_message_info -id OPT-1206 -limit 1 ;# Register is a constant and will be removed
 
-
-# improve the SAIF annotation
-set_app_var hdlin_enable_upf_compatible_naming true
 
 {%- for k,v in settings.hdlin.items() %}
 set_app_var hdlin_{{k}} {{v}}
@@ -62,14 +55,8 @@ set_app_var target_library ${TARGET_LIBRARY_FILES}
 set_app_var synthetic_library {dw_foundation.sldb}
 set_app_var link_library "* $synthetic_library $target_library"
 
-redirect -file ${REPORTS_DIR}/check_library.rpt {check_library}
 
-# puts "\n==========( Removing existing design(s) )=========="
 remove_design -all
-
-define_design_lib WORK -path ./WORK
-
-set_app_var hdlin_enable_hier_map true
 
 set SOURCE_FILES { {{- design.rtl.sources | join(' ') -}} }
 
@@ -120,20 +107,25 @@ if { [elaborate ${TOP_MODULE}] != 1 } {
     exit 1
 }
 
-set_verification_top
+
 
 if { [catch {current_design ${TOP_MODULE} } $err] } {
-    puts "\[ERROR]\ Setting current design to ${TOP_MODULE} failed!\n$err"
+    puts "\[ERROR]\ Setting current design to '${TOP_MODULE}' failed!\n$err"
     exit 1
 }
+
+set TOP_MODULE [current_design]
+
+set_verification_top
+
 
 # To prevent assign statements in the netlist
 set_app_var verilogout_no_tri true
 set_fix_multiple_port_nets -all -buffer_constants
 saif_map -start
 
+puts "\n===================( Elaboration completed! )==================="
 check_design -summary
-
 puts "list of designs: [list_designs]"
 
 redirect -tee $REPORTS_DIR/elab.check_design.rpt {check_design}
@@ -141,12 +133,15 @@ redirect -tee $REPORTS_DIR/elab.design.rpt {report_design -nosplit}
 redirect -tee $REPORTS_DIR/elab.list_designs.rpt {list_designs}
 redirect -file $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
 
-write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
-write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${DESIGN_NAME}.elab.ddc
+change_names -rules verilog -hierarchy
+write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${DESIGN_NAME}.elab.v
 
 # change_names -rules vhdl -hierarchy
 # set_app_var vhdlout_dont_create_dummy_nets true
-write_file -hierarchy -format vhdl -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.vhd
+write_file -hierarchy -format vhdl -output ${OUTPUTS_DIR}/${DESIGN_NAME}.elab.vhd
+# change_names -rules verilog -hierarchy
+# set_app_var vhdlout_dont_create_dummy_nets false
 
 puts "\n===================( Linking design )==================="
 if { [link] != 1 } {
@@ -178,8 +173,7 @@ redirect -tee ${REPORTS_DIR}/linked.check_design.rpt {check_design}
 redirect -file ${REPORTS_DIR}/linked.check_timing.rpt {check_timing}
 redirect -file ${REPORTS_DIR}/linked.constraints.rpt {report_constraint -nosplit}
 
-write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.ddc
-write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.v
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${DESIGN_NAME}.linked.ddc
 
 set compile_command {{settings.compile_command}}
 
@@ -228,19 +222,19 @@ if { $compile_command == "compile" } {
     puts "Unknown compile command: $compile_command"
 }
 
-puts "\n=========( Synthesize the design: ${compile_command} )========="
+puts "\n=========( Synthesizing the design using '${compile_command}' )========="
 if { [catch {${compile_command} {*}$compile_options} err] } {
     puts "\[ERROR]\ Compile failed!\n$err"
     exit 1
 }
 
-redirect -tee $REPORTS_DIR/synth.timing.max.rpt {report_timing -delay max -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
-redirect -tee $REPORTS_DIR/synth.timing.min.rpt {report_timing -delay min -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
-redirect -tee $REPORTS_DIR/synth.area.rpt {report_area -nosplit}
-redirect -tee $REPORTS_DIR/synth.area.physical.rpt {report_area -nosplit  -physical}
-redirect -tee $REPORTS_DIR/synth.area.designware.rpt {report_area -nosplit -designware}
-redirect -tee $REPORTS_DIR/synth.area.hierarchy.rpt {report_area -nosplit -hierarchy}
-redirect -tee $REPORTS_DIR/synth.area.hierarchy.physical.rpt {report_area -nosplit -hierarchy -physical}
+redirect -file $REPORTS_DIR/synth.timing.max.rpt {report_timing -delay max -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
+redirect -file $REPORTS_DIR/synth.timing.min.rpt {report_timing -delay min -path full -nosplit -transition_time -nets -attributes -nworst 1 -max_paths 1 -significant_digits 3 -sort_by group}
+redirect -file $REPORTS_DIR/synth.area.rpt {report_area -nosplit}
+redirect -file $REPORTS_DIR/synth.area.physical.rpt {report_area -nosplit  -physical}
+redirect -file $REPORTS_DIR/synth.area.designware.rpt {report_area -nosplit -designware}
+redirect -file $REPORTS_DIR/synth.area.hierarchy.rpt {report_area -nosplit -hierarchy}
+redirect -file $REPORTS_DIR/synth.area.hierarchy.physical.rpt {report_area -nosplit -hierarchy -physical}
 
 
 if { $OPTIMIZATION != "none" } {
@@ -278,6 +272,13 @@ if { [catch {redirect -tee $REPORTS_DIR/mapped.checktiming.rpt {check_timing}} e
     exit 1
 }
 
+puts "==========================( Generating Reports )=========================="
+
+update_timing
+
+redirect -tee $REPORTS_DIR/mapped.checkdesign.rpt {check_design}
+redirect -tee $REPORTS_DIR/mapped.design.rpt {report_design -nosplit}
+
 # library units
 redirect -tee $REPORTS_DIR/mapped.units.rpt {report_units}
 
@@ -300,12 +301,12 @@ if {[sizeof_collection [all_clocks]]>0} {
 report_qor -nosplit > $REPORTS_DIR/mapped.qor.rpt
 report_auto_ungroup -nosplit -nosplit > $REPORTS_DIR/mapped.auto_ungroup.rpt
 
-redirect -tee $REPORTS_DIR/mapped.timing.max.rpt {report_timing -delay max -path full -nosplit -transition_time -nets -attributes -nworst 8 -max_paths 16 -significant_digits 3 -sort_by group}
-redirect -tee $REPORTS_DIR/mapped.timing.min.rpt {report_timing -delay min -path full -nosplit -transition_time -nets -attributes -nworst 8 -max_paths 16 -significant_digits 3 -sort_by group}
-redirect -tee $REPORTS_DIR/mapped.area.rpt {report_area -nosplit}
+redirect -file $REPORTS_DIR/mapped.timing.max.rpt {report_timing -delay max -path full -nosplit -transition_time -nets -attributes -nworst 8 -max_paths 16 -significant_digits 3 -sort_by group}
+redirect -file $REPORTS_DIR/mapped.timing.min.rpt {report_timing -delay min -path full -nosplit -transition_time -nets -attributes -nworst 8 -max_paths 16 -significant_digits 3 -sort_by group}
+redirect -file $REPORTS_DIR/mapped.area.rpt {report_area -nosplit}
 
-redirect -tee $REPORTS_DIR/mapped.power.rpt {report_power -nosplit -net -cell -analysis_effort medium}
-redirect -tee $REPORTS_DIR/mapped.power.hier.rpt {report_power -nosplit -hierarchy -levels 3 -analysis_effort medium}
+redirect -file $REPORTS_DIR/mapped.power.rpt {report_power -nosplit -net -cell -analysis_effort medium}
+redirect -file $REPORTS_DIR/mapped.power.hier.rpt {report_power -nosplit -hierarchy -levels 3 -analysis_effort medium}
 
 report_names -rules verilog > $REPORTS_DIR/mapped.naming.verilog.rpt
 print_variable_group all > $REPORTS_DIR/mapped.vars.rpt
@@ -313,15 +314,14 @@ print_variable_group all > $REPORTS_DIR/mapped.vars.rpt
 
 puts "==========================( Writing Generated Netlist )=========================="
 
-write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
-write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
-# write -format svsim -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.svwrapper.v
+write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${DESIGN_NAME}.mapped.ddc
+write -hierarchy -format verilog -output $OUTPUTS_DIR/${DESIGN_NAME}.mapped.v
 
-write_sdf -version {{settings.sdf_version}} {%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name}} {%endif-%} $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
+write_sdf -version {{settings.sdf_version}} {%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name}} {%endif-%} $OUTPUTS_DIR/${DESIGN_NAME}.mapped.sdf
 
 set_app_var write_sdc_output_lumped_net_capacitance false
 set_app_var write_sdc_output_net_resistance false
-write_sdc -nosplit $OUTPUTS_DIR/mapped.sdc
+write_sdc -nosplit $OUTPUTS_DIR/${DESIGN_NAME}.mapped.sdc
 
 write_icc2_files -force -output $OUTPUTS_DIR/icc2_files
 
@@ -335,9 +335,9 @@ if {[shell_is_in_topographical_mode]} {
 
 change_names -rules vhdl -hierarchy
 set_app_var vhdlout_dont_create_dummy_nets true
-write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
-change_names -rules verilog -hierarchy
+write -hierarchy -format vhdl -output $OUTPUTS_DIR/${DESIGN_NAME}.mapped.vhd
+# change_names -rules verilog -hierarchy
 
-puts "==========================( DONE )=========================="
+puts "==========================( Synthesis flow completed. )=========================="
 
 exit

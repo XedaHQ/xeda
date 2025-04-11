@@ -28,7 +28,6 @@ from typing import (
 from urllib.parse import parse_qs, urlparse
 
 import yaml
-import yaml.scanner
 from pydantic.fields import ModelField
 
 from .dataclass import (

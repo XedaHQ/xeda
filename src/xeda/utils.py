@@ -541,7 +541,7 @@ def expand_env_vars(
     if the value for a variable in overrides is None, then the variable is ignored (not expanded).
     """
     # intentionally limiting the pattern to uppercase and 2 characters or more + "/"
-    ENVVAR_START_RE = re.compile(r"^\$(?P<var>[A-Z][A-Z_]+)/")
+    ENVVAR_START_RE = re.compile(r"^\$(?P<var>[A-Z][A-Z0-9_]+)/")
 
     if overrides is None:
         overrides = {}
@@ -554,24 +554,26 @@ def expand_env_vars(
     if not env_match:
         return path
     var = env_match.group("var")
+    print(f"var: {var}, overrides: {overrides}")
     if not var:
         return path
     if var in overrides:
         var_value = overrides[var]
+        print(f"var_value: {var_value}")
         if var_value is None:
             return path
     else:
         var_value = os.getenv(var)
         if var_value is None:
             log.warning(
-                "Environment variable %s not set. Using it as a literal string",
+                "Environment variable %s not set. Passing on the unchanged value.",
                 var,
             )
     if var_value is not None:
         remainder = path[len(env_match.group(0)) :]
         p = Path(var_value) / remainder
         log.info(
-            "Substituting variable %s in path %s with %s. Updated path is: %s.",
+            "Substituting variable %s in path %s with %s. Expanded path is: %s.",
             var,
             path,
             var_value,
