@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .dataclass import Field, XedaBaseModel, validator
 from .flow import Flow
 from .proc_utils import run_process
+from .console import console
 from .utils import (
     ExecutableNotFound,
     NonZeroExitCode,
@@ -185,14 +186,15 @@ class Tool(XedaBaseModel):
     default_args: List[str] = []
     version_flag: Optional[List[str]] = ["--version"]
     version_regexps: List[Union[re.Pattern[str], str]] = [VERSION_REGEXP1, VERSION_REGEXP2]
-
     remote: Optional[RemoteSettings] = Field(None)
     docker: Optional[Docker] = Field(None)
     redirect_stdout: Optional[Path] = Field(None, description="Redirect stdout to a file")
-    design_root: Optional[Path] = None
     dockerized: bool = False
     print_command: bool = True
     highlight_rules: Optional[Dict[str, str]] = None
+    console_colors: bool = True
+    design_root_: Optional[Path] = Field(None, hidden_from_schema=True)
+    flow_settings_: Optional[Flow.Settings] = Field(None, hidden_from_schema=True)
 
     @validator("version_flag", pre=True, always=True)
     def validate_version_flag(cls, value):
@@ -217,8 +219,14 @@ class Tool(XedaBaseModel):
 
         super().__init__(**kwargs)
 
+        self.console_colors = (
+            self.console_colors and not console.no_color and console.color_system is not None
+        )
+
         if flow is not None:
-            self.design_root = flow.design_root
+            self.design_root_ = flow.design_root
+            self.print_command = flow.settings.print_commands
+            self.console_colors = self.console_colors and flow.settings.console_colors
             log.debug("flow.settings.dockerized=%s", flow.settings.dockerized)
             self.dockerized = flow.settings.dockerized
             if flow.settings.docker:
@@ -226,9 +234,8 @@ class Tool(XedaBaseModel):
                     self.docker.image = flow.settings.docker
                 else:
                     self.docker = Docker(image=flow.settings.docker)  # type: ignore
-            self.print_command = flow.settings.print_commands
-        if self.design_root and self.docker:
-            self.docker.mounts[str(self.design_root)] = str(self.design_root)
+        if self.design_root_ and self.docker and str(self.design_root_) not in self.docker.mounts:
+            self.docker.mounts[str(self.design_root_)] = str(self.design_root_)
 
         if self.minimum_version and not self.version_gte(*self.minimum_version):
             log.error(
@@ -410,7 +417,10 @@ class Tool(XedaBaseModel):
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
         args = tuple(list(self.default_args) + list(args))
-        highlight_rules = highlight_rules or self.highlight_rules
+        if self.console_colors:
+            highlight_rules = highlight_rules or self.highlight_rules
+        else:
+            highlight_rules = None
         if self.docker and self.dockerized:
             return self.docker.run(
                 executable,
@@ -418,7 +428,7 @@ class Tool(XedaBaseModel):
                 env=env,
                 stdout=stdout,
                 check=check,
-                root_dir=self.design_root,
+                root_dir=self.design_root_,
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
             )

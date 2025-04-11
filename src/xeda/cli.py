@@ -178,8 +178,8 @@ def cli(ctx: click.Context, **kwargs):
     help="Path to Xeda project file.",
 )
 @click.option(
-    "--design",
     "--design-file",
+    "--design",
     type=click.Path(
         exists=True,
         file_okay=True,
@@ -191,13 +191,13 @@ def cli(ctx: click.Context, **kwargs):
         path_type=Path,
     ),
     cls=ClickMutex,
-    mutually_exclusive_with=["design_name"],
+    # mutually_exclusive_with=["design_name"],
     help="Path to Xeda design file containing the description of a single design.",
 )
 @click.option(
     "--design-name",
     cls=ClickMutex,
-    mutually_exclusive_with=["design_file"],
+    # mutually_exclusive_with=["design_file"],
     help="Specify design.name in case multiple designs are available in a xedaproject.",
 )
 @click.option(
@@ -271,7 +271,7 @@ def run(
     clean: bool = False,
     xeda_run_dir: Optional[Path] = None,
     xedaproject: Optional[str] = None,
-    design: Optional[str] = None,
+    # design: Optional[str] = None,
     design_name: Optional[str] = None,
     design_overrides: Iterable[str] = tuple(),
     design_allow_extra: bool = False,
@@ -305,8 +305,7 @@ def run(
     else:
         flow_settings = []
 
-    if not design and design_file:
-        design = design_file
+    design = design_file or design_name
     if not design:
         sys.exit("No design file specified!")
 

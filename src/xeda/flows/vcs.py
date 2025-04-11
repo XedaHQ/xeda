@@ -108,9 +108,9 @@ class Vcs(SimFlow):
             128,
             description="Set the FSDB size limit in MB. If not set, the default value will be used.",
         )
-        fsdb2vcd: bool = Field(
+        to_vcd: bool = Field(
             False,
-            description="Convert FSDB to VCD (Value Change Dump) format after simulation. The VCD file will be saved in the same directory as the FSDB file and with the same stem (base name), but with a .vcd extension.",
+            description="Convert FSDB/VPD to VCD (Value Change Dump) format after simulation. The VCD file will be saved in the same directory as the FSDB file and with the same stem (base name), but with a .vcd extension.",
         )
 
     def clean(self):
@@ -274,6 +274,9 @@ class Vcs(SimFlow):
 
         if ss.ucli:
             common_run_args.append("-ucli")
+            if ss.one_shot_run:
+                self.vcs.console_colors = False
+
         if ss.ucli_script:
             common_run_args += ["-do", ss.ucli_script]
         if ss.gui:
@@ -290,7 +293,7 @@ class Vcs(SimFlow):
         if not ss.one_shot_run:
             simv = Tool("./simv", version_flag=None)
             simv.run(*simv_args, *common_run_args)
-        if ss.fsdb and ss.fsdb2vcd:
+        if ss.fsdb and ss.to_vcd:
             fsdb2vcd_args = [
                 "-consolidate_bus",
                 "-sv",

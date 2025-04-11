@@ -1,7 +1,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import List, Literal, Mapping, Optional, Union
+from typing import Dict, List, Literal, Mapping, Optional, Union
 
 import colorama
 from box import Box
@@ -21,7 +21,7 @@ def get_hier(dct, dotted_path, default=None):
     for i, key in enumerate(splitted):
         try:
             for k, v in dct.items():
-                if not isinstance(v, Mapping):
+                if not isinstance(v, (Mapping, dict)):
                     merged_leaves[k] = v
             dct = dct[key]
         except KeyError:
@@ -34,32 +34,21 @@ def get_hier(dct, dotted_path, default=None):
 
 
 class Dc(AsicSynthFlow):
-    dc_shell = Tool(
-        executable="dc_shell",
-        version_flag="-version",
-        highlight_rules={
-            r"^(Error:)(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
-            r"^(\[ERROR\])(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
-            r"^(Warning:)(.+)$": colorama.Fore.YELLOW
-            + colorama.Style.BRIGHT
-            + r"\g<1>"
-            + colorama.Style.NORMAL
-            + r"\g<2>",
-            r"^(Information:)(.+)$": colorama.Fore.GREEN
-            + colorama.Style.BRIGHT
-            + r"\g<1>"
-            + colorama.Style.NORMAL
-            + r"\g<2>",
-            r"^(====[=]+\()(.*)(\)[=]+====)$": colorama.Fore.BLUE
-            + r"\g<1>"
-            + colorama.Fore.CYAN
-            + r"\g<2>"
-            + colorama.Fore.BLUE
-            + r"\g<3>",
-        },
-    )  # pyright: ignore
+    """Synopsys Design Compiler (R) synthesis flow"""
 
     class Settings(AsicSynthFlow.Settings):
+        log_file: Optional[Path] = Field(
+            Path("dc.log"),
+            description="Path to the log file. If not set, the log will only be printed to stdout.",
+        )
+        dc_shell_name: str = Field(
+            "dc_shell",
+            description="DC shell executable to run.",
+        )
+        no_init: bool = Field(
+            True,
+            description="Don't load home and local .synopsys initialization files.",
+        )
         sdc_files: List[Path] = Field([], description="List of user SDC constraint files.")
         optimization: Literal["area", "speed", "power", "none"] = Field(
             "area", description="Optimization goal for synthesis."
@@ -80,7 +69,7 @@ class Dc(AsicSynthFlow):
             False,
             description="Run the synthesis tool in GUI mode.",
         )
-        hooks: Mapping[str, Optional[Union[str, Path]]] = Field(
+        hooks: Dict[str, Optional[Union[str, Path]]] = Field(
             {
                 "pre_elab": None,
                 "post_elab": None,
@@ -90,26 +79,28 @@ class Dc(AsicSynthFlow):
             description="Custom TCL hooks to be run at the specified point in the flow.",
         )
         platform: Optional[AsicsPlatform] = None
-        hdlin: Mapping[str, str] = Field(
+        hdlin: Dict[str, str] = Field(
             {
                 "infer_mux": "default",
                 "dont_infer_mux_for_resource_sharing": "true",
             },
             description="Set hdlin_<key> variables. See the DC documentation for details.",
         )
-        compile: Mapping[str, str] = Field(
+        infer_multibit: Optional[str] = "default_all"
+        vhdl_preserve_case: bool = False
+        compile: Dict[str, str] = Field(
             {
                 "seqmap_honor_sync_set_reset": "true",
                 "optimize_unloaded_seq_logic_with_no_bound_opt": "true",  # allow unconnected registers to be removed
             },
             description="Set compile_<key> variables. See the DC documentation for details.",
         )
-        target_libraries: List[Union[Path, str]] = Field(description="Target library or libraries")
+        target_libraries: List[Path] = Field(description="Target library or libraries")
         extra_link_libraries: List[Path] = Field([], description="Additional link libraries")
-        mw_ref_lib: Optional[str] = None
-        mw_tf: Optional[str] = None
-        alib_dir: Optional[str] = None
-        additional_search_path: Optional[str] = None
+        mw_ref_lib: Optional[Path] = None
+        mw_tf: Optional[Path] = None
+        alib_dir: Optional[Path] = None
+        additional_search_path: Optional[Path] = None
         default_max_input_delay: Optional[float] = Field(
             0.0, description="Default max delay to set on all non-clock input ports"
         )
@@ -121,7 +112,7 @@ class Dc(AsicSynthFlow):
             description="Delete all the existing files in run_dir before running synthesis.",
         )
         sdf_version: Optional[str] = Field(
-            "1.0",
+            None,
             description="SDF version to use for the SDF output. If not set (=None), the default version (2.1) will be used.",
         )
         sdf_inst_name: Optional[str] = Field(
@@ -141,15 +132,15 @@ class Dc(AsicSynthFlow):
             None,
             description="Maximum routing layer to use for topographical mode.",
         )
-        max_tluplus: Optional[str] = Field(
+        max_tluplus: Optional[Path] = Field(
             None,
             description="Path to the Max TLUplus file to use for topographical mode. Required if topographical_mode is set to True.",
         )
-        min_tluplus: Optional[str] = Field(
+        min_tluplus: Optional[Path] = Field(
             None,
             description="Path to the Min TLUplus file to use for topographical mode. Optional.",
         )
-        tluplus_map: Optional[str] = Field(
+        tluplus_map: Optional[Path] = Field(
             None,
             description="Path to the TLUplus (tech2itf) map file. Required if topographical_mode is set to True.",
         )
@@ -176,6 +167,22 @@ class Dc(AsicSynthFlow):
             self.process_path(p, subs_vars=True, resolve_to=self.design.root_path)
             for p in ss.target_libraries
         ]
+        if ss.infer_multibit:
+            ss.hdlin["infer_multibit"] = ss.infer_multibit
+        if "enable_hier_map" not in ss.hdlin:
+            ss.hdlin["enable_hier_map"] = "true"
+        if "enable_upf_compatible_naming" not in ss.compile:
+            ss.hdlin["enable_upf_compatible_naming"] = "true"  # improve the SAIF annotation
+        if "vhdl_preserve_case" not in ss.hdlin:
+            ss.hdlin["vhdl_preserve_case"] = "true" if ss.vhdl_preserve_case else "false"
+
+        if "vhdl_std" not in ss.hdlin:
+            if self.design.language.vhdl.standard in ("19", "2019"):
+                ss.hdlin["vhdl_std"] = "2019"
+            elif self.design.language.vhdl.standard in ("02", "2002", "08", "2008"):
+                ss.hdlin["vhdl_std"] = "2008"
+            elif self.design.language.vhdl.standard in ("93", "1993"):
+                ss.hdlin["vhdl_std"] = "1993"
 
     def clean(self):
         # completely erase the content of the run directory
@@ -184,6 +191,8 @@ class Dc(AsicSynthFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        print(ss)
+        exit(0)
 
         # if ss.platform:
         #     if not ss.target_libraries:
@@ -199,14 +208,44 @@ class Dc(AsicSynthFlow):
         ]
         if self.settings.topographical_mode:
             cmd.append("-topographical_mode")
+        if self.settings.log_file:
+            cmd += ["-output_log_file", str(self.settings.log_file)]
         if self.settings.gui:
             cmd.append("-gui")
         cmd += [
             "-f",
             str(script_path),
         ]
+        dc_shell = Tool(
+            executable=ss.dc_shell_name,
+            flow=self,
+            version_flag="-version",
+            highlight_rules={
+                r"^(Error:)(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
+                r"^(\[ERROR\])(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
+                r"^(Warning:)(.+)$": colorama.Fore.YELLOW
+                + colorama.Style.BRIGHT
+                + r"\g<1>"
+                + colorama.Style.NORMAL
+                + r"\g<2>",
+                r"^(Information:)(.+)$": colorama.Fore.GREEN
+                + colorama.Style.BRIGHT
+                + r"\g<1>"
+                + colorama.Style.NORMAL
+                + r"\g<2>",
+                r"^(====[=]+\()\s*(.*)\s*(\)[=]+====)$": colorama.Fore.BLUE
+                + colorama.Style.BRIGHT
+                + "Xeda: "
+                + colorama.Style.NORMAL
+                + r"\g<2>",
+            },
+        )  # pyright: ignore
 
-        self.dc_shell.run(*cmd)
+        if ss.no_init:
+            cmd.append("-no_home_init")
+            cmd.append("-no_local_init")
+
+        dc_shell.run(*cmd)
 
     def parse_timing_reports(self) -> bool:
         failed = False
@@ -277,7 +316,7 @@ class Dc(AsicSynthFlow):
             clock_period = self.results["clock_period"]
             assert isinstance(clock_period, float)
             wns = self.results["setup_wns"]
-            if isinstance(wns, float):
+            if isinstance(wns, float) and (clock_period - wns) > 0:
                 self.results["Fmax"] = 1000.0 / (clock_period - wns)
 
         return not failed
@@ -294,15 +333,15 @@ class Dc(AsicSynthFlow):
             r"Number of combinational cells:\s*(?P<num_cells_combinational>\d+)",
             r"Number of sequential cells:\s*(?P<num_cells_sequentual>\d+)",
             r"Number of macros/black boxes:\s*(?P<num_macro_bbox>\d+)",
-            r"Number of buf/inv:\s*(?P<num_buf_inv>\d+)",
-            r"Number of references:\s*(?P<num_refs>\d+)",
+            r"Number of buf/inv:\s*(?P<_num_buf_inv>\d+)",
+            r"Number of references:\s*(?P<_num_refs>\d+)",
             r"Combinational area:\s*(?P<area_combinational>\d+(?:\.\d+)?)",
-            r"Buf/Inv area:\s*(?P<area_buf_inv>\d+(?:\.\d+)?)",
+            r"Buf/Inv area:\s*(?P<_area_buf_inv>\d+(?:\.\d+)?)",
             r"Noncombinational area:\s*(?P<area_noncombinational>\d+(?:\.\d+)?)",
             r"Macro/Black Box area:\s*(?P<area_macro_bbox>\d+(?:\.\d+)?)",
-            r"Net Interconnect area:\s*(?P<area_interconnect>\S+.*$)",
+            r"Net Interconnect area:\s*(?P<_area_interconnect>\S+.*$)",
             r"Total cell area:\s*(?P<area_cell_total>\d+(?:\.\d+)?)",
-            r"Total area:\s*(?P<area_macro_bbox>\w+)",
+            r"Total area:\s*(?P<area_total>\d+(?:\.\d+)?)",
             r"Core Area:\s*(?P<area_core>\d+(?:\.\d+)?)",
             r"Aspect Ratio:\s*(?P<aspect_ratio>\d+(?:\.\d+)?)",
             r"Utilization Ratio:\s*(?P<utilization_ratio>\d+(?:\.\d+)?)",
@@ -311,10 +350,11 @@ class Dc(AsicSynthFlow):
 
         reportfile_path = reports_dir / f"mapped.qor.rpt"
 
-        def parse_kvs(kvs):
+        def parse_kvs(kvs, skip_zero=False):
             kvs = re.split(r"\s*\n\s*", kvs)
             kvs = [re.split(r"\s*:\s*", s.strip()) for s in kvs if s.strip()]
-            return {s[0].strip(): try_convert_to_primitives(s[1]) for s in kvs}
+            ret = {s[0].strip(): try_convert_to_primitives(s[1]) for s in kvs}
+            return {k: v for k, v in ret.items() if not skip_zero or v not in {0, 0.0, None}}
 
         path_group_re = re.compile(
             r"^\s*Timing Path Group\s+'(?P<path_group_name>\w+)'\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)",
@@ -322,7 +362,7 @@ class Dc(AsicSynthFlow):
         )
 
         area_re = re.compile(
-            r"^\s*Area\s*\n\s*\-+\s*\n(?P<kv1>(?:^.*\n)+)\s*\-+\s*\n(?P<kv2>(?:^.*\n)+)",
+            r"^\s*Area\s*\n\s*\-+\s*\n(?P<kv1>(?:^.*\n)+)\s*\-+\s*\n\s*(?P<kv2>(?:^.*\n)+)\s*",
             re.MULTILINE,
         )
         drc_re = re.compile(r"^\s*Design Rules\s*\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)", re.MULTILINE)
@@ -356,28 +396,31 @@ class Dc(AsicSynthFlow):
                     else:
                         match = drc_re.match(sec)
                         if match:
-                            drc = parse_kvs(match.group("kv"))
+                            drc = parse_kvs(match.group("kv"), skip_zero=True)
                             self.results["drc"] = drc
-                            if drc["Nets With Violations"] != 0:
-                                print(f"Nets With DRC Violations: {drc['Nets With Violations']}")
+                            if drc.get("Nets With Violations"):
+                                failed = True
+                                log.error(
+                                    "Nets With DRC Violations: %s", drc["Nets With Violations"]
+                                )
                         else:
                             match = wns_re.match(sec)
                             if match:
-                                self.results["_wns"] = float(match.group("wns"))
-                                self.results["_tns"] = float(match.group("tns"))
+                                self.results["_drc_wns"] = float(match.group("wns"))
+                                self.results["_drc_tns"] = float(match.group("tns"))
                                 self.results["num_violating_paths"] = int(match.group("nvp"))
                                 if self.results["num_violating_paths"] != 0:
                                     failed = True
                             else:
                                 match = hold_wns_re.match(sec)
                                 if match:
-                                    self.results["_hold_wns"] = float(match.group("wns"))
-                                    self.results["_hold_tns"] = float(match.group("tns"))
+                                    self.results["_drc_hold_wns"] = float(match.group("wns"))
+                                    self.results["_drc_hold_tns"] = float(match.group("tns"))
                                     self.results["hold_num_violating_paths"] = int(
                                         match.group("nvp")
                                     )
                                     if self.results["hold_num_violating_paths"] != 0:
                                         failed = True
-            self.results["path_groups"] = path_groups
+            self.results["_path_groups"] = path_groups
 
         return not failed

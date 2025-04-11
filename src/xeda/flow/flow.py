@@ -117,6 +117,7 @@ class Flow(metaclass=ABCMeta):
         )
         dockerized: bool = Field(False, description="Run tools from docker")
         print_commands: bool = Field(True, description="Print executed commands")
+        console_colors: bool = Field(True, description="Print executed commands")
 
         @validator("*", pre=True, always=False)
         def _all_fields_validator_subs_env_vars(
@@ -128,9 +129,15 @@ class Flow(metaclass=ABCMeta):
                     return value.split(",")
                 if (
                     field.shape == SHAPE_SINGLETON
+                    and field.annotation in (Optional[Path], Path)
+                    and (origin is None or origin == Union)
                     and isinstance(value, (str, Path))
                     and isinstance(values, dict)
                 ):
+                    print(f"*** runner_cwd_: {values.get('runner_cwd_')}")
+                    print(
+                        f"field: {field}, value: {value} origin: {origin} anno: {field.annotation} {type(field.annotation)}"
+                    )
                     return expand_env_vars(
                         value,
                         # fmt: off
@@ -484,7 +491,7 @@ class Flow(metaclass=ABCMeta):
             )
         if not isinstance(path, Path):
             path = Path(path)
-        if resolve_to is not None and not path.is_absolute():
+        if resolve_to is not None and not path.is_absolute() and not str(path).startswith("$"):
             return resolve_to / path
         return path
 

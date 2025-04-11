@@ -141,7 +141,7 @@ class Vivado(Flow, metaclass=ABCMeta):
             default_args.append("-nolog")
         self.vivado = VivadoTool(
             default_args=default_args,
-            design_root=self.design_root,
+            design_root_=self.design_root,
         )  # pyright: ignore
         if self.settings.redirect_stdout:
             self.vivado.redirect_stdout = Path(f"{self.name}_stdout.log")

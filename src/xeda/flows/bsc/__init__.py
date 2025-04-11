@@ -304,7 +304,7 @@ class Bsc(Flow):
                 "-reset-prefix",
                 self.settings.reset_prefix,
             ]
-        vout_dir.mkdir(exist_ok=True)
+        vout_dir.mkdir(exist_ok=True, parents=True)
 
         if verilog_sources:
             vsearch_paths = unique([str(p.path.parent) for p in verilog_sources])

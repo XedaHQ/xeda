@@ -687,7 +687,7 @@ class FlowLauncher:
             design_overrides = settings_to_dict(design_overrides)
         design_not_in_project = False
         if xedaproject:
-            if Path(xedaproject).exists():
+            if not Path(xedaproject).exists():
                 raise FileNotFoundError(f"Cannot open xeda-project file: {xedaproject}")
         else:
             xedaproject = "xedaproject.toml"
