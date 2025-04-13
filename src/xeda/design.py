@@ -83,6 +83,7 @@ class DesignValidationError(Exception):
         design_root: Union[None, str, os.PathLike] = None,
         design_name: Optional[str] = None,
         file: Optional[str] = None,
+        design_in_msg: bool = False,
     ) -> None:
         super().__init__(*args)
         self.errors = errors  # (location, message, context, type)
@@ -90,6 +91,7 @@ class DesignValidationError(Exception):
         self.design_root = design_root
         self.design_name = design_name
         self.file = file
+        self.design_in_msg = design_in_msg
 
     def __str__(self) -> str:
         name = self.design_name or self.data.get("name")
@@ -102,7 +104,7 @@ class DesignValidationError(Exception):
                 "{}{}\n".format(f"{loc}:\n   " if loc else "", msg)
                 for loc, msg, _, _ in self.errors
             ),
-        ) + (f"\nDesign:\n{pformat(self.data)}\n" if self.data else "")
+        ) + (f"\nDesign:\n{pformat(self.data)}\n" if self.data and self.design_in_msg else "")
 
 
 class FileResource:
@@ -355,7 +357,14 @@ class DVSettings(XedaBaseModel):
 
         if isinstance(value, (str, Path, DesignSource)):
             value = [value]
-        sources = []
+        sources: List[DesignSource] = []
+
+        def source_already_exists(src: DesignSource) -> bool:
+            for s in sources:
+                if s.file.absolute() == src.file.absolute():
+                    return True
+            return False
+
         for src in unique(value):
             if isinstance(src, str):
                 src_type = None
@@ -365,7 +374,8 @@ class DVSettings(XedaBaseModel):
                 #     src_type = SourceType.from_str(m.group(1))
                 if src.count("*") > 0:
                     glob_sources = glob(src)
-                    sources.extend([ds(s, src_type) for s in glob_sources])
+                    srcs = [ds(s, src_type) for s in glob_sources]
+                    sources.extend(s for s in srcs if not source_already_exists(s))
                     continue  # skip the append at the bottom
                 src = src_with_type(src, src_type)
             if not isinstance(src, DesignSource):
@@ -378,7 +388,8 @@ class DVSettings(XedaBaseModel):
                         raise ValueError(
                             f"Source file: {src} was not found: {e.strerror} {e.filename}"
                         ) from e
-            sources.append(src)
+            if not source_already_exists(src):
+                sources.append(src)
         return sources
 
 
@@ -794,6 +805,9 @@ class Design(XedaBaseModel):
     def _flow_settings(cls, value):
         if value:
             value = settings_to_dict(value)
+            value = {k: v for k, v in value.items() if v is not None}
+        else:
+            value = {}
         return value
 
     @validator("dependencies", pre=True, always=True)

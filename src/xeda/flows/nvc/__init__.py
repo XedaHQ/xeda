@@ -9,7 +9,6 @@ from ...dataclass import Field
 from ...design import DesignSource, SourceType, VhdlSettings
 from ...flow import SimFlow
 from ...tool import Tool
-from ...utils import common_root
 
 log = logging.getLogger(__name__)
 

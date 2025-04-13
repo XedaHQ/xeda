@@ -29,10 +29,10 @@ def test_cocotb_parse_xml():
             for suite in cocotb.results.test_suites:
                 for case in suite.test_cases:
                     print(case)
-        results: Dict[str, Any] = {}
+        results: Dict[str, Any] = {"success": True}
         cocotb.add_results(results)
-        if not results["success"] is False:
-            raise AssertionError()
+        print("Results:", results)
+        assert results["success"] is False
 
 
 if __name__ == "__main__":

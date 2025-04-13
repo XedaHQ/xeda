@@ -19,12 +19,7 @@ from ...design import Design
 from ...flow import Flow, FlowFatalError
 from ...tool import NonZeroExitCode
 from ...utils import Timer, dump_json, load_class, settings_to_dict
-from ..default_runner import (
-    FlowLauncher,
-    add_file_logger,
-    get_flow_class,
-    print_results,
-)
+from ..default_runner import FlowLauncher, add_file_logger, get_flow_class, print_results
 
 log = logging.getLogger(__name__)
 

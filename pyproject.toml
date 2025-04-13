@@ -69,7 +69,7 @@ dependencies = [
 
 [project.optional-dependencies]
 docs = ["sphinx", "sphinx-tabs", "sphinx-jinja", "autodoc_pydantic"]
-dev = ["pytest", "mypy", "black", "flakeheaven", "tox"]
+dev = ["pytest", "mypy", "black", "ruff", "isort", "pylint", "tox"]
 
 [project.urls]
 homepage = "https://github.com/XedaHQ/xeda"
@@ -153,7 +153,7 @@ disable = [
     "wrong-import-order",
     "missing-class-docstring",
     "no-self-argument",               # from pydantic validators (classmethod)
-    "no-self-use",                    # from pydantic validators (classmethod)
+    # "no-self-use",                    # from pydantic validators (classmethod)
 ]
 
 [tool.pylint.similarities]
@@ -175,54 +175,6 @@ skips = [
     "B404:blacklist",   # subprocess module
     "B314",
 ]
-
-[tool.flakeheaven]
-# make output nice
-format = "grouped"
-# 80 chars aren't enough in 21 century
-max_line_length = 100
-# show line of source code in output
-show_source = true
-
-[tool.flakeheaven.plugins]
-# include everything in pyflakes except F401
-# pyflakes = ["+*", "-F401"]
-pyflakes = ["+*"]
-pycodestyle = [
-    "+*",
-    "-E501", # line too long
-    "-E203",
-    "-E231", # whitespace before/after ':'
-    "-C812", # missing trailing comma
-    "-W503", # line break before binary operator
-]
-# enable only codes from S100 to S199
-# flake8-bandit = ["-*", "+S1??"]
-flake8-bandit = [
-    "+*",
-    "-S603",
-    "-S404", # subprocess
-    "-S405",
-    "-S314", # xml.etree.ElementTree.parse
-    "-S101", # asserts
-    "-S311", # random crypto
-    "-S701", # jinja2 autoescape
-    "-S310", # urllib open URL
-]
-# enable everything that starts from `flake8-`
-"flake8-*" = ["+*"]
-# explicitly disable plugin
-flake8-docstrings = ["-*"]
-flake8-quotes = ["-*"]
-flake8-commas = ["-*"]
-
-[tool.isort]
-profile = "black"
-
-[tool.zimports]
-black-line-length = 100
-keep-unused-type-checking = true
-# multi-imports = true
 
 [tool.mypy]
 plugins = ["pydantic.mypy"]

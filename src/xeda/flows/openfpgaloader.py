@@ -1,10 +1,8 @@
 import logging
-from pathlib import Path
 from typing import Optional
 
 from ..board import WithFpgaBoardSettings, get_board_data
 from ..dataclass import validator
-from ..design import Design
 from ..flow import FlowSettingsException, FpgaSynthFlow
 from ..tool import Tool
 from .nextpnr import Nextpnr

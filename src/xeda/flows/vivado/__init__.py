@@ -4,14 +4,13 @@ from abc import ABCMeta
 from functools import cached_property, reduce
 from html import unescape
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree
 
 import colorama
 
 from ...dataclass import Field
-from ...design import Design
-from ...flow import Flow, FpgaSynthFlow, SynthFlow
+from ...flow import Flow, SynthFlow
 from ...tool import Docker, Tool
 
 log = logging.getLogger(__name__)
@@ -93,12 +92,18 @@ class VivadoTool(Tool):
         + r"\g<1>"
         + colorama.Style.NORMAL
         + r"\g<2>",
-        r"^(====[=]+\()(.*)(\)[=]+====)$": colorama.Fore.BLUE
-        + r"\g<1>"
+        r"^====[=]+\()\s*(WARN|WARNING):\s+.*)\s*(\)[=]+====$": colorama.Fore.YELLOW
+        + colorama.Style.BRIGHT
+        + r"XEDA WARNING: \g<2>",
+        r"^====[=]+\(\s*ERROR:\s+(.*)\s*\)[=]+====$": colorama.Fore.RED
+        + colorama.Style.BRIGHT
+        + r"XEDA ERROR: \g<1>",
+        r"^(====[=]+\()\s*(.*)\s*(\)[=]+====)$": colorama.Fore.BLUE
+        + colorama.Style.BRIGHT
+        + "XEDA: "
+        + colorama.Style.NORMAL
         + colorama.Fore.CYAN
-        + r"\g<2>"
-        + colorama.Fore.BLUE
-        + r"\g<3>",
+        + r"\g<2>",
     }
 
     @cached_property

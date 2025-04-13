@@ -1,4 +1,4 @@
-# © 2022-2023 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
+# © 2022-2025 [Kamyar Mohajerani](mailto:kammoh@gmail.com)
 """Xeda Command-line interface"""
 import inspect
 import logging
@@ -25,13 +25,7 @@ from .cli_utils import (
 )
 from .console import console
 from .design import DesignValidationError
-from .flow import (
-    Flow,
-    FlowException,
-    FlowFatalError,
-    FlowSettingsError,
-    registered_flows,
-)
+from .flow import Flow, FlowException, FlowFatalError, FlowSettingsError, registered_flows
 from .flow_runner import (
     DIR_NAME_HASH_LEN,
     DefaultRunner,

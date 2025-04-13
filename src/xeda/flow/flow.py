@@ -9,7 +9,7 @@ import re
 import shutil
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Type, Union, get_origin
+from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_origin
 
 # from attrs import define
 import jinja2
@@ -17,21 +17,15 @@ from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
 from pydantic.fields import SHAPE_LIST, SHAPE_SINGLETON, ModelField
 
-from ..dataclass import (
-    Field,
-    ValidationError,
-    XedaBaseModel,
-    validation_errors,
-    validator,
-)
+from ..dataclass import Field, ValidationError, XedaBaseModel, validation_errors, validator
 from ..design import Design
 from ..utils import (
     XedaException,
     camelcase_to_snakecase,
     expand_env_vars,
+    parse_patterns_in_file,
     regex_match,
     try_convert,
-    try_convert_to_primitives,
     unique,
 )
 
@@ -125,17 +119,17 @@ class Flow(metaclass=ABCMeta):
         ):
             if value is not None:
                 origin = get_origin(field.annotation)
-                if field.shape == SHAPE_LIST and origin == list and isinstance(value, str):
+                if field.shape == SHAPE_LIST and (origin is list) and isinstance(value, str):
                     return value.split(",")
                 if (
                     field.shape == SHAPE_SINGLETON
-                    and field.annotation in (Optional[Path], Path)
+                    and field.type_ in (Optional[Path], Path)
+                    # and field.annotation in (Optional[Path], Path)
                     and (origin is None or origin == Union)
                     and isinstance(value, (str, Path))
                     and isinstance(values, dict)
                 ):
-                    print(f"*** runner_cwd_: {values.get('runner_cwd_')}")
-                    print(
+                    log.debug(
                         f"field: {field}, value: {value} origin: {origin} anno: {field.annotation} {type(field.annotation)}"
                     )
                     return expand_env_vars(
@@ -178,12 +172,9 @@ class Flow(metaclass=ABCMeta):
             *args,
             **kwargs,
         ) -> None:
-            kwargs = {
-                **kwargs,
-                **dict(
-                    box_intact_types=[Box],
-                    box_class=Box,
-                ),
+            kwargs |= {
+                "box_intact_types": [Box],
+                "box_class": Box,
             }
             self.success: bool = False
             self.tools: List[Any] = []
@@ -418,54 +409,21 @@ class Flow(metaclass=ABCMeta):
     ) -> Optional[dict]:
         if not isinstance(reportfile_path, Path):
             reportfile_path = Path(reportfile_path)
-        # TODO fix debug and verbosity levels!
-        results = dict()
         if not reportfile_path.exists():
             log.warning(
-                "File %s does not exist! Most probably the flow run had failed.\n Please check log files in %s",
-                reportfile_path,
+                "File %s does not exist! Please check the console output and the log files in %s",
+                reportfile_path.absolute(),
                 self.run_path,
             )
             return None
-        with open(reportfile_path) as rpt_file:
-            content = rpt_file.read()
-
-            flags = re.MULTILINE | re.IGNORECASE
-            if dotall:
-                flags |= re.DOTALL
-
-            def match_pattern(pat: str, content: str) -> Tuple[bool, str]:
-                match = re.search(pat, content, flags)
-                if match is None:
-                    return False, content
-                match_dict = match.groupdict()
-                for k, v in match_dict.items():
-                    v = try_convert_to_primitives(v)
-                    results[k] = v
-                    log.debug("%s: %s", k, v)
-                if sequential:
-                    content = content[match.span(0)[1] :]
-                    log.debug("len(content)=%d", len(content))
-                return True, content
-
-            for pat in [re_pattern, *other_re_patterns]:
-                matched = False
-                if isinstance(pat, list):
-                    log.debug("Matching any of: %s", pat)
-                    for subpat in pat:
-                        matched, content = match_pattern(subpat, content)
-                else:
-                    log.debug("Matching: %s", pat)
-                    matched, content = match_pattern(pat, content)
-
-                if not matched and required:
-                    log.critical(
-                        "Error parsing report file: %s\n Pattern not matched: %s\n",
-                        rpt_file.name,
-                        pat,
-                    )
-                    return None
-        return results
+        return parse_patterns_in_file(
+            reportfile_path,
+            re_pattern,
+            *other_re_patterns,
+            dotall=dotall,
+            required=required,
+            sequential=sequential,
+        )
 
     def resolve_paths_to_design_or_cwd(self, paths: list) -> List[Path]:
         """Resolve relative paths to variables ($PWD), design_root if needed"""
@@ -486,7 +444,7 @@ class Flow(metaclass=ABCMeta):
                 path,
                 overrides={
                     "DESIGN_ROOT": self.design.design_root,
-                    "PWD": self.run_path,
+                    "PWD": self.runner_cwd,
                 },
             )
         if not isinstance(path, Path):

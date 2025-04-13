@@ -74,7 +74,7 @@ class ClickMutex(click.Option):
 class OptionEatAll(click.Option):
     """
     Taken from https://stackoverflow.com/questions/48391777/nargs-equivalent-for-options-in-click#answer-48394004.
-    """  # noqa: ignore=E501 pylint: disable=C0301
+    """  # noqa: ignore=E501
 
     @overrides
     def __init__(self, *args, **kwargs):

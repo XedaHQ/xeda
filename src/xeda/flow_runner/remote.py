@@ -15,19 +15,12 @@ from fabric.transfer import Transfer
 from ..design import Design, DesignSource
 from ..utils import XedaException, backup_existing, dump_json, settings_to_dict
 from ..version import __version__
-from .default_runner import (
-    DIR_NAME_HASH_LEN,
-    FlowLauncher,
-    print_results,
-    semantic_hash,
-)
+from .default_runner import FlowLauncher, print_results, semantic_hash
 
 log = logging.getLogger(__name__)
 
 
 def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
-    root_path = design.root_path
-
     assert isinstance(conn, Connection)
 
     def uniquify_filename(src: DesignSource) -> str:

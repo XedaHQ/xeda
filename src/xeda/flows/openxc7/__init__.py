@@ -6,9 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from ...board import WithFpgaBoardSettings, get_board_data
+from ...board import WithFpgaBoardSettings
 from ...dataclass import Field, validator
-from ...design import Design, SourceType
+from ...design import SourceType
 from ...flow import FPGA, FlowFatalError, FpgaSynthFlow
 from ...tool import Tool
 from ...utils import setting_flag
@@ -209,7 +209,7 @@ class OpenXC7(FpgaSynthFlow):
                 pass
             if (
                 prev_results
-                and prev_results.get("success") == True
+                and prev_results.get("success")
                 and prev_results.get("design") == self.design.name
                 and prev_results.get("design_hash") == self.design_hash
                 and prev_results.get("flow") == self.name
@@ -298,7 +298,7 @@ class OpenXC7(FpgaSynthFlow):
 
         if not netlist_json.exists():
             raise FlowFatalError(f"netlist json file {netlist_json} does not exist!")
-        board_data = get_board_data(ss.board)  # TODO
+        # board_data = get_board_data(ss.board)  # TODO
 
         args = setting_flag(netlist_json, name="json")
         if ss.main_clock:

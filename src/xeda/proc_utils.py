@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 import colorama
 
-from .console import console
 from .utils import ExecutableNotFound, NonZeroExitCode
 
 log = logging.getLogger(__name__)

@@ -121,7 +121,7 @@ class Vcs(SimFlow):
         ss = self.settings
         if ss.sdf_file:
             if ss.sdf_instance is None:
-                raise FlowSettingsException(f"SDF instance is required when SDF file is provided")
+                raise FlowSettingsException("SDF instance is required when SDF file is provided")
             ss.sdf_file = self.process_path(ss.sdf_file, resolve_to=self.design.design_root)
         if ss.ucli_script:
             ss.ucli_script = str(self.process_path(ss.ucli_script))
@@ -220,7 +220,7 @@ class Vcs(SimFlow):
                         )
                 vcs_args.append(f"-debug_access{ss.debug_access}")
             else:
-                vcs_args.append(f"-debug_access")
+                vcs_args.append("-debug_access")
         if ss.time_resolution:
             vcs_args.append(f"-sim_res={ss.time_resolution}")
 
@@ -269,7 +269,7 @@ class Vcs(SimFlow):
         if top:
             vcs_args += ["-top", top]
         if ss.initreg is not None:
-            vcs_args.append(f"+vcs+initreg+random")
+            vcs_args.append("+vcs+initreg+random")
             simv_args.append(f"+vcs+initreg+{ss.initreg}")
 
         if ss.ucli:
@@ -280,7 +280,7 @@ class Vcs(SimFlow):
         if ss.ucli_script:
             common_run_args += ["-do", ss.ucli_script]
         if ss.gui:
-            if isinstance(ss.gui, str) and not ss.gui.lower() in ("true", "false", "1", "0"):
+            if isinstance(ss.gui, str) and ss.gui.lower() not in ("true", "false", "1", "0"):
                 common_run_args.append(f"-gui={ss.gui}")
             elif ss.gui is True:
                 common_run_args.append("-gui")

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import logging
-import os
 import platform
 import re
 from abc import ABCMeta
@@ -49,7 +48,7 @@ class GhdlTool(Tool):
     @cached_property
     def info(self) -> Dict[str, Optional[str]]:
         out = self.version_output
-        lines = [l for l in (line.strip() for line in out.splitlines()) if l] if out else []
+        lines = [ln for ln in (line.strip() for line in out.splitlines()) if ln] if out else []
         compiler = None
         backend = None
         for line in lines:
@@ -564,7 +563,6 @@ class GhdlSim(Ghdl, SimFlow):
     def parse_reports(self) -> bool:
         success = True
         assert isinstance(self.settings, self.Settings)
-        ss = self.settings
 
         # TODO move
         if self.cocotb and self.design.tb and self.design.tb.cocotb:
