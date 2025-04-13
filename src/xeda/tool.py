@@ -9,17 +9,11 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from .console import console
 from .dataclass import Field, XedaBaseModel, validator
 from .flow import Flow
 from .proc_utils import run_process
-from .console import console
-from .utils import (
-    ExecutableNotFound,
-    NonZeroExitCode,
-    ToolException,
-    cached_property,
-    try_convert,
-)
+from .utils import ExecutableNotFound, NonZeroExitCode, ToolException, cached_property, try_convert
 
 log = logging.getLogger(__name__)
 

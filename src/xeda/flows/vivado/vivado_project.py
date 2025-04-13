@@ -6,7 +6,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ...dataclass import Field, XedaBaseModel
+from ...dataclass import XedaBaseModel
 from ...flow import FpgaSynthFlow
 from ...utils import HierDict, parse_xml
 from ..vivado import Vivado

@@ -1,12 +1,8 @@
-import json
-import os
 import tempfile
 from pathlib import Path
 
-from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import YosysFpga
-from xeda.flow import FPGA
 
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"

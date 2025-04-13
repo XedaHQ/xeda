@@ -52,25 +52,21 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )  # pyright: ignore
         write_checkpoint: bool = False
         write_netlist: bool = False
-        write_bitstream: bool = False
-        bitstream: Optional[Union[str, Path]] = None  # TODO: implement for VivadoA
+        bitstream: Optional[Path] = None
         extra_reports: bool = False
         qor_suggestions: bool = False
         default_max_input_delay: Optional[float] = Field(
-            0.0, description="Default max delay to set on all non-clock input ports"
+            None, description="Default max delay to set on all non-clock input ports"
         )
         default_min_input_delay: Optional[float] = Field(
             None, description="Default min delay to set on all non-clock input ports"
         )
         default_max_output_delay: Optional[float] = Field(
-            0.0, description="Default max delay to set on all output ports"
+            None, description="Default max delay to set on all output ports"
         )
         default_min_output_delay: Optional[float] = Field(
             None, description="Default min delay to set on all output ports"
         )
-
-        # FIXME implement and verify all
-
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
         synth: RunOptions = RunOptions(
             # Performance strategies: "Flow_PerfOptimized_high" (no LUT combining, fanout limit: 400), "Flow_AlternateRoutability",
@@ -109,12 +105,25 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         show_available_strategies: bool = Field(
             False, description="Show available synthesis and implementation strategies"
         )
+        set_synth_properties: Dict[str, str] = Field(
+            {}, description="Set properties for synthesis. "
+        )
+        set_impl_properties: Dict[str, str] = Field(
+            {}, description="Set properties for implementation. "
+        )
 
         @validator("fpga")
         def _validate_fpga(cls, value):
             if not value or not value.part:
                 raise ValueError("FPGA.part must be specified")
             return value
+
+    def init(self):
+        super().init()
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        # if ss.bitstream and "PROGRAM.FILE" not in ss.set_impl_properties:
+        #     ss.set_impl_properties["PROGRAM.FILE"] = str(ss.bitstream)
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
@@ -177,13 +186,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             args["MORE"] = args_more
             settings.synth.steps["SYNTH_DESIGN"]["ARGS"] = args
 
-        tcl_files = [p.file for p in self.design.rtl.sources if p.type and p.type is SourceType.Tcl]
-        tcl_files += [self.normalize_path_to_design_root(p) for p in settings.tcl_files]
+        tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
 
-        if self.settings.bitstream:
-            self.settings.write_bitstream = True
-        elif self.settings.write_bitstream:
-            self.settings.bitstream = (
+        if self.settings.bitstream is not None:
+            self.settings.bitstream = self.settings.bitstream or (
                 self.settings.outputs_dir / f"{self.design.rtl.top or 'bitstream'}.bit"
             )
 
@@ -265,7 +271,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             r"(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<tns>\-?\d+(?:\.\d+)?)\s+(?P<setup_violations>\d+)\s+(?P<_tns_total_endpoints>\d+)\s+"
             r"(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<hold_violations>\d+)\s+(?P<_ths_total_endpoints>\d+)\s+",
             ##
-            r"Clock Summary[\s\|\-]+^\s*Clock\s+.*$[^\w]+(\w*)\s+(\{.*\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)",
+            r"Clock Summary[\s\|\-]+^\s*Clock\s+Waveform\(\w+\)\s+Period\(\w+\)\s+Frequency\(\w+\)$[\-\s]+\s*(\w+)\s+(\{[\.\d\s]+\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)",
             required=False,
         )
         wns = self.results.get("wns")
@@ -289,10 +295,14 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 # Fmax = 1/(T-WNS), with WNS positive or negative, where T is the target clock period."
                 if "clock_period" in self.results:
                     clock_period = self.results["clock_period"]
-                    assert isinstance(
-                        clock_period, (float, int)
-                    ), f"clock_period: {clock_period} is not a number"
-                    self.results["Fmax"] = 1000.0 / (clock_period - wns)
+                    if isinstance(clock_period, (float, int)):
+                        self.results["Fmax"] = 1000.0 / (clock_period - wns)
+                    else:
+                        log.critical(
+                            "Parsed value for `clock_period`: %s (%s) is not a number.",
+                            clock_period,
+                            type(clock_period),
+                        )
 
         return not failed
 
@@ -307,11 +317,14 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             if log_file.is_file():
                 self.artifacts[str(log_file)] = log_file
 
-        if self.settings.write_bitstream:
-            for bitstream in self.run_path.glob("**/*.bit"):
-                if bitstream.is_file():
-                    self.artifacts["bitstream"] = bitstream
-                    break
+        if self.settings.bitstream is not None:
+            if self.settings.bitstream.exists():
+                self.artifacts["bitstream"] = self.settings.bitstream
+            else:
+                for bitstream in self.run_path.glob("**/*.bit"):
+                    if bitstream.is_file():
+                        self.artifacts["bitstream"] = bitstream
+                        break
 
         reports_dir = self.settings.reports_dir / "route_design"
         failed = not self.parse_timing_report(reports_dir)

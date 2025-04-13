@@ -76,6 +76,8 @@ __all__ = [
     "ExecutableNotFound",
     # etc
     "expand_env_vars",
+    "parse_patterns",
+    "parse_patterns_in_file",
 ]
 
 log = logging.getLogger(__name__)
@@ -497,7 +499,9 @@ def conv(v):
     return v
 
 
-def expand_hierarchy(d: Dict[str, Any]) -> Dict[str, Any]:
+def expand_hierarchy(d: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if d is None:
+        return {}
     expanded: DictStrHier = {}
     for k, v in d.items():
         set_hierarchy(expanded, k, conv(v))
@@ -554,12 +558,10 @@ def expand_env_vars(
     if not env_match:
         return path
     var = env_match.group("var")
-    print(f"var: {var}, overrides: {overrides}")
     if not var:
         return path
     if var in overrides:
         var_value = overrides[var]
-        print(f"var_value: {var_value}")
         if var_value is None:
             return path
     else:
@@ -625,3 +627,74 @@ class ExecutableNotFound(ToolException):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}: {self.__str__()}"
+
+
+def parse_patterns(
+    content: str,
+    re_pattern: Union[str, List[str]],
+    *other_re_patterns: Union[str, List[str]],
+    flags: re.RegexFlag = re.MULTILINE | re.IGNORECASE,  # re.NOFLAG
+    required: bool = False,
+    sequential: bool = False,
+) -> Optional[dict]:
+    results = dict()
+
+    def match_pattern(pat: str, content: str) -> Tuple[bool, str]:
+        match = re.search(pat, content, flags)
+        if match is None:
+            return False, content
+        match_dict = match.groupdict()
+        for k, v in match_dict.items():
+            v = try_convert_to_primitives(v)
+            results[k] = v
+            log.debug("%s: %s", k, v)
+        if sequential:
+            content = content[match.span(0)[1] :]
+            log.debug("len(content)=%d", len(content))
+        return True, content
+
+    for pat in [re_pattern, *other_re_patterns]:
+        if not pat:
+            continue
+        matched = False
+        if isinstance(pat, list):
+            log.debug("Matching any of: %s", pat)
+            for subpat in pat:
+                matched, content = match_pattern(subpat, content)
+        else:
+            log.debug("Matching: %s", pat)
+            matched, content = match_pattern(pat, content)
+
+        if not matched and required:
+            log.error(
+                "Pattern not matched: %s\n",
+                pat,
+            )
+            return None
+    return results
+
+
+def parse_patterns_in_file(
+    reportfile_path: Union[str, os.PathLike],
+    re_pattern: Union[str, List[str]],
+    *other_re_patterns: Union[str, List[str]],
+    dotall: bool = True,
+    required: bool = False,
+    sequential: bool = False,
+) -> Optional[dict]:
+    if not isinstance(reportfile_path, Path):
+        reportfile_path = Path(reportfile_path)
+    # TODO fix debug and verbosity levels!
+    flags = re.MULTILINE | re.IGNORECASE
+    if dotall:
+        flags |= re.DOTALL
+    with open(reportfile_path) as rpt_file:
+        content = rpt_file.read()
+        return parse_patterns(
+            content,
+            re_pattern,
+            *other_re_patterns,
+            flags=flags,
+            required=required,
+            sequential=sequential,
+        )

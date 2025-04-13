@@ -195,12 +195,12 @@ write_sdf -mode timesim -process_corner slow -force -file ${settings.outputs_dir
 write_verilog -mode timesim -sdf_anno false -force -file ${settings.outputs_dir}/impl_timesim.v
 ##    write_vhdl    -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${settings.outputs_dir}/impl_funcsim_xlib.vhd
 write_xdc -no_fixed_only -force ${settings.outputs_dir}/impl.xdc
-{%- endif %}
+{% endif -%}
 
-{% if settings.write_bitstream -%}
+{% if settings.bitstream -%}
 puts "\n==============================( Writing Bitstream )==============================="
-write_bitstream -force ${settings.outputs_dir}/bitstream.bit
-{%- endif %}
+write_bitstream -force {{{settings.bitstream}}}
+{% endif -%}
 
 showWarningsAndErrors
 puts "\n===========================( *DISABLE ECHO* )==========================="

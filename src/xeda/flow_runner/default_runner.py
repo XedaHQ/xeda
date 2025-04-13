@@ -15,18 +15,7 @@ from datetime import datetime, timedelta
 from glob import glob
 from pathlib import Path
 from pprint import PrettyPrinter
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Type, TypeVar, Union
 
 from box import Box
 from pathvalidate import sanitize_filename
@@ -41,7 +30,6 @@ from ..design import Design, DesignFileParseError, DesignValidationError
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
 from ..utils import (
-    StrOrDictStrHier,
     WorkingDirectory,
     backup_existing,
     dump_json,

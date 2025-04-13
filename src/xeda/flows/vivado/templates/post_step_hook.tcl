@@ -7,15 +7,11 @@ source {{file}}
 
 set RUN_DIR {{run_dir}}
 
-puts "** RUN_DIR is $RUN_DIR"
+puts "=========( RUN_DIR is $RUN_DIR )========="
 
 if { ![info exists ACTIVE_STEP] } {
   set ACTIVE_STEP "synth_design"
   set reports_dir [file join ${RUN_DIR} {{settings.reports_dir}} $ACTIVE_STEP]
-  # if { [file exists ${reports_dir}] } {
-  #   puts "Found reports from previous $ACTIVE_STEP step, assuming we are in an unknown step"
-  #   set ACTIVE_STEP "unknown"
-  # }
 }
 
 set reports_dir [file join ${RUN_DIR} {{settings.reports_dir}} $ACTIVE_STEP]
@@ -49,7 +45,7 @@ if {$ACTIVE_STEP == "route_design"} {
   report_design_analysis -complexity -logic_level_distribution -qor_summary -json [file join ${reports_dir} design_analysis.json]
 
   set timing_slack [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
-  puts "Final timing slack: $timing_slack ns"
+  puts "=======================( Final timing slack: $timing_slack ns )======================="
 
   {%- if settings.qor_suggestions %}
   report_qor_suggestions -quiet -max_strategies 5 -file [file join ${reports_dir} qor_suggestions.rpt]
@@ -63,20 +59,21 @@ if {$ACTIVE_STEP == "route_design"} {
     {%- endif %}
   }
 
-  puts "Writing output files to ${outputs_dir}"
-  file mkdir ${outputs_dir}
 
-  {%- if settings.write_netlist %}
-  puts "\n==========================( Writing netlists and SDF )=========================="
+  file mkdir ${outputs_dir}
+  {% if settings.write_netlist -%}
+  puts "\n==========================( Writing netlists and SDF to ${outputs_dir}  )=========================="
   write_verilog -mode timesim -sdf_anno false -force -file ${outputs_dir}/timesim.v
   write_sdf -mode timesim -process_corner slow -force -file ${outputs_dir}/timesim.min.sdf
   write_sdf -mode timesim -process_corner fast -force -file ${outputs_dir}/timesim.max.sdf
   write_vhdl -mode funcsim -include_xilinx_libs -write_all_overrides -force -file ${outputs_dir}/funcsim.vhdl
   write_xdc -no_fixed_only -force ${outputs_dir}/impl.xdc
-  {%- endif %}
+  {% endif -%}
 
-  {%- if settings.bitstream %}
-  puts "\n=============================( Writing bitstream )=============================="
-  write_bitstream -force {{settings.bitstream}}
-  {%- endif %}
+  {% if settings.bitstream is not none -%}
+  puts "\n=============================( Writing bitstream to { {{-settings.bitstream-}} } )=============================="
+  set BITSTREAM_OUT_DIR [file dirname { {{-settings.bitstream-}} }]
+  file mkdir $BITSTREAM_OUT_DIR
+  write_bitstream -force { {{-settings.bitstream-}} }
+  {% endif -%}
 }

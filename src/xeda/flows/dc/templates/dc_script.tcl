@@ -6,8 +6,11 @@ set OUTPUTS_DIR {{settings.outputs_dir}}
 set REPORTS_DIR {{settings.reports_dir}}
 
 set TOP_MODULE {{design.rtl.top}}
-set DESIGN_NAME {{design.name}}
 
+if { ${TOP_MODULE} == "" } {
+    puts "\[ERROR]\ No top module specified!\n"
+    exit 1
+}
 
 set OPTIMIZATION {{settings.optimization}}
 
@@ -24,12 +27,15 @@ if { ![file exists $REPORTS_DIR] } {
     file mkdir $REPORTS_DIR
 }
 
-set_message_info -id LINT-1   -limit 5 ;# cell does not drive any nets
+suppress_message LINT-1   ;# cell does not drive any nets
+suppress_message LINT-29  ;# input port is connected directly to output port 
+suppress_message LINT-52  ;# connected directly to 'logic 1'
+suppress_message OPT-1206 ;# Register is a constant and will be removed
+
 set_message_info -id LINT-2   -limit 5 ;# net has no loads
 set_message_info -id LINT-8   -limit 5 ;# input port is unloaded
 set_message_info -id LINT-28  -limit 5 ;# port is not connected to any nets
-set_message_info -id VHDL-290 -limit 1 ;# VHDL: a dummy net is created
-set_message_info -id OPT-1206 -limit 1 ;# Register is a constant and will be removed
+set_message_info -id VHDL-290 -limit 5 ;# VHDL: a dummy net is created
 
 
 {%- for k,v in settings.hdlin.items() %}
@@ -114,8 +120,6 @@ if { [catch {current_design ${TOP_MODULE} } $err] } {
     exit 1
 }
 
-set TOP_MODULE [current_design]
-
 set_verification_top
 
 
@@ -133,13 +137,13 @@ redirect -tee $REPORTS_DIR/elab.design.rpt {report_design -nosplit}
 redirect -tee $REPORTS_DIR/elab.list_designs.rpt {list_designs}
 redirect -file $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
 
-write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${DESIGN_NAME}.elab.ddc
 change_names -rules verilog -hierarchy
-write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${DESIGN_NAME}.elab.v
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.ddc
+write_file -hierarchy -format verilog -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.v
 
 # change_names -rules vhdl -hierarchy
 # set_app_var vhdlout_dont_create_dummy_nets true
-write_file -hierarchy -format vhdl -output ${OUTPUTS_DIR}/${DESIGN_NAME}.elab.vhd
+write_file -hierarchy -format vhdl -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.vhd
 # change_names -rules verilog -hierarchy
 # set_app_var vhdlout_dont_create_dummy_nets false
 
@@ -173,7 +177,7 @@ redirect -tee ${REPORTS_DIR}/linked.check_design.rpt {check_design}
 redirect -file ${REPORTS_DIR}/linked.check_timing.rpt {check_timing}
 redirect -file ${REPORTS_DIR}/linked.constraints.rpt {report_constraint -nosplit}
 
-write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${DESIGN_NAME}.linked.ddc
+write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.ddc
 
 set compile_command {{settings.compile_command}}
 
@@ -245,7 +249,7 @@ if { $OPTIMIZATION != "none" } {
     }
 }
 
-set_app_var uniquify_naming_style "${DESIGN_NAME}_%s_%d"
+set_app_var uniquify_naming_style "${TOP_MODULE}_%s_%d"
 
 if { [catch {uniquify -force} -errorinfo err] } {
     puts "\[ERROR]\ Uniquify failed!\n$err"
@@ -314,14 +318,14 @@ print_variable_group all > $REPORTS_DIR/mapped.vars.rpt
 
 puts "==========================( Writing Generated Netlist )=========================="
 
-write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${DESIGN_NAME}.mapped.ddc
-write -hierarchy -format verilog -output $OUTPUTS_DIR/${DESIGN_NAME}.mapped.v
+write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
+write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
 
-write_sdf -version {{settings.sdf_version}} {%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name}} {%endif-%} $OUTPUTS_DIR/${DESIGN_NAME}.mapped.sdf
+write_sdf -version {{settings.sdf_version}} {%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name}} {%endif-%} $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
 
 set_app_var write_sdc_output_lumped_net_capacitance false
 set_app_var write_sdc_output_net_resistance false
-write_sdc -nosplit $OUTPUTS_DIR/${DESIGN_NAME}.mapped.sdc
+write_sdc -nosplit $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdc
 
 write_icc2_files -force -output $OUTPUTS_DIR/icc2_files
 
@@ -335,7 +339,7 @@ if {[shell_is_in_topographical_mode]} {
 
 change_names -rules vhdl -hierarchy
 set_app_var vhdlout_dont_create_dummy_nets true
-write -hierarchy -format vhdl -output $OUTPUTS_DIR/${DESIGN_NAME}.mapped.vhd
+write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
 # change_names -rules verilog -hierarchy
 
 puts "==========================( Synthesis flow completed. )=========================="

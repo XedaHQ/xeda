@@ -25,7 +25,7 @@ def get_hier(dct, dotted_path, default=None):
                     merged_leaves[k] = v
             dct = dct[key]
         except KeyError:
-            print(f'Key {key} not found in {".".join(splitted[:i])}!')
+            log.debug(f'Key {key} not found in {".".join(splitted[:i])}!')
             return default
 
     for k, v in dct.items():
@@ -191,9 +191,6 @@ class Dc(AsicSynthFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        print(ss)
-        exit(0)
-
         # if ss.platform:
         #     if not ss.target_libraries:
         #         ss.liberty = ss.platform.default_corner_settings.lib_files
@@ -326,7 +323,7 @@ class Dc(AsicSynthFlow):
         failed = not self.parse_timing_reports()
 
         self.parse_report_regex(
-            reports_dir / f"mapped.area.rpt",
+            reports_dir / "mapped.area.rpt",
             r"Number of ports:\s*(?P<num_ports>\d+)",
             r"Number of nets:\s*(?P<num_nets>\d+)",
             r"Number of cells:\s*(?P<num_cells>\d+)",
@@ -348,7 +345,7 @@ class Dc(AsicSynthFlow):
             dotall=False,
         )
 
-        reportfile_path = reports_dir / f"mapped.qor.rpt"
+        reportfile_path = reports_dir / "mapped.qor.rpt"
 
         def parse_kvs(kvs, skip_zero=False):
             kvs = re.split(r"\s*\n\s*", kvs)

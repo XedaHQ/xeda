@@ -7,30 +7,12 @@ import logging
 from abc import ABCMeta
 from functools import cached_property
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
 
 import attrs
 
 # pylint: disable=no-name-in-module
-from pydantic import (
-    BaseConfig,
-    BaseModel,
-    Extra,
-    Field,
-    ValidationError,
-    root_validator,
-    validator,
-)
+from pydantic import BaseConfig, BaseModel, Extra, Field, ValidationError, root_validator, validator
 from pydantic.fields import ModelField
 from pydantic.main import ModelMetaclass
 

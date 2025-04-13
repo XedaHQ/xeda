@@ -1,10 +1,8 @@
 import logging
-from typing import Optional
 
-from ...dataclass import Field
 from ...design import DesignSource, RtlSettings
 from ...flow import FlowFatalError
-from ...utils import SDF, first_value
+from ...utils import SDF
 from .vivado_sim import VivadoSim
 from .vivado_synth import VivadoSynth
 
