@@ -1,4 +1,6 @@
-"utility functions and classes"
+"""
+XEDA's utility functions and classes
+"""
 
 import importlib
 import json
@@ -538,51 +540,142 @@ def settings_to_dict(
     raise TypeError(f"Unsupported type: {type(settings)}")
 
 
-def expand_env_vars(
-    path: Union[str, Path], overrides: Optional[Dict[str, Any]] = None
-) -> Union[str, Path]:
+_xeda_varprog = None
+
+
+def expand_vars(path: str, environ: Dict[str, str]) -> str:
+    """Expand shell variables of form $var and ${var}.  Unknown variables
+    are left unchanged.
+    This is adapted from Python's os.path.expandvars, but uses explicit environ arg instead of os.environ
+    """
+    path = os.fspath(path)
+    global _xeda_varprog
+
+    if "$" not in path:
+        return path
+    if not _xeda_varprog:
+        _xeda_varprog = re.compile(r"\$(\w+|\{[^}]*\})", re.ASCII)
+    search = _xeda_varprog.search
+    start = "{"
+    end = "}"
+    i = 0
+    while True:
+        m = search(path, i)
+        if not m:
+            break
+        i, j = m.span(0)
+        name = m.group(1)
+        if name.startswith(start) and name.endswith(end):
+            name = name[1:-1]
+        try:
+            value = environ[name]
+        except KeyError:
+            i = j
+        else:
+            tail = path[j:]
+            path = path[:i] + value
+            i = len(path)
+            path += tail
+    return path
+
+
+_ENV_BLACKLIST = [
+    "PATH",
+    "TMPDIR",
+    "LANG",
+    "SHELL",
+    "USER",
+    "LOGNAME",
+    "LD_LIBRARY_PATH",
+    "DYLD_LIBRARY_PATH",
+    "PYTHONPATH",
+    "JAVA_HOME",
+    "OLDPWD",
+    "LD_PRELOAD",
+    "DISPLAY",
+    "TERM",
+    "TERM_PROGRAM",
+    "TERM_PROGRAM_VERSION",
+    "COLORTERM",
+    "EDITOR",
+    "CLICOLOR",
+    "INFOPATH",
+    "SHLVL",
+    "COMMAND_MODE",
+    "LDFLAGS",
+    "CPPFLAGS",
+    "CFLAGS",
+    "CXXFLAGS",
+    "PAGER",
+    "LESS",
+    "LSCOLORS",
+    "LS_COLORS",
+    "BASH_ENV",
+    "ZSH",
+    "SSH_AUTH_SOCK",
+    "ORIGINAL_XDG_CURRENT_DESKTOP",
+    "GIT_ASKPASS",
+]
+
+
+def expand_env_vars(path: Union[str, Path], overrides: Optional[Dict[str, Any]] = None) -> Path:
     """Substitute environment variables in path with their values.
     if the value for a variable in overrides is None, then the variable is ignored (not expanded).
     """
-    # intentionally limiting the pattern to uppercase and 2 characters or more + "/"
-    ENVVAR_START_RE = re.compile(r"^\$(?P<var>[A-Z][A-Z0-9_]+)/")
-
-    if overrides is None:
-        overrides = {}
     if not isinstance(path, str):
         path = str(path)
     # fast check
-    if len(path) < 2 or path[0] != "$":
-        return path
-    env_match = ENVVAR_START_RE.match(path)
-    if not env_match:
-        return path
-    var = env_match.group("var")
-    if not var:
-        return path
-    if var in overrides:
-        var_value = overrides[var]
-        if var_value is None:
-            return path
-    else:
-        var_value = os.getenv(var)
-        if var_value is None:
-            log.warning(
-                "Environment variable %s not set. Passing on the unchanged value.",
-                var,
-            )
-    if var_value is not None:
-        remainder = path[len(env_match.group(0)) :]
-        p = Path(var_value) / remainder
-        log.info(
-            "Substituting variable %s in path %s with %s. Expanded path is: %s.",
-            var,
-            path,
-            var_value,
-            str(p),
-        )
-        return p
-    return path
+    if len(path) < 2:
+        return Path(path)
+    if overrides is None:
+        overrides = {}
+    environ = dict(os.environ)
+    # we filter out some common environment variables that are not relevant to XEDA
+    # also filtering out any variable starting with an underscore ("_")
+    for k in environ.keys():
+        if k.startswith("_"):
+            _ENV_BLACKLIST.append(k)
+    for k in _ENV_BLACKLIST:
+        environ.pop(k, None)
+    for k, v in overrides.items():
+        if v is None:
+            environ.pop(k, None)
+        else:
+            environ[k] = str(v)
+    path = expand_vars(path, environ)
+    return Path(path)
+
+    # # intentionally limiting the pattern to uppercase and 2 characters or more + "/"
+    # ENVVAR_START_RE = re.compile(r"^\$(?P<var>[A-Z][A-Z0-9_]+)/")
+    # env_match = ENVVAR_START_RE.match(path)
+    # if not env_match:
+    #     return path
+    # var = env_match.group("var")
+    # if not var:
+    #     return path
+    # if var in overrides:
+    #     var_value = overrides[var]
+    #     if var_value is None:
+    #         return path
+    # else:
+    #     var_value = os.getenv(var)
+    #     if var_value is None:
+    #         log.warning(
+    #             "Environment variable %s not set. Passing on the unchanged value.",
+    #             var,
+    #         )
+    # if var_value is not None:
+    #     remainder = path[len(env_match.group(0)) :]
+    #     p = Path(var_value) / remainder
+    #     log.info(
+    #         "Substituting variable %s in path %s with %s. Expanded path is: %s.",
+    #         var,
+    #         path,
+    #         var_value,
+    #         str(p),
+    #     )
+    #     return p
+    # return path
 
 
 class XedaException(Exception):
