@@ -49,6 +49,12 @@ def run_process(
         log.debug("cwd=%s", cwd)
     if highlight_rules:
         assert stdout is None, "stdout redirection is not supported with filter_rules"
+
+        # compile regex str keys to improve performance
+        highlight_rules_re: Dict[re.Pattern, str] = {}
+        for pattern, subs in highlight_rules.items():
+            highlight_rules_re[re.compile(pattern)] = subs
+
         with subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -61,10 +67,8 @@ def run_process(
 
             with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
                 for line in proc_stdout:
-                    for pattern, subs in highlight_rules.items():
-                        line, matches = re.subn(
-                            pattern, subs + colorama.Style.RESET_ALL, line, count=1
-                        )
+                    for re_pat, subs in highlight_rules_re.items():
+                        line, matches = re_pat.subn(subs + colorama.Style.RESET_ALL, line, count=1)
                         if matches > 0:
                             break
                     print(line, end="\r")
@@ -72,11 +76,7 @@ def run_process(
             if check and ret != 0:
                 raise NonZeroExitCode(command, ret)
             return None
-    if False and not stdout:
-        for is_stderr, line in run_capture_pty(command, env=env, cwd=cwd, check=check):
-            proc_output(is_stderr, line)
-        return None
-    if stdout and isinstance(stdout, (str, os.PathLike)):
+    elif stdout and isinstance(stdout, (str, os.PathLike)):
         stdout = Path(stdout)
 
         def cm_call():
