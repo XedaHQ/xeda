@@ -92,18 +92,18 @@ class VivadoTool(Tool):
         + r"\g<1>"
         + colorama.Style.NORMAL
         + r"\g<2>",
-        r"^====[=]+\()\s*(WARN|WARNING):\s+.*)\s*(\)[=]+====$": colorama.Fore.YELLOW
+        r"^====[=]+\(\s*(WARN|WARNING):\s+(.*)\s*\)[=]+====$": colorama.Fore.YELLOW
         + colorama.Style.BRIGHT
         + r"XEDA WARNING: \g<2>",
         r"^====[=]+\(\s*ERROR:\s+(.*)\s*\)[=]+====$": colorama.Fore.RED
         + colorama.Style.BRIGHT
         + r"XEDA ERROR: \g<1>",
-        r"^(====[=]+\()\s*(.*)\s*(\)[=]+====)$": colorama.Fore.BLUE
+        r"^====[=]+\(\s*(.*)\s*\)[=]+====$": colorama.Fore.BLUE
         + colorama.Style.BRIGHT
         + "XEDA: "
         + colorama.Style.NORMAL
         + colorama.Fore.CYAN
-        + r"\g<2>",
+        + r"\g<1>",
     }
 
     @cached_property
