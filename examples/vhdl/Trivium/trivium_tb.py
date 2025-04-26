@@ -97,10 +97,17 @@ async def test_trivium(dut: HierarchyObject):
     await tb.reset()
 
     # get bound parameters/generics from the simulator
-    IN_BITS = tb.get_int_value("G_IN_BITS", len(dut.din_data))
+    try:
+        IN_BITS = int(dut.G_IN_BITS)
+    except AttributeError:
+        IN_BITS = len(dut.din_data)
+
     assert IN_BITS
-    OUT_BITS = tb.get_int_value("G_OUT_BITS", len(dut.ks_data))
-    # OUT_BITS = dut.G_OUT_BITS
+
+    try:
+        OUT_BITS = int(dut.G_OUT_BITS)
+    except AttributeError:
+        OUT_BITS = len(dut.ks_data)
     assert OUT_BITS
 
     print(f"IN_BITS:{IN_BITS}, OUT_BITS:{OUT_BITS}")
