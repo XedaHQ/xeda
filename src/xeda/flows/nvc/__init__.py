@@ -127,9 +127,7 @@ class Nvc(SimFlow):
             None,
             description="Stop the simulation after N delta cycles in the same current time.",
         )
-        vhpi: Optional[str] = Field(
-            None, description="Specify the VHPI library to load at startup."
-        )
+        vhpi: List[Path] = Field([], description="Specify the VHPI libraries to load at startup.")
         shuffle: bool = Field(
             False,
             description="""Run processes in random order.
@@ -285,7 +283,7 @@ class Nvc(SimFlow):
         if ss.exit_severity:
             run_flags.append(f"--exit-severity={ss.exit_severity}")
         if ss.ieee_warnings is not None:
-            run_flags.append("--ieee-warnings=" + ("on") if ss.ieee_warnings else "off")
+            run_flags.append("--ieee-warnings=" + ("on" if ss.ieee_warnings else "off"))
         if ss.stop_delta is not None:
             run_flags.append(f"--stop-delta={ss.stop_delta}")
         if ss.stop_time is not None:
@@ -295,12 +293,12 @@ class Nvc(SimFlow):
         if ss.shuffle:
             run_flags.append("--shuffle")
 
-        vhpi = [] if ss.vhpi is None else ss.vhpi.split(",")
+        vhpi = self.resolve_paths_to_design_or_cwd(ss.vhpi)
         # TODO factor out cocotb handling
         if self.design.tb.cocotb and self.cocotb:
             vpi_path = self.cocotb.lib_path(interface="vhpi")
             assert vpi_path, "cocotb VHPI library for NVC was not found"
-            vhpi.append(vpi_path)
+            vhpi.append(Path(vpi_path))
             self.design.tb.generics = self.design.rtl.generics
             if not self.design.tb.top and self.design.rtl.top:
                 self.design.tb.top = (self.design.rtl.top,)
