@@ -95,6 +95,44 @@ def cli(ctx: click.Context, **kwargs):
     ctx.obj = XedaOptions(**kwargs)
 
 
+@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
+def list_flows():
+    table = Table(
+        title="Available flows",
+        show_header=True,
+        header_style="bold yellow",
+        title_style=Style(frame=True, bold=True),
+        box=box.HEAVY_HEAD,
+        show_lines=True,
+    )
+    table.add_column("Flow", header_style="bold green", style="bold")
+    table.add_column("Description")
+    table.add_column("Class", style="dim")
+    super_flow_doc = inspect.getdoc(Flow)
+    for cls_name, cls in all_flows.items():
+        doc = inspect.getdoc(cls)
+        if doc == super_flow_doc:
+            doc = "<no description>"
+        table.add_row(
+            cls_name,
+            doc,
+            str(cls.__module__) + "." + cls.__name__,
+        )
+    console.print(table)
+
+
+@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List flow settings information")
+@click.argument(
+    "flow",
+    metavar="FLOW_NAME",
+    type=click.Choice(all_flow_names),
+    required=True,
+)
+@click.pass_context
+def list_settings(ctx: click.Context, flow):
+    print_flow_settings(flow, options=ctx.obj)
+
+
 @cli.command(
     context_settings=CONTEXT_SETTINGS,
     short_help="Run a flow.",
@@ -254,6 +292,12 @@ def cli(ctx: click.Context, **kwargs):
     default=False,
     help="Run in debug mode.",
 )
+@click.option(
+    "--help-settings",
+    is_flag=True,
+    default=False,
+    help="List flow settings. This option is an alias for `xeda list-settings <flow>`.",
+)
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -277,10 +321,14 @@ def run(
     remote: Optional[str] = None,
     cwd: bool = False,
     debug: bool = False,
+    help_settings: bool = False,
 ):
     """`run` command"""
     assert ctx
     options: XedaOptions = ctx.obj or XedaOptions()
+    if help_settings:
+        print_flow_settings(flow, options=options)
+        sys.exit(0)
     debug |= options.debug
     if cwd and remote:
         log.critical("--cwd and --remote are mutually exclusive!")
@@ -399,44 +447,6 @@ def run(
         if debug:
             raise e
         sys.exit(1)
-
-
-@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
-def list_flows():
-    table = Table(
-        title="Available flows",
-        show_header=True,
-        header_style="bold yellow",
-        title_style=Style(frame=True, bold=True),
-        box=box.HEAVY_HEAD,
-        show_lines=True,
-    )
-    table.add_column("Flow", header_style="bold green", style="bold")
-    table.add_column("Description")
-    table.add_column("Class", style="dim")
-    super_flow_doc = inspect.getdoc(Flow)
-    for cls_name, cls in all_flows.items():
-        doc = inspect.getdoc(cls)
-        if doc == super_flow_doc:
-            doc = "<no description>"
-        table.add_row(
-            cls_name,
-            doc,
-            str(cls.__module__) + "." + cls.__name__,
-        )
-    console.print(table)
-
-
-@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List flow settings information")
-@click.argument(
-    "flow",
-    metavar="FLOW_NAME",
-    type=click.Choice(all_flow_names),
-    required=True,
-)
-@click.pass_context
-def list_settings(ctx: click.Context, flow):
-    print_flow_settings(flow, options=ctx.obj)
 
 
 @cli.command(
