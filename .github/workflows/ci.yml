@@ -20,6 +20,9 @@ jobs:
         with:
           backend: llvm
       - uses: YosysHQ/setup-oss-cad-suite@v3
+      - uses: nickg/setup-nvc@v1
+        with:
+          version: latest
       - uses: actions/checkout@v4
         with:
           submodules: true
