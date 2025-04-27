@@ -118,7 +118,9 @@ def find_matching_clock(design_clocks: list[Clock], name: str):
 class SynthFlow(Flow, metaclass=ABCMeta):
     """Superclass of synthesis flows"""
 
-    requires_physical_clocks = True # physical clocks are required for each clock port in the design
+    requires_physical_clocks = (
+        True  # physical clocks are required for each clock port in the design
+    )
 
     class Settings(Flow.Settings):
         """base Synthesis flow settings"""
