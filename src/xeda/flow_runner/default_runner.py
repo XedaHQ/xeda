@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timedelta
 from glob import glob
 from pathlib import Path
-from pprint import PrettyPrinter
+from pprint import PrettyPrinter, pprint
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Type, TypeVar, Union
 
 from box import Box
@@ -26,7 +26,7 @@ from rich.text import Text
 
 from ..console import console
 from ..dataclass import XedaBaseModel
-from ..design import Design, DesignFileParseError, DesignValidationError
+from ..design import Design, DesignFileParseError, AnyDesignValidationException
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
 from ..utils import (
@@ -302,8 +302,10 @@ class FlowLauncher:
         """
         Low-level interface for launching flows.
         """
+        self.debug |= self.settings.debug
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
+        flow_name = flow_class.name
         if flow_settings is None:
             flow_settings = {}
         runner_cwd = Path.cwd()
@@ -314,11 +316,13 @@ class FlowLauncher:
             flow_settings.runner_cwd_ = runner_cwd
         assert isinstance(flow_settings, Flow.Settings)
         if self.debug:
-            print("flow_settings: ", flow_settings)
+            log.debug(
+                "Flow '%s' settings: %s",
+                flow_name,
+                flow_settings.json(exclude_unset=True, indent=2),
+            )
         if self.debug:
             flow_settings.debug = True
-
-        flow_name = flow_class.name
 
         copy_resources = [
             res for res in copy_resources if os.path.exists(res) and os.path.isfile(res)
@@ -713,9 +717,13 @@ class FlowLauncher:
                     )
                 except DesignFileParseError as e:
                     log.critical(f"Error parsing design file {design}: {e}")
+                    if self.debug:
+                        raise e
                     return None
-                except DesignValidationError as e:
-                    log.critical(f"Error validating design file {design}: {e}")
+                except AnyDesignValidationException as e:
+                    log.critical(f"Error validating design file {design}:\n{e}")
+                    if self.debug or self.settings.debug:
+                        raise e
                     return None
 
             elif isinstance(design, dict):
