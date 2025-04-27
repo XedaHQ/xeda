@@ -358,14 +358,17 @@ class GhdlSynth(Ghdl, SynthFlow):
         no_assert_cover: bool = Field(False, description="Cover PSL assertion activation")
         assert_assumes: bool = Field(False, description="Treat all PSL asserts like PSL assumes")
         assume_asserts: bool = Field(False, description="Treat all PSL assumes like PSL asserts")
-        verilog_output: Path = Field(
+        verilog_output: Optional[Path] = Field(
             description="Output file for the generated Verilog. Required. If a directory is provided, each VHDL source file is converted to a Verilog file in that directory.",
         )
 
     def init(self) -> None:
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        ss.verilog_output = self.process_path(ss.verilog_output, subs_vars=True, resolve_to=None)
+        if ss.verilog_output is not None:
+            ss.verilog_output = self.process_path(
+                ss.verilog_output, subs_vars=True, resolve_to=None
+            )
 
     def run(self) -> None:
         design = self.design
@@ -381,6 +384,8 @@ class GhdlSynth(Ghdl, SynthFlow):
         flags += setting_flag(ss.assume_asserts, name="assume_asserts")
         flags += ss.generics_flags(design.rtl.generics)
         flags += ["--out=verilog", "--warn-nowrite"]
+        if ss.verilog_output is None:
+            ss.verilog_output = Path(design.rtl.top or design.name).with_suffix(".v")
         if ss.verilog_output.is_dir() or (
             not ss.verilog_output.exists() and ss.verilog_output.suffix not in {".v", ".sv"}
         ):
