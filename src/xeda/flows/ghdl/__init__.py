@@ -77,25 +77,42 @@ class Ghdl(Flow, metaclass=ABCMeta):
     """VHDL simulation using GHDL"""
 
     class Settings(Flow.Settings):
-        analysis_flags: List[str] = []
-        elab_flags: List[str] = ["--syn-binding"]
-        warn_flags: List[str] = [
-            "--warn-binding",
-            "--warn-default-binding",
-            "--warn-reserved",
-            "--warn-library",
-            "--warn-vital-generic",
-            "--warn-shared",
-            "--warn-runtime-error",
-            "--warn-body",
-            "--warn-specs",
-            "--warn-no-hide",
-            "--warn-parenthesis",
-            "--warn-port",  # Emit a warning on unconnected input port without defaults (in relaxed mode).
-            "--warn-static",
-            "--warn-port-bounds",  # Emit a warning on bounds mismatch between the actual and formal in a scalar port association
-            "--warn-universal",  # Emit a warning on incorrect use of universal values.
-        ]
+        analysis_flags: List[str] = Field(
+            [],
+            description="Additional flags for the analysis phase.",
+        )
+        elab_flags: List[str] = Field(
+            [],
+            description="Additional flags for the elaboration phase.",
+        )
+        syn_bindings: bool = Field(
+            True,
+            description="Use synthesizer rules for component binding. During elaboration, if a component is not bound to an entity using VHDL LRM rules, try to find in any known library an entity whose name is the same as the component name.",
+        )
+        warn_flags: List[str] = Field(
+            [
+                "--warn-binding",
+                "--warn-default-binding",
+                "--warn-reserved",
+                "--warn-library",
+                "--warn-vital-generic",
+                "--warn-shared",
+                "--warn-runtime-error",
+                "--warn-body",
+                "--warn-specs",
+                "--warn-no-hide",
+                "--warn-parenthesis",
+                "--warn-port",  # Emit a warning on unconnected input port without defaults (in relaxed mode).
+                "--warn-static",
+                "--warn-port-bounds",  # Emit a warning on bounds mismatch between the actual and formal in a scalar port association
+                "--warn-universal",  # Emit a warning on incorrect use of universal values.
+            ],
+            description="Default warning flags.",
+        )
+        additional_warn_flags: List[str] = Field(
+            [],
+            description="Additional warning flags.",
+        )
         werror: bool = Field(
             False, alias="warn_error", description="warnings are always considered as errors"
         )
@@ -116,11 +133,26 @@ class Ghdl(Flow, metaclass=ABCMeta):
             True, description="Enable both color and source line carret diagnostics."
         )
         work: Optional[str] = Field(None, description="Set the name of the WORK library")
-        expect_failure: bool = False
-        synopsys: bool = False
-        compiler_flags: List[str] = []
-        assembler_flags: List[str] = []
-        linker_flags: List[str] = []
+        expect_failure: bool = Field(
+            False,
+            description="Expect analysis/elaboration failure.",
+        )
+        synopsys: bool = Field(
+            False,
+            description="Allow to use synopsys packages in ieee library.",
+        )
+        compiler_flags: List[str] = Field(
+            [],
+            description="Compiler flags for the C compiler (Only for LLVM and GCC backends).",
+        )
+        assembler_flags: List[str] = Field(
+            [],
+            description="Assembler flags for the assembler (Only for LLVM and GCC backends).",
+        )
+        linker_flags: List[str] = Field(
+            [],
+            description="Linker flags for the linker (Only for LLVM and GCC backends).",
+        )
         psl_in_comments: bool = Field(
             False, description="Parse PSL assertions within comments (for VHDL-2002 and earlier)"
         )
@@ -150,9 +182,9 @@ class Ghdl(Flow, metaclass=ABCMeta):
 
             return [f"-g{k}={conv(v)}" for k, v in generics.items()]
 
-        def get_flags(self, vhdl: VhdlSettings, stage: str) -> List[str]:
+        def get_flags(self, vhdl: VhdlSettings, stage: str, backend=None) -> List[str]:
             common = self.common_flags(vhdl)
-            warn_flags: List[str] = self.warn_flags
+            warn_flags: List[str] = self.warn_flags + self.additional_warn_flags
             analysis_flags: List[str] = common + self.analysis_flags
             elab_flags: List[str] = common + self.elab_flags
             find_top_flags = common
@@ -164,6 +196,8 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 warn_flags += ["--warn-error"]
             elif self.elab_werror:
                 elab_flags += ["--warn-error"]
+            if backend in {"llvm", "gcc"} and self.syn_bindings:
+                elab_flags += ["--syn-binding"]
             if self.relaxed:
                 analysis_flags.extend(["-frelaxed-rules", "-frelaxed", "--mb-comments"])
                 elab_flags.extend(["-frelaxed"])
@@ -240,8 +274,9 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 else steps.index("import") if "import" in steps else -1
             )
             steps.insert(find_top_index + 1, "find-top")
+        backend = self.ghdl.info.get("backend", None)
         for step in steps:
-            args = ss.get_flags(vhdl, step)
+            args = ss.get_flags(vhdl, step, backend=backend)
             if step in ("import", "analyze"):
                 args += [str(s) for s in sources]
             elif step in ("make", "elaborate"):
@@ -249,7 +284,6 @@ class Ghdl(Flow, metaclass=ABCMeta):
                     args += ss.optimization_flags
                 if not top:
                     raise Exception("Unable to determine the top unit")
-                backend = self.ghdl.info.get("backend", None)
                 if backend:
                     log.info("GHDL backend: %s", backend)
                     backend_split = backend.split()
@@ -311,6 +345,8 @@ class GhdlSynth(Ghdl, SynthFlow):
      (Please take a look at 'Yosys' flow (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis targeting FPGAs or ASICs)
     """
 
+    requires_physical_clocks = False
+
     class Settings(Ghdl.Settings, SynthFlow.Settings):
         vendor_library: Optional[str] = Field(
             None, description="Any unit from this library is a black box"
@@ -322,11 +358,14 @@ class GhdlSynth(Ghdl, SynthFlow):
         no_assert_cover: bool = Field(False, description="Cover PSL assertion activation")
         assert_assumes: bool = Field(False, description="Treat all PSL asserts like PSL assumes")
         assume_asserts: bool = Field(False, description="Treat all PSL assumes like PSL asserts")
-        out: Optional[Literal["vhdl", "raw-vhdl", "verilog", "dot", "none", "raw", "dump"]] = Field(
-            None, description="Type of output to generate"
+        verilog_output: Path = Field(
+            description="Output file for the generated Verilog. Required. If a directory is provided, each VHDL source file is converted to a Verilog file in that directory.",
         )
-        out_file: Optional[str] = "converted.v"
-        convert_files: bool = Field(False, description="Convert each VHDL source file to Verilog.")
+
+    def init(self) -> None:
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        ss.verilog_output = self.process_path(ss.verilog_output, subs_vars=True, resolve_to=None)
 
     def run(self) -> None:
         design = self.design
@@ -342,8 +381,12 @@ class GhdlSynth(Ghdl, SynthFlow):
         flags += setting_flag(ss.assume_asserts, name="assume_asserts")
         flags += ss.generics_flags(design.rtl.generics)
         flags += ["--out=verilog", "--warn-nowrite"]
-        if ss.convert_files:
-            self.artifacts.generated_verilog = []
+        if ss.verilog_output.is_dir() or (
+            not ss.verilog_output.exists() and ss.verilog_output.suffix not in {".v", ".sv"}
+        ):
+            if not ss.verilog_output.exists():
+                ss.verilog_output.mkdir(parents=True)
+            generated_files = []
             for src in design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False):
                 verilog = self.ghdl.run_get_stdout("synth", *flags, str(src.path), "-e")
                 if not verilog:
@@ -352,7 +395,15 @@ class GhdlSynth(Ghdl, SynthFlow):
                     [f"  parameter {k} = {v};" for k, v in design.rtl.generics.items()]
                 )
                 verilog = verilog.replace(");", f");\n{fixed_params}", 1)
-                out_file = src.path.with_name(src.path.stem + "_ghdl_synth.v")
+                out_file = ss.verilog_output / (src.path.stem + ".v")
+                if out_file in generated_files:  # TODO does this work as intended?
+                    # generate a prefix by turning the parent of src.path into an acceptable filename prefix
+                    new_prefix = "_".join(str(s) for s in src._specified_path.parents)
+                    log.warning("File %s already generated", out_file)
+                    out_file = ss.verilog_output / (new_prefix + "_" + src.path.stem + ".v")
+                    assert (
+                        out_file not in generated_files
+                    ), f"generated file name collision for {src.path}: file {out_file} already generated"
                 # TODO FIXME add settings for what to do, default to fail
                 if out_file.exists():
                     log.warning("File %s will be overwritten!", out_file)
@@ -360,11 +411,15 @@ class GhdlSynth(Ghdl, SynthFlow):
                     log.info("Generating verilog: %s", out_file)
                 with open(out_file, "w") as f:
                     f.write(verilog)
-                self.artifacts.generated_verilog.append(out_file)
+                generated_files.append(out_file)
+            self.artifacts.generated_verilog = generated_files
         else:
             if top:
                 flags += [top[0]]
-            self.ghdl.run("synth", *flags, stdout=ss.out_file)
+            if not ss.verilog_output.parent.exists():
+                ss.verilog_output.parent.mkdir(parents=True)
+            log.info("Generating verilog: %s", ss.verilog_output)
+            self.ghdl.run("synth", *flags, stdout=ss.verilog_output)
 
     @staticmethod
     def synth_args(ss: Optional[Settings], design: Design, one_shot_elab: bool = True) -> List[str]:
@@ -373,7 +428,6 @@ class GhdlSynth(Ghdl, SynthFlow):
         ), "GHDL settings must be set at this point"
         flags = ss.get_flags(design.language.vhdl, "elaborate")
         flags += setting_flag(ss.vendor_library, name="vendor_library")
-        flags += setting_flag(ss.out, name="out")
         flags += setting_flag(ss.no_formal, name="no_formal")
         flags += setting_flag(ss.no_assert_cover, name="no_assert_cover")
         flags += setting_flag(ss.assert_assumes, name="assert_assumes")
