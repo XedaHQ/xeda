@@ -118,6 +118,8 @@ def find_matching_clock(design_clocks: list[Clock], name: str):
 class SynthFlow(Flow, metaclass=ABCMeta):
     """Superclass of synthesis flows"""
 
+    requires_physical_clocks = True # physical clocks are required for each clock port in the design
+
     class Settings(Flow.Settings):
         """base Synthesis flow settings"""
 
@@ -236,14 +238,15 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                 if matched_clock:
                     physical_clock.port = matched_clock.port
                 self.settings.clocks[clock_name] = physical_clock
-        for clock in self.design.rtl.clocks:
-            clock_name = clock.name
-            if clock.port not in (c.port for c in self.settings.clocks.values()):
-                log.critical(
-                    "No clock period or frequency was specified for clock: %s (design clock port: '%s')",
-                    clock_name,
-                    clock.port,
-                )
+        if self.requires_physical_clocks:
+            for clock in self.design.rtl.clocks:
+                clock_name = clock.name
+                if clock.port not in (c.port for c in self.settings.clocks.values()):
+                    log.warning(
+                        "No clock period or frequency was specified for clock: %s (design clock port: '%s')",
+                        clock_name,
+                        clock.port,
+                    )
 
 
 class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):

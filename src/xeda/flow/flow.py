@@ -137,7 +137,8 @@ class Flow(metaclass=ABCMeta):
                         # fmt: off
                         {
                             "PWD": values.get("runner_cwd_"), 
-                            "DESIGN_ROOT": values.get("design_root_") # we don't know DESIGN_ROOT, so just ignore it
+                            "DESIGN_ROOT": values.get("design_root_"), # we don't know DESIGN_ROOT, so just ignore it
+                            "DESIGN_DIR": values.get("design_root_"), # we don't know DESIGN_ROOT, so just ignore it
                         },
                         # fmt: on
                     )
@@ -324,11 +325,13 @@ class Flow(metaclass=ABCMeta):
         pass
 
     def purge_run_path(self):
-        for path in self.run_path.iterdir():
-            if path.is_file():
-                path.unlink()
-            else:
-                shutil.rmtree(path, ignore_errors=True)
+        if self.run_path.exists():
+            log.info("Purging run path %s", self.run_path)
+            for path in self.run_path.iterdir():
+                if path.is_file():
+                    path.unlink()
+                else:
+                    shutil.rmtree(path, ignore_errors=True)
 
     def parse_reports(self) -> bool:
         log.debug("No parse_reports action for %s", self.name)
@@ -444,6 +447,7 @@ class Flow(metaclass=ABCMeta):
                 path,
                 overrides={
                     "DESIGN_ROOT": self.design.design_root,
+                    "DESIGN_DIR": self.design.design_root,
                     "PWD": self.runner_cwd,
                 },
             )
