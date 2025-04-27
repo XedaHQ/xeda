@@ -78,6 +78,7 @@ class DesignFileParseError(Exception):
 class AnyDesignValidationException(Exception):
     pass
 
+
 class DesignValidationError(AnyDesignValidationException):
     def __init__(
         self,
@@ -100,18 +101,16 @@ class DesignValidationError(AnyDesignValidationException):
     def __str__(self) -> str:
         def fmt_loc(loc):
             if loc:
-                return '.'.join(re.split(r'\s*->\s*', loc)) + ":\n "
+                return ".".join(re.split(r"\s*->\s*", loc)) + ":\n "
             return ""
+
         name = self.design_name or self.data.get("name")
         return "{}: {} error{} validating design{}\n{}".format(
             self.__class__.__qualname__,
             len(self.errors),
             "s" if len(self.errors) > 1 else "",
             f" '{name}'" if name else "",
-            "\n".join(
-                f"{fmt_loc(loc)}{msg}\n"
-                for loc, msg, _, _ in self.errors
-            ),
+            "\n".join(f"{fmt_loc(loc)}{msg}\n" for loc, msg, _, _ in self.errors),
         ) + (f"\nDesign:\n{pformat(self.data)}\n" if self.data and self.design_in_msg else "")
 
 
@@ -393,9 +392,7 @@ class DVSettings(XedaBaseModel):
                     else:
                         src = DesignSource(src)
                 except FileNotFoundError as e:
-                    raise ValueError(
-                        f"'{src}'   {e.strerror}: {e.filename}"
-                    ) from e
+                    raise ValueError(f"'{src}'   {e.strerror}: {e.filename}") from e
             if not source_already_exists(src):
                 sources.append(src)
         return sources
