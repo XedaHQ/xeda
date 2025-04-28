@@ -106,7 +106,7 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
         from xeda.flow_runner import DefaultRunner
     except ImportError:
         # FIXME: we need to be able to create/use virtual env or change our remote approach
-        raise XedaException("XEDA Python package not found. Please install it using pip.")
+        raise Exception("XEDA Python package not found. Please install it using pip.")
 
     os.chdir(remote_path)
     if env:
