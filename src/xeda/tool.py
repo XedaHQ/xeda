@@ -50,10 +50,11 @@ class Docker(XedaBaseModel):
     )
     tag: Optional[str] = Field("latest", description="Docker image tag")
     registry: Optional[str] = Field(None, description="Docker image registry")
-    privileged: bool = True
+    privileged: bool = False
     fix_cpuinfo: bool = False
     cli: str = "docker"
     mounts: Dict[str, str] = {}
+    default_env: Dict[str, str] = {"DISPLAY": "host.docker.internal:0"}
 
     # NOTE only works for Linux containers
     @cached_property
@@ -117,6 +118,7 @@ class Docker(XedaBaseModel):
         cap = ":z" if selinux_perm else ""
         for k, v in self.mounts.items():
             docker_args.append(f"--volume={k}:{v}{cap}")
+        env = {**self.default_env, **(env or {})}
         if env:
             env_file = cwd / f".{self.name}_docker.env"
             with open(env_file, "w") as f:
@@ -187,8 +189,10 @@ class Tool(XedaBaseModel):
     print_command: bool = True
     highlight_rules: Optional[Dict[str, str]] = None
     console_colors: bool = True
+
     design_root_: Optional[Path] = Field(None, hidden_from_schema=True)
     flow_settings_: Optional[Flow.Settings] = Field(None, hidden_from_schema=True)
+    source_dirs_: List[Path] = Field(default_factory=list, hidden_from_schema=True)
 
     @validator("version_flag", pre=True, always=True)
     def validate_version_flag(cls, value):
@@ -219,6 +223,10 @@ class Tool(XedaBaseModel):
 
         if flow is not None:
             self.design_root_ = flow.design_root
+            design = flow.design
+            source_dirs_ = {src.path.parent for src in design.rtl.sources}
+            source_dirs_ |= {src.path.parent for src in design.tb.sources}
+            self.source_dirs_ = list(source_dirs_)
             self.print_command = flow.settings.print_commands
             self.console_colors = self.console_colors and flow.settings.console_colors
             log.debug("flow.settings.dockerized=%s", flow.settings.dockerized)
@@ -416,6 +424,9 @@ class Tool(XedaBaseModel):
         else:
             highlight_rules = None
         if self.docker and self.dockerized:
+            for dir in self.source_dirs_:
+                if str(dir) not in self.docker.mounts:
+                    self.docker.mounts[str(dir)] = str(dir)
             return self.docker.run(
                 executable,
                 *args,
