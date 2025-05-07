@@ -7,8 +7,6 @@ source {{file}}
 
 set RUN_DIR {{run_dir}}
 
-puts "=========( RUN_DIR is $RUN_DIR )========="
-
 if { ![info exists ACTIVE_STEP] } {
   set ACTIVE_STEP "synth_design"
   set reports_dir [file join ${RUN_DIR} {{settings.reports_dir}} $ACTIVE_STEP]
@@ -52,14 +50,6 @@ if {$ACTIVE_STEP == "route_design"} {
   write_qor_suggestions -quiet -strategy_dir  ./strategy_suggestions -force ./qor_suggestions.rqs
   {%- endif %}
 
-  if { $timing_slack < 0.000 } {
-    error "Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
-    {%- if settings.fail_timing %}
-    exit 1
-    {%- endif %}
-  }
-
-
   file mkdir ${outputs_dir}
   {% if settings.write_netlist -%}
   puts "\n==========================( Writing netlists and SDF to ${outputs_dir}  )=========================="
@@ -76,4 +66,13 @@ if {$ACTIVE_STEP == "route_design"} {
   file mkdir $BITSTREAM_OUT_DIR
   write_bitstream -force { {{-settings.bitstream-}} }
   {% endif -%}
+
+  if { $timing_slack < 0.000 } {
+    puts "\n=========( ERROR: Failed to meet timing by $timing_slack )=========="
+    error "Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
+    {%- if settings.fail_timing %}
+    exit 1
+    {%- endif %}
+  }
+
 }
