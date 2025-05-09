@@ -412,6 +412,7 @@ class Generator(XedaBaseModel):
     executable: Optional[str] = None
     class_: Optional[str] = Field(None, alias="class")
     args: Union[str, List[str]] = []
+    command: Optional[str] = None
     check: bool = True
     env: Optional[Dict[str, str]] = None
     # sweepable parameters used in command
@@ -420,16 +421,20 @@ class Generator(XedaBaseModel):
     generated_sources: List[str] = []
 
     def run(self):
-        if not self.executable:
+        if self.command:
+            cmd = self.command.split()
+        elif not self.executable:
             raise ValueError("executable is not set")
-        self.run_cmd([self.executable, *self.args])
+        else:
+            cmd = [self.executable, *self.args]
+        self.run_cmd(cmd)
 
     def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
         log.info("Running command: '%s'", " ".join(cmd))
         p = subprocess.run(
             cmd,
             cwd=self.cwd,
-            check=False if check is None else self.check,
+            check=check if check is not None else self.check,
             stdout=stdout,
             stderr=stderr,
             env=self.env,
@@ -446,10 +451,24 @@ class Generator(XedaBaseModel):
 class ChiselGenerator(Generator):
     main: Optional[str] = None
     project: Optional[str] = None
-    # executable = "bloop"
+    build_system: Optional[str] = None
+    check: bool = True
 
     def run(self):
-        self.check = True
+        if self.build_system == "mill":
+            return self.run_mill()
+        if self.build_system == "bloop":
+            return self.run_bloop()
+
+    def run_mill(self):
+        # if file ./mill or ./millw exists, use it, otherwise use mill from PATH
+        mill_exec = Path("millw")
+        if not mill_exec.exists():
+            mill_exec = Path("mill")
+
+        # run "mill_exec" {project} {main_class} {args}
+
+    def run_bloop(self):
         if self.project is None:
             p = self.run_cmd(["bloop", "projects"], stdout=subprocess.PIPE)
             projects_str = p.stdout.decode()
@@ -470,7 +489,7 @@ class ChiselGenerator(Generator):
                 self.args = self.args.split()
             cmd.append("--")
             cmd += self.args
-        self.run_cmd(cmd)
+        return self.run_cmd(cmd)
 
 
 class RtlSettings(DVSettings):
@@ -869,17 +888,20 @@ class Design(XedaBaseModel):
             with WorkingDirectory(design_root):
                 if isinstance(generator, str):
                     log.info("Running generator: %s", generator)
-                    os.system(generator)  # nosec S605
+                    exit_code = os.system(generator)  # nosec S605
+                    if exit_code != 0:
+                        log.error("Generator '%s' failed with exit code %d", generator, exit_code)
+                        raise NonZeroExitCode(generator, exit_code)
                 elif isinstance(generator, (dict, Generator)):
                     if isinstance(generator, (dict)):
-                        clazz = generator.get("class")
+                        clazz = generator.get("class") or generator.get("use")
                         if clazz:
                             if not isinstance(clazz, str):
-                                raise ValueError(f"clazz={clazz} must be a string")
+                                raise ValueError(f"class={clazz} must be a string")
                             if clazz.lower() == "chisel":
                                 generator = ChiselGenerator(**generator)
                             else:
-                                raise Exception(f"unkown generator class: {clazz}")
+                                raise Exception(f"unknown generator class: {clazz}")
                         else:
                             generator = Generator(**generator)
                     if generator.cwd is None:
