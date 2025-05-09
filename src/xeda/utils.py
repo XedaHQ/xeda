@@ -690,9 +690,14 @@ class ToolException(XedaException):
 
 class NonZeroExitCode(ToolException):
     def __init__(self, command_args: Any, exit_code: int, *args: object) -> None:
+        if isinstance(command_args, (list, tuple)):
+            command_args = " ".join(map(str, command_args))
         self.command_args = command_args
         self.exit_code = exit_code
         super().__init__(*args)
+
+    def __str__(self) -> str:
+        return f"Command '{self.command_args}' exited with code {self.exit_code}!"
 
 
 class ExecutableNotFound(ToolException):
