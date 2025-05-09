@@ -414,7 +414,7 @@ def run(
             raise e
         sys.exit(1)
     except NonZeroExitCode as e:
-        log.critical("Flow %s failed: NonZeroExitCode %s", flow, " ".join(str(a) for a in e.args))
+        log.critical("Flow %s failed: %s", flow, e)
         if debug:
             raise e
         sys.exit(1)
