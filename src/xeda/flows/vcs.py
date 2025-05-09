@@ -39,6 +39,12 @@ class Vcs(SimFlow):
     vhdlan = Tool("vhdlan", version_flag=None, highlight_rules=highlight_rules)
     vcs = Tool("vcs", highlight_rules=highlight_rules)
     fsdb2vcd = Tool("fsdb2vcd", version_flag=None, highlight_rules=highlight_rules)
+    vpd2vcd = Tool(
+        "vpd2vcd",
+        default_args=["-full64", "-q"],
+        version_flag=None,
+        highlight_rules=highlight_rules,
+    )
 
     class Settings(SimFlow.Settings):
         clean: bool = Field(True, description="Clean the run path before running")
@@ -59,7 +65,7 @@ class Vcs(SimFlow):
             False,
             description="Enable UCLI (Universal Command Line Interface) when running simulator executable (simv)",
         )
-        ucli_script: Optional[str] = Field(
+        ucli_script: Optional[Path] = Field(
             None,
             description="Run this UCLI script executing the simulator (simv)",
         )
@@ -105,12 +111,20 @@ class Vcs(SimFlow):
             description="Enable FSDB (Fast Signal DataBase) for waveform generation",
         )
         fsdb_size_limit: Optional[int] = Field(
-            128,
+            256,
             description="Set the FSDB size limit in MB. If not set, the default value will be used.",
         )
         to_vcd: bool = Field(
             False,
             description="Convert FSDB/VPD to VCD (Value Change Dump) format after simulation. The VCD file will be saved in the same directory as the FSDB file and with the same stem (base name), but with a .vcd extension.",
+        )
+        vpd: Optional[Path] = Field(
+            None,
+            description="Enable VPD waveform generation and specify the VPD file path.",
+        )
+        vpd_size_limit: Optional[int] = Field(
+            None,
+            description="Set the VPD size limit in MB. When the limit is reached, the simulation overwrites older history",
         )
 
     def clean(self):
@@ -124,8 +138,23 @@ class Vcs(SimFlow):
                 raise FlowSettingsException("SDF instance is required when SDF file is provided")
             ss.sdf_file = self.process_path(ss.sdf_file, resolve_to=self.design.design_root)
         if ss.ucli_script:
-            ss.ucli_script = str(self.process_path(ss.ucli_script))
             ss.ucli = True
+            ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.design_root)
+        elif ss.vpd:
+            ss.ucli = True
+            script_file = Path("dump_vpd.do")
+            with open(script_file, "w", encoding="utf-8") as f:
+                f.write(f"dump -file {ss.vpd} -type vpd\n")
+                f.write(f"dump -add . -aggregates -fid VPD0\n")
+                f.write(f"dump -add / -aggregates -fid VPD0\n")
+                f.write(f"dump -enable -fid VPD0\n")
+                if ss.stop_time:
+                    f.write(f"run -absolute {ss.stop_time}\n")
+                else:
+                    f.write(f"run\n")
+                f.write(f"exit\n")
+            ss.ucli_script = script_file
+
         if ss.fsdb:
             ss.fsdb = self.process_path(ss.fsdb, resolve_to=self.design.design_root)
 
@@ -140,7 +169,7 @@ class Vcs(SimFlow):
         vhdlan_args = ss.vhdlan_flags
         vcs_args = ss.vcs_flags
         simv_args = ss.simv_flags
-        common_run_args = []
+        common_run_args: List[str] = []
         if ss.gui:
             ss.generate_kdb = True
         if ss.supress_banner:
@@ -163,7 +192,7 @@ class Vcs(SimFlow):
         if ss.lic_wait is not None:
             vhdlan_args += ["-licw", str(ss.lic_wait)]
             vcs_args += ["-vc_lic_wait", str(ss.lic_wait)]
-            common_run_args.append("+vcs+lic+wait")
+            # simv_args.append("+vcs+lic+wait")
         if ss.cflags:
             vcs_args += ["-CFLAGS", " ".join(ss.cflags)]
         # vlogan_args.extend(["-work", "WORK"])
@@ -224,17 +253,18 @@ class Vcs(SimFlow):
         if ss.time_resolution:
             vcs_args.append(f"-sim_res={ss.time_resolution}")
 
+        if ss.vpd:
+            vcs_args += [
+                "+vcs+dumpvars",
+            ]
         if ss.fsdb:
             ss.fsdb = self.process_path(ss.fsdb, resolve_to=self.design.design_root)
             vcs_args += [
                 "+vcs+fsdbon",
-                "+vcs+dumpvars",
             ]
-            if ss.fsdb_size_limit:
-                f"+fsdb+dump_limit={ss.fsdb_size_limit}"
-            common_run_args += [
-                "+vcs+dumpvars",
-                "+vcs+dumparrays",
+            if ss.fsdb_size_limit is not None:
+                simv_args.append(f"+fsdb+dump_limit={ss.fsdb_size_limit}")
+            simv_args += [
                 f"+fsdbfile+{ss.fsdb}",
             ]
 
@@ -278,7 +308,7 @@ class Vcs(SimFlow):
                 self.vcs.console_colors = False
 
         if ss.ucli_script:
-            common_run_args += ["-do", ss.ucli_script]
+            common_run_args += ["-do", str(ss.ucli_script)]
         if ss.gui:
             if isinstance(ss.gui, str) and ss.gui.lower() not in ("true", "false", "1", "0"):
                 common_run_args.append(f"-gui={ss.gui}")
@@ -291,13 +321,29 @@ class Vcs(SimFlow):
         if ss.sim_no_save:
             simv_args.append("-no_save")
         if not ss.one_shot_run:
-            simv = Tool("./simv", version_flag=None)
-            simv.run(*simv_args, *common_run_args)
-        if ss.fsdb and ss.to_vcd:
-            fsdb2vcd_args = [
-                "-consolidate_bus",
-                "-sv",
-            ]
-            self.fsdb2vcd.run(
-                ss.fsdb, *fsdb2vcd_args, "-o", ss.fsdb.with_suffix(".vcd"), check=False
+            simv = Tool(
+                "./simv",
+                version_flag=None,
+                highlight_rules=self.highlight_rules if not ss.ucli else None,
             )
+            simv.run(*simv_args, *common_run_args)
+        if ss.to_vcd:
+            if ss.fsdb:
+                if not ss.fsdb.exists():
+                    log.error(f"FSDB file {ss.fsdb} does not exist")
+                else:
+                    fsdb2vcd_args = [
+                        "-consolidate_bus",
+                        "-sv",
+                    ]
+                    self.fsdb2vcd.run(
+                        ss.fsdb, *fsdb2vcd_args, "-o", ss.fsdb.with_suffix(".vcd"), check=True
+                    )
+            if ss.vpd:
+                if not ss.vpd.exists():
+                    log.error(f"VPD file {ss.vpd} does not exist")
+                else:
+                    vpd2vcd_args = [
+                        "+morevhdl",
+                    ]
+                    self.vpd2vcd.run(ss.vpd, *vpd2vcd_args, ss.vpd.with_suffix(".vcd"), check=True)
