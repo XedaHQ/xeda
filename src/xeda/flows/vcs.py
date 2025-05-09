@@ -45,6 +45,7 @@ class Vcs(SimFlow):
         version_flag=None,
         highlight_rules=highlight_rules,
     )
+    simv = Tool("./simv", version_flag=None)
 
     class Settings(SimFlow.Settings):
         clean: bool = Field(True, description="Clean the run path before running")
@@ -141,6 +142,8 @@ class Vcs(SimFlow):
             if ss.sdf_instance is None:
                 raise FlowSettingsException("SDF instance is required when SDF file is provided")
             ss.sdf_file = self.process_path(ss.sdf_file, resolve_to=self.design.design_root)
+        if not ss.ucli or (ss.ucli_script is None):  # non-interactive
+            self.simv.highlight_rules = self.highlight_rules
         if ss.ucli_script:
             ss.ucli = True
             ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.design_root)
@@ -338,12 +341,7 @@ class Vcs(SimFlow):
         if ss.sim_no_save:
             simv_args.append("-no_save")
         if not ss.one_shot_run:
-            simv = Tool(
-                "./simv",
-                version_flag=None,
-                highlight_rules=self.highlight_rules if not ss.ucli else None,
-            )
-            simv.run(*simv_args, *common_run_args)
+            self.simv.run(*simv_args, *common_run_args)
         if ss.to_vcd:
             if ss.fsdb:
                 if not ss.fsdb.exists():
