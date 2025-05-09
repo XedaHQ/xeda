@@ -18,7 +18,7 @@ set max_output_delay {{settings.default_max_output_delay}}
 set output_ports [all_outputs]
 foreach_in_collection port $output_ports {
     puts "Settings MAX output delay of port $port_name to $max_output_delay"
-    set_output_delay -clock {{clock_name}} -max $max_output_delay $output_ports 
+    set_output_delay -clock {{clock_name}} -max $max_output_delay $output_ports
 }
 {% endif -%}
 # set_dont_touch_network [find port {{clock.port}}]

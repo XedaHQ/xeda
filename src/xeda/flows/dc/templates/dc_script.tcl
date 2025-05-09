@@ -1,4 +1,5 @@
 set_app_var sh_new_variable_message false
+set_app_var echo_include_commands false
 
 set SCRIPTS_DIR [file dirname [info script]]
 
@@ -17,7 +18,7 @@ set OPTIMIZATION {{settings.optimization}}
 set TARGET_LIBRARY_FILES "{{settings.target_libraries | join(' ')}}"
 
 {% if settings.nthreads is not none %}
-set_host_options -max_cores {{nthreads}}
+set_host_options -max_cores {{settings.nthreads}}
 {% endif %}
 
 if { ![file exists $OUTPUTS_DIR] } {
