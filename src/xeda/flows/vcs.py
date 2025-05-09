@@ -120,7 +120,11 @@ class Vcs(SimFlow):
         )
         vpd: Optional[Path] = Field(
             None,
-            description="Enable VPD waveform generation and specify the VPD file path.",
+            description="Enable VPD waveform generation and specify the file path.",
+        )
+        evcd: Optional[Path] = Field(
+            None,
+            description="Enable EVCD waveform generation and specify the file path.",
         )
         vpd_size_limit: Optional[int] = Field(
             None,
@@ -140,23 +144,18 @@ class Vcs(SimFlow):
         if ss.ucli_script:
             ss.ucli = True
             ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.design_root)
-        elif ss.vpd:
-            ss.ucli = True
-            script_file = Path("dump_vpd.do")
-            with open(script_file, "w", encoding="utf-8") as f:
-                f.write(f"dump -file {ss.vpd} -type vpd\n")
-                f.write(f"dump -add . -aggregates -fid VPD0\n")
-                f.write(f"dump -add / -aggregates -fid VPD0\n")
-                f.write(f"dump -enable -fid VPD0\n")
-                if ss.stop_time:
-                    f.write(f"run -absolute {ss.stop_time}\n")
-                else:
-                    f.write(f"run\n")
-                f.write(f"exit\n")
-            ss.ucli_script = script_file
-
-        if ss.fsdb:
+        elif ss.fsdb:
             ss.fsdb = self.process_path(ss.fsdb, resolve_to=self.design.design_root)
+            ss.ucli = True
+            ss.ucli_script = Path("dump_fsdb.do")
+        elif ss.vpd:
+            ss.vpd = self.process_path(ss.vpd, resolve_to=self.design.design_root)
+            ss.ucli = True
+            ss.ucli_script = Path("dump_vpd.do")
+        elif ss.evcd:
+            ss.evcd = self.process_path(ss.evcd, resolve_to=self.design.design_root)
+            ss.ucli = True
+            ss.ucli_script = Path("dump_evcd.do")
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
@@ -170,6 +169,27 @@ class Vcs(SimFlow):
         vcs_args = ss.vcs_flags
         simv_args = ss.simv_flags
         common_run_args: List[str] = []
+
+        if ss.fsdb or ss.vpd or ss.evcd:
+            assert ss.ucli_script
+            with open(ss.ucli_script, "w", encoding="utf-8") as f:
+                if ss.fsdb:
+                    f.write(f"dump -file {ss.fsdb} -type FSDB\n")
+                    f.write(f"dump -add . -add / -aggregates -fid FSDB0\n")
+                    f.write(f"dump -enable -fid FSDB0\n")
+                elif ss.vpd:
+                    f.write(f"dump -file {ss.vpd} -type vpd\n")
+                    f.write(f"dump -add . -add / -aggregates -fid VPD0\n")
+                    f.write(f"dump -enable -fid VPD0\n")
+                elif ss.evcd:
+                    f.write(f"dump -file {ss.evcd} -type evcd\n")
+                    f.write(f"dump -add . -add / -aggregates -fid EVCD0\n")
+                    f.write(f"dump -enable -fid EVCD0\n")
+                if ss.stop_time is not None:
+                    f.write(f"run -absolute {ss.stop_time}\n")
+                else:
+                    f.write(f"run\n")
+                f.write(f"quit\n")
         if ss.gui:
             ss.generate_kdb = True
         if ss.supress_banner:
@@ -250,23 +270,20 @@ class Vcs(SimFlow):
                 vcs_args.append(f"-debug_access{ss.debug_access}")
             else:
                 vcs_args.append("-debug_access")
+            vcs_args.append("+vcs+dumpvars")
         if ss.time_resolution:
             vcs_args.append(f"-sim_res={ss.time_resolution}")
 
-        if ss.vpd:
-            vcs_args += [
-                "+vcs+dumpvars",
-            ]
         if ss.fsdb:
-            ss.fsdb = self.process_path(ss.fsdb, resolve_to=self.design.design_root)
             vcs_args += [
                 "+vcs+fsdbon",
             ]
             if ss.fsdb_size_limit is not None:
                 simv_args.append(f"+fsdb+dump_limit={ss.fsdb_size_limit}")
-            simv_args += [
-                f"+fsdbfile+{ss.fsdb}",
-            ]
+            # simv_args += [
+            #     f"+fsdbfile+{ss.fsdb}",
+            # ]
+        # simv_args += ["+dumpports+portdir"]
 
         if ss.sdf_file and ss.sdf_instance:
             vcs_args += [
@@ -335,6 +352,7 @@ class Vcs(SimFlow):
                     fsdb2vcd_args = [
                         "-consolidate_bus",
                         "-sv",
+                        # "-keep_enum",
                     ]
                     self.fsdb2vcd.run(
                         ss.fsdb, *fsdb2vcd_args, "-o", ss.fsdb.with_suffix(".vcd"), check=True
