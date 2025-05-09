@@ -534,7 +534,11 @@ class FlowLauncher:
                 except NonZeroExitCode as e:
                     log.error(
                         "Execution of '%s' returned %d",
-                        " ".join(e.command_args),
+                        (
+                            " ".join(e.command_args)
+                            if isinstance(e.command_args, (list, tuple))
+                            else e.command_args
+                        ),
                         e.exit_code,
                     )
                     success = False
