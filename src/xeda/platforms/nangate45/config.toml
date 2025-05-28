@@ -5,7 +5,7 @@ process = 45
 # ----------------------------------------------------
 tech_lef = "lef/NangateOpenCellLibrary.tech.lef"
 sc_lef = "lef/NangateOpenCellLibrary.macro.mod.lef"
-lib_files = ["lib/NangateOpenCellLibrary_typical.lib"]
+lib_files = ["lib/NangateOpenCellLibrary_typical.lib.gz"]
 gds_files = ["gds/NangateOpenCellLibrary.gds"]
 # Dont use cells to ease congestion
 # Specify at least one filler cell if none

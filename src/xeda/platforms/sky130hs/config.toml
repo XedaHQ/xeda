@@ -9,7 +9,7 @@ stackup = "5M1LI"
 #-----------------------------------------------------
 # Tech/Libs
 # ----------------------------------------------------
-lib_files = ["lib/sky130_fd_sc_hs__tt_025C_1v80.lib"]
+lib_files = ["lib/sky130_fd_sc_hs__tt_025C_1v80.lib.gz"]
 tech_lef = "lef/sky130_fd_sc_hs.tlef"
 std_cell_lef = "lef/sky130_fd_sc_hs_merged.lef"
 gds_files = ["gds/sky130_fd_sc_hs.gds"]
