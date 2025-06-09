@@ -42,10 +42,10 @@ dependencies = [
     "tomli               ~= 2.0; python_version<'3.11'",
     "python-box[]        ~= 7.2",
     "attrs               >= 25, < 26.0",
-    "cattrs              >= 24.1, < 26.0",
+    "cattrs              >= 25, < 26.0",
     "attrs_strict        ~= 1.0",
     "pathvalidate        >= 3.0, < 4.0",
-    "click               ~= 8.1",
+    "click               >= 8.1, <9.0",
     "click_help_colors   ~= 0.9",
     "coloredlogs         ~= 15.0",
     "rich                >= 14.0",
@@ -68,8 +68,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-docs = ["sphinx", "sphinx-tabs", "sphinx-jinja", "autodoc_pydantic"]
-dev = ["pytest", "mypy", "black", "ruff", "isort", "pylint", "tox"]
 
 [project.urls]
 homepage = "https://github.com/XedaHQ/xeda"
@@ -79,6 +77,9 @@ changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
 
 [project.scripts]
 xeda = "xeda.cli:cli"
+
+[dependency-groups]
+dev = ["pytest", "mypy", "black", "isort", "pylint", "tox", "ruff>=0.11.13"]
 
 [build-system]
 requires = ["setuptools>=65", "wheel>=0.37", "setuptools_scm[toml]>=7.1"]

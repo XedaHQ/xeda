@@ -22,11 +22,11 @@ class XedaProject:
     designs: List[Dict[str, Any]] = []
     # keep raw dict as flows are dynamically discovered
     flows: Dict[str, dict] = {}  # = attrs.field(default={}, validator=type_validator())
-    design_cls: Type["Design"] = Design
+    design_cls: Type[Design] = Design
 
     @classmethod
     def from_file(
-        cls: Type["XedaProject"],
+        cls: Type[XedaProject],
         file: Union[str, Path],
         skip_designs: bool = False,
         design_overrides: Union[None, Dict[str, Any]] = None,

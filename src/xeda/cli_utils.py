@@ -81,13 +81,13 @@ class OptionEatAll(click.Option):
         self.save_other_options = kwargs.pop("save_other_options", True)
         super().__init__(*args, **kwargs)
         self._previous_parser_process: Optional[
-            Callable[[Union[str, Tuple[str, ...]], click.parser.ParsingState], None]
+            Callable[[Union[str, Tuple[str, ...]], Any], None]
         ] = None
         self._eat_all_parser = None
 
     @overrides
     def add_to_parser(self, parser, ctx):
-        def parser_process(value: str, state: click.parser.ParsingState):
+        def parser_process(value: str, state):
             """method to hook to the parser.process"""
             value_list = [value]
             if self._eat_all_parser is not None and self.save_other_options:
