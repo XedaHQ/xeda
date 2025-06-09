@@ -75,9 +75,13 @@ def vivado_defines(is_sim_flow: bool):
 class VivadoTool(Tool):
     executable: str = "vivado"
     docker: Optional[Docker] = Docker(
-        image="siliconbootcamp/xilinx-vivado",
-        command=["/tools/Xilinx/Vivado/2021.1/bin/vivado"],
+        image="axemsolutions/vivado:2024.2",
+        command=["vivado"],
         tag="stable",
+        default_env={
+            "LD_PRELOAD": "/lib/x86_64-linux-gnu/libudev.so.1:/lib/x86_64-linux-gnu/libz.so.1",
+            "DISPLAY": "host.docker.internal:0",
+        },
     )  # pyright: ignore
     highlight_rules: Optional[Dict[str, str]] = {
         r"^(ERROR:)(.+)$": colorama.Fore.RED + colorama.Style.BRIGHT + r"\g<0>",
@@ -198,3 +202,6 @@ class Vivado(Flow, metaclass=ABCMeta):
         if isinstance(path, str):
             path = path.split(".")
         return reduce(dict.__getitem__, path, dct)
+
+    def clean(self):
+        super().purge_run_path()

@@ -43,6 +43,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         """Vivado synthesis settings"""
 
+        clean: bool = True
         fail_critical_warning: bool = Field(
             False,
             description="Flow fails if any Critical Warnings are reported by Vivado",
@@ -296,7 +297,21 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 if "clock_period" in self.results:
                     clock_period = self.results["clock_period"]
                     if isinstance(clock_period, (float, int)):
-                        self.results["Fmax"] = 1000.0 / (clock_period - wns)
+                        if clock_period <= 0:
+                            log.critical(
+                                "Parsed value for `clock_period`: %s (%s) is not valid.",
+                                clock_period,
+                                type(clock_period),
+                            )
+                        elif clock_period < wns:
+                            log.critical(
+                                "Parsed value for `clock_period`: %s (%s) is less than WNS: %s",
+                                clock_period,
+                                type(clock_period),
+                                wns,
+                            )
+                        else:
+                            self.results["Fmax"] = 1000.0 / (clock_period - wns)
                     else:
                         log.critical(
                             "Parsed value for `clock_period`: %s (%s) is not a number.",
@@ -327,15 +342,16 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                         break
 
         reports_dir = self.settings.reports_dir / "route_design"
-        failed = not self.parse_timing_report(reports_dir)
+        failed: bool = self.results.get("status", False)
+        failed |= not self.parse_timing_report(reports_dir)
         hier_util = parse_hier_util(reports_dir / "hierarchical_utilization.xml")
         if hier_util:
             with open(reports_dir / "hierarchical_utilization.json", "w") as f:
                 json.dump(hier_util, f)
             self.results["_hierarchical_utilization"] = hier_util
-        else:
+        elif not failed:
+            failed = True
             log.error("Parsing hierarchical utilization failed!")
-
         report_file = reports_dir / "utilization.xml"
         utilization = self.parse_xml_report(report_file)
         # ordered dict
@@ -383,10 +399,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                         if r:
                             self.results[k] = r
             self.results["_utilization"] = utilization
-        if failed:
-            return False
-
-        # TODO better fail analysis for vivado
         wns = self.results.get("wns")
         if wns is not None and isinstance(wns, (float, int, str)):
             failed |= float(wns) < 0.0

@@ -40,7 +40,8 @@ set_property -name "file_type" -value "Memory File" -objects [get_files {{src}}]
 puts "Reading TCL file {{src}}"
 source -verbose {{src}}
 {%- else %}
-puts "Skipping file with unknown type: {{src}}"
+puts "Adding source file with unknown type: {{src}}"
+add_files -fileset sources_1 -norecurse {{src}}
 {%- endif %}
 {%- endfor %}
 
