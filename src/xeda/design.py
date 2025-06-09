@@ -190,6 +190,7 @@ class SourceType(str, Enum):
     SystemVerilog = auto()
     Tcl = auto()
     Verilog = auto()
+    VerilogHeader = auto()
     Vhdl = auto()
     MemoryFile = auto()
 
@@ -236,6 +237,7 @@ class DesignSource(FileResource):
                 (SourceType.Cpp, None): ["cc", "cpp", "cxx"],
                 (SourceType.Vhdl, None): ["vhd", "vhdl"],
                 (SourceType.Verilog, None): ["v"],
+                (SourceType.VerilogHeader, None): ["vh"],
                 (SourceType.SystemVerilog, None): ["sv"],
                 (SourceType.Bluespec, "bsv"): ["bsv"],
                 (SourceType.Bluespec, "bh"): ["bs", "bh"],
