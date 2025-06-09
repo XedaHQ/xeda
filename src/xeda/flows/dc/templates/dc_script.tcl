@@ -135,6 +135,7 @@ puts "list of designs: [list_designs]"
 
 redirect -tee $REPORTS_DIR/elab.check_design.rpt {check_design}
 redirect -tee $REPORTS_DIR/elab.design.rpt {report_design -nosplit}
+redirect -tee $REPORTS_DIR/elab.hierarchy.rpt {report_hierarchy -nosplit -full -noleaf}
 redirect -tee $REPORTS_DIR/elab.list_designs.rpt {list_designs}
 redirect -file $REPORTS_DIR/elab.port.rpt {report_port -nosplit}
 
