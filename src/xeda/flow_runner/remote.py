@@ -356,8 +356,9 @@ class RemoteRunner(FlowLauncher):
                     rel_path = os.path.relpath(f, remote_run_path) if os.path.isabs(f) else f
                     local_path = local_artifacts_dir / rel_path
                     if local_path.exists():
-                        backup = backup_existing(local_path)
-                        log.warning("Backed up exitsting artifact to %s", str(backup))
+                        # backup = backup_existing(local_path)
+                        # log.warning("Backed up exitsting artifact to %s", str(backup))
+                        pass
                     elif not local_path.parent.exists():
                         local_path.parent.mkdir(parents=True)
                     assert local_path.is_relative_to(local_artifacts_dir)
