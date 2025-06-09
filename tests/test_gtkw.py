@@ -1,6 +1,6 @@
 from pathlib import Path
-from xeda.flows.ghdl import _get_wave_opt_signals, common_root
 
+from xeda.flows.ghdl import _get_wave_opt_signals, common_root
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"

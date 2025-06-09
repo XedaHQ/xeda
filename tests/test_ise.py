@@ -3,9 +3,9 @@ import tempfile
 from pathlib import Path
 
 from xeda import Design
+from xeda.flow import FPGA
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import IseSynth
-from xeda.flow import FPGA
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -24,6 +24,8 @@ def test_ise_synth_py() -> None:
         print("Xeda run dir: ", run_dir)
         xeda_runner = DefaultRunner(run_dir, debug=True)
         flow = xeda_runner.run_flow(IseSynth, design, settings)
+        assert flow is not None, "run_flow returned None"
+        assert flow.run_path is not None, "run_flow returned None"
         settings_json = flow.run_path / "settings.json"
         results_json = flow.run_path / "results.json"
         assert settings_json.exists()

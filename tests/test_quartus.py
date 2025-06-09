@@ -1,14 +1,14 @@
 """test Intel Quartus flow"""
 
+import logging
 import os
 import tempfile
-import logging
 from pathlib import Path
 
 from xeda import Design
+from xeda.flow import FPGA
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Quartus
-from xeda.flow import FPGA
 from xeda.flows.quartus import parse_csv, try_num
 
 TESTS_DIR = Path(__file__).parent.absolute()

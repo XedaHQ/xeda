@@ -1,4 +1,5 @@
 from click.testing import CliRunner
+
 from xeda.cli import cli
 
 flows = ["ghdl_sim", "yosys", "nextpnr", "vivado_sim", "vivado_synth"]

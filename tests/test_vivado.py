@@ -4,9 +4,9 @@ import tempfile
 from pathlib import Path
 
 from xeda import Design
+from xeda.flow import FPGA
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoSynth
-from xeda.flow import FPGA
 from xeda.flows.vivado.vivado_synth import parse_hier_util, vivado_synth_generics
 
 TESTS_DIR = Path(__file__).parent.absolute()
@@ -37,7 +37,9 @@ def test_vivado_synth_template() -> None:
 
 def test_vivado_synth_py() -> None:
     # Append to PATH so if the actual tool exists, would take precedences.
-    os.environ["PATH"] = os.path.join(TESTS_DIR, "fake_tools") + os.pathsep + os.environ.get("PATH", "")
+    os.environ["PATH"] = (
+        os.path.join(TESTS_DIR, "fake_tools") + os.pathsep + os.environ.get("PATH", "")
+    )
     design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
     with tempfile.TemporaryDirectory(dir=Path.cwd()) as run_dir:
