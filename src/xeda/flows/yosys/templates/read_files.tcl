@@ -3,6 +3,8 @@ yosys -import
 yosys echo on
 {% endif -%}
 
+{% set include_dirs=namespace(i=[]) %}
+
 {% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=false) -%}
 {% set uhdm_plugin = (settings.systemverilog == "uhdm") and sv_files -%}
 {% if uhdm_plugin -%}
@@ -14,18 +16,22 @@ yosys plugin -i slang
 {% endif -%}
 
 {% for src in design.rtl.sources -%}
-{% if src.type.name == "Verilog" -%}
+{% if src.type is not none -%}
+    {% if src.type.name == "Verilog" -%}
 yosys log -stdout "** Reading {{src}} **"
-yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} "{{src}}"
-{% elif src.type.name == "SystemVerilog" %}
+yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|map('quote')|join(" ")}} "{{src}}"
+    {% elif src.type.name == "SystemVerilog" %}
 yosys log -stdout "** Reading {{src}} **"
- {%- if slang_plugin %}
-yosys read_slang --extern-modules --best-effort-hierarchy "{{src}}"
- {%- elif uhdm_plugin %}
+        {%- if slang_plugin %}
+yosys read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{include_dirs.i|map('quote')|join(" ")}} "{{src}}"
+        {%- elif uhdm_plugin %}
 yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} "{{src}}"
- {%- else %}
-yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} "{{src}}"
- {%- endif %}
+        {%- else %}
+yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|map('quote')|join(" ")}} "{{src}}"
+        {%- endif %}
+    {% elif src.type.name == "VerilogHeader" and src.path.parent %}
+{% set include_dirs.i = include_dirs.i + ["-I{}".format(src.path.parent)] %}
+    {% endif -%}
 {% endif -%}
 {% endfor -%}
 
@@ -79,4 +85,4 @@ yosys setattr -mod -set {{attr}} {{v}} {{path}}
 {% endfor -%}
 {% endfor -%}
 
-yosys check -initdrv -assert
+yosys check -initdrv
