@@ -4,7 +4,7 @@ import logging
 import re
 import sys
 from functools import reduce
-from typing import Any, Callable, Optional, Tuple, Type, Union
+from typing import Any, Callable, Generic, Optional, Tuple, Type, Union
 
 import click
 from click_help_colors import HelpColorsGroup
@@ -23,8 +23,9 @@ from .xedaproject import XedaProject
 
 __all__ = [
     "ClickMutex",
-    "OptionEatAll",
     "ConsoleLogo",
+    "FlowChoice",
+    "OptionEatAll",
     "XedaHelpGroup",
 ]
 
@@ -297,3 +298,19 @@ def select_design_in_project(
             log.critical("Invalid design name!")
             return None
         return xeda_project.get_design(design_name)
+
+
+class FlowChoice(click.Choice, Generic[click.types.ParamTypeValue]):
+    """Custom click choice to allow for flow names with dashes"""
+
+    def convert(
+        self, value: Any, param: click.Parameter | None, ctx: click.Context | None
+    ) -> click.types.ParamTypeValue:
+        """
+        For a given value from the parser, normalize it and find its
+        matching normalized value in the list of choices. Then return the
+        matched "original" choice.
+        """
+        if isinstance(value, str):
+            value = value.replace("-", "_")
+        return super().convert(value, param, ctx)

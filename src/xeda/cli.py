@@ -18,6 +18,7 @@ from rich.table import Table
 
 from .cli_utils import (
     ClickMutex,
+    FlowChoice,
     OptionEatAll,
     XedaHelpGroup,
     print_flow_settings,
@@ -125,7 +126,7 @@ def list_flows():
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(all_flow_names),
+    type=FlowChoice(all_flow_names),
     required=True,
 )
 @click.pass_context
@@ -142,7 +143,7 @@ def list_settings(ctx: click.Context, flow):
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(all_flow_names),
+    type=FlowChoice(all_flow_names),
 )
 @click.argument(
     "design_file",
@@ -294,6 +295,7 @@ def list_settings(ctx: click.Context, flow):
 )
 @click.option(
     "--help-settings",
+    "--list-settings",
     is_flag=True,
     default=False,
     help="List flow settings. This option is an alias for `xeda list-settings <flow>`.",
@@ -458,7 +460,7 @@ def run(
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(all_flow_names),
+    type=FlowChoice(all_flow_names),
     required=True,
 )
 @click.option(
@@ -654,7 +656,7 @@ def dse(
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=click.Choice(all_flow_names),
+    type=FlowChoice(all_flow_names),
     required=True,
 )
 @click.argument(
