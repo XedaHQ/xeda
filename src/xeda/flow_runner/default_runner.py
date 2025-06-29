@@ -793,6 +793,7 @@ class FlowLauncher:
             flow_overrides, dict
         ), f"flow_overrides should be a dict at this stage, but was {type(flow_overrides)}"
         if isinstance(flow, str):
+            flow = flow.replace("-", "_")
             flow_name = flow
             flow_class = get_flow_class(flow)
         else:
