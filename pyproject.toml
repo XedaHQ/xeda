@@ -38,14 +38,14 @@ classifiers = [
 ]
 dependencies = [
     "jinja2              ~= 3.1",
-    "pydantic            >= 1.10, < 2.0",
+    "pydantic            >= 1.10.22, < 2.0",
     "tomli               ~= 2.0; python_version<'3.11'",
     "python-box[]        ~= 7.2",
     "attrs               >= 25, < 26.0",
-    "cattrs              >= 25, < 26.0",
+    "cattrs              >= 25.1.1, < 26.0",
     "attrs_strict        ~= 1.0",
-    "pathvalidate        >= 3.0, < 4.0",
-    "click               >= 8.1, <9.0",
+    "pathvalidate        >= 3.3.1, < 4.0",
+    "click               ~= 8.2.1",
     "click_help_colors   ~= 0.9",
     "coloredlogs         ~= 15.0",
     "rich                >= 14.0",
@@ -55,7 +55,7 @@ dependencies = [
     "simpleeval          ~= 1.0",
     "PyYAML              ~= 6.0",
     # experimental:
-    "varname           >= 0.13.3, < 0.15",
+    "varname           >= 0.14, < 0.15",
     "overrides         ~= 7.7",
     "simple_term_menu  ~= 1.6",
     "psutil            ~= 7.0",
