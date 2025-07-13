@@ -47,8 +47,7 @@ def run_process(
         log.debug("Running `%s`", cmd_str)
     if cwd:
         log.debug("cwd=%s", cwd)
-    if highlight_rules:
-        assert stdout is None, "stdout redirection is not supported with filter_rules"
+    if highlight_rules and stdout is None:
 
         # compile regex str keys to improve performance
         highlight_rules_re: Dict[re.Pattern, str] = {}
