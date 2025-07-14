@@ -1,0 +1,9 @@
+pandas
+jupyterlab
+nbformat
+plotly
+kaleido
+# for bokeh plots:
+bokeh
+jupyter_bokeh
+selenium
