@@ -13,7 +13,7 @@ from fabric import Connection
 from fabric.transfer import Transfer
 
 from ..design import Design, DesignSource
-from ..utils import XedaException, backup_existing, dump_json, settings_to_dict
+from ..utils import XedaException, hierarchical_merge, dump_json, settings_to_dict
 from ..version import __version__
 from .default_runner import FlowLauncher, print_results, semantic_hash
 
@@ -184,22 +184,30 @@ class RemoteRunner(FlowLauncher):
         port: Optional[int] = None,
         flow_settings=None,
     ):
-        # imports deferred due to "import imp" deprecation warnings from 'fabric'
-
-        flow_settings = settings_to_dict(flow_settings or [])
-
-        host_split = host.split(":")
-        if port is None and len(host_split) == 2 and host_split[1].isnumeric():
-            host = host_split[0]
-            port = int(host_split[1])
         if isinstance(design, (str, Path)):
             design = Design.from_file(design)
+        flow_settings = settings_to_dict(flow_settings or [])
+        design_flow_settings = design.flow.pop(flow_name, {})
+        if design_flow_settings:
+            flow_settings = hierarchical_merge(flow_settings, design_flow_settings)
+        flowrun_hash = semantic_hash(
+            dict(
+                flow_name=flow_name,
+                flow_settings=flow_settings,
+                # copied_resources=[FileResource(res) for res in copy_resources],
+            ),
+        )
         design_hash = semantic_hash(
             dict(
                 rtl_hash=design.rtl_hash,
                 tb_hash=design.tb_hash,
             )
         )
+
+        host_split = host.split(":")
+        if port is None and len(host_split) == 2 and host_split[1].isnumeric():
+            host = host_split[0]
+            port = int(host_split[1])
         log.info(
             "Connecting to %s%s%s...", f"{user}@" if user else "", host, f":{port}" if port else ""
         )
@@ -224,15 +232,6 @@ class RemoteRunner(FlowLauncher):
         assert Transfer(conn).is_remote_dir(remote_path)
         conn.sftp().chdir(remote_path)
         zip_file, design_file = send_design(design, conn, remote_path)
-
-        flowrun_hash = semantic_hash(
-            dict(
-                flow_name=flow_name,
-                flow_settings=flow_settings,
-                # copied_resources=[FileResource(res) for res in copy_resources],
-                # xeda_version=__version__,
-            ),
-        )
 
         ssh_opt = f"{host}"
         if user:

@@ -158,12 +158,11 @@ def semantic_hash(data: Any) -> str:
     def _sorted_dict_str(data: Any) -> Any:
         if isinstance(data, (dict, Mapping)):
             return {k: _sorted_dict_str(data[k]) for k in sorted(data.keys())}
-        if isinstance(data, list):
+        if isinstance(data, (list, tuple)):
             return [_sorted_dict_str(val) for val in data]
         if hasattr(data, "__dict__"):
             return _sorted_dict_str(data.__dict__)
         return str(data)
-
     r = repr(_sorted_dict_str(data))
     return hashlib.sha3_256(bytes(r, "UTF-8")).hexdigest()
 
