@@ -290,12 +290,13 @@ def try_convert_to_primitives(
 SEP = r"(?<!\\)\."
 
 
-def get_hierarchy(dct: Dict[str, Any], path):
+def get_hierarchy(dct: Dict[str, Any], path: Union[str, List[str]]) -> Optional[Any]:
     if isinstance(path, str):
-        path = path.split(SEP)
+        path = re.split(SEP, path)
     try:
         return reduce(dict.__getitem__, path, dct)
-    except ValueError:
+    except KeyError as e:
+        print(f"Error getting hierarchy for path '{path}': {e}")
         return None
 
 
