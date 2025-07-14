@@ -12,14 +12,19 @@ log = logging.getLogger(__name__)
 class FmaxOptimizer(Optimizer):
     default_variations: Dict[str, Dict[str, List[Any]]] = {
         "vivado_synth": {
-            "synth.steps.synth_design.args.flatten_hierarchy": ["full"],
+            "synth.steps.synth_design.args.flatten_hierarchy": [
+                "full",
+                "rebuilt",
+            ],
+            "synth.steps.SYNTH_DESIGN.ARGS.RETIMING": ["true", "false"],
+            "impl.steps.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED": ["true"],
             # "synth.steps.synth_design.args.NO_LC": [False, True],
             "synth.strategy": [
-                "Flow_AlternateRoutability",
                 "Flow_AreaOptimized_high",
-                "Flow_PerfThresholdCarry",
+                "Flow_AlternateRoutability",
                 "Flow_PerfOptimized_high",
-                "Flow_RuntimeOptimized",
+                "Flow_PerfThresholdCarry",
+                # "Flow_RuntimeOptimized",
             ],
             "impl.strategy": [
                 "Flow_RunPostRoutePhysOpt",  # fast
@@ -28,11 +33,11 @@ class FmaxOptimizer(Optimizer):
                 "Performance_NetDelay_low",
                 "Performance_Explore",
                 "Performance_ExplorePostRoutePhysOpt",  # slow
-                "Performance_Retiming",
-                "Performance_RefinePlacement",
-                "Performance_ExploreWithRemap",
                 "Area_ExploreWithRemap",
+                "Performance_ExploreWithRemap",
                 "Performance_NetDelay_high",  # slow
+                "Performance_RefinePlacement",
+                "Performance_Retiming",
                 # "Flow_RuntimeOptimized", # fast
             ],
         },
@@ -60,6 +65,7 @@ class FmaxOptimizer(Optimizer):
         delta: float = 0.001
         resolution: float = 0.2
         min_freq_step: float = 0.02
+        stop_after_no_improves: int = 10
 
         # min improvement inf frequency before increasing variations
         variation_min_improv: float = 2.0
@@ -77,7 +83,7 @@ class FmaxOptimizer(Optimizer):
         self.no_improvements: int = 0
         self.prev_frequencies = []
         self.freq_step: float = 0.0
-        self.last_improvement: float = 0.0
+        self.last_improvement: float = 0.0  # last positive improvement in Fmax
         self.num_iterations: int = 0
         self.last_best_freq: float = 0
         self.improved_idx: Optional[int] = None
@@ -136,7 +142,7 @@ class FmaxOptimizer(Optimizer):
             if self.improved_idx is None or (
                 self.last_improvement and self.last_improvement < self.settings.variation_min_improv
             ):
-                self.num_variations = self.num_variations + 1
+                self.num_variations += 1
                 log.info("Increased number of variations to %d", self.num_variations)
 
             elif (
@@ -157,6 +163,17 @@ class FmaxOptimizer(Optimizer):
 
         if self.improved_idx is None:
             self.no_improvements += 1
+            if (
+                self.last_best_freq
+                and self.no_improvements >= self.settings.stop_after_no_improves
+                and self.num_variations > 1
+            ):
+                log.info(
+                    "Stopping as no improvements for %d iterations, last best freq was %0.2f MHz",
+                    self.no_improvements,
+                    self.last_best_freq,
+                )
+                return False
             if best_freq:
                 if best_freq < self.hi_freq:
                     if self.num_variations > 1 and self.no_improvements < 3:
