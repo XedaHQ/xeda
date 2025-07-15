@@ -18,7 +18,7 @@ from ...dataclass import Field, XedaBaseModel
 from ...design import Design
 from ...flow import Flow, FlowFatalError
 from ...tool import NonZeroExitCode
-from ...utils import Timer, dump_json, load_class, settings_to_dict
+from ...utils import Timer, dump_json, load_class, settings_to_dict, hierarchical_merge
 from ..default_runner import FlowLauncher, add_file_logger, get_flow_class, print_results
 
 log = logging.getLogger(__name__)
@@ -203,10 +203,15 @@ class Dse(FlowLauncher):
             flow_class = get_flow_class(flow_class)
 
         assert isclass(flow_class) and issubclass(flow_class, Flow)
-
+        flow_name = flow_class.name
         if flow_settings is None:
             flow_settings = {}
-
+        if isinstance(flow_settings, Flow.Settings):
+            flow_settings = flow_settings.dict()
+        assert isinstance(flow_settings, dict)
+        design_flow_settings = design.flow.pop(flow_name, {})
+        if design_flow_settings:
+            flow_settings = hierarchical_merge(flow_settings, design_flow_settings)
         if isinstance(flow_settings, Flow.Settings):
             flow_settings = dict(flow_settings)
 
@@ -226,10 +231,7 @@ class Dse(FlowLauncher):
             {k: v[0] for k, v in optimizer.variations.items() if v},
             hierarchical_keys=True,
         )
-        if isinstance(flow_settings, Flow.Settings):
-            flow_settings = flow_settings.dict()
-        assert isinstance(flow_settings, dict)
-        flow_settings = {**flow_settings, **base_variation}
+        flow_settings = hierarchical_merge(flow_settings, base_variation)
 
         base_settings = flow_class.Settings(**flow_settings)
         base_settings.redirect_stdout = True
@@ -305,7 +307,6 @@ class Dse(FlowLauncher):
                         if hash_value not in flow_setting_hashes:
                             this_batch.append(s)
                             flow_setting_hashes.add(hash_value)
-
                     batch_len = len(batch_settings)
                     batch_len = min(batch_len, self.settings.max_workers)
                     batch_settings = batch_settings[:batch_len]

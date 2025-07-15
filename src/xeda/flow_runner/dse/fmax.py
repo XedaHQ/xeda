@@ -12,12 +12,12 @@ log = logging.getLogger(__name__)
 class FmaxOptimizer(Optimizer):
     default_variations: Dict[str, Dict[str, List[Any]]] = {
         "vivado_synth": {
-            "synth.steps.synth_design.args.flatten_hierarchy": [
-                "full",
-                "rebuilt",
-            ],
-            "synth.steps.SYNTH_DESIGN.ARGS.RETIMING": ["true", "false"],
-            "impl.steps.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED": ["true"],
+            # "synth.steps.synth_design.args.flatten_hierarchy": [
+            #     "full",
+            #     "rebuilt",
+            # ],
+            # "synth.steps.SYNTH_DESIGN.ARGS.GLOBAL_RETIMING": ["on"],
+            # "impl.steps.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED": ["true"],
             # "synth.steps.synth_design.args.NO_LC": [False, True],
             "synth.strategy": [
                 "Flow_AreaOptimized_high",
@@ -31,9 +31,9 @@ class FmaxOptimizer(Optimizer):
                 "Performance_ExtraTimingOpt",
                 "Flow_RunPhysOpt",  # fast
                 "Performance_NetDelay_low",
-                "Performance_Explore",
-                "Performance_ExplorePostRoutePhysOpt",  # slow
                 "Area_ExploreWithRemap",
+                "Performance_ExplorePostRoutePhysOpt",  # slow
+                "Performance_Explore",
                 "Performance_ExploreWithRemap",
                 "Performance_NetDelay_high",  # slow
                 "Performance_RefinePlacement",
@@ -63,12 +63,11 @@ class FmaxOptimizer(Optimizer):
         init_num_variations: int = 1
 
         delta: float = 0.001
-        resolution: float = 0.2
-        min_freq_step: float = 0.02
+        resolution: float = 0.1
         stop_after_no_improves: int = 10
 
-        # min improvement inf frequency before increasing variations
-        variation_min_improv: float = 2.0
+        # min improvement in frequency before increasing variations
+        min_improve_inc_variations: float = 2.0
 
         @validator("init_freq_high")
         def validate_init_freq(cls, value, values):
@@ -140,14 +139,15 @@ class FmaxOptimizer(Optimizer):
         #  and little or no improvement during previous iteration, increment num_variations
         if best_freq or (self.failed_fmax and self.failed_fmax > self.lo_freq):
             if self.improved_idx is None or (
-                self.last_improvement and self.last_improvement < self.settings.variation_min_improv
+                self.last_improvement
+                and self.last_improvement < self.settings.min_improve_inc_variations
             ):
                 self.num_variations += 1
                 log.info("Increased number of variations to %d", self.num_variations)
 
             elif (
                 self.improved_idx > (self.max_workers + 1) // 2
-                or self.last_improvement > 2 * self.settings.variation_min_improv
+                or self.last_improvement > 2 * self.settings.min_improve_inc_variations
             ):
                 if self.num_variations > 1:
                     self.num_variations -= 1
@@ -177,7 +177,11 @@ class FmaxOptimizer(Optimizer):
             if best_freq:
                 if best_freq < self.hi_freq:
                     if self.num_variations > 1 and self.no_improvements < 3:
-                        self.hi_freq += ((max_workers + 1) * resolution) // self.num_variations
+                        self.hi_freq += (
+                            (max_workers * resolution)
+                            / self.num_variations
+                            * random.uniform(0.8, 1)
+                        )
                     else:
                         # no variations or too many failures, just binary search
                         self.hi_freq = (self.hi_freq + best_freq) / 2 + delta
@@ -201,7 +205,9 @@ class FmaxOptimizer(Optimizer):
 
                 self.lo_freq = self.failed_fmax / (self.no_improvements * random.random() + 1)
                 self.hi_freq = (
-                    self.lo_freq + max_workers * resolution * random.uniform(0.75, 1) + delta
+                    self.lo_freq
+                    + (max_workers / self.num_variations) * resolution * random.uniform(0.75, 1)
+                    + delta
                 )
 
                 log.info("Lowering bounds to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq)
@@ -272,6 +278,9 @@ class FmaxOptimizer(Optimizer):
             return random.randrange(0, min(vlist_len - 1, choice_max) + 1)
 
         base_settings = dict(self.base_settings)
+        base_settings.pop("clock_period", None)
+        base_settings.pop("clock", None)
+        base_settings.pop("clocks", None)
         max_var = 0
         stop = False
         batch_settings: List[Dict[str, Any]] = []
@@ -293,7 +302,7 @@ class FmaxOptimizer(Optimizer):
             remove_frequencies = []
 
             for freq in frequencies:
-                clock_period = round(1000.0 / freq, 3)
+                clock_period = round(1000.0 / freq, 4)
                 choice_indices = {}
                 variations = {}
                 for k, v in self.variations.items():
@@ -301,13 +310,16 @@ class FmaxOptimizer(Optimizer):
                         choice = rand_choice(len(v), max_var)
                         choice_indices[k] = choice
                         variations[k] = v[choice]
+                settings = base_settings
                 settings = {
-                    **base_settings,
-                    "clock_period": clock_period,
+                    **settings,
                     **settings_to_dict(
                         variations,
                         hierarchical_keys=True,
                     ),
+                }
+                settings["clock"] = {
+                    "period": clock_period,
                 }
                 h = deep_hash(settings)
                 if h in self.batch_hashes:
@@ -320,6 +332,10 @@ class FmaxOptimizer(Optimizer):
                         stop = True
                         break
             for freq in remove_frequencies:
+                log.info(
+                    "Skipping duplicate settings for frequency %0.3f MHz",
+                    freq,
+                )
                 frequencies.remove(freq)
         batch_frequencies = sorted(unique(batch_frequencies))
         log.info(
