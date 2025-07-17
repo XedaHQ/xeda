@@ -32,6 +32,9 @@ class FmaxOptimizer(Optimizer):
                 "Flow_RunPhysOpt",  # fast
                 "Performance_NetDelay_low",
                 "Area_ExploreWithRemap",
+                "Performance_Auto_1",
+                "Performance_Auto_2",
+                "Performance_Auto_3",
                 "Performance_ExplorePostRoutePhysOpt",  # slow
                 "Performance_Explore",
                 "Performance_ExploreWithRemap",
