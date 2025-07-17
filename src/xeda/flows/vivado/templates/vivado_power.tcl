@@ -1,3 +1,5 @@
+set_param tclapp.enableGitAccess 0
+
 puts "\n================================( Opening routed design from checkpoint )================================="
 open_checkpoint {{checkpoint}}
 
