@@ -18,7 +18,14 @@ from ...dataclass import Field, XedaBaseModel
 from ...design import Design
 from ...flow import Flow, FlowFatalError
 from ...tool import NonZeroExitCode
-from ...utils import Timer, dump_json, load_class, settings_to_dict, hierarchical_merge
+from ...utils import (
+    Timer,
+    dump_json,
+    load_class,
+    settings_to_dict,
+    hierarchical_merge,
+    semantic_hash,
+)
 from ..default_runner import FlowLauncher, add_file_logger, get_flow_class, print_results
 
 log = logging.getLogger(__name__)
@@ -59,7 +66,9 @@ class Optimizer:
 
 
 # way more light weight than semantic_hash
-def deep_hash(s) -> int:
+def deep_hash(s) -> str:
+    return semantic_hash(s)
+
     def freeze(d):
         if isinstance(d, (str, int, bool, tuple, frozenset)):
             return d
@@ -255,7 +264,7 @@ class Dse(FlowLauncher):
         best_json_path = Path.cwd() / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
         log.info("Best results are saved to %s", best_json_path)
 
-        flow_setting_hashes: Set[int] = set()
+        flow_setting_hashes = set()
 
         num_cpus = psutil.cpu_count() or multiprocessing.cpu_count() or 1
         iterate = True
@@ -307,6 +316,11 @@ class Dse(FlowLauncher):
                         if hash_value not in flow_setting_hashes:
                             this_batch.append(s)
                             flow_setting_hashes.add(hash_value)
+                        else:
+                            log.info(
+                                "Skipping flow settings with hash %s, already executed in this run.",
+                                hash_value,
+                            )
                     batch_len = len(batch_settings)
                     batch_len = min(batch_len, self.settings.max_workers)
                     batch_settings = batch_settings[:batch_len]

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import json
 import logging
 import os
+from pprint import PrettyPrinter
 import re
 import shutil
 import sys
@@ -14,7 +14,6 @@ import time
 from datetime import datetime, timedelta
 from glob import glob
 from pathlib import Path
-from pprint import PrettyPrinter, pprint
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Type, TypeVar, Union
 
 from box import Box
@@ -36,6 +35,7 @@ from ..utils import (
     settings_to_dict,
     snakecase_to_camelcase,
     unique,
+    semantic_hash
 )
 from ..version import __version__
 from ..xedaproject import XedaProject
@@ -152,19 +152,6 @@ def get_flow_class(
         if not flow_class or not issubclass(flow_class, Flow):
             raise FlowNotFoundError()
     return flow_class
-
-
-def semantic_hash(data: Any) -> str:
-    def _sorted_dict_str(data: Any) -> Any:
-        if isinstance(data, (dict, Mapping)):
-            return {k: _sorted_dict_str(data[k]) for k in sorted(data.keys())}
-        if isinstance(data, (list, tuple)):
-            return [_sorted_dict_str(val) for val in data]
-        if hasattr(data, "__dict__"):
-            return _sorted_dict_str(data.__dict__)
-        return str(data)
-    r = repr(_sorted_dict_str(data))
-    return hashlib.sha3_256(bytes(r, "UTF-8")).hexdigest()
 
 
 def on_rm_error(func, path, exc_info):

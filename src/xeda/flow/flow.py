@@ -326,8 +326,11 @@ class Flow(metaclass=ABCMeta):
 
     def purge_run_path(self):
         if self.run_path.exists():
-            log.info("Deleting all files in the existing run directory: %s", self.run_path)
+            logged_warning = False
             for path in self.run_path.iterdir():
+                if not logged_warning:
+                    log.info("Deleting all files in the existing run directory: %s", self.run_path)
+                    logged_warning = True
                 if path.is_file():
                     path.unlink()
                 else:

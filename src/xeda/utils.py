@@ -2,6 +2,7 @@
 XEDA's utility functions and classes
 """
 
+import hashlib
 import importlib
 import json
 import logging
@@ -80,6 +81,7 @@ __all__ = [
     "expand_env_vars",
     "parse_patterns",
     "parse_patterns_in_file",
+    "semantic_hash",
 ]
 
 log = logging.getLogger(__name__)
@@ -797,3 +799,17 @@ def parse_patterns_in_file(
             required=required,
             sequential=sequential,
         )
+
+
+def semantic_hash(data: Any) -> str:
+    def _sorted_dict_str(data: Any) -> Any:
+        if isinstance(data, (dict, Mapping)):
+            return {k: _sorted_dict_str(data[k]) for k in sorted(data.keys())}
+        if isinstance(data, (list, tuple)):
+            return [_sorted_dict_str(val) for val in data]
+        if hasattr(data, "__dict__"):
+            return _sorted_dict_str(data.__dict__)
+        return str(data)
+
+    r = repr(_sorted_dict_str(data))
+    return hashlib.sha3_256(bytes(r, "UTF-8")).hexdigest()
