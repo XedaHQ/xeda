@@ -888,9 +888,17 @@ class Design(XedaBaseModel):
         generator = data.get("rtl", {}).pop("generator", None)
         if generator:
             with WorkingDirectory(design_root):
+                env = os.environ.copy()
+                if "DESIGN_ROOT" not in env:
+                    env["DESIGN_ROOT"] = str(design_root)
                 if isinstance(generator, str):
                     log.info("Running generator: %s", generator)
-                    exit_code = os.system(generator)  # nosec S605
+                    exit_code = subprocess.call(
+                        generator,
+                        shell=True,
+                        cwd=design_root,
+                        env=env,
+                    )
                     if exit_code != 0:
                         log.error("Generator '%s' failed with exit code %d", generator, exit_code)
                         raise NonZeroExitCode(generator, exit_code)
