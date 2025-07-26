@@ -28,7 +28,7 @@ class Verilator(SimFlow):
         ]
         warnings_fatal: bool = False
         include_dirs: List[str] = []
-        optimize: Union[bool, str] = True
+        optimize: Union[bool, str, int] = True
         timing: bool = False
         model_args: List[str] = Field(
             default=[], description="Arguments to pass to the model executable"
@@ -48,10 +48,11 @@ class Verilator(SimFlow):
             0,
             description="0: not thread-safe, 1: thread-safe single thread, 2+: multithreaded",
         )
-        trace_underscore: bool = False
+        trace_underscore: bool = True
+        trace_structs: bool = True
         trace_threads: Optional[int] = None
-        trace_max_width: Optional[int] = 512
-        trace_max_array: Optional[int] = None
+        trace_max_width: Optional[int] = 2048
+        trace_max_array: Optional[int] = 2048
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
@@ -142,14 +143,11 @@ class Verilator(SimFlow):
 
         if ss.threads:
             args += ["--threads", ss.threads]
-        if ss.trace_threads:
-            args += ["--trace-threads", ss.trace_threads]
 
-        if ss.optimize:
-            if isinstance(ss.optimize, str):
-                args += ["-O" + ss.optimize]
-            else:
-                args += ["-O3"]
+        if isinstance(ss.optimize, (str, int)):
+            args += [f"-O{ss.optimize}"]
+        elif ss.optimize is True:
+            args += ["-O3"]
 
         args += [
             "--x-initial",
@@ -169,18 +167,24 @@ class Verilator(SimFlow):
                     update=dict(command=[self.cocotb.executable]),
                 )
 
+        model_args = ss.model_args
         if ss.vcd:
             args += [
-                "--trace",
+                "--trace-vcd",
             ]
         elif ss.fst:
             args += [
                 "--trace-fst",
-                "--trace-structs",
-                # "--trace-underscore",
             ]
 
         if ss.vcd or ss.fst:
+            model_args += ["--trace", "--trace-file", str(ss.fst if ss.fst else ss.vcd)]
+            if ss.trace_threads:
+                args += ["--trace-threads", ss.trace_threads]
+            if ss.trace_underscore:
+                args.append("--trace-underscore")
+            if ss.trace_structs:
+                args.append("--trace-structs")
             if ss.trace_max_width:
                 args += [
                     "--trace-max-width",
@@ -221,10 +225,9 @@ class Verilator(SimFlow):
             sources.append(cocotb_cpp)
 
         verilator.run(*args, *sources)
-        model_args = ss.model_args
         if ss.random_init:
             random_seed = (
-                1 if ss.debug else randint(1, 2147483648)
+                1 if ss.debug else randint(1, 1 << 31)
             )  # 0 = choose value from system random number generator
             model_args += [f"+verilator+seed+{random_seed}", "+verilator+rand+reset+2"]
         model = verilator.derive(verilated_bin)

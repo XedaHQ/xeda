@@ -2,9 +2,11 @@
 // Licensed under the Revised BSD License, see LICENSE for details.
 // SPDX-License-Identifier: BSD-3-Clause
 
-// adopted for xeda
+#include <libgen.h>  // basename
+#include <stdio.h>   // stderr, fprintf
 
-#include <memory>
+#include <memory>  // std::unique_ptr
+#include <string>  // std::string
 
 #include "V{{top}}.h"
 #include "verilated.h"
@@ -16,7 +18,6 @@
 #endif
 
 #if VM_TRACE
-#define TRACE_FILENAME "{{settings.vcd or settings.fst}}"
 #if VM_TRACE_FST
 #include <verilated_fst_c.h>
 #else
@@ -24,11 +25,11 @@
 #endif
 #endif
 
-static vluint64_t main_time = 0; // Current simulation time
+static vluint64_t main_time = 0;  // Current simulation time
 
-double sc_time_stamp() { // Called by $time in Verilog
-    return main_time;    // converts to double, to match
-                         // what SystemC does
+double sc_time_stamp() {  // Called by $time in Verilog
+    return main_time;     // converts to double, to match
+                          // what SystemC does
 }
 
 extern "C" {
@@ -49,13 +50,46 @@ static inline bool settle_value_callbacks() {
     return cbs_called;
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
+    bool traceOn = false;
+#if VM_TRACE_FST
+    const char* traceFile = "dump.fst";
+#else
+    const char* traceFile = "dump.vcd";
+#endif
+
+    for (int i = 1; i < argc; i++) {
+        std::string arg = std::string(argv[i]);
+        if (arg == "--trace") {
+            traceOn = true;
+        } else if (arg == "--trace-file") {
+            if (++i < argc) {
+                traceFile = argv[i];
+            } else {
+                fprintf(stderr, "Error: --trace-file requires a parameter\n");
+                return -1;
+            }
+        } else if (arg == "--help") {
+            fprintf(stderr,
+                    "usage: %s [--trace] [--trace-file TRACEFILE]\n"
+                    "\n"
+                    "Cocotb + Verilator sim\n"
+                    "\n"
+                    "options:\n"
+                    "  --trace      Enables tracing (VCD or FST)\n"
+                    "  --trace-file Specifies the trace file name (%s by "
+                    "default)\n",
+                    basename(argv[0]), traceFile);
+            return 0;
+        }
+    }
+
     Verilated::commandArgs(argc, argv);
 #ifdef VERILATOR_SIM_DEBUG
     Verilated::debug(99);
 #endif
     std::unique_ptr<V{{top}}> top(new V{{top}}(""));
-    Verilated::fatalOnVpiError(false);
+    Verilated::fatalOnVpiError(false);  // otherwise it will fail on systemtf
 
 #ifdef VERILATOR_SIM_DEBUG
     Verilated::internalsDump();
@@ -65,15 +99,17 @@ int main(int argc, char **argv) {
     VerilatedVpi::callCbs(cbStartOfSimulation);
 
 #if VM_TRACE
-    Verilated::traceEverOn(true);
 #if VM_TRACE_FST
     std::unique_ptr<VerilatedFstC> tfp(new VerilatedFstC);
 #else
     std::unique_ptr<VerilatedVcdC> tfp(new VerilatedVcdC);
 #endif
-    top->trace(tfp.get(), 99);
-    VL_PRINTF("Dumping traces to: %s\n", TRACE_FILENAME);
-    tfp->open(TRACE_FILENAME);
+
+    if (traceOn) {
+        Verilated::traceEverOn(true);
+        top->trace(tfp.get(), 99);
+        tfp->open(traceFile);
+    }
 #endif
 
     while (!Verilated::gotFinish()) {
@@ -90,7 +126,7 @@ int main(int argc, char **argv) {
         bool again = true;
         while (again) {
             // Evaluate design
-            top->eval();
+            top->eval_step();
 
             // Call Value Change callbacks triggered by eval()
             // These can modify signal values
@@ -103,21 +139,27 @@ int main(int argc, char **argv) {
             // These can modify signal values
             again |= settle_value_callbacks();
         }
+        top->eval_end_step();
 
         // Call ReadOnly callbacks
         VerilatedVpi::callCbs(cbReadOnlySynch);
 
 #if VM_TRACE
-        tfp->dump(main_time);
+        if (traceOn) {
+            tfp->dump(main_time);
+        }
 #endif
         // cocotb controls the clock inputs using cbAfterDelay so
         // skip ahead to the next registered callback
-        vluint64_t next_time = VerilatedVpi::cbNextDeadline();
+        const vluint64_t NO_TOP_EVENTS_PENDING = static_cast<vluint64_t>(~0ULL);
+        vluint64_t next_time_cocotb = VerilatedVpi::cbNextDeadline();
+        vluint64_t next_time_timing =
+            top->eventsPending() ? top->nextTimeSlot() : NO_TOP_EVENTS_PENDING;
+        vluint64_t next_time = std::min(next_time_cocotb, next_time_timing);
 
         // If there are no more cbAfterDelay callbacks,
         // the next deadline is max value, so end the simulation now
-        if (next_time == static_cast<vluint64_t>(~0ULL)) {
-            vl_finish(__FILE__, __LINE__, "");
+        if (next_time == NO_TOP_EVENTS_PENDING) {
             break;
         } else {
             main_time = next_time;
@@ -138,13 +180,16 @@ int main(int argc, char **argv) {
     top->final();
 
 #if VM_TRACE
-    tfp->close();
+    if (traceOn) {
+        tfp->close();
+    }
 #endif
 
 // VM_COVERAGE is a define which is set if Verilator is
 // instructed to collect coverage (when compiling the simulation)
 #if VM_COVERAGE
-    VerilatedCov::write("coverage.dat");
+    VerilatedCov::write();  // Uses +verilator+coverage+file+<filename>,
+                            // defaults to coverage.dat
 #endif
 
     return 0;
