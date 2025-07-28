@@ -13,7 +13,7 @@ from ...design import SourceType
 from ...flow import Flow
 from ...gtkwave import get_color
 from ...tool import Tool
-from ...utils import unique
+from ...utils import unique, expand_env_vars
 
 log = logging.getLogger(__name__)
 
@@ -196,12 +196,14 @@ class Bsc(Flow):
             bsc_flags.append("-quiet")
 
         vout_dir = self.settings.verilog_out_dir
+        vout_dir = expand_env_vars(vout_dir, {"PWD": None, "DESIGN_ROOT": self.design.root_path})
         bobj_dir = Path(self.settings.bobj_dir).absolute()
+        bobj_dir = expand_env_vars(bobj_dir, {"PWD": None, "DESIGN_ROOT": self.design.root_path})
         if self.settings.cleanup_bobjs and bobj_dir.exists():
             for bobj in bobj_dir.glob("*.bo"):
                 if bobj.is_file():
                     bobj.unlink()
-        bobj_dir.mkdir(exist_ok=True)
+        bobj_dir.mkdir(exist_ok=True, parents=True)
 
         bsc_flags += [
             "-steps-max-intervals",
@@ -304,6 +306,7 @@ class Bsc(Flow):
                 "-reset-prefix",
                 self.settings.reset_prefix,
             ]
+        log.info("Verilog output directory: %s", vout_dir)
         vout_dir.mkdir(exist_ok=True, parents=True)
 
         if verilog_sources:
