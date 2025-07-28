@@ -333,7 +333,6 @@ class FmaxOptimizer(Optimizer):
                 }
                 h = deep_hash(settings)
                 if h in self.batch_hashes:
-                    self.num_variations += 1
                     log.info(
                         "Skipping duplicate settings for frequency %0.3f MHz, hash %s",
                         freq,
