@@ -419,8 +419,39 @@ class Generator(XedaBaseModel):
     env: Optional[Dict[str, str]] = None
     # sweepable parameters used in command
     parameters: dict = {}
+    sources: List[Union[str, Path]] = Field(
+        default_factory=list,
+        description="List of design sources used by this generator",
+    )
+    run_only_if_sources_modified: bool = Field(
+        default=True,
+        description="If True, the generator will run only if either not all rtl.sources exist or one of the sources has a newer modification time than all the rtl.sources",
+    )
     # for xeda to know dependencies, clean previous artifacts, check after generation:
     generated_sources: List[str] = []
+
+    @validator("sources", pre=True, always=True)
+    def _sources_to_files(cls, value, values):
+        # sources can contain globs which are expanded
+        if isinstance(value, str):
+            value = [value]
+        sources: List[Path] = []
+        for src in unique(value):
+            if isinstance(src, str):
+                src = str(
+                    expand_env_vars(src, {"PWD": None, "DESIGN_ROOT": values.get("design_root")})
+                )
+                if "*" in src:
+                    sources.extend(Path(s).resolve() for s in glob(src))
+                else:
+                    sources.append(Path(src).resolve())
+            elif isinstance(src, Path):
+                sources.append(src)
+            else:
+                raise ValueError(f"Invalid source type: {type(src)} for source '{src}'")
+        # remove duplicates, but keep order
+        sources = unique(sources)
+        return sources
 
     def run(self):
         if self.command:
@@ -885,7 +916,9 @@ class Design(XedaBaseModel):
             design_root = Path.cwd()
         else:
             design_root = Path(design_root)
-        generator = data.get("rtl", {}).pop("generator", None)
+        rtl = data.get("rtl", {})
+        assert isinstance(rtl, dict), f"rtl must be a dictionary, but found {type(rtl)}"
+        generator = rtl.pop("generator", None)
         if generator:
             with WorkingDirectory(design_root):
                 env = os.environ.copy()
@@ -916,8 +949,41 @@ class Design(XedaBaseModel):
                             generator = Generator(**generator)
                     if generator.cwd is None:
                         generator.cwd = str(design_root)
-                    log.info("Running generator: %s", generator.name)
-                    generator.run()
+                    if generator.env is None:
+                        generator.env = os.environ.copy()
+                    if "DESIGN_ROOT" not in generator.env:
+                        generator.env["DESIGN_ROOT"] = str(design_root)
+                    skip_run = False
+                    rtl_sources = rtl.get("sources", [])
+                    if generator.run_only_if_sources_modified and generator.sources and rtl_sources:
+                        print(f"Generator sources: {generator.sources}")
+                        # check if rtl.sources exist and if they are newer than the generator sources
+                        if all(Path(src).exists() for src in rtl_sources):
+                            generator_sources_last_modified = max(
+                                Path(gen_src).stat().st_mtime for gen_src in generator.sources
+                            )
+                            if all(
+                                Path(src).stat().st_mtime >= generator_sources_last_modified
+                                for src in rtl_sources
+                            ):
+                                skip_run = True
+                                log.info(
+                                    "Skipping generator '%s' run, as all rtl.sources are newer than the generator sources",
+                                    generator.name,
+                                )
+                            else:
+                                log.info(
+                                    "Running generator '%s' as some rtl.sources are older than the generator sources",
+                                    generator.name,
+                                )
+                        else:
+                            log.info(
+                                "Running generator '%s' as not all rtl.sources exist",
+                                generator.name,
+                            )
+                    if not skip_run:
+                        log.info("Running generator: %s", generator.name)
+                        generator.run()
                 else:
                     args = generator
                     # gen_script = Path(args[0])
