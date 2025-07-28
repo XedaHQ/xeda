@@ -44,6 +44,7 @@ class Verilator(SimFlow):
         x_initial: str = "unique"
         x_assign: str = "unique"
         fst: Union[None, str, Path] = None
+        saif: Union[None, str, Path] = None
         threads: int = Field(
             0,
             description="0: not thread-safe, 1: thread-safe single thread, 2+: multithreaded",
@@ -53,6 +54,7 @@ class Verilator(SimFlow):
         trace_threads: Optional[int] = None
         trace_max_width: Optional[int] = 2048
         trace_max_array: Optional[int] = 2048
+        clean_before_run: bool = True
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
@@ -144,10 +146,11 @@ class Verilator(SimFlow):
         if ss.threads:
             args += ["--threads", ss.threads]
 
-        if isinstance(ss.optimize, (str, int)):
-            args += [f"-O{ss.optimize}"]
-        elif ss.optimize is True:
-            args += ["-O3"]
+        if ss.optimize:
+            if ss.optimize is True:
+                args += ["-O3"]
+            elif isinstance(ss.optimize, (str, int)):
+                args += [f"-O{ss.optimize}"]
 
         args += [
             "--x-initial",
@@ -176,9 +179,19 @@ class Verilator(SimFlow):
             args += [
                 "--trace-fst",
             ]
-
-        if ss.vcd or ss.fst:
-            model_args += ["--trace", "--trace-file", str(ss.fst if ss.fst else ss.vcd)]
+        elif ss.saif:
+            args += [
+                "--trace-saif",
+            ]
+        trace = ss.vcd or ss.fst or ss.saif
+        if trace:
+            model_args.append("--trace")
+            if isinstance(trace, (str, Path)):
+                trace = str(os.path.abspath(trace))
+                model_args += ["--trace-file", trace]
+                log.info("Will generate trace file %s", trace)
+            else:
+                log.info("Will generate trace file in %s", ss.sim_dir)
             if ss.trace_threads:
                 args += ["--trace-threads", ss.trace_threads]
             if ss.trace_underscore:
@@ -244,5 +257,9 @@ class Verilator(SimFlow):
 
     def clean(self):
         assert isinstance(self.settings, self.Settings)
-        if self.settings.sim_dir and os.path.exists(self.settings.sim_dir):
+        if (
+            self.settings.clean_before_run
+            and self.settings.sim_dir
+            and os.path.exists(self.settings.sim_dir)
+        ):
             shutil.rmtree(self.settings.sim_dir)
