@@ -39,6 +39,6 @@ yosys write_blif -noalias {{settings.write_blif}}
 {% endif -%}
 
 {% if settings.netlist_graph -%}
-yosys log -stdout "Writing netlist graph to {{settings.netlist_graph.with_suffix('dot')}}"
+yosys log -stdout "Writing netlist graph to {{settings.netlist_graph.with_suffix('.dot')}}"
 yosys show -prefix {{settings.netlist_graph.with_suffix("")}} -format dot {{settings.netlist_graph_flags|join(" ")}}
 {% endif -%}
