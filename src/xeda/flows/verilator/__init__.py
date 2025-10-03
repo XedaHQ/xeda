@@ -160,9 +160,6 @@ class Verilator(SimFlow):
         ]
 
         cflags = list(ss.cflags)  # copy
-        if sys.platform == "darwin":
-            if ss.timing:
-                cflags += ["-std=c++2a", "-fcoroutines-ts"]
 
         if self.cocotb:
             if verilator.docker is not None:
@@ -187,7 +184,7 @@ class Verilator(SimFlow):
         if trace:
             model_args.append("--trace")
             if isinstance(trace, (str, Path)):
-                trace = str(os.path.abspath(trace))
+                trace = str(self.process_path(trace, subs_vars=True))
                 model_args += ["--trace-file", trace]
                 log.info("Will generate trace file %s", trace)
             else:
