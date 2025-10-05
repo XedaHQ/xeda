@@ -13,9 +13,9 @@ from fabric import Connection
 from fabric.transfer import Transfer
 
 from ..design import Design, DesignSource
-from ..utils import XedaException, hierarchical_merge, dump_json, settings_to_dict
+from ..utils import XedaException, hierarchical_merge, dump_json, settings_to_dict, semantic_hash
 from ..version import __version__
-from .default_runner import FlowLauncher, print_results, semantic_hash
+from .default_runner import FlowLauncher, print_results
 
 log = logging.getLogger(__name__)
 

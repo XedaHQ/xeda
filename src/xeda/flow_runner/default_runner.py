@@ -35,7 +35,7 @@ from ..utils import (
     settings_to_dict,
     snakecase_to_camelcase,
     unique,
-    semantic_hash
+    semantic_hash,
 )
 from ..version import __version__
 from ..xedaproject import XedaProject

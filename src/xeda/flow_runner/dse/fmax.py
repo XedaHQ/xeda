@@ -186,9 +186,9 @@ class FmaxOptimizer(Optimizer):
                     #         * random.uniform(0.5, 0.9)
                     #     )
                     # else:
-                        # no variations or too many failures, just binary search
-                        self.hi_freq = (self.hi_freq + best_freq) / 2 + delta
-                        log.info("Lowering hi_freq to %0.2f", self.hi_freq)
+                    # no variations or too many failures, just binary search
+                    self.hi_freq = (self.hi_freq + best_freq) / 2 + delta
+                    log.info("Lowering hi_freq to %0.2f", self.hi_freq)
                 else:
                     self.hi_freq = best_freq + self.num_variations * resolution
                     log.warning(
