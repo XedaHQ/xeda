@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import tempfile
 from pathlib import Path
 
@@ -11,8 +12,6 @@ debug = False
 
 
 def test_yosys_synth_py() -> None:
-    # settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
-    # run_dir = "tests_run_dir"
     design_paths = [
         EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml",
         EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium.xeda.yaml",
