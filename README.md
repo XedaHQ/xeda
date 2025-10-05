@@ -11,7 +11,7 @@ For further details, visit the [Xeda's documentations](http://xeda.rtfd.io/) (Wo
 
 ## Installation
 
-Python 3.9 or newer is required. You can install the latest published version from [pypi](https://pypi.org/project/xeda). If you only need the command line interface, you can install xeda using [pipx](https://pipx.pypa.io/stable/).
+Python 3.10 or newer is required. You can install the latest published version from [pypi](https://pypi.org/project/xeda). If you only need the command line interface, you can install xeda using [pipx](https://pipx.pypa.io/stable/).
 
 ```
 pipx install --force xeda

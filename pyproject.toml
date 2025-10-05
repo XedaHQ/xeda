@@ -2,7 +2,7 @@
 name = "xeda"
 description = "Cross EDA Abstraction and Automation"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dynamic = ["version"]
 license = { file = "LICENSE.txt" }
 keywords = [
@@ -25,7 +25,6 @@ authors = [ #
     { name = "Kamyar Mohajerani", email = "kammoh@gmail.com" },
 ]
 classifiers = [
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
