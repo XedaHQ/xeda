@@ -112,6 +112,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         set_impl_properties: Dict[str, str] = Field(
             {}, description="Set properties for implementation. "
         )
+        report_power: bool = Field(False, description="Run power estimation after implementation")
 
         @validator("fpga")
         def _validate_fpga(cls, value):
@@ -330,6 +331,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         for log_file in self.run_path.glob("**/*.log"):
             if log_file.is_file():
+                log_file = log_file.relative_to(self.run_path)
                 self.artifacts[str(log_file)] = log_file
 
         if self.settings.bitstream is not None:

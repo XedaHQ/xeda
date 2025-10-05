@@ -50,6 +50,10 @@ if {$ACTIVE_STEP == "route_design"} {
   write_qor_suggestions -quiet -strategy_dir  ./strategy_suggestions -force ./qor_suggestions.rqs
   {%- endif %}
 
+  {%- if settings.report_power %}
+  report_power -quiet -file [file join ${reports_dir} power.xml] -format xml
+  {%- endif %}
+
   file mkdir ${outputs_dir}
   {% if settings.write_netlist -%}
   puts "\n==========================( Writing netlists and SDF to ${outputs_dir}  )=========================="
@@ -67,7 +71,7 @@ if {$ACTIVE_STEP == "route_design"} {
   write_bitstream -force { {{-settings.bitstream-}} }
   {% endif -%}
 
-  if { $timing_slack < 0.000 } {
+  if { $timing_slack != "" && $timing_slack < 0.000 } {
     puts "\n=========( ERROR: Failed to meet timing by $timing_slack )=========="
     error "Failed to meet timing by $timing_slack, see [file join ${reports_dir} post_route timing_summary.rpt] for details"
     {%- if settings.fail_timing %}
