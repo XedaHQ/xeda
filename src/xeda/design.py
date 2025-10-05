@@ -146,7 +146,7 @@ class FileResource:
                 if not _root_path:
                     _root_path = Path.cwd()
                 path = _root_path / path
-            self.file = path.resolve(strict=True) if resolve else path.absolute()
+            self.file = path.resolve(strict=False) if resolve else path.absolute()
         except FileNotFoundError as e:
             log.error("Design resource '%s' does not exist!", path)
             raise e
@@ -181,18 +181,19 @@ class FileResource:
 
 
 class SourceType(str, Enum):
+    Verilog = auto()
+    VerilogHeader = auto()
+    SystemVerilog = auto()
+    SVHeader = auto()
+    Vhdl = auto()
     Bluespec = auto()
+    Xdc = auto()
+    Sdc = auto()
+    MemoryFile = auto()
+    Tcl = auto()
     Chisel = auto()
     Cpp = auto()
     Cocotb = auto()
-    Sdc = auto()
-    Xdc = auto()
-    SystemVerilog = auto()
-    Tcl = auto()
-    Verilog = auto()
-    VerilogHeader = auto()
-    Vhdl = auto()
-    MemoryFile = auto()
 
     def __str__(self) -> str:
         return str(self.name)
@@ -238,6 +239,7 @@ class DesignSource(FileResource):
                 (SourceType.Vhdl, None): ["vhd", "vhdl"],
                 (SourceType.Verilog, None): ["v"],
                 (SourceType.VerilogHeader, None): ["vh"],
+                (SourceType.SVHeader, None): ["svh"],
                 (SourceType.SystemVerilog, None): ["sv"],
                 (SourceType.Bluespec, "bsv"): ["bsv"],
                 (SourceType.Bluespec, "bh"): ["bs", "bh"],
@@ -484,22 +486,34 @@ class Generator(XedaBaseModel):
 class ChiselGenerator(Generator):
     main: Optional[str] = None
     project: Optional[str] = None
-    build_system: Optional[str] = None
+    build_system: str = "mill"
     check: bool = True
 
     def run(self):
         if self.build_system == "mill":
             return self.run_mill()
-        if self.build_system == "bloop":
+        elif self.build_system == "bloop":
             return self.run_bloop()
+        else:
+            raise Exception(f"Unsupported build system: {self.build_system}")
 
     def run_mill(self):
         # if file ./mill or ./millw exists, use it, otherwise use mill from PATH
-        mill_exec = Path("millw")
-        if not mill_exec.exists():
-            mill_exec = Path("mill")
-
-        # run "mill_exec" {project} {main_class} {args}
+        mill_exec = "./mill"
+        if not Path(mill_exec).exists():
+            mill_exec = "mill"
+        if not self.project:
+            ValueError("`project` must be specified for Chisel generator")
+        cmd = [mill_exec]
+        if self.main:
+            cmd += [f"{self.project}.runMain", self.main]
+        else:
+            cmd.append(f"{self.project}.run")
+        if self.args:
+            if isinstance(self.args, str):
+                self.args = self.args.split()
+            cmd += self.args
+        return self.run_cmd(cmd)
 
     def run_bloop(self):
         if self.project is None:
@@ -925,7 +939,7 @@ class Design(XedaBaseModel):
                 if "DESIGN_ROOT" not in env:
                     env["DESIGN_ROOT"] = str(design_root)
                 if isinstance(generator, str):
-                    log.info("Running generator: %s", generator)
+                    log.info("Running generator command: %s", generator)
                     exit_code = subprocess.call(
                         generator,
                         shell=True,
