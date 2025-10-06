@@ -37,7 +37,7 @@ classifiers = [
 ]
 dependencies = [
     "jinja2              ~= 3.1",
-    "pydantic            >= 1.10.22, < 2.0",
+    "pydantic            >= 1.10.22, < 3.0",
     "tomli               ~= 2.0; python_version<'3.11'",
     "python-box[]        ~= 7.2",
     "attrs               ~= 25.3.0",
