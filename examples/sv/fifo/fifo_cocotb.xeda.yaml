@@ -1,0 +1,14 @@
+sources:
+  - fifo.sv
+top: fifo
+
+clock.port: clk
+
+tb:
+  sources:
+    - fifo_tb.py
+  top: fifo_tb
+
+flows:
+  verilator:
+    timing: false

@@ -1,7 +1,6 @@
 import logging
 import os
 import shutil
-import sys
 from glob import glob
 from pathlib import Path
 from random import randint
@@ -67,7 +66,7 @@ class Verilator(SimFlow):
             docker="xeda-verilator",
         )
 
-        top = self.design.sim_tops[0] if self.design.sim_tops else None
+        top = None # self.design.sim_tops[0] if self.design.sim_tops else None
         verilated_bin = os.path.join(ss.sim_dir, top or "top")
 
         compile_args = ss.compile_args
@@ -116,7 +115,7 @@ class Verilator(SimFlow):
         if top:
             args += ["--top-module", top]
         else:
-            args += ["--prefix", "top"]
+            args += ["--prefix", "Vtop"]
 
         args += [
             "-o",
@@ -231,7 +230,20 @@ class Verilator(SimFlow):
                 f"-Wl,-rpath,{lib_dir} -L{lib_dir} -lcocotbvpi_verilator",
             ]
             env = self.cocotb.env(self.design)
-            cocotb_cpp = self.copy_from_template("cocotb_verilator.cpp", top=top or "top")
+            cocotb_cpp = None
+            coco_share_dir = self.cocotb.share_dir
+            if coco_share_dir:
+                cocotb_cpp_path = Path(coco_share_dir) / "lib" / "verilator" / "verilator.cpp"
+                if cocotb_cpp_path.exists():
+                    log.debug("Using cocotb verilator.cpp from %s", cocotb_cpp_path)
+                    sim_dir = Path(ss.sim_dir)
+                    sim_dir.mkdir(parents=True, exist_ok=True)
+                    cocotb_cpp = Path(
+                        shutil.copy(cocotb_cpp_path, sim_dir / "cocotb_verilator.cpp")
+                    )
+                    assert cocotb_cpp.exists()
+            if cocotb_cpp is None:
+                cocotb_cpp = self.copy_from_template("cocotb_verilator.cpp", top=top or "top")
             sources.append(cocotb_cpp)
 
         verilator.run(*args, *sources)

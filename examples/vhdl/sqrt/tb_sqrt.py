@@ -2,14 +2,15 @@ import os
 import random
 
 import cocotb
-from cocolight import DUT, DutClock, DutReset, ValidReadyTb, cocotest
+from cocotb.handle import HierarchyObject
+from cocolight import DutClock, DutReset, ValidReadyTb
 
 NUM_TV = int(os.environ.get("NUM_TV", 2000))
 DEBUG = bool(os.environ.get("DEBUG", False))
 
 
 class SqrtTb(ValidReadyTb):
-    def __init__(self, dut: DUT, debug: bool = DEBUG):
+    def __init__(self, dut: HierarchyObject, debug: bool = DEBUG):
         super().__init__(dut, DutClock("clk"), DutReset("rst"), debug)
         self.in_bus = self.driver("in", data_suffix="data")
         self.out_bus = self.monitor("out", data_suffix=["data_root", "data_rem"])
@@ -28,8 +29,8 @@ class SqrtTb(ValidReadyTb):
         self.log.debug("radicand=%d got root=%d remainder=%d", rad, root, remainder)
 
 
-@cocotest()
-async def test_sqrt_corners(dut: DUT, debug=False):
+@cocotb.test
+async def test_sqrt_corners(dut: HierarchyObject, debug=False):
     tb = SqrtTb(dut, debug=debug)
     await tb.reset()
     tb.log.info("DUT: %s", str(dut))
@@ -44,9 +45,8 @@ async def test_sqrt_corners(dut: DUT, debug=False):
     for rad in testcases:
         await tb.verify(rad)
 
-
-@cocotest
-async def test_sqrt(dut: DUT, num_tests: int = NUM_TV, debug=DEBUG):
+@cocotb.test
+async def test_sqrt(dut: HierarchyObject, num_tests: int = NUM_TV, debug=DEBUG):
     tb = SqrtTb(dut, debug=debug)
     await tb.reset()
     # get bound parameters/generics from the simulator

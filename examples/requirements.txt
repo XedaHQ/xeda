@@ -1,6 +1,6 @@
-cocotb      @ git+https://github.com/cocotb/cocotb.git@stable/1.9
-
-cocotb     >= 1.9.2
-setuptools >= 65.0
+cocotb          ~= 2.0.0
+cocotb-coverage ~= 2.0.0
+setuptools      >= 65.0
+pytest          >= 8.0
 # cocolight>=0.0.3
-cocolight   @ git+https://github.com/kammoh/cocolight.git#egg=cocolight
+cocolight       @ git+https://github.com/kammoh/cocolight.git

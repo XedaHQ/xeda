@@ -618,7 +618,7 @@ class FlowLauncher:
         self,
         flow_class: Union[str, Type[Flow]],
         design: Design,
-        flow_settings: Union[None, Dict[str, Any], Flow.Settings],
+        flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
         depender: Optional[Flow] = None,
         copy_resources: List[str] = [],
         run_path: Optional[Path] = None,

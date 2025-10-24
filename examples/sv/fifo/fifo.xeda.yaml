@@ -1,0 +1,17 @@
+sources:
+  - fifo.sv
+top: fifo
+
+clock.port: clk
+
+tb:
+  sources:
+    - fifo_tb.sv
+    # - tb/fifo_tb.py
+  # cocotb: true
+  # top: fifo_tb
+
+flows:
+  verilator:
+    timing: true
+    vcd: $PWD/fifo.vcd
