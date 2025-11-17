@@ -1,4 +1,4 @@
-cocotb          ~= 2.0.0
+cocotb          ~= 2.0.1
 cocotb-coverage ~= 2.0.0
 setuptools      >= 65.0
 pytest          >= 8.0
