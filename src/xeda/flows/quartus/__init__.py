@@ -77,7 +77,7 @@ class Quartus(FpgaSynthFlow):
         executable="quartus_sh",
         docker=Docker(
             command=["quartus_wrapper", "quartus_sh"],
-            image="chriz2600/quartus-lite",
+            image="alterafpga/quartuspro-v25.3",
             tag="20.1.0",
             platform="linux/amd64",
         ),  # pyright: ignore
