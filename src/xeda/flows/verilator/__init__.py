@@ -11,6 +11,7 @@ from pydantic import Field
 from ...design import SourceType
 from ...flow import SimFlow
 from ...tool import Tool
+from ...utils import unique
 
 log = logging.getLogger(__name__)
 
@@ -66,12 +67,15 @@ class Verilator(SimFlow):
             docker="xeda-verilator",
         )
 
-        top = None # self.design.sim_tops[0] if self.design.sim_tops else None
+        top = None  # self.design.sim_tops[0] if self.design.sim_tops else None
         verilated_bin = os.path.join(ss.sim_dir, top or "top")
 
         compile_args = ss.compile_args
         parameters = self.design.tb.parameters
-        defines: Dict[str, Any] = dict()
+        defines: Dict[str, Any] = self.design.rtl.defines
+
+        # use any self.design.tb.defines to override rtl defines
+        defines.update(self.design.tb.defines)
 
         args: List[Any] = []
 
@@ -181,13 +185,14 @@ class Verilator(SimFlow):
             ]
         trace = ss.vcd or ss.fst or ss.saif
         if trace:
-            model_args.append("--trace")
-            if isinstance(trace, (str, Path)):
+            if self.cocotb:
+                model_args.append("--trace")
+            if self.cocotb and isinstance(trace, (str, Path)):
                 trace = str(self.process_path(trace, subs_vars=True))
                 model_args += ["--trace-file", trace]
                 log.info("Will generate trace file %s", trace)
             else:
-                log.info("Will generate trace file in %s", ss.sim_dir)
+                log.info("Trace generation is enabled. Working directory is %s", ss.sim_dir)
             if ss.trace_threads:
                 args += ["--trace-threads", ss.trace_threads]
             if ss.trace_underscore:
@@ -210,9 +215,18 @@ class Verilator(SimFlow):
 
         env = None
 
+        include_dirs = unique(
+            ss.include_dirs
+            + [
+                str(src.path.parent)
+                for src in self.design.rtl.sources
+                if src.type in (SourceType.VerilogHeader, SourceType.SVHeader)
+            ]
+        )
+
         args += compile_args
         args += [f"-D{k}" if v is None else f"-D{k}={v}" for k, v in defines.items()]
-        args += [f"-I{dir}" for dir in ss.include_dirs]
+        args += [f"-I{dir}" for dir in include_dirs]
         args += [f"-G{name}={value}" for name, value in parameters.items()]
 
         # read verilog libs
