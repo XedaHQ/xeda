@@ -2,11 +2,12 @@ import json
 import logging
 import os
 import socket
+import sys
 import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, IO, Optional, Tuple, Union
 
 import execnet
 from fabric import Connection
@@ -129,6 +130,11 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
         post_cleanup=False,
         display_results=False,
     )
+    # NOTE: this function's *source* is shipped to the remote host and executed
+    # there against whatever xeda version is installed remotely, so it must not
+    # depend on APIs newer than that install. Live output streaming is set up
+    # separately, at the file-descriptor level, by `STREAM_OUTPUT_SETUP` (pure
+    # stdlib, no xeda involvement) -- see `RemoteRunner.run_remote`.
     f = launcher.run(
         flow,
         design=design_file,
@@ -162,12 +168,144 @@ def get_login_env(conn: Connection) -> Dict[str, str]:
 
 
 class RemoteLogger:
+    """Echoes data received from a remote output-forwarding execnet channel to a
+    local stream, live, as each message arrives."""
 
-    def cb(self, data):
+    def __init__(self, stream: IO[str], label: str = "remote"):
+        self.stream = stream
+        self.label = label
+
+    def cb(self, data: Optional[str]) -> None:
         if data is None:
-            log.info("Remote channel closed.")
+            log.debug("Remote %s channel closed.", self.label)
             return
-        print(data, end="")
+        self.stream.write(data)
+        self.stream.flush()
+
+
+# Executed on the remote host, in the gateway (worker) process, to stream the
+# flow's output back live.
+#
+# It takes over the worker's stdout/stderr *file descriptors* (1 and 2) rather
+# than the Python-level `sys.stdout`/`sys.stderr` objects, because that is what
+# a spawned EDA tool actually inherits. execnet's own bootstrap
+# (`execnet.gateway_base.init_popen_io`) has already `dup`ed the real fd 1 aside
+# for its wire protocol and pointed fd 1 at /dev/null, so fds 1/2 are free for
+# us to claim -- and anything the flow writes to them, directly or from any
+# subprocess it spawns, then lands in our pty and is forwarded here line by
+# line as it is produced.
+#
+# IMPORTANT: this runs against whatever xeda happens to be installed on the
+# remote host, which may be older than the local one. It therefore uses only
+# the standard library and must stay free of any xeda import, so that live
+# output streaming never depends on the remote xeda version.
+STREAM_OUTPUT_SETUP = r"""
+import os
+import sys
+import threading
+
+
+def _open_stream_pair():
+    # A pty (rather than a pipe) so that tools which only line-buffer when
+    # attached to a terminal keep doing so, and their output arrives here
+    # incrementally instead of in big blocks. Returns (read_fd, write_fd).
+    try:
+        import pty
+        import termios
+    except ImportError:  # non-POSIX remote: fall back to a plain pipe
+        return os.pipe()
+    read_fd, write_fd = pty.openpty()
+    try:
+        # Turn off output post-processing entirely, so the pty cannot rewrite
+        # what the tool wrote (by default it would at least turn every '\n'
+        # into '\r\n'). We want it to look like a terminal purely so tools keep
+        # line-buffering -- the bytes themselves must come through untouched,
+        # so what you see locally is what the tool actually printed.
+        attrs = termios.tcgetattr(write_fd)
+        attrs[1] &= ~termios.OPOST
+        termios.tcsetattr(write_fd, termios.TCSANOW, attrs)
+    except Exception:
+        pass  # the pump drops any redundant CR that slips through anyway
+    return read_fd, write_fd
+
+
+def _pump(read_fd, out_channel):
+    # A carriage return immediately next to a newline carries no information:
+    # after a '\n' the cursor is already at the start of a line. Drop those, so
+    # each line of remote output renders as exactly one line here.
+    #
+    # This has to happen on this side of the wire rather than in the remote's
+    # xeda: the remote may be running an older xeda whose `run_process` prints
+    # each already-newline-terminated line with `end="\r"`, emitting "\n\r" per
+    # line -- which is what made every line of tool output come out with a
+    # blank line after it. We cannot patch the xeda installed over there, but
+    # this code is shipped from here, so it works against any remote version.
+    #
+    # A LONE '\r' is left untouched: tools use it to redraw a progress line in
+    # place, and dropping it would turn a progress bar into a wall of lines.
+    after_newline = False
+    while True:
+        try:
+            data = os.read(read_fd, 4096)
+        except OSError:
+            break  # EIO: last writer of the pty slave closed == EOF
+        if not data:
+            break
+        text = data.decode("utf-8", "replace")
+        # ...also when the '\n' ended the previous chunk and the '\r' starts
+        # this one. Only one flag of state is needed, so no output is ever held
+        # back waiting for more input, and streaming stays live.
+        if after_newline:
+            text = text.lstrip("\r")
+        after_newline = text.endswith("\n")
+        text = text.replace("\n\r", "\n").replace("\r\n", "\n")
+        if text:
+            out_channel.send(text)
+    out_channel.close()
+
+
+outchan = channel.gateway.newchannel()
+errchan = channel.gateway.newchannel()
+
+out_r, out_w = _open_stream_pair()
+err_r, err_w = _open_stream_pair()
+
+# keep the worker's original fds so they can be restored on teardown
+saved_out, saved_err = os.dup(1), os.dup(2)
+
+sys.stdout.flush()
+sys.stderr.flush()
+os.dup2(out_w, 1)
+os.dup2(err_w, 2)
+os.close(out_w)
+os.close(err_w)
+
+pumps = [
+    threading.Thread(target=_pump, args=(out_r, outchan), daemon=True),
+    threading.Thread(target=_pump, args=(err_r, errchan), daemon=True),
+]
+for pump in pumps:
+    pump.start()
+
+channel.send((outchan, errchan))
+
+channel.receive()  # blocks until the local side signals the run is over
+
+# Restore the original fds. That drops the last writer of each pty slave, so
+# the pumps see EOF and drain whatever is still buffered before exiting.
+sys.stdout.flush()
+sys.stderr.flush()
+os.dup2(saved_out, 1)
+os.dup2(saved_err, 2)
+os.close(saved_out)
+os.close(saved_err)
+for pump in pumps:
+    pump.join(10)
+os.close(out_r)
+os.close(err_r)
+
+channel.send("stopped")  # local side waits for this, so no output is lost
+"""
 
 
 class RemoteRunner(FlowLauncher):
@@ -288,17 +426,12 @@ class RemoteRunner(FlowLauncher):
         dump_json(all_settings, settings_json, backup=self.settings.backups)
         results = None
 
-        receiver = RemoteLogger()
-
-        outchan = gw.remote_exec(
-            """
-            import sys
-            outchan = channel.gateway.newchannel()
-            sys.stderr = sys.stdout = outchan.makefile("w")
-            channel.send(outchan)
-        """
-        ).receive()
-        outchan.setcallback(receiver.cb, endmarker=None)
+        # Stream the remote flow's output (its own, and that of every tool it
+        # spawns) back to this terminal live, line by line, as it is produced.
+        stream_channel = gw.remote_exec(STREAM_OUTPUT_SETUP)
+        outchan, errchan = stream_channel.receive()
+        outchan.setcallback(RemoteLogger(sys.stdout, label="stdout").cb, endmarker=None)
+        errchan.setcallback(RemoteLogger(sys.stderr, label="stderr").cb, endmarker=None)
 
         try:
             results_channel = gw.remote_exec(
@@ -316,6 +449,18 @@ class RemoteRunner(FlowLauncher):
             results_channel.waitclose()
         except execnet.gateway_base.RemoteError as e:
             log.critical("Remote exception: %s", e.formatted)
+        finally:
+            # Tear the redirection down and wait for the remote pumps to drain,
+            # so trailing output can't be lost -- and so it can't land in the
+            # middle of the results table printed below. Best-effort: if the
+            # remote died, teardown will fail too, and that must not mask the
+            # actual failure.
+            try:
+                stream_channel.send("stop")
+                stream_channel.receive()
+                stream_channel.waitclose()
+            except (EOFError, OSError, execnet.gateway_base.RemoteError) as e:
+                log.debug("Could not cleanly stop remote output streaming: %s", e)
 
         if results:
             print_results(
