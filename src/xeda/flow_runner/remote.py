@@ -325,6 +325,7 @@ class RemoteRunner(FlowLauncher):
             )
 
             artifacts = results.get("artifacts")
+            artifacts_orig = artifacts
             remote_run_path = results.get("run_path")
 
             local_artifacts_dir = run_path / "artifacts"
@@ -335,6 +336,8 @@ class RemoteRunner(FlowLauncher):
                     artifacts = list(artifacts.values())
                 local_artifacts_dir.mkdir(exist_ok=True, parents=True)
                 num_transferred = 0
+                # remote path -> local path, used to rewrite `results["artifacts"]` below
+                remote_to_local: Dict[str, str] = {}
 
                 # TODO: compress artifacts in a single Zip file before transfer, unzip after transfer
                 # conn.sftp().chdir(remote_run_path)
@@ -363,6 +366,7 @@ class RemoteRunner(FlowLauncher):
                     assert local_path.is_relative_to(local_artifacts_dir)
                     result = conn.get(remote_path, str(local_path))
                     log.debug("Transferred artifact %s to %s", f, result.local)
+                    remote_to_local[f] = str(local_path)
                     num_transferred += 1
                 if num_transferred > 0:
                     log.info(
@@ -370,6 +374,23 @@ class RemoteRunner(FlowLauncher):
                         num_transferred,
                         local_artifacts_dir.relative_to(Path.cwd()),
                     )
+
+                # rewrite reported artifact paths to point at the local copies, preserving
+                # the original list/dict shape
+                if isinstance(artifacts_orig, dict):
+                    results["artifacts"] = {
+                        k: remote_to_local.get(v, v) if isinstance(v, str) else v
+                        for k, v in artifacts_orig.items()
+                    }
+                else:
+                    results["artifacts"] = [
+                        remote_to_local.get(f, f) if isinstance(f, str) else f
+                        for f in artifacts_orig
+                    ]
+
+            # the remote run_path no longer exists locally; report the local copy's path instead
+            if "run_path" in results:
+                results["run_path"] = str(run_path)
 
             dump_json(results, results_json_path, backup=True)
             log.info("Results written to %s", results_json_path)
