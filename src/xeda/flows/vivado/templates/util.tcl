@@ -1,8 +1,8 @@
-proc reportCriticalPaths {fileName} {
+proc reportCriticalPaths {fileName num_paths} {
   set FH [open $fileName w]
   puts $FH "Startpoint,StartClock,Endpoint,EndClock,Slack,Levels,LogicDelay,TotalDelay"
   # (max = setup/recovery, min = hold/removal)
-  foreach path [get_timing_paths -delay_type max -max_paths 50 -nworst 1] {
+  foreach path [get_timing_paths -delay_type max -max_paths $num_paths -nworst 1] {
     set startpoint [get_property STARTPOINT_PIN $path]
     set startclock [get_property STARTPOINT_CLOCK $path]
     set endpoint [get_property ENDPOINT_PIN $path]

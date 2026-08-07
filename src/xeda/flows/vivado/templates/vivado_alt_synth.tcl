@@ -83,7 +83,7 @@ write_checkpoint -force ${checkpoints_dir}/post_synth
 {%- endif %}
 report_timing_summary -file ${reports_dir}/post_synth/timing_summary.rpt
 report_utilization -hierarchical -force -file ${reports_dir}/post_synth/hierarchical_utilization.rpt
-# reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv
+# reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv 100
 # report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 
 {# post-synth and post-place power optimization steps are mutually exclusive! #}
@@ -159,7 +159,7 @@ file mkdir ${rep_dir}
 set timing_summary_file [file join ${rep_dir} timing_summary.rpt]
 report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file ${timing_summary_file}
 report_timing         -no_header -input_pins  -unique_pins -sort_by group -max_paths 100 -path_type full -delay_type min_max -file [file join ${rep_dir} timing.rpt]
-reportCriticalPaths                [file join ${rep_dir} critpath_report.csv]
+reportCriticalPaths                [file join ${rep_dir} critpath_report.csv] 100
 report_utilization                 -file [file join ${rep_dir} utilization.rpt]
 report_utilization                 -file [file join ${rep_dir} utilization.xml] -format xml
 report_utilization -hierarchical   -file [file join ${rep_dir} hierarchical_utilization.xml] -format xml
