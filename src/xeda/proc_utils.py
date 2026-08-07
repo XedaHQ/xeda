@@ -8,6 +8,7 @@ import select
 import signal
 import subprocess
 import sys
+import termios
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
@@ -16,6 +17,47 @@ import colorama
 from .utils import ExecutableNotFound, NonZeroExitCode
 
 log = logging.getLogger(__name__)
+
+
+def _stdout_terminal_fd() -> Optional[int]:
+    """The terminal we write to *directly*, or None if stdout is not one.
+
+    Deliberately does not fall back to stdin or the controlling terminal. When
+    our output goes through a pipe, some other program decides how it reaches a
+    terminal -- and a wrapper that reads us line by line (a shell script, `tee`,
+    Scala's `ProcessOutput.Readlines`, `for line in proc.stdout`) strips our
+    line endings and re-emits its own. A carriage return we added would then
+    never reach the terminal anyway, and worse, a lone '\\r' counts as a line
+    terminator to those readers, so it would show up as a blank line after
+    every line of output.
+    """
+    try:
+        if sys.stdout.isatty():
+            return sys.stdout.fileno()
+    except (AttributeError, ValueError, OSError):
+        pass
+    return None
+
+
+def _needs_explicit_carriage_return(terminal_fd: Optional[int]) -> bool:
+    """True when the terminal will not turn a '\\n' into CR+LF by itself.
+
+    A tool that takes over the terminal -- notably anything run through
+    `docker -t -i`, which is how vivado is commonly wrapped -- switches it into
+    raw mode while it runs. A bare '\\n' then moves the cursor down a line
+    without returning the carriage, so output walks diagonally down the screen
+    unless each line is followed by an explicit carriage return.
+    """
+    if terminal_fd is None:
+        return False
+    try:
+        oflag = termios.tcgetattr(terminal_fd)[1]
+    except (termios.error, OSError, ValueError):
+        return False
+    # The terminal only expands NL to CR+LF when output post-processing is on
+    # *and* ONLCR is set; raw mode typically clears OPOST and leaves the ONLCR
+    # bit itself untouched, so both have to be checked.
+    return not (oflag & termios.OPOST and oflag & termios.ONLCR)
 
 
 def proc_output(is_stderr: bool, line):
@@ -64,13 +106,18 @@ def run_process(
         ) as proc:
             assert proc.stdout is not None, f"Popen for '{cmd_str}' failed: stdout is None!"
 
+            terminal_fd = _stdout_terminal_fd()
             with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
                 for line in proc_stdout:
                     for re_pat, subs in highlight_rules_re.items():
                         line, matches = re_pat.subn(subs + colorama.Style.RESET_ALL, line, count=1)
                         if matches > 0:
                             break
-                    print(line, end="\r")
+                    # Re-checked per line rather than once up front: a tool can
+                    # switch the terminal into raw mode while it runs and restore
+                    # it on exit, so this is not fixed for the duration of the
+                    # call. The check costs well under a microsecond.
+                    print(line, end="\r" if _needs_explicit_carriage_return(terminal_fd) else "")
             ret = proc.wait()
             if check and ret != 0:
                 raise NonZeroExitCode(command, ret)
