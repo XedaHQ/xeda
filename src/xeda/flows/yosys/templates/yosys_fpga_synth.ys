@@ -1,0 +1,54 @@
+logger -notime -stderr
+{% include 'read_files.ys' -%}
+
+{% if settings.prep is not none -%}
+prep {%- if settings.flatten %} -flatten {%- endif %} {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %} {{settings.prep|join(" ")}}
+{% else %}
+proc
+{% if settings.flatten -%}
+flatten
+{% endif -%}
+{% endif -%}
+
+{% include "post_rtl.ys" -%}
+{#- yosys scripts have no `exit`, so stop_after=="rtl" simply omits the rest #}
+{% if settings.stop_after != "rtl" -%}
+
+{% if settings.pre_synth_opt -%}
+log -stdout ** Pre-synthesis optimization **
+opt -undriven -purge -keepdc -noff
+{% endif -%}
+
+opt_clean -purge
+
+{% if settings.abc9 -%}
+{% if settings.flow3 -%} scratchpad -copy abc9.script.flow3 abc9.script {%- endif %}
+{# decrease the target delay to account for interconnect delay #}
+{% if settings.main_clock and settings.main_clock.period_ps -%} scratchpad -set abc9.D {{settings.main_clock.period_ps / 1.5}} {%- endif %}
+{% endif -%}
+
+log -stdout ** FPGA synthesis for device {{settings.fpga}} **
+{% if settings.fpga.vendor == "xilinx" -%}
+log -stdout *** Target: Xilinx {%if settings.fpga.part%} {{settings.fpga.part}} {%else%} {{settings.fpga.device}} {%endif%} ***
+synth_xilinx {% if settings.fpga.family %} -family {{"xc7" if settings.fpga.family.endswith("7") else settings.fpga.family}} {% endif %} {{settings.synth_flags|join(" ")}}
+{% elif settings.fpga.family %}
+log -stdout *** Target: {{settings.fpga.family}} ***
+synth_{{settings.fpga.family}} {{settings.synth_flags|join(" ")}} {% if design.rtl.top %} -top {{design.rtl.top}}{% endif %}
+{% else %}
+log -stdout [ERROR] Unknown FPGA vendor, family, or device
+{% endif -%}
+
+
+{% if settings.post_synth_opt -%}
+log -stdout ** Post-synthesis optimization **
+opt -full -fine -purge -sat -undriven
+{% endif -%}
+
+opt_clean -purge
+
+{% if settings.splitnets -%}
+splitnets
+{% endif -%}
+
+{% include "write_netlist.ys" -%}
+{% endif -%}

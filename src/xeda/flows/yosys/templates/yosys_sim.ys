@@ -1,0 +1,79 @@
+{# handle errors?? remove nonexisting plugins? #}
+{%- for plugin in settings.plugins %}
+plugin -i {{plugin}}
+{%- endfor %}
+
+{%- set sv_files = design.sim_sources_of_type("SystemVerilog", rtl=True, tb=True) | list %}
+
+{# defered loading of systemverilog files #}
+{%- set systemverilog_plugin_defered = sv_files and "systemverilog" in settings.plugins %}
+
+{%- for src in design.rtl.sources %}
+    {%- if src.type.name == "Verilog" %}
+log -stdout yosys> Reading {{src}}
+# -Dname=value -Idir
+read_verilog {{settings.read_verilog_flags|join(" ")}} {{src}}
+    {%- elif src.type.name == "SystemVerilog" %}
+log -stdout yosys> Reading {{src}}
+        {%- if systemverilog_plugin_defered %}
+read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src}}
+        {% else %}
+read_verilog {{settings.read_verilog_flags|join(" ")}} -sv {{src}}
+        {%- endif %}
+    {%- endif %}
+{%- endfor %}
+
+{%- if systemverilog_plugin_defered %}
+read_systemverilog -link
+{% endif %}
+
+{%- set vhdl_files = design.sim_sources_of_type("Vhdl", rtl=True, tb=True) | list %}
+{%- if vhdl_files %}
+log -stdout yosys> Reading VHDL files: {{vhdl_files|join(" ")}}
+plugin -i ghdl
+ghdl {{ghdl_args|join(" ")}}
+{%- endif %}
+
+{%- for src in settings.verilog_lib %}
+read_verilog -lib {{src}}
+{%- endfor %}
+
+hierarchy -nodefaults -check {%- if design.tb.top %} -top {{design.tb.top}} {%- else %} -auto-top {%- endif %}
+
+check -initdrv -assert
+{% for attr, value in settings.set_attribute.items() %}
+{% if value is mapping %}
+{% for path, v in value.items() %}
+setattr -set {{attr}} {{v|esc}} {{path}}
+{% endfor %}
+{% else %}
+setattr -set {{attr}} {{value|esc}}
+{% endif %}
+{% endfor %}
+
+{%- if settings.prep is not none %}
+prep {%- if settings.flatten %} -flatten {%- endif %} {{settings.prep|join(" ")}}
+{%- else %}
+proc
+    {%- if settings.flatten %}
+flatten
+    {%- endif %}
+{%- endif %}
+
+check {% if settings.check_assert %} -assert {%- endif %}
+
+{%- if settings.rtl_json %}
+log -stdout yosys> Writing JSON output to: {{settings.rtl_json}}
+write_json {{settings.rtl_json}}
+{%- endif %}
+{%- if settings.rtl_verilog %}
+log -stdout yosys> Writing Verilog output to: {{settings.rtl_verilog}}
+write_verilog {{settings.rtl_verilog}}
+{%- endif %}
+{%- if settings.rtl_graph %}
+log -stdout yosys> Writing RTL graph to {{settings.rtl_graph.with_suffix('dot')}}
+show -prefix {{settings.rtl_graph.with_suffix("")}} -format dot {{settings.rtl_graph_flags|join(" ")}}
+{%- endif %}
+
+log -stdout yosys> Writing CXXRTL output to: {{settings.cxxrtl.filename}}
+write_cxxrtl {%- if settings.cxxrtl.header %} -header {%- endif %} {%- if settings.cxxrtl.opt is not none %} -O{{settings.cxxrtl.opt}} {%- endif %} {{settings.cxxrtl.filename}}

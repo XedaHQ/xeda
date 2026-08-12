@@ -1,0 +1,90 @@
+{% if settings.debug or settings.verbose > 1 -%}
+echo on
+{% endif -%}
+
+{% set include_dirs=namespace(i=[]) %}
+
+{% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=false) -%}
+{% set uhdm_plugin = (settings.systemverilog == "uhdm") and sv_files -%}
+{% if uhdm_plugin -%}
+plugin -i systemverilog
+{% endif -%}
+{% set slang_plugin = (settings.systemverilog == "slang") and sv_files -%}
+{% if slang_plugin -%}
+plugin -i slang
+{% endif -%}
+
+{% for src in design.rtl.sources -%}
+{% if src.type is not none -%}
+    {% if src.type.name == "Verilog" -%}
+log -stdout ** Reading {{src}} **
+read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} "{{src}}"
+    {% elif src.type.name == "SystemVerilog" %}
+log -stdout ** Reading {{src}} **
+        {#- plugin frontends (slang/uhdm) do not strip quotes: emit paths bare #}
+        {%- if slang_plugin %}
+read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src}}
+        {%- elif uhdm_plugin %}
+read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src}}
+        {%- else %}
+read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} "{{src}}"
+        {%- endif %}
+    {% elif src.type.name == "VerilogHeader" and src.path.parent %}
+{% set include_dirs.i = include_dirs.i + ["-I{}".format(src.path.parent)] %}
+    {% endif -%}
+{% endif -%}
+{% endfor -%}
+
+{#- NOTE: unlike yosys' own frontends, the ghdl plugin does not strip surrounding
+    double quotes, and yosys' script tokenizer leaves that to each command, so
+    these paths must be emitted bare (VHDL source paths may not contain spaces). #}
+{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) | list -%}
+{% if vhdl_files -%}
+log -stdout ** Elaborating VHDL files **
+plugin -i ghdl
+ghdl {{ghdl_args|join(" ")}} {{vhdl_files|join (" ")}} -e {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
+{% endif -%}
+
+{% if settings.liberty is defined -%}
+{% for lib in settings.liberty -%}
+read_liberty -lib {{lib}}
+{% endfor -%}
+{% endif -%}
+
+{% for src in settings.verilog_lib -%}
+read_verilog -lib "{{src}}"
+{% endfor -%}
+
+{% for key, value in parameters.items() -%}
+chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
+{% endfor -%}
+
+{% if settings.clockgate_map -%}
+read_verilog -defer {{settings.clockgate_map}}
+{% endif -%}
+
+{% if uhdm_plugin -%}
+read_systemverilog -link
+{% endif -%}
+hierarchy -check {% if design.rtl.top -%} -top {{design.rtl.top}} {% else %} -auto-top {%- endif %}
+{% for mod in settings.black_box -%}
+log -stdout Converting module {{mod}} into blackbox
+blackbox {{mod}}
+{% endfor -%}
+
+{% for attr, value in settings.set_attribute.items() -%}
+{% if value is mapping -%}
+{% for path, v in value.items() -%}
+setattr -set {{attr}} {{v|esc}} {{path}}
+{% endfor -%}
+{% else %}
+setattr -set {{attr}} {{value|esc}}
+{% endif -%}
+{% endfor -%}
+{% for attr, value in settings.set_mod_attribute.items() -%}
+{% for path, v in value.items() -%}
+setattr -mod -set {{attr}} {{v|esc}} {{path}}
+{% endfor -%}
+{% endfor -%}
+
+check -initdrv
