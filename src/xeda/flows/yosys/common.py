@@ -21,11 +21,36 @@ def append_flag(flag_list: List[str], flag: str) -> List[str]:
     return flag_list
 
 
+def ys_escape(value: Any) -> str:
+    """Render a canonical value into a yosys (`.ys`) script.
+
+    Yosys' own script tokenizer needs no escaping: it strips grouping double
+    quotes itself and never performs substitution on brackets.
+    """
+    return str(value)
+
+
+def tcl_escape(value: Any) -> str:
+    """Render a canonical value into a TCL (`.tcl`) script.
+
+    Brackets would trigger TCL command substitution and double quotes would
+    terminate the enclosing word, so both have to be backslash-escaped.
+    """
+    s = str(value)
+    s = s.replace("[", "\\[").replace("]", "\\]")
+    return s.replace('"', '\\"')
+
+
 class YosysBase(Flow):
     """Synthesize the design using Yosys Open SYnthesis Suite"""
 
     class Settings(Flow.Settings):
         log_file: Optional[str] = "yosys.log"
+        script_format: Literal["ys", "tcl"] = Field(
+            "ys",
+            description="Format of the generated yosys script. Every yosys build accepts `ys`,"
+            " while `tcl` requires a build with TCL support (e.g. not available in oss-cad-suite).",
+        )
         plugins: List[str] = []
         flatten: bool = Field(False, description="flatten design")
         read_verilog_flags: List[str] = [
@@ -35,7 +60,6 @@ class YosysBase(Flow):
         read_systemverilog_flags: List[str] = []
         check_assert: bool = True
         rtl_verilog: Optional[Path] = None  # "rtl.v"
-        rtl_vhdl: Optional[Path] = None  # "rtl.vhdl"
         rtl_json: Optional[Path] = None  # "rtl.json"
         rtl_graph: Optional[Path] = None
         rtl_graph_flags: List[str] = [
@@ -149,20 +173,18 @@ class YosysBase(Flow):
         @validator("set_attribute", "set_mod_attribute", pre=True, always=True)
         def validate_set_attributes(cls, value):
             def format_attribute_value(v) -> Any:
+                """Normalize to a canonical, *unescaped* form.
+
+                String values must reach yosys wrapped in double quotes. Any
+                script-specific escaping on top of that is applied at render
+                time by the `esc` template filter, as it differs between the
+                `.ys` and `.tcl` templates.
+                """
                 if isinstance(v, str):
-                    # try:
-                    #     return int(v)
-                    # except ValueError:
-                    v = v.replace("[", "\\[")
-                    v = v.replace("\\\\[", "\\[")
-                    v = v.replace("]", "\\]")
-                    v = v.replace("\\\\]", "\\]")
-                    # String values must be passed in double quotes
-                    if v.startswith('"') and v.endswith('"'):
-                        # escape double-quotes for TCL
-                        return "\\" + v + "\\"
-                    elif not v.startswith('\\"') and not v.endswith('\\"'):  # conservative
-                        return f'\\"{v}\\"'
+                    if v.startswith('\\"') and v.endswith('\\"'):
+                        v = v[2:-2]  # accept legacy TCL-escaped values
+                    if not (v.startswith('"') and v.endswith('"')):
+                        v = f'"{v}"'
                 return v
 
             if value:
@@ -189,9 +211,25 @@ class YosysBase(Flow):
                         value[attr] = format_attribute_value(attr_val)
             return value
 
+    @property
+    def script_ext(self) -> str:
+        """Extension of the script template to render (`.ys` or `.tcl`)."""
+        assert isinstance(self.settings, self.Settings)
+        return "." + self.settings.script_format
+
+    @property
+    def script_flag(self) -> str:
+        """yosys CLI flag for running the generated script."""
+        assert isinstance(self.settings, self.Settings)
+        return "-s" if self.settings.script_format == "ys" else "-c"
+
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        # values are stored canonically (unescaped); escape them for the target script language
+        self.add_template_filter(
+            "esc", tcl_escape if ss.script_format == "tcl" else ys_escape, replace_existing=True
+        )
         if ss.ghdl is None:
             ss.ghdl = GhdlSynth.Settings()
         if ss.keep_hierarchy:
@@ -217,9 +255,6 @@ class YosysBase(Flow):
         if ss.rtl_json:
             ss.rtl_json.parent.mkdir(parents=True, exist_ok=True)
             self.artifacts.rtl_json = ss.rtl_json
-        if ss.rtl_vhdl:
-            ss.rtl_vhdl.parent.mkdir(parents=True, exist_ok=True)
-            self.artifacts.rtl_vhdl = ss.rtl_vhdl
         if ss.rtl_verilog:
             ss.rtl_verilog.parent.mkdir(parents=True, exist_ok=True)
             self.artifacts.rtl_verilog = ss.rtl_verilog
@@ -270,6 +305,7 @@ def process_parameters(parameters: Dict[str, Any]) -> Dict[str, str]:
         if isinstance(v, bool):
             v = f"1'b{int(v)}"
         elif isinstance(v, str) and not re.match(r"\d+'b[01]+", v):
-            v = '\\"' + v + '\\"'
+            # canonical (unescaped); the `esc` template filter escapes for the target language
+            v = '"' + v + '"'
         out[k] = str(v)
     return out

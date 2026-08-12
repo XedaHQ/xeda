@@ -46,11 +46,11 @@ yosys hierarchy -nodefaults -check {%- if design.tb.top %} -top {{design.tb.top}
 yosys check -initdrv -assert
 {% for attr, value in settings.set_attribute.items() %}
 {% if value is mapping %}
-{% for path, v in value %}
-yosys setattr -set {{attr}} {{v}} {{path}}
+{% for path, v in value.items() %}
+yosys setattr -set {{attr}} {{v|esc}} {{path}}
 {% endfor %}
 {% else %}
-yosys setattr -set {{attr}} {{value}}
+yosys setattr -set {{attr}} {{value|esc}}
 {% endif %}
 {% endfor %}
 
@@ -72,10 +72,6 @@ yosys write_json {{settings.rtl_json}}
 {%- if settings.rtl_verilog %}
 puts "$log_prefix Writing Verilog output to: {{settings.rtl_verilog}}"
 yosys write_verilog {{settings.rtl_verilog}}
-{%- endif %}
-{%- if settings.rtl_vhdl %}
-puts "$log_prefix Writing VHDL output to: {{settings.rtl_vhdl}}"
-yosys write_vhdl {{settings.rtl_vhdl}}
 {%- endif %}
 {%- if settings.rtl_graph %}
 yosys log -stdout "Writing RTL graph to {{settings.rtl_graph.with_suffix('dot')}}"

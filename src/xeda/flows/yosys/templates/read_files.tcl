@@ -54,7 +54,7 @@ yosys read_verilog -lib "{{src}}"
 {% endfor -%}
 
 {% for key, value in parameters.items() -%}
-yosys chparam -set {{key}} {{value}} {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
+yosys chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
 {% endfor -%}
 
 {% if settings.clockgate_map -%}
@@ -73,15 +73,15 @@ yosys blackbox {{mod}}
 {% for attr, value in settings.set_attribute.items() -%}
 {% if value is mapping -%}
 {% for path, v in value.items() -%}
-yosys setattr -set {{attr}} {{v}} {{path}}
+yosys setattr -set {{attr}} {{v|esc}} {{path}}
 {% endfor -%}
 {% else %}
-yosys setattr -set {{attr}} {{value}}
+yosys setattr -set {{attr}} {{value|esc}}
 {% endif -%}
 {% endfor -%}
 {% for attr, value in settings.set_mod_attribute.items() -%}
 {% for path, v in value.items() -%}
-yosys setattr -mod -set {{attr}} {{v}} {{path}}
+yosys setattr -mod -set {{attr}} {{v|esc}} {{path}}
 {% endfor -%}
 {% endfor -%}
 

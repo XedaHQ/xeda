@@ -254,7 +254,7 @@ class Yosys(YosysBase, SynthFlow):
                 f.write("\n".join(ss.abc_constr) + "\n")
 
         script_path = self.copy_from_template(
-            "yosys_synth.tcl",
+            f"yosys_synth{self.script_ext}",
             lstrip_blocks=True,
             trim_blocks=False,
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design, one_shot_elab=False),
@@ -263,7 +263,7 @@ class Yosys(YosysBase, SynthFlow):
             abc_constr_file=abc_constr_file,
         )
         log.info("Yosys script: %s", script_path.absolute())
-        args = ["-c", script_path]
+        args = [self.script_flag, script_path]
         if ss.log_file:
             log.info("Logging yosys output to %s", ss.log_file)
             args += ["-L", ss.log_file]

@@ -43,14 +43,13 @@ class YosysSim(YosysBase, SimFlow):
                 self.design.rtl.top if self.design.rtl.top else self.design.name + ".cpp"
             )
         script_path = self.copy_from_template(
-            "yosys_sim.tcl",
+            f"yosys_sim{self.script_ext}",
             lstrip_blocks=True,
             trim_blocks=True,
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),
         )
         log.info("Yosys script: %s", self.run_path.relative_to(Path.cwd()) / script_path)
-        # args = ['-s', script_path]
-        args = ["-c", script_path]
+        args = [self.script_flag, script_path]
         if ss.log_file:
             args.extend(["-L", ss.log_file])
         if not ss.verbose:  # reduce noise unless verbose
