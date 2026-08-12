@@ -46,9 +46,7 @@ channel.send("blocked")
 """
 
 
-def run_streamed(
-    worker_body: str, block_xeda: bool = False
-) -> Tuple[TimedChunks, TimedChunks]:
+def run_streamed(worker_body: str, block_xeda: bool = False) -> Tuple[TimedChunks, TimedChunks]:
     """Set up remote output streaming on a local execnet worker exactly as
     `RemoteRunner.run_remote` does, run `worker_body` inside that worker, then
     tear the streaming down. Returns the timestamped chunks that arrived on
@@ -95,13 +93,11 @@ def test_subprocess_output_is_streamed_back():
     """The case that was broken: a *subprocess* spawned by the remote flow (an
     EDA tool) inherits fds 1/2, so its output must reach us -- this never went
     through the worker's Python-level sys.stdout at all."""
-    out_chunks, _ = run_streamed(
-        f"""
+    out_chunks, _ = run_streamed(f"""
 import subprocess
 subprocess.run([{sys.executable!r}, "-c", "print('hello-from-tool')"])
 channel.send("ran")
-"""
-    )
+""")
     assert "hello-from-tool" in text_of(out_chunks)
 
 
@@ -130,15 +126,13 @@ def test_block_xeda_helper_actually_blocks_xeda():
     gw = execnet.makegateway("popen")
     try:
         assert gw.remote_exec(BLOCK_XEDA_IMPORTS).receive() == "blocked"
-        outcome = gw.remote_exec(
-            """
+        outcome = gw.remote_exec("""
 try:
     import xeda
     channel.send("imported")
 except ImportError:
     channel.send("blocked")
-"""
-        ).receive()
+""").receive()
         assert outcome == "blocked"
     finally:
         gw.exit()
@@ -198,31 +192,27 @@ def test_shipped_remote_code_only_uses_long_stable_xeda_api():
 def test_worker_own_writes_are_streamed_back():
     """Output the remote xeda itself prints (via sys.stdout/sys.stderr, which
     are bound to fds 1/2) must be streamed too, on the matching stream."""
-    out_chunks, err_chunks = run_streamed(
-        """
+    out_chunks, err_chunks = run_streamed("""
 import sys
 print("printed-to-stdout")
 print("printed-to-stderr", file=sys.stderr)
 sys.stdout.flush()
 sys.stderr.flush()
 channel.send("ran")
-"""
-    )
+""")
     assert "printed-to-stdout" in text_of(out_chunks)
     assert "printed-to-stderr" in text_of(err_chunks)
 
 
 def test_stdout_and_stderr_are_kept_separate():
-    out_chunks, err_chunks = run_streamed(
-        f"""
+    out_chunks, err_chunks = run_streamed(f"""
 import subprocess
 subprocess.run(
     [{sys.executable!r}, "-c",
      "import sys; print('to-out'); print('to-err', file=sys.stderr)"]
 )
 channel.send("ran")
-"""
-    )
+""")
     out_text, err_text = text_of(out_chunks), text_of(err_chunks)
     assert "to-out" in out_text and "to-out" not in err_text
     assert "to-err" in err_text and "to-err" not in out_text
@@ -232,8 +222,7 @@ def test_output_arrives_live_rather_than_all_at_the_end():
     """The whole point of the feature: a long-running tool's output must show
     up while it is still running, not in one burst once it exits."""
     delay = 0.3
-    out_chunks, _ = run_streamed(
-        f"""
+    out_chunks, _ = run_streamed(f"""
 import subprocess
 subprocess.run([
     {sys.executable!r}, "-c",
@@ -243,8 +232,7 @@ subprocess.run([
     "    time.sleep({delay})\\n"
 ])
 channel.send("ran")
-"""
-    )
+""")
     out_text = text_of(out_chunks)
     for i in range(3):
         assert f"line{i}" in out_text
@@ -259,13 +247,11 @@ channel.send("ran")
 def test_lines_are_not_split_or_mangled_by_the_pty():
     """A pty's default line discipline turns '\\n' into '\\r\\n'; the setup
     disables that, so what arrives should be exactly what was printed."""
-    out_chunks, _ = run_streamed(
-        f"""
+    out_chunks, _ = run_streamed(f"""
 import subprocess
 subprocess.run([{sys.executable!r}, "-c", "print('alpha'); print('beta')"])
 channel.send("ran")
-"""
-    )
+""")
     out_text = text_of(out_chunks)
     assert "alpha\nbeta\n" in out_text
     assert "\r" not in out_text
@@ -281,27 +267,22 @@ def test_carriage_return_next_to_a_newline_is_dropped():
     it. The remote may well be running such a version and we cannot patch it
     from here, so the stream has to be cleaned up on this side of the wire.
     """
-    out_chunks, _ = run_streamed(
-        r"""
+    out_chunks, _ = run_streamed(r"""
 import sys
 for line in ("****** Vivado v2024.2.2 (64-bit)", "  **** SW Build 6060944"):
     sys.stdout.write(line + "\n\r")     # exactly what `end="\r"` produces
 sys.stdout.flush()
 channel.send("ran")
-"""
-    )
+""")
     out_text = text_of(out_chunks)
-    assert out_text == "****** Vivado v2024.2.2 (64-bit)\n  **** SW Build 6060944\n", repr(
-        out_text
-    )
+    assert out_text == "****** Vivado v2024.2.2 (64-bit)\n  **** SW Build 6060944\n", repr(out_text)
 
 
 def test_carriage_return_split_from_its_newline_across_reads_is_dropped():
     """The '\\n' can end one os.read() and the '\\r' begin the next; the pump
     remembers only whether the previous chunk ended in a newline, so it still
     drops the '\\r' without ever holding output back."""
-    out_chunks, _ = run_streamed(
-        r"""
+    out_chunks, _ = run_streamed(r"""
 import sys, time
 sys.stdout.write('alpha\n')
 sys.stdout.flush()
@@ -309,8 +290,7 @@ time.sleep(0.3)              # force the '\r' into a separate read
 sys.stdout.write('\rbeta\n')
 sys.stdout.flush()
 channel.send("ran")
-"""
-    )
+""")
     out_text = text_of(out_chunks)
     assert out_text == "alpha\nbeta\n", repr(out_text)
 
@@ -319,14 +299,12 @@ def test_lone_carriage_return_is_preserved_for_progress_lines():
     """A '\\r' that is NOT adjacent to a newline is how tools redraw a progress
     line in place. Dropping it would turn a progress bar into a wall of lines,
     so it has to survive."""
-    out_chunks, _ = run_streamed(
-        r"""
+    out_chunks, _ = run_streamed(r"""
 import sys
 sys.stdout.write('progress 50%\rprogress 100%\ndone\n')
 sys.stdout.flush()
 channel.send("ran")
-"""
-    )
+""")
     out_text = text_of(out_chunks)
     assert out_text == "progress 50%\rprogress 100%\ndone\n", repr(out_text)
 
@@ -334,14 +312,12 @@ channel.send("ran")
 def test_genuine_blank_lines_in_tool_output_are_kept():
     """Only a redundant CR is removed -- real blank lines the tool printed (the
     vivado banner has one before 'source ...') must still come through."""
-    out_chunks, _ = run_streamed(
-        r"""
+    out_chunks, _ = run_streamed(r"""
 import sys
 sys.stdout.write('    ** Copyright 1986-2022 Xilinx, Inc.\n\r\n\rsource vivado_synth.tcl\n\r')
 sys.stdout.flush()
 channel.send("ran")
-"""
-    )
+""")
     out_text = text_of(out_chunks)
     assert out_text == "    ** Copyright 1986-2022 Xilinx, Inc.\n\nsource vivado_synth.tcl\n", repr(
         out_text
@@ -352,16 +328,14 @@ def test_large_output_is_streamed_without_truncation_or_deadlock():
     """Output bigger than any pipe/pty buffer must keep flowing (the pumps read
     concurrently) and arrive complete."""
     line_count = 2000
-    out_chunks, _ = run_streamed(
-        f"""
+    out_chunks, _ = run_streamed(f"""
 import subprocess
 subprocess.run([
     {sys.executable!r}, "-c",
     "for i in range({line_count}): print('L%04d' % i)"
 ])
 channel.send("ran")
-"""
-    )
+""")
     out_text = text_of(out_chunks)
     received = re.findall(r"L\d{4}", out_text)
     assert received == [f"L{i:04d}" for i in range(line_count)]
@@ -370,13 +344,11 @@ channel.send("ran")
 def test_trailing_output_is_not_lost_at_teardown():
     """Output written immediately before the run ends must still be delivered:
     teardown drops the writers and waits for the pumps to drain."""
-    out_chunks, _ = run_streamed(
-        f"""
+    out_chunks, _ = run_streamed(f"""
 import subprocess
 subprocess.run([{sys.executable!r}, "-c", "print('the-very-last-line')"])
 channel.send("ran")
-"""
-    )
+""")
     assert "the-very-last-line" in text_of(out_chunks)
 
 

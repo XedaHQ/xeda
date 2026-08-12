@@ -20,7 +20,9 @@ def test_yosys_synth_py() -> None:
         print("Xeda run dir: ", run_dir)
         for design in design_paths:
             xeda_runner = DefaultRunner(run_dir, debug=debug)
-            flow = xeda_runner.run(Verilator, design, flow_overrides=dict(debug=debug, verbose=debug))
+            flow = xeda_runner.run(
+                Verilator, design, flow_overrides=dict(debug=debug, verbose=debug)
+            )
             assert flow is not None, "run_flow returned None"
             settings_json = flow.run_path / "settings.json"
             results_json = flow.run_path / "results.json"

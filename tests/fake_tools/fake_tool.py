@@ -41,8 +41,7 @@ def write_file(path, data):
 
 @runtime_checkable
 class Executer(Protocol):
-    def __call__(self, **kwargs: Any) -> int:
-        ...
+    def __call__(self, **kwargs: Any) -> int: ...
 
 
 class WriteFile(Executer):
@@ -141,9 +140,7 @@ fake_tools: Dict[str, FakeTool] = dict(
             "reports/Timing_Analyzer/Multicorner_Timing_Analysis_Summary.csv",
         ),
     ),
-    xtclsh=FakeTool(
-        arguments={"script": dict(required=False, type=click.Path(exists=True))}
-    ),
+    xtclsh=FakeTool(arguments={"script": dict(required=False, type=click.Path(exists=True))}),
 )
 
 symlink_name = Path(__file__).stem
