@@ -1,10 +1,10 @@
 import re
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from pint import UnitRegistry
 
-unit_registry = UnitRegistry(case_sensitive=False)
-Q_ = unit_registry.Quantity
+unit_registry: UnitRegistry = UnitRegistry(case_sensitive=False)
+Q_: Any = unit_registry.Quantity
 
 
 def unit_maybe_scale(unit: str):
