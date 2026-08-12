@@ -386,12 +386,10 @@ class RemoteRunner(FlowLauncher):
             "python": python_exec,
         }
         gw = execnet.makegateway("//".join([f"{k}={v}" for k, v in spec.items()]))
-        channel = gw.remote_exec(
-            """
+        channel = gw.remote_exec("""
             import sys, os
             channel.send((sys.platform, tuple(sys.version_info), os.getpid()))
-        """
-        )
+        """)
         platform, version_info, _ = channel.receive()
         version_info_str = ".".join(str(v) for v in version_info)
         log.info("Remote host:%s (%s python:%s)", host, platform, version_info_str)
