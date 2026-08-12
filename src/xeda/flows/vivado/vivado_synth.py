@@ -56,6 +56,11 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         bitstream: Optional[Path] = None
         extra_reports: bool = False
         qor_suggestions: bool = False
+        num_critical_paths: int = Field(
+            100,
+            ge=1,
+            description="Number of timing paths to write to the critical path reports",
+        )  # pyright: ignore
         default_max_input_delay: Optional[float] = Field(
             None, description="Default max delay to set on all non-clock input ports"
         )

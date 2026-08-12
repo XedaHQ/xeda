@@ -157,9 +157,13 @@ set rep_dir [file join ${reports_dir} route_design]
 file mkdir ${rep_dir}
 
 set timing_summary_file [file join ${rep_dir} timing_summary.rpt]
+
+set num_max_paths {{settings.num_critical_paths}}
 report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file ${timing_summary_file}
-report_timing         -no_header -input_pins  -unique_pins -sort_by group -max_paths 100 -path_type full -delay_type min_max -file [file join ${rep_dir} timing.rpt]
-reportCriticalPaths                [file join ${rep_dir} critpath_report.csv] 100
+report_timing         -no_header -input_pins  -unique_pins -sort_by group -max_paths ${num_max_paths} -path_type full -delay_type min_max -file [file join ${rep_dir} timing.rpt]
+reportCriticalPaths                [file join ${rep_dir} critpath_report.csv] ${num_max_paths}
+reportCriticalPathsByDelay         [file join ${rep_dir} critpath_by_delay_report.csv] ${num_max_paths}
+
 report_utilization                 -file [file join ${rep_dir} utilization.rpt]
 report_utilization                 -file [file join ${rep_dir} utilization.xml] -format xml
 report_utilization -hierarchical   -file [file join ${rep_dir} hierarchical_utilization.xml] -format xml
@@ -200,7 +204,7 @@ write_xdc -no_fixed_only -force ${settings.outputs_dir}/impl.xdc
 
 {% if settings.bitstream -%}
 puts "\n==============================( Writing Bitstream )==============================="
-write_bitstream -force {{{settings.bitstream}}}
+write_bitstream -force { {{-settings.bitstream-}} }
 {% endif -%}
 
 showWarningsAndErrors

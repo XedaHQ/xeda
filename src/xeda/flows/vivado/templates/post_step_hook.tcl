@@ -29,7 +29,8 @@ if {$ACTIVE_STEP == "route_design"} {
 
 report_utilization -force -file [file join ${reports_dir} utilization.xml] -format xml
 report_utilization -force -file [file join ${reports_dir} hierarchical_utilization.xml] -format xml -hierarchical
-reportCriticalPaths [file join ${reports_dir} critical_paths.csv] 100
+reportCriticalPaths [file join ${reports_dir} critical_paths.csv] {{settings.num_critical_paths}}
+reportCriticalPathsByDelay [file join ${reports_dir} critical_paths_by_delay.csv] {{settings.num_critical_paths}}
 
 showWarningsAndErrors
 
