@@ -16,8 +16,10 @@ from typing import (
     runtime_checkable,
 )
 from zipfile import ZipFile
+
 import click
-from xeda.dataclass import asdict, XedaBaseModel
+
+from xeda.dataclass import XedaBaseModel, asdict
 
 log = logging.getLogger()
 

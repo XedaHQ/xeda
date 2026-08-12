@@ -2,8 +2,8 @@ import os
 import random
 
 import cocotb
-from cocotb.handle import HierarchyObject
 from cocolight import DutClock, DutReset, ValidReadyTb
+from cocotb.handle import HierarchyObject
 
 NUM_TV = int(os.environ.get("NUM_TV", 2000))
 DEBUG = bool(os.environ.get("DEBUG", False))

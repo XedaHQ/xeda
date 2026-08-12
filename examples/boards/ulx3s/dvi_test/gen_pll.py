@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import logging
+
 from xeda.flows.nextpnr import EcpPLL
 
 log = logging.getLogger(__name__)

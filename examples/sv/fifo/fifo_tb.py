@@ -1,11 +1,10 @@
-from logging import Logger
 import random
 from collections import deque
+from logging import Logger
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Timer, First, ReadOnly, ReadWrite
-
+from cocotb.triggers import First, ReadOnly, RisingEdge, Timer
 from cocotb_coverage.coverage import CoverPoint, coverage_db
 
 

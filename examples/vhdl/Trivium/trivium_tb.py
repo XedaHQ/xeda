@@ -1,11 +1,10 @@
 import pathlib
 import random
 
-from cocotb import test
-from cocotb.handle import HierarchyObject
-
 from cocolight import ValidReadyTb
 from cocolight.utils import bytes_to_words
+from cocotb import test
+from cocotb.handle import HierarchyObject
 
 # We create this TB object in every test so that all the required functions can be accessed
 # from within this class.
