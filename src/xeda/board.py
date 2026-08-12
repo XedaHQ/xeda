@@ -9,9 +9,9 @@ from .flow import FPGA, FpgaSynthFlow
 from .utils import toml_load
 
 __all__ = [
-    "get_board_file_path",
-    "get_board_data",
     "WithFpgaBoardSettings",
+    "get_board_data",
+    "get_board_file_path",
 ]
 
 log = logging.getLogger(__name__)

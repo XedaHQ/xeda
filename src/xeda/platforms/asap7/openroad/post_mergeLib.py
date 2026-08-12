@@ -4,7 +4,7 @@ import sys
 print("[INFO-FLOW] Post Merge Lib")
 mergedFile = sys.argv[1]
 print("[INFO-FLOW]  ", mergedFile)
-f = open(mergedFile, "r")
+f = open(mergedFile)
 
 lines = f.readlines()
 f.close()

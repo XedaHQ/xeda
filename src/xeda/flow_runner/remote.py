@@ -7,14 +7,14 @@ import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, IO, Optional, Tuple, Union
+from typing import IO, Any, Dict, Optional, Tuple, Union
 
 import execnet
 from fabric import Connection
 from fabric.transfer import Transfer
 
 from ..design import Design, DesignSource
-from ..utils import XedaException, hierarchical_merge, dump_json, settings_to_dict, semantic_hash
+from ..utils import XedaException, dump_json, hierarchical_merge, semantic_hash, settings_to_dict
 from ..version import __version__
 from .default_runner import FlowLauncher, print_results
 

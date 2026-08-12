@@ -3,6 +3,6 @@ from .fmax import FmaxOptimizer
 
 __all__ = [
     "Dse",
-    "Optimizer",
     "FmaxOptimizer",
+    "Optimizer",
 ]

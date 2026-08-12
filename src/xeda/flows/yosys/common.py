@@ -288,7 +288,7 @@ class YosysBase(Flow):
         if not report.exists():
             return None
         try:
-            with open(report, "r") as f:
+            with open(report) as f:
                 content = f.read()
             json_start = content.find("{")
             if json_start > 0:

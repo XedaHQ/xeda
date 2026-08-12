@@ -11,22 +11,19 @@ import re
 import sys
 import time
 import unittest
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager
 from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import cached_property, reduce
 from pathlib import Path
-import tomllib
 from types import TracebackType
 from typing import (
     Any,
     Dict,
-    Iterable,
     List,
-    Mapping,
     Optional,
-    OrderedDict,
     Tuple,
     Type,
     TypeVar,
@@ -34,6 +31,7 @@ from typing import (
 )
 from xml.etree import ElementTree
 
+import tomllib
 from varname import argname  # type: ignore
 
 from .dataclass import XedaBaseModel
@@ -246,7 +244,7 @@ _D1 = TypeVar("_D1")
 def try_convert(value: Any, typ: Type[_T1], default: Optional[_D1] = None) -> Union[None, _T1, _D1]:
     try:
         return typ(value)  # type: ignore
-    except:  # noqa
+    except:
         return default
 
 

@@ -8,6 +8,8 @@ import os
 import pprint
 import re
 import subprocess
+from collections import OrderedDict
+from collections.abc import Sequence
 from enum import Enum, auto
 from functools import cached_property
 from glob import glob
@@ -18,8 +20,6 @@ from typing import (
     Dict,
     List,
     Optional,
-    OrderedDict,
-    Sequence,
     Tuple,
     Type,
     TypeVar,
@@ -54,16 +54,16 @@ from .utils import (
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "AnyDesignValidationException",
+    "Clock",
     "Design",
     "DesignFileParseError",
-    "AnyDesignValidationException",
-    "DesignValidationError",
     "DesignSource",
+    "DesignValidationError",
     "FileResource",
+    "LanguageSettings",
     "SourceType",
     "VhdlSettings",
-    "LanguageSettings",
-    "Clock",
 ]
 
 
@@ -85,7 +85,7 @@ class DesignValidationError(AnyDesignValidationException):
         errors: List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]],
         data: Optional[Dict[str, Any]] = None,
         *args: object,
-        design_root: Union[None, str, os.PathLike] = None,
+        design_root: Union[str, os.PathLike, None] = None,
         design_name: Optional[str] = None,
         file: Optional[str] = None,
         design_in_msg: bool = False,
@@ -217,7 +217,7 @@ class DesignSource(FileResource):
     def __init__(
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
-        typ: Union[None, str, SourceType] = None,
+        typ: Union[str, SourceType, None] = None,
         standard: Optional[str] = None,
         variant: Optional[str] = None,
         _root_path: Optional[Path] = None,
@@ -545,7 +545,7 @@ class RtlSettings(DVSettings):
     top: Optional[str] = Field(
         description="Toplevel RTL module/entity",
     )
-    generator: Union[None, str, List[str], Generator] = None
+    generator: Union[str, List[str], Generator, None] = None
     attributes: Dict[str, Dict[str, Any]] = Field(
         dict(),
         description="""
@@ -868,7 +868,7 @@ class Design(XedaBaseModel):
         alias="flows",
         description="Design-specific flow settings. The keys are the name of the flow and values are design-specific overrides for that flow.",
     )
-    license: Union[None, str, List[str]] = None
+    license: Union[str, List[str], None] = None
     version: Optional[str] = None
     url: Optional[str] = None
 
@@ -1018,7 +1018,7 @@ class Design(XedaBaseModel):
 
     def __init__(
         self,
-        design_root: Union[None, str, os.PathLike] = None,
+        design_root: Union[str, os.PathLike, None] = None,
         **data: Any,
     ) -> None:
         if not design_root:
@@ -1103,7 +1103,7 @@ class Design(XedaBaseModel):
     def from_toml(
         cls: Type[DesignType],
         design_file: Union[str, os.PathLike],
-        design_root: Union[None, str, os.PathLike] = None,
+        design_root: Union[str, os.PathLike, None] = None,
         overrides: Optional[Dict[str, Any]] = None,
         allow_extra: bool = False,
         remove_extra: Optional[List[str]] = None,
@@ -1120,7 +1120,7 @@ class Design(XedaBaseModel):
     def from_file(
         cls: Type[DesignType],
         design_file: Union[str, os.PathLike],
-        design_root: Union[None, str, os.PathLike] = None,
+        design_root: Union[str, os.PathLike, None] = None,
         overrides: Optional[Dict[str, Any]] = None,
         allow_extra: bool = False,
         remove_extra: Optional[List[str]] = None,
@@ -1136,7 +1136,7 @@ class Design(XedaBaseModel):
         if design_file.suffix == ".toml":
             design_dict = toml_load(design_file)
         elif design_file.suffix == ".json":
-            with open(design_file, "r") as f:
+            with open(design_file) as f:
                 try:
                     design_dict = json.load(f)
                 except json.JSONDecodeError as e:
@@ -1147,7 +1147,7 @@ class Design(XedaBaseModel):
                     ]
                     raise DesignFileParseError(", ".join(error_msg_parts)) from None
         elif design_file.suffix in {".yaml", ".yml"}:
-            with open(design_file, "r") as f:
+            with open(design_file) as f:
                 try:
                     design_dict = yaml.safe_load(f)
                 except yaml.error.MarkedYAMLError as e:

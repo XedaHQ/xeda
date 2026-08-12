@@ -17,10 +17,10 @@ from .fpga import FPGA
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "AsicSynthFlow",
+    "FpgaSynthFlow",
     "PhysicalClock",
     "SynthFlow",
-    "FpgaSynthFlow",
-    "AsicSynthFlow",
 ]
 
 

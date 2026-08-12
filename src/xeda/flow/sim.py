@@ -25,10 +25,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
     cocotb_sim_name: Optional[str] = None
 
     class Settings(Flow.Settings):
-        vcd: Union[None, str, Path] = Field(
+        vcd: Union[str, Path, None] = Field(
             None, alias="waveform", description="Write waveform to file"
         )
-        stop_time: Union[None, str, int, float] = None
+        stop_time: Union[str, int, float, None] = None
         cocotb: CocotbSettings = CocotbSettings()  # type: ignore
         optimization_flags: List[str] = Field([], description="Optimization flags")
 

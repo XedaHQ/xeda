@@ -14,17 +14,17 @@ from .sim import SimFlow
 from .synth import AsicSynthFlow, FpgaSynthFlow, PhysicalClock, SynthFlow
 
 __all__ = [
-    "Flow",
     "FPGA",
+    "AsicSynthFlow",
+    "Flow",
+    "FlowDependencyFailure",
+    "FlowException",
+    "FlowFatalError",
+    "FlowSettingsError",
+    "FlowSettingsException",
+    "FpgaSynthFlow",
+    "PhysicalClock",
     "SimFlow",
     "SynthFlow",
-    "FpgaSynthFlow",
-    "AsicSynthFlow",
-    "PhysicalClock",
     "registered_flows",
-    "FlowDependencyFailure",
-    "FlowFatalError",
-    "FlowSettingsException",
-    "FlowSettingsError",
-    "FlowException",
 ]

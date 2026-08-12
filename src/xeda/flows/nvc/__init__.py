@@ -95,7 +95,7 @@ class Nvc(SimFlow):
             None,
             description="Enable or disable warning messages from the standard IEEE packages. The default is warnings enabled.",
         )
-        wave: Union[None, bool, str, Path] = Field(
+        wave: Union[bool, str, Path, None] = Field(
             None,
             description="Write waveform data to a file. The default is to not write waveform data.",
         )

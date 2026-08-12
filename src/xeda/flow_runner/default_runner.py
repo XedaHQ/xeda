@@ -6,15 +6,16 @@ import importlib
 import json
 import logging
 import os
-from pprint import PrettyPrinter
 import re
 import shutil
 import sys
 import time
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 from glob import glob
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Type, TypeVar, Union
+from pprint import PrettyPrinter
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 from box import Box
 from pathvalidate import sanitize_filename
@@ -25,28 +26,28 @@ from rich.text import Text
 
 from ..console import console
 from ..dataclass import XedaBaseModel
-from ..design import Design, DesignFileParseError, AnyDesignValidationException
+from ..design import AnyDesignValidationException, Design, DesignFileParseError
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..tool import NonZeroExitCode
 from ..utils import (
     WorkingDirectory,
     backup_existing,
     dump_json,
+    semantic_hash,
     settings_to_dict,
     snakecase_to_camelcase,
     unique,
-    semantic_hash,
 )
 from ..version import __version__
 from ..xedaproject import XedaProject
 
 __all__ = [
-    "get_flow_class",
+    "DefaultRunner",
     "FlowNotFoundError",
     "FlowRunner",
-    "DefaultRunner",
-    "print_results",
     "add_file_logger",
+    "get_flow_class",
+    "print_results",
 ]
 
 log = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ def print_results(
     results: Optional[Dict[str, Any]] = None,
     title: Optional[str] = None,
     subset: Optional[Iterable[str]] = None,
-    skip_if_false: Union[None, bool, Iterable[str]] = None,
+    skip_if_false: Union[bool, Iterable[str], None] = None,
 ) -> None:
     if results is None and flow:
         results = flow.results
@@ -237,7 +238,7 @@ class FlowLauncher:
         scrub_old_runs: bool = False
         run_path: Optional[Union[str, os.PathLike]] = None
 
-    def __init__(self, xeda_run_dir: Union[None, str, Path] = None, **kwargs) -> None:
+    def __init__(self, xeda_run_dir: Union[str, Path, None] = None, **kwargs) -> None:
         if "xeda_run_dir" in kwargs:
             xeda_run_dir = kwargs.pop("xeda_run_dir")
         if not xeda_run_dir:
@@ -279,11 +280,11 @@ class FlowLauncher:
         self,
         flow_class: Union[str, Type[Flow]],
         design: Design,
-        flow_settings: Union[None, Dict[str, Any], Flow.Settings],
+        flow_settings: Union[Dict[str, Any], Flow.Settings, None],
         depender: Optional[Flow] = None,
         copy_resources: List[str] = [],
         run_path: Optional[Path] = None,
-        all_flows_settings: Union[None, Dict] = None,
+        all_flows_settings: Union[Dict, None] = None,
     ) -> Flow:
         """
         Low-level interface for launching flows.
@@ -618,11 +619,11 @@ class FlowLauncher:
         self,
         flow_class: Union[str, Type[Flow]],
         design: Design,
-        flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
+        flow_settings: Union[Dict[str, Any], Flow.Settings, None] = None,
         depender: Optional[Flow] = None,
         copy_resources: List[str] = [],
         run_path: Optional[Path] = None,
-        all_flows_settings: Union[None, Dict] = None,
+        all_flows_settings: Union[Dict, None] = None,
     ) -> Optional[Flow]:
         # default run_flow() is launch_flow() but can be overridden in a subclass
         return self.launch_flow(
@@ -652,7 +653,7 @@ class FlowLauncher:
             Mapping[str, Any],
         ] = [],
         select_design_in_project=None,
-        design_overrides: Union[None, Iterable[str], Dict[str, Any]] = None,
+        design_overrides: Union[Iterable[str], Dict[str, Any], None] = None,
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
     ) -> Optional[Flow]:
@@ -822,7 +823,7 @@ class DefaultRunner(FlowRunner):
     """Executes a flow and its dependencies and then reports selected results"""
 
 
-def add_file_logger(logdir: Union[Path, str], timestamp: Union[None, str, datetime] = None):
+def add_file_logger(logdir: Union[Path, str], timestamp: Union[str, datetime, None] = None):
     if timestamp is None:
         timestamp = datetime.now()
     if not isinstance(timestamp, str):

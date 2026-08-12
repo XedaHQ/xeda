@@ -1,9 +1,10 @@
 """Xilinx ISE Synthesis flow"""
 
 import logging
+from collections.abc import Mapping
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pydantic import validator
 

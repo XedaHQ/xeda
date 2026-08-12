@@ -34,9 +34,9 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "Flow",
-    "FlowSettingsException",
-    "FlowSettingsError",
     "FlowFatalError",
+    "FlowSettingsError",
+    "FlowSettingsException",
 ]
 
 
@@ -54,7 +54,7 @@ def expand_paths(field: Optional[ModelField], value, mapping):
     return value
 
 
-registered_flows: Dict[str, Tuple[str, Type["Flow"]]] = {}
+registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
 
@@ -96,7 +96,7 @@ class Flow(metaclass=ABCMeta):
             Union[
                 Tuple[
                     str,  # library name/identifier
-                    Union[None, str, Path],  # optional library path
+                    Union[str, Path, None],  # optional library path
                 ],
                 Tuple[None, Union[str, Path]],  # or just the path
                 # both name and path can't be None
@@ -208,7 +208,7 @@ class Flow(metaclass=ABCMeta):
 
     def add_dependency(
         self,
-        dep_flow_class: Union[Type["Flow"], str],
+        dep_flow_class: Union[Type[Flow], str],
         dep_settings: Settings,
         copy_resources: List[str] = [],
     ) -> None:
@@ -305,10 +305,10 @@ class Flow(metaclass=ABCMeta):
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
         self.add_template_filter("quote", lambda x: f'"{x}"')
         self.add_template_test("match", regex_match)
-        self.dependencies: List[Tuple[Union[Type["Flow"], str], Flow.Settings, List[str]]] = []
+        self.dependencies: List[Tuple[Union[Type[Flow], str], Flow.Settings, List[str]]] = []
         self.completed_dependencies: List[Flow] = []
 
-    def pop_dependency(self, typ: Type["Flow"]) -> Flow:
+    def pop_dependency(self, typ: Type[Flow]) -> Flow:
         assert inspect.isclass(typ) and issubclass(typ, Flow), f"{typ} is not a subclass of Flow"
         for i in range(len(self.completed_dependencies) - 1, -1, -1):
             if isinstance(self.completed_dependencies[i], typ):

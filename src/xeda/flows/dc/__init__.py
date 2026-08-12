@@ -1,7 +1,8 @@
 import logging
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Dict, List, Literal, Mapping, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 import colorama
 from box import Box
@@ -351,7 +352,7 @@ class Dc(AsicSynthFlow):
             kvs = re.split(r"\s*\n\s*", kvs)
             kvs = [re.split(r"\s*:\s*", s.strip()) for s in kvs if s.strip()]
             ret = {s[0].strip(): try_convert_to_primitives(s[1]) for s in kvs}
-            return {k: v for k, v in ret.items() if not skip_zero or v not in {0, 0.0, None}}
+            return {k: v for k, v in ret.items() if not skip_zero or v not in {0, None}}
 
         path_group_re = re.compile(
             r"^\s*Timing Path Group\s+'(?P<path_group_name>\w+)'\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)",

@@ -7,7 +7,7 @@ from copy import deepcopy
 from datetime import datetime
 from inspect import isclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import psutil
 from attrs import define
@@ -21,10 +21,10 @@ from ...tool import NonZeroExitCode
 from ...utils import (
     Timer,
     dump_json,
-    load_class,
-    settings_to_dict,
     hierarchical_merge,
+    load_class,
     semantic_hash,
+    settings_to_dict,
 )
 from ..default_runner import FlowLauncher, add_file_logger, get_flow_class, print_results
 

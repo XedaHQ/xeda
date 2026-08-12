@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 def _get_wave_opt_signals(wave_opt_file, extra_top=None):
     signals = []
-    with open(wave_opt_file, "r") as f:
+    with open(wave_opt_file) as f:
         for line in f.read().splitlines():
             line = line.strip()
             if line.startswith("/"):
@@ -254,7 +254,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
     def elaborate(
         self,
         sources: List[DesignSource],
-        top: Union[None, str, Tuple012],
+        top: Union[str, Tuple012, None],
         vhdl: VhdlSettings,
     ) -> Tuple012:
         """returns top unit(s) as a Tuple012"""
@@ -488,7 +488,7 @@ class GhdlSim(Ghdl, SimFlow):
             None,
             description="Display the design hierarchy as a tree of instantiated design entities. See GHDL documentation for more details.",
         )
-        vpi: Union[None, str, List[str]] = Field(
+        vpi: Union[str, List[str], None] = Field(
             None,
             description="Load VPI library (or multiple libraries)",
         )

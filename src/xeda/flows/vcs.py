@@ -178,21 +178,21 @@ class Vcs(SimFlow):
             with open(ss.ucli_script, "w", encoding="utf-8") as f:
                 if ss.fsdb:
                     f.write(f"dump -file {ss.fsdb} -type FSDB\n")
-                    f.write(f"dump -add . -add / -aggregates -fid FSDB0\n")
-                    f.write(f"dump -enable -fid FSDB0\n")
+                    f.write("dump -add . -add / -aggregates -fid FSDB0\n")
+                    f.write("dump -enable -fid FSDB0\n")
                 elif ss.vpd:
                     f.write(f"dump -file {ss.vpd} -type vpd\n")
-                    f.write(f"dump -add . -add / -aggregates -fid VPD0\n")
-                    f.write(f"dump -enable -fid VPD0\n")
+                    f.write("dump -add . -add / -aggregates -fid VPD0\n")
+                    f.write("dump -enable -fid VPD0\n")
                 elif ss.evcd:
                     f.write(f"dump -file {ss.evcd} -type evcd\n")
-                    f.write(f"dump -add . -add / -aggregates -fid EVCD0\n")
-                    f.write(f"dump -enable -fid EVCD0\n")
+                    f.write("dump -add . -add / -aggregates -fid EVCD0\n")
+                    f.write("dump -enable -fid EVCD0\n")
                 if ss.stop_time is not None:
                     f.write(f"run -absolute {ss.stop_time}\n")
                 else:
-                    f.write(f"run\n")
-                f.write(f"quit\n")
+                    f.write("run\n")
+                f.write("quit\n")
         if ss.gui:
             ss.generate_kdb = True
         if ss.supress_banner:

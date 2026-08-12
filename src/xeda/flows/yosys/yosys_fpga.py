@@ -1,6 +1,7 @@
 import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List, Literal, Optional
+from typing import List, Literal, Optional
 
 from ...dataclass import Field
 from ...flow import FlowFatalError, FpgaSynthFlow

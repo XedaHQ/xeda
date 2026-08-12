@@ -13,7 +13,7 @@ from ...design import SourceType
 from ...flow import Flow
 from ...gtkwave import get_color
 from ...tool import Tool
-from ...utils import unique, expand_env_vars
+from ...utils import expand_env_vars, unique
 
 log = logging.getLogger(__name__)
 
@@ -291,9 +291,9 @@ class Bsc(Flow):
         uv = self.settings.unspecified_to
         if (
             not self.settings.optimize
-            or not self.settings.opt_undetermined_vals
+            or (not self.settings.opt_undetermined_vals
             and uv
-            and uv == "X"
+            and uv == "X")
         ):
             uv = None
         if uv:

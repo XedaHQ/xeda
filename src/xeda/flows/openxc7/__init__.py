@@ -347,7 +347,7 @@ class OpenXC7(FpgaSynthFlow):
                 part_no_speed = ss.fpga.part.split("-")[0]
                 xdc_file = next(ss.chipdb.glob(f"{part_no_speed}*.bin"), None)
             if not xdc_file or not xdc_file.exists():
-                nextpnr_xilinx_python_dir: Union[None, str, Path] = os.environ.get(
+                nextpnr_xilinx_python_dir: Union[str, Path, None] = os.environ.get(
                     "NEXTPNR_XILINX_PYTHON_DIR"
                 )
                 if nextpnr_xilinx_python_dir:

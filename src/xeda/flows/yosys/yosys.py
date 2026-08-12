@@ -24,7 +24,7 @@ EXCLAIM_PATTERN = re.compile(r":\s+(!.*)\s+;")
 def merge_files(in_files, out_file, add_newline=False):
     with open(out_file, "w") as out_f:
         for in_file in in_files:
-            with open(in_file, "r") as in_f:
+            with open(in_file) as in_f:
                 out_f.write(in_f.read())
             if add_newline:
                 out_f.write("\n")
@@ -83,7 +83,7 @@ def merge_libs(in_files, out_file, new_lib_name=None):
                 else:
                     out.write(line)
         for f in in_files:
-            with open(f, "r") as f:
+            with open(f) as f:
                 flag = 0
                 for line in f.readlines():
                     cell_match = _CELL_PATTERN.match(line)

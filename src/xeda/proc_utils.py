@@ -9,8 +9,9 @@ import signal
 import subprocess
 import sys
 import termios
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Union
 
 import colorama
 

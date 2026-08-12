@@ -29,10 +29,10 @@ class XedaProject:
         cls: Type[XedaProject],
         file: Union[str, Path],
         skip_designs: bool = False,
-        design_overrides: Union[None, Dict[str, Any]] = None,
+        design_overrides: Union[Dict[str, Any], None] = None,
         design_allow_extra: bool = False,
-        design_remove_extra: Union[None, List[str]] = None,
-    ) -> "XedaProject":
+        design_remove_extra: Union[List[str], None] = None,
+    ) -> XedaProject:
         """load xedaproject from file"""
         if design_overrides is None:
             design_overrides = {}
@@ -94,7 +94,7 @@ class XedaProject:
     def design_names(self) -> List[str]:
         return [str(d.get("name")) for d in self.designs if "name" in d]
 
-    def get_design(self, name_or_idx: Union[None, str, int] = None) -> Optional[Design]:
+    def get_design(self, name_or_idx: Union[str, int, None] = None) -> Optional[Design]:
         if name_or_idx is None:
             return self.get_design(0)
         if isinstance(name_or_idx, int):

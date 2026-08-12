@@ -7,8 +7,9 @@ import os
 import re
 import sys
 from collections import OrderedDict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import click
 import coloredlogs

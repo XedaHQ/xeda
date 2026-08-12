@@ -32,10 +32,9 @@ from .yosys import CxxRtl, Yosys, YosysFpga
 __builtin_flows__: List[Type[Flow]] = []
 
 __all__ = [
-    "__builtin_flows__",
-    "Dc",
     "Bsc",
     "CxxRtl",
+    "Dc",
     "DiamondSynth",
     "GhdlSim",
     "GhdlSynth",
@@ -43,11 +42,11 @@ __all__ = [
     "Modelsim",
     "Nextpnr",
     "Nvc",
+    "OpenXC7",
     "Openfpgaloader",
     "Openroad",
-    "OpenXC7",
     "Quartus",
-    "Nvc",
+    "Vcs",
     "Verilator",
     "VivadoAltSynth",
     "VivadoPostsynthSim",
@@ -57,7 +56,7 @@ __all__ = [
     "VivadoSynth",
     "Yosys",
     "YosysFpga",
-    "Vcs",
+    "__builtin_flows__",
 ]
 
 for loader, module_name, is_pkg in pkgutil.walk_packages(__path__):

@@ -7,18 +7,18 @@ from .tool import Tool
 from .version import __version__
 
 __all__ = [
-    "__version__",
+    "FPGA",
     "Cocotb",
     "DefaultRunner",
-    "design",
     "Design",
     "Dse",
-    "flow_runner",
-    "FlowRunner",
-    "flows",
     "Flow",
-    "FPGA",
+    "FlowRunner",
     "SimFlow",
     "SynthFlow",
     "Tool",
+    "__version__",
+    "design",
+    "flow_runner",
+    "flows",
 ]

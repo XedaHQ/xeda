@@ -18,11 +18,11 @@ from .utils import ExecutableNotFound, NonZeroExitCode, ToolException, cached_pr
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "ToolException",
-    "NonZeroExitCode",
-    "ExecutableNotFound",
     "Docker",
+    "ExecutableNotFound",
+    "NonZeroExitCode",
     "Tool",
+    "ToolException",
     "run_process",
 ]
 
@@ -61,7 +61,7 @@ class Docker(XedaBaseModel):
     def cpuinfo(self) -> Optional[List[List[str]]]:
         try:
             ret = self.run("cat", "/proc/cpuinfo", stdout=True)
-        except:  # noqa
+        except:
             ret = None
         if ret is not None:
             return [x.split("\n") for x in re.split(r"\n\s*\n", ret, re.MULTILINE)]
@@ -85,7 +85,7 @@ class Docker(XedaBaseModel):
         root_dir: OptionalPath = None,
         print_command: bool = True,
         highlight_rules: Optional[Dict[str, str]] = None,
-    ) -> Union[None, str]:
+    ) -> Union[str, None]:
         """Run the tool from a docker container"""
         if self.fix_cpuinfo and self.cpuinfo:
             cpuinfo_file = Path(".cpuinfo").resolve()
@@ -178,7 +178,7 @@ class Tool(XedaBaseModel):
     """abstraction for an EDA tool"""
 
     executable: str
-    minimum_version: Union[None, Tuple[Union[int, str], ...]] = None
+    minimum_version: Union[Tuple[Union[int, str], ...], None] = None
     default_args: List[str] = []
     version_flag: Optional[List[str]] = ["--version"]
     version_regexps: List[Union[re.Pattern[str], str]] = [VERSION_REGEXP1, VERSION_REGEXP2]
@@ -272,7 +272,7 @@ class Tool(XedaBaseModel):
     def info(self) -> Dict[str, Optional[str]]:
         try:
             version = self.version_str
-        except:  # noqa
+        except:
             version = None
         return {"executable": self.executable, "version": version}
 
@@ -283,7 +283,7 @@ class Tool(XedaBaseModel):
             version_flags = tuple(self.version_flag)
         try:
             return self.run_get_stdout(*version_flags)
-        except:  # noqa
+        except:
             return None
 
     @cached_property
@@ -335,7 +335,7 @@ class Tool(XedaBaseModel):
         if self.dockerized:
             try:
                 n = try_convert(self.execute("nproc", stdout=True), int)
-            except:  # noqa
+            except:
                 n = None
             assert self.docker
             return n or self.docker.nproc
@@ -391,7 +391,7 @@ class Tool(XedaBaseModel):
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
         highlight_rules: Optional[Dict[str, str]] = None,
-    ) -> Union[None, str]:
+    ) -> Union[str, None]:
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
             env_file = "env.sh"
@@ -415,7 +415,7 @@ class Tool(XedaBaseModel):
         check: bool = True,
         cwd: Optional[Path] = None,
         highlight_rules: Optional[Dict[str, str]] = None,
-    ) -> Union[None, str]:
+    ) -> Union[str, None]:
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
         args = tuple(list(self.default_args) + list(args))
@@ -472,7 +472,7 @@ class Tool(XedaBaseModel):
     ) -> None:
         self.run(*args, env=env, stdout=redirect_to)
 
-    def derive(self, executable, **kwargs) -> "Tool":
+    def derive(self, executable, **kwargs) -> Tool:
         new_tool = self.copy(update=kwargs)
         new_tool.invalidate_cached_properties()
         if "default_args" not in kwargs:
