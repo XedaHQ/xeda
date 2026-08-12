@@ -1,6 +1,6 @@
-cocotb          ~= 2.0.0
-cocotb-coverage ~= 2.0.0
-setuptools      >= 65.0
-pytest          >= 8.0
+cocotb          ~= 2.0.1
+cocotb-coverage ~= 2.0
+setuptools      >= 84.0
+pytest          >= 9.1
 # cocolight>=0.0.3
 cocolight       @ git+https://github.com/kammoh/cocolight.git

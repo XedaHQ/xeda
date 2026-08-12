@@ -1,0 +1,32 @@
+# Target oldest version of Python used (Python 3.9 for Ubuntu 20.04 LTS)
+target-version = "py39"
+
+line-length = 120
+
+[lint]
+select = [
+    "F",    # various basic rules (pyflakes)
+    "E",    # errors (pycodestyle)
+    "W",    # warnings (pycodestyle)
+    "I",    # Import related rules (isort)
+    "UP",   # Upgraded version available in newer Python
+    "B",    # bugbear rules
+    "A",    # shadow builtins
+    "EXE",  # Executable file shebangs
+    "Q003", # Avoidable escaped quotes
+    "Q004", # Unnecessary escape character
+    "RUF",  # Ruff specific rules
+]
+
+ignore = [
+    "E501",   # line too long
+    "E701",
+    "E702",   # multiple statements on one line
+    "E722",   # do not use bare 'except'
+    "E741",   # ambiguous variable name
+    "W291",   # trailing whitespace
+    "W293",   # blank line contains whitespace
+    "B007",   # loop control variable not used
+    "B9",     # overly opinionated rules
+    "RUF005", # iterable unpacking in list
+]

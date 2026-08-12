@@ -17,6 +17,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import cached_property, reduce
 from pathlib import Path
+import tomllib
 from types import TracebackType
 from typing import (
     Any,
@@ -36,11 +37,6 @@ from xml.etree import ElementTree
 from varname import argname  # type: ignore
 
 from .dataclass import XedaBaseModel
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore
 
 # install_import_hook("xeda")
 
