@@ -16,9 +16,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: ghdl/setup-ghdl@v1
+      - id: setup-ghdl
+        uses: ghdl/setup-ghdl@v1
+        continue-on-error: true
         with:
           backend: llvm
+      - name: Fallback install GHDL from apt
+        if: steps.setup-ghdl.outcome == 'failure'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ghdl-llvm || sudo apt-get install -y ghdl
+          ghdl --version
       - uses: YosysHQ/setup-oss-cad-suite@v3
       - uses: nickg/setup-nvc@v1
         with:
