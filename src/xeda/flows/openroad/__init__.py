@@ -10,7 +10,7 @@ from importlib_resources import as_file, files
 from pydantic import Field, confloat, validator
 
 from ...design import SourceType
-from ...flow import AsicSynthFlow
+from ...flow import AsicSynthFlow, describe_results
 from ...flows.yosys import HiLoMap, Yosys, preproc_libs
 from ...platforms import AsicsPlatform
 from ...tool import ExecutableNotFound, Tool
@@ -67,10 +67,33 @@ class Openroad(AsicSynthFlow):
 
     merged_lib_file = "merged.lib"  # used by Yosys and floorplan (restructure)
 
+    results_description = describe_results(
+        "Fmax",
+        "wns",
+        "tns",
+        "worst_slack",
+        "setup_violations",
+        "hold_violations",
+        "design_area",
+        "design_area_unit",
+        "utilization_percent",
+    )
+
     class Settings(AsicSynthFlow.Settings):
-        platform: AsicsPlatform
-        corner: Optional[Union[str, List]] = None
-        multi_corner: bool = False
+        platform: AsicsPlatform = Field(
+            description="ASIC platform (PDK) to target: a bundled platform name (see "
+            "`xeda list-platforms`) or the path to a platform config.toml.",
+        )
+        corner: Optional[Union[str, List]] = Field(
+            None,
+            description='Process corner(s) from the platform\'s Liberty set to analyze, e.g. "tt". '
+            "Defaults to the platform's own default corner.",
+        )
+        multi_corner: bool = Field(
+            False,
+            description="Analyze timing across all of the platform's corners rather than only the "
+            "default one. Forced off when the platform defines fewer than two corners.",
+        )
         input_delay_frac: Optional[float] = Field(
             0.20, description="Input delay as fraction of clock period [0.0..1.0)"
         )
@@ -84,86 +107,245 @@ class Openroad(AsicSynthFlow):
         )
         core_aspect_ratio: float = Field(1.0, description="Core height / core width")
         core_margin: float = Field(2.0, description="Core margin in um")
-        core_area: List[Union[int, float]] = []
-        die_area: List[Union[int, float]] = []
-        sdc_files: List[Path] = []
-        io_constraints: Optional[Path] = None
-        results_dir: Path = Path("results")
+        core_area: List[Union[int, float]] = Field(
+            [],
+            description="Explicit core area as [x1, y1, x2, y2] in microns. Overrides "
+            "`core_utilization`.",
+        )
+        die_area: List[Union[int, float]] = Field(
+            [],
+            description="Explicit die area as [x1, y1, x2, y2] in microns. Overrides "
+            "`core_utilization`.",
+        )
+        sdc_files: List[Path] = Field(
+            [],
+            description="Additional SDC constraint files, read on top of the constraints generated "
+            "from `clocks`.",
+        )
+        io_constraints: Optional[Path] = Field(
+            None, description="TCL script that places the IO pins, sourced during pin placement."
+        )
+        results_dir: Path = Field(
+            Path("results"),
+            description="Directory, relative to the run directory, where OpenROAD writes its "
+            "output files.",
+        )
         optimize: Optional[Literal["speed", "area", "area+speed"]] = Field(
             "area", description="Optimization target"
         )
-        abc_load_in_ff: Optional[int] = None  # to override platform value
-        abc_driver_cell: Optional[int] = None  # to override platform value
+        abc_load_in_ff: Optional[int] = Field(
+            None,
+            description="Wire load ABC assumes, in units of flip-flop input capacitance. Overrides "
+            "the platform value.",
+        )
+        abc_driver_cell: Optional[int] = Field(
+            None,
+            description="Cell ABC assumes drives the primary inputs. Overrides the platform value.",
+        )
         write_metrics: Optional[Path] = Field(
             Path("metrics.json"), description="write metrics in file in JSON format"
         )
         exit: bool = Field(True, description="exit after completion")
         gui: bool = Field(False, description="start in GUI mode")
-        copy_platform_files: bool = False
-        extra_liberty_files: List[Path] = []
+        copy_platform_files: bool = Field(
+            False,
+            description="Copy the platform's LEF/Liberty/technology files into the run directory "
+            "instead of referencing them where they are installed.",
+        )
+        extra_liberty_files: List[Path] = Field(
+            [], description="Additional Liberty (.lib) files to read, e.g. for hard macros."
+        )
         # floorplan
-        floorplan_def: Optional[Path] = None
-        floorplan_tcl: Optional[Path] = None
-        resynth_for_timing: bool = False
-        resynth_for_area: bool = False
+        floorplan_def: Optional[Path] = Field(
+            None,
+            description="DEF file with a ready-made floorplan, used instead of generating one.",
+        )
+        floorplan_tcl: Optional[Path] = Field(
+            None, description="TCL script sourced at the end of floorplanning, for custom tweaks."
+        )
+        resynth_for_timing: bool = Field(
+            False,
+            description="Run an extra resynthesis pass after floorplanning, optimizing for timing.",
+        )
+        resynth_for_area: bool = Field(
+            False,
+            description="Run an extra resynthesis pass after floorplanning, optimizing for area.",
+        )
         # pre_place
-        rtlmp_flow: bool = False
+        rtlmp_flow: bool = Field(
+            False,
+            description="Use the RTL-aware hierarchical macro placer (RTL-MP) instead of the "
+            "default macro placement. Configured by `rtlmp_config_file`.",
+        )
         # io_place
-        io_place_random: bool = False
+        io_place_random: bool = Field(
+            False,
+            description="Place IO pins randomly instead of running the pin placer. Only useful for "
+            "quick experiments.",
+        )
         # place
-        place_density: Union[None, float, str] = None
-        place_density_lb_addon: Optional[confloat(ge=0.0, lt=1)] = None  # type: ignore
-        dont_use_cells: List[str] = []
-        place_pins_args: List[str] = []
-        blocks: List[str] = []
-        global_placement_args: List[str] = []
+        place_density: Union[None, float, str] = Field(
+            None,
+            description="Target placement density (0.0..1.0). Defaults to the platform value. "
+            "Higher is denser and harder to route.",
+        )
+        place_density_lb_addon: Optional[confloat(ge=0.0, lt=1)] = Field(  # type: ignore
+            None,
+            description="Amount added to the automatically determined lower bound of the "
+            "placement density [0.0..1.0).",
+        )
+        dont_use_cells: List[str] = Field(
+            [],
+            description="Standard cells the tools must not use, in addition to the platform's own "
+            "dont-use list.",
+        )
+        place_pins_args: List[str] = Field(
+            [], description="Extra arguments passed to OpenROAD's `place_pins`."
+        )
+        blocks: List[str] = Field(
+            [],
+            description="Sub-blocks that are hardened separately; treated as black boxes during "
+            "synthesis.",
+        )
+        global_placement_args: List[str] = Field(
+            [], description="Extra arguments passed to OpenROAD's `global_placement`."
+        )
         min_phi_coef: Optional[confloat(ge=0.95, le=1.05)] = Field(  # type: ignore
             None,
-            description="set pcof_min (µ_k Lower Bound). Default value is 0.95. Allowed values are [0.95-1.05]",
+            description="Lower bound for the minimum placement-density coefficient (phi). "
+            "Defaults to 0.95; allowed values are 0.95 through 1.05.",
         )
         max_phi_coef: Optional[confloat(ge=1.00, le=1.20)] = Field(  # type: ignore
             None,
-            description="set  pcof_max (µ_k Upper Bound) . Default value is 1.05. Allowed values are [1.00-1.20]",
+            description="Upper bound for the minimum placement-density coefficient (phi). "
+            "Defaults to 1.05; allowed values are 1.00 through 1.20.",
         )
         # global_route
-        congestion_iterations: int = 100
-        global_routing_layer_adjustment: float = 0.5
-        repair_antennas: bool = False
+        congestion_iterations: int = Field(
+            100,
+            description="Maximum number of global-routing iterations spent resolving congestion.",
+        )
+        global_routing_layer_adjustment: float = Field(
+            0.5,
+            description="Fraction by which each layer's routing resources are derated during "
+            "global routing (0.0..1.0). Higher values reserve more room for detailed routing.",
+        )
+        repair_antennas: bool = Field(
+            False, description="Run antenna-violation repair after detailed routing."
+        )
         update_sdc_margin: Optional[confloat(gt=0.0, lt=1.0)] = Field(0.05, description="If set, write an SDC file with clock periods that result in slightly (value * clock_period) negative slack (failing).")  # type: ignore
         # detailed_route
-        detailed_route_or_seed: Optional[int] = None
-        detailed_route_or_k: Optional[int] = None
-        db_process_node: Optional[str] = None
-        detailed_route_additional_args: List[str] = []
-        post_detailed_route_tcl: Optional[Path] = None
+        detailed_route_or_seed: Optional[int] = Field(
+            None, description="Random seed for the detailed router's optimization ordering."
+        )
+        detailed_route_or_k: Optional[int] = Field(
+            None, description="Number of candidate orderings the detailed router evaluates."
+        )
+        db_process_node: Optional[str] = Field(
+            None,
+            description="Process node name recorded in the OpenDB database; used by some "
+            "via-generation rules.",
+        )
+        detailed_route_additional_args: List[str] = Field(
+            [], description="Extra arguments passed to OpenROAD's `detailed_route`."
+        )
+        post_detailed_route_tcl: Optional[Path] = Field(
+            None, description="TCL script sourced after detailed routing completes."
+        )
         #
-        gpl_routability_driven: bool = True
-        gpl_timing_driven: bool = True
-        macro_placement_file: Optional[Path] = None
-        post_pdn_tcl: Optional[Path] = None
-        make_tracks_tcl: Optional[Path] = None
-        footprint: Optional[Path] = None  # footprint strategy file
-        footprint_def: Optional[Path] = None  # floorplan, resize
-        footprint_tcl: Optional[Path] = None  # floorplan, resize
-        gds_seal_file: Optional[Path] = None
-        sig_map_file: Optional[Path] = None
-        density_fill: bool = False
-        rtlmp_config_file: Optional[Path] = None
-        macro_wrappers: Optional[Path] = None
-        cdl_masters_file: Optional[Path] = None  # cts
-        hold_slack_margin: Optional[float] = None
-        setup_slack_margin: Optional[float] = None
-        cts_buf_distance: Optional[int] = None
-        cts_cluster_size: int = 30
-        cts_cluster_diameter: int = 100
-        tie_separation: int = 0
-        final_irdrop_analysis: bool = True
-        disable_via_gen: bool = False
-        repair_pdn_via_layer: Optional[str] = None
+        gpl_routability_driven: bool = Field(
+            True, description="Let global placement optimize for routability."
+        )
+        gpl_timing_driven: bool = Field(
+            True, description="Let global placement optimize for timing."
+        )
+        macro_placement_file: Optional[Path] = Field(
+            None,
+            description="File with fixed macro placements, applied instead of automatic macro "
+            "placement.",
+        )
+        post_pdn_tcl: Optional[Path] = Field(
+            None,
+            description="TCL script sourced after the power distribution network is generated.",
+        )
+        make_tracks_tcl: Optional[Path] = Field(
+            None,
+            description="TCL script that creates the routing tracks, overriding the platform "
+            "default.",
+        )
+        footprint: Optional[Path] = Field(
+            None, description="Pad-ring footprint strategy file, for designs with an IO ring."
+        )
+        footprint_def: Optional[Path] = Field(
+            None, description="DEF file describing the pad-ring footprint."
+        )
+        footprint_tcl: Optional[Path] = Field(
+            None, description="TCL script that builds the pad-ring footprint."
+        )
+        gds_seal_file: Optional[Path] = Field(
+            None, description="GDS file containing a seal ring, merged into the final layout."
+        )
+        sig_map_file: Optional[Path] = Field(
+            None, description="Signal-mapping file used when building the pad ring."
+        )
+        density_fill: bool = Field(
+            False,
+            description="Insert metal fill to meet density rules before writing the final layout.",
+        )
+        rtlmp_config_file: Optional[Path] = Field(
+            None, description="Configuration file for the RTL-MP macro placer. See `rtlmp_flow`."
+        )
+        macro_wrappers: Optional[Path] = Field(
+            None, description="File describing wrapper cells placed around macros."
+        )
+        cdl_masters_file: Optional[Path] = Field(
+            None,
+            description="CDL netlists of the cell/macro masters, merged into the written CDL. "
+            "See `write_cdl`.",
+        )
+        hold_slack_margin: Optional[float] = Field(
+            None,
+            description="Extra hold slack (ns) targeted when repairing timing, so the result "
+            "keeps margin.",
+        )
+        setup_slack_margin: Optional[float] = Field(
+            None,
+            description="Extra setup slack (ns) targeted when repairing timing, so the result "
+            "keeps margin.",
+        )
+        cts_buf_distance: Optional[int] = Field(
+            None,
+            description="Maximum distance (um) between clock-tree buffers. Defaults to the "
+            "platform value.",
+        )
+        cts_cluster_size: int = Field(
+            30, description="Maximum number of sinks in a clock-tree cluster."
+        )
+        cts_cluster_diameter: int = Field(
+            100, description="Maximum diameter (um) of a clock-tree cluster."
+        )
+        tie_separation: int = Field(
+            0, description="Minimum distance (um) between a tie-high/tie-low cell and its load."
+        )
+        final_irdrop_analysis: bool = Field(
+            True, description="Run static IR-drop analysis on the final routed design."
+        )
+        disable_via_gen: bool = Field(
+            False,
+            description="Disable automatic via generation and use only the vias the platform "
+            "defines.",
+        )
+        repair_pdn_via_layer: Optional[str] = Field(
+            None, description="Metal layer on which power-grid via violations are repaired."
+        )
         # final
-        write_cdl: bool = False
-        save_images: bool = True
-        generate_gds: bool = True
+        write_cdl: bool = Field(
+            False, description="Write a CDL netlist of the final design. See `cdl_masters_file`."
+        )
+        save_images: bool = Field(
+            True, description="Render PNG images of the layout at each major stage."
+        )
+        generate_gds: bool = Field(True, description="Stream the final layout out to GDSII.")
 
         @validator("platform", pre=True, always=True)
         def _validate_platform(cls, value, values):

@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import time
+import tomllib
 import unittest
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterable, Mapping
@@ -31,7 +32,6 @@ from typing import (
 )
 from xml.etree import ElementTree
 
-import tomllib
 from varname import argname  # type: ignore
 
 from .dataclass import XedaBaseModel
@@ -244,7 +244,7 @@ _D1 = TypeVar("_D1")
 def try_convert(value: Any, typ: Type[_T1], default: Optional[_D1] = None) -> Union[None, _T1, _D1]:
     try:
         return typ(value)  # type: ignore
-    except:
+    except Exception:  # noqa: BLE001 - conversion failure is represented by the caller's default
         return default
 
 
@@ -292,7 +292,7 @@ def get_hierarchy(dct: Dict[str, Any], path: Union[str, List[str]]) -> Optional[
     try:
         return reduce(dict.__getitem__, path, dct)
     except KeyError as e:
-        print(f"Error getting hierarchy for path '{path}': {e}")
+        log.error("Error getting hierarchy for path %r: %s", path, e)
         return None
 
 

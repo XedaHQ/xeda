@@ -5,14 +5,13 @@ import logging
 import os
 import re
 import shutil
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .console import console
 from .dataclass import Field, XedaBaseModel, validator
 from .flow import Flow
-from .proc_utils import run_process
+from .proc_utils import run_process, tool_output_stream
 from .utils import ExecutableNotFound, NonZeroExitCode, ToolException, cached_property, try_convert
 
 log = logging.getLogger(__name__)
@@ -61,7 +60,7 @@ class Docker(XedaBaseModel):
     def cpuinfo(self) -> Optional[List[List[str]]]:
         try:
             ret = self.run("cat", "/proc/cpuinfo", stdout=True)
-        except:
+        except Exception:  # noqa: BLE001 - CPU details are optional Docker metadata
             ret = None
         if ret is not None:
             return [x.split("\n") for x in re.split(r"\n\s*\n", ret, re.MULTILINE)]
@@ -85,6 +84,7 @@ class Docker(XedaBaseModel):
         root_dir: OptionalPath = None,
         print_command: bool = True,
         highlight_rules: Optional[Dict[str, str]] = None,
+        merge_stderr: bool = False,
     ) -> Union[str, None]:
         """Run the tool from a docker container"""
         if self.fix_cpuinfo and self.cpuinfo:
@@ -110,7 +110,7 @@ class Docker(XedaBaseModel):
         self.mounts[str(cwd)] = str(cwd)
         if root_dir:
             self.mounts[str(root_dir)] = str(root_dir)
-        if not stdout and sys.stdout.isatty():
+        if not stdout and tool_output_stream().isatty():
             docker_args += ["--tty", "--interactive"]
         if self.platform:
             docker_args += ["--platform", self.platform]
@@ -142,6 +142,7 @@ class Docker(XedaBaseModel):
                 check=check,
                 print_command=print_command,
                 highlight_rules=highlight_rules,
+                merge_stderr=merge_stderr,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
@@ -272,7 +273,7 @@ class Tool(XedaBaseModel):
     def info(self) -> Dict[str, Optional[str]]:
         try:
             version = self.version_str
-        except:
+        except Exception:  # noqa: BLE001 - version metadata must not prevent a tool run
             version = None
         return {"executable": self.executable, "version": version}
 
@@ -282,9 +283,17 @@ class Tool(XedaBaseModel):
         if not version_flags:
             version_flags = tuple(self.version_flag)
         try:
-            return self.run_get_stdout(*version_flags)
-        except:
+            out = self.run_get_stdout(*version_flags)
+        except Exception:  # noqa: BLE001 - an unavailable version is represented by None
             return None
+        if out and out.strip():
+            return out
+        # Some tools (nextpnr, among others) print their version banner to stderr, so stdout
+        # comes back empty. Retry with stderr folded in rather than reporting no version.
+        try:
+            return self.run_get_stdout(*version_flags, merge_stderr=True)
+        except Exception:  # noqa: BLE001 - retain the first attempt's output when probing fails
+            return out
 
     @cached_property
     def version_output(self) -> Optional[str]:
@@ -335,7 +344,7 @@ class Tool(XedaBaseModel):
         if self.dockerized:
             try:
                 n = try_convert(self.execute("nproc", stdout=True), int)
-            except:
+            except Exception:  # noqa: BLE001 - Docker CPU detection has a safe fallback
                 n = None
             assert self.docker
             return n or self.docker.nproc
@@ -391,6 +400,7 @@ class Tool(XedaBaseModel):
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
         highlight_rules: Optional[Dict[str, str]] = None,
+        merge_stderr: bool = False,
     ) -> Union[str, None]:
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
@@ -404,6 +414,7 @@ class Tool(XedaBaseModel):
             stdout=stdout,
             check=check,
             highlight_rules=highlight_rules,
+            merge_stderr=merge_stderr,
         )
 
     def execute(
@@ -415,6 +426,7 @@ class Tool(XedaBaseModel):
         check: bool = True,
         cwd: Optional[Path] = None,
         highlight_rules: Optional[Dict[str, str]] = None,
+        merge_stderr: bool = False,
     ) -> Union[str, None]:
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
@@ -436,6 +448,7 @@ class Tool(XedaBaseModel):
                 root_dir=self.design_root_,
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
+                merge_stderr=merge_stderr,
             )
         if env is not None:
             env = {**os.environ, **env}
@@ -449,6 +462,7 @@ class Tool(XedaBaseModel):
                 cwd=cwd,
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
+                merge_stderr=merge_stderr,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")
@@ -457,9 +471,13 @@ class Tool(XedaBaseModel):
             ) from None
 
     def run_get_stdout(
-        self, *args: Any, env: Optional[Dict[str, Any]] = None, raise_on_error: bool = True
+        self,
+        *args: Any,
+        env: Optional[Dict[str, Any]] = None,
+        raise_on_error: bool = True,
+        merge_stderr: bool = False,
     ) -> Optional[str]:
-        out = self.run(*args, env=env, stdout=True, check=raise_on_error)
+        out = self.run(*args, env=env, stdout=True, check=raise_on_error, merge_stderr=merge_stderr)
         if raise_on_error or out is not None:
             assert isinstance(out, str)
         return out

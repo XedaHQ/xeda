@@ -5,13 +5,16 @@ from pathlib import Path
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nvc
 
+from .tool_utils import require_nvc
+
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
 debug = False
 
 
-def test_yosys_synth_py() -> None:
+def test_nvc_sim_py() -> None:
+    require_nvc()
     design_paths = [
         EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml",
         EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium.xeda.yaml",
@@ -32,4 +35,4 @@ def test_yosys_synth_py() -> None:
 
 
 if __name__ == "__main__":
-    test_yosys_synth_py()
+    test_nvc_sim_py()

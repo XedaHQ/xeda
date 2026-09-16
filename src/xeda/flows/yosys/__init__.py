@@ -1,4 +1,4 @@
-from .cxx_rtl import CxxRtl
+from .cxx_rtl import CxxRtl, YosysSim
 from .yosys import HiLoMap, Yosys, preproc_libs
 from .yosys_fpga import YosysFpga
 
@@ -7,5 +7,6 @@ __all__ = [
     "HiLoMap",
     "Yosys",
     "YosysFpga",
+    "YosysSim",
     "preproc_libs",
 ]

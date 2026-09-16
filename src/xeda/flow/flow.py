@@ -33,10 +33,12 @@ log = logging.getLogger(__name__)
 
 
 __all__ = [
+    "COMMON_RESULT_DESCRIPTIONS",
     "Flow",
     "FlowFatalError",
     "FlowSettingsError",
     "FlowSettingsException",
+    "describe_results",
 ]
 
 
@@ -59,6 +61,78 @@ registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
 DictStrPath = Dict[str, Union[str, os.PathLike]]
 
 
+#: Descriptions of result keys that several flows report with the same meaning. A flow declares
+#: the subset it actually reports through `describe_results`, so `xeda list-results <flow>` never
+#: advertises a key that flow does not produce.
+COMMON_RESULT_DESCRIPTIONS: Dict[str, str] = {
+    # timing
+    "Fmax": "Maximum achievable clock frequency in MHz, derived from the constrained period and "
+    "the worst negative slack. This is the achieved result, unlike `clock_frequency`.",
+    "clock_period": "Constrained clock period in nanoseconds, as given to the tool.",
+    "clock_frequency": "Constrained clock frequency in MHz. This is the constraint that was "
+    "given to the tool, not the achieved maximum -- see `Fmax`.",
+    "clock_name": "Name of the clock the reported timing refers to.",
+    "clock_port": "Design port the reported clock is attached to.",
+    "wns": "Worst negative slack (ns) over all setup paths. Negative means setup timing is not "
+    "met.",
+    "whs": "Worst hold slack (ns) over all hold paths. Negative means a hold violation.",
+    "tns": "Total negative slack (ns), summed over every failing setup endpoint.",
+    "setup_wns": "Worst negative slack (ns) on setup paths.",
+    "hold_wns": "Worst negative slack (ns) on hold paths.",
+    "worst_slack": "Worst slack (ns) over all analyzed paths.",
+    "setup_violations": "Number of endpoints that fail setup timing.",
+    "hold_violations": "Number of endpoints that fail hold timing.",
+    "num_violating_paths": "Number of paths that fail setup timing.",
+    "hold_num_violating_paths": "Number of paths that fail hold timing.",
+    "minimum_period": "Minimum achievable clock period in nanoseconds.",
+    "maximum_frequency": "Maximum achievable clock frequency in MHz.",
+    "f_max": "Maximum achievable clock frequency in MHz.",
+    # FPGA resources
+    "lut": "Number of LUTs used.",
+    "LUT": "Number of LUTs used.",
+    "ff": "Number of flip-flops (registers) used.",
+    "FF": "Number of flip-flops (registers) used.",
+    "slice": "Number of slices / logic elements occupied.",
+    "dsp": "Number of DSP blocks used.",
+    "bram": "Number of block RAM primitives used.",
+    # ASIC area
+    "area": "Cell area of the synthesized design, in the technology's area unit.",
+    "design_area": "Area of the placed design, in `design_area_unit`.",
+    "design_area_unit": "Unit the reported `design_area` is expressed in.",
+    "utilization_percent": "Core area utilization, in percent.",
+    "utilization_ratio": "Core area utilization, as a ratio in 0..1.",
+    "aspect_ratio": "Core height divided by core width.",
+    "area_combinational": "Area of the combinational cells.",
+    "area_noncombinational": "Area of the sequential (state-holding) cells.",
+    "area_macro_bbox": "Area of macros and black boxes.",
+    "area_cell_total": "Total cell area, excluding net interconnect.",
+    "area_total": "Total area, including net interconnect where the tool reports it.",
+    "area_core": "Area of the core region.",
+    "io": "Number of I/O buffers/pads used.",
+    "timing_met": "Whether every constrained clock domain met its constraint.",
+    "clock_domains": "Number of clock domains the timing analysis reported.",
+}
+
+
+def describe_results(*keys: str, **extra: str) -> Dict[str, str]:
+    """Build a flow's `results_description` from the shared vocabulary plus its own keys.
+
+    Positional arguments name keys from `COMMON_RESULT_DESCRIPTIONS`; keyword arguments add or
+    override flow-specific ones.
+    """
+    described = {}
+    for key in keys:
+        try:
+            described[key] = COMMON_RESULT_DESCRIPTIONS[key]
+        except KeyError:
+            raise KeyError(
+                f"No shared description for result key {key!r}. Add it to "
+                "COMMON_RESULT_DESCRIPTIONS, or pass it as a keyword argument."
+            ) from None
+    described.update(extra)
+    return described
+
+
 class Flow(metaclass=ABCMeta):
     """A flow may run one or more tools and is associated with a single set of settings and a single design.
     All tool executables should be available on the installed system or on the same docker image."""
@@ -68,13 +142,33 @@ class Flow(metaclass=ABCMeta):
     incremental: bool = False
     copied_resources_dir: str = "copied_resources"
 
+    #: Documentation for the flow-specific keys this flow writes to `results` (and therefore to
+    #: `results.json`). Reported by `xeda list-results <flow>`. Build it with `describe_results`.
+    results_description: Dict[str, str] = {}
+
+    #: Additive canonical aliases for results, as canonical_key -> candidate keys in preference
+    #: order. After `parse_reports`, the first candidate that is present is copied to the
+    #: canonical key unless that key is already set. Nothing is ever renamed or removed, so
+    #: existing consumers of `results.json` are unaffected.
+    results_canonical_aliases: Dict[str, Tuple[str, ...]] = {
+        "Fmax": ("Fmax", "f_max", "maximum_frequency"),
+        "lut": ("lut", "LUT"),
+        "ff": ("ff", "FF"),
+    }
+
     class Settings(XedaBaseModel):
         """Settings that can affect flow's behavior"""
 
         # design_root: InitVar[Optional[Path]]
-        verbose: int = Field(0)
+        verbose: int = Field(
+            0, description="Verbosity level. Higher values make the tools more talkative."
+        )
         # debug: DebugLevel = Field(DebugLevel.NONE.value, hidden_from_schema=True)
-        debug: bool = Field(False)
+        debug: bool = Field(
+            False,
+            description="Run the flow in debug mode: verbose logging, and exceptions are re-raised "
+            "instead of being reported as a failure.",
+        )
         quiet: bool = Field(False, description="Run the flow quietly.")
         redirect_stdout: bool = Field(
             False, description="Redirect stdout from execution of tools to files."
@@ -91,7 +185,9 @@ class Flow(metaclass=ABCMeta):
         reports_dir: Path = Field(Path("reports"), hidden_from_schema=True)
         checkpoints_dir: Path = Field(Path("checkpoints"), hidden_from_schema=True)
         outputs_dir: Path = Field(Path("outputs"), hidden_from_schema=True)
-        clean: bool = False
+        clean: bool = Field(
+            False, description="Remove the contents of the run directory before running the flow."
+        )
         lib_paths: List[
             Union[
                 Tuple[
@@ -111,7 +207,7 @@ class Flow(metaclass=ABCMeta):
         )
         dockerized: bool = Field(False, description="Run tools from docker")
         print_commands: bool = Field(True, description="Print executed commands")
-        console_colors: bool = Field(True, description="Print executed commands")
+        console_colors: bool = Field(True, description="Colorize tool output on the console.")
 
         @validator("*", pre=True, always=False)
         def _all_fields_validator_subs_env_vars(
@@ -195,7 +291,10 @@ class Flow(metaclass=ABCMeta):
         log.info("registering flow %s from %s", cls_name, mod_name)
         cls.name = camelcase_to_snakecase(cls_name)
         if not inspect.isabstract(cls):
-            for name in [cls_name] + cls.aliases:
+            # register under the canonical (snake_case) name first, then the class name and any
+            # aliases. `cls.name` is what the CLI and the docs use, so it must be resolvable
+            # without relying on a lossy snake_case -> CamelCase round-trip (e.g. OpenXC7).
+            for name in unique([cls.name, cls_name] + cls.aliases):
                 if name in registered_flows:
                     log.warning("Duplicate name: %s while registering flow %s", name, cls_name)
                 registered_flows[name] = (mod_name, cls)
@@ -339,6 +438,23 @@ class Flow(metaclass=ABCMeta):
     def parse_reports(self) -> bool:
         log.debug("No parse_reports action for %s", self.name)
         return True
+
+    def add_canonical_result_aliases(self) -> None:
+        """Copy flow-specific result keys to their canonical names, additively.
+
+        Flows historically reported the same quantity under different names (`Fmax` vs `f_max`,
+        `lut` vs `LUT`), which made `results.json` awkward to consume across flows. This adds the
+        canonical name alongside whatever the flow already reported; see
+        `results_canonical_aliases`.
+        """
+        for canonical, candidates in self.results_canonical_aliases.items():
+            if self.results.get(canonical) is not None:
+                continue
+            for candidate in candidates:
+                value = self.results.get(candidate)
+                if value is not None:
+                    self.results[canonical] = value
+                    break
 
     def copy_from_template(
         self, resource_name, lstrip_blocks=False, trim_blocks=False, script_filename=None, **kwargs

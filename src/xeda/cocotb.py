@@ -230,6 +230,34 @@ class Cocotb(CocotbSettings, Tool):
             log.error("[cocotb] %s library for %s is not available.", interface.upper(), sim_name)
         return so_path
 
+    @cached_property
+    def pygpi_entry_point(self) -> Optional[str]:
+        """cocotb's PYGPI entry point, or `None` on releases that do not expose one.
+
+        `cocotb-config --pygpi-entry-point` was added in cocotb 2.1; older releases reject the
+        flag, which is how this tells the two apart.
+        """
+        return self.run_get_stdout("--pygpi-entry-point", raise_on_error=False)
+
+    def gpi_users(self) -> Optional[str]:
+        """Value for `GPI_USERS`, or `None` when the installed cocotb does not need it.
+
+        Up to cocotb 2.0 the GPI library found its Python entry point by itself. From 2.1 it
+        exits with "No GPI_USERS specified" unless told explicitly, so the entry point has to be
+        passed in. This mirrors `cocotb_tools.runner`: libpython first, then the PYGPI entry
+        point, separated by ";".
+        """
+        preset = os.environ.get("GPI_USERS")
+        if preset:
+            return preset
+        entry_point = self.pygpi_entry_point
+        if not entry_point:
+            return None  # cocotb < 2.1: the interface library registers itself
+        libpython = os.environ.get("LIBPYTHON_LOC") or self.run_get_stdout(
+            "--libpython", raise_on_error=False
+        )
+        return ";".join(user for user in (libpython, entry_point) if user)
+
     def env(self, design: Design) -> Dict[str, Any]:
         environ: Dict[str, Any] = dict()
         if design.tb.cocotb:
@@ -297,6 +325,9 @@ class Cocotb(CocotbSettings, Tool):
                 environ["COCOTB_RANDOM_SEED"] = self.random_seed
             if self.gpi_extra:
                 environ["GPI_EXTRA"] = ",".join(self.gpi_extra)
+            gpi_users = self.gpi_users()
+            if gpi_users:
+                environ["GPI_USERS"] = gpi_users
             log.debug("Cocotb env: %s", environ)
         return environ
 

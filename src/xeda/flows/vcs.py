@@ -17,6 +17,10 @@ log = logging.getLogger(__name__)
 class Vcs(SimFlow):
     """Synopsys VCS simulator"""
 
+    # This flow reports no results beyond the keys every flow reports; declaring this
+    # explicitly keeps `xeda list-results` from guessing.
+    results_description: dict = {}
+
     highlight_rules = {
         r"^(Error:)(.+)$": fg.RED + style.BRIGHT + r"\g<0>",
         r"^(\*+ERROR\*+)(.+)$": fg.RED + style.BRIGHT + r"\g<0>",
@@ -49,12 +53,25 @@ class Vcs(SimFlow):
 
     class Settings(SimFlow.Settings):
         clean: bool = Field(True, description="Clean the run path before running")
-        simv_flags: List[str] = []
-        work_dir: Optional[str] = "work"
-        sim_no_save: bool = True
-        generate_kdb: bool = False
-        supress_banner: bool = True
-        quiet: bool = False
+        simv_flags: List[str] = Field(
+            [],
+            description="Extra arguments passed to the compiled simulator executable (simv). "
+            "Ignored when `one_shot_run` is set.",
+        )
+        work_dir: Optional[str] = Field(
+            "work", description="Directory holding the analyzed design library (vlogan/vhdlan)."
+        )
+        sim_no_save: bool = Field(
+            True,
+            description="Pass `-no_save` so VCS does not write a restartable simulation snapshot.",
+        )
+        generate_kdb: bool = Field(
+            False,
+            description="Generate the Verdi knowledge database (`-kdb`), required for Verdi "
+            "debugging. Slows down elaboration.",
+        )
+        supress_banner: bool = Field(True, description="Suppress the VCS copyright banner (`-nc`).")
+        quiet: bool = Field(False, description="Suppress informational output from VCS.")
         vhdl_xlrm: bool = Field(
             False, description="Enables VHDL features beyond those described in LRM"
         )
@@ -74,9 +91,13 @@ class Vcs(SimFlow):
             None,
             description="Enable GUI (Graphical User Interface) when running simulator executable. A string can be used to specify the GUI type, either 'dve' or 'verdi', otherwise VCS will start verdi if VC_HOME is set.",
         )
-        full64: bool = True
-        time_unit: Optional[str] = "1ns"
-        time_resolution: Optional[str] = "1ps"
+        full64: bool = Field(True, description="Compile and run in 64-bit mode (`-full64`).")
+        time_unit: Optional[str] = Field(
+            "1ns", description='Default simulation time unit, e.g. "1ns".'
+        )
+        time_resolution: Optional[str] = Field(
+            "1ps", description='Default simulation time precision, e.g. "1ps".'
+        )
         sdf_file: Optional[Union[str, Path]] = Field(
             None, description="SDF file for back-annotating delays using the unified SDF feature"
         )
@@ -87,12 +108,32 @@ class Vcs(SimFlow):
         sdf_type: Literal["min", "typ", "max"] = Field(
             "typ", description="SDF type for back-annotating delays"
         )
-        vcs_warn: Optional[str] = "all,noTFIPC,noLCA_FEATURES_ENABLED"
-        vlogan_warns: Optional[str] = None
-        vcs_nowarn: List[str] = []
-        lint: Optional[str] = "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE,noUI"
-        debug_access: Optional[Union[str, bool]] = True
-        debug_region: Optional[str] = None
+        vcs_warn: Optional[str] = Field(
+            "all,noTFIPC,noLCA_FEATURES_ENABLED",
+            description="Value of VCS' `+warn` option: a comma-separated list of warning IDs to "
+            "enable, or `noID` to disable one.",
+        )
+        vlogan_warns: Optional[str] = Field(
+            None, description="Value of `+warn` for the Verilog analysis step (vlogan)."
+        )
+        vcs_nowarn: List[str] = Field(
+            [], description="Warning IDs to silence, passed as `-nowarn <id>` to VCS."
+        )
+        lint: Optional[str] = Field(
+            "all,TFIPC-L,noVCDE,noTFIPC,noIWU,noOUDPE,noUI",
+            description="Value of VCS' `+lint` option: a comma-separated list of lint checks to "
+            "enable, or `noID` to disable one.",
+        )
+        debug_access: Optional[Union[str, bool]] = Field(
+            True,
+            description="Debug visibility level: true for `-debug_access+all`, false to disable, "
+            'or a suffix string such as "+r" or "+class". More access means slower simulation.',
+        )
+        debug_region: Optional[str] = Field(
+            None,
+            description="Restrict debug visibility to this region (`-debug_region=...`), e.g. "
+            '"cell+encrypt", to keep the performance cost contained.',
+        )
         functional_vital: bool = Field(False, description="Disable timing simulation for VITAL")
         init_std_logic: Optional[Literal["U", "X", "0", "1", "Z", "W", "L", "H", "-"]] = Field(
             None, description="Initialize std_logic to this value"
@@ -102,11 +143,23 @@ class Vcs(SimFlow):
             description="Initialize registers to this value. Use 'random' for random initialization.",
         )
         lic_wait: Optional[int] = Field(100, description="Wait for license if not available.")
-        vlogan_flags: List[str] = ["+v2k"]
-        vhdlan_flags: List[str] = []
-        vcs_flags: List[str] = []
-        cflags: List[str] = ["-O3", "-march=native", "-mtune=native"]
-        vcs_log_file: Optional[str] = "vcs.log"
+        vlogan_flags: List[str] = Field(
+            ["+v2k"], description="Extra flags passed to `vlogan` when analyzing Verilog sources."
+        )
+        vhdlan_flags: List[str] = Field(
+            [], description="Extra flags passed to `vhdlan` when analyzing VHDL sources."
+        )
+        vcs_flags: List[str] = Field(
+            [], description="Extra flags passed to `vcs` during elaboration."
+        )
+        cflags: List[str] = Field(
+            ["-O3", "-march=native", "-mtune=native"],
+            description="Flags passed through to the C compiler that builds the simulation "
+            "executable. The defaults target the build machine, so the binary is not portable.",
+        )
+        vcs_log_file: Optional[str] = Field(
+            "vcs.log", description="File VCS writes its elaboration log to."
+        )
         fsdb: Optional[Path] = Field(
             None,
             description="Enable FSDB (Fast Signal DataBase) for waveform generation",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import importlib
 import json
 import logging
@@ -128,13 +129,34 @@ def print_results(
 
 
 class FlowNotFoundError(Exception):
-    pass
+    def __init__(self, flow_name: Optional[str] = None, suggestions: Iterable[str] = ()) -> None:
+        self.flow_name = flow_name
+        self.suggestions = list(suggestions)
+        msg = f"Flow '{flow_name}' was not found." if flow_name else "Flow was not found."
+        if self.suggestions:
+            msg += " Did you mean: " + ", ".join(self.suggestions) + "?"
+        msg += " Run `xeda list-flows` to see all available flows."
+        super().__init__(msg)
+
+
+def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
+    """Canonical names of registered flows most similar to `flow_name`."""
+    canonical = unique([cls.name for _mod, cls in registered_flows.values()])
+    return difflib.get_close_matches(flow_name, canonical, n=limit, cutoff=0.6)
 
 
 def get_flow_class(
     flow_name: str, module_name: str = "xeda.flows", package: str = __package__ or "xeda"
 ) -> Type[Flow]:
+    flow_name = flow_name.strip().replace("-", "_")
     _mod, flow_class = registered_flows.get(flow_name, (None, None))
+    if flow_class is None:
+        # canonical names, class names and aliases are all registered, but the user (or an agent)
+        # may have used a different casing.
+        lowered = flow_name.lower()
+        for name, (_m, cls) in registered_flows.items():
+            if name.lower() == lowered:
+                return cls
     if flow_class is None:
         log.debug(
             "Flow %s was not found in registered flows. Trying to load using `importlib`.",
@@ -143,7 +165,7 @@ def get_flow_class(
         try:
             module = importlib.import_module(module_name)
         except ModuleNotFoundError as e:
-            raise FlowNotFoundError() from e
+            raise FlowNotFoundError(flow_name, _flow_name_suggestions(flow_name)) from e
         flow_class_name = snakecase_to_camelcase(flow_name)
         if module:
             try:
@@ -151,7 +173,7 @@ def get_flow_class(
             except AttributeError:
                 pass
         if not flow_class or not issubclass(flow_class, Flow):
-            raise FlowNotFoundError()
+            raise FlowNotFoundError(flow_name, _flow_name_suggestions(flow_name))
     return flow_class
 
 
@@ -537,6 +559,7 @@ class FlowLauncher:
                     log.critical("parse_reports threw an exception: %s", e)
                     if success:  # if so far so good this is a bug!
                         raise e
+                flow.add_canonical_result_aliases()
                 if not success and not flow_settings.quiet:
                     log.debug("Failure was reported in the parsed results.")
                 flow.results.success = success

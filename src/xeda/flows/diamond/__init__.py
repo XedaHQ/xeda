@@ -1,19 +1,48 @@
 import logging
 from typing import List, Literal, Optional
 
-from ...dataclass import validator
-from ...flow import FpgaSynthFlow
+from ...dataclass import Field, validator
+from ...flow import FpgaSynthFlow, describe_results
 from ...tool import Tool
 
 log = logging.getLogger(__name__)
 
 
 class DiamondSynth(FpgaSynthFlow):
+    """FPGA synthesis, place & route for Lattice devices using Lattice Diamond.
+
+    Runs the full Diamond implementation flow (synthesis through bitstream generation) in batch
+    mode and reports resource utilization and timing.
+    """
+
+    results_description = describe_results(
+        "clock_period",
+        "clock_frequency",
+        "clock_port",
+        "wns",
+        "whs",
+        "lut",
+        "ff",
+        "slice",
+        "dsp",
+        "bram",
+    )
+
     class Settings(FpgaSynthFlow.Settings):
-        impl_folder: str = "diamond_impl"
-        impl_name: str = "Implementation0"
-        syn_cmdline_args: Optional[List[str]] = None
-        synthesis_engine: Literal["lse", "synplify"] = "lse"
+        impl_folder: str = Field(
+            "diamond_impl", description="Directory Diamond writes the implementation into."
+        )
+        impl_name: str = Field(
+            "Implementation0", description="Name of the Diamond implementation to create and run."
+        )
+        syn_cmdline_args: Optional[List[str]] = Field(
+            None, description="Extra command-line arguments passed to the synthesis engine."
+        )
+        synthesis_engine: Literal["lse", "synplify"] = Field(
+            "lse",
+            description="Synthesis engine: Lattice Synthesis Engine (`lse`) or Synplify Pro "
+            "(`synplify`). They give noticeably different results.",
+        )
 
         @validator("syn_cmdline_args", pre=True)
         def validate_syn_cmdline_args(cls, syn_cmdline_args: Optional[List[str]]) -> List[str]:

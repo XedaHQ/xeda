@@ -11,13 +11,39 @@ import sys
 import termios
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, TextIO, Union
 
 import colorama
 
 from .utils import ExecutableNotFound, NonZeroExitCode
 
 log = logging.getLogger(__name__)
+
+
+#: Stream that tool output and echoed commands are written to. `None` means `sys.stdout`.
+#: The CLI's machine-readable modes (`--json`) point this at `sys.stderr` so that a parseable
+#: result can own stdout; child processes that inherit our stdout are redirected too.
+_tool_output: Optional[TextIO] = None
+
+
+def set_tool_output(stream: Optional[TextIO]) -> None:
+    """Route tool output away from stdout. `None` restores the default (`sys.stdout`)."""
+    global _tool_output  # pylint: disable=global-statement
+    _tool_output = stream
+
+
+def tool_output_stream() -> TextIO:
+    """The stream tool output should be written to."""
+    return _tool_output if _tool_output is not None else sys.stdout
+
+
+def tool_output_redirect() -> Optional[TextIO]:
+    """Stream a child process should inherit as its stdout, or `None` to leave ours unchanged.
+
+    Any code that spawns a subprocess outside `run_process` (design generators, the remote
+    runner) must honor this, or its output lands on fd 1 and corrupts a `--json` document.
+    """
+    return _tool_output
 
 
 def _stdout_terminal_fd() -> Optional[int]:
@@ -32,9 +58,10 @@ def _stdout_terminal_fd() -> Optional[int]:
     terminator to those readers, so it would show up as a blank line after
     every line of output.
     """
+    out = tool_output_stream()
     try:
-        if sys.stdout.isatty():
-            return sys.stdout.fileno()
+        if out.isatty():
+            return out.fileno()
     except (AttributeError, ValueError, OSError):
         pass
     return None
@@ -63,7 +90,9 @@ def _needs_explicit_carriage_return(terminal_fd: Optional[int]) -> bool:
 
 def proc_output(is_stderr: bool, line):
     print(
-        f"{'[E] ' if is_stderr else ''}{line}", end="", file=sys.stderr if is_stderr else sys.stdout
+        f"{'[E] ' if is_stderr else ''}{line}",
+        end="",
+        file=sys.stderr if is_stderr else tool_output_stream(),
     )
 
 
@@ -76,7 +105,13 @@ def run_process(
     cwd: Union[None, str, os.PathLike] = None,
     print_command: bool = False,
     highlight_rules: Optional[Dict[str, str]] = None,
+    merge_stderr: bool = False,
 ) -> Union[None, str]:
+    """Run `executable`; return its captured stdout when `stdout` is True.
+
+    `merge_stderr` folds the child's stderr into the captured stdout. Only meaningful while
+    capturing (`stdout=True`), and needed for tools that print their version banner to stderr.
+    """
     if args is None:
         args = []
     args = [str(a) for a in args]
@@ -85,7 +120,7 @@ def run_process(
     command: List[str] = [str(c) for c in (executable, *args)]
     cmd_str = " ".join(map(lambda x: str(x), command))
     if print_command:
-        print("Running `%s`" % cmd_str)
+        print("Running `%s`" % cmd_str, file=tool_output_stream())
     else:
         log.debug("Running `%s`", cmd_str)
     if cwd:
@@ -118,7 +153,11 @@ def run_process(
                     # switch the terminal into raw mode while it runs and restore
                     # it on exit, so this is not fixed for the duration of the
                     # call. The check costs well under a microsecond.
-                    print(line, end="\r" if _needs_explicit_carriage_return(terminal_fd) else "")
+                    print(
+                        line,
+                        end="\r" if _needs_explicit_carriage_return(terminal_fd) else "",
+                        file=tool_output_stream(),
+                    )
             ret = proc.wait()
             if check and ret != 0:
                 raise NonZeroExitCode(command, ret)
@@ -139,7 +178,11 @@ def run_process(
             [executable, *args],
             cwd=cwd,
             shell=False,
-            stdout=f if f else subprocess.PIPE if stdout else None,
+            # With no capture requested the child inherits our stdout, unless tool output has
+            # been redirected -- otherwise it would write straight to fd 1 and corrupt a
+            # machine-readable result.
+            stdout=f if f else subprocess.PIPE if stdout else tool_output_redirect(),
+            stderr=subprocess.STDOUT if (merge_stderr and stdout and not f) else None,
             bufsize=1,
             universal_newlines=True,
             encoding="utf-8",

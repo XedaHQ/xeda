@@ -1,0 +1,224 @@
+{
+ "critical_paths": [
+  {
+   "from": "posedge $glbnet$clk_25mhz$TRELLIS_IO_IN",
+   "path": [
+    {
+     "delay": 0.5249999761581421,
+     "from": {
+      "cell": "ctr_TRELLIS_FF_Q_18",
+      "loc": [
+       5,
+       36
+      ],
+      "port": "Q"
+     },
+     "to": {
+      "cell": "ctr_TRELLIS_FF_Q_18",
+      "loc": [
+       5,
+       36
+      ],
+      "port": "Q"
+     },
+     "type": "clk-to-q"
+    },
+    {
+     "delay": 0.8870000243186951,
+     "from": {
+      "cell": "ctr_TRELLIS_FF_Q_18",
+      "loc": [
+       5,
+       36
+      ],
+      "port": "Q"
+     },
+     "net": "ctr[23]",
+     "sources": [
+      "examples/boards/ulx3s/blinky/blinky.v:17.25-17.28"
+     ],
+     "to": {
+      "cell": "shift_val_LUT4_Z_D_LUT4_Z",
+      "loc": [
+       5,
+       37
+      ],
+      "port": "C"
+     },
+     "type": "routing"
+    }
+   ],
+   "to": "posedge $glbnet$clk_25mhz$TRELLIS_IO_IN"
+  },
+  {
+   "from": "posedge $glbnet$clk_25mhz$TRELLIS_IO_IN",
+   "path": [
+    {
+     "delay": 0.5249999761581421,
+     "from": {
+      "cell": "led_TRELLIS_FF_Q_5",
+      "loc": [
+       3,
+       37
+      ],
+      "port": "Q"
+     },
+     "to": {
+      "cell": "led_TRELLIS_FF_Q_5",
+      "loc": [
+       3,
+       37
+      ],
+      "port": "Q"
+     },
+     "type": "clk-to-q"
+    },
+    {
+     "delay": 1.5269999504089355,
+     "from": {
+      "cell": "led_TRELLIS_FF_Q_5",
+      "loc": [
+       3,
+       37
+      ],
+      "port": "Q"
+     },
+     "net": "led[5]$TRELLIS_IO_OUT",
+     "sources": [
+      "examples/boards/ulx3s/blinky/blinky.v:5.18-5.21"
+     ],
+     "to": {
+      "cell": "led[5]$tr_io",
+      "loc": [
+       0,
+       44
+      ],
+      "port": "I"
+     },
+     "type": "routing"
+    }
+   ],
+   "to": "<async>"
+  }
+ ],
+ "fmax": {
+  "$glbnet$clk_25mhz$TRELLIS_IO_IN": {
+   "achieved": 253.93600463867188,
+   "constraint": 25
+  }
+ },
+ "utilization": {
+  "ALU54B": {
+   "available": 78,
+   "used": 0
+  },
+  "CLKDIVF": {
+   "available": 4,
+   "used": 0
+  },
+  "DCCA": {
+   "available": 56,
+   "used": 1
+  },
+  "DCSC": {
+   "available": 2,
+   "used": 0
+  },
+  "DCUA": {
+   "available": 2,
+   "used": 0
+  },
+  "DDRDLL": {
+   "available": 4,
+   "used": 0
+  },
+  "DLLDELD": {
+   "available": 8,
+   "used": 0
+  },
+  "DP16KD": {
+   "available": 208,
+   "used": 0
+  },
+  "DQSBUFM": {
+   "available": 14,
+   "used": 0
+  },
+  "DTR": {
+   "available": 1,
+   "used": 0
+  },
+  "ECLKBRIDGECS": {
+   "available": 2,
+   "used": 0
+  },
+  "ECLKSYNCB": {
+   "available": 10,
+   "used": 0
+  },
+  "EHXPLLL": {
+   "available": 4,
+   "used": 0
+  },
+  "EXTREFB": {
+   "available": 2,
+   "used": 0
+  },
+  "GSR": {
+   "available": 1,
+   "used": 0
+  },
+  "IOLOGIC": {
+   "available": 224,
+   "used": 0
+  },
+  "JTAGG": {
+   "available": 1,
+   "used": 0
+  },
+  "MULT18X18D": {
+   "available": 156,
+   "used": 0
+  },
+  "OSCG": {
+   "available": 1,
+   "used": 0
+  },
+  "PCSCLKDIV": {
+   "available": 2,
+   "used": 0
+  },
+  "SEDGA": {
+   "available": 1,
+   "used": 0
+  },
+  "SIOLOGIC": {
+   "available": 141,
+   "used": 0
+  },
+  "TRELLIS_COMB": {
+   "available": 83640,
+   "used": 37
+  },
+  "TRELLIS_ECLKBUF": {
+   "available": 8,
+   "used": 0
+  },
+  "TRELLIS_FF": {
+   "available": 83640,
+   "used": 32
+  },
+  "TRELLIS_IO": {
+   "available": 365,
+   "used": 16
+  },
+  "TRELLIS_RAMW": {
+   "available": 10455,
+   "used": 0
+  },
+  "USRMCLK": {
+   "available": 1,
+   "used": 0
+  }
+ }
+}

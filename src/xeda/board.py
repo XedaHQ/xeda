@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, Union
 
 from importlib_resources import as_file, files
 
-from .dataclass import root_validator
+from .dataclass import Field, root_validator
 from .flow import FPGA, FpgaSynthFlow
 from .utils import toml_load
 
@@ -49,8 +49,16 @@ def get_board_data(
 
 
 class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
-    board: Optional[str] = None
-    custom_boards_file: Optional[str] = None
+    board: Optional[str] = Field(
+        None,
+        description="Target development board. Fills in `fpga` (and board-specific constraint "
+        "files) from the board database. See `xeda list-boards`.",
+    )
+    custom_boards_file: Optional[str] = Field(
+        None,
+        description="Path to a TOML file with additional board definitions, used instead of the "
+        "bundled board database.",
+    )
 
     @root_validator(pre=True)
     def _fpga_validate(cls, values: Dict[str, Any]) -> Dict[str, Any]:

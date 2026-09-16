@@ -10,7 +10,7 @@ import re
 import subprocess
 from collections import OrderedDict
 from collections.abc import Sequence
-from enum import Enum, auto
+from enum import Enum
 from functools import cached_property
 from glob import glob
 from pathlib import Path
@@ -39,6 +39,7 @@ from .dataclass import (
     validation_errors,
     validator,
 )
+from .proc_utils import tool_output_redirect
 from .utils import (
     NonZeroExitCode,
     WorkingDirectory,
@@ -179,21 +180,63 @@ class FileResource:
     def get_specified_path(self):
         return self._specified_path
 
+    @classmethod
+    def __modify_schema__(cls, field_schema: Dict[str, Any]) -> None:
+        """Make this arbitrary type declarable in JSON Schema.
+
+        Without this, `Design.schema()` raises `ValueError: Value not declarable with JSON
+        Schema`, which would leave editors and coding agents without any machine-readable
+        description of a design file.
+        """
+        field_schema.clear()
+        field_schema.update(
+            title=cls.__name__,
+            description=(
+                "A file resource: either a path string (relative paths are resolved against the "
+                "design file's directory) or an object with a 'file' key (an existing file) or a "
+                "'path' key (an unchecked path)."
+            ),
+            anyOf=[
+                {"type": "string"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "file": {
+                            "type": "string",
+                            "description": "Path to an existing file. Mutually exclusive with 'path'.",
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
+                        },
+                    },
+                    # FileResource rejects an object that gives neither.
+                    "anyOf": [{"required": ["file"]}, {"required": ["path"]}],
+                },
+            ],
+        )
+
 
 class SourceType(str, Enum):
-    Verilog = auto()
-    VerilogHeader = auto()
-    SystemVerilog = auto()
-    SVHeader = auto()
-    Vhdl = auto()
-    Bluespec = auto()
-    Xdc = auto()
-    Sdc = auto()
-    MemoryFile = auto()
-    Tcl = auto()
-    Chisel = auto()
-    Cpp = auto()
-    Cocotb = auto()
+    """Type of a design source file.
+
+    Values are the member names themselves so that serialized settings and results are
+    self-describing. NOTE: the declaration order is significant, see `from_str`.
+    """
+
+    Verilog = "Verilog"
+    VerilogHeader = "VerilogHeader"
+    SystemVerilog = "SystemVerilog"
+    SVHeader = "SVHeader"
+    Vhdl = "Vhdl"
+    Bluespec = "Bluespec"
+    Xdc = "Xdc"
+    Sdc = "Sdc"
+    MemoryFile = "MemoryFile"
+    Tcl = "Tcl"
+    Chisel = "Chisel"
+    Cpp = "Cpp"
+    Cocotb = "Cocotb"
 
     def __str__(self) -> str:
         return str(self.name)
@@ -207,10 +250,19 @@ class SourceType(str, Enum):
         try:
             return cls[source_type.capitalize()]
         except KeyError:
-            for k, v in cls.__members__.items():
-                if k.lower() == source_type.lower():
-                    return v
-            return None
+            pass
+        for k, v in cls.__members__.items():
+            if k.lower() == source_type.lower():
+                return v
+        # Backward compatibility: this enum previously used `auto()`, so settings.json files
+        # written by older versions of xeda record 1-based ordinals ("5" for Vhdl) instead of
+        # names. The declaration order above must not change while this is supported.
+        if source_type.isdigit():
+            members = list(cls.__members__.values())
+            idx = int(source_type)
+            if 1 <= idx <= len(members):
+                return members[idx - 1]
+        return None
 
 
 class DesignSource(FileResource):
@@ -287,6 +339,33 @@ class DesignSource(FileResource):
                 "type": (self.type),
                 "variant": (self.variant),
                 "standard": (self.standard),
+            }
+        )
+
+    @classmethod
+    def __modify_schema__(cls, field_schema: Dict[str, Any]) -> None:
+        super().__modify_schema__(field_schema)
+        field_schema["description"] = (
+            "A design source file: either a path string (relative paths are resolved against the "
+            "design file's directory) or an object. The source type is inferred from the file "
+            "extension unless 'type' is given explicitly."
+        )
+        object_schema = field_schema["anyOf"][1]
+        object_schema["properties"].update(
+            {
+                "type": {
+                    "type": "string",
+                    "enum": [t.name for t in SourceType],
+                    "description": "Source type. Inferred from the file extension when omitted.",
+                },
+                "standard": {
+                    "type": "string",
+                    "description": "Language standard for this source, e.g. '2008' for VHDL or '2012' for SystemVerilog.",
+                },
+                "variant": {
+                    "type": "string",
+                    "description": "Language variant, e.g. 'bsv' or 'bh' for Bluespec sources.",
+                },
             }
         )
 
@@ -466,6 +545,11 @@ class Generator(XedaBaseModel):
 
     def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
         log.info("Running command: '%s'", " ".join(cmd))
+        if stdout is None:
+            # A generator's subprocess inherits our stdout, which would corrupt a `--json`
+            # document. `tool_output_redirect()` is None unless output has been redirected, so
+            # normal runs keep inheriting as before.
+            stdout = tool_output_redirect()
         p = subprocess.run(
             cmd,
             cwd=self.cwd,
@@ -945,6 +1029,7 @@ class Design(XedaBaseModel):
                         shell=True,
                         cwd=design_root,
                         env=env,
+                        stdout=tool_output_redirect(),
                     )
                     if exit_code != 0:
                         log.error("Generator '%s' failed with exit code %d", generator, exit_code)
@@ -970,7 +1055,7 @@ class Design(XedaBaseModel):
                     skip_run = False
                     rtl_sources = rtl.get("sources", [])
                     if generator.run_only_if_sources_modified and generator.sources and rtl_sources:
-                        print(f"Generator sources: {generator.sources}")
+                        log.debug("Generator sources: %s", generator.sources)
                         # check if rtl.sources exist and if they are newer than the generator sources
                         if all(Path(src).exists() for src in rtl_sources):
                             generator_sources_last_modified = max(
@@ -1007,7 +1092,12 @@ class Design(XedaBaseModel):
                     #         log.critical("Generator script not found: %s", gen_script)
                     #         raise FileNotFoundError(gen_script)
                     #     args.insert(0, sys.executable)
-                    subprocess.run(args, check=True, cwd=design_root)
+                    subprocess.run(
+                        args,
+                        check=True,
+                        cwd=design_root,
+                        stdout=tool_output_redirect(),
+                    )
 
     @classmethod
     def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:

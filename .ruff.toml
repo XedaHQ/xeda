@@ -1,5 +1,7 @@
-# Target oldest version of Python used (Python 3.9 for Ubuntu 20.04 LTS)
-target-version = "py39"
+# The *oldest* Python that must keep working, matching `requires-python` in pyproject.toml and
+# the floor of the CI matrix (3.11 to 3.14). Raising this lets ruff suggest rewrites that would
+# break on older interpreters, so bump it only together with `requires-python`.
+target-version = "py311"
 
 line-length = 120
 

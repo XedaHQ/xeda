@@ -1,12 +1,15 @@
+import json
 import logging
-from typing import List, Optional, Union
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
 from ..board import WithFpgaBoardSettings, get_board_data, get_board_file_path
 from ..dataclass import Field, XedaBaseModel, validator
-from ..flow import FlowFatalError, FpgaSynthFlow
+from ..flow import FlowFatalError, FpgaSynthFlow, describe_results
 from ..tool import Tool
 from ..utils import setting_flag
 from .yosys import YosysFpga
@@ -14,6 +17,42 @@ from .yosys import YosysFpga
 __all__ = ["Nextpnr"]
 
 log = logging.getLogger(__name__)
+
+
+class NextpnrTool(Tool):
+    """nextpnr, whose version banner goes to stderr rather than stdout.
+
+    The banner looks like::
+
+        "nextpnr-ecp5" -- Next Generation Place and Route (Version nextpnr-0.11.1-3-g930fef44)
+
+    The generic patterns in `Tool` do not match that shape, so without this the reported version
+    is empty. `Tool` already retries version detection with stderr folded in.
+    """
+
+    version_regexps: List[Union[re.Pattern, str]] = [
+        re.compile(r"Version\s+nextpnr-(?P<version>\d+(?:\.\d+)*)")
+    ]
+
+
+#: Canonical resource name -> the nextpnr bel types that implement it, for ECP5.
+#:
+#: Verified against the nextpnr-ecp5 0.11.1 shipped in oss-cad-suite. `TRELLIS_COMB` is one LUT4
+#: and `TRELLIS_FF` one flip-flop, so both map cleanly. Older nextpnr reported `TRELLIS_SLICE`
+#: instead -- two LUT4s and two FFs per slice -- which cannot be split, so it is reported as
+#: `slice` and leaves `lut`/`ff` unset rather than being counted wrongly.
+#: Decimal places slack is rounded to for reporting. Pass/fail is always decided on the
+#: unrounded value.
+_SLACK_DECIMALS = 6
+
+ECP5_RESOURCES: Dict[str, Tuple[str, ...]] = {
+    "lut": ("TRELLIS_COMB",),
+    "ff": ("TRELLIS_FF",),
+    "slice": ("TRELLIS_SLICE",),
+    "bram": ("DP16KD",),
+    "dsp": ("MULT18X18D", "ALU54B"),
+    "io": ("TRELLIS_IO",),
+}
 
 
 class EcpPLL(Tool):
@@ -84,17 +123,67 @@ class EcpPLL(Tool):
 
 
 class Nextpnr(FpgaSynthFlow):
+    """Place and route an FPGA design with nextpnr, the portable open-source PnR tool.
+
+    Synthesis is delegated to the `yosys_fpga` dependency flow; this flow places and routes the
+    resulting JSON netlist with the nextpnr variant matching `fpga.family`, then parses nextpnr's
+    JSON report for achieved frequency, slack and resource utilization. Use the `openfpgaloader`
+    flow to pack and program the result onto a board.
+
+    Lattice **ECP5** is the supported and tested target. Other nextpnr backends are invoked on a
+    best-effort basis: the report is parsed for any of them (nextpnr writes it from shared,
+    architecture-independent code), but device-selection arguments and the mapping from nextpnr
+    bel types to canonical resource names (`lut`, `ff`, ...) are ECP5-specific, so another family
+    gets the raw per-bel-type counts only.
+    """
+
+    results_description = describe_results(
+        "Fmax",
+        "wns",
+        "clock_frequency",
+        "clock_period",
+        "clock_domains",
+        "timing_met",
+        "lut",
+        "ff",
+        "slice",
+        "bram",
+        "dsp",
+        "io",
+    )
+
     class Settings(WithFpgaBoardSettings):
-        verbose: bool = False
-        lpf_cfg: Optional[str] = None
-        seed: Optional[int] = None
-        randomize_seed: bool = False
-        timing_allow_fail: bool = False
+        verbose: bool = Field(
+            False, description="Pass `--verbose` to nextpnr for more detailed progress output."
+        )
+        lpf_cfg: Optional[str] = Field(
+            None,
+            description="Lattice LPF pin-constraint file. Taken from the board database when "
+            "`board` is set and this is unset.",
+        )
+        seed: Optional[int] = Field(
+            None,
+            description="Seed for nextpnr's placer. Different seeds give different results; "
+            "sweeping the seed is a common way to squeeze out extra Fmax.",
+        )
+        randomize_seed: bool = Field(
+            False,
+            description="Use a fresh random seed on every run. Makes results non-reproducible; "
+            "set `seed` instead to pin one.",
+        )
+        timing_allow_fail: bool = Field(
+            False,
+            description="Let the flow succeed even when timing constraints are not met.",
+        )
         ignore_loops: bool = Field(
             False, description="ignore combinational loops in timing analysis"
         )
 
-        textcfg: Optional[str] = "config.txt"
+        textcfg: Optional[str] = Field(
+            "config.txt",
+            description="Write the routed design to this textual configuration file, which the "
+            "bitstream packer (and the `openfpgaloader` flow) consumes.",
+        )
         out_of_context: bool = Field(
             False,
             description="disable IO buffer insertion and global promotion/routing, for building pre-routed blocks",
@@ -103,17 +192,49 @@ class Nextpnr(FpgaSynthFlow):
             False,
             description="don't require LPF file(s) to constrain all IOs",
         )
-        extra_args: List[str] = []
-        py_script: Optional[str] = None
-        write: Optional[str] = None
-        sdf: Optional[str] = None
-        log: Optional[str] = "nextpnr.log"
-        report: Optional[str] = "report.json"
-        detailed_timing_report: bool = False  # buggy and likely to segfault
-        placed_svg: Optional[str] = None  # "placed.svg"
-        routed_svg: Optional[str] = None  # "routed.svg"
-        parallel_refine: bool = False
-        yosys: Optional[YosysFpga.Settings] = None
+        extra_args: List[str] = Field(
+            [], description="Extra command-line arguments appended to the nextpnr invocation."
+        )
+        py_script: Optional[str] = Field(
+            None,
+            description="Python script run inside nextpnr (`--run`), for custom constraints or "
+            "analysis. Requires a nextpnr built with Python support.",
+        )
+        write: Optional[str] = Field(
+            None, description="Write the post-routing design to this JSON file."
+        )
+        sdf: Optional[str] = Field(
+            None,
+            description="Write post-routing timing to this SDF file, for timing-annotated "
+            "netlist simulation.",
+        )
+        log: Optional[str] = Field("nextpnr.log", description="File nextpnr writes its log to.")
+        report: Optional[str] = Field(
+            "report.json",
+            description="File nextpnr writes its JSON utilization/timing report to. This is what "
+            "the flow parses its results from.",
+        )
+        detailed_timing_report: bool = Field(
+            False,
+            description="Ask nextpnr for a detailed per-path timing report. Known to be unstable "
+            "and may crash nextpnr.",
+        )
+        placed_svg: Optional[str] = Field(
+            None, description="Render the placed design to this SVG file."
+        )
+        routed_svg: Optional[str] = Field(
+            None, description="Render the routed design to this SVG file."
+        )
+        parallel_refine: bool = Field(
+            False,
+            description="Enable nextpnr's parallel placement refinement. Faster on many cores, "
+            "and only available in some nextpnr builds.",
+        )
+        yosys: Optional[YosysFpga.Settings] = Field(
+            None,
+            description="Settings for the `yosys_fpga` dependency that synthesizes the design. "
+            "`fpga` and `clocks` are propagated automatically.",
+        )
 
         @validator("yosys", always=True, pre=False)
         def _validate_yosys(cls, value, values):
@@ -159,7 +280,7 @@ class Nextpnr(FpgaSynthFlow):
             "fpga-interchange",
             "xilinx",
         }, "unsupported fpga family"
-        next_pnr = Tool(f"nextpnr-{fpga_family}")
+        next_pnr = NextpnrTool(executable=f"nextpnr-{fpga_family}")
 
         if not netlist_json.exists():
             raise FlowFatalError(f"netlist json file {netlist_json} does not exist!")
@@ -218,7 +339,6 @@ class Nextpnr(FpgaSynthFlow):
                 assert ss.fpga.pins
                 package += str(ss.fpga.pins)
         args += setting_flag(package)
-        args += setting_flag(lpf)
         args += setting_flag(ss.textcfg)
         args += setting_flag(ss.write)
         args += setting_flag(ss.nthreads, name="threads")
@@ -232,3 +352,148 @@ class Nextpnr(FpgaSynthFlow):
         if ss.extra_args:
             args += ss.extra_args
         next_pnr.run(*args)
+
+    # ------------------------------------------------------------------ report parsing
+
+    def parse_reports(self) -> bool:
+        """Parse nextpnr's JSON report (`--report`).
+
+        The report is written by architecture-independent nextpnr code and always holds `fmax`,
+        `utilization` and `critical_paths`, plus `detailed_net_timings` when
+        `detailed_timing_report` is set. It is written even when timing fails.
+        """
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        if not ss.report:
+            log.warning(
+                "Setting 'report' is empty, so nextpnr wrote no report and no timing or "
+                "utilization results could be parsed."
+            )
+            return True
+        report_path = Path(ss.report)
+        if not report_path.is_absolute():
+            report_path = self.run_path / report_path
+        if not report_path.exists():
+            log.error("nextpnr report file %s does not exist!", report_path)
+            return False
+        try:
+            report = json.loads(report_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            log.error("Failed to read nextpnr report %s: %s", report_path, e)
+            return False
+        self.artifacts["report"] = str(report_path)
+
+        timing_met = self._parse_fmax(report.get("fmax") or {})
+        self._parse_utilization(report.get("utilization") or {})
+        self._parse_critical_paths(report.get("critical_paths") or [])
+        detailed = report.get("detailed_net_timings")
+        if detailed is not None:
+            self.results["_detailed_net_timings"] = detailed
+
+        # nextpnr itself exits non-zero when timing fails unless `timing_allow_fail` is set, so
+        # this is mostly a backstop -- but it also covers a backend that reports a missed
+        # constraint without failing.
+        return timing_met or ss.timing_allow_fail
+
+    def _parse_fmax(self, fmax: Dict[str, Any]) -> bool:
+        """Record achieved frequency and derived slack per clock domain.
+
+        nextpnr reports frequencies, not slack, so slack is derived as the difference between the
+        constrained and the achieved clock period. Returns whether every constrained domain met
+        its constraint.
+        """
+        domains: Dict[str, Dict[str, Any]] = {}
+        # Rounding is for display only: rounding before the sign test turns a slack of
+        # -0.00025 ns into -0.0, and `-0.0 >= 0` is True, reporting a violation as met.
+        raw_slacks: Dict[str, float] = {}
+        for domain, values in fmax.items():
+            achieved = values.get("achieved")
+            constraint = values.get("constraint")
+            entry: Dict[str, Any] = {"achieved_mhz": achieved, "constraint_mhz": constraint}
+            if achieved and constraint:
+                raw = 1000.0 / constraint - 1000.0 / achieved
+                raw_slacks[domain] = raw
+                entry["slack_ns"] = round(raw, _SLACK_DECIMALS)
+            domains[domain] = entry
+        self.results["_fmax"] = domains
+        self.results["clock_domains"] = len(domains)
+
+        constrained = [v for v in domains.values() if v.get("slack_ns") is not None]
+        if not constrained:
+            if domains:
+                log.warning(
+                    "nextpnr reported %d clock domain(s) but none of them was constrained, so "
+                    "no Fmax or slack could be derived. Set 'clock_period' (or 'clocks'), or "
+                    "constrain the clocks in an LPF/SDC file.",
+                    len(domains),
+                )
+            return True
+        # Fmax is the lowest achieved frequency: the frequency at which *every* domain is still
+        # satisfied. wns comes from whichever domain has the least slack, which in a
+        # multi-domain design need not be the same one.
+        self.results["Fmax"] = round(min(v["achieved_mhz"] for v in constrained), 3)
+        wns = min(raw_slacks.values())
+        self.results["wns"] = round(wns, _SLACK_DECIMALS)
+        self.results["timing_met"] = wns >= 0
+        if len(constrained) == 1:
+            # clock_frequency/clock_period are per-domain, so only report them when there is no
+            # ambiguity about which domain they describe.
+            only = constrained[0]
+            self.results["clock_frequency"] = only["constraint_mhz"]
+            self.results["clock_period"] = round(1000.0 / only["constraint_mhz"], 3)
+        if wns < 0:
+            log.error(
+                "Timing not met: worst slack is %s ns (target %s MHz, achieved %s MHz)",
+                wns,
+                self.results.get("clock_frequency"),
+                self.results.get("Fmax"),
+            )
+        return bool(wns >= 0)
+
+    def _parse_utilization(self, utilization: Dict[str, Any]) -> None:
+        """Record per-bel-type usage, plus canonical resource names where the family is known."""
+        detail: Dict[str, Dict[str, Any]] = {}
+        for cell, counts in utilization.items():
+            used = counts.get("used") or 0
+            available = counts.get("available") or 0
+            detail[cell] = {
+                "used": used,
+                "available": available,
+                "utilization_percent": round(100.0 * used / available, 2) if available else None,
+            }
+            if used:
+                # Raw bel-type counts are always correct, whatever the target family is.
+                self.results[cell] = used
+        self.results["_utilization"] = detail
+
+        assert isinstance(self.settings, self.Settings)
+        fpga = self.settings.fpga
+        family = (fpga.family or "").lower() if fpga else ""
+        if family != "ecp5":
+            if detail:
+                log.debug(
+                    "No canonical resource mapping for fpga.family=%r; reporting raw nextpnr "
+                    "bel-type counts only.",
+                    family or None,
+                )
+            return
+        for canonical, cell_types in ECP5_RESOURCES.items():
+            present = [c for c in cell_types if c in detail]
+            if present:
+                self.results[canonical] = sum(detail[c]["used"] for c in present)
+
+    def _parse_critical_paths(self, critical_paths: List[Dict[str, Any]]) -> None:
+        """Summarize each reported critical path; the full stage-by-stage detail stays in the
+        report file, which is recorded as an artifact."""
+        summary = []
+        for path in critical_paths:
+            stages = path.get("path") or []
+            summary.append(
+                {
+                    "from": path.get("from"),
+                    "to": path.get("to"),
+                    "delay_ns": round(sum(stage.get("delay") or 0.0 for stage in stages), 3),
+                    "stages": len(stages),
+                }
+            )
+        self.results["_critical_paths"] = summary

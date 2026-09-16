@@ -2,9 +2,10 @@
 name = "xeda"
 description = "Cross EDA Abstraction and Automation"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dynamic = ["version"]
-license = { file = "LICENSE.txt" }
+license = "Apache-2.0"
+license-files = ["LICENSE.txt"]
 keywords = [
     "EDA",
     "Electronic",
@@ -30,7 +31,6 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Development Status :: 5 - Production/Stable",
-    "License :: OSI Approved :: Apache Software License",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
     "Topic :: Utilities",
@@ -40,11 +40,11 @@ dependencies = [
     "pydantic            >= 1.10.22, < 2.0",
     "python-box[]        ~= 7.4.1",
     "attrs               ~= 26.1.0",
-    "cattrs              ~= 26.1.0",
+    "cattrs              ~= 26.2.0",
     "attrs_strict        ~= 1.0.1",
     "pathvalidate        ~= 3.3.1",
-    "click               ~= 8.2.1",
-    "click_help_colors   ~= 0.9",
+    "click               ~= 8.5.0",
+    "click_extra         ~= 9.2",
     "coloredlogs         ~= 15.0",
     "rich                >= 15.0.0",
     "pebble              ~= 5.2.1",
@@ -77,10 +77,11 @@ changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
 xeda = "xeda.cli:cli"
 
 [dependency-groups]
-dev = ["pytest", "mypy", "black", "isort", "pylint", "tox", "ruff>=0.11.13"]
+# black >= 25.9 is the first release that knows the py314 target set in [tool.black].
+dev = ["pytest", "jsonschema", "mypy", "black>=25.9", "isort", "pylint", "tox", "ruff>=0.11.13"]
 
 [build-system]
-requires = ["setuptools>=65", "wheel>=0.37", "setuptools_scm[toml]>=7.1"]
+requires = ["setuptools>=77", "wheel>=0.37", "setuptools_scm[toml]>=7.1"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -97,7 +98,9 @@ namespaces = false
 
 [tool.setuptools.package-data]
 "xeda" = [
+    "py.typed",
     "*.cpp",
+    "*.md",
     "*.dse",
     "*.fdc",
     "*.j2",
@@ -115,6 +118,11 @@ namespaces = false
     "*.ys",
     # "*/platforms/**",
 ]
+# The agent skill's prose lives here; `references/` is not a package, so it is named explicitly.
+"xeda.data.agent" = [
+    "SKILL.md",
+    "references/*.md",
+]
 
 [tool.setuptools.exclude-package-data]
 "xeda" = [
@@ -127,7 +135,7 @@ namespaces = false
 
 [tool.black]
 line-length = 100
-target-version = ["py39", "py310", "py311", "py312", "py313"]
+target-version = ["py311", "py312", "py313", "py314"]
 include = '\.pyi?$'
 
 [tool.pylint.messages_control]

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
-from ...flow import SynthFlow
+from ...flow import SynthFlow, describe_results
 from ...platforms import AsicsPlatform
 from ...utils import unique
 from ..ghdl import GhdlSynth
@@ -159,27 +159,74 @@ class Yosys(YosysBase, SynthFlow):
     Yosys Open SYnthesis Suite: ASICs and generic gate/LUT synthesis
     """
 
+    results_description = describe_results(
+        "area",
+        **{
+            "cells": "Total number of cells in the synthesized netlist.",
+            "sequential_cells": "Number of sequential (state-holding) cells in the netlist.",
+        },
+    )
+
     class Settings(YosysBase.Settings, SynthFlow.Settings):
-        platform: Optional[AsicsPlatform] = None
+        platform: Optional[AsicsPlatform] = Field(
+            None,
+            description="ASIC platform (PDK) supplying the liberty libraries and mapping cells: a "
+            "bundled platform name (see `xeda list-platforms`) or a path to a config.toml. "
+            "An alternative to setting `liberty` and friends by hand.",
+        )
         liberty: List[Path] = Field(
             [], alias="library", description="Standard cell (liberty) libraries to use"
         )
         dff_liberty: Optional[Path] = Field(
             None, alias="dff_library", description="Additional liberty file for mapping flip-flops"
         )
-        dont_use_cells: List[str] = []
-        gates: Optional[List[str]] = None
-        lut: Optional[str] = None
+        dont_use_cells: List[str] = Field(
+            [],
+            description="Standard cells abc must not use, in addition to the platform's own "
+            "dont-use list.",
+        )
+        gates: Optional[List[str]] = Field(
+            None,
+            description="Map to this generic gate set instead of a liberty library, e.g. "
+            '["AND", "OR", "NOT"]. Accepts a comma-separated string.',
+        )
+        lut: Optional[str] = Field(
+            None,
+            description='Map to LUTs of this size instead of standard cells, e.g. "4" or a '
+            '"<width>:<cost>" pair.',
+        )
         optimize: Optional[Literal["speed", "area", "area+speed"]] = Field(
             "area", description="Optimization target"
         )
-        stop_after: Optional[Literal["rtl"]]
-        adder_map: Optional[str] = None
-        clockgate_map: Optional[str] = None
-        other_maps: List[str] = []
-        hilomap: Optional[HiLoMap] = None
-        insbuf: Union[None, Tuple[str, str, str], List[str]] = None
-        merge_libs_to: Optional[str] = None
+        stop_after: Optional[Literal["rtl"]] = Field(
+            None,
+            description='Stop the flow after this stage. "rtl" elaborates the design and writes '
+            "the RTL outputs without synthesizing.",
+        )
+        adder_map: Optional[str] = Field(
+            None, description="Verilog file with technology-specific adder cell mappings."
+        )
+        clockgate_map: Optional[str] = Field(
+            None, description="Verilog file with technology-specific clock-gating cell mappings."
+        )
+        other_maps: List[str] = Field(
+            [], description="Additional Verilog files with technology-specific cell mappings."
+        )
+        hilomap: Optional[HiLoMap] = Field(
+            None,
+            description="Tie-high/tie-low cells used to drive constant nets, for technologies "
+            "that forbid connecting logic directly to the rails.",
+        )
+        insbuf: Union[None, Tuple[str, str, str], List[str]] = Field(
+            None,
+            description="Buffer cell inserted on otherwise undriven or directly-connected wires, "
+            "as (cell_name, input_port, output_port).",
+        )
+        merge_libs_to: Optional[str] = Field(
+            None,
+            description="Merge all liberty libraries into this single file before synthesis, "
+            "which some yosys versions require when several corners are given.",
+        )
 
         @validator("liberty", pre=True, always=True)
         def _validate_liberty(cls, value):

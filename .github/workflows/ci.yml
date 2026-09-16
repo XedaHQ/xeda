@@ -37,4 +37,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --upgrade tox tox-gh-actions
       - name: "Run tox targets for ${{ matrix.python-version }}"
+        # CI installs ghdl, yosys (oss-cad-suite) and nvc, so a tool-dependent test that would
+        # skip locally must fail here instead of silently passing.
+        env:
+          XEDA_TESTS_REQUIRE_TOOLS: "1"
         run: "python -m tox"

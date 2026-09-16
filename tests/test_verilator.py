@@ -5,13 +5,16 @@ from pathlib import Path
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Verilator
 
+from .tool_utils import require_verilator
+
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
 debug = False
 
 
-def test_yosys_synth_py() -> None:
+def test_verilator_sim_py() -> None:
+    require_verilator()
     design_paths = [
         EXAMPLES_DIR / "sv" / "fifo" / "fifo.xeda.yaml",
         EXAMPLES_DIR / "sv" / "fifo" / "fifo_cocotb.xeda.yaml",
@@ -33,4 +36,4 @@ def test_yosys_synth_py() -> None:
 
 
 if __name__ == "__main__":
-    test_yosys_synth_py()
+    test_verilator_sim_py()

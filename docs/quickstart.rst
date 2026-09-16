@@ -1,80 +1,107 @@
+**********
 Quickstart
-==========
+**********
 
-.. OUTDATED FIXME
+Install
+=======
 
-To get started with xeda, first create a ``xedaproject.toml`` file for your design.
-This file contains metadata, list of source files, and flow settings regarding
-your design. Below is an example ``xedaproject.toml`` which can be adapted to any design. 
+Python 3.11 or newer is required.
 
-Checkout the xedaproject_ section for the detailed structure of the file. 
+For command-line use, the preferred installation is an isolated ``uv`` tool environment::
 
-.. TODO add xedaproject.toml breakdown
+    uv tool install --upgrade xeda
 
+`pipx <https://pipx.pypa.io/stable/>`_ is an equivalent alternative::
+
+    pipx install --force xeda
+
+To use Xeda as a library as well, install it into a virtual environment::
+
+    python3 -m pip install -U xeda
+
+Check the installation::
+
+    xeda --version
+
+Describe your design
+====================
+
+A design description is a single TOML, YAML or JSON file. It says what the design is, not how to
+build it - tool choices stay out of it, except for the optional per-flow settings at the end.
+
+``sqrt.toml``:
 
 .. code-block:: toml
 
-    [project]
-    name = "Project1"
-    description = "My Project with 2 designs"
+    name = "sqrt"
+    description = "Iterative computation of square-root of an integer"
+    language.vhdl.standard = "2008"
 
-    [[design]]
-    name = 'Design1'
-    [design.rtl]
-    sources = [
-        'src_rtl/module1.vhd',
-        'src_rtl/top.v'
-    ]
-    top = 'Top'
-    clock = 'clk'
-    [design.tb]
-    sources = [
-        'top_tb.vhd',
-    ]
-    top = 'TopTB'
+    [rtl]
+    sources = ["sqrt.vhdl"]
+    top = "sqrt"
+    clock_port = "clk"
+    parameters = { G_IN_WIDTH = 32 }
 
+    [tb]
+    sources = ["tb_sqrt.py"]
+    cocotb = true
 
+    [flows.vivado_synth]
+    fpga.part = "xc7a100tftg256-2L"
+    clock_period = 5.0
 
-After the ``xedaproject.toml`` file has been created for your design, you can now use xeda to generate simulation, synthesis and implementation results for your design using the supported tool of your choice.
+Paths are resolved relative to the directory holding the design file, so the file is portable
+along with its sources. See :doc:`design-file` for the full reference.
 
-For example, if we want to simulate the above design with GHDL, we would run
+Run a flow
+==========
+
+``xeda run <FLOW_NAME> <DESIGN_FILE>``. To simulate the design with GHDL::
+
+    xeda run ghdl_sim sqrt.toml
+
+To synthesize it for an FPGA with Vivado::
+
+    xeda run vivado_synth sqrt.toml
+
+The ``[flows.vivado_synth]`` section of the design file supplies that flow's settings. Override
+any of them on the command line with ``-s``/``--settings``, using dotted keys for nested values::
+
+    xeda run vivado_synth sqrt.toml -s clock_period=4.5 impl.strategy=Performance_ExplorePostRoutePhysOpt
+
+Unknown settings are rejected rather than ignored, so a typo fails loudly instead of quietly
+doing nothing.
+
+Find out what is available
+==========================
+
+Nothing here needs to be memorized; the CLI is self-describing.
 
 .. code-block:: bash
 
-    $ xeda ghdl_sim
+    xeda list-flows                     # every flow, with its aliases, category and dependencies
+    xeda list-settings vivado_synth     # every setting of a flow, with type, default and meaning
+    xeda list-results vivado_synth      # the keys that flow writes to results.json
+    xeda list-boards                    # bundled FPGA board definitions
+    xeda list-platforms                 # bundled ASIC platforms (PDKs)
+    xeda design-schema                  # JSON Schema of a design file
 
-If we are satisfied with the results of the simulation, we can have xeda synthesis and implement our design. For example, with Xilinx Vivado:
+Add ``--json`` to any of them for machine-readable output. See :doc:`machine-readable`.
 
-.. code-block:: bash
+Where the output goes
+=====================
 
-    $ xeda vivado_synth
+Each run gets its own directory under ``./xeda_run/``, holding the generated scripts, the tool
+logs, ``reports/``, ``outputs/``, and two JSON files: ``settings.json`` (the effective settings)
+and ``results.json`` (what was parsed back out). See :doc:`run-directories`.
 
-If multiple ``[[design]]`` entries are present, the active design needs be specified using ``--design`` flag
+Explore the design space
+========================
 
-That's it! That's all xeda requires to simulate, synthesis, and implement an HDL design.
+``xeda dse`` runs many instances of a flow in parallel under an optimizer. The default optimizer
+searches for the maximum clock frequency::
 
-As always, you can run ``xeda --help`` for the full list of arguments.
+    xeda dse vivado_synth --design sqrt.toml
 
-
-xedaproject
------------
-Settings:
-
-- ``project``
-- ``design`` can be a list of multiple TOML tables, must use ``[[design]]`` instead of ``[design]``
-    - ``name``: a string that designates a name for this design. Recommended to avoid any whitespace.
-    - ``rtl``
-        - ``sources``: a list of HDL files used for synthesis and simulation
-        - ``top``: syntehsis top entity/module
-    - ``tb``
-        - ``sources``: a list of testbench files used for simulation only
-        - ``top``: simulation top entity/module/function
-- ``flows``
-
-The sub-tables may include optional entries referenced only by a particular plugin.
-E.g., ``design.lwc`` is used by ``lwc`` plugins.
-
-
-bash-completion
----------------
-
+``xeda list-optimizers`` shows the available optimizers and their settings.

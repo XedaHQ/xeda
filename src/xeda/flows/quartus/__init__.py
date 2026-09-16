@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from ...dataclass import Field
-from ...flow import FpgaSynthFlow
+from ...flow import FpgaSynthFlow, describe_results
 from ...tool import Docker, Tool
 from ...types import PathLike
 from ...utils import try_convert_to_primitives
@@ -83,6 +83,16 @@ class Quartus(FpgaSynthFlow):
         ),  # pyright: ignore
     )
 
+    results_description = describe_results(
+        "Fmax",
+        "wns",
+        "whs",
+        **{
+            "lut": "Number of combinational ALUTs / logic elements used.",
+            "ff": "Number of dedicated logic registers used.",
+        },
+    )
+
     class Settings(FpgaSynthFlow.Settings):
         # part number (fpga.part) formats are quite complicated.
         # See: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf
@@ -106,18 +116,60 @@ class Quartus(FpgaSynthFlow):
             https://www.intel.com/content/www/us/en/programmable/quartushelp/current/index.htm
         """,
         )
-        remove_redundant_logic: bool = True
-        auto_resource_sharing: bool = True
-        retiming: bool = True
-        register_duplication: bool = True
-        packed_registers: bool = False
-        gated_clock_conversion: bool = False
-        dsp_recognition: bool = True
-        ram_recognition: bool = True
-        rom_recognition: bool = True
-        synthesis_effort: Literal["auto", "fast"] = "auto"
-        fitter_effort: Literal["STANDARD FIT", "AUTO FIT", "FAST_FIT"] = "AUTO FIT"
-        optimization_technique: Literal["AREA", "SPEED", "BALANCED"] = "SPEED"
+        remove_redundant_logic: bool = Field(
+            True,
+            description="Let synthesis remove logic that cannot affect any output (Quartus' "
+            "REMOVE_REDUNDANT_LOGIC_CELLS).",
+        )
+        auto_resource_sharing: bool = Field(
+            True,
+            description="Let synthesis share arithmetic operators between mutually exclusive "
+            "operations, trading some speed for area.",
+        )
+        retiming: bool = Field(
+            True,
+            description="Allow the fitter to move registers across combinational logic to balance "
+            "path delays (Hyper-Retiming on supported families).",
+        )
+        register_duplication: bool = Field(
+            True,
+            description="Allow the fitter to duplicate registers to reduce fanout and routing "
+            "delay, at the cost of extra registers.",
+        )
+        packed_registers: bool = Field(
+            False,
+            description="Pack registers into RAM/DSP blocks where possible, saving logic at the "
+            "cost of some flexibility.",
+        )
+        gated_clock_conversion: bool = Field(
+            False,
+            description="Convert gated clocks into clock-enable logic, which is generally safer "
+            "on FPGAs than true clock gating.",
+        )
+        dsp_recognition: bool = Field(
+            True,
+            description="Infer DSP blocks from multipliers and MAC patterns. Disable to force "
+            "everything into logic.",
+        )
+        ram_recognition: bool = Field(
+            True, description="Infer block RAM from memory patterns rather than using registers."
+        )
+        rom_recognition: bool = Field(
+            True, description="Infer ROM blocks from constant memory patterns."
+        )
+        synthesis_effort: Literal["auto", "fast"] = Field(
+            "auto",
+            description='Synthesis effort. "fast" compiles noticeably quicker and gives worse '
+            "quality of results.",
+        )
+        fitter_effort: Literal["STANDARD FIT", "AUTO FIT", "FAST_FIT"] = Field(
+            "AUTO FIT",
+            description='Fitter effort. "AUTO FIT" stops once timing is met, "STANDARD FIT" '
+            'always optimizes fully, and "FAST_FIT" trades quality for compile time.',
+        )
+        optimization_technique: Literal["AREA", "SPEED", "BALANCED"] = Field(
+            "SPEED", description="What synthesis optimizes for."
+        )
         placement_effort_multiplier: float = Field(
             2.0,
             description="""
@@ -127,8 +179,14 @@ class Quartus(FpgaSynthFlow):
         Values greater than 1 increase placement time and placement quality, but may reduce routing time for designs with routing congestion.
         For example, a value of 4 increases fitting time by approximately 2 to 4 times, but may improve quality.""",
         )
-        router_timing_optimization_level: Literal["Normal", "Maximum", "Minimum"] = "Maximum"
-        final_placement_optimization: Literal["ALWAYS", "AUTOMATICALLY", "NEVER"] = "ALWAYS"
+        router_timing_optimization_level: Literal["Normal", "Maximum", "Minimum"] = Field(
+            "Maximum",
+            description="How hard the router works on timing rather than compile time.",
+        )
+        final_placement_optimization: Literal["ALWAYS", "AUTOMATICALLY", "NEVER"] = Field(
+            "ALWAYS",
+            description="When to run the final placement optimization pass after routing.",
+        )
 
     def init(self) -> None:
         # FIXME only a proof of concept. Tool instantiation/invocation needs to change!
@@ -260,12 +318,12 @@ class Quartus(FpgaSynthFlow):
             id_parser=lambda s: s.strip(),
             interesting_fields={"Setup", "Hold"},
         )
-        print("slacks:", slacks)
+        log.debug("slacks: %s", slacks)
         worst_slacks = slacks.get("Worst-case Slack")
-        print("worst_slacks:", worst_slacks)
+        log.debug("worst_slacks: %s", worst_slacks)
         if worst_slacks:
             wns = worst_slacks.get("Setup")
-            print("wns:", wns)
+            log.debug("wns: %s", wns)
             whs = worst_slacks.get("Hold")
             if wns is not None:
                 wns = try_convert_to_primitives(wns)

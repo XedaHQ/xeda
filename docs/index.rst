@@ -1,16 +1,30 @@
-.. XEDA documentation master file, created by
-   sphinx-quickstart on Tue Sep  1 01:28:46 2020.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. XEDA documentation master file.
 
-Welcome to XEDA's documentation!
+Welcome to Xeda's documentation!
 ================================
+
+**Xeda** is a cross-platform, cross-EDA, cross-target simulation and synthesis
+automation platform. One declarative description of a design drives flows across many commercial
+and open-source EDA suites.
+
+New here? Start with the :doc:`quickstart`, then the :doc:`tutorial/index`.
+
+Driving Xeda from a script or a coding agent? See :doc:`machine-readable`.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-
+   about
+   quickstart
+   tutorial/index
+   design-file
+   flows
+   run-directories
+   machine-readable
+   bugs
+   copyright
+   license
 
 Indices and tables
 ==================

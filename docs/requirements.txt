@@ -4,7 +4,6 @@ sphinx-tabs
 sphinx-jinja
 sphinxcontrib.bibtex
 sphinx_panels
-sphinxext.rediraffe
 sphinxcontrib.mermaid
 sphinxext.opengraph
 autodoc_pydantic

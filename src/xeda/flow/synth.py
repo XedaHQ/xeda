@@ -83,19 +83,30 @@ class PhysicalClock(XedaBaseModel):
     @root_validator(pre=True, skip_on_failure=True)
     @classmethod
     def root_validate_phys_clock(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        # This is a pre=True validator, so values are still raw here: a CLI override such as
+        # `-s clock_period=5.5` arrives as the string "5.5". Normalize before any arithmetic --
+        # dividing by the raw value used to fail with "unsupported operand type(s) for /".
         freq = values.get("freq")
         if freq:
             freq = convert_unit(freq, "MHz")
-        if "period" in values:
-            period = float(values["period"])
+        period = values.get("period")
+        if period is not None:
+            period = convert_unit(period, "nanosecond")
+            if period <= 0:
+                raise ValueError(f"Clock period must be positive, got {period}")
             if freq and abs(float(freq) * period - 1000.0) >= 0.001:
                 log.debug(
                     "Mismatching 'freq' and 'period' values were specified. Setting 'freq' from 'period' value."
                 )
-            values["freq"] = 1000.0 / values["period"]
+            values["period"] = period
+            values["freq"] = 1000.0 / period
         else:
             if freq:
-                values["period"] = round(1000.0 / float(freq), 3)
+                freq = float(freq)
+                if freq <= 0:
+                    raise ValueError(f"Clock frequency must be positive, got {freq}")
+                values["period"] = round(1000.0 / freq, 3)
+                values["freq"] = freq
             else:
                 raise ValueError("Neither freq or period were specified")
         if not values.get("name"):
@@ -185,6 +196,18 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             #         clocks[main_clock_name] = PhysicalClock(**main_clock)
             if clocks:
                 values["clocks"] = clocks
+                if not values.get("clock_period"):
+                    # Back-fill `clock_period` from the main clock. The field-level validator
+                    # cannot do this: `clock_period` is declared before `clocks`, so pydantic
+                    # validates it while `clocks` is still absent from `values`.
+                    main = clocks.get("main_clock") or first_value(clocks)
+                    if isinstance(main, dict):
+                        try:
+                            main = PhysicalClock(**main)
+                        except (ValueError, TypeError):
+                            main = None  # the error is reported by `clocks`' own validation
+                    if isinstance(main, PhysicalClock):
+                        values["clock_period"] = main.period
             return values
 
         @property
@@ -257,7 +280,11 @@ class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
     class Settings(SynthFlow.Settings):
         """base FPGA Synthesis flow settings"""
 
-        fpga: Optional[FPGA] = None
+        fpga: Optional[FPGA] = Field(
+            None,
+            description="Target FPGA device. Accepts a full part identifier as a string "
+            '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields.',
+        )
 
 
 class AsicSynthFlow(SynthFlow, metaclass=ABCMeta):

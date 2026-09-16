@@ -8,7 +8,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pydantic import validator
 
-from ...flow import FpgaSynthFlow
+from ...dataclass import Field
+from ...flow import FpgaSynthFlow, describe_results
 from ...tool import Docker, OptionalBoolOrPath, OptionalPath, Tool
 from ...utils import try_convert_to_primitives
 
@@ -32,6 +33,7 @@ class XTclSh(Tool):
             root_dir: OptionalPath = None,
             print_command: bool = True,
             highlight_rules: Optional[Dict[str, str]] = None,
+            merge_stderr: bool = False,
         ) -> Union[None, str]:
             XILINX = "/opt/Xilinx/14.7/ISE_DS"
             args_str = " ".join(str(a) for a in args)
@@ -73,34 +75,61 @@ def format_value(v) -> str:
 class IseSynth(FpgaSynthFlow):
     """FPGA synthesis using Xilinx ISE"""
 
+    results_description = describe_results(
+        "minimum_period",
+        "maximum_frequency",
+        "Fmax",
+        "wns",
+        "lut",
+        "ff",
+        "slice",
+    )
+
     class Settings(FpgaSynthFlow.Settings):
         # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx14_7/devref.pdf
-        synthesis_options: OptionsType = {
-            "Optimization Effort": "High",
-            "Global Optimization Goal": "AllClockNets",  # "AllClockNets", "Inpad To Outpad", "Offset In Before", "Offset Out After", "Maximum Delay"
-            "Optimization Goal": "Speed",
-            "Keep Hierarchy": "Soft",  # "No", "Yes", "Soft"
-            "Optimize Instantiated Primitives": True,
-            "Register Balancing": "NO",
-            "Safe Implementation": "NO",
-        }
-        map_options: OptionsType = {
-            # "Map Effort Level": "High", # "Standard", "High" # (S3/A/E/V4 only)
-            "LUT Combining": "Auto",  # "Off", "Auto", "Area" (S6/V5/V6/7-series/Zynq only)
-            "Placer Effort Level": "High",  # (S6/V5/V6/7-series/Zynq only)
-            "Allow Logic Optimization Across Hierarchy": True,
-            # "Perform Timing-Driven Packing and Placement": True, # (S3/A/E/V4 only()
-            "Combinatorial Logic Optimization": True,
-        }
-        pnr_options: OptionsType = {
-            "Place & Route Effort Level (Overall)": "High",
-        }
-        translate_options: OptionsType = {}
-        trace_options: OptionsType = {
-            "Report Type": "Verbose Report",
-        }
-        xcf_file: Union[None, Path, str] = None
-        ucf_files: List[Union[Path, str]] = []
+        synthesis_options: OptionsType = Field(
+            {
+                "Optimization Effort": "High",
+                "Global Optimization Goal": "AllClockNets",  # "AllClockNets", "Inpad To Outpad", "Offset In Before", "Offset Out After", "Maximum Delay"
+                "Optimization Goal": "Speed",
+                "Keep Hierarchy": "Soft",  # "No", "Yes", "Soft"
+                "Optimize Instantiated Primitives": True,
+                "Register Balancing": "NO",
+                "Safe Implementation": "NO",
+            },
+            description="XST synthesis properties, as ISE names them in the project file. See the "
+            "ISE Development System Reference Guide for the accepted values.",
+        )
+        map_options: OptionsType = Field(
+            {
+                # "Map Effort Level": "High", # "Standard", "High" # (S3/A/E/V4 only)
+                "LUT Combining": "Auto",  # "Off", "Auto", "Area" (S6/V5/V6/7-series/Zynq only)
+                "Placer Effort Level": "High",  # (S6/V5/V6/7-series/Zynq only)
+                "Allow Logic Optimization Across Hierarchy": True,
+                # "Perform Timing-Driven Packing and Placement": True, # (S3/A/E/V4 only()
+                "Combinatorial Logic Optimization": True,
+            },
+            description="Properties for the `map` (technology mapping and packing) step.",
+        )
+        pnr_options: OptionsType = Field(
+            {
+                "Place & Route Effort Level (Overall)": "High",
+            },
+            description="Properties for the `par` (place and route) step.",
+        )
+        translate_options: OptionsType = Field(
+            {}, description="Properties for the `ngdbuild` (translate) step."
+        )
+        trace_options: OptionsType = Field(
+            {"Report Type": "Verbose Report"},
+            description="Properties for the `trce` (static timing analysis) step.",
+        )
+        xcf_file: Union[None, Path, str] = Field(
+            None, description="XST constraint file (.xcf) applied during synthesis."
+        )
+        ucf_files: List[Union[Path, str]] = Field(
+            [], description="User constraint files (.ucf) with pin and timing constraints."
+        )
 
         @validator(
             "synthesis_options",

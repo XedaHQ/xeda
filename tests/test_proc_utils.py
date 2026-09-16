@@ -194,3 +194,57 @@ def test_non_zero_exit_still_raises(capsys):
             check=True,
         )
     assert "ERROR: bad" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------- stderr-only version banners
+
+from pathlib import Path  # noqa: E402
+
+from xeda.tool import Docker, Tool  # noqa: E402
+
+
+def test_merge_stderr_captures_a_stderr_only_banner(tmp_path):
+    """Some tools (nextpnr among them) print their version banner to stderr."""
+    script = tmp_path / "banner.py"
+    script.write_text("import sys; print('Version tool-1.2.3', file=sys.stderr)\n")
+    tool = Tool(executable=sys.executable, default_args=[str(script)], version_flag=["--version"])
+    assert not (tool.run_get_stdout("--version") or "").strip()
+    assert "Version tool-1.2.3" in (tool.run_get_stdout("--version", merge_stderr=True) or "")
+
+
+def test_version_detection_falls_back_to_stderr(tmp_path):
+    script = tmp_path / "banner.py"
+    script.write_text("import sys; print('Version tool-1.2.3', file=sys.stderr)\n")
+    tool = Tool(executable=sys.executable, default_args=[str(script)])
+    assert tool.version_output and "tool-1.2.3" in tool.version_output
+
+
+def test_merge_stderr_is_forwarded_through_the_docker_path(monkeypatch, tmp_path):
+    """The Docker branch dropped the option, so a containerized tool's banner was lost."""
+    recorded = {}
+
+    def fake_run_process(executable, args=None, **kwargs):
+        recorded.update(kwargs)
+        return "out"
+
+    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    # Docker.run writes a `.<name>_docker.env` file into the working directory before it reaches
+    # run_process, so run somewhere disposable rather than dirtying the checkout.
+    monkeypatch.chdir(tmp_path)
+    tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
+    tool.run("--version", stdout=True, merge_stderr=True)
+    assert recorded.get("merge_stderr") is True
+    assert not list(Path.cwd().parent.glob("*_docker.env"))
+
+
+def test_tool_output_redirect_is_none_by_default():
+    from xeda import proc_utils
+
+    assert proc_utils.tool_output_redirect() is None
+    try:
+        proc_utils.set_tool_output(sys.stderr)
+        assert proc_utils.tool_output_redirect() is sys.stderr
+        assert proc_utils.tool_output_stream() is sys.stderr
+    finally:
+        proc_utils.set_tool_output(None)
+    assert proc_utils.tool_output_stream() is sys.stdout

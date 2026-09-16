@@ -38,6 +38,9 @@ class RunOptions(XedaBaseModel):
 class VivadoProject(Vivado, FpgaSynthFlow):
     """Synthesize with Xilinx Vivado using a project-based flow"""
 
+    # The project-based flow parses the same reports as `vivado_synth`.
+    results_description = VivadoSynth.results_description
+
     class Settings(VivadoSynth.Settings, VivadoSim.Settings):
         """Settings for Vivado synthesis and simulation in project mode"""
 

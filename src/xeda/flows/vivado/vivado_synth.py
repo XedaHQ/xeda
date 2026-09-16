@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, validator
 from ...design import SourceType
-from ...flow import FpgaSynthFlow
+from ...flow import FpgaSynthFlow, describe_results
 from ...utils import HierDict, parse_xml, try_convert
 from ..vivado import Vivado
 
@@ -38,12 +38,45 @@ class RunOptions(XedaBaseModel):
 
 
 class VivadoSynth(Vivado, FpgaSynthFlow):
-    """Synthesize with Xilinx Vivado using a project-based flow"""
+    """FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project (batch) mode.
+
+    Drives synth_design through route_design from a generated TCL script without creating a
+    Vivado project, and reports utilization, timing and (optionally) power. See `vivado_project`
+    for the project-based equivalent and `vivado_alt_synth` for an alternative script.
+    """
+
+    results_description = describe_results(
+        "Fmax",
+        "clock_period",
+        "clock_frequency",
+        "wns",
+        "whs",
+        "tns",
+        "setup_violations",
+        "hold_violations",
+        "lut",
+        "ff",
+        "slice",
+        "dsp",
+        status="Vivado's own status string for the implementation run, e.g. \"route_design "
+        'Complete!". The flow fails if it is anything but a completed run.',
+        **{
+            "lut_logic": "Number of LUTs used as logic.",
+            "lut_mem": "Number of LUTs used as memory (distributed RAM or shift registers).",
+            "latch": "Number of latches inferred. Usually a design bug on FPGAs.",
+            "bram_RAMB36": "Number of RAMB36/FIFO36 block RAM primitives used.",
+            "bram_RAMB18": "Number of RAMB18 block RAM primitives used.",
+        },
+    )
 
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         """Vivado synthesis settings"""
 
-        clean: bool = True
+        clean: bool = Field(
+            True,
+            description="Remove the contents of the run directory before running. Vivado defaults "
+            "this to true, unlike other flows, because it reuses run directories.",
+        )
         fail_critical_warning: bool = Field(
             False,
             description="Flow fails if any Critical Warnings are reported by Vivado",
@@ -51,11 +84,29 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         fail_timing: bool = Field(
             True, description="Flow fails if timing is not met"
         )  # pyright: ignore
-        write_checkpoint: bool = False
-        write_netlist: bool = False
-        bitstream: Optional[Path] = None
-        extra_reports: bool = False
-        qor_suggestions: bool = False
+        write_checkpoint: bool = Field(
+            False,
+            description="Write Vivado design checkpoints (.dcp) after synthesis and implementation. "
+            "Required by the `vivado_power` flow.",
+        )
+        write_netlist: bool = Field(
+            False,
+            description="Write the post-synthesis and post-implementation Verilog/VHDL netlists "
+            "and their SDF timing. Required by `vivado_postsynth_sim`.",
+        )
+        bitstream: Optional[Path] = Field(
+            None,
+            description="Write the FPGA bitstream to this file. No bitstream is written if unset.",
+        )
+        extra_reports: bool = Field(
+            False,
+            description="Generate additional Vivado reports (hierarchical utilization, detailed "
+            "timing, ...). Slower, but useful for analysis.",
+        )
+        qor_suggestions: bool = Field(
+            False,
+            description="Run Vivado's report_qor_suggestions and save the resulting RQS file.",
+        )
         num_critical_paths: int = Field(
             100,
             ge=1,
@@ -74,40 +125,58 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             None, description="Default min delay to set on all output ports"
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
-        synth: RunOptions = RunOptions(
-            # Performance strategies: "Flow_PerfOptimized_high" (no LUT combining, fanout limit: 400), "Flow_AlternateRoutability",
-            strategy="",  # Empty for Vivado Default strategy
-            steps={
-                "SYNTH_DESIGN": {},
-                "OPT_DESIGN": {},
-                "POWER_OPT_DESIGN": {},
-            },
+        synth: RunOptions = Field(
+            RunOptions(
+                # Performance strategies: "Flow_PerfOptimized_high" (no LUT combining, fanout
+                # limit: 400), "Flow_AlternateRoutability", ...
+                strategy="",  # Empty for Vivado Default strategy
+                steps={
+                    "SYNTH_DESIGN": {},
+                    "OPT_DESIGN": {},
+                    "POWER_OPT_DESIGN": {},
+                },
+            ),
+            description="Synthesis run options: a Vivado `strategy` name (empty for the default) "
+            "and per-step option overrides. See `show_available_strategies`.",
         )
         out_of_context: bool = Field(
             False,
             description="Use out-of-context flow for synthesis",
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug904-vivado-implementation.pdf
-        impl: RunOptions = RunOptions(
-            # Performance strategies: "Performance_ExploreWithRemap", "Flow_RunPostRoutePhysOpt",
-            #   "Flow_RunPhysOpt", "Performance_ExtraTimingOpt",
-            strategy="",  # Empty for Vivado Default strategy
-            steps={
-                "PLACE_DESIGN": {},
-                "POST_PLACE_POWER_OPT_DESIGN": {},
-                "PHYS_OPT_DESIGN": {},
-                "ROUTE_DESIGN": {},
-                "WRITE_BITSTREAM": {},
-            },
+        impl: RunOptions = Field(
+            RunOptions(
+                # Performance strategies: "Performance_ExploreWithRemap",
+                # "Flow_RunPostRoutePhysOpt", "Flow_RunPhysOpt", "Performance_ExtraTimingOpt", ...
+                strategy="",  # Empty for Vivado Default strategy
+                steps={
+                    "PLACE_DESIGN": {},
+                    "POST_PLACE_POWER_OPT_DESIGN": {},
+                    "PHYS_OPT_DESIGN": {},
+                    "ROUTE_DESIGN": {},
+                    "WRITE_BITSTREAM": {},
+                },
+            ),
+            description="Implementation run options: a Vivado `strategy` name (empty for the "
+            "default) and per-step option overrides. See `show_available_strategies`.",
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug903-vivado-using-constraints.pdf
         xdc_files: List[Union[str, Path]] = Field([], description="List of XDC constraint files.")
         tcl_files: List[Union[str, Path]] = Field([], description="List of user TCL files.")
-        suppress_msgs: List[str] = [
-            "Synth 8-7080",  # "Parallel synthesis criteria is not met"
-            "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
-        ]
-        flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field("rebuilt")
+        suppress_msgs: List[str] = Field(
+            [
+                "Synth 8-7080",  # "Parallel synthesis criteria is not met"
+                "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found
+            ],
+            description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
+            "messages are not printed and never trigger `fail_critical_warning`.",
+        )
+        flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field(
+            "rebuilt",
+            description="How synthesis flattens the design hierarchy: `full` flattens and does "
+            "not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` "
+            "preserves it throughout.",
+        )
         show_available_strategies: bool = Field(
             False, description="Show available synthesis and implementation strategies"
         )
@@ -202,7 +271,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
 
         if self.settings.bitstream:
             bs_str = str(self.settings.bitstream)
-            print(bs_str)
+            log.debug("Bitstream path: %s", bs_str)
             if self.runner_cwd and bs_str.startswith("$PWD/"):
                 self.settings.bitstream = self.runner_cwd / bs_str[5:]
             self.settings.bitstream = Path(self.settings.bitstream).resolve()
