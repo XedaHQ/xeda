@@ -5,11 +5,14 @@ xeda, so an undocumented field is a real gap rather than a cosmetic one. These t
 coverage that has been reached so it cannot silently regress.
 """
 
+import re
+from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
 import pytest
 
 from xeda.flow import Flow, describe_results
+from xeda.flow_runner import FlowNotFoundError, get_flow_class
 from xeda.introspect import all_flow_classes, results_info, settings_info
 
 #: (flow, setting) pairs that are allowed to have no description. Empty on purpose: every
@@ -126,3 +129,61 @@ def test_result_alias_candidates_are_documented_somewhere(flow_class):
                 f"{flow_class.name} documents {reported} but not the canonical key "
                 f"{canonical!r}, which the runner adds to results.json."
             )
+
+
+# ------------------------------------------------------------------ README flow catalog
+
+README = Path(__file__).resolve().parent.parent / "README.md"
+
+#: Heading of the README section that enumerates every supported tool and its flow names.
+CATALOG_HEADING = "### Supported Tools and Flows"
+
+#: Code spans in the catalog that are deliberately *not* flow names -- tool subcommands and
+#: executables. Everything else backticked there must resolve, so a typo cannot pass for a flow.
+NOT_FLOW_NAMES: Set[str] = {"route_design", "synth_design", "xsim"}
+
+
+def _readme_catalog() -> str:
+    """The body of the README's flow catalog, up to the next heading."""
+    text = README.read_text(encoding="utf-8")
+    body = text[text.index(CATALOG_HEADING) + len(CATALOG_HEADING) :]
+    end = body.find("\n#")
+    return body if end < 0 else body[:end]
+
+
+def _catalog_code_spans() -> Set[str]:
+    """Backticked identifiers in the catalog, in the shape a flow name takes."""
+    return set(re.findall(r"`([a-z][a-z0-9_]*)`", _readme_catalog()))
+
+
+def test_readme_names_only_real_flows():
+    """Every flow-shaped code span in the catalog must resolve.
+
+    `vivado_postsynthsim` sat in this list for a long time: that is the module name, not the
+    registered flow name, so copying it out of the README earned a `FlowNotFoundError`.
+    """
+    unresolvable = []
+    for token in sorted(_catalog_code_spans() - NOT_FLOW_NAMES):
+        try:
+            get_flow_class(token)
+        except FlowNotFoundError:
+            unresolvable.append(token)
+    assert not unresolvable, (
+        f"README's {CATALOG_HEADING!r} names {unresolvable} as flows, but `get_flow_class` "
+        "rejects them. Run `xeda list-flows` for the registered names, or add a genuine "
+        "non-flow term to NOT_FLOW_NAMES."
+    )
+
+
+def test_readme_catalog_lists_every_flow():
+    """A new flow must reach the README catalog, not just the registry."""
+    listed = set()
+    for token in _catalog_code_spans() - NOT_FLOW_NAMES:
+        try:
+            listed.add(get_flow_class(token).name)
+        except FlowNotFoundError:
+            continue
+    missing = sorted(set(FLOW_IDS) - listed)
+    assert not missing, (
+        f"These flows are registered but absent from {CATALOG_HEADING!r} in README.md: {missing}."
+    )

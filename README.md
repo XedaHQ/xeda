@@ -116,16 +116,60 @@ route. Results, generated scripts, reports, and effective settings are kept unde
 
 ### Supported Tools and Flows
 
-- AMD-Xilinx [Vivado](https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html):
-  `vivado_synth`, `vivado_sim`, `vivado_postsynth_sim`, `vivado_power`, `vivado_project`
+- AMD-Xilinx [Vivado](https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html) Design Suite
+  - `vivado_synth`: FPGA synthesis and implementation in non-project (batch) mode, driving
+    `synth_design` through `route_design` from a generated TCL script
+  - `vivado_project`: the project-based equivalent of `vivado_synth`
+  - `vivado_alt_synth`: an alternative TCL-based synthesis and implementation script
+  - `vivado_sim`: functional simulation of an RTL design with the Vivado simulator (`xsim`)
+  - `vivado_postsynth_sim`: post-synthesis and post-implementation simulation of the generated
+    netlist, optionally annotated with timing from an SDF file
+  - `vivado_power`: post-implementation power estimation from the real switching activity of a
+    timing-annotated netlist simulation, rather than a vectorless estimate
 - AMD-Xilinx [ISE](https://www.xilinx.com/products/design-tools/ise-design-suite.html) Design Suite
-- [GHDL](https://github.com/ghdl/ghdl), NVC, ModelSim, VCS, Verilator, and Vivado simulation
-- Intel [Quartus Prime](https://www.intel.com/content/www/us/en/software/programmable/quartus-prime/overview.html)
+  - `ise_synth`: FPGA synthesis and implementation for older Xilinx device families
+- [Bluespec](https://github.com/B-Lang-org/bsc): compiler, simulator, and tools for the Bluespec
+  Hardware Description Language
+  - `bsc`: compiles BSV/BH sources to Verilog for any downstream synthesis or simulation flow
+- [GHDL](https://github.com/ghdl/ghdl) VHDL simulator
+  - `ghdl_sim` (alias: `ghdl`): VHDL simulation
+  - `ghdl_synth`: VHDL elaboration through `ghdl --synth`; for general-purpose synthesis prefer
+    `yosys`, which handles VHDL, Verilog and mixed-language designs
+- Intel [Quartus Prime](https://www.intel.com/content/www/us/en/software/programmable/quartus-prime/overview.html) (Lite/Pro Editions)
+  - `quartus`: FPGA synthesis and implementation flow
 - Lattice Diamond
-- [Yosys](https://github.com/YosysHQ/yosys), [nextpnr](https://github.com/YosysHQ/nextpnr),
-  OpenXC7, and [openFPGALoader](https://github.com/trabucayre/openFPGALoader)
-- [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD/) and Synopsys Design Compiler
-- [Bluespec](https://github.com/B-Lang-org/bsc)
+  - `diamond_synth`: synthesis, place & route and bitstream generation for Lattice devices
+- [NVC](https://github.com/nickg/nvc) VHDL simulator
+  - `nvc`: VHDL simulation
+- Siemens (Mentor) [ModelSim](https://eda.sw.siemens.com/en-US/ic/modelsim/)
+  - `modelsim`: RTL and gate-level netlist simulation of VHDL, Verilog, SystemVerilog and
+    mixed-language designs, with optional SDF timing annotation
+- [nextpnr](https://github.com/YosysHQ/nextpnr) portable FPGA place and route tool
+  - `nextpnr`: places and routes the netlist produced by its `yosys_fpga` dependency and reports
+    achieved frequency, slack and utilization. Lattice ECP5 is the supported and tested target;
+    other backends are best-effort and report raw per-bel-type counts
+  - `open_xc7` (alias: `openxc7`): Xilinx 7-series place and route via nextpnr-xilinx
+- [openFPGALoader](https://github.com/trabucayre/openFPGALoader): open-source and multi-platform
+  universal utility for programming FPGAs, compatible with many boards, cables and FPGAs from
+  major manufacturers
+  - `openfpgaloader`: runs the full `yosys_fpga` -> `nextpnr` chain, packs the routed design into
+    a bitstream, and loads it onto the board. The only flow that touches real hardware
+- [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD/): integrated chip physical design
+  flow that takes a design from RTL sources to routed layout
+  - `openroad`: ASIC implementation on top of a `yosys` synthesis dependency, against the bundled
+    PDKs (`xeda list-platforms`)
+- Synopsys Design Compiler
+  - `dc`: ASIC logic synthesis
+- Synopsys VCS simulator
+  - `vcs`: Verilog/SystemVerilog simulation
+- [Verilator](https://github.com/verilator/verilator): the fastest (open-source)
+  Verilog/SystemVerilog simulator
+  - `verilator`: compiles the design to C++/SystemC and builds a native executable. Supports
+    cocotb testbenches, plain C++/SystemC harnesses, and VCD/FST waveform tracing
+- [Yosys](https://github.com/YosysHQ/yosys) Open SYnthesis Suite
+  - `yosys`: ASIC and generic gate/LUT synthesis
+  - `yosys_fpga`: FPGA synthesis; the dependency of `nextpnr`, `open_xc7` and `openfpgaloader`
+  - `yosys_sim`: simulation with CXXRTL
 
 Run `xeda list-flows` for the complete list in the installed version; use
 `xeda list-settings <flow>` and `xeda list-results <flow>` for the exact inputs and outputs.

@@ -109,7 +109,10 @@ All notable changes to this project will be documented in this file.
   `FF`) alongside whatever the flow reported, so scripts need not know which flow produced the
   file. Nothing is renamed or removed.
 - Docs: filled the empty pages and rewrote the outdated quickstart; added references for the
-  design file, run directories and the machine-readable interface.
+  design file, run directories and the machine-readable interface. The README's tool catalog names
+  every registered flow, with its aliases and what it does; `tests/test_documentation.py` fails if
+  a flow is missing from it or if it names one that does not resolve (`vivado_postsynthsim` was
+  listed for a long time, but the flow is `vivado_postsynth_sim`).
 - Tool: ecppll (nextpnr's Lattice ECP5 PLL tool)
 - Examples: ULX3S adopted DVI test from EMARD
   - change LED chaser speed with buttons `5` and `6`!
