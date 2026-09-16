@@ -1,4 +1,4 @@
-logger -notime -stderr
+logger -notime
 {% include 'read_files.ys' %}
 
 {% if settings.prep is not none %}
