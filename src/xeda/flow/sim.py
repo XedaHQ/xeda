@@ -28,9 +28,19 @@ class SimFlow(Flow, metaclass=ABCMeta):
         vcd: Union[str, Path, None] = Field(
             None, alias="waveform", description="Write waveform to file"
         )
-        stop_time: Union[str, int, float, None] = None
-        cocotb: CocotbSettings = CocotbSettings()  # type: ignore
-        optimization_flags: List[str] = Field([], description="Optimization flags")
+        stop_time: Union[str, int, float, None] = Field(
+            None,
+            description="Stop the simulation at this simulated time. Accepts a number of "
+            'nanoseconds or a string with a unit, e.g. "100us".',
+        )
+        cocotb: CocotbSettings = Field(
+            CocotbSettings(),  # type: ignore
+            description="Settings for the cocotb testbench, used when design.tb.cocotb is set.",
+        )
+        optimization_flags: List[str] = Field(
+            [],
+            description="Extra optimization flags passed to the simulator's compiler/elaborator.",
+        )
 
         @validator("vcd", pre=True)
         def _validate_vcd(cls, vcd):  # pylint: disable=no-self-argument

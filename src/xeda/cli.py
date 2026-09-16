@@ -1,7 +1,6 @@
 # © 2022-2025 [Kamyar Mohajerani](mailto:kammoh@gmail.com)
 """Xeda Command-line interface"""
 
-import inspect
 import logging
 import os
 import re
@@ -14,16 +13,26 @@ from typing import Any, Dict, Optional, Tuple, Union
 import click
 import coloredlogs
 from click.shell_completion import get_completion_class
+from click_extra import Command as ColorizedCommand
+from click_extra import HelpKeywords
 from rich import box
+from rich.markup import escape
 from rich.style import Style
 from rich.table import Table
 
+from .agent_skill import SKILL_NAME, default_skill_dir, generate_flows_reference, install_skill
 from .cli_utils import (
+    DOCUMENT_FORMATS,
+    HELP_FORMATTER_SETTINGS,
     ClickMutex,
     FlowChoice,
     OptionEatAll,
     XedaHelpGroup,
+    emit_structured,
+    machine_readable_mode,
+    output_format_option,
     print_flow_settings,
+    resolve_format,
     select_design_in_project,
 )
 from .console import console
@@ -40,6 +49,15 @@ from .flow_runner import (
 )
 from .flow_runner.dse import Dse
 from .flows import __builtin_flows__
+from .introspect import (
+    boards_info,
+    design_schema,
+    flows_info,
+    json_safe,
+    optimizers_info,
+    platforms_info,
+    results_info,
+)
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import XedaException, removeprefix, settings_to_dict
 
@@ -60,6 +78,9 @@ CONTEXT_SETTINGS = dict(
     auto_envvar_prefix="XEDA",
     help_option_names=["--help", "-h"],
     max_content_width=console.width,
+    # cloup reads the help formatter off the context and child contexts inherit these settings,
+    # so the xeda palette set here reaches every subcommand's help screen.
+    formatter_settings=HELP_FORMATTER_SETTINGS,
 )
 
 
@@ -98,28 +119,50 @@ def cli(ctx: click.Context, **kwargs):
     ctx.obj = XedaOptions(**kwargs)
 
 
-@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
-def list_flows():
+def _info_table(title: str, columns: Iterable[Tuple[str, Dict[str, Any]]]) -> Table:
     table = Table(
-        title="Available flows",
+        title=title,
         show_header=True,
         header_style="bold yellow",
         title_style=Style(frame=True, bold=True),
         box=box.HEAVY_HEAD,
         show_lines=True,
     )
-    table.add_column("Flow", header_style="bold green", style="bold")
-    table.add_column("Description")
-    table.add_column("Class", style="dim")
-    super_flow_doc = inspect.getdoc(Flow)
-    for cls_name, cls in all_flows.items():
-        doc = inspect.getdoc(cls)
-        if doc == super_flow_doc:
-            doc = "<no description>"
+    for name, kwargs in columns:
+        # fold rather than ellipsize: a truncated name cannot be typed back into a command
+        table.add_column(name, overflow="fold", **kwargs)
+    return table
+
+
+@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
+@output_format_option()
+def list_flows(output_format: str, json_flag: bool):
+    """List every flow xeda can run, with its aliases, category and dependencies."""
+    fmt = resolve_format(output_format, json_flag)
+    info = flows_info()
+    if fmt != "table":
+        emit_structured(info, fmt)
+        return
+    table = _info_table(
+        "Available flows",
+        [
+            ("Flow", {"header_style": "bold green", "style": "bold"}),
+            ("Category", {}),
+            ("Description", {}),
+            ("Depends on", {}),
+            ("Class", {"style": "dim"}),
+        ],
+    )
+    for flow in info:
+        name = escape(flow["name"])
+        if flow["aliases"]:
+            name += "\n[dim]aka " + escape(", ".join(flow["aliases"])) + "[/dim]"
         table.add_row(
-            cls_name,
-            doc,
-            str(cls.__module__) + "." + cls.__name__,
+            name,
+            flow["category"].replace("_", " "),
+            escape(flow["description"]) if flow["description"] else "[red]<no description>[/red]",
+            escape(", ".join(flow["dependencies"])) or "-",
+            escape(flow["qualified_name"]),
         )
     console.print(table)
 
@@ -131,16 +174,206 @@ def list_flows():
     type=FlowChoice(all_flow_names),
     required=True,
 )
+@output_format_option()
+@click.option(
+    "--common/--no-common",
+    default=True,
+    show_default=True,
+    help="Include the settings accepted by every flow (ncpus, dockerized, lib_paths, ...).",
+)
 @click.pass_context
-def list_settings(ctx: click.Context, flow):
-    print_flow_settings(flow, options=ctx.obj)
+def list_settings(ctx: click.Context, flow, output_format: str, json_flag: bool, common: bool):
+    """Show every setting of FLOW_NAME that can be given as `-s KEY=VALUE` or in a design file."""
+    print_flow_settings(
+        flow,
+        options=ctx.obj,
+        output_format=resolve_format(output_format, json_flag),
+        include_common=common,
+    )
 
 
 @cli.command(
     context_settings=CONTEXT_SETTINGS,
+    short_help="List the result keys a flow reports.",
+)
+@click.argument(
+    "flow",
+    metavar="FLOW_NAME",
+    type=FlowChoice(all_flow_names),
+    required=True,
+)
+@output_format_option()
+def list_results(flow, output_format: str, json_flag: bool):
+    """Show the keys FLOW_NAME writes to `results.json` in its run directory."""
+    fmt = resolve_format(output_format, json_flag)
+    info = results_info(flow)
+    if fmt != "table":
+        emit_structured(info, fmt, records=[{"flow": info["flow"], **k} for k in info["keys"]])
+        return
+    table = _info_table(
+        f"{info['flow']} results",
+        [
+            ("Key", {"header_style": "bold green", "style": "bold"}),
+            ("Scope", {}),
+            ("Description", {}),
+        ],
+    )
+    for key in info["keys"]:
+        table.add_row(
+            escape(key["name"]),
+            "all flows" if key["common"] else escape(info["flow"]),
+            escape(key["description"]) if key["description"] else "[dim]<undocumented>[/dim]",
+        )
+    console.print(table)
+    console.print(f"[dim]{info['note']}[/dim]")
+
+
+@cli.command(
+    "design-schema",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Print the JSON Schema of a design description file.",
+)
+@output_format_option(formats=DOCUMENT_FORMATS, default="json")
+def design_schema_cmd(output_format: str, json_flag: bool):
+    """Emit the JSON Schema of a xeda design file (TOML/YAML/JSON).
+
+    Useful for validating a design description, or for generating one correctly.
+    """
+    emit_structured(design_schema(), resolve_format(output_format, json_flag))
+
+
+@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List bundled FPGA boards.")
+@output_format_option()
+def list_boards(output_format: str, json_flag: bool):
+    """List the FPGA boards xeda ships, usable as the `board` setting of FPGA flows."""
+    fmt = resolve_format(output_format, json_flag)
+    info = boards_info()
+    if fmt != "table":
+        emit_structured(info, fmt)
+        return
+    table = _info_table(
+        "Bundled FPGA boards",
+        [
+            ("Board", {"header_style": "bold green", "style": "bold"}),
+            ("Name", {}),
+            ("FPGA part", {}),
+        ],
+    )
+    for board in info:
+        fpga = board.get("fpga") or {}
+        part = fpga.get("part") if isinstance(fpga, dict) else str(fpga)
+        table.add_row(
+            escape(board["board"]), escape(str(board.get("name", "-"))), escape(str(part or "-"))
+        )
+    console.print(table)
+
+
+@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List bundled ASIC platforms (PDKs).")
+@output_format_option()
+def list_platforms(output_format: str, json_flag: bool):
+    """List the ASIC platforms available as the `platform` setting of the OpenROAD/DC flows."""
+    fmt = resolve_format(output_format, json_flag)
+    info = platforms_info()
+    if fmt != "table":
+        emit_structured(info, fmt)
+        return
+    table = _info_table(
+        "Bundled ASIC platforms",
+        [
+            ("Platform", {"header_style": "bold green", "style": "bold"}),
+            ("Process", {}),
+            ("Description", {}),
+        ],
+    )
+    for platform in info:
+        table.add_row(
+            escape(platform["platform"]),
+            escape(str(platform.get("process", "-"))),
+            escape(str(platform.get("description") or platform.get("error") or "-")),
+        )
+    console.print(table)
+    if not info:
+        console.print(
+            "[yellow]No platforms found.[/] Platform data is not shipped in the xeda wheel."
+        )
+
+
+@cli.command(
+    context_settings=CONTEXT_SETTINGS, short_help="List design-space exploration optimizers."
+)
+@output_format_option()
+def list_optimizers(output_format: str, json_flag: bool):
+    """List the optimizers usable as `xeda dse --optimizer <name>`, and their settings."""
+    fmt = resolve_format(output_format, json_flag)
+    info = optimizers_info()
+    if fmt != "table":
+        emit_structured(info, fmt)
+        return
+    for optimizer in info:
+        table = _info_table(
+            f"{optimizer['name']} settings",
+            [
+                ("Setting", {"header_style": "bold green", "style": "bold"}),
+                ("Type", {}),
+                ("Default", {}),
+                ("Description", {}),
+            ],
+        )
+        for setting in optimizer["settings"]:
+            table.add_row(
+                escape(setting["name"]),
+                escape(setting["type"]),
+                escape(str(setting["default"])),
+                escape(setting["description"] or ""),
+            )
+        console.print(
+            f"[bold green]{escape(optimizer['name'])}[/] - "
+            f"{escape(optimizer['description'] or '')}"
+        )
+        console.print(table)
+
+
+def _run_document(
+    flow_name: str, design: Any, flow_obj: Optional[Flow], success: bool
+) -> Dict[str, Any]:
+    """The machine-readable summary emitted by `xeda run --json`."""
+    document: Dict[str, Any] = {
+        "flow": flow_name,
+        "design": str(design),
+        "success": success,
+        "results": {},
+        "run_path": None,
+    }
+    if flow_obj is not None:
+        run_path = Path(flow_obj.run_path)
+        document.update(
+            flow=flow_obj.name,
+            design=flow_obj.design.name,
+            run_path=str(run_path),
+            results_json=str(run_path / "results.json"),
+            settings_json=str(run_path / "settings.json"),
+            results=json_safe(dict(flow_obj.results)),
+        )
+    if not success:
+        document["error"] = {
+            "type": "FlowFailed",
+            "message": f"Flow '{document['flow']}' did not complete successfully.",
+        }
+    return document
+
+
+@cli.command(
+    # The class `XedaHelpGroup` would pick anyway; naming it is what lets cloup's `command()`
+    # overloads accept the `excluded_keywords` keyword below.
+    cls=ColorizedCommand,
+    context_settings=CONTEXT_SETTINGS,
     short_help="Run a flow.",
     help="Run the flow identified by FLOW_NAME. A snake_case styled FLOW_NAME (e.g. ghdl_sim) is converted to a CamelCase class name (e.g. GhdlSim).",
     no_args_is_help=False,
+    # click-extra highlights command names wherever they appear in help prose. Here the command
+    # is named after an ordinary English verb, so "Don't run dependency flows" and "Flows run
+    # under ..." would be painted as if they referenced the command.
+    excluded_keywords=HelpKeywords(cli_names={"run"}),
 )
 @click.argument(
     "flow",
@@ -215,6 +448,10 @@ def list_settings(ctx: click.Context, flow):
 @click.option(
     "--design-file",
     "--design",
+    # A destination of its own: the positional DESIGN argument is already named `design_file`,
+    # and two parameters sharing a name overwrite each other during parsing (click 8.5 warns
+    # about it). The argument used to win unconditionally, which made this option a no-op.
+    "design_file_opt",
     type=click.Path(
         exists=True,
         file_okay=True,
@@ -302,11 +539,22 @@ def list_settings(ctx: click.Context, flow):
     default=False,
     help="List flow settings. This option is an alias for `xeda list-settings <flow>`.",
 )
+@click.option(
+    "--json",
+    "json_flag",
+    is_flag=True,
+    default=False,
+    help=(
+        "Write a machine-readable JSON summary of the run to stdout. Tool output, log messages "
+        "and the results table are written to stderr so stdout carries only the JSON document."
+    ),
+)
 @click.pass_context
 def run(
     ctx: click.Context,
     flow: str,
     design_file: Optional[str] = None,
+    design_file_opt: Optional[str] = None,
     cached_dependencies: bool = True,
     flow_settings: Union[None, str, Iterable[str]] = None,
     incremental: bool = True,
@@ -326,12 +574,16 @@ def run(
     cwd: bool = False,
     debug: bool = False,
     help_settings: bool = False,
+    json_flag: bool = False,
 ):
     """`run` command"""
     assert ctx
     options: XedaOptions = ctx.obj or XedaOptions()
+    if json_flag:
+        # stdout belongs to the JSON document from here on
+        machine_readable_mode()
     if help_settings:
-        print_flow_settings(flow, options=options)
+        print_flow_settings(flow, options=options, output_format="json" if json_flag else "table")
         sys.exit(0)
     debug |= options.debug
     if cwd and remote:
@@ -351,9 +603,26 @@ def run(
     else:
         flow_settings = []
 
-    design = design_file or design_name
+    # The positional DESIGN argument, then --design-file/--design, then --design-name.
+    design = design_file or design_file_opt or design_name
     if not design:
-        sys.exit("No design file specified!")
+        message = (
+            "No design specified. Pass a design file as the DESIGN argument, or name one with "
+            "--design-file / --design-name."
+        )
+        log.critical("%s", message)
+        if json_flag:
+            emit_structured(
+                {
+                    "flow": flow,
+                    "design": None,
+                    "success": False,
+                    "results": {},
+                    "error": {"type": "DesignNotSpecified", "message": message},
+                },
+                "json",
+            )
+        sys.exit(1)
 
     if remote:
         from .flow_runner.remote import RemoteRunner
@@ -364,14 +633,50 @@ def run(
         )
         assert design
         try:
-            rl.run_remote(design, flow, host=remote, flow_settings=flow_settings)
-
+            remote_results = rl.run_remote(design, flow, host=remote, flow_settings=flow_settings)
         except XedaException as e:
             log.critical("XedaException: %s", e)
+            if json_flag:
+                emit_structured(
+                    _remote_document(flow, design, remote, None, False, error=e), "json"
+                )
             if debug:
                 raise e
             sys.exit(1)
-        sys.exit(0)
+        except Exception as e:
+            if not json_flag:
+                raise
+            log.critical("%s: %s", type(e).__name__, e)
+            emit_structured(_remote_document(flow, design, remote, None, False, error=e), "json")
+            if debug:
+                raise
+            sys.exit(1)
+        # The remote flow's own success decides ours; a failed flow is not a successful run.
+        success = bool(remote_results and remote_results.get("success"))
+        if not success:
+            log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
+        if json_flag:
+            emit_structured(_remote_document(flow, design, remote, remote_results, success), "json")
+        sys.exit(0 if success else 1)
+
+    def emit_failure(error_type: str, message: str, exc: Exception) -> None:
+        """Report a failed run identically whether the caller wants text or JSON."""
+        log.critical("%s", message)
+        if json_flag:
+            emit_structured(
+                {
+                    "flow": flow,
+                    "design": str(design),
+                    "success": False,
+                    "results": {},
+                    "error": {"type": error_type, "message": message},
+                },
+                "json",
+            )
+        if debug:
+            raise exc
+        sys.exit(1)
+
     try:
         launcher = DefaultRunner(
             xeda_run_dir,
@@ -398,59 +703,84 @@ def run(
             design_overrides=design_overrides,
             design_allow_extra=design_allow_extra,
         )
-        sys.exit(1 if not f or not f.results.success else 0)
+        success = bool(f and f.results.success)
+        if json_flag:
+            emit_structured(_run_document(flow, design, f, success), "json")
+        sys.exit(0 if success else 1)
     except FlowNotFoundError as e:
-        log.critical(
-            "Flow %s not found: FlowNotFoundError %s",
-            flow,
-            " ".join(str(a) for a in e.args),
-        )
-        if debug:
-            raise e
-        sys.exit(1)
+        emit_failure("FlowNotFoundError", str(e), e)
     except FlowFatalError as e:
-        log.critical(
-            "Flow %s failed: FlowFatalException %s",
-            flow,
-            " ".join(str(a) for a in e.args),
+        emit_failure(
+            "FlowFatalError",
+            f"Flow {flow} failed: FlowFatalException {' '.join(str(a) for a in e.args)}",
+            e,
         )
-        if debug:
-            raise e
-        sys.exit(1)
     except NonZeroExitCode as e:
-        log.critical("Flow %s failed: %s", flow, e)
-        if debug:
-            raise e
-        sys.exit(1)
+        emit_failure("NonZeroExitCode", f"Flow {flow} failed: {e}", e)
     except ExecutableNotFound as e:
-        log.critical(
-            "Executable '%s' was not found in PATH. flow:%s, tool:%s"
+        emit_failure(
+            "ExecutableNotFound",
+            f"Executable '{e.exec}' was not found in PATH. flow:{flow}, tool:{e.tool}"
             + (f", PATH:{e.path}" if debug else ""),
-            e.exec,
-            flow,
-            e.tool,
+            e,
         )
-        sys.exit(1)
     except FlowSettingsError as e:
-        log.critical("%s", e)
-        if debug:
-            raise e
-        sys.exit(1)
+        emit_failure("FlowSettingsError", str(e), e)
     except FlowException as e:  # any flow exception
-        log.critical("%s", e)
-        if debug:
-            raise e
-        sys.exit(1)
-    except DesignValidationError as e:  # any flow exception
-        log.critical("%s", e)
-        if debug:
-            raise e
-        sys.exit(1)
+        emit_failure("FlowException", str(e), e)
+    except DesignValidationError as e:
+        emit_failure("DesignValidationError", str(e), e)
     except XedaException as e:
-        log.critical("XedaException: %s", e)
-        if debug:
-            raise e
-        sys.exit(1)
+        emit_failure("XedaException", str(e), e)
+    except Exception as e:
+        if not json_flag:
+            raise
+        emit_failure(type(e).__name__, f"{type(e).__name__}: {e}", e)
+
+
+def _remote_document(
+    flow_name: str,
+    design: Any,
+    host: str,
+    results: Optional[Dict[str, Any]],
+    success: bool,
+    error: Optional[BaseException] = None,
+) -> Dict[str, Any]:
+    """The machine-readable summary emitted by `xeda run --remote --json`."""
+    document: Dict[str, Any] = {
+        "flow": flow_name,
+        "design": str(design),
+        "remote": host,
+        "success": success,
+        "results": json_safe(results or {}),
+    }
+    run_path = (results or {}).get("run_path")
+    if run_path:
+        document["run_path"] = str(run_path)
+        document["results_json"] = str(Path(run_path) / "results.json")
+    if error is not None:
+        document["error"] = {"type": type(error).__name__, "message": str(error)}
+    elif not success:
+        document["error"] = {
+            "type": "FlowFailed",
+            "message": f"Remote flow '{flow_name}' did not complete successfully.",
+        }
+    return document
+
+
+def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
+    """The best `FlowOutcome` of a design-space exploration, as JSON-safe data."""
+    if best is None:
+        return None
+    settings: Any = getattr(best, "settings", None)
+    if settings is not None and hasattr(settings, "dict"):
+        settings = settings.dict()
+    return {
+        "results": json_safe(dict(getattr(best, "results", {}) or {})),
+        "settings": json_safe(settings),
+        "run_path": str(best.run_path) if getattr(best, "run_path", None) else None,
+        "timestamp": getattr(best, "timestamp", None),
+    }
 
 
 @cli.command(
@@ -587,6 +917,16 @@ def run(
     default=False,
     help="Run in debug mode.",
 )
+@click.option(
+    "--json",
+    "json_flag",
+    is_flag=True,
+    default=False,
+    help=(
+        "Write a machine-readable JSON summary of the exploration to stdout; tool output and "
+        "logs go to stderr."
+    ),
+)
 @click.pass_context
 def dse(
     ctx: click.Context,
@@ -606,9 +946,14 @@ def dse(
     log_level: Optional[int] = None,
     detailed_logs: bool = True,
     debug: bool = False,
+    json_flag: bool = False,
 ):
     """Design-space exploration (e.g. fmax)"""
     options: XedaOptions = ctx.obj or XedaOptions()
+    debug |= options.debug
+    if json_flag:
+        # stdout belongs to the JSON document from here on
+        machine_readable_mode()
 
     if not xeda_run_dir:
         xeda_run_dir = Path.cwd() / ("xeda_run_" + optimizer)
@@ -634,21 +979,72 @@ def dse(
         ),
         **opt_settings,  # optimizer_settings overrides other options
     }
-    dse = Dse(
-        optimizer_class=optimizer,
-        optimizer_settings=opt_settings,
-        xeda_run_dir=xeda_run_dir,
-        debug=options.debug,
-        **dse_settings_dict,
-    )
-    dse.run(
-        flow,
-        xedaproject=xedaproject,
-        design=design or design_name,
-        flow_settings=list(flow_settings),
-        select_design_in_project=select_design_in_project,
-        design_allow_extra=design_allow_extra,
-    )
+
+    def dse_failure(error_type: str, message: str, exc: Optional[BaseException] = None) -> None:
+        log.critical("%s", message)
+        if json_flag:
+            emit_structured(
+                {
+                    "flow": flow,
+                    "design": str(design or design_name),
+                    "optimizer": optimizer,
+                    "success": False,
+                    "best": None,
+                    "error": {"type": error_type, "message": message},
+                },
+                "json",
+            )
+        if debug and exc is not None:
+            raise exc
+        sys.exit(1)
+
+    # Resolving the optimizer inside Dse() raises an AttributeError naming nothing useful, so
+    # check it here where the available names are known.
+    known_optimizers = {o["name"] for o in optimizers_info()}
+    if optimizer not in known_optimizers and "." not in optimizer:
+        dse_failure(
+            "OptimizerNotFound",
+            f"Unknown optimizer '{optimizer}'. Available optimizers: "
+            f"{', '.join(sorted(known_optimizers))}. See `xeda list-optimizers`.",
+        )
+
+    try:
+        dse = Dse(
+            optimizer_class=optimizer,
+            optimizer_settings=opt_settings,
+            xeda_run_dir=xeda_run_dir,
+            debug=options.debug,
+            **dse_settings_dict,
+        )
+        best = dse.run(
+            flow,
+            xedaproject=xedaproject,
+            design=design or design_name,
+            flow_settings=list(flow_settings),
+            select_design_in_project=select_design_in_project,
+            design_allow_extra=design_allow_extra,
+        )
+    except SystemExit:
+        raise
+    except BaseException as e:
+        dse_failure(type(e).__name__, f"{type(e).__name__}: {e}", e)
+        raise  # unreachable: dse_failure exits
+    if json_flag:
+        document = {
+            "flow": flow,
+            "design": str(design or design_name),
+            "optimizer": optimizer,
+            "success": best is not None,
+            "best": _dse_best_document(best),
+        }
+        if best is None:
+            document["error"] = {
+                "type": "NoSuccessfulRun",
+                "message": "The exploration produced no successful run.",
+            }
+        emit_structured(document, "json")
+    # An exploration that produced no successful run is a failure, like every other command.
+    sys.exit(0 if best is not None else 1)
 
 
 @cli.command(
@@ -688,19 +1084,91 @@ def dse(
     default=True,
     help="Include incremental build directories (<design_name>/<flow_name>_<flow_settings_hash> name pattern)",
 )
+@click.option(
+    "--json",
+    "json_flag",
+    is_flag=True,
+    default=False,
+    help=(
+        "Write a machine-readable JSON summary to stdout; the confirmation prompt and all other "
+        "output go to stderr."
+    ),
+)
 @click.pass_context
-def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, incremental):
+def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, incremental, json_flag):
+    if json_flag:
+        machine_readable_mode()
     xeda_run_dir = Path(xeda_run_dir).resolve()
     # just to make sure flow exists and name is canonical
     flow_class = get_flow_class(flow)
 
-    regex = re.compile(f"^{design_name}_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r"$")
-    design_dirs = [p for p in xeda_run_dir.glob("design_") if p.is_dir() and regex.match(p.name)]
+    regex = re.compile(f"^{re.escape(design_name)}_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r"$")
+    design_dirs = [
+        p for p in xeda_run_dir.glob(f"{design_name}_*") if p.is_dir() and regex.match(p.name)
+    ]
     if incremental and (xeda_run_dir / design_name).exists():
         design_dirs.append(xeda_run_dir / design_name)
 
-    for dd in design_dirs:
-        scrub_runs(flow_class.name, dd)
+    scrubbed = [dd for dd in design_dirs if scrub_runs(flow_class.name, dd)]
+    if json_flag:
+        emit_structured(
+            {
+                "success": True,
+                "flow": flow_class.name,
+                "design": design_name,
+                "xeda_run_dir": str(xeda_run_dir),
+                "scanned": [str(d) for d in design_dirs],
+                "scrubbed": [str(d) for d in scrubbed],
+            },
+            "json",
+        )
+
+
+@cli.group(
+    context_settings=CONTEXT_SETTINGS,
+    cls=XedaHelpGroup,
+    short_help="Install the Xeda skill for coding agents.",
+)
+def skill():
+    """Instructions and a generated reference that teach a coding agent to drive Xeda.
+
+    The flow catalog is generated from the installed version of xeda, so it cannot drift from the
+    flows and settings you actually have.
+    """
+
+
+@skill.command("install", context_settings=CONTEXT_SETTINGS, short_help="Write the skill to disk.")
+@click.option(
+    "--dir",
+    "dest_dir",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Directory to install into. Defaults to ./.claude/skills",
+    show_default=False,
+)
+@click.option("--force", is_flag=True, default=False, help="Overwrite an existing installation.")
+def skill_install(dest_dir: Optional[Path], force: bool):
+    """Install the Xeda agent skill into DIR/xeda (default: ./.claude/skills/xeda)."""
+    dest_dir = dest_dir or default_skill_dir()
+    try:
+        written = install_skill(dest_dir, force=force)
+    except FileExistsError as e:
+        raise click.ClickException(str(e)) from e
+    console.print(
+        f"Installed the [bold]{SKILL_NAME}[/] skill into [bold]{dest_dir / SKILL_NAME}[/]:"
+    )
+    for path in written:
+        console.print(f"  {path}")
+
+
+@skill.command(
+    "reference",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Print the generated flow catalog.",
+)
+def skill_reference():
+    """Print the generated flow catalog to stdout, without writing anything."""
+    sys.stdout.write(generate_flows_reference())
 
 
 SHELLS: Dict[str, Dict[str, Any]] = {

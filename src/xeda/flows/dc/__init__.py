@@ -8,7 +8,7 @@ import colorama
 from box import Box
 
 from ...dataclass import Field, validator
-from ...flow import AsicSynthFlow
+from ...flow import AsicSynthFlow, describe_results
 from ...platforms import AsicsPlatform
 from ...tool import Tool
 from ...utils import try_convert, try_convert_to_primitives
@@ -36,6 +36,36 @@ def get_hier(dct, dotted_path, default=None):
 
 class Dc(AsicSynthFlow):
     """Synopsys Design Compiler (R) synthesis flow"""
+
+    results_description = describe_results(
+        "Fmax",
+        "clock_name",
+        "clock_period",
+        "setup_wns",
+        "hold_wns",
+        "num_violating_paths",
+        "hold_num_violating_paths",
+        "aspect_ratio",
+        "utilization_ratio",
+        "area_combinational",
+        "area_noncombinational",
+        "area_macro_bbox",
+        "area_cell_total",
+        "area_total",
+        "area_core",
+        **{
+            "area": "Area breakdown from the QoR report, as a mapping of the report's own labels "
+            "to values.",
+            "drc": "Non-zero design-rule violation counts from the QoR report, by rule.",
+            "path_groups": "Per-timing-path-group QoR figures, keyed by path group name.",
+            "num_ports": "Number of ports in the mapped design.",
+            "num_nets": "Number of nets in the mapped design.",
+            "num_cells": "Total number of cells in the mapped design.",
+            "num_cells_combinational": "Number of combinational cells in the mapped design.",
+            "num_cells_sequentual": "Number of sequential cells in the mapped design.",
+            "num_macro_bbox": "Number of macros / black boxes in the mapped design.",
+        },
+    )
 
     class Settings(AsicSynthFlow.Settings):
         log_file: Optional[Path] = Field(
@@ -79,7 +109,12 @@ class Dc(AsicSynthFlow):
             },
             description="Custom TCL hooks to be run at the specified point in the flow.",
         )
-        platform: Optional[AsicsPlatform] = None
+        platform: Optional[AsicsPlatform] = Field(
+            None,
+            description="ASIC platform (PDK) supplying the target/link libraries: a bundled "
+            "platform name (see `xeda list-platforms`) or a path to a config.toml. An alternative "
+            "to setting `target_libraries` by hand.",
+        )
         hdlin: Dict[str, str] = Field(
             {
                 "infer_mux": "default",
@@ -87,8 +122,16 @@ class Dc(AsicSynthFlow):
             },
             description="Set hdlin_<key> variables. See the DC documentation for details.",
         )
-        infer_multibit: Optional[str] = "default_all"
-        vhdl_preserve_case: bool = False
+        infer_multibit: Optional[str] = Field(
+            "default_all",
+            description="Value of DC's `hdlin_infer_multibit` variable, controlling when register "
+            "banks are inferred as multibit cells.",
+        )
+        vhdl_preserve_case: bool = Field(
+            False,
+            description="Preserve the case of VHDL identifiers instead of lower-casing them, which "
+            "matters when mixing VHDL with case-sensitive Verilog.",
+        )
         compile: Dict[str, str] = Field(
             {
                 "seqmap_honor_sync_set_reset": "true",
@@ -98,10 +141,20 @@ class Dc(AsicSynthFlow):
         )
         target_libraries: List[Path] = Field(description="Target library or libraries")
         extra_link_libraries: List[Path] = Field([], description="Additional link libraries")
-        mw_ref_lib: Optional[Path] = None
-        mw_tf: Optional[Path] = None
-        alib_dir: Optional[Path] = None
-        additional_search_path: Optional[Path] = None
+        mw_ref_lib: Optional[Path] = Field(
+            None, description="Milkyway reference library, for flows that write a Milkyway design."
+        )
+        mw_tf: Optional[Path] = Field(
+            None, description="Milkyway technology file (.tf) matching `mw_ref_lib`."
+        )
+        alib_dir: Optional[Path] = Field(
+            None,
+            description="Directory for DC's cached alib library analysis. Sharing one across runs "
+            "avoids re-analyzing the cell library every time.",
+        )
+        additional_search_path: Optional[Path] = Field(
+            None, description="Extra directory appended to DC's `search_path`."
+        )
         default_max_input_delay: Optional[float] = Field(
             0.0, description="Default max delay to set on all non-clock input ports"
         )
@@ -419,6 +472,6 @@ class Dc(AsicSynthFlow):
                                     )
                                     if self.results["hold_num_violating_paths"] != 0:
                                         failed = True
-            self.results["_path_groups"] = path_groups
+            self.results["path_groups"] = path_groups
 
         return not failed

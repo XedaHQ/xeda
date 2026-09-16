@@ -52,42 +52,83 @@ def get_use_mods(use_dir: Path, mod: str):
 
 
 class Bsc(Flow):
+    """Compile Bluespec (BSV or BH) sources to Verilog with the Bluespec compiler (bsc).
+
+    The generated Verilog is written to `verilog_out_dir` and can be fed to any downstream
+    synthesis or simulation flow. Design sources of type `Bluespec` are compiled; existing
+    Verilog/SystemVerilog sources are passed through.
+    """
+
+    # This flow reports no results beyond the keys every flow reports; declaring this
+    # explicitly keeps `xeda list-results` from guessing.
+    results_description: dict = {}
+
     class Settings(Flow.Settings):
         verilog_out_dir: Path = Field(
             Path("gen_rtl"), description="Folder where generated Verilog files are stored."
         )
-        bobj_dir: str = "bobjs"
-        reset_prefix: Optional[str] = None
-        positive_reset: bool = True
+        bobj_dir: str = Field(
+            "bobjs", description="Directory where bsc stores its intermediate .bo object files."
+        )
+        reset_prefix: Optional[str] = Field(
+            None,
+            description='Prefix for the generated reset port names, e.g. "RST". Useful when '
+            "matching an existing Verilog interface.",
+        )
+        positive_reset: bool = Field(
+            True,
+            description="Generate an active-high reset. Set to false for the active-low reset bsc "
+            "uses by default.",
+        )
         sched_conditions: bool = Field(
             True, description="include method conditions when computing rule conflicts"
         )
-        unspecified_to: Optional[str] = "X"
-        warn_flags: List[str] = [
-            "-warn-method-urgency",
-            "-warn-action-shadowing",
-            "-warn-undet-predicate",
-        ]
-        suppress_warnings: List[str] = []
+        unspecified_to: Optional[str] = Field(
+            "X",
+            description='Value that don\'t-care bits are driven to: "X" (leave undefined, best for '
+            'synthesis), "0", "1", or "A" for alternating. Only honored when `optimize` and '
+            "`opt_undetermined_vals` allow it.",
+        )
+        warn_flags: List[str] = Field(
+            [
+                "-warn-method-urgency",
+                "-warn-action-shadowing",
+                "-warn-undet-predicate",
+            ],
+            description="bsc warning flags to enable.",
+        )
+        suppress_warnings: List[str] = Field(
+            [], description='bsc warning/message IDs to silence, e.g. ["G0021"].'
+        )
         promote_warnings: List[str] = Field(
             ["G0009", "G0010", "G0005", "G0117"], description="Promote these warnings as errors."
         )
-        optimize: bool = True
-        extra_optimize_flags: List[str] = [
-            "-opt-AndOr",  # An aggressive optimization of And Or expressions
-            # "-opt-aggressive-inline", # aggressive inline of verilog assignments
-            "-opt-bit-const",  # simplify bit operations with constants
-            "-opt-bool",  # use BDD simplifier on booleans (slow but good)
-            "-opt-final-pass",  # final pass optimization to unnest expression (et al)
-            # "-opt-if-mux", # turn nested "if" into one mux
-            # "-opt-if-mux-size", 4, # maximum mux size to inline when doing -opt-if-mux
-            "-opt-join-defs",  # join identical definitions
-            "-opt-mux",  # simplify muxes
-            "-opt-mux-const",  # simplify constants in muxes aggressively
-            # "-opt-mux-expand", # simplify muxes by blasting constants. Broken?!!! Leads to incorrect behavior
-            "-opt-sched",  # simplify scheduler expressions
-        ]
-        opt_undetermined_vals: bool = True
+        optimize: bool = Field(
+            True,
+            description="Run bsc with `-O` and the flags in `extra_optimize_flags`.",
+        )
+        extra_optimize_flags: List[str] = Field(
+            [
+                "-opt-AndOr",  # An aggressive optimization of And Or expressions
+                # "-opt-aggressive-inline", # aggressive inline of verilog assignments
+                "-opt-bit-const",  # simplify bit operations with constants
+                "-opt-bool",  # use BDD simplifier on booleans (slow but good)
+                "-opt-final-pass",  # final pass optimization to unnest expression (et al)
+                # "-opt-if-mux", # turn nested "if" into one mux
+                # "-opt-if-mux-size", 4, # maximum mux size to inline when doing -opt-if-mux
+                "-opt-join-defs",  # join identical definitions
+                "-opt-mux",  # simplify muxes
+                "-opt-mux-const",  # simplify constants in muxes aggressively
+                # "-opt-mux-expand", # simplify muxes by blasting constants. Broken?!!! Leads to incorrect behavior
+                "-opt-sched",  # simplify scheduler expressions
+            ],
+            description="bsc optimization flags applied when `optimize` is set.",
+        )
+        opt_undetermined_vals: bool = Field(
+            True,
+            description="Let bsc choose convenient values for don't-care bits. Works together "
+            "with `unspecified_to`; both must allow it for X-propagation to be kept.",
+        )
         split_if: bool = Field(
             False,
             description="split 'if' in actions [See 'Bluespec Compiler User Guide' section 3.10]",
@@ -110,7 +151,9 @@ class Bsc(Flow):
         gtkwave_package: Optional[str] = Field(
             None, description="Generate gtkwave translation filters for Bluespec types."
         )
-        docker: Optional[str] = "bsc"
+        docker: Optional[str] = Field(
+            "bsc", description="Docker image used to run bsc when `dockerized` is set."
+        )
         incremental: bool = Field(False, description="Only compile modified packages.")
         cleanup_bobjs: bool = Field(
             True,
@@ -158,7 +201,7 @@ class Bsc(Flow):
         assert out
 
         if self.settings.debug:
-            print(f"output:\n{out}")
+            log.debug("bluetcl output:\n%s", out)
 
         type_info = dict(yaml.full_load(out))
 
@@ -289,11 +332,8 @@ class Bsc(Flow):
             if self.settings.opt_undetermined_vals:
                 bsc_flags.append("-opt-undetermined-vals")
         uv = self.settings.unspecified_to
-        if (
-            not self.settings.optimize
-            or (not self.settings.opt_undetermined_vals
-            and uv
-            and uv == "X")
+        if not self.settings.optimize or (
+            not self.settings.opt_undetermined_vals and uv and uv == "X"
         ):
             uv = None
         if uv:

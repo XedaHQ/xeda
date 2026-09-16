@@ -129,10 +129,16 @@ class Vivado(Flow, metaclass=ABCMeta):
             False,
             description="Drop to interactive TCL shell after Vivado finishes running a flow script",
         )
-        no_log: bool = False
-        suppress_msgs: List[str] = [
-            "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found in run
-        ]
+        no_log: bool = Field(
+            False, description="Pass -nolog to Vivado, so it does not write a vivado.log file."
+        )
+        suppress_msgs: List[str] = Field(
+            [
+                "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found
+            ],
+            description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
+            "messages are not printed and never trigger `fail_critical_warning`.",
+        )
 
     def init(self):
         super().init()

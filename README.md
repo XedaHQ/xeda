@@ -1,75 +1,90 @@
-[![CI](https://github.com/XedaHQ/xeda/workflows/CI/badge.svg)](https://github.com/XedaHQ/xeda/actions?query=workflow%3ACI) [![Downloads](https://static.pepy.tech/personalized-badge/xeda?period=total&units=none&left_color=black&right_color=orange&left_text=Downloads)](https://pepy.tech/project/xeda) [![license](https://img.shields.io/github/license/XedaHQ/xeda)](https://github.com/XedaHQ/xeda/blob/master/LICENSE.txt) [![versions](https://img.shields.io/pypi/pyversions/xeda)](https://pypi.org/project/xeda) [![PyPI](https://img.shields.io/pypi/v/xeda)](https://pypi.org/project/xeda/)
+[![CI](https://github.com/XedaHQ/xeda/workflows/CI/badge.svg)](https://github.com/XedaHQ/xeda/actions?query=workflow%3ACI) [![Downloads](https://static.pepy.tech/personalized-badge/xeda?period=total&units=none&left_color=black&right_color=orange&left_text=Downloads)](https://pepy.tech/project/xeda) [![license](https://img.shields.io/github/license/XedaHQ/xeda)](https://github.com/XedaHQ/xeda/blob/main/LICENSE.txt) [![versions](https://img.shields.io/pypi/pyversions/xeda)](https://pypi.org/project/xeda) [![PyPI](https://img.shields.io/pypi/v/xeda)](https://pypi.org/project/xeda/)
 
 [![Xeda Logo](https://raw.githubusercontent.com/XedaHQ/xeda/main/xeda.png?raw=true)](https://github.com/XedaHQ/xeda)
 
-**Xeda** `/ˈziːdə/` is a cross-platform, cross-EDA, cross-target simulation and synthesis automation platform.
-It assists hardware developers in verification, evaluation, and deployment of RTL designs. Xeda supports flows from multiple commercial and open-source electronic design automation suites.
+**Xeda** is a cross-platform automation framework for RTL simulation, FPGA synthesis
+and implementation, and ASIC synthesis and physical design. A single declarative design file can
+drive commercial and open-source EDA tools without duplicating tool-specific build scripts.
 
-**Xeda is the one tool to rule 'em all!**
-
-For further details, visit the [Xeda's documentations](http://xeda.rtfd.io/) (Work In Progress).
+Read the [Xeda documentation](https://xeda.readthedocs.io/) for the complete design-file, flow,
+and run-directory references.
 
 ## Installation
 
-Python 3.10 or newer is required. You can install the latest published version from [pypi](https://pypi.org/project/xeda). If you only need the command line interface, you can install xeda using [pipx](https://pipx.pypa.io/stable/).
+Python 3.11 or newer is required. Xeda orchestrates EDA tools but does not install them; the tools
+needed by a selected flow must be available locally, in Docker, or on the configured remote host.
 
+For CLI use, the preferred installation is an isolated [`uv`](https://docs.astral.sh/uv/)
+tool environment:
+
+```bash
+uv tool install --upgrade xeda
 ```
+
+[`pipx`](https://pipx.pypa.io/stable/) is an equivalent alternative:
+
+```bash
 pipx install --force xeda
 ```
 
-If you want to use Xeda in a virtual environment, you can install it using `pip`:
-```
+To import Xeda as a Python library, install it in your project's virtual environment:
+
+```bash
 python3 -m pip install -U xeda
 ```
 
+Verify the installation with `xeda --version`.
+
 ### Development
 
-```
+```bash
 git clone --recursive https://github.com/XedaHQ/xeda.git
 cd xeda
-python3 -m venv venv
-source venv/bin/activate
-python3 -m pip install -U pip setuptools wheel
-python3 -m pip install -U --editable .
+uv sync
+uv run pytest tests/
 ```
+
+An editable pip installation also works if `uv` is unavailable.
 
 ## Usage
 
-Run `xeda --help` to see a list of available commands and options.
+The CLI is self-describing. Discover the installed flows and their exact contracts before running
+one:
 
-### Design Description
-
-Xeda design-specific descriptions and settings are organized through project files specified in [TOML](https://toml.io/). Every project contains one or more HDL designs. The default name for the project file is `xedaproject.toml`.
-
-Sample Xeda design description [file](./examples/vhdl/Trivium/trivium.xeda.yaml) in YAML format:
-
-```yaml
-hdl.vhdl.standard: 2008
-
-sources:
-    - trivium.vhdl
-parameters:
-  G_IN_BITS: 64
-  G_OUT_BITS: 64
-  G_SETUP_ROUNDS: 4
-top: trivium
-clock.port: clk
-
-test:
-  sources:
-  - trivium_tb.py
-  - cref/trivium64.c
-
-flows:
-  vivado_synth:
-    fpga.part: xc7a12tcsg325-3
-    clock.freq: 200MHz
-  dc:
-    target_libraries:
-      - $PWD/lib/SAED90/saed90nm_typ_ht.db
+```bash
+xeda list-flows                   # every flow, with its aliases, category and dependencies
+xeda list-settings vivado_synth   # every setting of a flow, with type, default and meaning
+xeda list-results vivado_synth    # the keys that flow writes to results.json
+xeda design-schema                # JSON Schema of a design description file
+xeda run vivado_synth sqrt.toml -s clock_period=5.0
 ```
 
-Sample Xeda design description [file](./examples/vhdl/sqrt/sqrt.toml) in TOML format:
+Flow names accept snake case, dashes, CamelCase class names, and documented aliases. Setting
+names are exact; unknown settings fail instead of being silently ignored.
+
+### Scripting and coding agents
+
+The query commands above accept `--json` for machine-readable output. The `run`, `dse`, and
+`scrub` commands also accept it; tool output and logs then move to stderr so stdout contains one
+parseable JSON document:
+
+```bash
+xeda run vivado_synth sqrt.toml --json | jq '.results.Fmax'
+```
+
+Xeda also ships a coding-agent skill whose flow catalog is generated from the installed version:
+
+```bash
+xeda skill install                # writes ./.claude/skills/xeda/
+```
+
+### Design description
+
+A design file describes what to build: sources in compilation order, the top level, parameters,
+logical clock ports, and an optional testbench. Tool constraints remain per-flow settings. TOML,
+YAML, and JSON are accepted; paths resolve relative to the design file.
+
+For example, [`examples/vhdl/sqrt/sqrt.toml`](./examples/vhdl/sqrt/sqrt.toml):
 
 ```toml
 name = "sqrt"
@@ -87,42 +102,30 @@ sources = ["tb_sqrt.py"]
 cocotb = true
 
 [flows.vivado_synth]
-fpga.part = 'xc7a12tcsg325-1'
+fpga.part = "xc7a100tftg256-2L"
 clock_period = 5.0
 ```
 
+Use `xeda design-schema` for the authoritative input schema.
+
 ## Flows
 
-A `Tool` is an abstraction for an executable which is responsible for one or several steps in an EDA flow. A `Tool` can be executed as a native binary already installed on the system, in a virtualized container (e.g. `docker`), or on a remote system.
-A `Flow` is a collection of steps performed by one or several tools. A Xeda `Flow` implements the following methods:
-
-- `init`(optional): initializations which need to happen after  the instantiation of a `Flow` instance. At this stage, the flow can specify and customize dependency flows, which will be run before execution of the flow. Seperation of this stage form Python `__init__` enables greater flexibility and more effective control over the execution of flows.
-- `run`: main execution of the flow which includes generation of files, scripts, and tool arguments as well as execution of one or several tools. All dependencies have been already executed before `run` begins, and the completed dependencies (and their results and artifacts) will be available.
-- `parse_results`(optional): evaluate and interpret generated reports or other artifacts.
+A flow describes how to build or test a design with one or more tools. Dependencies run
+automatically. For example, `nextpnr` runs its `yosys_fpga` synthesis dependency before place and
+route. Results, generated scripts, reports, and effective settings are kept under `xeda_run/`.
 
 ### Supported Tools and Flows
 
-- AMD-Xilinx [Vivado](https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html) Design Suite
-  - `vivado_synth`: FPGA synthesis and implementation.
-  - `vivado_sim`: functional simulation of RTL design
-  - `vivado_postsynthsim`: Post-implementation functional and timing simulation and power analysis
-  - `vivado_power`: Post-implementation power estimation based on post-implementation timing simulation with real-world target testvectors
+- AMD-Xilinx [Vivado](https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html):
+  `vivado_synth`, `vivado_sim`, `vivado_postsynth_sim`, `vivado_power`, `vivado_project`
 - AMD-Xilinx [ISE](https://www.xilinx.com/products/design-tools/ise-design-suite.html) Design Suite
-- [GHDL](https://github.com/ghdl/ghdl) VHDL simulator
-  - `ghdl_sim`
-- Intel [Quartus Prime](https://www.intel.com/content/www/us/en/software/programmable/quartus-prime/overview.html) (Lite/Pro Editions):
-  - `quartus`: FPGA synthesis and implementation flow
+- [GHDL](https://github.com/ghdl/ghdl), NVC, ModelSim, VCS, Verilator, and Vivado simulation
+- Intel [Quartus Prime](https://www.intel.com/content/www/us/en/software/programmable/quartus-prime/overview.html)
 - Lattice Diamond
-  - `diamond_synth`: FPGA synthesis and implementation flow
-- Mentor (Siemens) [ModelSim](https://eda.sw.siemens.com/en-US/ic/modelsim/)
-  - `modelsim` RTL and netlist simulation
-- [nextpnr](https://github.com/YosysHQ/nextpnr) portable FPGA place and route tool
-- [openFPGAloader](https://github.com/trabucayre/openFPGALoader): Open-source and multi-platform universal utility for programming FPGAs. Compatible with many boards, cables and FPGA from major manufacturers.
-- [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD/): integrated chip physical design flow that takes a design from RTL sources to routed layout.
-- Synopsys Design Compiler
-- Synopsys VCS simulator
-- [Verilator](https://github.com/verilator/verilator): the fastest (open-source) Verilog/SystemVerilog simulator.
-- [Bluespec](https://github.com/B-Lang-org/bsc): Compiler, simulator, and tools for the Bluespec Hardware Description Language.
-- [Yosys](https://github.com/YosysHQ/yosys) Open SYnthesis Suite (FPGA and ASICs synthesis)
+- [Yosys](https://github.com/YosysHQ/yosys), [nextpnr](https://github.com/YosysHQ/nextpnr),
+  OpenXC7, and [openFPGALoader](https://github.com/trabucayre/openFPGALoader)
+- [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD/) and Synopsys Design Compiler
+- [Bluespec](https://github.com/B-Lang-org/bsc)
 
-Run `xeda list-flows` for the full list of supported flows in the installed version.
+Run `xeda list-flows` for the complete list in the installed version; use
+`xeda list-settings <flow>` and `xeda list-results <flow>` for the exact inputs and outputs.

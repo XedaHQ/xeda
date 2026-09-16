@@ -2,15 +2,34 @@
 
 from typing import Optional
 
+from ...dataclass import Field
 from ...flow import SimFlow
 from ...tool import Tool
 from ...utils import SDF
 
 
 class Modelsim(SimFlow):
+    """Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens ModelSim.
+
+    Handles both RTL and gate-level netlist simulation; a netlist simulation can be annotated
+    with timing from an SDF file via the `sdf` setting.
+    """
+
+    # This flow reports no results beyond the keys every flow reports; declaring this
+    # explicitly keeps `xeda list-results` from guessing.
+    results_description: dict = {}
+
     class Settings(SimFlow.Settings):
-        sdf: SDF = SDF()
-        modelsimini: Optional[str] = None
+        sdf: SDF = Field(
+            SDF(),
+            description="SDF timing-annotation files to back-annotate onto the netlist, per delay "
+            "corner (min/typ/max) and optional instance root.",
+        )
+        modelsimini: Optional[str] = Field(
+            None,
+            description="Path to a `modelsim.ini` to use instead of the tool default, e.g. one "
+            "with pre-compiled vendor libraries mapped.",
+        )
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)

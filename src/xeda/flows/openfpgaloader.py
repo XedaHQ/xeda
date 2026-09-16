@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from ..board import WithFpgaBoardSettings, get_board_data
-from ..dataclass import validator
+from ..dataclass import Field, validator
 from ..flow import FlowSettingsException, FpgaSynthFlow
 from ..tool import Tool
 from .nextpnr import Nextpnr
@@ -13,13 +13,36 @@ log = logging.getLogger(__name__)
 
 
 class Openfpgaloader(FpgaSynthFlow):
+    """Build a bitstream and program it onto an FPGA board with openFPGALoader.
+
+    Runs the full `yosys_fpga` -> `nextpnr` chain, packs the routed design into a bitstream
+    (e.g. with `ecppack` for ECP5), and loads it over the configured `cable` or `board`. This is
+    the only flow that touches real hardware.
+    """
+
+    # This flow reports no results beyond the keys every flow reports; declaring this
+    # explicitly keeps `xeda list-results` from guessing.
+    results_description: dict = {}
+
     ofpga_loader = Tool("openFPGALoader")
 
     class Settings(WithFpgaBoardSettings):
-        clock_period: float
-        reset: bool = False
-        cable: Optional[str] = None
-        nextpnr: Optional[Nextpnr.Settings] = None
+        clock_period: float = Field(
+            description="Target clock period in nanoseconds, passed to the synthesis and place & "
+            "route dependencies."
+        )
+        reset: bool = Field(
+            False, description="Reset the FPGA after loading the bitstream (`--reset`)."
+        )
+        cable: Optional[str] = Field(
+            None,
+            description='Programming cable to use, e.g. "ft2232". Takes precedence over the '
+            "cable implied by `board`.",
+        )
+        nextpnr: Optional[Nextpnr.Settings] = Field(
+            None,
+            description="Settings for the `nextpnr` dependency that places and routes the design.",
+        )
 
         @validator("nextpnr", always=True, pre=True)
         def _validate_nextpnr(cls, value, values):

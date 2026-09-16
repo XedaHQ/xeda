@@ -39,12 +39,10 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx_panels",
-    "sphinxext.rediraffe",
     "sphinxcontrib.mermaid",
     "sphinxext.opengraph",
     "sphinxcontrib.autodoc_pydantic",
     "sphinx.ext.autosummary",
-    "sphinx.ext.autodoc"
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -62,8 +60,8 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # a list of builtin themes.
 #
 html_theme = "sphinx_book_theme"
-html_logo = "../logo.svg"
-# html_favicon = "../logo.svg"
+html_logo = "../xeda.svg"
+# html_favicon = "../xeda.svg"
 html_title = ""
 html_theme_options = {
     "github_url": "https://github.com/XedaHQ/xeda",
@@ -76,10 +74,10 @@ html_theme_options = {
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ["_static"]
+html_static_path = []
 
 intersphinx_mapping = {
-    "python": ("https://docs.python.org/3.9", None),
+    "python": ("https://docs.python.org/3.11", None),
     "pydantic": ("https://www.sphinx-doc.org/en/master", None),
 }
 

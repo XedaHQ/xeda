@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Literal, Optional
 
 from ...dataclass import Field
-from ...flow import FlowFatalError, FpgaSynthFlow
+from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
 from ...flows.ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
 
@@ -15,6 +15,16 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     """
     Yosys Open SYnthesis Suite: FPGA synthesis
     """
+
+    results_description = describe_results(
+        "LUT",
+        "lut",
+        "ff",
+        **{
+            "LUT:RAM": "Number of LUTs used as distributed RAM.",
+            "FF": "Number of flip-flops (registers) used.",
+        },
+    )
 
     class Settings(YosysBase.Settings, FpgaSynthFlow.Settings):
         abc9: bool = Field(True, description="Use abc9")
@@ -39,7 +49,12 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             description="enable inference of hard multiplexer resources for muxes at or above this number of inputs"
             " (minimum value 2, recommended value >= 5 or disabled = 0)",
         )
-        synth_flags: List[str] = []
+        synth_flags: List[str] = Field(
+            [],
+            description="Extra flags passed to yosys' device-specific `synth_<family>` command. "
+            "The booleans above (abc9, retime, nobram, ...) are translated into flags and "
+            "appended to this list.",
+        )
         pre_synth_opt: bool = Field(
             False,
             description="run additional optimization steps before synthesis",
@@ -51,11 +66,25 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         optimize: Optional[Literal["speed", "area"]] = Field(
             "area", description="Optimization target"
         )
-        stop_after: Optional[Literal["rtl"]]
-        black_box: List[str] = []
-        adder_map: Optional[str] = None
-        clockgate_map: Optional[str] = None
-        other_maps: List[str] = []
+        stop_after: Optional[Literal["rtl"]] = Field(
+            None,
+            description='Stop the flow after this stage. "rtl" elaborates the design and writes '
+            "the RTL outputs without synthesizing.",
+        )
+        black_box: List[str] = Field(
+            [],
+            description="Modules to treat as black boxes: their contents are discarded and only "
+            "their interface is kept.",
+        )
+        adder_map: Optional[str] = Field(
+            None, description="Verilog file with device-specific adder cell mappings."
+        )
+        clockgate_map: Optional[str] = Field(
+            None, description="Verilog file with device-specific clock-gating cell mappings."
+        )
+        other_maps: List[str] = Field(
+            [], description="Additional Verilog files with device-specific cell mappings."
+        )
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)

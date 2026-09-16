@@ -17,44 +17,138 @@ log = logging.getLogger(__name__)
 
 
 class Verilator(SimFlow):
+    """Simulate a Verilog or SystemVerilog design with Verilator.
+
+    Verilator compiles the design to C++ (or SystemC) and builds a native executable, which
+    makes it the fastest open-source simulator for large designs. Supports cocotb testbenches,
+    plain C++/SystemC harnesses, and VCD/FST waveform tracing.
+    """
+
     cocotb_sim_name = "verilator"
 
     class Settings(SimFlow.Settings):
-        sim_dir: str = "sim_build"
-        compile_args: List[str] = []
-        cflags: List[str] = []
-        warn_flags: List[str] = [
-            "-Wall",
-        ]
-        warnings_fatal: bool = False
-        include_dirs: List[str] = []
-        optimize: Union[bool, str, int] = True
-        timing: bool = False
+        sim_dir: str = Field(
+            "sim_build",
+            description="Directory, relative to the run directory, where Verilator writes the "
+            "generated C++ and the built model.",
+        )
+        compile_args: List[str] = Field(
+            [], description="Extra arguments passed to the `verilator` command itself."
+        )
+        cflags: List[str] = Field(
+            [], description="Extra flags passed through to the C++ compiler (verilator -CFLAGS)."
+        )
+        warn_flags: List[str] = Field(
+            ["-Wall"],
+            description='Verilator lint/warning flags, e.g. ["-Wall", "-Wno-WIDTH"]. '
+            "Verilator's linting is stricter than most simulators'.",
+        )
+        warnings_fatal: bool = Field(
+            False,
+            description="Treat Verilator warnings as errors (`-Werror`), failing the flow.",
+        )
+        include_dirs: List[str] = Field(
+            [], description="Directories searched for `include` files and missing modules (-I)."
+        )
+        optimize: Union[bool, str, int] = Field(
+            True,
+            description="Optimization level for the generated model: true for Verilator's "
+            'default -O3, false to disable, or a level/flag string such as 3 or "-O2". '
+            "Disabling it speeds up compilation and slows down simulation.",
+        )
+        timing: bool = Field(
+            False,
+            description="Enable Verilator's `--timing` support for delays and non-blocking "
+            "event controls, needed by testbenches that use `#delay` or `wait`.",
+        )
         model_args: List[str] = Field(
             default=[], description="Arguments to pass to the model executable"
         )
-        verilog_libs: List[str] = []
-        build: bool = True
-        vpi: bool = False
-        no_deps: bool = True
-        generate_systemc: bool = False
-        generate_executable: bool = True
-        compiler: Optional[str] = None
-        random_init: bool = True
-        x_initial: str = "unique"
-        x_assign: str = "unique"
-        fst: Union[None, str, Path] = None
-        saif: Union[None, str, Path] = None
+        verilog_libs: List[str] = Field(
+            [],
+            description="Verilog library files (`-v`): their modules are elaborated only when "
+            "instantiated.",
+        )
+        build: bool = Field(
+            True,
+            description="Compile and link the generated C++ into an executable model. Disable to "
+            "only generate sources.",
+        )
+        vpi: bool = Field(
+            False,
+            description="Enable VPI support in the model, required by VPI-based testbenches. Set "
+            "automatically for cocotb.",
+        )
+        no_deps: bool = Field(
+            True,
+            description="Pass `--no-MMD`, so Verilator does not emit make dependency files.",
+        )
+        generate_systemc: bool = Field(
+            False,
+            description="Generate a SystemC model (`--sc`) instead of a plain C++ one.",
+        )
+        generate_executable: bool = Field(
+            True,
+            description="Generate a main() and link a standalone executable (`--exe`) rather than "
+            "a library to embed.",
+        )
+        compiler: Optional[str] = Field(
+            None,
+            description='C++ compiler used to build the model, e.g. "clang++". Defaults to '
+            "Verilator's own choice.",
+        )
+        random_init: bool = Field(
+            True,
+            description="Randomize the initial value of uninitialized signals at each run, which "
+            "surfaces reset bugs a zero-initialized model would hide. See `x_initial`.",
+        )
+        x_initial: str = Field(
+            "unique",
+            description='How uninitialized values are set at time 0: "unique" (random per '
+            'run), "0", or "fast".',
+        )
+        x_assign: str = Field(
+            "unique",
+            description='How explicit assignments of X are resolved: "unique" (random per '
+            'run), "0", "1", or "fast".',
+        )
+        fst: Union[None, str, Path] = Field(
+            None,
+            description="Write an FST waveform to this file. FST is far more compact than VCD "
+            "for long simulations. See also `vcd`/`waveform`.",
+        )
+        saif: Union[None, str, Path] = Field(
+            None,
+            description="Write switching activity to this SAIF file, for power estimation.",
+        )
         threads: int = Field(
             0,
             description="0: not thread-safe, 1: thread-safe single thread, 2+: multithreaded",
         )
-        trace_underscore: bool = True
-        trace_structs: bool = True
-        trace_threads: Optional[int] = None
-        trace_max_width: Optional[int] = 2048
-        trace_max_array: Optional[int] = 2048
-        clean_before_run: bool = True
+        trace_underscore: bool = Field(
+            True, description="Include signals whose names begin with an underscore in traces."
+        )
+        trace_structs: bool = Field(
+            True,
+            description="Trace structs and packed arrays with their field names rather than as "
+            "flat vectors.",
+        )
+        trace_threads: Optional[int] = Field(
+            None,
+            description="Number of threads used to write the waveform. Null leaves Verilator's "
+            "default.",
+        )
+        trace_max_width: Optional[int] = Field(
+            2048, description="Do not trace signals wider than this many bits."
+        )
+        trace_max_array: Optional[int] = Field(
+            2048, description="Do not trace arrays with more than this many elements."
+        )
+        clean_before_run: bool = Field(
+            True,
+            description="Remove `sim_dir` before building, so a stale generated model is never "
+            "reused.",
+        )
 
     def run(self):
         assert isinstance(self.settings, self.Settings)

@@ -345,6 +345,10 @@ class GhdlSynth(Ghdl, SynthFlow):
      (Please take a look at 'Yosys' flow (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis targeting FPGAs or ASICs)
     """
 
+    # This flow reports no results beyond the keys every flow reports; declaring this
+    # explicitly keeps `xeda list-results` from guessing.
+    results_description: dict = {}
+
     requires_physical_clocks = False
 
     class Settings(Ghdl.Settings, SynthFlow.Settings):
@@ -457,10 +461,20 @@ class GhdlSim(Ghdl, SimFlow):
     aliases = ["ghdl"]
 
     class Settings(Ghdl.Settings, SimFlow.Settings):
-        run_flags: List[str] = []
+        run_flags: List[str] = Field(
+            [], description="Extra flags passed to `ghdl run` (or the elaborated executable)."
+        )
         optimization_flags: List[str] = Field(["-O3"], description="Simulation optimization flags")
-        asserts: Optional[Literal["disable", "disable-at-0"]] = None
-        ieee_asserts: Optional[Literal["disable", "disable-at-0"]] = "disable-at-0"
+        asserts: Optional[Literal["disable", "disable-at-0"]] = Field(
+            None,
+            description="Disable user assertion failures entirely (`disable`) or only those firing "
+            "at time 0 (`disable-at-0`).",
+        )
+        ieee_asserts: Optional[Literal["disable", "disable-at-0"]] = Field(
+            "disable-at-0",
+            description="Same as `asserts`, but for assertions inside the IEEE standard "
+            "libraries. The default suppresses the metavalue warnings they emit at time 0.",
+        )
         sdf: SDF = Field(
             SDF(),
             description="Do VITAL annotation using SDF files(s). A single string is interpreted as a MAX SDF file.",

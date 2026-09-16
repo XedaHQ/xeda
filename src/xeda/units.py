@@ -6,6 +6,18 @@ from pint import UnitRegistry
 unit_registry: UnitRegistry = UnitRegistry(case_sensitive=False)
 Q_: Any = unit_registry.Quantity
 
+#: Abbreviations that are ambiguous to pint and must be spelled out before parsing.
+#: "ns", for instance, resolves to both nanosecond and nanosiemens, and which one pint picks
+#: is not deterministic -- so "5.5ns" would sometimes be rejected as a time.
+UNIT_ALIASES = {
+    "ps": "picoseconds",
+    "ns": "nanoseconds",
+    "us": "microseconds",
+    "ms": "milliseconds",
+}
+
+_QUANTITY_RE = re.compile(r"^\s*([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)\s*([A-Za-z]+)\s*$")
+
 
 def unit_maybe_scale(unit: str):
     unit = unit.strip()
@@ -15,16 +27,21 @@ def unit_maybe_scale(unit: str):
         sc = m.group(1)
         if sc and sc != "1":
             scale = float(sc)
-        unit = m.group(2)
-        if unit == "ps":
-            unit = "picoseconds"
-        if unit == "ns":
-            unit = "nanoseconds"
-        if unit == "ms":
-            unit = "milliseconds"
-        if unit == "us":
-            unit = "microseconds"
+        unit = UNIT_ALIASES.get(m.group(2), m.group(2))
     return unit, scale
+
+
+def normalize_quantity(value: str) -> str:
+    """Spell out an ambiguous unit abbreviation in a "<number><unit>" string.
+
+    `"5.5ns"` becomes `"5.5 nanoseconds"`; anything that is not a plain number-plus-unit string
+    is returned unchanged for pint to parse as-is.
+    """
+    m = _QUANTITY_RE.match(value)
+    if not m:
+        return value
+    number, unit = m.groups()
+    return f"{number} {UNIT_ALIASES.get(unit, unit)}"
 
 
 def convert_unit(
@@ -34,7 +51,7 @@ def convert_unit(
 ) -> float:
     try:
         value = float(value)
-    except ValueError:
+    except (ValueError, TypeError):
         pass
     from_scale = None
     to_scale = None
@@ -44,7 +61,7 @@ def convert_unit(
     if from_unit and isinstance(value, (float, int)):
         value = Q_(value, from_unit).to(to_unit).m
     elif isinstance(value, str):
-        value = Q_(value).to(to_unit).m
+        value = Q_(normalize_quantity(value)).to(to_unit).m
     if from_scale:
         value *= from_scale
     if to_scale:

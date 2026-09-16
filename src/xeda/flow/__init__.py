@@ -1,10 +1,12 @@
 from .flow import (
+    COMMON_RESULT_DESCRIPTIONS,
     Flow,
     FlowDependencyFailure,
     FlowException,
     FlowFatalError,
     FlowSettingsError,
     FlowSettingsException,
+    describe_results,
     registered_flows,
 )
 
@@ -14,6 +16,7 @@ from .sim import SimFlow
 from .synth import AsicSynthFlow, FpgaSynthFlow, PhysicalClock, SynthFlow
 
 __all__ = [
+    "COMMON_RESULT_DESCRIPTIONS",
     "FPGA",
     "AsicSynthFlow",
     "Flow",
@@ -26,5 +29,6 @@ __all__ = [
     "PhysicalClock",
     "SimFlow",
     "SynthFlow",
+    "describe_results",
     "registered_flows",
 ]

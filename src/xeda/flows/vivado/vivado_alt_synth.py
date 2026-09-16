@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from ...dataclass import validator
+from ...dataclass import Field, validator
 from ...flow import FpgaSynthFlow
 from .vivado_synth import RunOptions, StepsValType, VivadoSynth
 
@@ -335,8 +335,14 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     """Synthesize with Xilinx Vivado using an alternative TCL-based flow"""
 
     class Settings(VivadoSynth.Settings):
-        synth: RunOptions = RunOptions(strategy="Default")
-        impl: RunOptions = RunOptions(strategy="Default")
+        synth: RunOptions = Field(
+            RunOptions(strategy="Default"),
+            description="Synthesis run options for the alternative TCL flow.",
+        )
+        impl: RunOptions = Field(
+            RunOptions(strategy="Default"),
+            description="Implementation run options for the alternative TCL flow.",
+        )
 
         @validator("synth", "impl", always=True)
         def validate_synth(cls, value, values, field):
@@ -365,17 +371,21 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
                     value.steps[step] = None
             return value
 
-        suppress_msgs: List[str] = [
-            "Vivado 12-7122",  # Auto Incremental Compile:: No reference checkpoint was found in run
-            "Synth 8-7080",  # "Parallel synthesis criteria is not met"
-            "Synth 8-350",  # warning partial connection
-            "Synth 8-256",  # info do synthesis
-            "Synth 8-638",
-            # "Synth 8-3969", # BRAM mapped to LUT due to optimization
-            # "Synth 8-4480", # BRAM with no output register
-            # "Drc 23-20",  # DSP without input pipelining
-            # "Netlist 29-345",  # Update IP version
-        ]
+        suppress_msgs: List[str] = Field(
+            [
+                "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found
+                "Synth 8-7080",  # "Parallel synthesis criteria is not met"
+                "Synth 8-350",  # warning partial connection
+                "Synth 8-256",  # info do synthesis
+                "Synth 8-638",
+                # "Synth 8-3969", # BRAM mapped to LUT due to optimization
+                # "Synth 8-4480", # BRAM with no output register
+                # "Drc 23-20",  # DSP without input pipelining
+                # "Netlist 29-345",  # Update IP version
+            ],
+            description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
+            "messages are not printed and never trigger `fail_critical_warning`.",
+        )
 
     def run(self):
         ss = self.settings

@@ -2,14 +2,14 @@ import json
 import logging
 import os
 import re
-import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from ...board import WithFpgaBoardSettings
 from ...dataclass import Field, validator
 from ...design import SourceType
-from ...flow import FPGA, FlowFatalError, FpgaSynthFlow
+from ...flow import FPGA, FlowFatalError, FpgaSynthFlow, describe_results
+from ...proc_utils import run_process
 from ...tool import Tool
 from ...utils import setting_flag
 from ..yosys import YosysFpga
@@ -29,12 +29,44 @@ class OpenXC7(FpgaSynthFlow):
     next_pnr = Tool("nextpnr-xilinx")
     ofpga_loader = Tool("openFPGALoader")
 
+    results_description = describe_results(
+        "f_max",
+        "Fmax",
+        "lut",
+        "ff",
+        **{
+            "LUT": "Number of LUTs used.",
+            "FF": "Number of flip-flops (registers) used.",
+            "DSP48E1": "Number of DSP48E1 primitives used.",
+            "RAMB18E1": "Number of RAMB18E1 block RAM primitives used.",
+            "RAMB36E1": "Number of RAMB36E1 block RAM primitives used.",
+            "RAMBFIFO36E1": "Number of RAMBFIFO36E1 block RAM/FIFO primitives used.",
+        },
+    )
+
     class Settings(WithFpgaBoardSettings):
-        fpga: Optional[FPGA] = None
-        verbose: bool = False
-        seed: Optional[int] = None
-        randomize_seed: bool = True
-        timing_allow_fail: bool = False
+        fpga: Optional[FPGA] = Field(
+            None,
+            description="Target Xilinx 7-series device. Accepts a full part identifier as a string "
+            '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields.',
+        )
+        verbose: bool = Field(
+            False, description="Pass `--verbose` to nextpnr for more detailed progress output."
+        )
+        seed: Optional[int] = Field(
+            None,
+            description="Seed for nextpnr's placer. Different seeds give different results; "
+            "sweeping the seed is a common way to squeeze out extra Fmax.",
+        )
+        randomize_seed: bool = Field(
+            True,
+            description="Use a fresh random seed on every run. Makes results non-reproducible; "
+            "set `seed` instead to pin one.",
+        )
+        timing_allow_fail: bool = Field(
+            False,
+            description="Let the flow succeed even when timing constraints are not met.",
+        )
         ignore_loops: bool = Field(
             False, description="ignore combinational loops in timing analysis"
         )
@@ -42,10 +74,22 @@ class OpenXC7(FpgaSynthFlow):
             False,
             description="disable IO buffer insertion and global promotion/routing, for building pre-routed blocks",
         )
-        extra_args: List[str] = []
-        py_script: Optional[str] = None
-        sdf: Optional[str] = None
-        log: Union[str, Path] = "nextpnr.log"
+        extra_args: List[str] = Field(
+            [], description="Extra command-line arguments appended to the nextpnr invocation."
+        )
+        py_script: Optional[str] = Field(
+            None,
+            description="Python script run inside nextpnr (`--run`), for custom constraints or "
+            "analysis. Requires a nextpnr built with Python support.",
+        )
+        sdf: Optional[str] = Field(
+            None,
+            description="Write post-routing timing to this SDF file, for timing-annotated "
+            "netlist simulation.",
+        )
+        log: Union[str, Path] = Field(
+            "nextpnr.log", description="File nextpnr-xilinx writes its log to."
+        )
         chipdb: Union[Path, str, None] = Field(
             None,
             description="Xilinx: the path to the chip database, either the full binary path or the directory containing the database. If the value points to an existing directory, the binary file is automatically selected based on the FPGA part.",
@@ -88,7 +132,11 @@ class OpenXC7(FpgaSynthFlow):
         bitstream: Union[Path, str, None] = Field(
             None, description="Xilinx: Bitstream file to write"
         )
-        yosys: Optional[YosysFpga.Settings] = None
+        yosys: Optional[YosysFpga.Settings] = Field(
+            None,
+            description="Settings for the `yosys_fpga` dependency that synthesizes the design. "
+            "`fpga` and `clocks` are propagated automatically.",
+        )
         program: Union[str, bool, Dict, None] = Field(
             None,
             description="Program the FPGA after bitstream generation. Can specify the cable type.",
@@ -172,10 +220,7 @@ class OpenXC7(FpgaSynthFlow):
             str(frames_path),
         ]
         log.info("Running: %s", " ".join(map(str, cmd)))
-        subprocess.run(
-            [str(a) for a in cmd],
-            check=True,
-        )
+        run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
         assert frames_path.exists(), f"Frames file {frames_path} not found!"
         bitstream_path = Path(ss.bitstream or fasm_path.with_suffix(".bit"))
         ss.bitstream = bitstream_path.resolve()
@@ -193,7 +238,7 @@ class OpenXC7(FpgaSynthFlow):
             str(bitstream_path),
         ]
         log.info("Running: %s", " ".join(cmd))
-        subprocess.run(cmd, check=True)
+        run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
         return bitstream_path
 
     def use_existing_results(self) -> bool:
@@ -269,7 +314,7 @@ class OpenXC7(FpgaSynthFlow):
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        print(self.design_hash, self.flow_hash)
+        log.debug("design_hash=%s flow_hash=%s", self.design_hash, self.flow_hash)
         if self.use_existing_results():
             bitstream_path = self.results.get("_bitstream_path")
             if bitstream_path:
@@ -474,12 +519,12 @@ class OpenXC7(FpgaSynthFlow):
                 str(bba_path),
             ]
             log.info(f"Running: {' '.join(map(str,cmd))}")
-            subprocess.run(cmd, check=True)
+            run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
             assert bba_path.exists(), f"bbaexport failed: {bba_path} not found!"
 
             cmd = [bbasm_executable, "-l", str(bba_path), str(bin_path)]
             log.info(f"Running: {' '.join(map(str,cmd))}")
-            subprocess.run(cmd, check=True)
+            run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
             assert (
                 bin_path.exists() and bin_path.is_file()
             ), f"Failed to generate chipdb: {bin_path} not found!"

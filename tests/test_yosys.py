@@ -4,11 +4,14 @@ from pathlib import Path
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import YosysFpga
 
+from .tool_utils import require_yosys_ghdl_plugin
+
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
 
 def test_yosys_synth_py() -> None:
+    require_yosys_ghdl_plugin()
     # settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
     # run_dir = "tests_run_dir"
     design_paths = [

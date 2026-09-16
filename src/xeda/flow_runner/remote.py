@@ -14,6 +14,7 @@ from fabric import Connection
 from fabric.transfer import Transfer
 
 from ..design import Design, DesignSource
+from ..proc_utils import tool_output_stream
 from ..utils import XedaException, dump_json, hierarchical_merge, semantic_hash, settings_to_dict
 from ..version import __version__
 from .default_runner import FlowLauncher, print_results
@@ -428,7 +429,9 @@ class RemoteRunner(FlowLauncher):
         # spawns) back to this terminal live, line by line, as it is produced.
         stream_channel = gw.remote_exec(STREAM_OUTPUT_SETUP)
         outchan, errchan = stream_channel.receive()
-        outchan.setcallback(RemoteLogger(sys.stdout, label="stdout").cb, endmarker=None)
+        # The remote flow's stdout is tool output: it must follow the same redirection as a
+        # local tool's, or it corrupts a `--json` document.
+        outchan.setcallback(RemoteLogger(tool_output_stream(), label="stdout").cb, endmarker=None)
         errchan.setcallback(RemoteLogger(sys.stderr, label="stderr").cb, endmarker=None)
 
         try:

@@ -36,7 +36,10 @@ class Nvc(SimFlow):
         )
         heap_size: Optional[str] = Field(
             None,
-            description="Set the maximum size in bytes of the simulation heap. This area of memory is used for temporary allocations during process execution and dynamic allocations by the VHDL ‘new’ operator. The size parameter takes an optional k, m, or g suffix to indicate kilobytes, megabytes, and gigabytes respectively. The default size is 16 megabytes.",
+            description="Set the maximum size in bytes of the simulation heap. This memory is "
+            "used for temporary process allocations and dynamic allocations by the VHDL 'new' "
+            "operator. The optional k, m, or g suffix selects kilobytes, megabytes, or gigabytes. "
+            "The default is 16 megabytes.",
         )
         messages: Optional[Literal["full", "compact"]] = Field(
             None,
@@ -44,7 +47,9 @@ class Nvc(SimFlow):
         )
         std_error: Optional[Literal["note", "warning", "error", "failure"]] = Field(
             None,
-            description="Print error messages with the given severity or higher to ‘stderr’ instead of ‘stdout’. The default is to print all messages to ‘stderr’. Valid levels are note, warning, error, and failure.",
+            description="Print messages at the selected severity or higher to stderr instead of "
+            "stdout. The default sends all messages to stderr. Valid levels are note, warning, "
+            "error, and failure.",
         )
         werror: bool = Field(
             False, alias="warn_error", description="warnings are always considered as errors"
@@ -52,7 +57,9 @@ class Nvc(SimFlow):
         work: Optional[str] = Field(None, description="Set the name of the WORK library")
         # clean: bool = Field(False, description="Run 'clean' before elaboration")
         ## analysis flags
-        analysis_flags: List[str] = []
+        analysis_flags: List[str] = Field(
+            [], description="Extra flags passed to `nvc -a` when analyzing sources."
+        )
         check_synthesis: bool = Field(
             True,
             description="Issue warnings for common coding mistakes that may cause problems during synthesis such as missing signals from process sensitivity lists.",
@@ -65,7 +72,9 @@ class Nvc(SimFlow):
             description="Disable certain pedantic LRM conformance checks or rules that were relaxed by later standards.",
         )
         ## elaboration flags
-        elab_flags: List[str] = []
+        elab_flags: List[str] = Field(
+            [], description="Extra flags passed to `nvc -e` during elaboration."
+        )
         cover: List[str] = Field([], description="Enable code coverage reporting ")
         cover_spec: Optional[Path] = Field(
             None, description="Specify the coverage specification file"
@@ -76,7 +85,9 @@ class Nvc(SimFlow):
         )
         no_collapse: bool = Field(
             False,
-            description="Do not collapse ports into a single signal. Normally if a signal at one level in the hierarchy is directly connected to another signal in a lower level via a port map, the signals are “collapsed” and only the signal in the upper level is preserved. The --no-collapse option disables this optimization and preserves both signals. This improves debuggability at the cost of some performance.",
+            description="Preserve both signals when a port map directly connects signals at "
+            "adjacent hierarchy levels. By default, NVC collapses them into the upper-level "
+            "signal. Preserving both improves debugging at some performance cost.",
         )
         no_save: bool = Field(
             False,
@@ -90,7 +101,9 @@ class Nvc(SimFlow):
             False, description="Prints resource usage information after each elaboration step."
         )
         ## run flags
-        run_flags: List[str] = []
+        run_flags: List[str] = Field(
+            [], description="Extra flags passed to `nvc -r` when running the simulation."
+        )
         ieee_warnings: Optional[bool] = Field(
             None,
             description="Enable or disable warning messages from the standard IEEE packages. The default is warnings enabled.",
@@ -110,13 +123,13 @@ class Nvc(SimFlow):
         wave_include_glob: Optional[str] = Field(
             None,
             description="""Include signals matching this glob pattern in the waveform data.
-            Examples: ‘:top:*:x’  ‘*:x’  ‘:top:sub:*’
+            Examples: ':top:*:x', '*:x', ':top:sub:*'
             See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.""",
         )
         wave_exclude_glob: Optional[str] = Field(
             None,
             description="""Exclude signals matching this glob pattern from the waveform data.
-            Examples: ‘:top:*:x’  ‘*:x’  ‘:top:sub:*’
+            Examples: ':top:*:x', '*:x', ':top:sub:*'
             See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.""",
         )
         exit_severity: Optional[Literal["note", "warning", "error", "failure"]] = Field(

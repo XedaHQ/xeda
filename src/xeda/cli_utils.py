@@ -1,33 +1,75 @@
 """Utilities for command line interface"""
 
+import json
 import logging
-import re
 import sys
-from functools import reduce
-from typing import Any, Callable, Generic, Optional, Tuple, Type, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+)
 
 import click
-from click_help_colors import HelpColorsGroup
+import yaml
+from click_extra import Group as ColorizedGroup
+from click_extra import HelpFormatter, HelpTheme
+from click_extra import Style as HelpStyle
+from click_extra.theme import get_default_theme, set_default_theme
 from overrides import overrides
 from rich import box
+from rich.markup import escape
 from rich.style import Style
 from rich.table import Table
-from rich.text import Text
 from simple_term_menu import TerminalMenu
 
-from .console import console
+from . import proc_utils
+from .console import console, redirect_console
 from .design import Design
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
+from .introspect import settings_info, type_str
 from .xedaproject import XedaProject
 
 __all__ = [
+    "HELP_FORMATTER_SETTINGS",
+    "XEDA_HELP_THEME",
     "ClickMutex",
     "ConsoleLogo",
     "FlowChoice",
     "OptionEatAll",
     "XedaHelpGroup",
+    "emit_structured",
+    "machine_readable_mode",
+    "output_format_option",
+    "print_flow_settings",
+    "requested_output_format",
+    "wants_machine_readable",
 ]
+
+#: Renderings offered by the informational (query) commands. Executional commands take a plain
+#: `--json` flag instead, since their real output is a side effect plus a stream of tool logs.
+OUTPUT_FORMATS = ("table", "json", "jsonl", "yaml")
+DOCUMENT_FORMATS = ("json", "yaml")
+
+#: Help-screen palette. `click_help_colors` knew exactly two slots -- header and option color --
+#: which xeda set to yellow and green to match the rich tables. click-extra themes every element
+#: of the screen, so those two slots are carried over and the rest of the built-in theme
+#: (metavars, choices, envvars, defaults, ...) is inherited unchanged.
+XEDA_HELP_THEME: HelpTheme = get_default_theme().with_(
+    heading=HelpStyle(fg="yellow", bold=True),
+    option=HelpStyle(fg="green", bold=True),
+)
+
+#: Belongs in `context_settings`, not on a command: cloup resolves the formatter from the
+#: *context*, and a child context inherits its parent's settings, so the theme placed here reaches
+#: every subcommand. A `formatter_settings=` passed to a command would style only that one screen.
+HELP_FORMATTER_SETTINGS: Dict[str, Any] = HelpFormatter.settings(theme=XEDA_HELP_THEME)
 
 
 log = logging.getLogger(__name__)
@@ -75,7 +117,7 @@ class ClickMutex(click.Option):
 class OptionEatAll(click.Option):
     """
     Taken from https://stackoverflow.com/questions/48391777/nargs-equivalent-for-options-in-click#answer-48394004.
-    """  # noqa: ignore=E501
+    """
 
     @overrides
     def __init__(self, *args, **kwargs):
@@ -149,123 +191,258 @@ class ConsoleLogo:
             )
 
 
-class XedaHelpGroup(HelpColorsGroup):
-    """How to display CLI help"""
+def requested_output_format(argv: Sequence[str]) -> Optional[str]:
+    """The machine-readable format this invocation asked for, or `None` for human output.
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.help_headers_color = "yellow"
-        self.help_options_color = "green"
+    `--json` is shorthand for `--format json`. `--format table` is human output, so it returns
+    `None` and nothing is intercepted.
+    """
+    args = list(argv)
+    if "--json" in args:
+        return "json"
+    machine_formats = (*DOCUMENT_FORMATS, "jsonl")
+    for i, arg in enumerate(args):
+        if arg.startswith("--format="):
+            requested = arg.split("=", 1)[1]
+            return requested if requested in machine_formats else None
+        if arg == "--format" and i + 1 < len(args):
+            return args[i + 1] if args[i + 1] in machine_formats else None
+    return None
+
+
+def wants_machine_readable(argv: Sequence[str]) -> bool:
+    """Whether this invocation asked for machine-readable output on stdout."""
+    return requested_output_format(argv) is not None
+
+
+class XedaHelpGroup(ColorizedGroup):
+    """How to display CLI help"""
 
     def format_usage(self, ctx: click.Context, formatter: click.HelpFormatter):
         ConsoleLogo.print()
         super().format_usage(ctx, formatter)
 
+    def main(self, args=None, **extra):  # type: ignore[override]
+        """Report argument errors in the format the invocation asked for.
 
-def print_flow_settings(flow, options: XedaOptions):
-    flow_class = discover_flow_class(flow)
-    schema = flow_class.Settings.schema(by_alias=True)
-    type_defs = {}
+        Click handles a `UsageError` itself: it prints to stderr and exits 2, which leaves a
+        caller that asked for machine-readable output with empty stdout and nothing to parse.
+        The error document is emitted in the requested format, so `--format yaml` gets YAML.
+        Only the machine-readable path is intercepted; ordinary invocations are untouched.
+        """
+        # click-extra's auto-injected `help` subcommand renders its target through a plain
+        # `click.Context`, which carries no `formatter_settings` and so falls back to the default
+        # palette. Claiming the process-wide default here keeps `xeda help run` looking like
+        # `xeda run --help`. Done in `main()` rather than at import so merely importing this
+        # module never restyles another click-extra application's help screens.
+        set_default_theme(XEDA_HELP_THEME)
+        argv = list(sys.argv[1:] if args is None else args)
+        fmt = requested_output_format(argv)
+        if fmt is None:
+            return super().main(args=args, **extra)
+        try:
+            return super().main(args=args, **{**extra, "standalone_mode": False})
+        except click.ClickException as e:
+            emit_structured(
+                {
+                    "success": False,
+                    "error": {"type": type(e).__name__, "message": e.format_message()},
+                },
+                fmt,
+            )
+            sys.exit(e.exit_code)
+        except click.exceptions.Abort:
+            emit_structured(
+                {"success": False, "error": {"type": "Abort", "message": "Aborted."}}, fmt
+            )
+            sys.exit(1)
 
-    def get_type(field):
-        if isinstance(field, (list, tuple)):
-            return Text("|".join(str(get_type(f)) for f in field))
-        typ = field.get("type")
-        ref = field.get("$ref")
-        if typ is None and ref:
-            typ = ref.split("/")[-1]
-            typ_def = schema.get("definitions", {}).get(typ)
-            if typ not in type_defs:
-                type_defs[typ] = typ_def
-            elif type_defs[typ] != typ_def:
-                log.critical(
-                    "type definition for %s changed!\nPrevious def:\n %s new def:\n %s",
-                    typ,
-                    type_defs[typ],
-                    typ_def,
-                )
-            return Text(typ, style="blue")
-        additional = field.get("additionalProperties")
-        if typ == "object" and additional:
-            return Text(f"Dict[string -> {get_type(additional)}]")
 
-        if typ == "array":
-            items = field.get("items")
-            if items:
-                return Text(f"array[{get_type(items)}]")
+def output_format_option(
+    formats: Sequence[str] = OUTPUT_FORMATS, default: str = "table"
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """`--format` plus a `--json` shorthand, for commands whose output is a document."""
 
-        def join_types(lst, joiner, style="red"):
-            return reduce(lambda x, y: x + Text(joiner, style) + y, (get_type(t) for t in lst))
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        func = click.option(
+            "--json",
+            "json_flag",
+            is_flag=True,
+            default=False,
+            help="Shorthand for `--format json`.",
+        )(func)
+        func = click.option(
+            "--format",
+            "output_format",
+            type=click.Choice(list(formats)),
+            default=default,
+            show_default=True,
+            help=(
+                "Output format. json/jsonl/yaml are machine-readable, are never truncated to the "
+                "terminal width, and are written to stdout on their own."
+            ),
+        )(func)
+        return func
 
-        allof = field.get("allOf")
-        if allof:
-            return join_types(allof, " & ")  # intersection
-        anyOf = field.get("anyOf")
-        if anyOf:
-            return join_types(anyOf, " | ")  # union
-        if typ is None:
-            log.error("no type for field: %s", field)
-            return Text("???")
-        return Text(typ)
+    return decorator
 
+
+def resolve_format(output_format: str, json_flag: bool) -> str:
+    """`--json` is shorthand for `--format json`."""
+    return "json" if json_flag else output_format
+
+
+def emit_structured(data: Any, fmt: str, records: Optional[Sequence[Any]] = None) -> None:
+    """Write `data` to stdout in `fmt`.
+
+    Deliberately bypasses the rich console: nothing is wrapped, styled, or truncated to the
+    terminal width, so identifiers stay complete when the output is piped.
+
+    `records` supplies the one-object-per-line stream for `jsonl` when it differs from `data`
+    (e.g. the fields of a settings document rather than the document itself).
+    """
+    out = sys.stdout
+    if fmt == "json":
+        json.dump(data, out, indent=2, default=str)
+        out.write("\n")
+    elif fmt == "jsonl":
+        if records is None:
+            records = data if isinstance(data, list) else [data]
+        for record in records:
+            out.write(json.dumps(record, default=str) + "\n")
+    elif fmt == "yaml":
+        yaml.safe_dump(data, out, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    else:
+        raise click.UsageError(f"Unsupported output format: {fmt!r}")
+    out.flush()
+
+
+def machine_readable_mode() -> None:
+    """Give stdout exclusively to the machine-readable result.
+
+    Rich output (tables, prompts, the logo) and every tool's stdout move to stderr, and child
+    processes that would otherwise inherit our stdout are redirected too. Logging already goes
+    to stderr.
+    """
+    redirect_console(sys.stderr)
+    proc_utils.set_tool_output(sys.stderr)
+
+
+def _fmt_default(value: Any, required: bool) -> str:
+    """Render a default value for a table cell.
+
+    Everything but the `<required>` marker is markup-escaped: a type or default containing
+    square brackets (`array[string]`, `["a"]`) would otherwise be swallowed by rich as a style
+    tag and silently disappear from the table.
+    """
+    if required:
+        return "[red]<required>[/red]"
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return escape(str(value).lower())
+    if isinstance(value, str):
+        return escape(f'"{value}"')
+    if isinstance(value, (dict, list)):
+        return escape(json.dumps(value, default=str))
+    return escape(str(value))
+
+
+def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
     table = Table(
-        title=f"{flow} settings",
+        title=title,
         show_header=True,
         header_style="bold yellow",
         title_style=Style(frame=True, bold=True),
         box=box.HEAVY_HEAD,
         show_lines=True,
     )
-    table.add_column("Property", header_style="bold green", style="bold")
-    table.add_column("Type", max_width=32)
-    table.add_column("Default", max_width=42)
-    table.add_column("Description")
+    # `overflow="fold"` rather than rich's default ellipsis: a truncated setting name
+    # ("set_synth_proper...") cannot be typed back into `-s KEY=VALUE`.
+    table.add_column("Setting", header_style="bold green", style="bold", overflow="fold")
+    table.add_column("Type", overflow="fold")
+    table.add_column("Default", overflow="fold")
+    table.add_column("Description", overflow="fold")
+    for field in fields:
+        name = escape(field["name"])
+        if field.get("alias"):
+            name += f"\n[dim](alias: {escape(str(field['alias']))})[/dim]"
+        description = field.get("description") or ""
+        if field.get("enum"):
+            choices = ", ".join(str(c) for c in field["enum"])
+            description = (description + f"\nOne of: {choices}").strip()
+        table.add_row(
+            name,
+            escape(field.get("type", "any")),
+            _fmt_default(field.get("default"), bool(field.get("required"))),
+            escape(description),
+        )
+    return table
 
-    def fmt_default(v: Any) -> str:
-        if isinstance(v, str):
-            return f'"{v}"'
-        if isinstance(v, bool):
-            return str(v).lower()
-        return str(v)
 
-    for name, field in schema.get("properties", {}).items():
-        if name in ["results"] or name in Flow.Settings.__fields__.keys():
+def _definitions_tables(definitions: Dict[str, Any], debug: bool = False) -> None:
+    for type_name, type_def in definitions.items():
+        properties = (type_def or {}).get("properties")
+        if debug:
+            console.print(f"Type: {type_name}")
+            console.print_json(data=type_def)
+        if not properties:
+            enum = (type_def or {}).get("enum")
+            if enum:
+                console.print(
+                    f"Type [blue]{type_name}[/blue]: one of "
+                    + ", ".join(f"[bold]{v}[/bold]" for v in enum)
+                )
             continue
-        required = name in schema.get("required", [])
-        desc: str = field.get("description", "")
-        typ = get_type(field)
-        req_or_def = "[red]<required>[/red]" if required else fmt_default(field.get("default"))
-        table.add_row(name, typ, req_or_def, desc)  # pyright: ignore
-    console.print(table)
-
-    for typ_name, typ_def in list(type_defs.items()):
-        for prop, prop_def in typ_def.get("properties").items():
-            get_type(prop_def)
-    for typ_name, typ_def in list(type_defs.items()):
-        c = "blue"
         table = Table(
-            title=f"Type [{c}]{typ_name}[/{c}]",
+            title=f"Type [blue]{type_name}[/blue]",
             show_header=True,
             header_style="bold green",
             title_style=Style(frame=True, bold=True),
             box=box.SQUARE_DOUBLE_HEAD,
             show_lines=True,
         )
-        if options.debug:
-            console.print(f"Type: {typ_name}")
-            console.print_json(data=typ_def)
-        table.add_column("property")
-        table.add_column("type")
-        table.add_column("description")
-        for prop, prop_def in typ_def.get("properties").items():
+        table.add_column("property", overflow="fold")
+        table.add_column("type", overflow="fold")
+        table.add_column("description", overflow="fold")
+        for prop, prop_def in properties.items():
             if prop_def.get("hidden_from_schema"):
                 continue
-            if typ_name.endswith("__Settings") and prop in Flow.Settings.__fields__.keys():
-                continue
-            desc = prop_def.get("description", prop_def.get("title", "-"))
-            desc = re.sub(r"\s*\.*\s*$", "", desc)
-            table.add_row(prop, get_type(prop_def), desc)
+            description = prop_def.get("description", prop_def.get("title", "-"))
+            table.add_row(
+                escape(prop),
+                escape(type_str(prop_def, definitions)),
+                escape(str(description).rstrip(" .")),
+            )
         console.print(table)
+
+
+def print_flow_settings(
+    flow: Union[str, Type[Flow]],
+    options: Optional[XedaOptions] = None,
+    output_format: str = "table",
+    include_common: bool = True,
+) -> None:
+    """Render a flow's settings, either as tables or as a machine-readable document."""
+    flow_class = discover_flow_class(flow) if isinstance(flow, str) else flow
+    info = settings_info(flow_class)
+    fields: List[Dict[str, Any]] = [
+        f for f in info["fields"] if include_common or not f.get("common")
+    ]
+    if output_format != "table":
+        document = {**info, "fields": fields}
+        emit_structured(
+            document,
+            output_format,
+            records=[{"flow": info["flow"], **f} for f in fields],
+        )
+        return
+    specific = [f for f in fields if not f.get("common")]
+    common = [f for f in fields if f.get("common")]
+    console.print(_settings_table(f"{info['flow']} settings", specific))
+    if common:
+        console.print(_settings_table("Common settings (accepted by every flow)", common))
+    _definitions_tables(info.get("definitions", {}), debug=bool(options and options.debug))
 
 
 def discover_flow_class(flow: str) -> Type[Flow]:
@@ -300,17 +477,21 @@ def select_design_in_project(
         return xeda_project.get_design(design_name)
 
 
-class FlowChoice(click.Choice, Generic[click.types.ParamTypeValue]):
-    """Custom click choice to allow for flow names with dashes"""
+class FlowChoice(click.Choice[str]):
+    """Click parameter type for a flow name.
 
-    def convert(
-        self, value: Any, param: click.Parameter | None, ctx: click.Context | None
-    ) -> click.types.ParamTypeValue:
-        """
-        For a given value from the parser, normalize it and find its
-        matching normalized value in the list of choices. Then return the
-        matched "original" choice.
-        """
+    Resolution is delegated to `get_flow_class`, so every name it accepts works on the command
+    line too -- the canonical snake_case name, the CamelCase class name, any alias, and dashes
+    for underscores -- and an unknown name gets the resolver's close-match suggestions. The
+    `click.Choice` base is kept for shell completion and `--help`.
+
+    Returns the flow's canonical name, so downstream code never has to re-normalize.
+    """
+
+    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> str:
         if isinstance(value, str):
-            value = value.replace("-", "_")
+            try:
+                return get_flow_class(value).name
+            except FlowNotFoundError as e:
+                self.fail(str(e), param, ctx)
         return super().convert(value, param, ctx)

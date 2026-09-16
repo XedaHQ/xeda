@@ -45,83 +45,203 @@ class YosysBase(Flow):
     """Synthesize the design using Yosys Open SYnthesis Suite"""
 
     class Settings(Flow.Settings):
-        log_file: Optional[str] = "yosys.log"
+        log_file: Optional[str] = Field(
+            "yosys.log",
+            description="File yosys writes its full log to, relative to the run directory. "
+            "Set to null to log only to the console.",
+        )
         script_format: Literal["ys", "tcl"] = Field(
             "ys",
             description="Format of the generated yosys script. Every yosys build accepts `ys`,"
             " while `tcl` requires a build with TCL support (e.g. not available in oss-cad-suite).",
         )
-        plugins: List[str] = []
+        plugins: List[str] = Field(
+            [],
+            description='Yosys plugins to load with `plugin -i`, e.g. "ghdl" for VHDL input or '
+            '"slang" for SystemVerilog.',
+        )
         flatten: bool = Field(False, description="flatten design")
-        read_verilog_flags: List[str] = [
-            "-noautowire",
-            "-sv",
-        ]
-        read_systemverilog_flags: List[str] = []
-        check_assert: bool = True
-        rtl_verilog: Optional[Path] = None  # "rtl.v"
-        rtl_json: Optional[Path] = None  # "rtl.json"
-        rtl_graph: Optional[Path] = None
-        rtl_graph_flags: List[str] = [
-            "-notitle",
-            "-stretch",
-            "-width",
-            "-enum",
-            "-href",
-            "-color maroon3 t:*dff",
-        ]
-        ghdl: Optional[GhdlSynth.Settings] = None
-        systemverilog: Literal["default", "uhdm", "slang"] = "slang"
-        use_slang_plugin: bool = True
-        verilog_lib: List[str] = []
-        splitnets: bool = False
-        splitnets_driver: bool = False
-        splitnets_ports: bool = False
+        read_verilog_flags: List[str] = Field(
+            ["-noautowire", "-sv"],
+            description="Flags passed to yosys' `read_verilog` for each Verilog source.",
+        )
+        read_systemverilog_flags: List[str] = Field(
+            [],
+            description="Flags passed to the SystemVerilog front-end selected by `systemverilog`.",
+        )
+        check_assert: bool = Field(
+            True,
+            description="Run yosys' `check -assert`, failing the flow on structural problems such "
+            "as combinational loops or multiply-driven wires.",
+        )
+        rtl_verilog: Optional[Path] = Field(
+            None,
+            description="Write the elaborated (pre-synthesis) design to this Verilog file. "
+            "Useful for inspecting what yosys read.",
+        )
+        rtl_json: Optional[Path] = Field(
+            None, description="Write the elaborated (pre-synthesis) design to this JSON file."
+        )
+        rtl_graph: Optional[Path] = Field(
+            None, description="Render a `show` graph of the elaborated design to this file."
+        )
+        rtl_graph_flags: List[str] = Field(
+            [
+                "-notitle",
+                "-stretch",
+                "-width",
+                "-enum",
+                "-href",
+                "-color maroon3 t:*dff",
+            ],
+            description="Flags passed to yosys' `show` when rendering `rtl_graph`.",
+        )
+        ghdl: Optional[GhdlSynth.Settings] = Field(
+            None,
+            description="Settings for the ghdl-yosys plugin, used to read VHDL sources. "
+            "Set automatically when the design has VHDL sources.",
+        )
+        systemverilog: Literal["default", "uhdm", "slang"] = Field(
+            "slang",
+            description="Front-end used for SystemVerilog sources: yosys' built-in reader "
+            "(`default`), Surelog/UHDM (`uhdm`), or the slang plugin (`slang`).",
+        )
+        use_slang_plugin: bool = Field(
+            True,
+            description='Load the slang plugin when `systemverilog` is "slang". Disable if slang '
+            "is compiled into your yosys build.",
+        )
+        verilog_lib: List[str] = Field(
+            [],
+            description="Verilog library files read with `-lib`: their modules are used only when "
+            "instantiated, and are otherwise treated as black boxes.",
+        )
+        splitnets: bool = Field(
+            False, description="Run `splitnets`, splitting multi-bit nets into individual bits."
+        )
+        splitnets_driver: bool = Field(
+            False, description="Pass `-driver` to `splitnets`, so nets are split by their driver."
+        )
+        splitnets_ports: bool = Field(
+            False, description="Pass `-ports` to `splitnets`, so module ports are split too."
+        )
         rmports: bool = Field(False, description="Remove unused or un-driven ports.")
         set_attribute: Dict[str, Any] = Field(
             {},
             description="Set attributes from a dict (or a json file) orgranized as attr_name -> (object_path -> attr_value)",
         )
-        set_mod_attribute: Dict[str, Dict[str, Any]] = {}  # attr -> (path -> value)
-        prep: Optional[List[str]] = None
-        keep_hierarchy: List[str] = []
-        defines: Dict[str, Any] = {}
-        black_box: List[str] = []
-        synth_flags: List[str] = []
+        set_mod_attribute: Dict[str, Dict[str, Any]] = Field(
+            {},
+            description="Module attributes to set, organized as attr_name -> (module_path -> "
+            "attr_value).",
+        )
+        prep: Optional[List[str]] = Field(
+            None,
+            description="Run yosys' `prep` with these flags instead of the default elaboration "
+            "sequence.",
+        )
+        keep_hierarchy: List[str] = Field(
+            [],
+            description="Modules that must not be flattened, marked with the `keep_hierarchy` "
+            "attribute. See also `flatten`.",
+        )
+        defines: Dict[str, Any] = Field(
+            {},
+            description="Verilog preprocessor macros passed as `-D<name>=<value>`, in addition to "
+            "the design's own `defines`.",
+        )
+        black_box: List[str] = Field(
+            [],
+            description="Modules to treat as black boxes: their contents are discarded and only "
+            "their interface is kept.",
+        )
+        synth_flags: List[str] = Field(
+            [], description="Extra flags passed to yosys' `synth` command."
+        )
         nosynth: bool = Field(False, description="Do not run `synth`.")
         noabc: bool = Field(
             False, description="Do not run `abc` step, also pass `-noabc` to `synth`."
         )
         abc_dff: bool = Field(True, description="Run abc/abc9 with -dff option")
-        abc_flags: List[str] = []
-        abc_constr: List[str] = []
-        abc_script: Optional[str] = None
+        abc_flags: List[str] = Field([], description="Extra flags passed to yosys' `abc`/`abc9`.")
+        abc_constr: List[str] = Field(
+            [],
+            description='Lines written to abc\'s constraint file, e.g. "set_driving_cell ..." or '
+            '"set_load ...".',
+        )
+        abc_script: Optional[str] = Field(
+            None,
+            description="Custom abc script, replacing the default mapping script. Advanced: a "
+            "wrong script silently produces a poor or invalid netlist.",
+        )
         top_is_vhdl: Optional[bool] = Field(
             None,
             description="set to `true` to specify top module is VHDL, or `false` to override detection based on last source.",
         )
-        post_synth_rename: List[str] = []
-        netlist_verilog: Optional[Path] = Field(Path("netlist.v"), alias="netlist")
-        netlist_attrs: Optional[bool] = True
-        netlist_expr: Optional[bool] = None
-        netlist_dec: Optional[bool] = False
-        netlist_hex: Optional[bool] = True
-        netlist_blackboxes: Optional[bool] = False
-        netlist_simple_lhs: Optional[bool] = False
-        netlist_verilog_flags: List[str] = []
-        netlist_verilog_extmem: List[str] = []
-        netlist_src_attrs: bool = False
-        netlist_unset_attributes: List[str] = []
-        netlist_json: Optional[Path] = Field(Path("netlist.json"), alias="json_netlist")
-        netlist_graph: Optional[Path] = None  # prefix
-        netlist_graph_flags: List[str] = [
-            "-stretch",
-            "-enum",
-            "-width",
-            "-href",
-            "-color maroon3 t:*dff",
-        ]
-        write_blif: Optional[Path] = None
+        post_synth_rename: List[str] = Field(
+            [], description='Flags passed to yosys\' `rename` after synthesis, e.g. ["-hide"].'
+        )
+        netlist_verilog: Optional[Path] = Field(
+            Path("netlist.v"),
+            alias="netlist",
+            description="Write the synthesized gate-level netlist to this Verilog file. Set to "
+            "null to skip.",
+        )
+        netlist_attrs: Optional[bool] = Field(
+            True, description="Include cell and wire attributes in the written Verilog netlist."
+        )
+        netlist_expr: Optional[bool] = Field(
+            None,
+            description="Write expressions in the netlist instead of always fully mapping them. "
+            "Null leaves yosys' default.",
+        )
+        netlist_dec: Optional[bool] = Field(
+            False, description="Write constants in the netlist in decimal."
+        )
+        netlist_hex: Optional[bool] = Field(
+            True, description="Write constants in the netlist in hexadecimal."
+        )
+        netlist_blackboxes: Optional[bool] = Field(
+            False, description="Include black-box modules in the written netlist."
+        )
+        netlist_simple_lhs: Optional[bool] = Field(
+            False,
+            description="Write only simple left-hand sides in the netlist, for tools that cannot "
+            "parse concatenations on the left of an assignment.",
+        )
+        netlist_verilog_flags: List[str] = Field(
+            [],
+            description="Extra flags for `write_verilog`. The `netlist_*` booleans above are "
+            "translated into flags and appended to this list.",
+        )
+        netlist_verilog_extmem: List[str] = Field(
+            [],
+            description="Write memory contents to external files rather than inline, using these "
+            "`-extmem` arguments.",
+        )
+        netlist_src_attrs: bool = Field(
+            False,
+            description="Keep `src` attributes (source file and line) in the written netlist.",
+        )
+        netlist_unset_attributes: List[str] = Field(
+            [], description="Attributes to strip from the design before writing the netlist."
+        )
+        netlist_json: Optional[Path] = Field(
+            Path("netlist.json"),
+            alias="json_netlist",
+            description="Write the synthesized netlist to this JSON file. Required by downstream "
+            "flows such as `nextpnr`.",
+        )
+        netlist_graph: Optional[Path] = Field(
+            None, description="Render a `show` graph of the synthesized netlist to this file."
+        )
+        netlist_graph_flags: List[str] = Field(
+            ["-stretch", "-enum", "-width", "-href", "-color maroon3 t:*dff"],
+            description="Flags passed to yosys' `show` when rendering `netlist_graph`.",
+        )
+        write_blif: Optional[Path] = Field(
+            None, description="Write the synthesized netlist to this BLIF file."
+        )
         retime: bool = Field(False, description="Enable flip-flop retiming")
         sta: bool = Field(
             False,

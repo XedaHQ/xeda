@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Any, List, Optional
 
-from ...dataclass import XedaBaseModel
+from ...dataclass import Field, XedaBaseModel
 from ...design import SourceType
 from ...flow import SimFlow
 from ...flows.ghdl import GhdlSynth
@@ -27,8 +27,14 @@ class CxxRtl(XedaBaseModel):
 class YosysSim(YosysBase, SimFlow):
     """Simulate with CXXRTL"""
 
+    # This flow reports no results beyond the keys every flow reports; declaring this
+    # explicitly keeps `xeda list-results` from guessing.
+    results_description: dict = {}
+
     class Settings(YosysBase.Settings):
-        cxxrtl: CxxRtl = CxxRtl()
+        cxxrtl: CxxRtl = Field(
+            CxxRtl(), description="Options for the generated CXXRTL C++ simulation model."
+        )
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)

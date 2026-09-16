@@ -65,22 +65,8 @@ class Optimizer:
         return True
 
 
-# way more light weight than semantic_hash
 def deep_hash(s) -> str:
     return semantic_hash(s)
-
-    def freeze(d):
-        if isinstance(d, (str, int, bool, tuple, frozenset)):
-            return d
-        if isinstance(d, (list, tuple)):
-            return tuple(freeze(value) for value in d)
-        if isinstance(d, dict):
-            return frozenset((key, freeze(value)) for key, value in d.items())
-        if isinstance(d, XedaBaseModel) or hasattr(d, "__dict__"):
-            return freeze(dict(d))
-        return d
-
-    return hash(freeze(s))
 
 
 def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
@@ -117,7 +103,7 @@ class Executioner:
             raise e
         except NonZeroExitCode as e:
             log.warning("%s", e)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - one failed candidate must not stop the search
             log.error(
                 "Received exception during the execution of flow, but will continue: %s",
                 e,
@@ -353,7 +339,7 @@ class Dse(FlowLauncher):
                         while True:
                             try:
                                 idx: int
-                                outcome: FlowOutcome
+                                outcome: Optional[FlowOutcome]
                                 outcome, idx = next(iterator)
                                 if outcome is None:
                                     log.error("Flow outcome is None!")

@@ -1,5 +1,6 @@
 import logging
 
+from ...dataclass import Field
 from ...design import DesignSource, RtlSettings
 from ...flow import FlowFatalError
 from ...utils import SDF
@@ -17,8 +18,15 @@ class VivadoPostsynthSim(VivadoSim):
     """
 
     class Settings(VivadoSim.Settings):
-        synth: VivadoSynth.Settings
-        timing_sim: bool = False
+        synth: VivadoSynth.Settings = Field(
+            description="Settings for the `vivado_synth` dependency that produces the netlist. "
+            "`write_netlist` is forced on."
+        )
+        timing_sim: bool = Field(
+            False,
+            description="Simulate the post-implementation netlist with SDF timing annotation "
+            "instead of the functional post-synthesis netlist.",
+        )
 
     def init(self) -> None:
         ss = self.settings
