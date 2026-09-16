@@ -55,7 +55,8 @@ All notable changes to this project will be documented in this file.
   tested against both the schema and the loader, so the two cannot drift.
 - Tool version detection now retries with stderr folded into stdout for both native and Docker
   tools. Tools such as nextpnr that print their version banner to stderr no longer report an empty
-  version.
+  version. ISE's container wrapper accepted `merge_stderr` and then dropped it on the way to
+  `Docker.run`, so any caller asking for stderr on that path silently did not get it.
 - cocotb 2.1 support: from 2.1 the GPI library no longer discovers its Python entry point on its
   own and exits with "No GPI_USERS specified", so every cocotb simulation failed. Xeda now sets
   `GPI_USERS` (libpython followed by the PYGPI entry point), mirroring `cocotb_tools.runner`. The
@@ -67,6 +68,15 @@ All notable changes to this project will be documented in this file.
 - `xeda run --design-file` / `--design` were silently ignored: the option shared its destination
   with the positional `DESIGN` argument, and the argument always won. Both spellings now work,
   with the positional argument taking precedence.
+- `xeda design-schema` accepted a source object naming both `file` and `path`, which
+  `Design.from_file` always rejects as mutually exclusive. The schema's object branch is now a
+  `oneOf`, so schema validation and the loader agree.
+- A zero clock frequency (`-s clock_period=... freq=0`, `PhysicalClock(freq=0)`) reported
+  "Neither freq or period were specified" instead of "Clock frequency must be positive". Zero is
+  a supplied value, not an omitted one.
+- `xeda list-results yosys` advertised `cells` and `sequential_cells`, neither of which
+  `parse_reports()` ever wrote. `cells` is now read from the report's `num_cells`;
+  `sequential_cells` has no counterpart in yosys' `stat` output and is no longer claimed.
 - `Design.schema()` raised `ValueError: Value not declarable with JSON Schema`.
 - Design sources recorded their type as an integer ordinal (`"5"`) in `settings.json` instead
   of a name (`"Vhdl"`). Old files are still read correctly.

@@ -86,22 +86,26 @@ class PhysicalClock(XedaBaseModel):
         # This is a pre=True validator, so values are still raw here: a CLI override such as
         # `-s clock_period=5.5` arrives as the string "5.5". Normalize before any arithmetic --
         # dividing by the raw value used to fail with "unsupported operand type(s) for /".
+        # `is not None`, not truthiness, at every step: a zero frequency is a value the user
+        # supplied and must reach the "must be positive" check below. Under `if freq:` it looked
+        # indistinguishable from an omitted `freq` and produced "Neither freq or period were
+        # specified", which names the wrong problem. Same reasoning as the `period` test.
         freq = values.get("freq")
-        if freq:
+        if freq is not None:
             freq = convert_unit(freq, "MHz")
         period = values.get("period")
         if period is not None:
             period = convert_unit(period, "nanosecond")
             if period <= 0:
                 raise ValueError(f"Clock period must be positive, got {period}")
-            if freq and abs(float(freq) * period - 1000.0) >= 0.001:
+            if freq is not None and abs(float(freq) * period - 1000.0) >= 0.001:
                 log.debug(
                     "Mismatching 'freq' and 'period' values were specified. Setting 'freq' from 'period' value."
                 )
             values["period"] = period
             values["freq"] = 1000.0 / period
         else:
-            if freq:
+            if freq is not None:
                 freq = float(freq)
                 if freq <= 0:
                     raise ValueError(f"Clock frequency must be positive, got {freq}")

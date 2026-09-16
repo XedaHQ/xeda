@@ -39,6 +39,21 @@ def test_non_positive_period_is_rejected_with_a_clear_message(period):
     assert "positive" in str(excinfo.value)
 
 
+@pytest.mark.parametrize("freq", [0, 0.0, "0", "0MHz", -5, "-5"])
+def test_non_positive_freq_is_rejected_with_a_clear_message(freq):
+    """A zero frequency must name the real problem, not look like an omitted `freq`.
+
+    The validator tested `if freq:` rather than `if freq is not None:`, so 0 fell through to
+    the "Neither freq or period were specified" branch -- which is untrue and points the user
+    at the wrong fix. Both truthiness tests mattered: a raw "0MHz" survives the first check and
+    converts to 0.0, only to be swallowed by the second.
+    """
+    with pytest.raises((ValidationError, ValueError)) as excinfo:
+        PhysicalClock(freq=freq)  # type: ignore[call-arg]
+    assert "positive" in str(excinfo.value)
+    assert "Neither freq or period" not in str(excinfo.value)
+
+
 def test_neither_period_nor_freq_is_rejected():
     with pytest.raises((ValidationError, ValueError)) as excinfo:
         PhysicalClock()  # type: ignore[call-arg]

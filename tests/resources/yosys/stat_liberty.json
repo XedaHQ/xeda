@@ -1,0 +1,77 @@
+{
+  "modules": {
+    "\\top": {
+      "num_wires": 4,
+      "num_wire_bits": 25,
+      "num_pub_wires": 4,
+      "num_pub_wire_bits": 25,
+      "num_ports": 3,
+      "num_port_bits": 17,
+      "num_memories": 0,
+      "num_memory_bits": 0,
+      "num_processes": 0,
+      "num_cells": 0,
+      "num_submodules": 2,
+      "area": 687.312,
+      "sequential_area": 434.7648,
+      "num_cells_by_type": {
+        "sub": 2
+      }
+    },
+    "\\sub": {
+      "num_wires": 33,
+      "num_wire_bits": 61,
+      "num_pub_wires": 3,
+      "num_pub_wire_bits": 17,
+      "num_ports": 3,
+      "num_port_bits": 17,
+      "num_memories": 0,
+      "num_memory_bits": 0,
+      "num_processes": 0,
+      "num_cells": 22,
+      "num_submodules": 0,
+      "area": 343.656,
+      "sequential_area": 217.3824,
+      "num_cells_by_type": {
+        "sky130_fd_sc_hs__a31oi_1": 1,
+        "sky130_fd_sc_hs__and4_1": 1,
+        "sky130_fd_sc_hs__clkinv_1": 1,
+        "sky130_fd_sc_hs__dfxtp_1": 8,
+        "sky130_fd_sc_hs__nand2_1": 2,
+        "sky130_fd_sc_hs__nand3_1": 1,
+        "sky130_fd_sc_hs__nand4_1": 1,
+        "sky130_fd_sc_hs__nor2_1": 1,
+        "sky130_fd_sc_hs__xnor2_1": 5,
+        "sky130_fd_sc_hs__xor2_1": 1
+      }
+    }
+  },
+  "design": {
+    "num_wires": 70,
+    "num_wire_bits": 147,
+    "num_pub_wires": 10,
+    "num_pub_wire_bits": 59,
+    "num_ports": 9,
+    "num_port_bits": 51,
+    "num_memories": 0,
+    "num_memory_bits": 0,
+    "num_processes": 0,
+    "num_cells": 44,
+    "num_submodules": 2,
+    "area": 687.312,
+    "sequential_area": 434.7648,
+    "num_cells_by_type": {
+      "sky130_fd_sc_hs__a31oi_1": 2,
+      "sky130_fd_sc_hs__and4_1": 2,
+      "sky130_fd_sc_hs__clkinv_1": 2,
+      "sky130_fd_sc_hs__dfxtp_1": 16,
+      "sky130_fd_sc_hs__nand2_1": 4,
+      "sky130_fd_sc_hs__nand3_1": 2,
+      "sky130_fd_sc_hs__nand4_1": 2,
+      "sky130_fd_sc_hs__nor2_1": 2,
+      "sky130_fd_sc_hs__xnor2_1": 10,
+      "sky130_fd_sc_hs__xor2_1": 2,
+      "sub": 2
+    }
+  }
+}

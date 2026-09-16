@@ -51,6 +51,10 @@ class XTclSh(Tool):
                 root_dir=root_dir,
                 print_command=print_command,
                 highlight_rules=highlight_rules,
+                # Every keyword of `Docker.run` must be forwarded: one accepted here and dropped
+                # on the way down is silently ignored at the call site. `merge_stderr` was, so a
+                # caller asking for stderr on the dockerized ISE path never got it.
+                merge_stderr=merge_stderr,
             )
 
     executable: str = "xtclsh"

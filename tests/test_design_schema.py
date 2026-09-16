@@ -161,6 +161,19 @@ def test_source_object_must_name_a_file_or_a_path():
         assert validator().is_valid(ok), good
 
 
+def test_source_object_may_not_name_both_a_file_and_a_path():
+    """`FileResource` treats 'file' and 'path' as mutually exclusive, and so must the schema.
+
+    The object branch used to be an `anyOf` of the two `required` clauses, which an object
+    carrying both satisfies -- so `xeda design-schema` validated a design that
+    `Design.from_file` rejects with "'file' and 'path' are mutually exclusive."
+    """
+    both = {"file": "a.v", "path": "generated/a.v"}
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        DesignSource(both)
+    assert not validator().is_valid({"name": "d", "rtl": {"sources": [both], "top": "t"}})
+
+
 def test_model_schema_is_still_available():
     """`input_syntax=False` describes the validated object rather than the accepted input."""
     model = design_schema(input_syntax=False)

@@ -210,8 +210,11 @@ class FileResource:
                             "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
                         },
                     },
-                    # FileResource rejects an object that gives neither.
-                    "anyOf": [{"required": ["file"]}, {"required": ["path"]}],
+                    # `oneOf`, not `anyOf`: FileResource rejects an object that gives neither
+                    # *and* one that gives both, so exactly one branch must match. Under `anyOf`
+                    # an object carrying both keys satisfies both branches and validated here
+                    # while `Design.from_file` always rejected it.
+                    "oneOf": [{"required": ["file"]}, {"required": ["path"]}],
                 },
             ],
         )
