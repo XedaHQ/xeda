@@ -163,7 +163,6 @@ class Yosys(YosysBase, SynthFlow):
         "area",
         **{
             "cells": "Total number of cells in the synthesized netlist.",
-            "sequential_cells": "Number of sequential (state-holding) cells in the netlist.",
         },
     )
 
@@ -330,6 +329,9 @@ class Yosys(YosysBase, SynthFlow):
         if design_util:
             num_cells_by_type = design_util.get("num_cells_by_type", {})
             self.results.update(**num_cells_by_type)
+            num_cells = design_util.get("num_cells")
+            if num_cells is not None:
+                self.results["cells"] = num_cells
             area = design_util.get("area")
             if area:
                 self.results["area"] = area

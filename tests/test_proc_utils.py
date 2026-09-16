@@ -237,6 +237,49 @@ def test_merge_stderr_is_forwarded_through_the_docker_path(monkeypatch, tmp_path
     assert not list(Path.cwd().parent.glob("*_docker.env"))
 
 
+def _docker_run_overrides():
+    """Every `Docker` subclass that overrides `run`, however deeply nested.
+
+    Importing `xeda.flows` walks the flow subpackages, so a tool class declaring its own
+    container wrapper is registered as a subclass by the time this runs.
+    """
+    import xeda.flows  # noqa: F401
+
+    found, seen, stack = [], set(), list(Docker.__subclasses__())
+    while stack:
+        cls = stack.pop()
+        if cls in seen:
+            continue
+        seen.add(cls)
+        stack.extend(cls.__subclasses__())
+        if "run" in cls.__dict__:
+            found.append(cls)
+    return found
+
+
+@pytest.mark.parametrize("docker_cls", _docker_run_overrides(), ids=lambda c: c.__qualname__)
+def test_docker_run_overrides_forward_merge_stderr(docker_cls, monkeypatch, tmp_path):
+    """A subclass that accepts `merge_stderr` and forgets to pass it on ignores it silently.
+
+    `XTclShDocker` did exactly that, so `merge_stderr=True` on the dockerized ISE path arrived
+    at `run_process` as False. The base-class test above cannot see this: the option is lost in
+    the override, one level up.
+    """
+    recorded = {}
+
+    def fake_run_process(executable, args=None, **kwargs):
+        recorded.update(kwargs)
+        return "out"
+
+    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.chdir(tmp_path)
+    docker_cls(image="img").run("some-tool", "--version", stdout=True, merge_stderr=True)
+    assert recorded.get("merge_stderr") is True, (
+        f"{docker_cls.__qualname__}.run accepts merge_stderr but does not forward it to "
+        "Docker.run, so callers asking for stderr silently do not get it."
+    )
+
+
 def test_tool_output_redirect_is_none_by_default():
     from xeda import proc_utils
 
