@@ -184,6 +184,6 @@ def test_readme_catalog_lists_every_flow():
         except FlowNotFoundError:
             continue
     missing = sorted(set(FLOW_IDS) - listed)
-    assert not missing, (
-        f"These flows are registered but absent from {CATALOG_HEADING!r} in README.md: {missing}."
-    )
+    assert (
+        not missing
+    ), f"These flows are registered but absent from {CATALOG_HEADING!r} in README.md: {missing}."
