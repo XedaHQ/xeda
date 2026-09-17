@@ -3,10 +3,12 @@
 import json
 import logging
 import sys
+from contextlib import contextmanager
 from typing import (
     Any,
     Callable,
     Dict,
+    Iterator,
     List,
     Optional,
     Sequence,
@@ -29,7 +31,7 @@ from rich.table import Table
 from simple_term_menu import TerminalMenu
 
 from . import proc_utils
-from .console import console, redirect_console
+from .console import console, console_target, redirect_console, restore_console
 from .design import Design
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
@@ -215,6 +217,25 @@ def wants_machine_readable(argv: Sequence[str]) -> bool:
     return requested_output_format(argv) is not None
 
 
+@contextmanager
+def _restoring_output_streams() -> Iterator[None]:
+    """Undo any output redirection this invocation applied, however the invocation ends.
+
+    `machine_readable_mode()` points the rich console and tool output at `sys.stderr`, and both
+    are module-global. Without restoring them, a `--json` command leaves every later command in
+    the same process writing to a stream that belonged to it -- which is exactly what happens
+    under `click.testing.CliRunner` and when the CLI is driven as a library. A one-shot `xeda`
+    process never noticed.
+    """
+    console_previous = console_target()
+    tool_previous = proc_utils.tool_output_redirect()
+    try:
+        yield
+    finally:
+        restore_console(console_previous)
+        proc_utils.set_tool_output(tool_previous)
+
+
 class XedaHelpGroup(ColorizedGroup):
     """How to display CLI help"""
 
@@ -238,8 +259,12 @@ class XedaHelpGroup(ColorizedGroup):
         set_default_theme(XEDA_HELP_THEME)
         argv = list(sys.argv[1:] if args is None else args)
         fmt = requested_output_format(argv)
-        if fmt is None:
-            return super().main(args=args, **extra)
+        with _restoring_output_streams():
+            if fmt is None:
+                return super().main(args=args, **extra)
+            return self._main_machine_readable(fmt, args, **extra)
+
+    def _main_machine_readable(self, fmt: str, args=None, **extra):
         try:
             return super().main(args=args, **{**extra, "standalone_mode": False})
         except click.ClickException as e:

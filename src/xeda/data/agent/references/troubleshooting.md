@@ -96,10 +96,12 @@ testbench source is present in `[tb].sources` and that `tb.top` is set for non-c
   ECP5-specific; for another `fpga.family` you get the raw nextpnr bel-type counts
   (`ICESTORM_LC`, `OXIDE_COMB`, ...) instead, plus timing, which is family-independent.
 - `nextpnr`'s `wns` is derived: nextpnr reports achieved *frequencies*, not slack, so slack is the
-  difference between the constrained and achieved clock periods. With several clock domains,
-  `Fmax` is the lowest achieved frequency reported across the domains, while `wns` comes from the
-  least-slack domain. These may be different domains. The scalar `clock_frequency` and
-  `clock_period` keys are omitted as ambiguous; per-domain detail is in `_fmax`.
+  difference between the constrained and achieved clock periods. With several constrained clock
+  domains, `Fmax` is the lowest achieved frequency across them while `wns` comes from the
+  least-slack domain -- these may be different domains -- and the scalar `clock_frequency` and
+  `clock_period` keys are omitted as ambiguous. With a single constrained domain both *are*
+  reported, taken from that domain's constraint (not its achieved frequency). `clock_domains`
+  gives the count either way, and per-domain detail is always in `_fmax`.
 
 ## Re-running cleanly
 

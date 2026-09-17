@@ -156,8 +156,17 @@ class SynthFlow(Flow, metaclass=ABCMeta):
 
         @validator("clock_period", pre=True, always=True)
         def _clock_period_validate(cls, value, values):  # pylint: disable=no-self-argument
+            if value is not None:
+                # Validated here rather than left to `PhysicalClock`: a `clock_period` that never
+                # reaches a clock (because `clocks` was given too) would otherwise be accepted
+                # however non-positive it is. `is not None`, not truthiness -- 0 is a value the
+                # user supplied, not an omission.
+                period = convert_unit(value, "nanosecond")
+                if period <= 0:
+                    raise ValueError(f"Clock period must be positive, got {period}")
+                return period
             clocks = values.get("clocks")
-            if not value and clocks:
+            if clocks:
                 clk = clocks.get("main_clock") or first_value(clocks)
                 if clk:
                     value = clk.period
@@ -200,10 +209,12 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             #         clocks[main_clock_name] = PhysicalClock(**main_clock)
             if clocks:
                 values["clocks"] = clocks
-                if not values.get("clock_period"):
+                if values.get("clock_period") is None:
                     # Back-fill `clock_period` from the main clock. The field-level validator
                     # cannot do this: `clock_period` is declared before `clocks`, so pydantic
                     # validates it while `clocks` is still absent from `values`.
+                    # `is None`, not truthiness: an explicit `clock_period=0` must reach the
+                    # field validator's positivity check rather than be silently replaced.
                     main = clocks.get("main_clock") or first_value(clocks)
                     if isinstance(main, dict):
                         try:

@@ -60,13 +60,21 @@ def _probe(command: Sequence[str]) -> bool:
 
 @lru_cache(maxsize=None)
 def _probe_ghdl() -> bool:
-    """`ghdl --version` passes even when the code generator is unusable, so actually analyze."""
+    """Analyze *and* elaborate, the two steps `GhdlSim` runs before a simulation.
+
+    `ghdl --version` passes even when the code generator is unusable, and so does `analyze`:
+    the front end parses VHDL without help from the backend, so a ghdl whose LLVM shared
+    library is missing analyzes happily and only fails once elaboration asks it to generate
+    code. The guarded tests elaborate and run, so the probe has to as well.
+    """
     if not shutil.which("ghdl"):
         return False
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "xeda_probe.vhdl"
         src.write_text(_TRIVIAL_VHDL)
-        return _command_succeeds(["ghdl", "analyze", "--std=08", str(src)], cwd=tmp)
+        if not _command_succeeds(["ghdl", "analyze", "--std=08", str(src)], cwd=tmp):
+            return False
+        return _command_succeeds(["ghdl", "elaborate", "--std=08", "xeda_probe"], cwd=tmp)
 
 
 @lru_cache(maxsize=None)
@@ -125,7 +133,7 @@ def require_c_toolchain() -> None:
 
 
 def require_ghdl() -> None:
-    _require("ghdl", _probe_ghdl(), "`ghdl analyze` of a trivial entity")
+    _require("ghdl", _probe_ghdl(), "`ghdl analyze` + `elaborate` of a trivial entity")
 
 
 @lru_cache(maxsize=None)
