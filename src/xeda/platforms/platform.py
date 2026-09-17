@@ -63,4 +63,4 @@ class Platform(XedaBaseModel):
                 kv[k] = v
             return kv
 
-        return self.__class__(**convert_rec(self.dict(), exclude_keys=["root_dir"]))
+        return self.__class__(**convert_rec(self.model_dump(), exclude_keys=["root_dir"]))

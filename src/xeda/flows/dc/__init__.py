@@ -7,7 +7,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union
 import colorama
 from box import Box
 
-from ...dataclass import Field, validator
+from ...dataclass import Field, field_validator
 from ...flow import AsicSynthFlow, describe_results
 from ...platforms import AsicsPlatform
 from ...tool import Tool
@@ -210,7 +210,8 @@ class Dc(AsicSynthFlow):
             description="Path to the TLUplus (tech2itf) map file. Required if topographical_mode is set to True.",
         )
 
-        @validator("platform", pre=True, always=True)
+        @field_validator("platform", mode="before")
+        @classmethod
         def _validate_platform(cls, value):
             if isinstance(value, str) and not value.endswith(".toml"):
                 return AsicsPlatform.from_resource(value)

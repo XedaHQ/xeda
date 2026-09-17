@@ -89,7 +89,10 @@ aliases (`language`/`hdl`), the shorthands validators accept (`tb.top = "tb"`,
 `tb.cocotb = true`), and drops `additionalProperties: false` because files may use dotted-key
 shorthand (`clock.port`) that is expanded before validation. `design_schema(input_syntax=False)`
 returns the model schema. `tests/test_design_schema.py` validates every example design against
-both the schema and `Design.from_file`, so the two cannot drift.
+both the schema and `Design.from_file`, so the two cannot drift. The emitted document is **draft
+2020-12** (`$defs`, `prefixItems`); `$schema` is set from `introspect.JSON_SCHEMA_DIALECT` to the
+dialect pydantic actually produced, never stamped independently, so a validator cannot be pointed
+at the wrong draft.
 
 Under `--json`, tool output is redirected via `proc_utils.set_tool_output(sys.stderr)` - which also
 feeds `Popen(stdout=...)`, because a child process with `stdout=None` inherits fd 1 directly and
@@ -248,15 +251,55 @@ matching hashes and whose `results.json` reports success is skipped and its resu
   entry point from `cocotb-config --pygpi-entry-point`. That flag does not exist before 2.1, so it
   is probed rather than assumed, which is what keeps cocotb 2.0 working. When a cocotb upgrade
   breaks every simulation at once, compare `Cocotb.env()` against `cocotb_tools/runner.py` first.
-- **pydantic v1 is pinned** (`>=1.10.22,<2.0`). Use `validator` / `root_validator` / `ModelField` /
-  `.dict()` / `.json()`, not v2 APIs. Import them from `xeda.dataclass` (which re-exports and adds
-  `XedaBaseModel`, `XedaBaseModelAllowExtra`), not directly from `pydantic`.
-- `XedaBaseModel.Config` sets `validate_assignment`, `arbitrary_types_allowed`, and
-  `keep_untouched=(cached_property,)`. After `model.copy(update=...)`, call
+- **pydantic v2 is pinned** (`>=2.13.5,<3`). Use `field_validator` / `model_validator` /
+  `model_dump()` / `model_dump_json()` / `model_json_schema()` / `model_fields`, not the v1
+  spellings. Import them from `xeda.dataclass` (which re-exports and adds `XedaBaseModel`), not
+  directly from `pydantic`. Every validator needs an explicit `@classmethod` under its decorator.
+- `XedaBaseModel.model_config` sets `validate_assignment`, `arbitrary_types_allowed`,
+  `ignored_types=(cached_property,)`, `populate_by_name`, `use_enum_values` and
+  **`validate_default=True`**. After `model.model_copy(update=...)`, call
   `invalidate_cached_properties()` - stale `cached_property` values are a recurring bug source (see
   `Tool.derive`).
+- **`validate_default=True` is deliberate**: it restores v1's `always=True`, which nearly every
+  validator relied on. A validator that must *not* see the default needs
+  `Field(..., validate_default=False)` on the field - see `SynthFlow.Settings.fpga`, `sim.vcd`.
+- **`Optional[X]` needs an explicit `= None`.** v1 supplied it implicitly; in v2 a bare
+  `x: Optional[int]` (or `Field(description=...)` with no default) is a *required* field.
 - Fields ending in `_` (e.g. `design_root_`, `flow_settings_`, `runner_cwd_`) are internal and marked
-  `hidden_from_schema=True`; they are excluded from user-facing settings docs.
+  `json_schema_extra={"hidden_from_schema": True}`; they are excluded from user-facing settings docs.
+- Arbitrary (non-pydantic) types used as fields need `__get_pydantic_core_schema__` *and*
+  `__get_pydantic_json_schema__` - see `FileResource`/`DesignSource` in `design.py`. Without the
+  latter, `model_json_schema()` raises `PydanticInvalidForJsonSchema`.
+- **Import `field_validator`/`model_validator` from `xeda.dataclass`, never from `pydantic`.** The
+  shim's versions restore two things v1 did implicitly and v2 does not:
+  a `TypeError` raised in a validator becomes a validation error rather than escaping as a
+  traceback, and a `mode="before"` validator gets a defensive copy of its input so the widespread
+  "normalize by writing back into `values`" pattern cannot rewrite the caller's own mapping (a
+  design's `flow[...]` section, a `Settings` kwargs dict), including nested clock/parameter/corner
+  mappings. Validators should still guard their own inputs and raise `ValueError` with a useful
+  message - the shim is a net, not a substitute.
+- **A validator must copy a nested *model instance* before normalizing it.** v1 re-validated (and
+  so copied) nested models; v2 keeps the caller's object, so `value.fpga = ...` edits settings the
+  caller still owns. See `Nextpnr.Settings._validate_yosys`, `VivadoAltSynth.validate_synth`.
+- **`XedaBaseModel` coerces a bare number to `str`** for fields whose annotation accepts `str` and
+  no numeric type -- and, for a container, whose *element* type does. TOML/YAML cannot mark a
+  number as text, so real files spell string settings numerically: an FPGA `speed = 2` grade, a
+  Vivado `set_synth_properties = {MAX_BRAM = 0}`, a `compile_args = ["-j", 8]`. v1 coerced all of
+  these; v2 would reject them. A `Union[str, int]` element is left alone so it still
+  discriminates, as is `bool`. The CLI is unaffected either way -- `-s key=value` never converts,
+  so overrides always arrive as strings.
+- **Nested models serialize by their *annotated* type in v2.** A field holding a subclass needs
+  `SerializeAsAny[...]` (see `Design.dependencies`, which holds `GitReference`s) or the subclass's
+  own fields are silently dropped from `model_dump()`.
+- Read a model's state with `utils.model_state()`, not `__dict__`: permitted extras live in
+  `__pydantic_extra__` in v2, and `__dict__` alone drops them from `settings.json` and from
+  `semantic_hash()`.
+- **Physical quantities from PDK/board files must be `float`.** `abc_load_in_ff`,
+  `macro_place_halo` and `macro_place_channel` were typed `int`; v1 truncated asap7/nangate45's
+  fractional values and v2 refused to load those platforms at all.
+- `units.convert_unit()` translates pint's own exceptions (`UndefinedUnitError` derives from
+  `AttributeError`, `DimensionalityError` from `TypeError`) into `ValueError`, so a bad unit in a
+  design file is a field error rather than a traceback.
 - Most tests use fake EDA tools: `tests/fake_tools/` holds symlinks (`vivado`, `quartus_sh`,
   `xtclsh`, `dc_shell`) to `fake_tool.py`, a click-based stub that dispatches on `Path(__file__).stem`
   and writes canned reports (`tests/fake_tools/resource/fake_vivado_reports`). To fake a new tool: add a

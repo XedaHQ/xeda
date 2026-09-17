@@ -9,7 +9,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from ...dataclass import Field, validator
+from ...dataclass import Field, field_validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
 from ...flow import Flow, FlowException, FlowSettingsError, SimFlow, SynthFlow
 from ...tool import Docker, Tool
@@ -359,6 +359,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         assert_assumes: bool = Field(False, description="Treat all PSL asserts like PSL assumes")
         assume_asserts: bool = Field(False, description="Treat all PSL assumes like PSL asserts")
         verilog_output: Optional[Path] = Field(
+            None,
             description="Output file for the generated Verilog. Required. If a directory is provided, each VHDL source file is converted to a Verilog file in that directory.",
         )
 
@@ -477,6 +478,7 @@ class GhdlSim(Ghdl, SimFlow):
         )
         wave: Optional[Union[str, Path]] = Field(
             None,
+            validate_default=False,  # v1: no `always=True` -- do not run on the default
             description="Write the waveforms. The file name can be an absolute path or a name. If the name is used, the file will be created in flow's run_dir.",
         )
         read_wave_opt: Optional[str] = Field(
@@ -488,7 +490,9 @@ class GhdlSim(Ghdl, SimFlow):
             description="Creates a wave option file with all the signals of the design. Overwrites the file if it already exists.",
         )
         fst: Optional[Union[str, Path]] = Field(
-            None, description="Write the waveforms into an _fst_ file."
+            None,
+            description="Write the waveforms into an _fst_ file.",
+            validate_default=False,  # v1: no `always=True` -- do not run on the default
         )
         stop_delta: Optional[str] = Field(
             None,
@@ -504,10 +508,12 @@ class GhdlSim(Ghdl, SimFlow):
         )
         # TODO workdir?
 
-        @validator("wave", "fst", pre=True)
-        def validate_wave(cls, value, field):  # pylint: disable=no-self-argument
+        @field_validator("wave", "fst", mode="before")
+        @classmethod
+        def validate_wave(cls, value, info):  # pylint: disable=no-self-argument
             if value is not None:
-                ext = ".ghw" if field.name == "wave" else ".fst" if field.name == "fst" else ""
+                name = info.field_name
+                ext = ".ghw" if name == "wave" else ".fst" if name == "fst" else ""
                 if isinstance(value, bool):
                     return "dump" + ext if value else None
                 elif isinstance(value, str):

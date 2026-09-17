@@ -9,14 +9,13 @@ import pprint
 import re
 import subprocess
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import Enum
 from functools import cached_property
 from glob import glob
 from pathlib import Path
 from typing import (
     Any,
-    Callable,
     Dict,
     List,
     Optional,
@@ -28,16 +27,17 @@ from typing import (
 from urllib.parse import parse_qs, urlparse
 
 import yaml
-from pydantic.fields import ModelField
+from pydantic_core import core_schema
 
 from .dataclass import (
     Field,
+    SerializeAsAny,
     ValidationError,
     XedaBaseModel,
+    field_validator,
+    model_validator,
     model_with_allow_extra,
-    root_validator,
     validation_errors,
-    validator,
 )
 from .proc_utils import tool_output_redirect
 from .utils import (
@@ -181,14 +181,34 @@ class FileResource:
         return self._specified_path
 
     @classmethod
-    def __modify_schema__(cls, field_schema: Dict[str, Any]) -> None:
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any) -> Any:
+        """Validate as an arbitrary type, exactly as `arbitrary_types_allowed` did under v1.
+
+        Values reach here already coerced by the `mode="before"` validators on the fields that
+        declare them, so an isinstance check is all that is required. The serializer is
+        `when_used="json"` so that `model_dump()` keeps returning the object itself, as v1 did,
+        while `model_dump_json()` emits the path string.
+        """
+        return core_schema.is_instance_schema(
+            cls,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                str, return_schema=core_schema.str_schema(), when_used="json"
+            ),
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, schema: Any, handler: Any) -> Dict[str, Any]:
         """Make this arbitrary type declarable in JSON Schema.
 
-        Without this, `Design.schema()` raises `ValueError: Value not declarable with JSON
-        Schema`, which would leave editors and coding agents without any machine-readable
-        description of a design file.
+        Without this, `Design.model_json_schema()` raises `PydanticInvalidForJsonSchema`, which
+        would leave editors and coding agents without any machine-readable description of a
+        design file.
         """
-        field_schema.clear()
+        return cls._json_schema()
+
+    @classmethod
+    def _json_schema(cls) -> Dict[str, Any]:
+        field_schema: Dict[str, Any] = {}
         field_schema.update(
             title=cls.__name__,
             description=(
@@ -218,6 +238,7 @@ class FileResource:
                 },
             ],
         )
+        return field_schema
 
 
 class SourceType(str, Enum):
@@ -346,8 +367,8 @@ class DesignSource(FileResource):
         )
 
     @classmethod
-    def __modify_schema__(cls, field_schema: Dict[str, Any]) -> None:
-        super().__modify_schema__(field_schema)
+    def _json_schema(cls) -> Dict[str, Any]:
+        field_schema = super()._json_schema()
         field_schema["description"] = (
             "A design source file: either a path string (relative paths are resolved against the "
             "design file's directory) or an object. The source type is inferred from the file "
@@ -371,6 +392,7 @@ class DesignSource(FileResource):
                 },
             }
         )
+        return field_schema
 
 
 DefineType = Any
@@ -390,17 +412,16 @@ class DVSettings(XedaBaseModel):
         default={},
         description="Top-level generics/defines specified as a mapping",
         alias="parameters",
-        has_alias=True,
     )  # top defines/generics
     parameters: Dict[str, DefineType] = Field(
         default={},
         description="Top-level generics/defines specified as a mapping",
         alias="generics",
-        has_alias=True,
     )
     defines: Dict[str, DefineType] = Field(default={})
 
-    @root_validator(pre=True, allow_reuse=True)
+    @model_validator(mode="before")
+    @classmethod
     def the_root_validator(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         value = values.get("parameters")
         if not value:
@@ -429,8 +450,11 @@ class DVSettings(XedaBaseModel):
             values["parameters"] = value
         return values
 
-    @validator("sources", pre=True, always=True)
-    def _sources_to_files(cls, value, values):
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _sources_to_files(cls, value, info):
+        values = info.data if isinstance(info.data, dict) else {}
+
         def src_with_type(src, src_type):
             if src_type:
                 return {"file": src, "type": src_type}
@@ -458,7 +482,13 @@ class DVSettings(XedaBaseModel):
                     return True
             return False
 
-        for src in unique(value):
+        if isinstance(value, (str, Path, FileResource, Mapping)):
+            value = [value]
+        if not isinstance(value, (list, tuple, set)):
+            raise ValueError(
+                f"'sources' must be a list of source files, got {type(value).__name__}: {value!r}"
+            )
+        for src in unique(list(value)):
             if isinstance(src, str):
                 src_type = None
                 # m = re.match(r"^([a-zA-Z0-9_]*)\:(.*)", src)
@@ -488,8 +518,10 @@ class Clock(XedaBaseModel):
     port: str
     name: Optional[str] = None
 
-    @validator("name", pre=True, always=True)
-    def _name_validate(cls, value, values) -> str:
+    @field_validator("name", mode="before")
+    @classmethod
+    def _name_validate(cls, value, info) -> str:
+        values = info.data if isinstance(info.data, dict) else {}
         return value or values.get("port", None)
 
 
@@ -514,8 +546,10 @@ class Generator(XedaBaseModel):
     # for xeda to know dependencies, clean previous artifacts, check after generation:
     generated_sources: List[str] = []
 
-    @validator("sources", pre=True, always=True)
-    def _sources_to_files(cls, value, values):
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _sources_to_files(cls, value, info):
+        values = info.data if isinstance(info.data, dict) else {}
         # sources can contain globs which are expanded
         if isinstance(value, str):
             value = [value]
@@ -630,6 +664,7 @@ class RtlSettings(DVSettings):
     """design.rtl"""
 
     top: Optional[str] = Field(
+        None,
         description="Toplevel RTL module/entity",
     )
     generator: Union[str, List[str], Generator, None] = None
@@ -650,7 +685,8 @@ class RtlSettings(DVSettings):
     clock: Optional[Clock] = None  # DEPRECATED # TODO remove
     clock_port: Optional[str] = None  # TODO remove?
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def rtl_settings_validate(cls, values):  # pylint: disable=no-self-argument
         """copy equivalent clock fields (backward compatibility)"""
         clock = values.get("clock") or values.get("clock_port")
@@ -703,7 +739,8 @@ class TbSettings(DVSettings):
         None, description="testbench is based on cocotb framework"
     )
 
-    @validator("top", pre=True, always=True)
+    @field_validator("top", mode="before")
+    @classmethod
     def _tb_top_validate(cls, value) -> Tuple012:
         if value:
             if isinstance(value, str):
@@ -714,8 +751,10 @@ class TbSettings(DVSettings):
                 return tuple(value)
         return tuple()
 
-    @validator("cocotb", pre=True, always=True)
-    def _auto_set_cocotb(cls, value, values):
+    @field_validator("cocotb", mode="before")
+    @classmethod
+    def _auto_set_cocotb(cls, value, info):
+        values = info.data if isinstance(info.data, dict) else {}
         if value is False:
             return None
 
@@ -738,12 +777,13 @@ class TbSettings(DVSettings):
 class LanguageSettings(XedaBaseModel):
     standard: Optional[str] = Field(
         None,
+        validate_default=False,  # v1: no `always=True` -- do not run on the default
         description="Standard version",
         alias="version",
-        has_alias=True,
     )
 
-    @validator("standard", pre=True)
+    @field_validator("standard", mode="before")
+    @classmethod
     def two_digit_standard(cls, value):
         if not value:
             return None
@@ -766,12 +806,13 @@ class Language(XedaBaseModel):
     vhdl: VhdlSettings = VhdlSettings()  # type: ignore
     verilog: LanguageSettings = LanguageSettings()  # type: ignore
 
-    @validator("verilog", "vhdl", pre=True, always=True)
-    def _language_settings(cls, value, field: Optional[ModelField]):
-        if isinstance(value, (str, int)) and field is not None:
-            if field.name == "vhdl":
+    @field_validator("verilog", "vhdl", mode="before")
+    @classmethod
+    def _language_settings(cls, value, info):
+        if isinstance(value, (str, int)):
+            if info.field_name == "vhdl":
                 return VhdlSettings.from_version(value)
-            elif field.name == "verilog":
+            elif info.field_name == "verilog":
                 return LanguageSettings.from_version(value)
         return value
 
@@ -792,12 +833,25 @@ class DesignReference(XedaBaseModel):
 
     @staticmethod
     def from_data(data) -> DesignReference:
+        if isinstance(data, DesignReference):
+            return data
         if isinstance(data, str):
             data = dict(uri=data)
+        elif isinstance(data, Mapping):
+            # The URI form is normalized below by removing the ``git+`` discriminator. Keep
+            # that normalization local: dependency dictionaries commonly come straight from
+            # the caller's parsed design document, and must not be rewritten as a side effect
+            # of constructing a model.
+            data = dict(data)
+        else:
+            raise ValueError(
+                "a design dependency must be a URI string, mapping, or DesignReference, "
+                f"got {type(data).__name__}"
+            )
         if "uri" in data:
             uri_str = data["uri"]
             GIT_PREFIX = "git+"
-            if uri_str.startswith(GIT_PREFIX):
+            if isinstance(uri_str, str) and uri_str.startswith(GIT_PREFIX):
                 uri_str = uri_str[len(GIT_PREFIX) :]
                 data["uri"] = uri_str
                 return GitReference(**data)  # type: ignore
@@ -825,8 +879,10 @@ class GitReference(DesignReference):
     branch: Optional[str] = None
     clone_dir: Optional[Path] = None
 
-    @validator("clone_dir", pre=True, always=True)
-    def validate_clone_dir(cls, value, values):
+    @field_validator("clone_dir", mode="before")
+    @classmethod
+    def validate_clone_dir(cls, value, info):
+        values = info.data if isinstance(info.data, dict) else {}
         repo_url = values.get("repo_url")
         if not value and repo_url:
             uri = urlparse(repo_url)
@@ -844,7 +900,8 @@ class GitReference(DesignReference):
                 return Path(local_cache) / uri.netloc / uri_path
         return value
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_repo(cls, values):
         repo_url = None
         design_file_path = None
@@ -852,6 +909,8 @@ class GitReference(DesignReference):
         commit = None
         if "uri" in values:
             uri_str = values["uri"]
+            if not isinstance(uri_str, str):
+                raise ValueError("a git dependency URI must be a string")
             # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
             uri = urlparse(uri_str)
             if not uri.scheme or not uri.netloc:
@@ -876,13 +935,34 @@ class GitReference(DesignReference):
                     commit = cmt[-1]  # last arg
             repo_url = uri._replace(fragment="", query="").geturl()
 
-        return dict(
-            repo_url=repo_url,
-            design_file=design_file_path,
-            branch=branch,
-            commit=commit,
-            **values,
-        )
+        # Explicit keys first, then the caller's own values win -- `dict(repo_url=..., **values)`
+        # raised `TypeError: got multiple values for keyword argument 'repo_url'` for exactly the
+        # mapping form `DesignReference.from_data()` selects when it sees a `repo_url` key.
+        derived = {
+            "repo_url": repo_url,
+            "design_file": design_file_path,
+            "branch": branch,
+            "commit": commit,
+        }
+        merged = {k: v for k, v in derived.items() if v is not None}
+        result = {**derived, **merged, **values}
+        if not result.get("uri"):
+            # The mapping form (`{repo_url = ..., design_file = ...}`) that
+            # `DesignReference.from_data()` routes here carries no `uri`, but the base class
+            # requires one. Reconstruct it so both spellings describe the same reference.
+            base = result.get("repo_url")
+            if not base:
+                raise ValueError("a git dependency needs either 'uri' or 'repo_url'")
+            uri_query = "&".join(
+                f"{k}={result[k]}" for k in ("branch", "commit") if result.get(k) is not None
+            )
+            uri_fragment = result.get("design_file") or ""
+            result["uri"] = "{}{}{}".format(
+                base,
+                f"?{uri_query}" if uri_query else "",
+                f"#{uri_fragment}" if uri_fragment else "",
+            )
+        return result
 
     def fetch_design(self) -> Design:
         import git
@@ -935,14 +1015,19 @@ class Design(XedaBaseModel):
     name: str = Field(
         description="Unique name for the design, which should consist of letters, numbers, underscore(_), and dash(-). Name regex: [a-zA-Z][a-zA-Z0-9_\\-]*."
     )
-    design_root: Optional[Path] = Field(None, hidden_from_schema=True)
+
+    design_root: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
     description: Optional[str] = Field(None, description="A brief description of the design.")
     authors: List[str] = Field(
         [],
         alias="author",
         description="""List of authors/developers in "Name <email>" format ('mailbox' format, RFC 5322), e.g. ["Jane Doe <jane@example.com>", "John Doe <john@example.com>"]""",
     )
-    dependencies: List[DesignReference] = []
+    # `SerializeAsAny`: a dependency is usually a `GitReference`, and v2 serializes a nested
+    # model by its *annotated* type unless told otherwise -- which would silently drop
+    # `repo_url`, `design_file`, `branch`/`commit` and the clone settings that
+    # `send_design()` relies on.
+    dependencies: List[SerializeAsAny[DesignReference]] = []
     rtl: RtlSettings
     tb: TbSettings = TbSettings()  # type: ignore
     language: Language = Field(
@@ -959,7 +1044,8 @@ class Design(XedaBaseModel):
     version: Optional[str] = None
     url: Optional[str] = None
 
-    @validator("flow", pre=True, always=True)
+    @field_validator("flow", mode="before")
+    @classmethod
     def _flow_settings(cls, value):
         if value:
             value = settings_to_dict(value)
@@ -968,13 +1054,15 @@ class Design(XedaBaseModel):
             value = {}
         return value
 
-    @validator("dependencies", pre=True, always=True)
+    @field_validator("dependencies", mode="before")
+    @classmethod
     def _dependencies_from_str(cls, value):
         if value and isinstance(value, list):
             value = [DesignReference.from_data(v) for v in value]
         return value
 
-    @validator("authors", pre=True, always=True)
+    @field_validator("authors", mode="before")
+    @classmethod
     def _authors_from_str(cls, value):
         if isinstance(value, str):
             return [value]
@@ -990,8 +1078,10 @@ class Design(XedaBaseModel):
             data["rtl"] = {
                 "sources": data.pop("sources", []),
                 "generator": data.pop("generator", None),
-                "parameters": data.pop("parameters", []),
-                "defines": data.pop("defines", []),
+                # `{}`, not `[]`: both are `Dict` fields. pydantic v1 silently coerced an
+                # empty list to an empty dict; v2 rejects it.
+                "parameters": data.pop("parameters", {}),
+                "defines": data.pop("defines", {}),
                 "top": data.pop("top", None),
                 "clocks": clocks,
             }
@@ -1356,25 +1446,20 @@ class Design(XedaBaseModel):
         log.debug("TB fingerprint: %s", r)
         return hashlib.sha3_256(r).hexdigest()[:32]  # 128 bits
 
-    # pylint: disable=arguments-differ
-    def dict(self) -> Dict[str, Any]:  # type: ignore
-        return super().dict(
-            exclude_unset=True,
-            exclude_defaults=True,
-            exclude={"rtl_hash", "tb_hash", "rtl_fingerprint", "tb_fingerprint"},
-        )
+    #: Derived fields that are recomputed on load and must never be serialized.
+    _NOT_SERIALIZED = {"rtl_hash", "tb_hash", "rtl_fingerprint", "tb_fingerprint"}
 
-    def json(
-        self,
-        encoder: Optional[Callable[[Any], Any]] = None,
-        models_as_dict: bool = True,
-        **dumps_kwargs,
-    ) -> str:
-        return super().json(
-            exclude_unset=True,
-            exclude_defaults=True,
-            exclude={"rtl_hash", "tb_hash", "rtl_fingerprint", "tb_fingerprint"},
-            encoder=encoder,
-            models_as_dict=models_as_dict,
-            **dumps_kwargs,
-        )
+    # pylint: disable=arguments-differ
+    def model_dump(self, **kwargs: Any) -> Dict[str, Any]:  # type: ignore[override]
+        kwargs.setdefault("serialize_as_any", True)
+        kwargs.setdefault("exclude_unset", True)
+        kwargs.setdefault("exclude_defaults", True)
+        kwargs.setdefault("exclude", self._NOT_SERIALIZED)
+        return super().model_dump(**kwargs)
+
+    def model_dump_json(self, **kwargs: Any) -> str:  # type: ignore[override]
+        kwargs.setdefault("serialize_as_any", True)
+        kwargs.setdefault("exclude_unset", True)
+        kwargs.setdefault("exclude_defaults", True)
+        kwargs.setdefault("exclude", self._NOT_SERIALIZED)
+        return super().model_dump_json(**kwargs)

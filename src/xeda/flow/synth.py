@@ -3,11 +3,9 @@ from __future__ import annotations
 import logging
 from abc import ABCMeta
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Annotated, Any, Dict, Optional, Union
 
-from pydantic import confloat
-
-from ..dataclass import Field, XedaBaseModel, root_validator, validator
+from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
 from ..design import Clock, Design
 from ..units import convert_unit
 from ..utils import first_key, first_value
@@ -33,16 +31,18 @@ class PhysicalClock(XedaBaseModel):
         description="Clock frequency (MHz). Either (and only one of) 'period' OR 'freq' have to be specified."
     )
     rise: float = Field(0.0, description="Rising time of clock (ns)")
-    duty_cycle: confloat(gt=0.0, lt=1.0) = Field(0.5, description="Duty cycle (0.0..1.0)")  # type: ignore
+    duty_cycle: Annotated[float, Field(gt=0.0, lt=1.0)] = Field(0.5, description="Duty cycle (0.0..1.0)")  # type: ignore
     uncertainty: Optional[float] = Field(None, description="Clock uncertainty")
     skew: Optional[float] = Field(None, description="skew")
     port: Optional[str] = Field(None, description="associated design port")
 
-    @validator("freq", pre=True, always=True)
+    @field_validator("freq", mode="before")
+    @classmethod
     def freq_validator(cls, value):
         return convert_unit(value, "MHz")
 
-    @validator("period", "rise", "duty_cycle", "uncertainty", "skew", pre=True, always=True)
+    @field_validator("period", "rise", "duty_cycle", "uncertainty", "skew", mode="before")
+    @classmethod
     def time_validator(cls, value):
         if value is not None:
             return convert_unit(value, "nanosecond")
@@ -80,7 +80,7 @@ class PhysicalClock(XedaBaseModel):
             return self.period
         return convert_unit(self.period, to_unit=unit, from_unit="nanosecond")
 
-    @root_validator(pre=True, skip_on_failure=True)
+    @model_validator(mode="before")
     @classmethod
     def root_validate_phys_clock(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         # This is a pre=True validator, so values are still raw here: a CLI override such as
@@ -90,6 +90,12 @@ class PhysicalClock(XedaBaseModel):
         # supplied and must reach the "must be positive" check below. Under `if freq:` it looked
         # indistinguishable from an omitted `freq` and produced "Neither freq or period were
         # specified", which names the wrong problem. Same reasoning as the `period` test.
+        #
+        # `values` is already a defensive copy -- `xeda.dataclass.model_validator` copies the
+        # input of every `mode="before"` validator, because writing back into the caller's own
+        # mapping used to rewrite `design.flow[...]["clocks"]["main_clock"]` in place.
+        if not isinstance(values, dict):
+            return values
         freq = values.get("freq")
         if freq is not None:
             freq = convert_unit(freq, "MHz")
@@ -145,8 +151,10 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         )
         clocks: Dict[str, PhysicalClock] = Field({}, description="Design clocks")
 
-        @validator("clocks", pre=True, always=True)
-        def _clocks_validate(cls, value, values):  # pylint: disable=no-self-argument
+        @field_validator("clocks", mode="before")
+        @classmethod
+        def _clocks_validate(cls, value, info):  # pylint: disable=no-self-argument
+            values = info.data if isinstance(info.data, dict) else {}
             clock_period = values.get("clock_period")
             if not value and clock_period:
                 value = {
@@ -154,8 +162,10 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                 }
             return value
 
-        @validator("clock_period", pre=True, always=True)
-        def _clock_period_validate(cls, value, values):  # pylint: disable=no-self-argument
+        @field_validator("clock_period", mode="before")
+        @classmethod
+        def _clock_period_validate(cls, value, info):  # pylint: disable=no-self-argument
+            values = info.data if isinstance(info.data, dict) else {}
             if value is not None:
                 # Validated here rather than left to `PhysicalClock`: a `clock_period` that never
                 # reaches a clock (because `clocks` was given too) would otherwise be accepted
@@ -172,7 +182,8 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                     value = clk.period
             return value
 
-        @root_validator(pre=True)
+        @model_validator(mode="before")
+        @classmethod
         def _synthflow_settings_root_validator(cls, values):
             """
             if we only have 1 clock OR a clock named main_clock:
@@ -297,6 +308,7 @@ class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
 
         fpga: Optional[FPGA] = Field(
             None,
+            validate_default=False,  # v1: no `always=True` -- do not run on the default
             description="Target FPGA device. Accepts a full part identifier as a string "
             '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields.',
         )

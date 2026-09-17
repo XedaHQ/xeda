@@ -32,7 +32,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         temp_dir = Path(tmpdirname)
         zip_file = temp_dir / f"{design.name}.zip"
         log.info("Preparing design archive: %s", zip_file)
-        new_design: Dict[str, Any] = {**design.dict(), "design_root": None}
+        new_design: Dict[str, Any] = {**design.model_dump(), "design_root": None}
         rtl: Dict[str, Any] = {}
         tb: Dict[str, Any] = {}
         remote_sources_path = Path(design.name) / "sources"
@@ -47,7 +47,7 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         rtl["attributes"] = design.rtl.attributes
         rtl["parameters"] = design.rtl.parameters
         rtl["top"] = design.rtl.top
-        rtl["clocks"] = [clk.dict() for clk in design.rtl.clocks]
+        rtl["clocks"] = [clk.model_dump() for clk in design.rtl.clocks]
         # FIXME add src type/attributes
         tb_sources: Dict[DesignSource, str] = {}
         for src in design.tb.sources:

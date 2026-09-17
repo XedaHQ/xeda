@@ -137,7 +137,7 @@ def test_list_results_of_a_cocotb_sim_flow_documents_cocotb_keys():
 def test_design_schema_is_a_usable_json_schema():
     schema = json.loads(run_xeda("design-schema").stdout)
     assert "name" in schema["properties"]
-    sources = schema["definitions"]["RtlSettings"]["properties"]["sources"]
+    sources = schema["$defs"]["RtlSettings"]["properties"]["sources"]
     assert sources["items"]["anyOf"][0]["type"] == "string"
 
 

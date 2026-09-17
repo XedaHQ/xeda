@@ -5,7 +5,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from ...dataclass import Field, validator
+from ...dataclass import Field, field_validator
 from ...design import SourceType
 from ...flow import Flow
 from ...flows.ghdl import GhdlSynth
@@ -253,8 +253,11 @@ class YosysBase(Flow):
         )
         ltp: bool = Field(False, description="Print the longest topological path in the design.")
 
-        @validator("netlist_verilog_flags", pre=False, always=True)
-        def _validate_netlist_flags(cls, value, values):
+        @field_validator("netlist_verilog_flags")
+        @classmethod
+        def _validate_netlist_flags(cls, value, info):
+            values = info.data if isinstance(info.data, dict) else {}
+
             def add_remove(key, flag, neg_flag=True):
                 if values.get(key) is (not neg_flag):
                     value.append(flag)
@@ -271,26 +274,36 @@ class YosysBase(Flow):
             add_remove("netlist_simple_lhs", "-simple-lhs", False)
             return unique(value)
 
-        @validator("netlist_unset_attributes", pre=False, always=True)
-        def _validate_netlist_unset_attributes(cls, value, values):
+        @field_validator("netlist_unset_attributes")
+        @classmethod
+        def _validate_netlist_unset_attributes(cls, value, info):
+            values = info.data if isinstance(info.data, dict) else {}
             if values.get("netlist_attrs") is True and values.get("netlist_src_attrs") is False:
                 value.append("src")
             return unique(value)
 
-        @validator("abc_script", pre=True, always=True)
+        @field_validator("abc_script", mode="before")
+        @classmethod
         def validate_abc_script(cls, value):
             if isinstance(value, str) and value.startswith("+"):
                 return value.replace(" ", ",")
             return value
 
-        @validator("verilog_lib", pre=True, always=True)
+        @field_validator("verilog_lib", mode="before")
+        @classmethod
         def validate_verilog_lib(cls, value):
-            if isinstance(value, str):
+            if isinstance(value, (str, Path)):
                 value = [value]
+            if not isinstance(value, (list, tuple, set)):
+                raise ValueError(
+                    f"'verilog_lib' must be a path or a list of paths, "
+                    f"got {type(value).__name__}: {value!r}"
+                )
             value = [str(Path(v).resolve(strict=True)) for v in value]
             return value
 
-        @validator("set_attribute", "set_mod_attribute", pre=True, always=True)
+        @field_validator("set_attribute", "set_mod_attribute", mode="before")
+        @classmethod
         def validate_set_attributes(cls, value):
             def format_attribute_value(v) -> Any:
                 """Normalize to a canonical, *unescaped* form.

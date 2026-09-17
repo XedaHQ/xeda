@@ -7,7 +7,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from ...dataclass import Field, XedaBaseModel, validator
+from ...dataclass import Field, XedaBaseModel, field_validator
 from ...design import SourceType
 from ...flow import FpgaSynthFlow, describe_results
 from ...utils import HierDict, parse_xml, try_convert
@@ -188,7 +188,8 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )
         report_power: bool = Field(False, description="Run power estimation after implementation")
 
-        @validator("fpga")
+        @field_validator("fpga")
+        @classmethod
         def _validate_fpga(cls, value):
             if not value or not value.part:
                 raise ValueError("FPGA.part must be specified")

@@ -1,6 +1,6 @@
 """JSON Schema and source-type serialization of design descriptions.
 
-`Design.schema()` used to raise `ValueError: Value not declarable with JSON Schema`, leaving
+`Design.model_json_schema()` used to raise on undeclarable types, leaving
 editors and coding agents with no machine-readable description of a design file.
 """
 
@@ -10,20 +10,20 @@ import pathlib
 import pytest
 
 from xeda.design import Design, DesignSource, SourceType
-from xeda.introspect import design_schema
+from xeda.introspect import JSON_SCHEMA_DIALECT, design_schema
 
 jsonschema = pytest.importorskip("jsonschema")
 
 
 def test_design_schema_is_generatable():
-    schema = Design.schema()
+    schema = Design.model_json_schema()
     assert schema["properties"]
     for required in ("name", "rtl"):
         assert required in schema["properties"]
 
 
 def test_design_source_schema_documents_the_object_form():
-    sources = Design.schema()["definitions"]["RtlSettings"]["properties"]["sources"]
+    sources = Design.model_json_schema()["$defs"]["RtlSettings"]["properties"]["sources"]
     item = sources["items"]
     assert item["description"]
     string_form, object_form = item["anyOf"]
@@ -118,6 +118,7 @@ INPUT_SHORTHANDS = {
 
 def load_design_file(path: pathlib.Path):
     import tomllib
+
     import yaml
 
     if path.suffix in (".yaml", ".yml"):
@@ -126,13 +127,18 @@ def load_design_file(path: pathlib.Path):
 
 
 def validator():
-    return jsonschema.Draft7Validator(design_schema())
+    return jsonschema.Draft202012Validator(design_schema())
 
 
 def test_published_schema_is_a_valid_json_schema():
+    """The declared dialect must be the one pydantic actually emitted.
+
+    pydantic v2 produces draft 2020-12 shapes (`$defs`, `prefixItems`). Stamping any other
+    draft on the document would let a validator silently apply the wrong rules.
+    """
     schema = design_schema()
-    assert schema["$schema"].startswith("http://json-schema.org/draft-07/")
-    jsonschema.Draft7Validator.check_schema(schema)
+    assert schema["$schema"] == JSON_SCHEMA_DIALECT
+    jsonschema.Draft202012Validator.check_schema(schema)
 
 
 @pytest.mark.parametrize("path", EXAMPLE_DESIGNS, ids=lambda p: p.name)

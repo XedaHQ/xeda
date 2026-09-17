@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Type, Union
 from importlib_resources import as_file, files
 from pydantic import BaseModel
 
+from .dataclass import PydanticUndefined
 from .design import Design
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
 from .flow_runner import get_flow_class
@@ -64,7 +65,7 @@ def json_safe(value: Any) -> Any:
     if isinstance(value, (Path, os.PathLike)):
         return str(value)
     if isinstance(value, BaseModel):
-        return json_safe(value.dict())
+        return json_safe(value.model_dump())
     if isinstance(value, Enum):
         return json_safe(value.value)
     return str(value)
@@ -172,6 +173,16 @@ def flows_info() -> List[Dict[str, Any]]:
 # --------------------------------------------------------------------------------------------
 
 
+#: JSON Schema dialect pydantic v2 emits. Declared on the published document so a validator
+#: selects the matching draft; v2 uses 2020-12 shapes (`$defs`, `prefixItems`).
+JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
+
+
+def _is_null_branch(spec: Any) -> bool:
+    """True for the `{"type": "null"}` arm v2 adds to every `Optional[...]` field."""
+    return isinstance(spec, dict) and spec.get("type") == "null" and len(spec) == 1
+
+
 def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) -> str:
     """Render a JSON-Schema fragment as a short, human- and agent-readable type expression."""
     definitions = definitions if definitions is not None else {}
@@ -189,6 +200,11 @@ def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) ->
             return f"dict[string, {type_str(additional, definitions)}]"
         return "object"
     if typ == "array":
+        # draft 2020-12 describes a fixed-length tuple with `prefixItems`, one schema per
+        # position; pydantic v1 used the draft-07 array form of `items` for the same thing.
+        prefix_items = field_schema.get("prefixItems")
+        if prefix_items:
+            return "tuple[{}]".format(", ".join(type_str(i, definitions) for i in prefix_items))
         items = field_schema.get("items")
         if items:
             return f"array[{type_str(items, definitions)}]"
@@ -196,36 +212,53 @@ def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) ->
     for key, joiner in (("allOf", " & "), ("anyOf", " | "), ("oneOf", " | ")):
         variants = field_schema.get(key)
         if variants:
-            return joiner.join(type_str(v, definitions) for v in variants)
+            # `Optional[X]` is `anyOf: [X, {"type": "null"}]` in v2 where v1 emitted a bare `X`.
+            # Nullability is already carried by `required`/`default`, so rendering it here would
+            # turn every optional setting into "X | null" in `xeda list-settings` and the docs.
+            non_null = [v for v in variants if not _is_null_branch(v)]
+            if not non_null:
+                return "null"
+            if len(non_null) == 1:
+                return type_str(non_null[0], definitions)
+            # De-duplicate while preserving order: several arms can render the same way (a
+            # plain string and a `format: path` string both read as "string").
+            rendered = list(dict.fromkeys(type_str(v, definitions) for v in non_null))
+            return joiner.join(rendered)
     if typ is None:
         return "any"
     return str(typ)
 
 
 def _default_of(model_field: Any) -> Any:
-    """JSON-safe default of a pydantic v1 field; `None` for fields that have no default."""
-    if model_field.required:
+    """JSON-safe default of a pydantic field; `None` for fields that have no default."""
+    if model_field.is_required():
         return None
     default = model_field.default
-    if default is None or repr(default) == "PydanticUndefined":
+    if default is None or default is PydanticUndefined:
+        if model_field.default_factory is not None:
+            try:
+                return json_safe(model_field.default_factory())
+            except TypeError:  # factory that takes the already-validated data
+                return None
         return None
     return json_safe(default)
 
 
 def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
-    schema = cls.Settings.schema(by_alias=True)
+    schema = cls.Settings.model_json_schema(by_alias=True)
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
-    definitions = schema.get("definitions", {})
-    base_field_names = set(Flow.Settings.__fields__)
+    definitions = schema.get("$defs", {})
+    base_field_names = set(Flow.Settings.model_fields)
 
     entries: List[Dict[str, Any]] = []
-    for name, model_field in cls.Settings.__fields__.items():
-        info = model_field.field_info
-        if info.extra.get("hidden_from_schema") or name.endswith("_"):
+    for name, model_field in cls.Settings.model_fields.items():
+        info = model_field  # in v2 the mapping's values *are* FieldInfo
+        extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
+        if extra.get("hidden_from_schema") or name.endswith("_"):
             continue
-        alias = model_field.alias if model_field.alias != name else None
-        prop = properties.get(model_field.alias, properties.get(name, {}))
+        alias = model_field.alias if model_field.alias and model_field.alias != name else None
+        prop = properties.get(model_field.alias or name, properties.get(name, {}))
         declared_by = next(
             (
                 f"{b.__module__}.{b.__qualname__}"
@@ -239,8 +272,8 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "name": name,
                 "alias": alias,
                 "type": type_str(prop, definitions),
-                "required": bool(model_field.required)
-                or (model_field.alias in required)
+                "required": model_field.is_required()
+                or ((model_field.alias or name) in required)
                 or (name in required),
                 "default": _default_of(model_field),
                 "description": info.description or None,
@@ -261,12 +294,12 @@ def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     used to hide.
     """
     cls = _resolve(flow)
-    schema = cls.Settings.schema(by_alias=True)
+    schema = cls.Settings.model_json_schema(by_alias=True)
     return {
         "flow": cls.name,
         "settings_class": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
         "fields": _field_entries(cls),
-        "definitions": json_safe(schema.get("definitions", {})),
+        "definitions": json_safe(schema.get("$defs", {})),
         "json_schema": json_safe(schema),
     }
 
@@ -450,7 +483,7 @@ _FLAT_RTL_PROPERTIES = ("sources", "top", "clock", "clocks", "parameters", "defi
 
 def _add_flat_form(schema: Dict[str, Any]) -> None:
     """Describe the flat top-level form, e.g. `sources` at the root instead of `rtl.sources`."""
-    definitions = schema.get("definitions", {})
+    definitions = schema.get("$defs", {})
     rtl_properties = definitions.get("RtlSettings", {}).get("properties", {})
     root = schema.setdefault("properties", {})
     for name in _FLAT_RTL_PROPERTIES:
@@ -515,7 +548,7 @@ def _widen(spec: Dict[str, Any], extra: List[Dict[str, Any]]) -> Dict[str, Any]:
 def _accept_field_names(by_alias: Dict[str, Any], by_name: Dict[str, Any]) -> None:
     """Accept a field's own name wherever the schema names its alias.
 
-    Models set `allow_population_by_field_name`, so `language` and `hdl` (its alias) are equally
+    Models set `populate_by_name`, so `language` and `hdl` (its alias) are equally
     valid in a design file. A schema generated with aliases alone would reject half of that.
     """
 
@@ -534,8 +567,8 @@ def _accept_field_names(by_alias: Dict[str, Any], by_name: Dict[str, Any]) -> No
             dst.pop("required", None)
 
     merge(by_alias, by_name)
-    definitions_by_name = by_name.get("definitions", {})
-    for name, spec in by_alias.get("definitions", {}).items():
+    definitions_by_name = by_name.get("$defs", {})
+    for name, spec in by_alias.get("$defs", {}).items():
         counterpart = definitions_by_name.get(name)
         if counterpart:
             merge(spec, counterpart)
@@ -556,17 +589,18 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
     dotted-key shorthand that is expanded before validation. Use it to check that a design file
     is well formed, not to catch typos; the loader still rejects unknown keys.
     """
-    schema = json_safe(Design.schema(by_alias=True))
-    # pydantic v1 emits draft-07 shapes (notably array-form `items` for fixed-length tuples),
-    # which later drafts reject. Declare the draft so validators pick the right one.
-    schema.setdefault("$schema", "http://json-schema.org/draft-07/schema#")
+    schema = json_safe(Design.model_json_schema(by_alias=True))
+    # pydantic v2 emits draft 2020-12 shapes (`$defs`, `prefixItems` for fixed-length tuples).
+    # Declare the draft it actually produced so validators pick the right one -- never stamp a
+    # draft the document does not conform to.
+    schema["$schema"] = JSON_SCHEMA_DIALECT
     if not input_syntax:
         return schema
-    _accept_field_names(schema, json_safe(Design.schema(by_alias=False)))
+    _accept_field_names(schema, json_safe(Design.model_json_schema(by_alias=False)))
     _add_flat_form(schema)
     _open_property_sets(schema)
     for definition, properties in _EXTRA_INPUT_FORMS.items():
-        target = schema if not definition else schema.get("definitions", {}).get(definition)
+        target = schema if not definition else schema.get("$defs", {}).get(definition)
         if not target:
             continue
         target_properties = target.get("properties", {})
@@ -641,14 +675,16 @@ def optimizers_info() -> List[Dict[str, Any]]:
                     {
                         "name": field_name,
                         "type": type_str(
-                            cls.Settings.schema().get("properties", {}).get(field_name, {}),
-                            cls.Settings.schema().get("definitions", {}),
+                            cls.Settings.model_json_schema()
+                            .get("properties", {})
+                            .get(field_name, {}),
+                            cls.Settings.model_json_schema().get("$defs", {}),
                         ),
-                        "required": bool(model_field.required),
+                        "required": model_field.is_required(),
                         "default": _default_of(model_field),
-                        "description": model_field.field_info.description or None,
+                        "description": model_field.description or None,
                     }
-                    for field_name, model_field in cls.Settings.__fields__.items()
+                    for field_name, model_field in cls.Settings.model_fields.items()
                     if not field_name.endswith("_")
                 ],
             }

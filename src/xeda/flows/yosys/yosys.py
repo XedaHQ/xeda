@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, XedaBaseModel, validator
+from ...dataclass import Field, XedaBaseModel, field_validator
 from ...flow import SynthFlow, describe_results
 from ...platforms import AsicsPlatform
 from ...utils import unique
@@ -227,13 +227,15 @@ class Yosys(YosysBase, SynthFlow):
             "which some yosys versions require when several corners are given.",
         )
 
-        @validator("liberty", pre=True, always=True)
+        @field_validator("liberty", mode="before")
+        @classmethod
         def _validate_liberty(cls, value):
             if isinstance(value, (Path, str)):
                 value = [value]
             return value
 
-        @validator("platform", pre=True, always=True)
+        @field_validator("platform", mode="before")
+        @classmethod
         def _validate_platform(cls, value):
             if isinstance(value, str) and not value.endswith(".toml"):
                 return AsicsPlatform.from_resource(value)
@@ -241,7 +243,8 @@ class Yosys(YosysBase, SynthFlow):
                 return AsicsPlatform.from_toml(value)
             return value
 
-        @validator("gates", pre=True, always=True)
+        @field_validator("gates", mode="before")
+        @classmethod
         def _validate_commasep_to_list(cls, value):
             if isinstance(value, str):
                 value = [x.strip() for x in value.split(",")]

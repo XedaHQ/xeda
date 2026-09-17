@@ -6,9 +6,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from pydantic import validator
-
-from ...dataclass import Field
+from ...dataclass import Field, field_validator
 from ...flow import FpgaSynthFlow, describe_results
 from ...tool import Docker, OptionalBoolOrPath, OptionalPath, Tool
 from ...utils import try_convert_to_primitives
@@ -135,14 +133,10 @@ class IseSynth(FpgaSynthFlow):
             [], description="User constraint files (.ucf) with pin and timing constraints."
         )
 
-        @validator(
-            "synthesis_options",
-            "map_options",
-            "pnr_options",
-            "trace_options",
-            pre=True,
-            always=True,
+        @field_validator(
+            "synthesis_options", "map_options", "pnr_options", "trace_options", mode="before"
         )
+        @classmethod
         def _pre_process_values(cls, value):
             if isinstance(value, dict):
                 for k, v in value.items():

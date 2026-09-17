@@ -11,7 +11,7 @@ and what was actually asked of the tool. `xeda run --json` reports its path.
 
 ## Failure modes
 
-### `FlowSettingsError: extra fields not permitted: <name>`
+### `FlowSettingsError: Extra inputs are not permitted: <name>`
 
 The setting does not exist on that flow. Settings are validated strictly - a typo fails rather
 than being ignored, on purpose.

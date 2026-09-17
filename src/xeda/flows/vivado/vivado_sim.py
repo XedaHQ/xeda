@@ -97,7 +97,7 @@ class VivadoSim(Vivado, SimFlow):
                         None,
                     )
                 ],
-                self.design.dict(),
+                self.design.model_dump(),
             )
         if not self.design.sim_tops:
             raise DesignValidationError(
@@ -109,7 +109,7 @@ class VivadoSim(Vivado, SimFlow):
                         None,
                     )
                 ],
-                self.design.dict(),
+                self.design.model_dump(),
             )
         if ss.vcd:
             log.info("Dumping VCD to %s", self.run_path / ss.vcd)

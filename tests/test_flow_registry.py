@@ -50,7 +50,7 @@ def test_flow_resolvable_by_class_name_and_aliases(flow_class):
 @pytest.mark.parametrize("flow_class", ALL_FLOW_CLASSES, ids=lambda cls: cls.name)
 def test_flow_settings_schema_is_generatable(flow_class):
     """`xeda list-settings <flow>` and the JSON output both depend on this."""
-    schema = flow_class.Settings.schema(by_alias=True)
+    schema = flow_class.Settings.model_json_schema(by_alias=True)
     assert "properties" in schema
 
 

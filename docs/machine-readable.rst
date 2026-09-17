@@ -85,7 +85,12 @@ type as ``-s <name>=<value>``:
           "enum": null,
           "common": true,
           "declared_by": "xeda.flow.flow.Flow.Settings",
-          "json_schema": {"title": "Ncpus", "type": "integer"}
+          "json_schema": {
+            "anyOf": [{"type": "integer"}, {"type": "null"}],
+            "default": null,
+            "description": "Max number of threads",
+            "title": "Ncpus"
+          }
         }
       ],
       "definitions": {"...": "JSON Schema of the nested types"},
@@ -96,6 +101,11 @@ type as ``-s <name>=<value>``:
 * ``alias`` is a second accepted name; both work.
 * ``enum`` lists the permitted values when a setting is constrained to a set.
 * ``definitions`` describes nested setting types (``FPGA``, ``PhysicalClock``, ``RunOptions``, ...).
+  This is xeda's own envelope key and keeps its name; inside ``json_schema`` the same types appear
+  under JSON Schema's own ``$defs``.
+* ``type`` is a short rendering for humans and agents, not JSON Schema. An optional setting reads
+  as its underlying type (``integer``), while ``json_schema`` carries the literal
+  ``anyOf: [..., {"type": "null"}]`` that pydantic emits.
 
 ``--format jsonl`` emits one field per line, each carrying its ``flow``, which is convenient for
 streaming or grepping.
@@ -130,7 +140,10 @@ Validating a design file
 ========================
 
 ``xeda design-schema`` emits the JSON Schema of a design description, which is what to validate
-against - or generate from - rather than guessing at the format.
+against - or generate from - rather than guessing at the format. It is a **draft 2020-12**
+document: nested types live under ``$defs`` and fixed-length tuples use ``prefixItems``. The
+``$schema`` key always names the dialect the document actually conforms to, so point a validator
+at that rather than assuming a draft.
 
 Running a flow
 ==============
@@ -161,7 +174,7 @@ status is non-zero:
       "results": {},
       "error": {
         "type": "FlowSettingsError",
-        "message": "FlowSettingsError: 1 error validating VivadoSynth.Settings\n   extra fields not permitted: no_such_setting (value_error.extra)"
+        "message": "FlowSettingsError: 1 error validating VivadoSynth.Settings\n   Extra inputs are not permitted: no_such_setting (extra_forbidden)"
       }
     }
 

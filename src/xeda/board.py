@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, Union
 
 from importlib_resources import as_file, files
 
-from .dataclass import Field, root_validator
+from .dataclass import Field, model_validator
 from .flow import FPGA, FpgaSynthFlow
 from .utils import toml_load
 
@@ -60,7 +60,8 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
         "bundled board database.",
     )
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def _fpga_validate(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         board_name = values.get("board")
         log.debug("_fpga_validate! board_name=%s", board_name)

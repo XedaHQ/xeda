@@ -48,6 +48,7 @@ __all__ = [
     # utility functions
     "load_class",
     "dump_json",
+    "model_state",
     "toml_loads",
     "parse_xml",
     "try_convert_to_primitives",
@@ -166,6 +167,18 @@ def backup_existing(path: Path) -> Optional[Path]:
     return path.rename(backup_path)
 
 
+def model_state(obj: Any) -> Dict[str, Any]:
+    """Field values of a pydantic model, *including* keys accepted via `extra="allow"`.
+
+    pydantic v2 keeps permitted extras in `__pydantic_extra__` rather than `__dict__`, so reading
+    `__dict__` alone silently drops every key a design supplied under `--design-allow-extra` --
+    from `settings.json` and, worse, from the run hashes, which made two different designs hash
+    identically.
+    """
+    extra = getattr(obj, "__pydantic_extra__", None)
+    return {**obj.__dict__, **(extra or {})}
+
+
 def dump_json(data: object, path: Path, backup: bool = True, indent: int = 4) -> None:
     if path.exists() and backup:
         backup_existing(path)
@@ -175,7 +188,7 @@ def dump_json(data: object, path: Path, backup: bool = True, indent: int = 4) ->
         json.dump(
             data,
             outfile,
-            default=lambda x: x.__dict__ if hasattr(x, "__dict__") else str(x),
+            default=lambda x: model_state(x) if hasattr(x, "__dict__") else str(x),
             indent=indent,
         )
 
@@ -814,7 +827,7 @@ def semantic_hash(data: Any) -> str:
         if isinstance(data, (list, tuple)):
             return [_sorted_dict_str(val) for val in data]
         if hasattr(data, "__dict__"):
-            return _sorted_dict_str(data.__dict__)
+            return _sorted_dict_str(model_state(data))
         return str(data)
 
     r = repr(_sorted_dict_str(data))

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
-from ..dataclass import Field, validator
+from ..dataclass import Field, field_validator
 from ..design import Design
 from .flow import Flow
 
@@ -26,7 +26,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     class Settings(Flow.Settings):
         vcd: Union[str, Path, None] = Field(
-            None, alias="waveform", description="Write waveform to file"
+            None,
+            alias="waveform",
+            description="Write waveform to file",
+            validate_default=False,  # v1: no `always=True` -- do not run on the default
         )
         stop_time: Union[str, int, float, None] = Field(
             None,
@@ -42,7 +45,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
             description="Extra optimization flags passed to the simulator's compiler/elaborator.",
         )
 
-        @validator("vcd", pre=True)
+        @field_validator("vcd", mode="before")
+        @classmethod
         def _validate_vcd(cls, vcd):  # pylint: disable=no-self-argument
             if vcd is not None:
                 if isinstance(vcd, bool) and vcd is True:
@@ -67,9 +71,11 @@ class SimFlow(Flow, metaclass=ABCMeta):
         ), "self.settings is not an instance of self.Settings class"
         self.cocotb: Optional[Cocotb] = (
             Cocotb(
-                **self.settings.cocotb.dict(),
+                **self.settings.cocotb.model_dump(),
                 sim_name=self.cocotb_sim_name,
-                dockerized=self.settings.dockerized,
+                # pydantic-mypy does not see `Tool`'s fields through the
+                # `Cocotb(CocotbSettings, Tool)` diamond; `dockerized` is a real field.
+                dockerized=self.settings.dockerized,  # type: ignore[call-arg]
             )
             if self.cocotb_sim_name and self.design.tb.cocotb
             else None
