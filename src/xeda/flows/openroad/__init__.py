@@ -8,7 +8,7 @@ from typing import Annotated, List, Literal, Optional, Union
 
 from importlib_resources import as_file, files
 
-from ...dataclass import Field, field_validator
+from ...dataclass import Field, field_validator, model_validator
 from ...design import SourceType
 from ...flow import AsicSynthFlow, describe_results
 from ...flows.yosys import HiLoMap, Yosys, preproc_libs
@@ -349,23 +349,23 @@ class Openroad(AsicSynthFlow):
 
         @field_validator("platform", mode="before")
         @classmethod
-        def _validate_platform(cls, value, info):
-            values = info.data if isinstance(info.data, dict) else {}
+        def _validate_platform(cls, value):
             if isinstance(value, str) and not value.endswith(".toml"):
                 value = AsicsPlatform.from_resource(value)
             elif isinstance(value, (str, Path)):
                 value = AsicsPlatform.from_toml(value)
             elif isinstance(value, AsicsPlatform):
-                # A caller-owned instance keeps its identity under v2, so copy before setting
-                # `default_corner` on it. Shallow is enough -- only a scalar field is written.
+                # The selected corner is applied after all settings fields are available. Keep
+                # that normalization isolated from a caller-owned platform instance.
                 value = value.model_copy()
-            if value is not None and isinstance(value, AsicsPlatform):
-                corner = values.get("corner")
-                if corner:
-                    if isinstance(corner, list):
-                        corner = corner[0]
-                    value.default_corner = corner
             return value
+
+        @model_validator(mode="after")
+        def _select_platform_corner(self):
+            if self.corner:
+                corner = self.corner[0] if isinstance(self.corner, list) else self.corner
+                self.platform.default_corner = corner
+            return self
 
         @field_validator("input_delay", "output_delay", mode="before")
         @classmethod

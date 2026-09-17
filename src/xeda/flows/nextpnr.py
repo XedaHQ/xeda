@@ -73,9 +73,13 @@ class EcpPLL(Tool):
     file: Optional[str] = None
 
     @classmethod
-    def _fix_clock(cls, clock: Clock, out_clk=None) -> Clock:
+    def _fix_clock(cls, clock: Union[Clock, float], out_clk: Optional[int] = None) -> Clock:
         if isinstance(clock, float):
             clock = cls.Clock(mhz=clock)
+        else:
+            # Pydantic v2 retains nested model instances. Copy before assigning the generated
+            # name so construction and assignment never mutate or retain a caller-owned clock.
+            clock = clock.model_copy()
         if not clock.name:
             clock.name = "clk_i" if out_clk is None else f"clk_o_{out_clk}"
         return clock
