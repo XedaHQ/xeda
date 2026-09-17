@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from functools import cache, cached_property, wraps
+from inspect import signature
 from types import UnionType
 from typing import (
     Any,
@@ -90,6 +91,32 @@ def _guarded(fn: Any, copy_input: bool) -> Any:
     return classmethod(wrapper) if isinstance(fn, classmethod) else wrapper
 
 
+def _guarded_before_model(fn: Any) -> Any:
+    """Guard a before-model validator without copying established state on assignment."""
+    is_classmethod = isinstance(fn, classmethod)
+    unwrapped = fn.__func__ if is_classmethod else fn
+    accepts_info = len(signature(unwrapped).parameters) == 3
+
+    def wrapper(cls: Any, value: Any, info: Any) -> Any:
+        try:
+            # Initial validation receives the caller's input, which a normalizing validator must
+            # not rewrite. Assignment receives established model state; copying that mapping
+            # would detach every unrelated model and container field.
+            if info.field_name is None and isinstance(value, (dict, list)):
+                value = deepcopy(value)
+            if accepts_info:
+                return unwrapped(cls, value, info)
+            return unwrapped(cls, value)
+        except TypeError as e:
+            raise ValueError(str(e)) from e
+
+    wrapper.__name__ = unwrapped.__name__
+    wrapper.__qualname__ = unwrapped.__qualname__
+    wrapper.__doc__ = unwrapped.__doc__
+    wrapper.__module__ = unwrapped.__module__
+    return classmethod(wrapper) if is_classmethod else wrapper
+
+
 def _is_before(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> bool:
     return kwargs.get("mode", "after") == "before" or "before" in args
 
@@ -106,12 +133,13 @@ def field_validator(*args: Any, **kwargs: Any) -> Any:
 
 
 def model_validator(*args: Any, **kwargs: Any) -> Any:
-    """`pydantic.model_validator` with xeda's v1-compatibility guards. See `_guarded`."""
+    """A v1-compatible model validator with assignment-aware input isolation."""
     decorator = _pydantic_model_validator(*args, **kwargs)
-    copy_input = _is_before(args, kwargs)
+    before = _is_before(args, kwargs)
 
     def wrap(fn: Any) -> Any:
-        return decorator(_guarded(fn, copy_input))
+        guarded = _guarded_before_model(fn) if before else _guarded(fn, False)
+        return decorator(guarded)
 
     return wrap
 
