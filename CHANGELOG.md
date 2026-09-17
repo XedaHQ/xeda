@@ -77,6 +77,10 @@ All notable changes to this project will be documented in this file.
 - `xeda list-results yosys` advertised `cells` and `sequential_cells`, neither of which
   `parse_reports()` ever wrote. `cells` is now read from the report's `num_cells`;
   `sequential_cells` has no counterpart in yosys' `stat` output and is no longer claimed.
+- `xeda skill install` resolved the packaged skill directory inside an `importlib.resources`
+  context and copied from it afterwards. On a filesystem install the path outlives the context, but
+  from a zip (or any non-filesystem loader) the extracted directory is deleted on exit and the
+  install would fail. The copy now happens while the context is open.
 - `Design.schema()` raised `ValueError: Value not declarable with JSON Schema`.
 - Design sources recorded their type as an integer ordinal (`"5"`) in `settings.json` instead
   of a name (`"Vhdl"`). Old files are still read correctly.
@@ -114,6 +118,9 @@ All notable changes to this project will be documented in this file.
 - Documentation: every one of the ~520 flow settings now has a description, every flow has its own
   docstring, and every flow documents the keys it writes to `results.json`
   (`xeda list-results <flow>`). `tests/test_documentation.py` keeps it that way.
+- `dc` additionally reports `num_cells_sequential`. The key it has written since v0.2.5 is
+  `num_cells_sequentual`, a misspelling baked into the area-report parser; the correct spelling is
+  added alongside it and the old one keeps being reported, so existing scripts are unaffected.
 - Results: flows declare `results_description` via `describe_results()`; the runner additively
   records canonical keys (`Fmax` from `f_max`/`maximum_frequency`, `lut` from `LUT`, `ff` from
   `FF`) alongside whatever the flow reported, so scripts need not know which flow produced the

@@ -25,15 +25,16 @@ STATIC_REFERENCES = ("design-file.md", "troubleshooting.md")
 
 
 def test_packaged_skill_files_exist():
-    source = skill_source_dir()
-    assert (source / "SKILL.md").is_file()
-    for name in STATIC_REFERENCES:
-        assert (source / "references" / name).is_file(), name
+    with skill_source_dir() as source:
+        assert (source / "SKILL.md").is_file()
+        for name in STATIC_REFERENCES:
+            assert (source / "references" / name).is_file(), name
 
 
 def test_skill_md_has_usable_frontmatter():
     """Claude Code needs `name` and `description` in YAML frontmatter to route to a skill."""
-    text = (skill_source_dir() / "SKILL.md").read_text(encoding="utf-8")
+    with skill_source_dir() as source:
+        text = (source / "SKILL.md").read_text(encoding="utf-8")
     match = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
     assert match, "SKILL.md must start with YAML frontmatter delimited by ---"
     frontmatter = match.group(1)
@@ -88,8 +89,47 @@ def test_repo_skill_copy_matches_the_packaged_source(name):
     checked_in = installed / relative
     if not checked_in.is_file():
         pytest.skip(f"{checked_in} is not present in this checkout")
-    packaged = skill_source_dir() / relative
-    assert checked_in.read_text(encoding="utf-8") == packaged.read_text(encoding="utf-8"), (
-        f"{checked_in} differs from the packaged {packaged}. Edit the packaged copy, then re-run "
+    with skill_source_dir() as source:
+        packaged = source / relative
+        packaged_text = packaged.read_text(encoding="utf-8")
+    assert checked_in.read_text(encoding="utf-8") == packaged_text, (
+        f"{checked_in} differs from the packaged copy. Edit the packaged copy, then re-run "
         "`xeda skill install --force`."
     )
+
+
+def test_install_works_when_resources_are_not_on_the_filesystem(tmp_path, monkeypatch):
+    """Simulates xeda imported from a zip, where `as_file` extracts to a temporary directory.
+
+    `importlib.resources.as_file` only hands back a real package directory when the package lives
+    on the filesystem. From a zip it extracts to a temporary directory and deletes it when the
+    context exits, so a helper that returned the path from *inside* the `with` gave callers a
+    path to something already gone. Copying has to happen while the context is open.
+    """
+    import contextlib
+    import shutil as _shutil
+    import tempfile
+
+    with skill_source_dir() as real_source:
+        staged = tmp_path / "staged"
+        _shutil.copytree(real_source, staged)
+
+    cleaned_up = []
+
+    @contextlib.contextmanager
+    def fake_as_file(_traversable):
+        extracted = Path(tempfile.mkdtemp(dir=tmp_path))
+        _shutil.copytree(staged, extracted / "agent")
+        try:
+            yield extracted / "agent"
+        finally:
+            _shutil.rmtree(extracted)
+            cleaned_up.append(extracted)
+
+    monkeypatch.setattr("xeda.agent_skill.as_file", fake_as_file)
+
+    written = install_skill(tmp_path / "dest")
+    assert cleaned_up, "the simulated extraction context never ran"
+    assert (tmp_path / "dest" / SKILL_NAME / "SKILL.md").is_file()
+    for path in written:
+        assert path.is_file(), path

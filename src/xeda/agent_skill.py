@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import logging
 import shutil
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 from importlib_resources import as_file, files
 
@@ -39,10 +40,17 @@ _CATEGORY_TITLES = {
 }
 
 
-def skill_source_dir() -> Path:
-    """Directory holding the packaged skill sources."""
+@contextmanager
+def skill_source_dir() -> Iterator[Path]:
+    """Directory holding the packaged skill sources, valid only inside the context.
+
+    A context manager rather than a plain path: when xeda is imported from a zip (or any other
+    non-filesystem loader) `as_file` extracts the resources to a temporary directory and deletes
+    it on exit, so a path returned from inside the `with` names something that no longer exists.
+    Keeping the context open for as long as the caller reads the files is the only safe shape.
+    """
     with as_file(files("xeda.data").joinpath("agent")) as path:
-        return Path(path)
+        yield Path(path)
 
 
 def _flow_section(flow: Dict[str, object]) -> str:
@@ -126,15 +134,17 @@ def install_skill(dest_dir: Path, force: bool = False) -> List[Path]:
         raise FileExistsError(
             f"{target} already exists. Pass --force to overwrite it, or choose another --dir."
         )
-    source = skill_source_dir()
     written: List[Path] = []
 
     (target / "references").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source / "SKILL.md", target / "SKILL.md")
-    written.append(target / "SKILL.md")
-    for reference in sorted((source / "references").glob("*.md")):
-        shutil.copyfile(reference, target / "references" / reference.name)
-        written.append(target / "references" / reference.name)
+    # Copy while the resource context is open: the sources may live in a temporary directory
+    # that only exists for the duration of the `with`.
+    with skill_source_dir() as source:
+        shutil.copyfile(source / "SKILL.md", target / "SKILL.md")
+        written.append(target / "SKILL.md")
+        for reference in sorted((source / "references").glob("*.md")):
+            shutil.copyfile(reference, target / "references" / reference.name)
+            written.append(target / "references" / reference.name)
 
     flows_md = target / "references" / "flows.md"
     flows_md.write_text(generate_flows_reference(), encoding="utf-8")

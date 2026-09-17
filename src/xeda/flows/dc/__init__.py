@@ -2,7 +2,7 @@ import logging
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import colorama
 from box import Box
@@ -37,6 +37,15 @@ def get_hier(dct, dotted_path, default=None):
 class Dc(AsicSynthFlow):
     """Synopsys Design Compiler (R) synthesis flow"""
 
+    #: `num_cells_sequentual` is a long-standing misspelling: it is the name of the regex group
+    #: that parses the area report, so it is what has landed in `results.json` since v0.2.5.
+    #: Renaming it would break every script already reading it, so the correct spelling is added
+    #: alongside instead -- the same additive rule the canonical aliases follow everywhere else.
+    results_canonical_aliases: Dict[str, Tuple[str, ...]] = {
+        **AsicSynthFlow.results_canonical_aliases,
+        "num_cells_sequential": ("num_cells_sequential", "num_cells_sequentual"),
+    }
+
     results_description = describe_results(
         "Fmax",
         "clock_name",
@@ -62,7 +71,9 @@ class Dc(AsicSynthFlow):
             "num_nets": "Number of nets in the mapped design.",
             "num_cells": "Total number of cells in the mapped design.",
             "num_cells_combinational": "Number of combinational cells in the mapped design.",
-            "num_cells_sequentual": "Number of sequential cells in the mapped design.",
+            "num_cells_sequential": "Number of sequential cells in the mapped design.",
+            "num_cells_sequentual": "Deprecated misspelling of `num_cells_sequential`, still "
+            "reported so existing scripts keep working.",
             "num_macro_bbox": "Number of macros / black boxes in the mapped design.",
         },
     )

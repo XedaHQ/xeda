@@ -35,6 +35,11 @@ REQUIRE_TOOLS = os.environ.get("XEDA_TESTS_REQUIRE_TOOLS", "").lower() in ("1", 
 
 _TRIVIAL_VHDL = "entity xeda_probe is end entity;\narchitecture rtl of xeda_probe is begin end;\n"
 _TRIVIAL_C = "int xeda_probe(void) { return 0; }\n"
+_TRIVIAL_VERILOG = (
+    "module xeda_probe(input wire clk, output reg o);\n"
+    "  always @(posedge clk) o <= ~o;\n"
+    "endmodule\n"
+)
 
 
 def _command_succeeds(command: Sequence[str], cwd: Optional[str] = None) -> bool:
@@ -123,16 +128,50 @@ def require_ghdl() -> None:
     _require("ghdl", _probe_ghdl(), "`ghdl analyze` of a trivial entity")
 
 
+@lru_cache(maxsize=None)
+def _probe_nvc() -> bool:
+    """Analyze *and* elaborate, as the flow does.
+
+    `nvc --version` answers from the binary alone. Elaboration is what exercises the code
+    generator and the bundled standard libraries, which is where a half-installed nvc fails.
+    """
+    if not shutil.which("nvc"):
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "xeda_probe.vhdl"
+        src.write_text(_TRIVIAL_VHDL)
+        return _command_succeeds(["nvc", "--std=08", "-a", str(src), "-e", "xeda_probe"], cwd=tmp)
+
+
 def require_nvc() -> None:
-    _require_command("nvc", ["nvc", "--version"])
+    _require("nvc", _probe_nvc(), "`nvc -a` + `-e` of a trivial entity")
     # the Trivium example drives a C reference model through cocotb
     require_c_toolchain()
 
 
+@lru_cache(maxsize=None)
+def _probe_verilator() -> bool:
+    """Verilate *and* build, as the flow does.
+
+    The flow's real work is `--cc ... --build`: Verilator emits C++ and then compiles it against
+    its own runtime headers. A binary whose installation prefix no longer matches its headers
+    reports a version cheerfully and fails only once it builds, so `--version` is not evidence.
+    """
+    if not shutil.which("verilator"):
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "xeda_probe.v"
+        src.write_text(_TRIVIAL_VERILOG)
+        return _command_succeeds(
+            ["verilator", "--cc", "--build", "--Mdir", "obj_probe", str(src)], cwd=tmp
+        )
+
+
 def require_verilator() -> None:
-    _require_command("verilator", ["verilator", "--version"])
-    # Verilator compiles the design to C++ and builds a native model
+    # Checked first: the C toolchain is what `--build` needs, and a missing compiler should be
+    # reported as such rather than as a broken Verilator.
     require_c_toolchain()
+    _require("verilator", _probe_verilator(), "`verilator --cc --build` of a trivial module")
 
 
 def require_yosys() -> None:

@@ -234,3 +234,59 @@ def test_remote_output_is_wired_to_the_redirected_stream():
     stream = io.StringIO()
     RemoteLogger(stream, label="stdout").cb("hello")
     assert stream.getvalue() == "hello"
+
+
+# ------------------------------------------------------- design generators must not reach stdout
+
+#: A generator that writes to *both* streams. Only its stdout can corrupt the JSON document:
+#: `stderr=None` makes a child inherit fd 2, which in machine-readable mode is exactly where tool
+#: output belongs. Redirecting stdout without redirecting stderr is therefore correct, and a
+#: well-meaning change that redirects stderr *instead* silently reintroduces the corruption.
+_NOISY_GENERATOR = (
+    "import sys\n"
+    "sys.stdout.write('generator stdout noise\\n')\n"
+    "sys.stderr.write('generator stderr diagnostic\\n')\n"
+    "open('gen_out.vhdl', 'w').write('entity g is end entity;\\n')\n"
+)
+
+
+def _noisy_generator_design(tmp_path: Path, generator: str) -> Path:
+    (tmp_path / "gen.py").write_text(_NOISY_GENERATOR)
+    design = tmp_path / "gendes.toml"
+    design.write_text(
+        'name = "gendes"\n\n[rtl]\ntop = "g"\nsources = ["gen_out.vhdl"]\n'
+        f"generator = {generator}\n"
+    )
+    return design
+
+
+@pytest.mark.parametrize(
+    "generator",
+    [
+        pytest.param('"{python} gen.py"', id="shell-string"),
+        pytest.param('["{python}", "gen.py"]', id="argument-list"),
+    ],
+)
+def test_generator_output_never_corrupts_the_json_document(tmp_path, generator):
+    design = _noisy_generator_design(tmp_path, generator.format(python=sys.executable))
+    proc = run_xeda("run", "ghdl_sim", design.name, "--json", cwd=tmp_path)
+    document = json_stdout(proc)  # fails loudly if anything leaked into stdout
+    assert document["design"] == "gendes"
+    # both streams of the generator belong on stderr, where tool output goes in --json mode
+    assert "generator stdout noise" in proc.stderr
+    assert "generator stderr diagnostic" in proc.stderr
+
+
+def test_generator_object_output_never_corrupts_the_json_document(tmp_path):
+    """The `Generator.run_cmd` path, which builds its own subprocess call."""
+    (tmp_path / "gen.py").write_text(_NOISY_GENERATOR)
+    design = tmp_path / "gendes.toml"
+    design.write_text(
+        'name = "gendes"\n\n[rtl]\ntop = "g"\nsources = ["gen_out.vhdl"]\n\n'
+        f'[rtl.generator]\nexecutable = "{sys.executable}"\nargs = ["gen.py"]\n'
+    )
+    proc = run_xeda("run", "ghdl_sim", design.name, "--json", cwd=tmp_path)
+    document = json_stdout(proc)
+    assert document["design"] == "gendes"
+    assert "generator stdout noise" in proc.stderr
+    assert "generator stderr diagnostic" in proc.stderr
