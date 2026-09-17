@@ -244,6 +244,25 @@ def _default_of(model_field: Any) -> Any:
     return json_safe(default)
 
 
+def _enum_of(field_schema: Any, definitions: Dict[str, Any]) -> Optional[List[Any]]:
+    """Return choices from a field or its sole non-null schema branch."""
+    if not isinstance(field_schema, dict):
+        return None
+    enum = field_schema.get("enum")
+    if isinstance(enum, list):
+        return json_safe(enum)
+    ref = field_schema.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/$defs/"):
+        return _enum_of(definitions.get(ref.removeprefix("#/$defs/")), definitions)
+    for key in ("allOf", "anyOf", "oneOf"):
+        variants = field_schema.get(key)
+        if isinstance(variants, list):
+            non_null = [variant for variant in variants if not _is_null_branch(variant)]
+            if len(non_null) == 1:
+                return _enum_of(non_null[0], definitions)
+    return None
+
+
 def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
     schema = cls.Settings.model_json_schema(by_alias=True)
     properties = schema.get("properties", {})
@@ -277,7 +296,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 or (name in required),
                 "default": _default_of(model_field),
                 "description": info.description or None,
-                "enum": prop.get("enum"),
+                "enum": _enum_of(prop, definitions),
                 "common": name in base_field_names,
                 "declared_by": declared_by,
                 "json_schema": json_safe(prop),
