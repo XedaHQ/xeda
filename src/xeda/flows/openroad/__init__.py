@@ -4,11 +4,11 @@ import os
 import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import Annotated, List, Literal, Optional, Union
 
 from importlib_resources import as_file, files
-from pydantic import Field, confloat, validator
 
+from ...dataclass import Field, field_validator
 from ...design import SourceType
 from ...flow import AsicSynthFlow, describe_results
 from ...flows.yosys import HiLoMap, Yosys, preproc_libs
@@ -133,7 +133,7 @@ class Openroad(AsicSynthFlow):
         optimize: Optional[Literal["speed", "area", "area+speed"]] = Field(
             "area", description="Optimization target"
         )
-        abc_load_in_ff: Optional[int] = Field(
+        abc_load_in_ff: Optional[float] = Field(
             None,
             description="Wire load ABC assumes, in units of flip-flop input capacitance. Overrides "
             "the platform value.",
@@ -189,7 +189,7 @@ class Openroad(AsicSynthFlow):
             description="Target placement density (0.0..1.0). Defaults to the platform value. "
             "Higher is denser and harder to route.",
         )
-        place_density_lb_addon: Optional[confloat(ge=0.0, lt=1)] = Field(  # type: ignore
+        place_density_lb_addon: Optional[Annotated[float, Field(ge=0.0, lt=1)]] = Field(  # type: ignore
             None,
             description="Amount added to the automatically determined lower bound of the "
             "placement density [0.0..1.0).",
@@ -210,12 +210,12 @@ class Openroad(AsicSynthFlow):
         global_placement_args: List[str] = Field(
             [], description="Extra arguments passed to OpenROAD's `global_placement`."
         )
-        min_phi_coef: Optional[confloat(ge=0.95, le=1.05)] = Field(  # type: ignore
+        min_phi_coef: Optional[Annotated[float, Field(ge=0.95, le=1.05)]] = Field(  # type: ignore
             None,
             description="Lower bound for the minimum placement-density coefficient (phi). "
             "Defaults to 0.95; allowed values are 0.95 through 1.05.",
         )
-        max_phi_coef: Optional[confloat(ge=1.00, le=1.20)] = Field(  # type: ignore
+        max_phi_coef: Optional[Annotated[float, Field(ge=1.00, le=1.20)]] = Field(  # type: ignore
             None,
             description="Upper bound for the minimum placement-density coefficient (phi). "
             "Defaults to 1.05; allowed values are 1.00 through 1.20.",
@@ -233,7 +233,7 @@ class Openroad(AsicSynthFlow):
         repair_antennas: bool = Field(
             False, description="Run antenna-violation repair after detailed routing."
         )
-        update_sdc_margin: Optional[confloat(gt=0.0, lt=1.0)] = Field(0.05, description="If set, write an SDC file with clock periods that result in slightly (value * clock_period) negative slack (failing).")  # type: ignore
+        update_sdc_margin: Optional[Annotated[float, Field(gt=0.0, lt=1.0)]] = Field(0.05, description="If set, write an SDC file with clock periods that result in slightly (value * clock_period) negative slack (failing).")  # type: ignore
         # detailed_route
         detailed_route_or_seed: Optional[int] = Field(
             None, description="Random seed for the detailed router's optimization ordering."
@@ -347,12 +347,18 @@ class Openroad(AsicSynthFlow):
         )
         generate_gds: bool = Field(True, description="Stream the final layout out to GDSII.")
 
-        @validator("platform", pre=True, always=True)
-        def _validate_platform(cls, value, values):
+        @field_validator("platform", mode="before")
+        @classmethod
+        def _validate_platform(cls, value, info):
+            values = info.data if isinstance(info.data, dict) else {}
             if isinstance(value, str) and not value.endswith(".toml"):
                 value = AsicsPlatform.from_resource(value)
             elif isinstance(value, (str, Path)):
                 value = AsicsPlatform.from_toml(value)
+            elif isinstance(value, AsicsPlatform):
+                # A caller-owned instance keeps its identity under v2, so copy before setting
+                # `default_corner` on it. Shallow is enough -- only a scalar field is written.
+                value = value.model_copy()
             if value is not None and isinstance(value, AsicsPlatform):
                 corner = values.get("corner")
                 if corner:
@@ -361,7 +367,8 @@ class Openroad(AsicSynthFlow):
                     value.default_corner = corner
             return value
 
-        @validator("input_delay", "output_delay", pre=True, always=True)
+        @field_validator("input_delay", "output_delay", mode="before")
+        @classmethod
         def _validate_values_units_to_ps(cls, value):
             if isinstance(value, str):
                 value = convert_unit(value, "picoseconds")

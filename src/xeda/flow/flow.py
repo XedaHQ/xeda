@@ -5,19 +5,26 @@ from __future__ import annotations
 import inspect
 import logging
 import os
-import re
 import shutil
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_origin
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 # from attrs import define
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
-from pydantic.fields import SHAPE_LIST, SHAPE_SINGLETON, ModelField
 
-from ..dataclass import Field, ValidationError, XedaBaseModel, validation_errors, validator
+from ..dataclass import (
+    Field,
+    ValidationError,
+    XedaBaseModel,
+    annotation_accepts,
+    annotation_is_list,
+    field_annotation,
+    field_validator,
+    validation_errors,
+)
 from ..design import Design
 from ..utils import (
     XedaException,
@@ -40,21 +47,6 @@ __all__ = [
     "FlowSettingsException",
     "describe_results",
 ]
-
-
-def expand_paths(field: Optional[ModelField], value, mapping):
-    if field is None or field.type_ not in (Path, Optional[Path]):
-        return value
-    if isinstance(value, (tuple, list)):
-        return [expand_paths(field, v, mapping) for v in value]
-    if isinstance(value, (str, Path)) and value and not os.path.isabs(value):
-        for pattern, repl in mapping.items():
-            if not os.path.isabs(value):
-                pat = re.escape(pattern + os.sep) + r"?"
-                value = Path(re.sub(pat, str(repl), str(value), count=1))
-                log.debug("Expanded path value for %s as %s", field.name, value.absolute())
-    return value
-
 
 registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
 
@@ -163,7 +155,7 @@ class Flow(metaclass=ABCMeta):
         verbose: int = Field(
             0, description="Verbosity level. Higher values make the tools more talkative."
         )
-        # debug: DebugLevel = Field(DebugLevel.NONE.value, hidden_from_schema=True)
+        # debug: DebugLevel = Field(DebugLevel.NONE.value, json_schema_extra={"hidden_from_schema": True})
         debug: bool = Field(
             False,
             description="Run the flow in debug mode: verbose logging, and exceptions are re-raised "
@@ -173,18 +165,20 @@ class Flow(metaclass=ABCMeta):
         redirect_stdout: bool = Field(
             False, description="Redirect stdout from execution of tools to files."
         )
-        runner_cwd_: Optional[Path] = Field(None, hidden_from_schema=True)
-        design_root_: Optional[Path] = Field(None, hidden_from_schema=True)
-        timeout_seconds: int = Field(3600 * 2, hidden_from_schema=True)
+        runner_cwd_: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
+        design_root_: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
+        timeout_seconds: int = Field(3600 * 2, json_schema_extra={"hidden_from_schema": True})
         nthreads: Optional[int] = Field(
             None,
             alias="ncpus",
             description="Max number of threads",
         )
-        no_console: bool = Field(False, hidden_from_schema=True)
-        reports_dir: Path = Field(Path("reports"), hidden_from_schema=True)
-        checkpoints_dir: Path = Field(Path("checkpoints"), hidden_from_schema=True)
-        outputs_dir: Path = Field(Path("outputs"), hidden_from_schema=True)
+        no_console: bool = Field(False, json_schema_extra={"hidden_from_schema": True})
+        reports_dir: Path = Field(Path("reports"), json_schema_extra={"hidden_from_schema": True})
+        checkpoints_dir: Path = Field(
+            Path("checkpoints"), json_schema_extra={"hidden_from_schema": True}
+        )
+        outputs_dir: Path = Field(Path("outputs"), json_schema_extra={"hidden_from_schema": True})
         clean: bool = Field(
             False, description="Remove the contents of the run directory before running the flow."
         )
@@ -209,30 +203,31 @@ class Flow(metaclass=ABCMeta):
         print_commands: bool = Field(True, description="Print executed commands")
         console_colors: bool = Field(True, description="Colorize tool output on the console.")
 
-        @validator("*", pre=True, always=False)
-        def _all_fields_validator_subs_env_vars(
-            cls, value, values: Dict[str, Any], field: ModelField
-        ):
+        @field_validator("*", mode="before")
+        @classmethod
+        def _all_fields_validator_subs_env_vars(cls, value, info):
             if value is not None:
-                origin = get_origin(field.annotation)
-                if field.shape == SHAPE_LIST and (origin is list) and isinstance(value, str):
+                annotation = field_annotation(cls, info.field_name)
+                if annotation is None:
+                    return value
+                values = info.data if isinstance(info.data, dict) else {}
+                if annotation_is_list(annotation) and isinstance(value, str):
                     return value.split(",")
+                # `"$" in ...` mirrors `expand_vars`'s own early-out. Without it every default
+                # Path of every settings model would pay for a full `os.environ` copy, because
+                # `validate_default=True` (restoring v1's `always=True`) now runs this on
+                # defaults, which the v1 `always=False` wildcard never saw.
                 if (
-                    field.shape == SHAPE_SINGLETON
-                    and field.type_ in (Optional[Path], Path)
-                    # and field.annotation in (Optional[Path], Path)
-                    and (origin is None or origin == Union)
+                    annotation_accepts(annotation, Path)
                     and isinstance(value, (str, Path))
-                    and isinstance(values, dict)
+                    and "$" in str(value)
                 ):
-                    log.debug(
-                        f"field: {field}, value: {value} origin: {origin} anno: {field.annotation} {type(field.annotation)}"
-                    )
+                    log.debug("field: %s, value: %s anno: %s", info.field_name, value, annotation)
                     return expand_env_vars(
                         value,
                         # fmt: off
                         {
-                            "PWD": values.get("runner_cwd_"), 
+                            "PWD": values.get("runner_cwd_"),
                             "DESIGN_ROOT": values.get("design_root_"), # we don't know DESIGN_ROOT, so just ignore it
                             "DESIGN_DIR": values.get("design_root_"), # we don't know DESIGN_ROOT, so just ignore it
                         },
@@ -240,14 +235,17 @@ class Flow(metaclass=ABCMeta):
                     )
             return value
 
-        @validator("verbose", pre=True, always=True)
+        @field_validator("verbose", mode="before")
+        @classmethod
         def _validate_verbose(cls, value):
             if not isinstance(value, int):
                 return try_convert(value, int, 0)
             return value
 
-        @validator("quiet", pre=True, always=True)
-        def _validate_quiet(cls, value, values):
+        @field_validator("quiet", mode="before")
+        @classmethod
+        def _validate_quiet(cls, value, info):
+            values = info.data if isinstance(info.data, dict) else {}
             if values.get("verbose") or values.get("debug"):
                 return False
             return value
@@ -259,7 +257,7 @@ class Flow(metaclass=ABCMeta):
             except ValidationError as e:
                 if data.get("debug", None):
                     raise e
-                raise FlowSettingsError(validation_errors(e.errors()), e.model, e.json()) from e
+                raise FlowSettingsError(validation_errors(e.errors()), type(self), e.json()) from e
 
     class Results(Box):
         """Flow results"""
@@ -620,7 +618,7 @@ class FlowSettingsError(FlowSettingsException):
             self.__class__.__qualname__,
             len(self.errors),
             "s" if len(self.errors) > 1 else "",
-            self.model.__qualname__,
+            getattr(self.model, "__qualname__", self.model),
             "\n".join(f"   {msg}: {loc} ({typ})" for loc, msg, _, typ in self.errors),
         )
 

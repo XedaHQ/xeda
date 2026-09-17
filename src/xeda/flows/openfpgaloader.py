@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from ..board import WithFpgaBoardSettings, get_board_data
-from ..dataclass import Field, validator
+from ..dataclass import Field, field_validator
 from ..flow import FlowSettingsException, FpgaSynthFlow
 from ..tool import Tool
 from .nextpnr import Nextpnr
@@ -44,15 +44,17 @@ class Openfpgaloader(FpgaSynthFlow):
             description="Settings for the `nextpnr` dependency that places and routes the design.",
         )
 
-        @validator("nextpnr", always=True, pre=True)
-        def _validate_nextpnr(cls, value, values):
+        @field_validator("nextpnr", mode="before")
+        @classmethod
+        def _validate_nextpnr(cls, value, info):
+            values = info.data if isinstance(info.data, dict) else {}
             clocks = values.get("clocks")
             fpga = values.get("fpga")
             board = values.get("board")
             if value is None:
                 value = {}
             if isinstance(value, Nextpnr.Settings):
-                value = value.dict()
+                value = value.model_dump()
             assert isinstance(value, (dict)), f"not a dict: {value}"
             value["fpga"] = fpga
             value["board"] = board

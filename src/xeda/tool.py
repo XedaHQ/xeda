@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .console import console
-from .dataclass import Field, XedaBaseModel, validator
+from .dataclass import Field, XedaBaseModel, field_validator
 from .flow import Flow
 from .proc_utils import run_process, tool_output_stream
 from .utils import ExecutableNotFound, NonZeroExitCode, ToolException, cached_property, try_convert
@@ -191,11 +191,16 @@ class Tool(XedaBaseModel):
     highlight_rules: Optional[Dict[str, str]] = None
     console_colors: bool = True
 
-    design_root_: Optional[Path] = Field(None, hidden_from_schema=True)
-    flow_settings_: Optional[Flow.Settings] = Field(None, hidden_from_schema=True)
-    source_dirs_: List[Path] = Field(default_factory=list, hidden_from_schema=True)
+    design_root_: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
+    flow_settings_: Optional[Flow.Settings] = Field(
+        None, json_schema_extra={"hidden_from_schema": True}
+    )
+    source_dirs_: List[Path] = Field(
+        default_factory=list, json_schema_extra={"hidden_from_schema": True}
+    )
 
-    @validator("version_flag", pre=True, always=True)
+    @field_validator("version_flag", mode="before")
+    @classmethod
     def validate_version_flag(cls, value):
         if isinstance(value, str):
             return [value]
@@ -252,12 +257,17 @@ class Tool(XedaBaseModel):
             if self.info not in flow.results.tools:
                 flow.results.tools.append(self.info)
 
-    @validator("docker", pre=True, always=True)
-    def validate_docker(cls, value, values):
+    @field_validator("docker", mode="before")
+    @classmethod
+    def validate_docker(cls, value, info):
+        values = info.data if isinstance(info.data, dict) else {}
         default_args = values.get("default_args", [])
         command = [values.get("executable"), *default_args]
         if isinstance(value, dict):
             value = Docker(**value)
+        elif isinstance(value, Docker):
+            # Same reason as above: do not write `command` into a `Docker` the caller still owns.
+            value = value.model_copy()
         if isinstance(value, str):
             split = value.split(":")
             value = Docker(
@@ -491,7 +501,7 @@ class Tool(XedaBaseModel):
         self.run(*args, env=env, stdout=redirect_to)
 
     def derive(self, executable, **kwargs) -> Tool:
-        new_tool = self.copy(update=kwargs)
+        new_tool = self.model_copy(update=kwargs)
         new_tool.invalidate_cached_properties()
         if "default_args" not in kwargs:
             new_tool.default_args = []

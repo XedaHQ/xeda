@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from ...board import WithFpgaBoardSettings
-from ...dataclass import Field, validator
+from ...dataclass import Field, field_validator
 from ...design import SourceType
 from ...flow import FPGA, FlowFatalError, FpgaSynthFlow, describe_results
 from ...proc_utils import run_process
@@ -142,19 +142,26 @@ class OpenXC7(FpgaSynthFlow):
             description="Program the FPGA after bitstream generation. Can specify the cable type.",
         )
 
-        @validator("yosys", always=True, pre=False)
-        def _validate_dep_yosys_settings(cls, value, values):
+        @field_validator("yosys")
+        @classmethod
+        def _validate_dep_yosys_settings(cls, value, info):
+            values = info.data if isinstance(info.data, dict) else {}
             clocks = values.get("clocks")
             fpga = values.get("fpga")
             if value is None:
                 # return None
                 value = YosysFpga.Settings(
                     fpga=fpga,
-                    clocks=clocks,
+                    clocks=clocks or {},
                 )  # type: ignore # pyright: reportGeneralTypeIssues=none
             else:
                 if not isinstance(value, YosysFpga.Settings):
                     value = YosysFpga.Settings(**value)
+                else:
+                    # Copy: v1 re-validated (and thus copied) a nested model instance,
+                    # v2 keeps the caller's object, so normalizing in place would edit
+                    # settings the caller still owns.
+                    value = value.model_copy(deep=True)
                 if fpga:
                     value.fpga = fpga
                 if clocks and not value.clocks:

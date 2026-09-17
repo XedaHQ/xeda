@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from xml.etree import ElementTree
 
-from .dataclass import Field, XedaBaseModel, validator
+from .dataclass import Field, XedaBaseModel, field_validator
 from .design import Design, SourceType
 from .tool import Tool
 
@@ -47,7 +47,7 @@ class CocotbSettings(XedaBaseModel):
     results_xml: str = Field(
         "results.xml",
         description="xUnit-compatible cocotb result file.",
-        hidden_from_schema=True,
+        json_schema_extra={"hidden_from_schema": True},
     )
     resolve_x: Literal["VALUE_ERROR", "ZEROS", "ONES", "RANDOM"] = Field(
         "VALUE_ERROR",
@@ -66,7 +66,8 @@ class CocotbSettings(XedaBaseModel):
         description="A comma-separated list of extra libraries that are dynamically loaded at runtime.",
     )
 
-    @validator("testcase", "gpi_extra", pre=True, always=True)
+    @field_validator("testcase", "gpi_extra", mode="before")
+    @classmethod
     def str_to_list(cls, value):
         if isinstance(value, str):
             value = [s.strip() for s in value.split(",")]

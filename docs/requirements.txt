@@ -6,6 +6,6 @@ sphinxcontrib.bibtex
 sphinx_panels
 sphinxcontrib.mermaid
 sphinxext.opengraph
-autodoc_pydantic
+autodoc_pydantic >= 2.0   # >= 2.0 requires pydantic v2; <= 1.9 requires pydantic v1
 sphinx_book_theme
 myst-parser

@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from ...dataclass import Field, validator
+from ...dataclass import Field, field_validator
 from ...flow import FpgaSynthFlow
 from .vivado_synth import RunOptions, StepsValType, VivadoSynth
 
@@ -344,17 +344,22 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             description="Implementation run options for the alternative TCL flow.",
         )
 
-        @validator("synth", "impl", always=True)
-        def validate_synth(cls, value, values, field):
+        @field_validator("synth", "impl")
+        @classmethod
+        def validate_synth(cls, value, info):
+            # Copy: this is a `mode="after"` validator, so `value` is the caller's own
+            # `RunOptions` under v2 (v1 re-validated into a fresh instance). Expanding the
+            # strategy in place would grow the caller's `steps` mapping.
+            value = value.model_copy(deep=True)
             if value.strategy:
-                strategy_steps = strategies[field.name].get(value.strategy)
+                strategy_steps = strategies[info.field_name].get(value.strategy)
                 if strategy_steps is None:
                     raise ValueError(f"Unknown strategy: {value.strategy}")
                 value.steps = {
                     **strategy_steps,
                     **value.steps,
                 }
-            if field.name == "synth":
+            if info.field_name == "synth":
                 steps = ["synth", "opt", "power_opt"]
             else:
                 steps = [

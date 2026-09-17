@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
-from pydantic import Field
 
+from ...dataclass import Field
 from ...design import SourceType
 from ...flow import Flow
 from ...gtkwave import get_color

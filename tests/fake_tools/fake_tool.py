@@ -98,16 +98,16 @@ class FakeTool(XedaBaseModel):
 
 
 class FakeVivado(FakeTool):
-    vendor = "Xilinx, Inc."
-    version = "v2021.2"
-    version_template = """Vivado {version} (64-bit)
+    vendor: Optional[str] = "Xilinx, Inc."
+    version: Optional[str] = "v2021.2"
+    version_template: Optional[str] = """Vivado {version} (64-bit)
         SW Build 1234567 on Tue Oct 11 01:23:45 MDT 2021
         IP Build 1234567 on Thu Oct 22 01:23:45 MDT 2021
         Copyright 1900-2021 {vendor} All Rights Reserved.
     """
-    help_options = ["-help"]
-    version_options = ["-version"]
-    options = {
+    help_options: list = ["-help"]
+    version_options: list = ["-version"]
+    options: dict = {
         "-mode": ["gui", "tcl", "batch"],
         "-init": dict(type=click.Path(exists=True)),
         "-source": dict(type=click.Path(exists=True)),
@@ -116,7 +116,7 @@ class FakeVivado(FakeTool):
         "-notrace": None,
         "-nolog": None,
     }
-    arguments = {"project": dict(required=False)}
+    arguments: dict = {"project": dict(required=False)}
 
     def execute(self, **kwargs):
         print("cwd =", Path.cwd())

@@ -6,8 +6,7 @@ from pathlib import Path
 from random import randint
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import Field
-
+from ...dataclass import Field
 from ...design import SourceType
 from ...flow import SimFlow
 from ...tool import Tool
@@ -260,7 +259,7 @@ class Verilator(SimFlow):
 
         if self.cocotb:
             if verilator.docker is not None:
-                self.cocotb.docker = verilator.docker.copy(
+                self.cocotb.docker = verilator.docker.model_copy(
                     update=dict(command=[self.cocotb.executable]),
                 )
 

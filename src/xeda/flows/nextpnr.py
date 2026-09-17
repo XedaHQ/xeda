@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
 from ..board import WithFpgaBoardSettings, get_board_data, get_board_file_path
-from ..dataclass import Field, XedaBaseModel, validator
+from ..dataclass import Field, XedaBaseModel, field_validator
 from ..flow import FlowFatalError, FpgaSynthFlow, describe_results
 from ..tool import Tool
 from ..utils import setting_flag
@@ -80,19 +80,23 @@ class EcpPLL(Tool):
             clock.name = "clk_i" if out_clk is None else f"clk_o_{out_clk}"
         return clock
 
-    @validator("clkin", always=True)
+    @field_validator("clkin")
+    @classmethod
     def _validate_clockin(cls, value):
         return cls._fix_clock(value)
 
-    @validator("clkouts", always=True)
+    @field_validator("clkouts")
+    @classmethod
     def _validate_clockouts(cls, value):
         new_value = []
         for i, v in enumerate(value):
             new_value.append(cls._fix_clock(v, i))
         return new_value
 
-    @validator("file", always=True)
-    def _validate_outfile(cls, value, values):
+    @field_validator("file")
+    @classmethod
+    def _validate_outfile(cls, value, info):
+        values = info.data if isinstance(info.data, dict) else {}
         if not value:
             value = values["module"] + ".v"
         return value
@@ -236,18 +240,25 @@ class Nextpnr(FpgaSynthFlow):
             "`fpga` and `clocks` are propagated automatically.",
         )
 
-        @validator("yosys", always=True, pre=False)
-        def _validate_yosys(cls, value, values):
+        @field_validator("yosys")
+        @classmethod
+        def _validate_yosys(cls, value, info):
+            values = info.data if isinstance(info.data, dict) else {}
             clocks = values.get("clocks")
             fpga = values.get("fpga")
             if value is None:
                 value = YosysFpga.Settings(
                     fpga=fpga,
-                    clocks=clocks,
+                    clocks=clocks or {},
                 )  # type: ignore
             else:
                 if not isinstance(value, YosysFpga.Settings):
                     value = YosysFpga.Settings(**value)
+                else:
+                    # Copy: v1 re-validated (and thus copied) a nested model instance,
+                    # v2 keeps the caller's object, so normalizing in place would edit
+                    # settings the caller still owns.
+                    value = value.model_copy(deep=True)
                 value.fpga = fpga
                 value.clocks = clocks
             return value

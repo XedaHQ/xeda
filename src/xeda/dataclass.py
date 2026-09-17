@@ -2,38 +2,175 @@
 
 from __future__ import annotations
 
-import copy
 import logging
-from abc import ABCMeta
-from functools import cached_property
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
+from copy import deepcopy
+from functools import cache, cached_property, wraps
+from types import UnionType
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 
 import attrs
 
 # pylint: disable=no-name-in-module
-from pydantic import BaseConfig, BaseModel, Extra, Field, ValidationError, root_validator, validator
-from pydantic.fields import ModelField
-from pydantic.main import ModelMetaclass
-
-if TYPE_CHECKING:
-    from pydantic.error_wrappers import ErrorDict
+from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, ValidationError
+from pydantic import field_validator as _pydantic_field_validator
+from pydantic import model_validator as _pydantic_model_validator
+from pydantic.fields import FieldInfo
+from pydantic_core import ErrorDetails, PydanticUndefined
 
 __all__ = [
-    "Extra",
+    "ConfigDict",
+    "ErrorDetails",
     "Field",
-    "ModelField",
+    "FieldInfo",
+    "PydanticUndefined",
+    "SerializeAsAny",
     "ValidationError",
     "XedaBaseModel",
-    "XedaBaseModelAllowExtra",
-    "XedaPathField",
+    "annotation_accepts",
+    "annotation_args",
+    "annotation_is_list",
     "asdict",
-    "root_validator",
+    "field_validator",
+    "model_validator",
     "validation_errors",
-    "validator",
 ]
 
 log = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------------------------
+# validator decorators
+#
+# pydantic v1 treated a `TypeError` raised inside a validator as a validation failure, exactly
+# like `ValueError`/`AssertionError`. v2 does not: a `TypeError` propagates out of
+# `model_validate` untouched, so a plain user mistake (`sources = 123`, `freq = []`) escapes as a
+# raw traceback on the CLI and is reported under the wrong class by `--json`.
+#
+# Validators should still guard their own inputs and raise `ValueError` with a useful message --
+# these wrappers are the safety net that keeps a missed guard from turning into a crash, and they
+# apply to every current and future xeda validator without each one having to remember.
+# --------------------------------------------------------------------------------------------
+
+
+def _guarded(fn: Any, copy_input: bool) -> Any:
+    """Wrap a validator body with the two behaviours pydantic v1 provided implicitly.
+
+    `copy_input` copies a `dict`/`list` argument for `mode="before"` validators. v1 handed these
+    fresh input state; v2 passes the caller's own object straight through, so the very common
+    "normalize by writing back into `values`" pattern silently rewrites caller-owned data (a
+    design's `flow[...]` section, a `Settings` kwargs dict). The copy must include nested
+    containers: several validators intentionally normalize nested clock, parameter, and corner
+    mappings before their child models are constructed.
+    """
+    unwrapped = fn.__func__ if isinstance(fn, classmethod) else fn
+
+    @wraps(unwrapped)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            if copy_input and len(args) >= 2:
+                value = args[1]
+                if isinstance(value, (dict, list)):
+                    args = (args[0], deepcopy(value), *args[2:])
+            return unwrapped(*args, **kwargs)
+        except TypeError as e:
+            raise ValueError(str(e)) from e
+
+    return classmethod(wrapper) if isinstance(fn, classmethod) else wrapper
+
+
+def _is_before(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> bool:
+    return kwargs.get("mode", "after") == "before" or "before" in args
+
+
+def field_validator(*args: Any, **kwargs: Any) -> Any:
+    """`pydantic.field_validator` with xeda's v1-compatibility guards. See `_guarded`."""
+    decorator = _pydantic_field_validator(*args, **kwargs)
+    copy_input = _is_before(args, kwargs)
+
+    def wrap(fn: Any) -> Any:
+        return decorator(_guarded(fn, copy_input))
+
+    return wrap
+
+
+def model_validator(*args: Any, **kwargs: Any) -> Any:
+    """`pydantic.model_validator` with xeda's v1-compatibility guards. See `_guarded`."""
+    decorator = _pydantic_model_validator(*args, **kwargs)
+    copy_input = _is_before(args, kwargs)
+
+    def wrap(fn: Any) -> Any:
+        return decorator(_guarded(fn, copy_input))
+
+    return wrap
+
+
+# --------------------------------------------------------------------------------------------
+# annotation introspection
+#
+# pydantic v1 exposed a field's "shape" (`SHAPE_LIST`, `SHAPE_SINGLETON`, ...) and its unwrapped
+# inner type (`ModelField.type_`). v2 has neither: a field carries only its raw annotation, so the
+# same questions are answered with `typing` introspection.
+# --------------------------------------------------------------------------------------------
+
+
+def annotation_args(annotation: Any) -> Tuple[Any, ...]:
+    """The members of a Union/Optional annotation, or the annotation itself."""
+    if get_origin(annotation) in (Union, UnionType):
+        return tuple(a for a in get_args(annotation) if a is not type(None))
+    return (annotation,)
+
+
+def annotation_is_list(annotation: Any) -> bool:
+    """True for `list`/`List[...]`, including inside an Optional."""
+    return any(a is list or get_origin(a) is list for a in annotation_args(annotation))
+
+
+def annotation_accepts(annotation: Any, typ: type) -> bool:
+    """True if `typ` is one of the types the annotation accepts directly."""
+    return any(a is typ for a in annotation_args(annotation))
+
+
+def _accepts_only_str(annotation: Any) -> bool:
+    accepted = annotation_args(annotation)
+    return str in accepted and not any(a in (int, float) for a in accepted)
+
+
+def str_only_element(annotation: Any) -> Optional[str]:
+    """`"items"` / `"values"` when the annotation is a container of strings and nothing else.
+
+    Returns which part of the container carries the string, so a caller knows whether to coerce
+    a sequence's items or a mapping's values. `None` when the element type would also accept a
+    number, so a genuine `List[Union[str, int]]` keeps discriminating normally.
+    """
+    for a in annotation_args(annotation):
+        origin, args = get_origin(a), get_args(a)
+        if origin in (list, set, frozenset, tuple) and args:
+            elements = [e for e in args if e is not Ellipsis]
+            if elements and all(_accepts_only_str(e) for e in elements):
+                return "items"
+        if origin is dict and len(args) == 2 and _accepts_only_str(args[1]):
+            return "values"
+    return None
+
+
+def field_annotation(model: Any, name: Optional[str]) -> Any:
+    """The declared annotation of `name` on a model class, or None."""
+    if not name:
+        return None
+    info = getattr(model, "model_fields", {}).get(name)
+    return info.annotation if info is not None else None
 
 
 def field(
@@ -63,29 +200,51 @@ def field(
 def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str, Any]:
     if isinstance(inst, BaseModel):
         assert filter_ is None
-        return inst.dict()
+        return inst.model_dump()
     return attrs.asdict(inst, filter=filter_)
 
 
-class XedaPathField(Path):
-    pass
+class XedaBaseModel(BaseModel):
+    model_config = ConfigDict(
+        validate_assignment=True,
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        # https://github.com/samuelcolvin/pydantic/issues/1241
+        ignored_types=(cached_property,),
+        use_enum_values=True,
+        populate_by_name=True,
+        # pydantic v1 validators were overwhelmingly declared `always=True`, i.e. they ran even
+        # when the field was left at its default. v2 skips defaults unless told otherwise, so
+        # restore the v1 behavior model-wide rather than annotating every field.
+        validate_default=True,
+    )
 
+    @_pydantic_field_validator("*", mode="before")
+    @classmethod
+    def _coerce_number_to_str(cls, value: Any, info: Any) -> Any:
+        """Accept a number where only a string is declared, as pydantic v1 did.
 
-class InnerMeta(ModelMetaclass):
-    def __get__(cls, instance, owner):
-        cls._outer_class = owner
-        cls._outer_instance = instance
-        return cls
+        TOML cannot mark a number as text, so real design and platform files spell string-valued
+        settings numerically -- an FPGA `speed = 2` grade, a `name = 2024`, a Vivado
+        `set_synth_properties = {{ MAX_BRAM = 0 }}`, a `compile_args = ["-j", 8]`. v1 coerced all
+        of those; v2 rejects them, which would break files that have always loaded.
 
-
-class XedaBaseModel(BaseModel, metaclass=InnerMeta):
-    class Config(BaseConfig):
-        validate_assignment = True
-        extra = Extra.forbid
-        arbitrary_types_allowed = True
-        keep_untouched = (cached_property,)  # https://github.com/samuelcolvin/pydantic/issues/1241
-        use_enum_values = True
-        allow_population_by_field_name = True
+        This applies to a container's elements too, not just scalar fields. Only annotations whose
+        (element) type accepts `str` and *not* a numeric type are touched, so a genuine
+        `Union[str, int]` still discriminates normally, and `bool` is left alone -- it is an `int`
+        subclass, and `True` is not a meaningful name.
+        """
+        annotation = field_annotation(cls, info.field_name)
+        if annotation is None:
+            return value
+        if type(value) in (int, float):
+            return str(value) if _accepts_only_str(annotation) else value
+        element = str_only_element(annotation)
+        if element == "items" and isinstance(value, (list, tuple, set, frozenset)):
+            return type(value)(str(v) if type(v) in (int, float) else v for v in value)
+        if element == "values" and isinstance(value, dict):
+            return {k: str(v) if type(v) in (int, float) else v for k, v in value.items()}
+        return value
 
     def invalidate_cached_properties(self):
         for key, value in self.__class__.__dict__.items():
@@ -94,28 +253,60 @@ class XedaBaseModel(BaseModel, metaclass=InnerMeta):
                 self.__dict__.pop(key, None)
 
 
-class XedaBaseModelAllowExtra(XedaBaseModel, metaclass=ABCMeta):
-    class Config(XedaBaseModel.Config):
-        extra = Extra.allow
-
-
 _XedaModelType = TypeVar("_XedaModelType", bound=XedaBaseModel)
 
 
+@cache
 def model_with_allow_extra(cls: Type[_XedaModelType]) -> Type[_XedaModelType]:
-    cls_copy = copy.deepcopy(cls)
-    cls_copy.Config.extra = Extra.allow
-    return cls_copy
+    """A subclass of `cls` that tolerates unknown keys.
+
+    pydantic v2 compiles a model's validator when the class is created, so mutating
+    `model_config` on an existing class has no effect -- building a subclass is the only form
+    that actually re-runs schema construction. (Under v1 this function called
+    `copy.deepcopy(cls)`, which returns the *same* class object for a class, so it silently
+    mutated the original globally; the subclass keeps the relaxation scoped.)
+
+    The result is cached, and instances provide a custom reducer that rebuilds the derived class
+    in a child process. The DSE runner ships a `Design` across a process boundary via `pebble`, so
+    relying on pickle to resolve this runtime-only class by `__module__` + `__qualname__` fails.
+    """
+    name = f"{cls.__name__}AllowExtra"
+
+    def __reduce__(self):
+        # The class is built at runtime, so a child process (spawn) has no such attribute to
+        # look up. Pickle the *base* -- an ordinary importable class -- and rebuild on the
+        # far side. The DSE runner ships designs to `pebble` workers this way.
+        return (_rebuild_with_allow_extra, (cls, self.__getstate__()))
+
+    derived = type(
+        name,
+        (cls,),
+        {
+            "model_config": ConfigDict(**{**cls.model_config, "extra": "allow"}),
+            "__module__": __name__,
+            "__qualname__": name,
+            "__reduce__": __reduce__,
+        },
+    )
+    return derived  # type: ignore[return-value]
+
+
+def _rebuild_with_allow_extra(base: Any, state: Any) -> Any:
+    """Unpickle counterpart of `model_with_allow_extra` (module-level, so it pickles)."""
+    cls: Any = model_with_allow_extra(base)
+    obj = cls.__new__(cls)
+    obj.__setstate__(state)
+    return obj
 
 
 def validation_errors(
-    errors: List[ErrorDict],
+    errors: List[ErrorDetails],
 ) -> List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]]:
     return [
         (
             " -> ".join(str(loc) for loc in e.get("loc", [])),
             e.get("msg"),
-            "".join(f"; {k}={v}" for k, v in e.get("ctx", {}).items()),
+            "".join(f"; {k}={v}" for k, v in (e.get("ctx") or {}).items()),
             e.get("type"),
         )
         for e in errors

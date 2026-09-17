@@ -1,7 +1,7 @@
 import logging
 from typing import List, Literal, Optional
 
-from ...dataclass import Field, validator
+from ...dataclass import Field, field_validator
 from ...flow import FpgaSynthFlow, describe_results
 from ...tool import Tool
 
@@ -36,7 +36,9 @@ class DiamondSynth(FpgaSynthFlow):
             "Implementation0", description="Name of the Diamond implementation to create and run."
         )
         syn_cmdline_args: Optional[List[str]] = Field(
-            None, description="Extra command-line arguments passed to the synthesis engine."
+            None,
+            description="Extra command-line arguments passed to the synthesis engine.",
+            validate_default=False,  # v1: no `always=True` -- do not run on the default
         )
         synthesis_engine: Literal["lse", "synplify"] = Field(
             "lse",
@@ -44,7 +46,8 @@ class DiamondSynth(FpgaSynthFlow):
             "(`synplify`). They give noticeably different results.",
         )
 
-        @validator("syn_cmdline_args", pre=True)
+        @field_validator("syn_cmdline_args", mode="before")
+        @classmethod
         def validate_syn_cmdline_args(cls, syn_cmdline_args: Optional[List[str]]) -> List[str]:
             if syn_cmdline_args is None:
                 syn_cmdline_args = []

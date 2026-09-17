@@ -328,7 +328,7 @@ class FlowLauncher:
             log.debug(
                 "Flow '%s' settings: %s",
                 flow_name,
-                flow_settings.json(exclude_unset=True, indent=2),
+                flow_settings.model_dump_json(exclude_unset=True, indent=2),
             )
         if self.debug:
             flow_settings.debug = True
@@ -475,18 +475,18 @@ class FlowLauncher:
                     dep_cls = get_flow_class(dep_cls)
                 if all_flows_settings and dep_cls_name in all_flows_settings:
                     meta_dep_settings = dep_cls.Settings(**all_flows_settings[dep_cls_name])
-                    md = meta_dep_settings.dict(
+                    md = meta_dep_settings.model_dump(
                         exclude_defaults=True, exclude_unset=True
                     )  # post validation
                     if dep_settings is None:
                         dep_settings = meta_dep_settings
-                    dsd = dep_settings.dict(exclude_defaults=True, exclude_unset=True)
-                    for field_name, field_info in dep_settings.__fields__.items():
+                    dsd = dep_settings.model_dump(exclude_defaults=True, exclude_unset=True)
+                    for field_name, field_info in type(dep_settings).model_fields.items():
                         # if field is not already overriden in the dependent flow settings (dep_settings) and exists in the top level (meta_dep_settings)
                         if (
                             field_name in md
                             and field_name not in dsd
-                            and field_name in meta_dep_settings.__fields__
+                            and field_name in type(meta_dep_settings).model_fields
                         ):
                             meta_val = md[field_name]
                             if field_info.default != meta_val:
@@ -788,7 +788,7 @@ class FlowLauncher:
                         )
                         raise ValueError("no design was specified or discovered")
         if isinstance(flow_settings, Flow.Settings):
-            flow_settings = flow_settings.dict()
+            flow_settings = flow_settings.model_dump()
         else:
             assert isinstance(
                 flow_settings, (list, tuple, dict)
@@ -825,7 +825,7 @@ class FlowLauncher:
             design, Design
         ), f"BUG: design should be of type Design but was {type(design)}"
         if self.settings.debug:
-            log.info("design: %s" % PrettyPrinter().pformat(design.dict()))
+            log.info("design: %s" % PrettyPrinter().pformat(design.model_dump()))
         run_path = self.settings.run_path
         if run_path is not None and not isinstance(run_path, Path):
             run_path = Path(run_path)

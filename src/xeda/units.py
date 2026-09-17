@@ -1,7 +1,7 @@
 import re
 from typing import Any, Optional, Union
 
-from pint import UnitRegistry
+from pint import PintError, UnitRegistry
 
 unit_registry: UnitRegistry = UnitRegistry(case_sensitive=False)
 Q_: Any = unit_registry.Quantity
@@ -58,10 +58,17 @@ def convert_unit(
     if from_unit:
         from_unit, from_scale = unit_maybe_scale(from_unit)
     to_unit, to_scale = unit_maybe_scale(to_unit)
-    if from_unit and isinstance(value, (float, int)):
-        value = Q_(value, from_unit).to(to_unit).m
-    elif isinstance(value, str):
-        value = Q_(normalize_quantity(value)).to(to_unit).m
+    # pint raises its own exception types -- `UndefinedUnitError` derives from `AttributeError`
+    # and `DimensionalityError` from `TypeError`, neither of which pydantic v2 treats as a
+    # validation failure. A bad unit in a design file (`clock_period = "5 furlongs"`) would
+    # otherwise reach the user as a raw traceback instead of a field error.
+    try:
+        if from_unit and isinstance(value, (float, int)):
+            value = Q_(value, from_unit).to(to_unit).m
+        elif isinstance(value, str):
+            value = Q_(normalize_quantity(value)).to(to_unit).m
+    except PintError as e:
+        raise ValueError(f"cannot interpret {value!r} as a quantity in '{to_unit}': {e}") from e
     if from_scale:
         value *= from_scale
     if to_scale:

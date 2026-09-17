@@ -774,7 +774,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
         return None
     settings: Any = getattr(best, "settings", None)
     if settings is not None and hasattr(settings, "dict"):
-        settings = settings.dict()
+        settings = settings.model_dump()
     return {
         "results": json_safe(dict(getattr(best, "results", {}) or {})),
         "settings": json_safe(settings),

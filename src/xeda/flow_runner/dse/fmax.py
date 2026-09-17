@@ -2,7 +2,7 @@ import logging
 import random
 from typing import Any, Dict, List, Optional, Union
 
-from ...dataclass import validator
+from ...dataclass import field_validator
 from ...utils import settings_to_dict, unique
 from ..dse.dse_runner import FlowOutcome, Optimizer, deep_hash, linspace
 
@@ -72,8 +72,10 @@ class FmaxOptimizer(Optimizer):
         # min improvement in frequency before increasing variations
         min_improve_inc_variations: float = 5.0
 
-        @validator("init_freq_high")
-        def validate_init_freq(cls, value, values):
+        @field_validator("init_freq_high")
+        @classmethod
+        def validate_init_freq(cls, value, info):
+            values = info.data if isinstance(info.data, dict) else {}
             assert (
                 value > values["init_freq_low"]
             ), "init_freq_high should be more than init_freq_low"

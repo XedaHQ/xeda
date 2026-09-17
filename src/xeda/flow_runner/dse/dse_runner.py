@@ -202,7 +202,7 @@ class Dse(FlowLauncher):
         if flow_settings is None:
             flow_settings = {}
         if isinstance(flow_settings, Flow.Settings):
-            flow_settings = flow_settings.dict()
+            flow_settings = flow_settings.model_dump()
         assert isinstance(flow_settings, dict)
         design_flow_settings = design.flow.pop(flow_name, {})
         if design_flow_settings:
