@@ -231,6 +231,22 @@ def test_nested_settings_instance_is_not_mutated_by_a_dependent_flow():
     assert nextpnr.yosys.fpga.part == "LFE5U-45F-6BG381C"
 
 
+def test_openxc7_does_not_mutate_nested_yosys_settings():
+    from xeda.flows.openxc7 import OpenXC7
+
+    yosys = YosysFpga.Settings(fpga={"part": "LFE5U-25F-6BG381C"}, clock_period=10.0)
+    settings = OpenXC7.Settings(
+        yosys=yosys,
+        fpga={"part": "xc7a100tftg256-2L"},
+        clock_period=5.0,
+    )
+
+    assert yosys.fpga.part == "LFE5U-25F-6BG381C"
+    assert yosys.clock_period == 10.0
+    assert settings.yosys is not yosys
+    assert settings.yosys.fpga.part == "xc7a100tftg256-2L"
+
+
 def test_run_options_steps_are_not_expanded_in_the_caller_object():
     from xeda.flows.vivado.vivado_alt_synth import VivadoAltSynth
     from xeda.flows.vivado.vivado_synth import RunOptions
@@ -252,6 +268,39 @@ def test_docker_command_is_not_written_into_a_caller_owned_instance():
 
     assert not docker.command, "caller's Docker.command was populated"
     assert tool.docker.command == ["echo"]
+
+
+def test_after_list_validators_do_not_mutate_caller_owned_lists():
+    flags = ["custom"]
+    unset_attributes = ["keep"]
+    settings = YosysFpga.Settings(
+        fpga={"part": "LFE5U-25F-6BG381C"},
+        clock_period=10.0,
+        netlist_verilog_flags=flags,
+        netlist_unset_attributes=unset_attributes,
+    )
+
+    assert flags == ["custom"]
+    assert unset_attributes == ["keep"]
+    assert settings.netlist_verilog_flags == ["custom", "-nodec"]
+    assert settings.netlist_unset_attributes == ["keep", "src"]
+
+
+def test_openroad_corner_selection_uses_an_isolated_platform_copy():
+    from xeda.platforms.asics import AsicsPlatform
+
+    platform = AsicsPlatform.from_resource("asap7")
+    original_corner = platform.default_corner
+    settings = Openroad.Settings(platform=platform, corner="FF", clock_period=5.0)
+
+    assert settings.platform is not platform
+    assert platform.default_corner == original_corner
+    assert settings.platform.default_corner == "FF"
+
+    selected_platform = settings.platform
+    settings.corner = ["SS"]
+    assert settings.platform is selected_platform
+    assert settings.platform.default_corner == "SS"
 
 
 # ---------------------------------------------------------------------------------------------

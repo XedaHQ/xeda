@@ -18,7 +18,7 @@ import pytest
 from xeda import Design
 from xeda.flow import FPGA
 from xeda.flows import Nextpnr
-from xeda.flows.nextpnr import ECP5_RESOURCES, NextpnrTool
+from xeda.flows.nextpnr import ECP5_RESOURCES, EcpPLL, NextpnrTool
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources" / "nextpnr"
@@ -259,6 +259,50 @@ def test_version_banner_is_on_stderr_not_stdout():
 def test_report_setting_defaults_to_a_file_the_flow_reads():
     settings = Nextpnr.Settings(fpga=FPGA(family="ecp5"))  # type: ignore[call-arg]
     assert settings.report == "report.json"
+
+
+# --------------------------------------------------------------------------- ECP5 PLL settings
+
+
+def test_ecppll_copies_and_names_caller_owned_clocks():
+    clkin = EcpPLL.Clock(mhz=25.0)
+    unnamed_out = EcpPLL.Clock(mhz=50.0)
+    named_out = EcpPLL.Clock(name="pixel", mhz=75.0)
+
+    pll = EcpPLL(clkin=clkin, clkouts=[unnamed_out, named_out])
+
+    assert clkin.name is None
+    assert unnamed_out.name is None
+    assert named_out.name == "pixel"
+    assert pll.clkin is not clkin
+    assert pll.clkouts[0] is not unnamed_out
+    assert pll.clkouts[1] is not named_out
+    assert pll.clkin.name == "clk_i"
+    assert [clock.name for clock in pll.clkouts] == ["clk_o_0", "pixel"]
+
+    clkin.mhz = 30.0
+    pll.clkouts[0].mhz = 60.0
+    assert pll.clkin.mhz == 25.0
+    assert unnamed_out.mhz == 50.0
+
+
+def test_ecppll_assignment_and_scalar_clock_shorthand_are_isolated():
+    pll = EcpPLL(clkin=25.0, clkouts=[50.0, 75.0])
+    assert isinstance(pll.clkin, EcpPLL.Clock)
+    assert all(isinstance(clock, EcpPLL.Clock) for clock in pll.clkouts)
+    assert pll.clkin.name == "clk_i"
+    assert [clock.name for clock in pll.clkouts] == ["clk_o_0", "clk_o_1"]
+
+    clkin = EcpPLL.Clock(mhz=30.0)
+    clkout = EcpPLL.Clock(mhz=60.0)
+    pll.clkin = clkin
+    pll.clkouts = [clkout]
+    assert clkin.name is None
+    assert clkout.name is None
+    assert pll.clkin is not clkin
+    assert pll.clkouts[0] is not clkout
+    assert pll.clkin.name == "clk_i"
+    assert pll.clkouts[0].name == "clk_o_0"
 
 
 # --------------------------------------------------------------------------- end to end
