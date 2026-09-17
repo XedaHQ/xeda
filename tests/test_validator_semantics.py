@@ -136,6 +136,23 @@ def test_shim_copies_nested_before_validator_input():
     assert payload == {"nested": {"original": True}}
 
 
+def test_before_model_validator_receives_assignment_context():
+    seen_fields = []
+
+    class M(XedaBaseModel):
+        value: int
+
+        @model_validator(mode="before")
+        @classmethod
+        def _record_context(cls, values, info):
+            seen_fields.append(info.field_name)
+            return values
+
+    model = M(value=1)
+    model.value = 2
+    assert seen_fields == [None, "value"]
+
+
 def test_nested_rtl_parameter_normalization_does_not_mutate_input():
     payload = {"sources": [], "parameters": {"rom": {"file": "abc.mem"}}}
     before = copy.deepcopy(payload)
@@ -167,6 +184,32 @@ def test_asic_corner_normalization_does_not_mutate_input():
 
     AsicsPlatform(**payload)
     assert payload == before
+
+
+def test_unrelated_assignment_preserves_nested_field_identities():
+    """Revalidating one field must not replace unrelated models or containers."""
+    settings = YosysFpga.Settings(
+        fpga={"part": "LFE5U-25F-6BG381C"},
+        clock_period=10.0,
+    )
+    fpga = settings.fpga
+    clock = settings.main_clock
+    clocks = settings.clocks
+    plugins = settings.plugins
+    assert clock is not None
+
+    settings.verbose = 1
+
+    assert settings.fpga is fpga
+    assert settings.main_clock is clock
+    assert settings.clocks is clocks
+    assert settings.plugins is plugins
+    fpga.part = "LFE5U-45F-6BG381C"
+    clock.period = 7.0
+    plugins.append("plugin.so")
+    assert settings.fpga.part == "LFE5U-45F-6BG381C"
+    assert settings.main_clock.period == 7.0
+    assert settings.plugins == ["plugin.so"]
 
 
 # ---------------------------------------------------------------------------------------------
