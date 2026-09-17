@@ -290,3 +290,47 @@ def test_generator_object_output_never_corrupts_the_json_document(tmp_path):
     assert document["design"] == "gendes"
     assert "generator stdout noise" in proc.stderr
     assert "generator stderr diagnostic" in proc.stderr
+
+
+# ------------------------------------------------- highlighted tool output must not reach stdout
+
+#: `run_process` takes a separate branch when a tool has `highlight_rules` (Vivado, DC, VCS): it
+#: pipes the child's stdout so it can colorize each line, and leaves the child's stderr alone.
+#: Leaving it alone is correct -- an unspecified `stderr` makes the child inherit fd 2, and in
+#: machine-readable mode fd 2 is exactly where tool output belongs. Only fd 1 carries the document.
+_HIGHLIGHT_HARNESS = """
+import sys, colorama
+from xeda import proc_utils
+
+proc_utils.set_tool_output(sys.stderr)          # what machine_readable_mode() does
+sys.stdout.write('{"document": "begin", ')
+sys.stdout.flush()
+proc_utils.run_process(
+    sys.executable,
+    ["-c", "import sys;"
+           "sys.stdout.write('TOOL-STDOUT: ERROR: highlighted\\\\n');"
+           "sys.stderr.write('TOOL-STDERR: diagnostic\\\\n')"],
+    highlight_rules={r"^(.*ERROR.*)$": colorama.Fore.RED + r"\\g<1>"},
+    check=False,
+)
+sys.stdout.write('"document": "end"}')
+"""
+
+
+def test_highlighted_tool_output_does_not_corrupt_stdout(tmp_path):
+    harness = tmp_path / "harness.py"
+    harness.write_text(_HIGHLIGHT_HARNESS)
+    proc = subprocess.run(
+        [sys.executable, str(harness)],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, FORCE_COLOR="1"),
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
+    # stdout carries the document and nothing else
+    assert json.loads(proc.stdout) == {"document": "end"}
+    # both of the tool's streams land on stderr, and the highlight branch really ran
+    assert "TOOL-STDOUT: ERROR: highlighted" in proc.stderr
+    assert "TOOL-STDERR: diagnostic" in proc.stderr
+    assert "\033[" in proc.stderr, "highlighting was not applied, so the branch was not exercised"
