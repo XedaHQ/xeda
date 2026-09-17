@@ -115,6 +115,13 @@ def test_list_settings_includes_common_settings_and_aliases():
     assert by_name["clock_period"]["common"] is False
 
 
+def test_list_settings_preserves_optional_literal_choices():
+    info = json.loads(run_xeda("list-settings", "ghdl_sim", "--json").stdout)
+    by_name = {f["name"]: f for f in info["fields"]}
+    assert by_name["asserts"]["enum"] == ["disable", "disable-at-0"]
+    assert by_name["asserts"]["required"] is False
+
+
 def test_list_settings_no_common_excludes_shared_settings():
     info = json.loads(run_xeda("list-settings", "vivado_synth", "--json", "--no-common").stdout)
     assert all(not f["common"] for f in info["fields"])

@@ -520,7 +520,7 @@ class Clock(XedaBaseModel):
 
     @field_validator("name", mode="before")
     @classmethod
-    def _name_validate(cls, value, info) -> str:
+    def _name_validate(cls, value, info) -> Optional[str]:
         values = info.data if isinstance(info.data, dict) else {}
         return value or values.get("port", None)
 
