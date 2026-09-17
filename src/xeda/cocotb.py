@@ -13,6 +13,31 @@ from .tool import Tool
 
 log = logging.getLogger(__name__)
 
+#: Children of a `<testcase>` that describe its outcome. Everything else there (the
+#: `<properties>` block, captured `<system-out>` / `<system-err>`) is metadata.
+_OUTCOME_TAGS = ("FAILURE", "ERROR", "SKIPPED")
+
+
+def _property_value(element: ElementTree.Element, name: str) -> Optional[str]:
+    """Value of a `<property name=...>` directly under `element`, or nested in `<properties>`."""
+    for prop in (*element.findall("property"), *element.findall("properties/property")):
+        if prop.get("name") == name:
+            return prop.get("value")
+    return None
+
+
+#: Nanoseconds per unit of cocotb's `sim_time_unit`. Spelled out rather than run through `pint`,
+#: which resolves "ns" to both nanosecond and nanosiemens.
+_SIM_TIME_UNIT_NS = {
+    "fs": 1e-6,
+    "ps": 1e-3,
+    "ns": 1.0,
+    "us": 1e3,
+    "ms": 1e6,
+    "sec": 1e9,
+    "s": 1e9,
+}
+
 
 class CocotbSettings(XedaBaseModel):
     coverage: bool = Field(
@@ -104,51 +129,83 @@ class TestResults:
         )
 
     @staticmethod
+    def _properties(testcase: ElementTree.Element) -> Dict[str, str]:
+        """`<property name= value=>` pairs of one testcase.
+
+        From cocotb 2.0 the per-test metadata (seed, source location, simulated time) moved from
+        attributes on `<testcase>` into this standard JUnit block. Reading only the attributes,
+        as this parser used to, silently yielded defaults for every one of them.
+        """
+        return {
+            prop.get("name", ""): prop.get("value", "")
+            for prop in testcase.findall("properties/property")
+        }
+
+    @staticmethod
+    def _sim_time_ns(testcase: ElementTree.Element, properties: Dict[str, str]) -> Optional[float]:
+        """Simulated time of one testcase, in nanoseconds, or `None` if it was not reported.
+
+        cocotb 2.x records `sim_time_duration` alongside a `sim_time_unit`; 1.x wrote a
+        `sim_time_ns` (or `sim_time_ps`) attribute. Both are read so a results file from either
+        generation is understood.
+        """
+        duration = properties.get("sim_time_duration")
+        if duration is not None:
+            scale = _SIM_TIME_UNIT_NS.get(properties.get("sim_time_unit", "ns").strip().lower())
+            if scale is not None:
+                try:
+                    return float(duration) * scale
+                except ValueError:
+                    return None
+        for attribute, scale in (("sim_time_ns", 1.0), ("sim_time_ps", 1e-3)):
+            value = testcase.get(attribute)
+            if value is not None:
+                try:
+                    return float(value) * scale
+                except ValueError:
+                    return None
+        return None
+
+    @staticmethod
     def parse_results(results_xml_file) -> "TestResults":
         tree = ElementTree.parse(results_xml_file)
         results = []
         for ts in tree.iter("testsuite"):
-            random_seed = ts.get("random_seed")
+            # The seed has lived in three places across cocotb versions: a `<testsuite>`
+            # attribute, a `<property>` directly under the suite, and (from 2.0) a property of
+            # each testcase. Try them in that order rather than reporting -1.
+            random_seed = ts.get("random_seed") or _property_value(ts, "random_seed")
             test_cases = []
             num_errors = 0
             num_failures = 0
             num_skipped = 0
             total_sim_time_ns = 0.0
             for tc in ts.iter("testcase"):
-                sim_time_ns_ = tc.get("sim_time_ns")
-                sim_time_ns: Optional[float] = None
-                if sim_time_ns is None:
-                    sim_time_ps = tc.get("sim_time_ps")
-                    if sim_time_ps is not None:
-                        try:
-                            sim_time_ns = float(sim_time_ps) / 1e3
-                        except ValueError:
-                            sim_time_ns = 0.0
-                    else:
-                        sim_time_ns = 0.0
-                else:
-                    try:
-                        sim_time_ns = float(sim_time_ns_ or 0)
-                    except ValueError:
-                        sim_time_ns = 0
+                properties = TestResults._properties(tc)
+                if random_seed is None:
+                    random_seed = properties.get("random_seed")
+                sim_time_ns = TestResults._sim_time_ns(tc, properties)
                 time_s = float(tc.get("time") or 0)
-                failures = [e.tag.upper() for e in tc]
+                # Only these children say anything about the outcome: cocotb 2.x also writes a
+                # `<properties>` block and may attach captured output, and counting every child
+                # tag made a passing test report its status as "PROPERTIES".
+                outcome = [e.tag.upper() for e in tc if e.tag.upper() in _OUTCOME_TAGS]
                 test_cases.append(
                     TestCase(
                         name=tc.get("name", "???"),
                         classname=tc.get("classname", "???"),
-                        file=tc.get("file", "???"),
-                        lineno=tc.get("lineno", "???"),
+                        file=tc.get("file") or properties.get("file", "???"),
+                        lineno=tc.get("lineno") or properties.get("line", "???"),
                         time=time_s,
                         sim_time_ns=sim_time_ns,
-                        ratio_time=sim_time_ns / time_s if time_s > 0 else 0,
-                        status=", ".join(failures) or "PASSED",
+                        ratio_time=(sim_time_ns / time_s) if sim_time_ns and time_s > 0 else 0,
+                        status=", ".join(outcome) or "PASSED",
                     )
                 )
-                num_errors += len(list(filter(lambda e: e == "ERROR", failures)))
-                num_failures += len(list(filter(lambda e: e == "FAILURE", failures)))
-                num_skipped += len(list(filter(lambda e: e == "SKIPPED", failures)))
-                total_sim_time_ns += sim_time_ns
+                num_errors += outcome.count("ERROR")
+                num_failures += outcome.count("FAILURE")
+                num_skipped += outcome.count("SKIPPED")
+                total_sim_time_ns += sim_time_ns or 0.0
             results.append(
                 TestSuite(
                     random_seed=int(random_seed or "-1"),

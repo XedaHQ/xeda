@@ -38,11 +38,7 @@ class GhdlTool(Tool):
     docker: Optional[Docker] = Docker(image="hdlc/sim:osvb")  # type: ignore
     executable: str = "ghdl"
     version_regexps: List[Union[str, re.Pattern[str]]] = [
-        re.compile(r, re.IGNORECASE)
-        for r in (
-            r"GHDL\s+(?P<version>\d+\.\d+\.\d+).*",
-            r"GHDL\s+(?P<version>\d+\.\d+\.\d+).*",
-        )
+        re.compile(r"GHDL\s+(?P<version>\d+\.\d+\.\d+).*", re.IGNORECASE)
     ]
 
     @cached_property

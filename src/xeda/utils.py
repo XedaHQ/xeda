@@ -181,8 +181,20 @@ def dump_json(data: object, path: Path, backup: bool = True, indent: int = 4) ->
 
 
 def unique(lst: List[Any]) -> List[Any]:
-    """returns unique elements of the list in their original order (first occurrence)."""
-    return list(OrderedDict.fromkeys(lst))
+    """returns unique elements of the list in their original order (first occurrence).
+
+    Falls back to equality comparison when the items are not hashable. A design source may be
+    given as an object (`{file = "a.vhdl"}`), and the hashing fast path raised
+    `TypeError: unhashable type: 'dict'` on it before the sources validator ever saw it.
+    """
+    try:
+        return list(OrderedDict.fromkeys(lst))
+    except TypeError:
+        out: List[Any] = []
+        for item in lst:
+            if item not in out:
+                out.append(item)
+        return out
 
 
 def camelcase_to_snakecase(name: str) -> str:

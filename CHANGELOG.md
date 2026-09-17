@@ -62,6 +62,13 @@ All notable changes to this project will be documented in this file.
   `GPI_USERS` (libpython followed by the PYGPI entry point), mirroring `cocotb_tools.runner`. The
   entry point is probed via `cocotb-config --pygpi-entry-point`, which older releases reject, so
   cocotb 2.0 keeps working unchanged. An existing `GPI_USERS` is respected.
+- cocotb results: every simulation reported `cocotb.sim_time_ns` as 0. The attribute branch of
+  the results parser was unreachable (it tested a local it had just set to `None` rather than the
+  parsed attribute), and from cocotb 2.0 the per-test metadata moved out of `<testcase>`
+  attributes into a JUnit `<properties>` block, which the parser did not read at all. Simulated
+  time, the random seed and the testbench source location are now reported for both layouts, and
+  a passing test no longer has its status read from the `<properties>` element as "PROPERTIES".
+  Pass/fail detection was unaffected.
 - Units: `ns`, `us`, `ms` and `ps` are spelled out before parsing. `pint` resolves `ns` to both
   *nanosecond* and *nanosiemens* and picked between them nondeterministically, so a value such
   as `"5.5ns"` was sometimes rejected.
@@ -81,6 +88,18 @@ All notable changes to this project will be documented in this file.
   context and copied from it afterwards. On a filesystem install the path outlives the context, but
   from a zip (or any non-filesystem loader) the extracted directory is deleted on exit and the
   install would fail. The copy now happens while the context is open.
+- A design source given as an object (`sources = [{ file = "a.vhdl" }]`) -- the form
+  `xeda design-schema` documents -- failed to load with `unhashable type: 'dict'`: the sources
+  validator deduplicated its input by hashing every element. `utils.unique()` now falls back to
+  equality comparison for unhashable items.
+- A non-positive `clock_period` flow setting was accepted. An explicit `0` was indistinguishable
+  from an omitted one and was silently replaced by the main clock's period, and a negative value
+  was never checked at all; both now report "Clock period must be positive".
+- `--json` left the rich console and tool output pointed at stderr after the command finished.
+  In a one-shot `xeda` process this was invisible, but when the CLI is driven repeatedly in one
+  process (`click.testing.CliRunner`, or use as a library) every later human-facing command wrote
+  to the finished command's stream and appeared to produce nothing. Both are now restored when the
+  invocation ends.
 - `Design.schema()` raised `ValueError: Value not declarable with JSON Schema`.
 - Design sources recorded their type as an integer ordinal (`"5"`) in `settings.json` instead
   of a name (`"Vhdl"`). Old files are still read correctly.

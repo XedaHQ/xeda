@@ -4,6 +4,7 @@
 editors and coding agents with no machine-readable description of a design file.
 """
 
+import json
 import pathlib
 
 import pytest
@@ -172,6 +173,32 @@ def test_source_object_may_not_name_both_a_file_and_a_path():
     with pytest.raises(ValueError, match="mutually exclusive"):
         DesignSource(both)
     assert not validator().is_valid({"name": "d", "rtl": {"sources": [both], "top": "t"}})
+
+
+SOURCE_OBJECT_FORMS = {
+    "file": {"file": "design0.sv"},
+    "file+type": {"file": "design0.sv", "type": "SystemVerilog"},
+    "unknown key ignored": {"file": "design0.sv", "bogus": 1},
+}
+
+
+@pytest.mark.parametrize("label", sorted(SOURCE_OBJECT_FORMS))
+def test_source_object_form_loads_and_validates(label, tmp_path):
+    """The object form the schema advertises must actually load.
+
+    `_sources_to_files` deduplicates its input with `unique()`, which hashed every element --
+    so a source given as an object failed with `unhashable type: 'dict'` before the validator
+    ever looked at it, even though `DesignSource` accepts a dict. The schema documented a form
+    the loader could not read.
+    """
+    (tmp_path / "design0.sv").write_text("module design0; endmodule\n")
+    design_file = tmp_path / "d.json"
+    data = {"name": "d", "rtl": {"top": "design0", "sources": [SOURCE_OBJECT_FORMS[label]]}}
+    design_file.write_text(json.dumps(data))
+
+    design = Design.from_file(design_file)  # the loader accepts it...
+    assert [p.file.name for p in design.rtl.sources] == ["design0.sv"]
+    assert validator().is_valid(data), "schema rejects a form the loader accepts"
 
 
 def test_model_schema_is_still_available():

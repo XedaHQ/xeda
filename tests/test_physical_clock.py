@@ -8,6 +8,7 @@ string "5.5". Dividing by it used to raise `unsupported operand type(s) for /: '
 import pytest
 
 from xeda.dataclass import ValidationError
+from xeda.flow import FPGA, FlowSettingsError
 from xeda.flow.synth import PhysicalClock
 from xeda.flows import VivadoSynth
 
@@ -52,6 +53,32 @@ def test_non_positive_freq_is_rejected_with_a_clear_message(freq):
         PhysicalClock(freq=freq)  # type: ignore[call-arg]
     assert "positive" in str(excinfo.value)
     assert "Neither freq or period" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("period", [0, 0.0, "0", -1, "-1"])
+def test_non_positive_clock_period_setting_is_rejected(period):
+    """A non-positive `clock_period` must be rejected even when `clocks` is also given.
+
+    The back-fill from `clocks` tested `if not values.get("clock_period")`, so an explicit 0 was
+    indistinguishable from an omitted one and was silently replaced by the main clock's period.
+    A negative value escaped the other way: truthy, so never back-filled, and never checked.
+    """
+    # a settings-level failure surfaces as FlowSettingsError, not the raw pydantic error
+    with pytest.raises((FlowSettingsError, ValidationError, ValueError)) as excinfo:
+        VivadoSynth.Settings(
+            fpga=FPGA("xc7a12tcsg325-1"),
+            clock_period=period,
+            clocks={"main_clock": {"period": 5.0}},
+        )
+    assert "positive" in str(excinfo.value)
+
+
+def test_clock_period_is_still_back_filled_from_clocks():
+    """The back-fill itself must keep working for a genuinely omitted `clock_period`."""
+    settings = VivadoSynth.Settings(
+        fpga=FPGA("xc7a12tcsg325-1"), clocks={"main_clock": {"period": 5.0}}
+    )
+    assert settings.clock_period == pytest.approx(5.0)
 
 
 def test_neither_period_nor_freq_is_rejected():
