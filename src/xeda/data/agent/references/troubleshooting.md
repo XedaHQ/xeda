@@ -26,9 +26,12 @@ Check for an `alias`: some settings have two accepted names (`vcd`/`waveform`,
 
 ### `FlowSettingsError` with a type error
 
-The value could not be coerced. `xeda list-settings <flow> --json` gives each field's `type` and,
-where the value is constrained, its `enum`. Note that `-s` values arrive as strings and are
-coerced, so `-s clock_period=5.5` is fine but `-s clock_period=fast` is not.
+The value does not match the setting's type. `xeda list-settings <flow> --json` gives each
+field's `type` and, where the value is constrained, its `enum`. Text that spells a number is read
+as one, so `-s clock_period=5.5` is fine but `-s clock_period=fast` is not. The reverse does not
+happen: a text setting needs text in a design file (`speed = "2"`, `compile_args = ["-j", "8"]`),
+not a number, and `true`/`false` are not text. A list setting also accepts comma-separated text
+(`-s xdc_files=a.xdc,b.xdc`).
 
 ### `FlowNotFoundError`
 

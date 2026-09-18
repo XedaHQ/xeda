@@ -309,7 +309,8 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                     if self.design.rtl.clocks:
                         msg = f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c.name for c in self.design.rtl.clocks if c and c.name)}"
                     else:
-                        msg = f"No clock ports specified in 'design.rtl', while physical '{clock_name}' is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
+                        described = f"'{clock_name}'" if clock_name else "set by `clock_period`"
+                        msg = f"No clock ports specified in 'design.rtl', while the physical clock {described} is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
                     raise FlowSettingsError(
                         [
                             (
@@ -344,7 +345,6 @@ class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
 
         fpga: Optional[FPGA] = Field(
             None,
-            validate_default=False,  # v1: no `always=True` -- do not run on the default
             description="Target FPGA device. Accepts a full part identifier as a string "
             '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields.',
         )

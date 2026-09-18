@@ -55,8 +55,10 @@ class FPGA(XedaBaseModel):
         # positional form `FPGA("xc7a...")` already accepted it; a field value never did.
         if isinstance(values, str):
             values = {"part": values}
-        if not isinstance(values, dict) or not values:
+        if not isinstance(values, dict):
             return values
+        # An empty mapping is checked like any other: an FPGA must identify a device. Letting
+        # `{}` through built an FPGA whose saved form then failed to load.
         # Intel: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf
         # Lattice: https://www.latticesemi.com/Support/PartNumberReferenceGuide
         # Xilinx: https://www.xilinx.com/support/documents/selection-guides/7-series-product-selection-guide.pdf

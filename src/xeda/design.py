@@ -182,12 +182,12 @@ class FileResource:
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any) -> Any:
-        """Validate as an arbitrary type, exactly as `arbitrary_types_allowed` did under v1.
+        """Validate as an arbitrary type: an instance check.
 
         Values reach here already coerced by the `mode="before"` validators on the fields that
         declare them, so an isinstance check is all that is required. The serializer is
-        `when_used="json"` so that `model_dump()` keeps returning the object itself, as v1 did,
-        while `model_dump_json()` emits the path string.
+        `when_used="json"` so that `model_dump()` returns the object itself while
+        `model_dump_json()` emits the path string.
         """
         return core_schema.is_instance_schema(
             cls,
@@ -399,7 +399,6 @@ DefineType = Any
 # the order matters!
 # Union[FileResource, int, bool, float, str]
 
-# Tuple -> Tuple[()] (empty tuple), but pydantic 1.9.0 + Python 3.9 typing do not like it
 # Tuple of 0, 1, or 2 strings:
 Tuple012 = Union[Tuple[str, ...], Tuple[str], Tuple[str, str]]  # xtype: ignore
 
@@ -412,14 +411,16 @@ _PARAMETERS_FORM_ERROR = (
 
 def _normalize_parameters(value: Any) -> Any:
     """Normalize the two interchangeable parameter/generic input forms."""
-    if not value:
+    if value is None:
+        # Not `if not value`: an empty list (`parameters = []`) is the empty list form, and must
+        # become `{}` like any other list rather than reach the mapping field as a list.
         return value
     if isinstance(value, list):
         normalized = {}
         for entry in value:
             # Checked before `.get`: a bare list such as `parameters = ["W"]` otherwise escaped
             # as `AttributeError: 'str' object has no attribute 'get'`, which the validator
-            # guard (like v1) does not turn into a validation error.
+            # guard does not turn into a validation error.
             if not isinstance(entry, Mapping):
                 raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got a list entry {entry!r}")
             entry_name = entry.get("name")
@@ -826,7 +827,6 @@ class TbSettings(DVSettings):
 class LanguageSettings(XedaBaseModel):
     standard: Optional[str] = Field(
         None,
-        validate_default=False,  # v1: no `always=True` -- do not run on the default
         description="Standard version",
         alias="version",
     )
@@ -1127,8 +1127,7 @@ class Design(XedaBaseModel):
             data["rtl"] = {
                 "sources": data.pop("sources", []),
                 "generator": data.pop("generator", None),
-                # `{}`, not `[]`: both are `Dict` fields. pydantic v1 silently coerced an
-                # empty list to an empty dict; v2 rejects it.
+                # `{}`, not `[]`: both are `Dict` fields.
                 "parameters": data.pop("parameters", {}),
                 "defines": data.pop("defines", {}),
                 "top": data.pop("top", None),

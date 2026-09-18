@@ -6,14 +6,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from ...board import WithFpgaBoardSettings
-from ...dataclass import Field, field_validator, model_validator
+from ...dataclass import Field
 from ...design import SourceType
 from ...flow import (
     FPGA,
     FlowFatalError,
     FpgaSynthFlow,
     describe_results,
-    propagate_to_dependency,
 )
 from ...proc_utils import run_process
 from ...tool import Tool
@@ -55,9 +54,6 @@ class OpenXC7(FpgaSynthFlow):
             None,
             description="Target Xilinx 7-series device. Accepts a full part identifier as a string "
             '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields.',
-        )
-        verbose: bool = Field(
-            False, description="Pass `--verbose` to nextpnr for more detailed progress output."
         )
         seed: Optional[int] = Field(
             None,
@@ -138,8 +134,8 @@ class OpenXC7(FpgaSynthFlow):
         bitstream: Union[Path, str, None] = Field(
             None, description="Xilinx: Bitstream file to write"
         )
-        yosys: Optional[YosysFpga.Settings] = Field(
-            None,
+        yosys: YosysFpga.Settings = Field(
+            default_factory=YosysFpga.Settings,
             description="Settings for the `yosys_fpga` dependency that synthesizes the design. "
             "`fpga` and `clocks` are propagated automatically.",
         )
@@ -148,41 +144,13 @@ class OpenXC7(FpgaSynthFlow):
             description="Program the FPGA after bitstream generation. Can specify the cable type.",
         )
 
-        @field_validator("yosys")
-        @classmethod
-        def _validate_dep_yosys_settings(cls, value):
-            # Shape only; `_sync_yosys_dependency` owns the propagation, so that it also
-            # happens when `fpga`/`clocks` are assigned after construction.
-            if value is None:
-                return YosysFpga.Settings()  # type: ignore # pyright: reportGeneralTypeIssues=none
-            if not isinstance(value, YosysFpga.Settings):
-                return YosysFpga.Settings(**value)
-            # Copy: v1 re-validated (and thus copied) a nested model instance, v2 keeps the
-            # caller's object, so normalizing in place would edit settings the caller still owns.
-            return value.model_copy(deep=True)
-
-        @model_validator(mode="after")
-        def _sync_yosys_dependency(self, info):
-            """Keep the `yosys_fpga` dependency's target and constraints in step with ours."""
-            if self.yosys is not None and info.field_name in (
-                None,
-                "yosys",
-                "fpga",
-                "clocks",
-                "clock_period",
-            ):
-                propagate_to_dependency(self.yosys, self, "fpga", "clocks")
-            return self
+        dependency_settings = {"yosys": ("fpga", "clocks")}
 
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
         self.skip_parse_reports = False
         ss = self.settings
-        assert ss.yosys is not None
-        self.add_dependency(
-            YosysFpga,
-            ss.yosys,
-        )
+        self.add_dependency(YosysFpga, ss.resolve_dependency("yosys"))
 
     @classmethod
     def check_settings(cls, settings: Settings) -> None:
@@ -344,11 +312,6 @@ class OpenXC7(FpgaSynthFlow):
         assert yosys_flow.settings.netlist_json
         netlist_json = yosys_flow.run_path / yosys_flow.settings.netlist_json
 
-        if not ss.fpga and ss.yosys and ss.yosys.fpga:
-            ss.fpga = ss.yosys.fpga
-        if not ss.clocks and ss.yosys and ss.yosys.clocks:
-            ss.clocks = ss.yosys.clocks
-
         self.check_settings(ss)
 
         if self.next_pnr.executable_path() is None:
@@ -364,7 +327,7 @@ class OpenXC7(FpgaSynthFlow):
         args += setting_flag(ss.seed)
         args += setting_flag(ss.out_of_context)
         args += setting_flag(ss.debug)
-        args += setting_flag(ss.verbose)
+        args += setting_flag(ss.verbose > 0, name="verbose")  # nextpnr has one level
         args += setting_flag(ss.quiet)
         if ss.seed is None:
             args += setting_flag(ss.randomize_seed)

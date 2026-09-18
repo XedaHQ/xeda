@@ -28,8 +28,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
         vcd: Union[str, Path, None] = Field(
             None,
             alias="waveform",
-            description="Write waveform to file",
-            validate_default=False,  # v1: no `always=True` -- do not run on the default
+            description="Write a waveform to this file. `true` writes `dump.vcd`; a name without "
+            "an extension gets `.vcd`; `false` or an empty name writes none.",
         )
         stop_time: Union[str, int, float, None] = Field(
             None,
@@ -47,15 +47,13 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
         @field_validator("vcd", mode="before")
         @classmethod
-        def _validate_vcd(cls, vcd):  # pylint: disable=no-self-argument
-            if vcd is not None:
-                if isinstance(vcd, bool) and vcd is True:
-                    vcd = "dump.vcd"
-                else:
-                    if (
-                        isinstance(vcd, str) and vcd[1:].count(".") == 0
-                    ):  # if it doesn't have an extension
-                        vcd += ".vcd"
+        def _validate_vcd(cls, vcd):
+            if vcd is True:
+                return "dump.vcd"
+            if vcd is False or vcd == "":
+                return None
+            if isinstance(vcd, (str, Path)) and not Path(vcd).suffix:
+                return f"{vcd}.vcd"
             return vcd
 
     def __init__(

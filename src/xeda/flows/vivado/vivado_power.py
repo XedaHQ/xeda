@@ -50,6 +50,7 @@ class VivadoPower(VivadoSim):
             description="Settings for the `vivado_postsynth_sim` dependency that produces the "
             "switching activity."
         )
+        dependency_settings = {"postsynthsim": ("timing_sim", "elab_debug", "saif")}
         power_report_xml: str = Field(
             "power_impl_timing.xml", description="File the XML power report is written to."
         )
@@ -58,10 +59,7 @@ class VivadoPower(VivadoSim):
         assert self.design.tb, "A testbench is required for power estimation"
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        ss.postsynthsim.timing_sim = ss.timing_sim
-        ss.postsynthsim.elab_debug = ss.elab_debug
-        ss.postsynthsim.saif = ss.saif
-        self.add_dependency(VivadoPostsynthSim, ss.postsynthsim)
+        self.add_dependency(VivadoPostsynthSim, ss.resolve_dependency("postsynthsim"))
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)

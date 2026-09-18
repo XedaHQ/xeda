@@ -21,38 +21,23 @@ from xeda.cli_utils import OptionEatAll
 from xeda.dataclass import ValidationError
 from xeda.design import Design, DesignValidationError
 from xeda.flow import FPGA, FlowSettingsError
-from xeda.flow.flow import registered_flows
-from xeda.flows import __builtin_flows__
 from xeda.flows.yosys.yosys_fpga import YosysFpga
 from xeda.platforms.asics import AsicsPlatform
 
-assert __builtin_flows__, "importing `xeda.flows` is what populates `registered_flows`"
+from .settings_samples import PROBES, flow_classes, minimal_settings
 
-#: What a malformed value may raise. `ValueError` is included because `FlowSettingsError`,
-#: `DesignValidationError` and pydantic's `ValidationError` all derive from it.
+#: What a malformed value may raise: the validation errors of settings (`FlowSettingsError`),
+#: designs (`DesignValidationError`) and plain models (pydantic's `ValidationError`, the only one
+#: of the three that is a `ValueError`), plus the `ValueError` that lookups such as
+#: `AsicsPlatform.from_resource` raise for a name they do not know.
 VALIDATION_ERRORS = (ValidationError, FlowSettingsError, DesignValidationError, ValueError)
 
-MALFORMED = [123, 4.5, True, "x", ["x"], [1, 2], {"a": 1}, {"a": {"b": 1}}, object(), None, [{}]]
-
-MINIMAL_SETTINGS = {
-    "fpga": {"part": "xc7a100tcsg324-1"},
-    "clock_period": 5.0,
-    "platform": "asap7",
-    "target_libraries": ["nangate45.lib"],
-}
+#: Every structural kind of value, plus a few that only a caller (not a file) can pass.
+MALFORMED = [*PROBES, object(), {"a": {"b": 1}}, [{}]]
 
 RTL = {"sources": [], "top": "t"}
 
-
-def _flow_classes():
-    classes = {}
-    for _, (_, cls) in sorted(registered_flows.items()):
-        if not cls.__name__.startswith("_"):  # test-only flows registered by other modules
-            classes.setdefault(cls, cls.name)
-    return sorted(classes.items(), key=lambda kv: kv[1])
-
-
-FLOWS = _flow_classes()
+FLOWS = flow_classes()
 
 
 def _leaks(build, fields):
@@ -71,7 +56,7 @@ def _leaks(build, fields):
 
 @pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=[name for _, name in FLOWS])
 def test_malformed_flow_settings_are_validation_errors(cls):
-    base = {k: v for k, v in MINIMAL_SETTINGS.items() if k in cls.Settings.model_fields}
+    base = minimal_settings(cls)
     fields = [name for name in cls.Settings.model_fields if not name.endswith("_")]
 
     leaks = _leaks(lambda field, bad: cls.Settings(**{**base, field: bad}), fields)

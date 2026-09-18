@@ -111,6 +111,10 @@ Reach a dependency's settings through a nested key:
 xeda run openfpgaloader blinky.toml -s nextpnr.yosys.flatten=true
 ```
 
+Settings a flow shares with its dependency (`fpga`, `clocks`, `board`, ...) are set once, on the
+flow you run: its value is used for both, and a value given only in the nested settings is used
+when the flow leaves the setting unset.
+
 `xeda list-flows --json` reports each flow's `dependencies`.
 
 ## Reading results

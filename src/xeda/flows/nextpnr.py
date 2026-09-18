@@ -8,12 +8,11 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
 from ..board import WithFpgaBoardSettings, get_board_data, get_board_file_path
-from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
+from ..dataclass import Field, XedaBaseModel, field_validator
 from ..flow import (
     FlowFatalError,
     FpgaSynthFlow,
     describe_results,
-    propagate_to_dependency,
 )
 from ..tool import Tool
 from ..utils import setting_flag
@@ -170,9 +169,6 @@ class Nextpnr(FpgaSynthFlow):
     )
 
     class Settings(WithFpgaBoardSettings):
-        verbose: bool = Field(
-            False, description="Pass `--verbose` to nextpnr for more detailed progress output."
-        )
         lpf_cfg: Optional[str] = Field(
             None,
             description="Lattice LPF pin-constraint file. Taken from the board database when "
@@ -247,46 +243,18 @@ class Nextpnr(FpgaSynthFlow):
             description="Enable nextpnr's parallel placement refinement. Faster on many cores, "
             "and only available in some nextpnr builds.",
         )
-        yosys: Optional[YosysFpga.Settings] = Field(
-            None,
+        yosys: YosysFpga.Settings = Field(
+            default_factory=YosysFpga.Settings,
             description="Settings for the `yosys_fpga` dependency that synthesizes the design. "
             "`fpga` and `clocks` are propagated automatically.",
         )
 
-        @field_validator("yosys")
-        @classmethod
-        def _validate_yosys(cls, value):
-            # Shape only; `_sync_yosys_dependency` owns the propagation, so that it also
-            # happens when `fpga`/`clocks` are assigned after construction.
-            if value is None:
-                return YosysFpga.Settings()  # type: ignore
-            if not isinstance(value, YosysFpga.Settings):
-                return YosysFpga.Settings(**value)
-            # Copy: v1 re-validated (and thus copied) a nested model instance, v2 keeps the
-            # caller's object, so normalizing in place would edit settings the caller still owns.
-            return value.model_copy(deep=True)
-
-        @model_validator(mode="after")
-        def _sync_yosys_dependency(self, info):
-            """Keep the `yosys_fpga` dependency's target and constraints in step with ours."""
-            if self.yosys is not None and info.field_name in (
-                None,
-                "yosys",
-                "fpga",
-                "clocks",
-                "clock_period",
-            ):
-                propagate_to_dependency(self.yosys, self, "fpga", "clocks")
-            return self
+        dependency_settings = {"yosys": ("fpga", "clocks")}
 
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        assert ss.yosys is not None
-        self.add_dependency(
-            YosysFpga,
-            ss.yosys,
-        )
+        self.add_dependency(YosysFpga, ss.resolve_dependency("yosys"))
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -349,7 +317,7 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.out_of_context)
         args += setting_flag(ss.lpf_allow_unconstrained)
         args += setting_flag(ss.debug)
-        args += setting_flag(ss.verbose)
+        args += setting_flag(ss.verbose > 0, name="verbose")  # nextpnr has one level
         args += setting_flag(ss.quiet)
         args += setting_flag(ss.randomize_seed)
         args += setting_flag(ss.timing_allow_fail)

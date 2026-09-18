@@ -478,7 +478,6 @@ class GhdlSim(Ghdl, SimFlow):
         )
         wave: Optional[Union[str, Path]] = Field(
             None,
-            validate_default=False,  # v1: no `always=True` -- do not run on the default
             description="Write the waveforms. The file name can be an absolute path or a name. If the name is used, the file will be created in flow's run_dir.",
         )
         read_wave_opt: Optional[str] = Field(
@@ -492,7 +491,6 @@ class GhdlSim(Ghdl, SimFlow):
         fst: Optional[Union[str, Path]] = Field(
             None,
             description="Write the waveforms into an _fst_ file.",
-            validate_default=False,  # v1: no `always=True` -- do not run on the default
         )
         stop_delta: Optional[str] = Field(
             None,
@@ -516,10 +514,6 @@ class GhdlSim(Ghdl, SimFlow):
                 ext = ".ghw" if name == "wave" else ".fst" if name == "fst" else ""
                 if isinstance(value, bool):
                     return "dump" + ext if value else None
-                elif isinstance(value, str):
-                    # if value.startswith("$PWD/"):
-                    #     value = os.path.join(self.r, value[5:])
-                    pass
             return value
 
     def run(self) -> None:

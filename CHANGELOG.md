@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- `yosys`: a `netlist_*` switch set after the settings were created -- as the flow itself does to
+  write liberty-mapped netlists without expressions (`-noexpr`) -- never reached `write_verilog`.
+  The flags are now derived from the switches when the script is written.
 - Packaging: the declared minimum Python version is now 3.11, matching the CI matrix and current
   dependencies. Advertising Python 3.10 caused dependency resolution to fail because Pint now
   requires Python 3.11 or newer.
@@ -136,11 +139,18 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **pydantic 2.** Xeda now requires `pydantic >= 2.13.5, < 3` (previously `>= 1.10.22, < 2`).
-  Design, settings, board and platform files that loaded under 1.x load unchanged: a number given
-  for a string setting (`speed = 2`, `MAX_BRAM = 0`, `compile_args = ["-j", 8]`) is still accepted
-  as text, and a malformed value is still reported as a validation error naming the field. Code
-  that uses xeda as a library must move to the pydantic 2 model API (`model_dump()`,
+  Code that uses xeda as a library must move to the pydantic 2 model API (`model_dump()`,
   `model_validate()`, `model_json_schema()`, `model_copy()`).
+- **Settings and design files are checked strictly against each setting's type.** A value of
+  another type is an error naming the setting, instead of being silently converted: write text
+  settings as text (`speed = "2"`, `compile_args = ["-j", "8"]`), not numbers; `true`/`false` are
+  no longer turned into the text `"True"`/`"False"`; a fractional number is no longer truncated for
+  a whole-number setting. Settings whose values really are of several kinds say so: Vivado's
+  `set_synth_properties`/`set_impl_properties` take text, numbers and booleans (written to Tcl as
+  `true`/`false`).
+- A list setting may be given as comma-separated text (`-s xdc_files=a.xdc,b.xdc`), now also when
+  the list is optional; spaces around items and empty items are dropped, so an empty string is an
+  empty list. A setting that also accepts plain text keeps the text whole.
 - The minimum `importlib_resources` version is now 7.1.0.
 - `ise_synth` records its project properties in `settings.json` as written (`High`, not
   `"High"`) and quotes them only in the generated script. Its settings therefore hash differently,
@@ -153,10 +163,21 @@ All notable changes to this project will be documented in this file.
 - Examples now require cocotb 2.1 (`examples/requirements.txt`).
 - `xeda dse` now exits with a non-zero status when the exploration produced no successful run,
   matching `xeda run` and the other commands. It previously always exited 0.
-- A flow's settings for its dependency flows keep following it after construction: assigning
-  `fpga`, `board`, `clocks` or `clock_period` on `nextpnr`, `open_xc7` or `openfpgaloader`
-  settings updates the `yosys_fpga` dependency (and, for `openfpgaloader`, `nextpnr`) too. Each
-  dependency gets its own copy, so editing one flow's settings never alters another's.
+- A flow and the dependency it launches (`nextpnr` and `open_xc7` run `yosys_fpga`,
+  `openfpgaloader` runs `nextpnr`, `vivado_power` and `vivado_postsynth_sim` run their Vivado
+  flows) resolve the settings they share when the dependency is launched: each one (`fpga`,
+  `clocks`, `board`, ...) comes from the flow if it is set there, otherwise from the dependency's
+  own settings, and both then use that value. A part or clocks given only in the nested
+  `yosys`/`nextpnr` settings are therefore used rather than erased, whatever order settings were
+  given in.
+- `openfpgaloader` no longer requires `clock_period`, like every other synthesis flow, and reports
+  a missing target as "set `fpga` or `board`" instead of an empty error.
+- `nextpnr` and `open_xc7` take the verbosity level every flow shares (`verbose = 2`) rather than a
+  flow-specific switch; any level above 0 passes `--verbose`.
+- `vivado_synth` and the flows built on it report a missing `fpga` when their settings are read,
+  rather than accepting it and failing later. An FPGA given as an empty mapping is reported as
+  missing its device, the same as one with only empty fields.
+- A simulation's `vcd` setting of `false` or an empty name writes no waveform.
 
 ### Removed
 - Dependency on `click-help-colors`, replaced by `click-extra`.

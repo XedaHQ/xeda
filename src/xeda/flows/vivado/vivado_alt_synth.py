@@ -347,9 +347,9 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         @field_validator("synth", "impl")
         @classmethod
         def validate_synth(cls, value, info):
-            # Copy: this is a `mode="after"` validator, so `value` is the caller's own
-            # `RunOptions` under v2 (v1 re-validated into a fresh instance). Expanding the
-            # strategy in place would grow the caller's `steps` mapping.
+            # Copy: this is a `mode="after"` validator, so `value` may be the caller's own
+            # `RunOptions` instance. Expanding the strategy in place would grow the caller's
+            # `steps` mapping.
             value = value.model_copy(deep=True)
             if value.strategy:
                 strategy_steps = strategies[info.field_name].get(value.strategy)
