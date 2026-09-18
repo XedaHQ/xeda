@@ -19,14 +19,31 @@ EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 
 assert __builtin_flows__, "importing `xeda.flows` is what populates `registered_flows`"
 
-#: Minimal settings that let a flow's `Settings` be constructed at all. A flow whose settings
-#: still cannot be built from these is skipped rather than failed: requiring, say, a full
-#: `VivadoSynth.Settings` for `vivado_postsynth_sim` is a property of that flow, not a defect.
+#: Minimal settings that let every flow's `Settings` be constructed. Required dependency settings
+#: are supplied explicitly below; a new required field should fail this sweep until its minimal
+#: valid value is added, never silently reduce the coverage through a skip.
 MINIMAL_SETTINGS = {
     "fpga": {"part": "xc7a100tcsg324-1"},
     "clock_period": 5.0,
     "platform": "asap7",
     "target_libraries": ["nangate45.lib"],
+}
+
+MINIMAL_SETTINGS_BY_FLOW = {
+    "vivado_postsynth_sim": {
+        "synth": {
+            "fpga": MINIMAL_SETTINGS["fpga"],
+            "clock_period": MINIMAL_SETTINGS["clock_period"],
+        }
+    },
+    "vivado_power": {
+        "postsynthsim": {
+            "synth": {
+                "fpga": MINIMAL_SETTINGS["fpga"],
+                "clock_period": MINIMAL_SETTINGS["clock_period"],
+            }
+        }
+    },
 }
 
 #: Fields whose validator deliberately normalizes a value that `model_dump()` writes back out,
@@ -45,12 +62,10 @@ def _flow_classes():
     return sorted(classes.items(), key=lambda kv: kv[1])
 
 
-def _settings_or_skip(cls):
+def _settings(cls):
     kwargs = {k: v for k, v in MINIMAL_SETTINGS.items() if k in cls.Settings.model_fields}
-    try:
-        return cls.Settings(**kwargs)
-    except Exception as e:  # any failure here means "cannot build cheaply"
-        pytest.skip(f"{cls.name}.Settings needs more than the minimal settings: {e}")
+    kwargs.update(MINIMAL_SETTINGS_BY_FLOW.get(cls.name, {}))
+    return cls.Settings(**kwargs)
 
 
 FLOWS = _flow_classes()
@@ -73,7 +88,7 @@ def test_assigning_a_field_its_own_value_changes_nothing(cls):
     option quoting turned `"High"` into `""High""` -- therefore drifts a little further every
     time, which is invisible until a flow is re-run from its own recorded settings.
     """
-    settings = _settings_or_skip(cls)
+    settings = _settings(cls)
     for name in cls.Settings.model_fields:
         if name.endswith("_") or (cls.__name__, name) in IDEMPOTENCE_EXCEPTIONS:
             continue

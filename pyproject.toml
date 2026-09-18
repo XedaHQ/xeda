@@ -133,6 +133,10 @@ namespaces = false
 
 [tool.setuptools_scm]
 
+[tool.pytest.ini_options]
+# Always report why tests were skipped/xfailed, without enabling verbose per-test output.
+addopts = "-ra"
+
 [tool.black]
 line-length = 100
 target-version = ["py311", "py312", "py313", "py314"]
