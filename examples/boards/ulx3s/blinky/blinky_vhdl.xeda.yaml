@@ -2,7 +2,8 @@ hdl.vhdl.standard: "2008"
 
 sources: ["ecp5pll.vhdl", "blinky.vhdl"]
 top: blinky
-clock.port: "clk_25mhz"
+clock:
+  port: "clk_25mhz"
 
 flows:
   openfpgaloader:

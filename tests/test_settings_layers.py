@@ -13,7 +13,7 @@ from types import MappingProxyType
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError
+from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import dependency_settings
 from xeda.flow_runner.settings_layers import merge_flow_sections, merge_layers
@@ -95,6 +95,143 @@ def test_two_names_for_one_setting_in_one_layer_are_still_an_error():
 
     with pytest.raises(FlowSettingsError, match="nthreads"):
         YosysFpga.Settings.from_input(merged)
+
+
+@pytest.mark.parametrize(
+    ("lower", "higher", "expected_period"),
+    [
+        ({"clock": {"period": 5.0}}, {"clock_period": 4.0}, 4.0),
+        ({"clock_period": 5.0}, {"clock": {"freq": 250.0}}, 4.0),
+        (
+            {"clocks": {"main_clock": {"port": "clk_i", "period": 5.0}}},
+            {"clock_period": 4.0},
+            4.0,
+        ),
+    ],
+)
+def test_clock_spellings_are_one_concept_across_precedence_layers(lower, higher, expected_period):
+    merged = merge_layers(lower, higher, settings_cls=VivadoSynth.Settings)
+    settings = VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged})
+
+    assert list(settings.clocks) == ["main_clock"]
+    assert settings.main_clock is not None
+    assert settings.main_clock.period == pytest.approx(expected_period)
+
+
+def test_layered_clock_period_matches_direct_construction(tmp_path):
+    """`clock_period` normalized through `merge_layers` must name the clock the same way
+    `SynthFlow.Settings._synthflow_settings_root_validator` does when settings are constructed
+    directly -- otherwise the two paths disagree on `clocks["main_clock"].name` and thus on
+    `flowrun_hash`, even though the settings mean the same thing."""
+    merged = merge_layers(
+        {"fpga": "xc7a12tcsg325-1"}, ["clock_period=5"], settings_cls=VivadoSynth.Settings
+    )
+    layered = VivadoSynth.Settings.from_input(merged, design_root=tmp_path, runner_cwd=tmp_path)
+    direct = VivadoSynth.Settings.from_input(
+        {"fpga": "xc7a12tcsg325-1", "clock_period": 5},
+        design_root=tmp_path,
+        runner_cwd=tmp_path,
+    )
+
+    assert layered.clocks["main_clock"].name == "main_clock"
+    assert flowrun_hash("vivado_synth", layered) == flowrun_hash("vivado_synth", direct)
+
+
+def test_unnamed_singular_override_redirected_onto_a_named_clock_keeps_its_identity():
+    """A bare `clock_period=5` refining an existing, differently-named lower-layer clock must
+    not stamp that clock's identity to `"main_clock"` -- it targets the existing clock (by the
+    `singular_clock == "main_clock"` redirect in `_merge_settings_layer`), and only a genuinely
+    *new* clock entry gets the synthesized `"main_clock"` name."""
+    merged = merge_layers(
+        {"clocks": {"clk": {"name": "clk", "period": 10, "port": "clk_i"}}},
+        ["clock_period=5"],
+        settings_cls=VivadoSynth.Settings,
+    )
+
+    assert merged["clocks"] == {"clk": {"name": "clk", "port": "clk_i", "period": "5"}}
+
+
+def test_unnamed_singular_override_redirected_onto_an_unnamed_clock_stays_unnamed():
+    """Same redirect, but the lower layer's sole clock never had an explicit `name` either --
+    the override must not invent one."""
+    merged = merge_layers(
+        {"clocks": {"clk": {"period": 10, "port": "clk_i"}}},
+        ["clock.period=5"],
+        settings_cls=VivadoSynth.Settings,
+    )
+
+    assert merged["clocks"] == {"clk": {"port": "clk_i", "period": "5"}}
+    assert merged["clocks"]["clk"].get("name") != "main_clock"
+
+
+def test_higher_clock_timing_replaces_alternate_spelling_and_preserves_other_attributes():
+    merged = merge_layers(
+        {
+            "clock": {
+                "port": "clk_i",
+                "period": 5.0,
+                "uncertainty": 0.1,
+                "duty_cycle": 0.4,
+            }
+        },
+        {"clock": {"freq": 250.0}},
+        settings_cls=VivadoSynth.Settings,
+    )
+    settings = VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged})
+
+    assert settings.main_clock is not None
+    assert settings.main_clock.period == pytest.approx(4.0)
+    assert settings.main_clock.port == "clk_i"
+    assert settings.main_clock.uncertainty == pytest.approx(0.1)
+    assert settings.main_clock.duty_cycle == pytest.approx(0.4)
+
+
+def test_clock_spelling_precedence_is_applied_recursively_to_dependency_settings():
+    merged = merge_layers(
+        {"yosys": {"clock_period": 10.0}},
+        {"yosys": {"clock": {"freq": 200.0, "port": "clk_i"}}},
+        settings_cls=Nextpnr.Settings,
+    )
+    settings = Nextpnr.Settings.from_input({"fpga": "LFE5U-25F-6BG381C", **merged})
+
+    assert settings.yosys.main_clock is not None
+    assert settings.yosys.main_clock.period == pytest.approx(5.0)
+    assert settings.yosys.main_clock.port == "clk_i"
+
+
+def test_mixed_clock_spellings_in_one_layer_are_still_an_error():
+    merged = merge_layers(
+        {"clock": {"period": 5.0}, "clock_period": 4.0},
+        settings_cls=VivadoSynth.Settings,
+    )
+
+    with pytest.raises(FlowSettingsError, match="cannot be combined"):
+        VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged})
+
+
+def test_single_clock_override_targets_the_deterministic_main_of_a_multi_clock_layer():
+    merged = merge_layers(
+        {"clocks": {"clk_a": {"period": 5.0}, "clk_b": {"period": 10.0}}},
+        {"clock_period": 4.0},
+        settings_cls=VivadoSynth.Settings,
+    )
+    settings = VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged})
+
+    assert settings.clocks["clk_a"].period == pytest.approx(4.0)
+    assert settings.clocks["clk_b"].period == pytest.approx(10.0)
+
+
+def test_flow_sections_keep_single_clock_semantics_until_after_layering():
+    merged = merge_flow_sections(
+        {"vivado_synth": {"clocks": {"system": {"port": "clk_i", "period": 5.0}}}},
+        {"vivado_synth": {"clock_period": 4.0}},
+        flow_class_for=lambda name: VivadoSynth if name == "vivado_synth" else None,
+    )
+    settings = VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged["vivado_synth"]})
+
+    assert list(settings.clocks) == ["system"]
+    assert settings.clocks["system"].period == pytest.approx(4.0)
+    assert settings.clocks["system"].port == "clk_i"
 
 
 def test_flow_aliases_are_one_section_across_precedence_layers():
@@ -184,6 +321,39 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
         "fpga": {"part": "LFE5U-25F-6BG381C"},
     }
     assert launched["all_flows"]["yosys_fpga"] == {"flatten": True}
+
+
+@pytest.mark.parametrize(
+    ("design_clock", "override", "expected"),
+    [
+        ("clock.period = 5.0", "clock_period=4.0", {"period": "4.0"}),
+        ("clock_period = 5.0", "clock.freq=250.0", {"freq": "250.0"}),
+    ],
+)
+def test_local_run_allows_higher_clock_spelling_to_override_design_layer(
+    tmp_path, monkeypatch, launched, design_clock, override, expected
+):
+    """Exercise both reviewer-reported CLI combinations through the real runner layering."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "top.v").write_text("module top(input clk); endmodule\n")
+    design = _write(
+        tmp_path / "d.toml",
+        f"""
+        name = "d"
+        [rtl]
+        sources = ["top.v"]
+        top = "top"
+        clock = {{ port = "clk" }}
+        [flows.vivado_synth]
+        fpga.part = "xc7a100t"
+        {design_clock}
+        """,
+    )
+
+    with pytest.raises(_Launched):
+        DefaultRunner(tmp_path / "run").run("vivado_synth", design, flow_settings=[override])
+
+    assert launched["settings"]["clocks"] == {"main_clock": {**expected, "name": "main_clock"}}
 
 
 def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monkeypatch, launched):
@@ -464,6 +634,81 @@ def test_fmax_variations_refine_nested_base_settings_instead_of_replacing_them()
     assert batch
     assert batch[0]["synth"]["strategy"] == "Flow_PerfOptimized_high"
     assert batch[0]["synth"]["steps"]["SYNTH_DESIGN"]["ARGS"]["CUSTOM"] == "yes"
+
+
+def test_fmax_variations_change_only_the_target_clock_period():
+    from xeda.flow_runner.dse.fmax import FmaxOptimizer
+
+    optimizer = FmaxOptimizer(
+        max_workers=1,
+        settings=FmaxOptimizer.Settings(init_freq_low=100.0, init_freq_high=200.0),
+    )
+    optimizer.flow_class = VivadoSynth
+    optimizer.base_settings = VivadoSynth.Settings(
+        fpga="xc7a100t",
+        clocks={
+            "main_clock": {
+                "name": "main_clock",
+                "port": "clk_i",
+                "period": 10.0,
+                "rise": 0.25,
+                "duty_cycle": 0.4,
+                "uncertainty": 0.1,
+                "skew": 0.02,
+            },
+            "aux": {
+                "name": "aux",
+                "port": "aux_i",
+                "period": 20.0,
+                "rise": 0.5,
+                "duty_cycle": 0.6,
+                "uncertainty": 0.2,
+                "skew": 0.03,
+            },
+        },
+    )
+    optimizer.variations = {}
+
+    batch = optimizer.next_batch()
+
+    assert batch
+    candidate = VivadoSynth.Settings.from_input(batch[0])
+    assert set(candidate.clocks) == {"main_clock", "aux"}
+    assert candidate.main_clock is not None
+    assert candidate.main_clock.period == pytest.approx(5.0)
+    assert candidate.main_clock.port == "clk_i"
+    assert candidate.main_clock.rise == pytest.approx(0.25)
+    assert candidate.main_clock.duty_cycle == pytest.approx(0.4)
+    assert candidate.main_clock.uncertainty == pytest.approx(0.1)
+    assert candidate.main_clock.skew == pytest.approx(0.02)
+    assert (
+        candidate.clocks["aux"].model_dump() == optimizer.base_settings.clocks["aux"].model_dump()
+    )
+
+
+def test_fmax_uses_the_deterministic_main_when_multiple_clocks_are_not_named_main_clock():
+    from xeda.flow_runner.dse.fmax import FmaxOptimizer
+
+    optimizer = FmaxOptimizer(
+        max_workers=1,
+        settings=FmaxOptimizer.Settings(init_freq_low=100.0, init_freq_high=200.0),
+    )
+    optimizer.flow_class = VivadoSynth
+    optimizer.base_settings = VivadoSynth.Settings(
+        fpga="xc7a100t",
+        clocks={
+            "clk_a": {"name": "clk_a", "port": "a", "period": 10.0},
+            "clk_b": {"name": "clk_b", "port": "b", "period": 20.0},
+        },
+    )
+    optimizer.variations = {}
+
+    batch = optimizer.next_batch()
+
+    assert batch
+    candidate = VivadoSynth.Settings.from_input(batch[0])
+    assert candidate.clocks["clk_a"].period == pytest.approx(5.0)
+    assert candidate.clocks["clk_b"].period == pytest.approx(20.0)
 
 
 def test_running_a_design_mapping_does_not_modify_the_callers_mapping(tmp_path, launched):

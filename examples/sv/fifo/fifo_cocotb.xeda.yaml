@@ -2,7 +2,8 @@ sources:
   - fifo.sv
 top: fifo
 
-clock.port: clk
+clock:
+  port: clk
 
 tb:
   sources:

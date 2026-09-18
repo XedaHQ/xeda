@@ -16,6 +16,7 @@ through `merge_layers`, so they cannot disagree about precedence.
 
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from types import UnionType
 from typing import Annotated, Any, Union, get_args, get_origin
 
@@ -61,7 +62,7 @@ def _input_names(settings_cls: type[XedaBaseModel]) -> dict[str, str]:
 def _canonicalize_setting_names(
     values: Mapping[str, Any], settings_cls: type[XedaBaseModel]
 ) -> dict[str, Any]:
-    """Canonicalize aliases in one precedence layer, recursively.
+    """Canonicalize aliases at one model level in one precedence layer.
 
     This happens *per layer*, so a higher layer's `nthreads` overrides a lower layer's `ncpus`.
     If one layer gives both spellings, preserve both and let pydantic reject the ambiguity rather
@@ -73,12 +74,140 @@ def _canonicalize_setting_names(
     canonical: dict[str, Any] = {}
     for (key, value), target in zip(values.items(), targets):
         output_key = key if target in duplicates else target
-        info = settings_cls.model_fields.get(target)
-        child_cls = _nested_model(info.annotation) if info is not None else None
-        if child_cls is not None and isinstance(value, Mapping):
-            value = _canonicalize_setting_names(value, child_cls)
         canonical[output_key] = value
     return canonical
+
+
+def _has_clock_inputs(settings_cls: type[XedaBaseModel]) -> bool:
+    """Whether this settings model has SynthFlow's canonical clock contract."""
+    return (
+        "clocks" in settings_cls.model_fields
+        and isinstance(getattr(settings_cls, "clock", None), property)
+        and isinstance(getattr(settings_cls, "clock_period", None), property)
+    )
+
+
+def _clock_mapping(value: Any) -> Mapping[str, Any] | None:
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, XedaBaseModel):
+        return value.model_dump()
+    return None
+
+
+def _canonicalize_clock_input(
+    values: dict[str, Any], settings_cls: type[XedaBaseModel]
+) -> tuple[dict[str, Any], str | None]:
+    """Normalize one layer's single-clock spelling to ``clocks``.
+
+    The returned name marks a singular override. It lets the merge apply `clock_period` or
+    `clock` to an existing sole/named main clock rather than adding a second clock. Giving more
+    than one spelling in this *same* layer is intentionally left unchanged, so validation still
+    rejects the ambiguity.
+    """
+    if not _has_clock_inputs(settings_cls):
+        return values, None
+    present = [name for name in ("clock", "clock_period", "clocks") if name in values]
+    if len(present) != 1 or present[0] == "clocks":
+        return values, None
+
+    spelling = present[0]
+    raw = values.pop(spelling)
+    if raw is None:
+        # `None` historically meant "not specified". It must not erase a lower layer's clocks.
+        return values, None
+    if spelling == "clock_period":
+        clock: Mapping[str, Any] = {"period": raw}
+        name = "main_clock"
+    else:
+        mapped = _clock_mapping(raw)
+        if mapped is None:
+            # Preserve invalid input under its original name for pydantic's field-specific error.
+            values[spelling] = raw
+            return values, None
+        clock = dict(mapped)
+        name = str(clock.get("name") or "main_clock")
+    values["clocks"] = {name: dict(clock)}
+    return values, name
+
+
+def _merge_clock_values(base: Any, override: Any) -> Any:
+    """Merge a `clocks` mapping while treating `period` and `freq` as alternate spellings."""
+    if not isinstance(base, Mapping) or not isinstance(override, Mapping):
+        return deepcopy(override)
+    merged = deepcopy(dict(base))
+    for name, raw_clock in override.items():
+        new_clock = _clock_mapping(raw_clock)
+        old_clock = _clock_mapping(merged.get(name))
+        if new_clock is not None and old_clock is not None:
+            old_clock = deepcopy(dict(old_clock))
+            # A timing constraint from the higher layer replaces the lower layer's alternate
+            # spelling. Other attributes (port, uncertainty, duty cycle, ...) merge key by key.
+            if "period" in new_clock or "freq" in new_clock:
+                old_clock.pop("period", None)
+                old_clock.pop("freq", None)
+            merged[name] = hierarchical_merge(old_clock, dict(new_clock))
+        else:
+            merged[name] = deepcopy(raw_clock)
+    return merged
+
+
+def _merge_settings_layer(
+    base: Mapping[str, Any], values: Mapping[str, Any], settings_cls: type[XedaBaseModel]
+) -> dict[str, Any]:
+    """Merge one already-parsed layer with model-aware aliases and nested settings."""
+    canonical = _canonicalize_setting_names(values, settings_cls)
+    canonical, singular_clock = _canonicalize_clock_input(canonical, settings_cls)
+    merged = deepcopy(dict(base))
+
+    for key, value in canonical.items():
+        target = _input_names(settings_cls).get(key, key)
+        info = settings_cls.model_fields.get(target)
+        child_cls = _nested_model(info.annotation) if info is not None else None
+        old = merged.get(key)
+        if child_cls is not None and isinstance(value, Mapping):
+            merged[key] = _merge_settings_layer(
+                old if isinstance(old, Mapping) else {}, value, child_cls
+            )
+        elif key == "clocks" and _has_clock_inputs(settings_cls) and isinstance(value, Mapping):
+            clock_values = dict(value)
+            existing_before = merged.get("clocks")
+            existing_before = existing_before if isinstance(existing_before, Mapping) else {}
+            if singular_clock is not None:
+                existing = merged.get("clocks")
+                if isinstance(existing, Mapping) and singular_clock not in existing:
+                    if singular_clock == "main_clock" and existing:
+                        # An unnamed single-clock shorthand targets the same deterministic
+                        # legacy main used by SynthFlow.Settings.main_clock: explicit
+                        # ``main_clock`` first, otherwise the first declared clock.
+                        old_name = next(iter(existing))
+                        clock_values = {old_name: next(iter(clock_values.values()))}
+                    elif len(existing) == 1:
+                        # An explicitly named higher `clock` replaces the identity of the sole
+                        # lower clock instead of leaving two clocks behind.
+                        old_name = next(iter(existing))
+                        merged["clocks"] = {singular_clock: existing[old_name]}
+                # A singular spelling without an explicit name (`clock_period`, or `clock` with
+                # no `name`) names its clock `"main_clock"`, matching
+                # `SynthFlow.Settings._synthflow_settings_root_validator`'s direct-construction
+                # default -- but only when it creates a genuinely new clock entry. When it
+                # instead refines an already-existing clock (the redirects above, or a layer
+                # that already has a same-named clock), the existing clock's identity -- its own
+                # `name`, whatever it is -- must win, not be overwritten by the synthesized
+                # default.
+                for cname, cval in clock_values.items():
+                    if (
+                        cname not in existing_before
+                        and isinstance(cval, Mapping)
+                        and not cval.get("name")
+                    ):
+                        clock_values[cname] = {**cval, "name": cname}
+            merged[key] = _merge_clock_values(merged.get(key, {}), clock_values)
+        elif isinstance(old, Mapping) and isinstance(value, Mapping):
+            merged[key] = hierarchical_merge(dict(old), dict(value))
+        else:
+            merged[key] = deepcopy(value)
+    return merged
 
 
 def merge_layers(*layers: Layer, settings_cls: type[XedaBaseModel] | None = None) -> dict[str, Any]:
@@ -93,8 +222,9 @@ def merge_layers(*layers: Layer, settings_cls: type[XedaBaseModel] | None = None
         if layer:
             values = settings_to_dict(layer)  # type: ignore[arg-type]
             if settings_cls is not None:
-                values = _canonicalize_setting_names(values, settings_cls)
-            merged = hierarchical_merge(merged, values)
+                merged = _merge_settings_layer(merged, values, settings_cls)
+            else:
+                merged = hierarchical_merge(merged, values)
     return merged
 
 
@@ -121,8 +251,11 @@ def merge_flow_sections(
                     f"Flow settings for {canonical_name!r} are given twice in one `flows` "
                     f"section, as {original_names[canonical_name]!r} and {name!r}. Keep one."
                 )
-            settings_cls = flow_cls.Settings if flow_cls is not None else None
-            normalized[canonical_name] = merge_layers(values, settings_cls=settings_cls)
+            # Keep this section as one distinct precedence layer. Canonicalizing it here would
+            # erase the fact that `clock_period`/`clock` was a single-clock shorthand before it
+            # is compared with the lower section (and could incorrectly add a second clock
+            # instead of refining the lower section's sole named clock).
+            normalized[canonical_name] = settings_to_dict(values)
             original_names[canonical_name] = name
             if flow_cls is not None:
                 classes[canonical_name] = flow_cls

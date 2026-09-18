@@ -2,7 +2,7 @@ import logging
 from typing import List, Literal
 
 from ...dataclass import Field
-from ...flow import FpgaSynthFlow, describe_results
+from ...flow import FlowSettingsException, FpgaSynthFlow, describe_results
 from ...tool import Tool
 
 log = logging.getLogger(__name__)
@@ -46,6 +46,10 @@ class DiamondSynth(FpgaSynthFlow):
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
+        if self.settings.main_clock is None:
+            raise FlowSettingsException(
+                "diamond_synth needs a clock: set `clock.period` (or `clocks`) in the flow settings"
+            )
         constraint_exts = ["ldc"] if self.settings.synthesis_engine == "lse" else ["sdc", "fdc"]
         constraints = [f"constraints.{ext}" for ext in constraint_exts]
         for constraint in constraints:

@@ -5,7 +5,7 @@ description = 'Running LEDs on the ULX3S board'
 [design.rtl]
 sources = ['blinky.v']
 top = 'blinky'
-clock_port = 'clk_25mhz'
+clock = { port = 'clk_25mhz' }
 
 [[design]]
 name = 'blinky-vhdl'
@@ -18,7 +18,7 @@ sources = [ #
     'blinky.vhdl',
 ]
 top = 'blinky'
-clock_port = 'clk_25mhz'
+clock = { port = 'clk_25mhz' }
 
 
 [flows.openfpgaloader]

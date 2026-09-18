@@ -525,6 +525,7 @@ _FLAT_RTL_PROPERTIES = (
     "sources",
     "top",
     "clock",
+    "clock_port",
     "clocks",
     "parameters",
     "generics",

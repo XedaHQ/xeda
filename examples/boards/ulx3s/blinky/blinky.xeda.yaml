@@ -1,6 +1,7 @@
 sources: ["blinky.v"]
 top: blinky
-clock.port: "clk_25mhz"
+clock:
+  port: "clk_25mhz"
 
 flows:
   openfpgaloader:

@@ -53,7 +53,7 @@ language.vhdl.standard = "2008"    # or language.verilog.standard
 [rtl]
 sources = ["pkg.vhdl", "sqrt.vhdl"]   # required, IN COMPILATION ORDER
 top = "sqrt"                          # required by synthesis flows
-clock_port = "clk"                    # names the clock PORT, not its period
+clock = { port = "clk" }               # names the clock PORT, not its period
 parameters = { G_IN_WIDTH = 32 }      # or `generics`; use one spelling, not both
 
 [tb]
@@ -70,10 +70,14 @@ Key points that are easy to get wrong:
 - **Paths resolve against the design file's directory**, not the working directory.
 - **`sources` order is compilation order.** VHDL packages must precede their users.
 - **Clocks split in two.** `[rtl]` names the clock *port*; the *period or frequency* is a flow
-  setting, because it constrains a particular build. Single clock: `clock_port = "clk"` in `[rtl]`
-  plus `clock.period` (ns) or `clock.freq` per flow. The legacy `clock_period` spelling is accepted
-  as compatibility input, but do not combine it with `clock` or `clocks`. Multiple: `[[rtl.clocks]]`
-  entries plus a `clocks` mapping in the flow settings.
+  setting, because it constrains a particular build. Single clock: `clock = { port = "clk" }` in
+  `[rtl]` plus `clock.period` (ns) or `clock.freq` per flow. The legacy `clock_port` spelling is
+  accepted as compatibility input. The legacy `clock_period` spelling is also accepted for flow
+  settings. Within one settings layer, do not combine a compatibility spelling with its canonical
+  counterpart; across layers the higher-precedence spelling wins and is merged into canonical
+  `clocks`.
+  Prefer `clock.period` or `clock.freq` in new files. Multiple: `[[rtl.clocks]]` entries plus a
+  `clocks` mapping in the flow settings.
 - Give a source a table instead of a string when inference is not enough:
   `{ file = "legacy.v", type = "SystemVerilog" }`. Use `path =` instead of `file =` for a source a
   generator will produce (it is not checked for existence).

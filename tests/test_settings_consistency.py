@@ -56,17 +56,30 @@ def test_legacy_clock_period_cannot_be_combined_with_canonical_clock():
         )
 
 
-def test_single_clock_compatibility_accessors_do_not_choose_an_arbitrary_clock():
+def test_main_clock_falls_back_deterministically_and_period_assignment_targets_it():
     settings = YosysFpga.Settings(
         fpga={"part": "LFE5U-25F-6BG381C"},
         clocks={"clk_a": {"freq": 100.0}, "clk_b": {"freq": 50.0}},
     )
 
-    assert settings.main_clock is None
-    assert settings.clock is None
-    assert settings.clock_period is None
-    with pytest.raises(ValueError, match="ambiguous with multiple clocks"):
-        settings.clock_period = 5.0
+    assert settings.main_clock is settings.clocks["clk_a"]
+    assert settings.clock is settings.clocks["clk_a"]
+    assert settings.clock_period == pytest.approx(10.0)
+    settings.clock_period = 5.0
+    assert settings.clock_period == pytest.approx(5.0)
+    assert settings.clocks["clk_a"].period == pytest.approx(5.0)
+    assert settings.clocks["clk_b"].period == pytest.approx(20.0)
+    assert set(settings.clocks) == {"clk_a", "clk_b"}
+
+
+def test_assigning_none_to_legacy_clock_period_preserves_clocks():
+    settings = YosysFpga.Settings(
+        fpga={"part": "LFE5U-25F-6BG381C"},
+        clocks={"clk_a": {"freq": 100.0}, "clk_b": {"freq": 50.0}},
+    )
+
+    settings.clock_period = None
+
     assert set(settings.clocks) == {"clk_a", "clk_b"}
 
 
@@ -127,6 +140,54 @@ def test_rtl_clock_list_is_not_replaced_by_an_unrelated_assignment():
 
     assert rtl.clocks is clocks
     assert rtl.clock is clock
+
+
+def test_rtl_clock_is_stored_once_and_compatibility_values_are_derived():
+    rtl = RtlSettings(sources=[], clock_port="clk_i")
+
+    assert rtl.clock is rtl.clocks[0]
+    assert rtl.clock_port == "clk_i"
+    assert set(rtl.model_dump()).isdisjoint({"clock", "clock_port"})
+
+    rtl.clocks = [{"name": "replacement", "port": "clk_r"}]
+    assert rtl.clock is rtl.clocks[0]
+    assert rtl.clock_port == "clk_r"
+
+
+def test_empty_legacy_rtl_clock_port_still_means_no_declared_clock():
+    rtl = RtlSettings(sources=[], clock_port="")
+
+    assert rtl.clocks == []
+    assert rtl.clock is None
+    assert rtl.clock_port is None
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"clock": {"port": "a"}, "clock_port": "b"},
+        {"clock": {"port": "a"}, "clocks": [{"port": "b"}]},
+        {"clock_port": "a", "clocks": [{"port": "b"}]},
+    ],
+)
+def test_rtl_clock_spellings_in_one_input_are_rejected(values):
+    with pytest.raises(ValidationError, match="Specify only one"):
+        RtlSettings(sources=[], **values)
+
+
+def test_rtl_single_clock_compatibility_accessors_use_the_first_clock():
+    rtl = RtlSettings(
+        sources=[],
+        clocks=[{"name": "a", "port": "clk_a"}, {"name": "b", "port": "clk_b"}],
+    )
+
+    assert rtl.clock is not None
+    assert rtl.clock.port == "clk_a"
+    assert rtl.clock_port == "clk_a"
+
+    rtl.clock_port = "x"
+    assert len(rtl.clocks) == 1
+    assert rtl.clocks[0].port == "x"
 
 
 @pytest.mark.parametrize(

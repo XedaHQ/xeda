@@ -5,6 +5,8 @@ string "5.5". Dividing by it used to raise `unsupported operand type(s) for /: '
 'str'`, which made every documented form of setting a clock period from the command line fail.
 """
 
+from decimal import Decimal
+
 import pytest
 
 from xeda.dataclass import ValidationError
@@ -117,6 +119,19 @@ def test_neither_period_nor_freq_is_rejected():
     assert "Neither freq or period" in str(excinfo.value)
 
 
+@pytest.mark.parametrize("value", ["0.5ns", "50%", "half"])
+def test_duty_cycle_rejects_units_and_non_numeric_values(value):
+    """Duty cycle is a unitless ratio, unlike the clock timing fields."""
+    with pytest.raises(ValidationError, match="unitless number"):
+        PhysicalClock(period=5.0, duty_cycle=value)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("value", [0.5, "0.5", Decimal("0.5")])
+def test_duty_cycle_accepts_unitless_numeric_values(value):
+    clock = PhysicalClock(period=5.0, duty_cycle=value)  # type: ignore[call-arg]
+    assert clock.duty_cycle == pytest.approx(float(value))
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -131,3 +146,26 @@ def test_synth_flow_settings_accept_string_clock_overrides(overrides):
     assert settings.clock_period == pytest.approx(5.5, abs=1e-3)
     assert settings.main_clock is not None
     assert settings.main_clock.period == pytest.approx(5.5, abs=1e-3)
+
+
+def test_clock_period_setter_targets_main_clock_with_multiple_unnamed_clocks():
+    """`clock_period` assignment must agree with the `main_clock`/`clock_period` getters.
+
+    With several clocks and none named ``main_clock``, both `main_clock` and `clock_period`
+    already fall back to the first declared clock -- and so does the settings-layer merge for
+    `-s clock_period=...`. The setter used to reject this case as "ambiguous" instead of
+    matching that fallback.
+    """
+    settings = VivadoSynth.Settings.from_input(
+        {
+            "fpga": "xc7a12tcsg325-1",
+            "clocks": {"clk_a": {"period": 10.0}, "clk_b": {"period": 20.0}},
+        }
+    )
+    assert settings.main_clock is settings.clocks["clk_a"]
+
+    settings.clock_period = 5.0
+
+    assert settings.clock_period == pytest.approx(5.0)
+    assert settings.clocks["clk_a"].period == pytest.approx(5.0)
+    assert settings.clocks["clk_b"].period == pytest.approx(20.0)

@@ -7,7 +7,8 @@ parameters:
   G_OUT_BITS: 64
   G_SETUP_ROUNDS: 4
 top: trivium
-clock.port: clk
+clock:
+  port: clk
 
 test:
   sources:

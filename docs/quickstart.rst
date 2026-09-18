@@ -40,7 +40,7 @@ build it - tool choices stay out of it, except for the optional per-flow setting
     [rtl]
     sources = ["sqrt.vhdl"]
     top = "sqrt"
-    clock_port = "clk"
+    clock = { port = "clk" }
     parameters = { G_IN_WIDTH = 32 }
 
     [tb]

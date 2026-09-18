@@ -695,54 +695,94 @@ class RtlSettings(DVSettings):
             - value is the actual value of the attribute
         """,
     )
-    # preferred way to specify a design's clock ports:
+    # The only stored representation of design clock ports. ``clock`` and ``clock_port`` are
+    # input/API compatibility shorthands exposed as derived properties below.
     clocks: List[Clock] = []
-    # short-hand alternatives for a single clock designs:
-    clock: Optional[Clock] = None  # DEPRECATED # TODO remove
-    clock_port: Optional[str] = None  # TODO remove?
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        """Advertise the accepted single-clock shorthands without storing duplicate state."""
+        schema = handler(core_schema)
+        properties = schema.setdefault("properties", {})
+        clock_item = deepcopy(properties["clocks"]["items"])
+        properties["clock"] = {
+            "anyOf": [clock_item, {"type": "string"}],
+            "description": "Single design clock shorthand. Prefer an object with `port`.",
+            "x-xeda-input-only": True,
+        }
+        properties["clock_port"] = {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "deprecated": True,
+            "description": "Compatibility shorthand for `clock.port`; prefer `clock.port`.",
+            "x-xeda-input-only": True,
+        }
+        return schema
 
     @model_validator(mode="before")
     @classmethod
     def rtl_settings_validate(cls, values, info):  # pylint: disable=no-self-argument
-        """copy equivalent clock fields (backward compatibility)"""
-        assigned = info.field_name if info.data is None else None
-        if assigned is not None and assigned not in ("clock", "clock_port", "clocks"):
-            # Pydantic 2 re-runs a before-model validator for every assignment. Rebuilding the
-            # list here detached it from code holding a reference to ``rtl.clocks`` even when,
-            # for example, only ``top`` changed.
+        """Normalize exactly one accepted clock input into the canonical ``clocks`` list."""
+        if info.field_name is not None and info.data is None:
+            # Assignment to a real field. The clocks field validator handles clocks itself;
+            # unrelated assignments must not reconstruct or detach the established list.
             return values
 
-        def conv_clock(clock):
-            if isinstance(clock, dict):
-                clock = Clock(**clock)
-            elif isinstance(clock, str):
-                clock = Clock(port=clock)
-            return clock
+        present = [name for name in ("clock", "clock_port", "clocks") if name in values]
+        if len(present) > 1:
+            raise ValueError(
+                "Specify only one of `clock`, `clock_port`, or `clocks`; prefer `clock` for "
+                "one clock and `clocks` for several"
+            )
+        if present:
+            spelling = present[0]
+            if spelling == "clocks":
+                return values
+            value = values.pop(spelling)
+            if spelling == "clock_port":
+                # Historically an empty compatibility string meant that the design had no
+                # declared clock. Preserve that meaning instead of constructing a clock with an
+                # unusable empty port.
+                value = {"port": value} if value else None
+            values["clocks"] = [value] if value is not None else []
+        return values
 
-        if assigned in ("clock", "clock_port"):
-            # The shorthand being assigned is authoritative. Without this, assigning ``clock``
-            # changed that field but left ``clocks`` pointing at the previous clock; assigning
-            # ``clock_port`` was then overwritten from that stale list.
-            clock = conv_clock(values.get(assigned))
-            values["clocks"] = [clock] if clock else []
-            values["clock"] = clock
-            return values
-
-        clock = values.get("clock") or values.get("clock_port")
-        clocks = values.get("clocks")
+    @field_validator("clocks", mode="before")
+    @classmethod
+    def _normalize_clocks(cls, clocks):
         if clocks is None:
-            if clock:
-                clocks = [clock]
-            else:
-                clocks = []
-        elif isinstance(clocks, (str, dict, Clock)):
+            return []
+        if isinstance(clocks, (str, dict, Clock)):
             clocks = [clocks]
         if not isinstance(clocks, list):
             raise ValueError(f"Expecting 'clocks' to be a list but found {clocks}")
-        clocks = [conv_clock(clk) for clk in clocks if clk]
-        values["clocks"] = clocks
-        values["clock"] = clocks[0] if clocks else None
-        return values
+        return [{"port": clock} if isinstance(clock, str) else clock for clock in clocks if clock]
+
+    @property
+    def clock(self) -> Optional[Clock]:
+        """The first design clock, or ``None`` when the design has none."""
+        return self.clocks[0] if self.clocks else None
+
+    @clock.setter
+    def clock(self, value: Clock | Dict[str, Any] | str | None) -> None:
+        if value is None:
+            self.clocks = []
+        elif isinstance(value, Clock):
+            self.clocks = [value.model_copy(deep=True)]
+        elif isinstance(value, str):
+            self.clocks = [Clock(port=value)] if value else []
+        else:
+            self.clocks = [Clock.model_validate(value)]
+
+    @property
+    def clock_port(self) -> Optional[str]:
+        """Compatibility access to the first design clock's port, or ``None`` when there is none."""
+        clock = self.clock
+        return clock.port if clock is not None else None
+
+    @clock_port.setter
+    def clock_port(self, value: Optional[str]) -> None:
+        """Assigning replaces `clocks` with the single-clock shorthand, same as the `clock` setter."""
+        self.clock = value
 
 
 class CocotbTestbench(XedaBaseModel):
@@ -1100,14 +1140,11 @@ class Design(XedaBaseModel):
     @classmethod
     def process_compatibility(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         if "rtl" not in data:
-            clocks = data.pop("clocks", None)
-            if clocks is None:
-                clock = data.pop("clock", None)
-                clocks = [clock] if clock else []
-            # Keep both accepted names if both were written: `DVSettings` then reports the
-            # ambiguity instead of silently choosing one. A single `generics` spelling must be
-            # folded into `rtl` just like `parameters`; the published flat-form schema accepts
-            # both.
+            clock_inputs = {
+                name: data.pop(name) for name in ("clock", "clock_port", "clocks") if name in data
+            }
+            # Keep multiple spellings if they were written together: the corresponding model
+            # validator then reports the ambiguity instead of silently choosing one.
             parameters = {
                 name: data.pop(name) for name in ("parameters", "generics") if name in data
             }
@@ -1117,7 +1154,7 @@ class Design(XedaBaseModel):
                 **parameters,
                 "defines": data.pop("defines", {}),
                 "top": data.pop("top", None),
-                "clocks": clocks,
+                **clock_inputs,
             }
         tb = data.get("tb", {})
         tests = data.pop("tests", [])

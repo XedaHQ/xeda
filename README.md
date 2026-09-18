@@ -94,7 +94,7 @@ language.vhdl.standard = "2008"
 [rtl]
 sources = ["sqrt.vhdl"]
 top = "sqrt"
-clock_port = "clk"
+clock = { port = "clk" }
 parameters = { G_IN_WIDTH = 32 }
 
 [tb]
