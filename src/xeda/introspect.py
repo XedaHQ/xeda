@@ -21,7 +21,7 @@ import re
 import textwrap
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, List, Optional, Type, Union, get_args
 
 from importlib_resources import as_file, files
 from pydantic import BaseModel
@@ -275,12 +275,15 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
     base_field_names = set(Flow.Settings.model_fields)
 
     entries: List[Dict[str, Any]] = []
+    represented_names: set[str] = set()
     for name, model_field in cls.Settings.model_fields.items():
         info = model_field  # the mapping's values are `FieldInfo`s
         extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
         if extra.get("hidden_from_schema") or name.endswith("_"):
             continue
         alias = model_field.alias if model_field.alias and model_field.alias != name else None
+        represented_names.add(name)
+        represented_names.add(model_field.alias or name)
         prop = properties.get(model_field.alias or name, properties.get(name, {}))
         declared_by = next(
             (
@@ -303,6 +306,23 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "enum": _enum_of(prop, definitions),
                 "common": name in base_field_names,
                 "declared_by": declared_by,
+                "json_schema": json_safe(prop),
+            }
+        )
+    for name, prop in properties.items():
+        if name in represented_names or not prop.get("x-xeda-input-only"):
+            continue
+        entries.append(
+            {
+                "name": name,
+                "alias": None,
+                "type": type_str(prop, definitions),
+                "required": name in required,
+                "default": None,
+                "description": prop.get("description"),
+                "enum": _enum_of(prop, definitions),
+                "common": False,
+                "declared_by": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
                 "json_schema": json_safe(prop),
             }
         )
@@ -501,7 +521,16 @@ _EXTRA_INPUT_FORMS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
 
 #: Top-level shorthands that `Design.from_file` folds into `rtl` before validation, via
 #: `Design.process_compatibility`. A design file may use either form, so both are described.
-_FLAT_RTL_PROPERTIES = ("sources", "top", "clock", "clocks", "parameters", "defines", "generator")
+_FLAT_RTL_PROPERTIES = (
+    "sources",
+    "top",
+    "clock",
+    "clocks",
+    "parameters",
+    "generics",
+    "defines",
+    "generator",
+)
 
 
 def _add_flat_form(schema: Dict[str, Any]) -> None:
@@ -597,6 +626,42 @@ def _accept_field_names(by_alias: Dict[str, Any], by_name: Dict[str, Any]) -> No
             merge(spec, counterpart)
 
 
+def _models_reachable_from(model: type[BaseModel]) -> list[type[BaseModel]]:
+    found: list[type[BaseModel]] = []
+
+    def visit(annotation: Any) -> None:
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            if annotation not in found:
+                found.append(annotation)
+                for info in annotation.model_fields.values():
+                    visit(info.annotation)
+        for arg in get_args(annotation):
+            visit(arg)
+
+    visit(model)
+    return found
+
+
+def _accept_alias_choices(schema: dict[str, Any]) -> None:
+    """Accept every name of a field with several (`AliasChoices`): the loader takes any of them,
+    but pydantic's schema names only the first -- `generics` is `parameters` by another name."""
+    for model in _models_reachable_from(Design):
+        target = schema if model is Design else schema.get("$defs", {}).get(model.__name__)
+        properties = (target or {}).get("properties")
+        if not properties:
+            continue
+        for name, info in model.model_fields.items():
+            choices = [
+                c for c in getattr(info.validation_alias, "choices", []) if isinstance(c, str)
+            ]
+            spec = properties.get(name) or next(
+                (properties[c] for c in choices if c in properties), None
+            )
+            if spec is not None:
+                for choice in choices:
+                    properties.setdefault(choice, spec)
+
+
 def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
     """JSON Schema of a xeda design description (a design TOML/YAML/JSON file).
 
@@ -620,6 +685,7 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
     if not input_syntax:
         return schema
     _accept_field_names(schema, json_safe(Design.model_json_schema(by_alias=False)))
+    _accept_alias_choices(schema)
     _add_flat_form(schema)
     _open_property_sets(schema)
     for definition, properties in _EXTRA_INPUT_FORMS.items():

@@ -32,7 +32,7 @@ sections at the end:
 
     [flows.vivado_synth]
     fpga.part = "xc7a100tftg256-2L"
-    clock_period = 5.0
+    clock.period = 5.0
 
 Three things worth noticing:
 
@@ -77,7 +77,7 @@ from the command line without editing the file:
 
 .. code-block:: bash
 
-    xeda run vivado_synth sqrt.toml -s clock_period=4.0
+    xeda run vivado_synth sqrt.toml -s clock.period=4.0
 
 To find out what else that flow accepts:
 
@@ -90,14 +90,14 @@ routes. ``nextpnr`` depends on ``yosys_fpga``, so running it runs both:
 
 .. code-block:: bash
 
-    xeda run nextpnr sqrt.toml -s fpga.part=LFE5U-85F-6BG381C clock_period=10
+    xeda run nextpnr sqrt.toml -s fpga.part=LFE5U-85F-6BG381C clock.period=10
 
 4. Read the results
 ===================
 
 Each run leaves a directory under ``./xeda_run/`` containing the generated scripts, the tool logs,
-``reports/``, ``outputs/``, and two JSON files: ``settings.json`` (the effective settings) and
-``results.json`` (what was parsed back out).
+``reports/``, ``outputs/``, and two JSON files: ``settings.json`` (both the re-runnable input and
+the final effective settings) and ``results.json`` (what was parsed back out).
 
 From a script, skip the file-hunting:
 
@@ -110,7 +110,7 @@ From a script, skip the file-hunting:
 5. Search for the maximum frequency
 ===================================
 
-Instead of guessing at ``clock_period``, let Xeda search. ``xeda dse`` runs many instances of a
+Instead of guessing at the clock period, let Xeda search. ``xeda dse`` runs many instances of a
 flow in parallel under an optimizer; the default one binary-searches for the highest frequency
 that still meets timing:
 

@@ -7,7 +7,7 @@ clock.port = "clk"
 [tb]
 sources = ["blink_tb.cpp"]
 
-[flows.cxxrtl]
+[flows.yosys_sim]
 cxxrtl.filename = "blink.cpp"
 
 [flows.yosys_fpga]

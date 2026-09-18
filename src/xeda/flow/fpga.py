@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Any, Optional
 
-from ..dataclass import Field, XedaBaseModel, accepts_non_mapping, model_validator
+from ..dataclass import Code, Field, XedaBaseModel, accepts_non_mapping, model_validator
 from ..utils import try_convert
 
 log = logging.getLogger(__name__)
@@ -19,13 +19,13 @@ class FPGA(XedaBaseModel):
     device: Optional[str] = None
     vendor: Optional[str] = None
     family: Optional[str] = None
-    generation: Optional[str] = None
+    generation: Optional[Code] = None
     type: Optional[str] = None
-    speed: Optional[str] = Field(None, description="speed-grade")
+    speed: Optional[Code] = Field(None, description='Speed grade, e.g. `-1` or `"2L"`.')
     package: Optional[str] = None
     capacity: Optional[str] = None
     pins: Optional[int] = None
-    grade: Optional[str] = None
+    grade: Optional[Code] = None
 
     def __init__(self, *args: str, **data: Any) -> None:
         if args:

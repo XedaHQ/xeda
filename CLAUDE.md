@@ -55,7 +55,7 @@ xeda list-settings vivado_synth      # settings schema for a flow
 xeda list-results vivado_synth       # result keys a flow writes to results.json
 xeda design-schema                   # JSON Schema of a design file
 xeda list-boards / list-platforms / list-optimizers
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.toml -s clock_period=5.0 impl.strategy=Debug
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.toml -s clock.period=5.0 impl.strategy=Debug
 xeda dse vivado_synth --design <file>  # parallel design-space exploration (Fmax search)
 xeda scrub <flow> <design_name>      # remove previous run dirs
 ```
@@ -140,8 +140,24 @@ settings that get merged into dependency flows.
 
 ### Flow lifecycle
 
-`FlowLauncher.launch_flow()` drives: construct flow -> `init()` -> recursively launch dependency flows ->
-`run()` -> `parse_reports()` -> collect `results`.
+`FlowLauncher.launch_flow()` is the one procedure every flow run and every dependency run goes
+through, in named stages (each a method; the docstring lists them): **input** (`_input_settings`:
+validate in context, apply `--debug`) -> **identity** (`_run_identity`: design hash + `flowrun_hash`,
+run dir) -> **reuse** (`_previous_results`) -> **prepare** (construct the flow with its own *copy* of
+the input, `init()`, write `settings.json`) -> **dependencies** (`_run_dependencies`, recursing) ->
+**run** (`_execute`: `run()`, `parse_reports()`) -> **report** (`_report`).
+
+- **The input settings are never modified.** The launcher keeps them (they are what the run is
+  hashed by and recorded as `settings.json`'s `flow_settings`); the flow gets a deep copy as
+  `self.settings`, which `__init__`/`init()`/`run()` may complete with resolved paths, derived
+  options and outputs (recorded as `effective_flow_settings`, as of the end of the run).
+- A flow's settings come from layers merged key by key (`flow_runner/settings_layers.py`):
+  defaults < project `flows.<flow>` < design `[flows.<flow>]` < `-s` < API overrides. Local runs,
+  remote runs and dependencies all use `merge_layers`.
+- A dependency's settings are composed only in `default_runner.dependency_settings`: the
+  design's/project's own section for the dependency's flow, refined by what the depending flow
+  passed to `add_dependency` (for a declared dependency, `resolve_dependency`'s result); then the
+  depender's `debug`, and a `verbose` level above 1, carry over.
 
 - `init()` (not `__init__`) is where a flow registers dependencies via
   `self.add_dependency(DepFlowClass, dep_settings, copy_resources=[...])`. Deps run in nested run dirs
@@ -163,9 +179,13 @@ and also re-exports flow classes explicitly in `__all__` - **add new flows to bo
 `__all__`** so they appear in `xeda list-flows` and CLI completion.
 
 Flow base classes to inherit from (`flow/__init__.py`): `SimFlow` (adds `vcd`, `stop_time`, cocotb
-integration keyed on `cocotb_sim_name`), `SynthFlow` (adds `clock_period` / `clocks` with
+integration keyed on `cocotb_sim_name`), `SynthFlow` (adds `clock` / `clocks` with
 `PhysicalClock` reconciliation against `design.rtl.clocks`), and its `FpgaSynthFlow` (adds `fpga: FPGA`)
 / `AsicSynthFlow` specializations.
+
+For a single physical clock, use `clock.period` or `clock.freq`; `clock_period` is a legacy input
+spelling only. Supplying it together with `clock` or `clocks` is an error. Multi-clock constraints
+use the `clocks.<name>.period`/`freq` mappings.
 
 ### Settings
 
@@ -175,10 +195,11 @@ this is intentional and surfaces as `FlowSettingsError`. CLI `-s key=value` supp
 hierarchical keys.
 
 **A setting accepts exactly its declared type; there is no implicit conversion.** A number is not
-text (`speed = "2"`, `compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. Where
-a setting's values really are of several kinds, its type says so and whatever consumes it renders
-each kind explicitly: Vivado run properties are `str | int | float | bool`, rendered for Tcl by
-`tcl_property_value`. On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
+text (`compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. Where a setting's
+values really are of several kinds, its type says so and whatever consumes it renders each kind
+explicitly: Vivado run properties are `str | int | float | bool`, rendered for Tcl by
+`tcl_property_value`. Text that is naturally written as a number is declared per field with the
+`Code` type (`xeda.dataclass`): an FPGA's `speed = -1`, `grade`, `generation`. On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
 setting three conveniences, applied before any field validator runs (by a model `before` validator
 on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
@@ -205,7 +226,9 @@ enforces that and derives all its checks from the declarations.
 `write_verilog_flags()` / `attributes_to_unset()` read the `netlist_*` switches when the script is
 rendered, so a switch set later (as `Yosys.init` does for `netlist_expr`) still takes effect.
 
-The sweeps in `tests/test_model_invariants.py` and `tests/test_malformed_input.py` pair every
+`tests/test_example_flow_settings.py` validates every example design's and project's `[flows.*]`
+section against its flow (loading a design never does). The sweeps in
+`tests/test_model_invariants.py` and `tests/test_malformed_input.py` pair every
 setting of every flow with each value in `tests/settings_samples.PROBES` (every structural kind:
 empties, numbers, bools, text, namedtuples, nested containers) and check that no input is a
 traceback, that assigning a value is identical to constructing with it, that settings reload
@@ -249,9 +272,18 @@ and `highlight_rules` (regex -> ANSI, used to colorize tool output) - see `Vivad
 
 ### Caching and run directories
 
-`launch_flow` computes `design_hash` (from `rtl_hash` + `tb_hash`) and `flowrun_hash` (from flow name +
-settings) via `semantic_hash`. With `--cached-dependencies`, a dependency whose `settings.json` records
-matching hashes and whose `results.json` reports success is skipped and its results/artifacts reused.
+A run is identified by `design_hash` (from `rtl_hash` + `tb_hash`: each source's relative
+path/layout, ordered source contents and compilation metadata, plus behavior-affecting
+RTL/testbench metadata) and `flow.flowrun_hash` (flow name + input settings). Both are semantic --
+they depend on what the inputs mean, not where anything is: `flowrun_hash` writes any path under
+the design root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), the start directory
+and design root are validation *context* rather than settings. Moving the whole design together
+therefore keeps its relative source layout and both hashes; starting xeda elsewhere also keeps the
+hash. Settings paths count as text; only design sources are read for content, and no directory's
+content is ever hashed. The xeda version is deliberately not part of the hash. Local and remote
+runs share `flowrun_hash`.
+With `--cached-dependencies`, a dependency whose `settings.json` records matching hashes and whose
+`results.json` reports success is skipped and its results/artifacts reused.
 `--incremental` (default) drops the design hash from the path so repeated runs reuse one directory.
 
 ### Other runners
@@ -309,8 +341,15 @@ matching hashes and whose `results.json` reports success is skipped and its resu
   level alike. So a base-class *field* validator cannot normalize input for the subclass's
   validators, and a model `before` validator cannot change the value being *assigned*.
   `Flow.Settings` therefore normalizes with a model `before` validator plus `__setattr__`.
-- Fields ending in `_` (e.g. `design_root_`, `flow_settings_`, `runner_cwd_`) are internal and marked
+- Fields ending in `_` (e.g. `Tool.design_root_`, `Tool.flow_settings_`) are internal and marked
   `json_schema_extra={"hidden_from_schema": True}`; they are excluded from user-facing settings docs.
+  Flow settings have none: where settings were given (design root, start directory) is validation
+  context -- `Flow.Settings.from_input(data, design_root=..., runner_cwd=...)`, kept privately as
+  `settings.context` for assignments -- so it is never dumped or hashed.
+- **`Flow.Settings` has no custom `__init__`, and must not get one**: pydantic validates a model
+  with a custom `__init__` *through* it, which drops the validation context. User input goes
+  through `from_input`, which reports a `FlowSettingsError`; `Settings(**data)` raises pydantic's
+  `ValidationError`.
 - Arbitrary (non-pydantic) types used as fields need `__get_pydantic_core_schema__` *and*
   `__get_pydantic_json_schema__` - see `FileResource`/`DesignSource` in `design.py`. Without the
   latter, `model_json_schema()` raises `PydanticInvalidForJsonSchema`.
@@ -332,8 +371,10 @@ matching hashes and whose `results.json` reports success is skipped and its resu
   *other* field it rewrites is written back. So treat the assigned field as authoritative (detect
   assignment with `info.field_name if info.data is None else None`) and change nothing on an
   assignment that does not concern you, or you silently revert direct edits. See
-  `DVSettings.the_root_validator` (`generics`/`parameters`) and
-  `SynthFlow.Settings._synthflow_settings_root_validator`.
+  `SynthFlow.Settings._synthflow_settings_root_validator`. Better still, store one value: a
+  setting with several names is one field with `validation_alias=AliasChoices(...)` plus a
+  property for the other name (`DVSettings.parameters`, alias and property `generics`);
+  `introspect.design_schema` advertises every choice.
 - The wrapper passes a non-`dict` input to a `mode="before"` model validator straight through to
   pydantic, which rejects it, since those bodies are written against a mapping. A validator that converts a
   shorthand itself, like `FPGA` turning `"xc7a..."` into `{"part": ...}`, opts in with

@@ -418,7 +418,7 @@ class Nextpnr(FpgaSynthFlow):
             if domains:
                 log.warning(
                     "nextpnr reported %d clock domain(s) but none of them was constrained, so "
-                    "no Fmax or slack could be derived. Set 'clock_period' (or 'clocks'), or "
+                    "no Fmax or slack could be derived. Set 'clock.period' (or 'clocks'), or "
                     "constrain the clocks in an LPF/SDC file.",
                     len(domains),
                 )

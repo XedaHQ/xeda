@@ -20,7 +20,7 @@ The authoritative machine-readable definition: `xeda design-schema`.
 | `license`, `version`, `url` | no | Metadata; no flow reads these. |
 | `design_root` | no | Base for relative paths. Defaults to the design file's directory - almost always right. |
 
-The loader also accepts `sources`, `top`, `clock`, `clocks`, `parameters`, `defines` and
+The loader also accepts `sources`, `top`, `clock`, `clocks`, `parameters`, `generics`, `defines` and
 `generator` at the top level. It folds them into `rtl`, so an explicit `[rtl]` section is not
 required when this flat form is used.
 
@@ -30,7 +30,7 @@ required when this flat form is used.
 | --- | --- | --- |
 | `sources` | yes | Source files **in compilation order**. Relative to the design file's directory. |
 | `top` | no | Top-level module/entity. Required by synthesis flows. |
-| `parameters` / `generics` | no | Verilog parameters or VHDL generics for the top level. Interchangeable names. |
+| `parameters` / `generics` | no | Verilog parameters or VHDL generics for the top level. Use either interchangeable name; giving both is an error. |
 | `defines` | no | Verilog preprocessor macros. |
 | `clock_port` | no | Shorthand for a single-clock design: the clock port's name. |
 | `clock` | no | One clock: `{ port = "...", name = "..." }`. |
@@ -61,10 +61,11 @@ Single clock:
 clock_port = "clk"
 
 [flows.vivado_synth]
-clock_period = 5.0          # nanoseconds
+clock.period = 5.0          # nanoseconds
 ```
 
-or, equivalently, `clock.freq = "200MHz"` in the flow section.
+or, equivalently, `clock.freq = "200MHz"` in the flow section. The legacy `clock_period` input is
+also accepted for compatibility, but cannot be combined with `clock` or `clocks`.
 
 Multiple clocks:
 
@@ -84,9 +85,10 @@ period = 5.0
 freq = "100MHz"
 ```
 
-A `PhysicalClock` takes `period` (ns) or `freq` (MHz), and derives the other. If both are given,
-`period` wins. Both accept unit strings (`"5.5ns"`, `"200MHz"`, `"0.2GHz"`). It also takes
-`rise`, `duty_cycle`, `uncertainty`, `skew` and `port`.
+A `PhysicalClock` takes `period` (ns) or `freq` (MHz), and derives the other. A consistent pair is
+accepted for compatibility; a contradictory pair is an error. Both accept unit strings
+(`"5.5ns"`, `"200MHz"`, `"0.2GHz"`). It also takes `rise`, `duty_cycle`, `uncertainty`, `skew`
+and `port`.
 
 ## Source files
 
@@ -138,11 +140,11 @@ Applied only when that flow runs, so one file can carry constraints for several 
 ```toml
 [flows.vivado_synth]
 fpga.part = "xc7a100tftg256-2L"
-clock_period = 5.0
+clock.period = 5.0
 
 [flows.openroad]
 platform = "sky130hd"
-clock_period = 10.0
+clock.period = 10.0
 
 [flows.ghdl_sim]
 stop_time = "100us"

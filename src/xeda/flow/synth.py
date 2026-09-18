@@ -24,11 +24,9 @@ __all__ = [
 
 class PhysicalClock(XedaBaseModel):
     name: Optional[str] = None
-    period: float = Field(
-        description="Clock period (ns). Either (and only one of) 'period' OR 'freq' have to be specified."
-    )
-    freq: float = Field(
-        description="Clock frequency (MHz). Either (and only one of) 'period' OR 'freq' have to be specified."
+    period: Optional[float] = Field(
+        None,
+        description="Clock period in ns. Specify `period` or `freq`; a consistent pair is also accepted.",
     )
     rise: float = Field(0.0, description="Rising time of clock (ns)")
     duty_cycle: Annotated[float, Field(gt=0.0, lt=1.0)] = Field(0.5, description="Duty cycle (0.0..1.0)")  # type: ignore
@@ -36,17 +34,24 @@ class PhysicalClock(XedaBaseModel):
     skew: Optional[float] = Field(None, description="skew")
     port: Optional[str] = Field(None, description="associated design port")
 
-    @field_validator("freq", mode="before")
-    @classmethod
-    def freq_validator(cls, value):
-        return convert_unit(value, "MHz")
-
-    @field_validator("period", "rise", "duty_cycle", "uncertainty", "skew", mode="before")
+    @field_validator(
+        "period",
+        "rise",
+        "uncertainty",
+        "skew",
+        mode="before",
+        json_schema_input_type=float | str | None,
+    )
     @classmethod
     def time_validator(cls, value):
         if value is not None:
             return convert_unit(value, "nanosecond")
         return value
+
+    @field_validator("duty_cycle", mode="before")
+    @classmethod
+    def duty_cycle_validator(cls, value):
+        return convert_unit(value, "nanosecond")
 
     @property
     def fall(self) -> float:
@@ -65,6 +70,18 @@ class PhysicalClock(XedaBaseModel):
         return 1000.0 / self.period
 
     @property
+    def freq(self) -> float:
+        """Clock frequency in MHz, derived from the one stored constraint (`period`)."""
+        return self.freq_mhz
+
+    @freq.setter
+    def freq(self, value: Any) -> None:
+        value = float(convert_unit(value, "MHz"))
+        if value <= 0:
+            raise ValueError(f"Clock frequency must be positive, got {value}")
+        self.period = 1000.0 / value
+
+    @property
     def period_ps(self) -> float:
         if not self.period:
             return 0
@@ -76,9 +93,32 @@ class PhysicalClock(XedaBaseModel):
 
     def period_unit(self, unit: str) -> float:
         unit = unit.strip()
+        assert self.period is not None
         if not unit:
             return self.period
         return convert_unit(self.period, to_unit=unit, from_unit="nanosecond")
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        """Describe the accepted input, including the computed `freq` spelling.
+
+        Pydantic only sees the stored `period` field; the before-validator also accepts `freq`.
+        """
+        schema = handler(core_schema)
+        properties = schema.setdefault("properties", {})
+        period_schema = properties.get("period", {})
+        period_schema.pop("default", None)
+        if "anyOf" in period_schema:
+            period_schema["anyOf"] = [
+                branch for branch in period_schema["anyOf"] if branch.get("type") != "null"
+            ]
+        properties["freq"] = {
+            "anyOf": [{"type": "number"}, {"type": "string"}],
+            "description": "Clock frequency in MHz. A number or a string with a frequency unit.",
+            "title": "Freq",
+        }
+        schema["anyOf"] = [{"required": ["period"]}, {"required": ["freq"]}]
+        return schema
 
     @model_validator(mode="before")
     @classmethod
@@ -97,42 +137,30 @@ class PhysicalClock(XedaBaseModel):
         if not isinstance(values, dict):
             return values
         assignment_field = info.field_name if info.data is None else None
-        if assignment_field is not None and assignment_field not in ("freq", "period"):
-            # Assignment validation re-runs this whole-model validator. Only the two correlated
-            # fields may reconcile one another; re-deriving 300 MHz from its rounded 3.333 ns
-            # period while assigning `rise` changed it to 300.030003... MHz.
+        if assignment_field is not None and assignment_field != "period":
+            # Assignment validation re-runs this whole-model validator. Only the stored period
+            # concerns it; `freq = ...` is a property assignment that writes `period`.
             return values
-        freq = values.get("freq")
+        freq = values.pop("freq", None)
         if freq is not None:
-            freq = convert_unit(freq, "MHz")
-        period = values.get("period")
-        if assignment_field == "freq":
-            if freq is None:
-                raise ValueError("Clock frequency must be specified")
-            freq = float(freq)
+            freq = float(convert_unit(freq, "MHz"))
             if freq <= 0:
                 raise ValueError(f"Clock frequency must be positive, got {freq}")
-            values["period"] = round(1000.0 / freq, 3)
-            values["freq"] = freq
-        elif period is not None:
+        period = values.get("period")
+        if period is not None:
             period = convert_unit(period, "nanosecond")
             if period <= 0:
                 raise ValueError(f"Clock period must be positive, got {period}")
-            if freq is not None and abs(float(freq) * period - 1000.0) >= 0.001:
-                log.debug(
-                    "Mismatching 'freq' and 'period' values were specified. Setting 'freq' from 'period' value."
+            if freq is not None and abs(period - 1000.0 / freq) > 0.0005:
+                raise ValueError(
+                    f"Clock period ({period} ns) and frequency ({freq} MHz) disagree; "
+                    "specify one, or make them consistent"
                 )
             values["period"] = period
-            values["freq"] = 1000.0 / period
+        elif freq is not None:
+            values["period"] = 1000.0 / freq
         else:
-            if freq is not None:
-                freq = float(freq)
-                if freq <= 0:
-                    raise ValueError(f"Clock frequency must be positive, got {freq}")
-                values["period"] = round(1000.0 / freq, 3)
-                values["freq"] = freq
-            else:
-                raise ValueError("Neither freq or period were specified")
+            raise ValueError("Neither freq or period were specified")
         if not values.get("name"):
             values["name"] = ""
         return values
@@ -160,121 +188,104 @@ class SynthFlow(Flow, metaclass=ABCMeta):
     class Settings(Flow.Settings):
         """base Synthesis flow settings"""
 
-        clock_period: Optional[float] = Field(
-            None, description="target clock period in nanoseconds"
-        )
         clocks: Dict[str, PhysicalClock] = Field({}, description="Design clocks")
 
-        @field_validator("clocks", mode="before")
         @classmethod
-        def _clocks_validate(cls, value, info):  # pylint: disable=no-self-argument
-            values = info.data if isinstance(info.data, dict) else {}
-            clock_period = values.get("clock_period")
-            if not value and clock_period:
-                value = {
-                    "main_clock": PhysicalClock(name="main_clock", period=clock_period)  # type: ignore
-                }
-            return value
-
-        @field_validator("clock_period", mode="before")
-        @classmethod
-        def _clock_period_validate(cls, value, info):  # pylint: disable=no-self-argument
-            values = info.data if isinstance(info.data, dict) else {}
-            if value is not None:
-                # Validated here rather than left to `PhysicalClock`: a `clock_period` that never
-                # reaches a clock (because `clocks` was given too) would otherwise be accepted
-                # however non-positive it is. `is not None`, not truthiness -- 0 is a value the
-                # user supplied, not an omission.
-                period = convert_unit(value, "nanosecond")
-                if period <= 0:
-                    raise ValueError(f"Clock period must be positive, got {period}")
-                return period
-            clocks = values.get("clocks")
-            if clocks:
-                clk = clocks.get("main_clock") or first_value(clocks)
-                if clk:
-                    value = clk.period
-            return value
+        def __get_pydantic_json_schema__(cls, core_schema, handler):
+            """Advertise the two single-clock input shorthands that normalize into `clocks`."""
+            schema = handler(core_schema)
+            properties = schema.setdefault("properties", {})
+            clock_schema = PhysicalClock.model_json_schema()
+            clock_schema["description"] = "Single design clock. Use `clock.period` or `clock.freq`."
+            clock_schema["x-xeda-input-only"] = True
+            properties["clock"] = clock_schema
+            properties["clock_period"] = {
+                "anyOf": [{"type": "number"}, {"type": "string"}],
+                "deprecated": True,
+                "description": "Compatibility shorthand for `clock.period` in nanoseconds. "
+                "Cannot be combined with `clock` or `clocks`; prefer `clock.period`.",
+                "x-xeda-input-only": True,
+            }
+            return schema
 
         @model_validator(mode="before")
         @classmethod
         def _synthflow_settings_root_validator(cls, values, info):
-            """
-            if we only have 1 clock OR a clock named main_clock:
-                clock_period value takes priority for that particular value and overrides that clock's period
-            """
-            assignment_field = info.field_name if info.data is None else None
-            clocks = values.get("clocks")
-            # main_clock_name = "main_clock"
-            clock = values.pop("clock", None)
-            clock_period = values.get("clock_period")
-            if (not clocks) and (clock or clock_period):
-                if not clock:
-                    clock = {"period": clock_period}
-                if not isinstance(clock, PhysicalClock):
-                    assert isinstance(
-                        clock, dict
-                    ), "clock should be a dictionary or PhysicalClock instance"
-                    if clock_period:  # overrides the period value
-                        clock["period"] = clock_period
-                    clock = PhysicalClock(**clock)
-                # if not clock.name:
-                #     clock.name = main_clock_name
-                clocks = {clock.name: clock}
-            #     if clocks and (len(clocks) == 1 or main_clock_name in clocks):
-            #         if main_clock_name in clocks:
-            #             main_clock = clocks[main_clock_name]
-            #         else:
-            #             main_clock = list(clocks.values())[0]
-            #             main_clock_name = list(clocks.keys())[0]
-            #         if isinstance(main_clock, PhysicalClock):
-            #             main_clock = dict(main_clock)
-            #         if clock_period:
-            #             log.debug("Setting main_clock period to %s", clock_period)
-            #             main_clock["period"] = clock_period
-            #         clocks[main_clock_name] = PhysicalClock(**main_clock)
-            if clocks and not isinstance(clocks, dict):
-                # e.g. `clocks = ["clk"]`: leave it for the `clocks` field to reject with a proper
-                # "valid dictionary" error rather than crash on `.get` below.
-                return values
-            if clocks:
-                values["clocks"] = clocks
-                main_name = "main_clock" if "main_clock" in clocks else first_key(clocks)
-                main = clocks.get(main_name) if main_name is not None else None
-                validated_main = main
-                if isinstance(main, dict):
-                    try:
-                        validated_main = PhysicalClock(**main)
-                    except (ValueError, TypeError):
-                        validated_main = None  # reported by `clocks`' own validation
+            """Normalize single-clock compatibility inputs into the one stored `clocks` value."""
+            if info.field_name is not None and info.data is None:
+                return values  # assignment to a real field; do not rebuild unrelated containers
 
-                if assignment_field == "clocks":
-                    # A newly assigned clock is authoritative; keep the compatibility scalar in
-                    # sync rather than retaining the previously selected period.
-                    if isinstance(validated_main, PhysicalClock):
-                        values["clock_period"] = validated_main.period
-                elif assignment_field in (None, "clock_period"):
-                    if clock_period is not None:
-                        # During construction, or when `clock_period` itself is assigned, the
-                        # scalar shorthand is authoritative as documented. This is correlated
-                        # state, not unrelated-field detachment.
-                        if isinstance(main, PhysicalClock):
-                            main.period = clock_period
-                        elif isinstance(main, dict) and main_name is not None:
-                            main["period"] = clock_period
-                            clocks[main_name] = main
-                    elif isinstance(validated_main, PhysicalClock):
-                        # Back-fill `clock_period` from the main clock. The field-level validator
-                        # cannot do this because it is declared before `clocks`.
-                        values["clock_period"] = validated_main.period
-                # Any other assignment leaves the clock/period pair alone: this validator runs on
-                # *every* assignment, and re-imposing `clock_period` there would silently revert
-                # a direct edit of `settings.clocks[...].period`.
+            has_clock = "clock" in values
+            has_clock_period = "clock_period" in values
+            has_clocks = "clocks" in values
+            clock = values.pop("clock", None)
+            clock_period = values.pop("clock_period", None)
+            if has_clock and has_clocks:
+                raise ValueError("Specify `clock` for one clock or `clocks` for several, not both")
+            if has_clock_period and (has_clock or has_clocks):
+                raise ValueError(
+                    "`clock_period` is a compatibility input and cannot be combined with "
+                    "`clock` or `clocks`; use `clock.period` or `clock.freq`"
+                )
+            if clock is not None:
+                if isinstance(clock, PhysicalClock):
+                    clock = clock.model_copy(deep=True)
+                else:
+                    clock = PhysicalClock.model_validate(clock)
+                if not clock.name:
+                    clock.name = "main_clock"
+                values["clocks"] = {clock.name: clock}
+            elif clock_period is not None:
+                clock = PhysicalClock(name="main_clock", period=clock_period)  # type: ignore[arg-type]
+                values["clocks"] = {clock.name: clock}
             return values
 
         @property
         def main_clock(self) -> Optional[PhysicalClock]:
-            return self.clocks.get("main_clock") or first_value(self.clocks)
+            named = self.clocks.get("main_clock")
+            if named is not None:
+                return named
+            if len(self.clocks) == 1:
+                return first_value(self.clocks)
+            return None
+
+        @property
+        def clock(self) -> Optional[PhysicalClock]:
+            """The single/main clock shorthand, derived from the stored `clocks` mapping."""
+            return self.main_clock
+
+        @clock.setter
+        def clock(self, value: PhysicalClock | Dict[str, Any] | None) -> None:
+            if value is None:
+                self.clocks = {}
+                return
+            if not isinstance(value, PhysicalClock):
+                value = PhysicalClock.model_validate(value)
+            else:
+                value = value.model_copy(deep=True)
+            if not value.name:
+                value.name = "main_clock"
+            self.clocks = {value.name: value}
+
+        @property
+        def clock_period(self) -> Optional[float]:
+            """Legacy API spelling, derived from `clock.period` and never stored separately."""
+            clock = self.main_clock
+            return clock.period if clock is not None else None
+
+        @clock_period.setter
+        def clock_period(self, value: Any) -> None:
+            if value is None:
+                self.clocks = {}
+            elif self.main_clock is None:
+                if self.clocks:
+                    raise ValueError(
+                        "`clock_period` is ambiguous with multiple clocks; update a named "
+                        "entry in `clocks` instead"
+                    )
+                self.clock = {"period": value}
+            else:
+                self.main_clock.period = value
 
     def __init__(
         self,

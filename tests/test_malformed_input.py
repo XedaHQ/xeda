@@ -128,13 +128,13 @@ def test_a_missing_verilog_lib_names_the_file(tmp_path):
     missing = tmp_path / "cells.v"
 
     with pytest.raises(FlowSettingsError, match=r"cells\.v"):
-        YosysFpga.Settings(verilog_lib=[str(missing)])  # type: ignore[call-arg]
+        YosysFpga.Settings.from_input({"verilog_lib": [str(missing)]})
 
 
 @pytest.mark.parametrize("bad", [["keep"], "keep", 3], ids=repr)
 def test_set_attribute_must_be_a_mapping(bad):
     with pytest.raises(FlowSettingsError):
-        YosysFpga.Settings(set_attribute=bad)  # type: ignore[call-arg]
+        YosysFpga.Settings.from_input({"set_attribute": bad})
 
 
 def test_a_design_root_that_is_not_a_directory_is_a_design_error(tmp_path):

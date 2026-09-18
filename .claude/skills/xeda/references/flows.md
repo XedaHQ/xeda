@@ -103,7 +103,7 @@ Reports no results beyond the keys every flow reports.
 
 FPGA synthesis, place & route for Lattice devices using Lattice Diamond. Runs the full Diamond implementation flow (synthesis through bitstream generation) in batch mode and reports resource utilization and timing.
 
-7 flow-specific settings (plus the common ones): `xeda list-settings diamond_synth --json`
+8 flow-specific settings (plus the common ones): `xeda list-settings diamond_synth --json`
 
 Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `ff`, `slice`, `dsp`, `bram`
 
@@ -111,7 +111,7 @@ Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `
 
 FPGA synthesis using Xilinx ISE
 
-10 flow-specific settings (plus the common ones): `xeda list-settings ise_synth --json`
+11 flow-specific settings (plus the common ones): `xeda list-settings ise_synth --json`
 
 Reports: `minimum_period`, `maximum_frequency`, `Fmax`, `wns`, `lut`, `ff`, `slice`
 
@@ -121,7 +121,7 @@ Reports: `minimum_period`, `maximum_frequency`, `Fmax`, `wns`, `lut`, `ff`, `sli
 
 Place and route an FPGA design with nextpnr, the portable open-source PnR tool. Synthesis is delegated to the `yosys_fpga` dependency flow; this flow places and routes the resulting JSON netlist with the nextpnr variant matching `fpga.family`, then parses nextpnr's JSON report for achieved frequency, slack and resource utilization. Use the `openfpgaloader` flow to pack and program the result onto a board. Lattice **ECP5** is the supported and tested target. Other nextpnr backends are invoked on a best-effort basis: the report is parsed for any of them (nextpnr writes it from shared, architecture-independent code), but device-selection arguments and the mapping from nextpnr bel types to canonical resource names (`lut`, `ff`, ...) are ECP5-specific, so another family gets the raw per-bel-type counts only.
 
-24 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
+25 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
 
 Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`
 
@@ -131,7 +131,7 @@ Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `tim
 
 OpenXC7: FPGA synthesis using nextpnr-xilinx
 
-34 flow-specific settings (plus the common ones): `xeda list-settings open_xc7 --json`
+35 flow-specific settings (plus the common ones): `xeda list-settings open_xc7 --json`
 
 Reports: `f_max`, `Fmax`, `lut`, `ff`, `LUT`, `FF`, `DSP48E1`, `RAMB18E1`, `RAMB36E1`, `RAMBFIFO36E1`
 
@@ -141,7 +141,7 @@ Reports: `f_max`, `Fmax`, `lut`, `ff`, `LUT`, `FF`, `DSP48E1`, `RAMB18E1`, `RAMB
 
 Build a bitstream and program it onto an FPGA board with openFPGALoader. Runs the full `yosys_fpga` -> `nextpnr` chain, packs the routed design into a bitstream (e.g. with `ecppack` for ECP5), and loads it over the configured `cable` or `board`. This is the only flow that touches real hardware.
 
-8 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
+9 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 
 Reports no results beyond the keys every flow reports.
 
@@ -149,7 +149,7 @@ Reports no results beyond the keys every flow reports.
 
 FPGA synthesis using Intel Quartus
 
-20 flow-specific settings (plus the common ones): `xeda list-settings quartus --json`
+21 flow-specific settings (plus the common ones): `xeda list-settings quartus --json`
 
 Reports: `Fmax`, `wns`, `whs`, `lut`, `ff`
 
@@ -157,7 +157,7 @@ Reports: `Fmax`, `wns`, `whs`, `lut`, `ff`
 
 Synthesize with Xilinx Vivado using an alternative TCL-based flow
 
-28 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
+29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 
@@ -165,7 +165,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 Synthesize with Xilinx Vivado using a project-based flow
 
-46 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
+47 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
 
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 
@@ -173,7 +173,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project (batch) mode. Drives synth_design through route_design from a generated TCL script without creating a Vivado project, and reports utilization, timing and (optionally) power. See `vivado_project` for the project-based equivalent and `vivado_alt_synth` for an alternative script.
 
-28 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
+29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 
@@ -181,7 +181,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 Yosys Open SYnthesis Suite: FPGA synthesis
 
-69 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
+70 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
 Reports: `LUT`, `lut`, `ff`, `LUT:RAM`, `FF`
 
@@ -193,7 +193,7 @@ Synopsys Design Compiler (R) synthesis flow
 
 Required settings: `target_libraries`
 
-33 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
+34 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
 
 Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_cells_sequentual`, `num_macro_bbox`
 
@@ -205,7 +205,7 @@ OpenROAD open-source ASIC synthesis flow
 
 Required settings: `platform`
 
-74 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
+75 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
 
 Reports: `Fmax`, `wns`, `tns`, `worst_slack`, `setup_violations`, `hold_violations`, `design_area`, `design_area_unit`, `utilization_percent`
 
@@ -215,7 +215,7 @@ Reports: `Fmax`, `wns`, `tns`, `worst_slack`, `setup_violations`, `hold_violatio
 
 Convert a VHDL design using 'ghdl --synth' (Please take a look at 'Yosys' flow (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis targeting FPGAs or ASICs)
 
-24 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
+25 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
 
 Reports no results beyond the keys every flow reports.
 
@@ -223,7 +223,7 @@ Reports no results beyond the keys every flow reports.
 
 Yosys Open SYnthesis Suite: ASICs and generic gate/LUT synthesis
 
-69 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
+70 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
 Reports: `area`, `cells`
 

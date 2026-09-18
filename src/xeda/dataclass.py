@@ -8,6 +8,7 @@ from functools import cache, cached_property, wraps
 from inspect import signature
 from types import UnionType
 from typing import (
+    Annotated,
     Any,
     Callable,
     Dict,
@@ -24,17 +25,29 @@ from typing import (
 import attrs
 
 # pylint: disable=no-name-in-module
-from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, ValidationError
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    SerializeAsAny,
+    ValidationError,
+)
 from pydantic import field_validator as _pydantic_field_validator
 from pydantic import model_validator as _pydantic_model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, PydanticUndefined
 
 __all__ = [
+    "AliasChoices",
+    "Code",
     "ConfigDict",
     "ErrorDetails",
     "Field",
     "FieldInfo",
+    "PrivateAttr",
     "PydanticUndefined",
     "SerializeAsAny",
     "ValidationError",
@@ -189,6 +202,20 @@ def model_validator(*args: Any, **kwargs: Any) -> Any:
 # A pydantic field carries only its raw annotation; these answer questions such as "which types
 # does this Optional/Union accept" with `typing` introspection.
 # --------------------------------------------------------------------------------------------
+
+
+def _number_as_text(value: Any) -> Any:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return value
+
+
+#: Text that is naturally written as a number -- a speed grade (`speed = -1`), a device generation.
+#: Settings declare it field by field; nowhere else is a number accepted for text.
+Code = Annotated[
+    str,
+    BeforeValidator(_number_as_text, json_schema_input_type=str | int | float),
+]
 
 
 def annotation_args(annotation: Any) -> Tuple[Any, ...]:

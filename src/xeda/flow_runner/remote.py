@@ -7,6 +7,7 @@ import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Iterable, Mapping
 from typing import IO, Any, Dict, Optional, Tuple, Union
 
 import execnet
@@ -14,19 +15,36 @@ from fabric import Connection
 from fabric.transfer import Transfer
 
 from ..design import Design, DesignSource
+from ..flow import flowrun_hash as flow_run_hash
 from ..proc_utils import tool_output_stream
-from ..utils import XedaException, dump_json, hierarchical_merge, semantic_hash, settings_to_dict
+from ..utils import XedaException, dump_json, semantic_hash, settings_to_dict
 from ..version import __version__
-from .default_runner import FlowLauncher, print_results
+from ..xedaproject import XedaProject
+from .default_runner import FlowLauncher, FlowNotFoundError, get_flow_class, print_results
+from .settings_layers import merge_flow_sections, merge_layers
 
 log = logging.getLogger(__name__)
 
+REMOTE_PYTHON_MIN_VERSION = (3, 11, 0)
 
-def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
+
+def check_remote_python(version_info: tuple[Any, ...]) -> None:
+    """Fail early and clearly when the worker cannot run this xeda package."""
+    if version_info[:3] < REMOTE_PYTHON_MIN_VERSION:
+        required = ".".join(str(part) for part in REMOTE_PYTHON_MIN_VERSION)
+        found = ".".join(str(part) for part in version_info)
+        raise RuntimeError(
+            f"Python {required} or newer is required on the remote, but found {found}"
+        )
+
+
+def send_design(
+    design: Design,
+    conn,
+    remote_path: str,
+    all_flows_settings: Mapping[str, Any] | None = None,
+) -> Tuple[str, str]:
     assert isinstance(conn, Connection)
-
-    def uniquify_filename(src: DesignSource) -> str:
-        return src.file.stem + f"_{src.content_hash[:8]}" + src.file.suffix
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         temp_dir = Path(tmpdirname)
@@ -36,28 +54,48 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
         rtl: Dict[str, Any] = {}
         tb: Dict[str, Any] = {}
         remote_sources_path = Path(design.name) / "sources"
-        rtl_sources: Dict[DesignSource, str] = {}
-        for src in design.rtl.sources:
-            filename = src.file.name
-            if filename in rtl_sources:
-                filename = uniquify_filename(src)
-            rtl_sources[src] = filename
-        rtl["sources"] = [remote_sources_path / s for s in rtl_sources.values()]
+        archived_by_path: Dict[Path, Path] = {}
+        used_names: set[str] = set()
+        archive_entries: list[tuple[DesignSource, Path]] = []
+
+        def packaged_sources(sources: Iterable[DesignSource]) -> list[Dict[str, Any]]:
+            packaged: list[Dict[str, Any]] = []
+            for src in sources:
+                source_path = src.file.resolve()
+                server_path = archived_by_path.get(source_path)
+                if server_path is None:
+                    filename = src.file.name
+                    if filename in used_names:
+                        filename = f"{src.file.stem}_{src.content_hash[:8]}{src.file.suffix}"
+                        suffix = 2
+                        while filename in used_names:
+                            filename = (
+                                f"{src.file.stem}_{src.content_hash[:8]}_{suffix}{src.file.suffix}"
+                            )
+                            suffix += 1
+                    used_names.add(filename)
+                    server_path = remote_sources_path / filename
+                    archived_by_path[source_path] = server_path
+                    archive_entries.append((src, server_path))
+                spec: Dict[str, Any] = {"file": server_path}
+                if src.type is not None:
+                    spec["type"] = str(src.type)
+                if src.standard is not None:
+                    spec["standard"] = src.standard
+                if src.variant is not None:
+                    spec["variant"] = src.variant
+                packaged.append(spec)
+            return packaged
+
+        rtl["sources"] = packaged_sources(design.rtl.sources)
         rtl["defines"] = design.rtl.defines
         rtl["attributes"] = design.rtl.attributes
         rtl["parameters"] = design.rtl.parameters
         rtl["top"] = design.rtl.top
         rtl["clocks"] = [clk.model_dump() for clk in design.rtl.clocks]
-        # FIXME add src type/attributes
-        tb_sources: Dict[DesignSource, str] = {}
-        for src in design.tb.sources:
-            filename = src.file.name
-            if filename in tb_sources:
-                filename = uniquify_filename(src)
-            tb_sources[src] = filename
-        tb["sources"] = [remote_sources_path / s for s in tb_sources.values()]
+        tb["sources"] = packaged_sources(design.tb.sources)
         tb["top"] = design.tb.top
-        tb["cocotb"] = design.tb.cocotb
+        tb["cocotb"] = design.tb.cocotb.model_dump() if design.tb.cocotb is not None else None
         if design.tb.uut:
             tb["uut"] = design.tb.uut
         if design.tb.parameters:
@@ -66,7 +104,12 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
             tb["defines"] = design.tb.defines
         new_design["rtl"] = rtl
         new_design["tb"] = tb
-        new_design["flow"] = design.flow
+        # The remote does not receive the local project file. Materialize its merged flow
+        # sections into the shipped design so dependency flows see exactly the same settings as
+        # a local run; the explicit top-flow settings still take precedence on the remote CLI.
+        new_design["flow"] = (
+            dict(all_flows_settings) if all_flows_settings is not None else design.flow
+        )
         design_file = temp_dir / f"{design.name}.xeda.json"
         with open(design_file, "w") as f:
             json.dump(
@@ -82,11 +125,9 @@ def send_design(design: Design, conn, remote_path: str) -> Tuple[str, str]:
                     )
                 ),
             )
-        all_sources = rtl_sources
-        all_sources.update(tb_sources)
         with zipfile.ZipFile(zip_file, mode="w") as archive:
-            for src, server_path in all_sources.items():
-                archive.write(src.path, arcname=remote_sources_path / server_path)
+            for src, server_path in archive_entries:
+                archive.write(src.path, arcname=server_path)
             archive.write(design_file, arcname=design_file.relative_to(temp_dir))
 
         with zipfile.ZipFile(zip_file, mode="r") as archive:
@@ -322,19 +363,85 @@ class RemoteRunner(FlowLauncher):
         user: Optional[str] = None,
         port: Optional[int] = None,
         flow_settings=None,
+        xedaproject: str | Path | None = None,
+        design_overrides: Iterable[str] | Mapping[str, Any] | None = None,
+        design_allow_extra: bool = False,
     ):
+        project_flow_settings: Mapping[str, Any] | None = None
+        if design_overrides is None:
+            design_overrides = {}
+        elif not isinstance(design_overrides, Mapping):
+            design_overrides = settings_to_dict(list(design_overrides))
+
         if isinstance(design, (str, Path)):
-            design = Design.from_file(design)
-        flow_settings = settings_to_dict(flow_settings or [])
-        design_flow_settings = design.flow.pop(flow_name, {})
-        if design_flow_settings:
-            flow_settings = hierarchical_merge(flow_settings, design_flow_settings)
-        flowrun_hash = semantic_hash(
-            dict(
-                flow_name=flow_name,
-                flow_settings=flow_settings,
-                # copied_resources=[FileResource(res) for res in copy_resources],
-            ),
+            design_path = Path(design)
+            standalone = (
+                design_path.suffix.lower() in {".toml", ".json", ".yaml", ".yml"}
+                and design_path.exists()
+            )
+            project_path = Path(xedaproject or "xedaproject.toml")
+            project = None
+            if project_path.exists():
+                project = XedaProject.from_file(
+                    project_path,
+                    skip_designs=standalone,
+                    design_overrides=dict(design_overrides),
+                    design_allow_extra=design_allow_extra,
+                )
+                project_flow_settings = project.flows
+            elif xedaproject is not None:
+                raise FileNotFoundError(f"Cannot open xeda-project file: {project_path}")
+
+            if standalone:
+                design = Design.from_file(
+                    design_path,
+                    overrides=dict(design_overrides),
+                    allow_extra=design_allow_extra,
+                )
+            elif project is not None:
+                selected = project.get_design(str(design))
+                if selected is None:
+                    raise ValueError(
+                        f"Design {str(design)!r} not found in {project_path}. Available designs: "
+                        f"{', '.join(project.design_names)}"
+                    )
+                design = selected
+            else:
+                raise FileNotFoundError(
+                    f"Design file {design_path} does not exist and no xedaproject was found"
+                )
+        else:
+            project_path = Path(xedaproject or "xedaproject.toml")
+            if project_path.exists():
+                project = XedaProject.from_file(project_path, skip_designs=True)
+                project_flow_settings = project.flows
+            elif xedaproject is not None:
+                raise FileNotFoundError(f"Cannot open xeda-project file: {project_path}")
+        flow_class = get_flow_class(flow_name)
+        flow_name = flow_class.name
+
+        def flow_class_if_known(name: str):
+            try:
+                return get_flow_class(name)
+            except FlowNotFoundError:
+                return None
+
+        # The same layering as a local run: the command line wins over the design file.
+        sections = merge_flow_sections(
+            project_flow_settings,
+            design.flow,
+            flow_class_for=flow_class_if_known,
+        )
+        flow_settings = merge_layers(
+            sections.get(flow_name), flow_settings, settings_cls=flow_class.Settings
+        )
+        # Hashed exactly as a local run would be, from the validated settings.
+        input_settings = flow_class.Settings.from_input(
+            flow_settings, design_root=design.root_path, runner_cwd=Path.cwd()
+        )
+        flowrun_hash = flow_run_hash(
+            flow_name,
+            input_settings,
         )
         design_hash = semantic_hash(
             dict(
@@ -370,7 +477,7 @@ class RemoteRunner(FlowLauncher):
             conn.sftp().mkdir(remote_path)
         assert Transfer(conn).is_remote_dir(remote_path)
         conn.sftp().chdir(remote_path)
-        zip_file, design_file = send_design(design, conn, remote_path)
+        zip_file, design_file = send_design(design, conn, remote_path, all_flows_settings=sections)
 
         ssh_opt = f"{host}"
         if user:
@@ -394,11 +501,9 @@ class RemoteRunner(FlowLauncher):
         platform, version_info, _ = channel.receive()
         version_info_str = ".".join(str(v) for v in version_info)
         log.info("Remote host:%s (%s python:%s)", host, platform, version_info_str)
-        PY_MIN_VERSION = (3, 8, 0)
-        assert version_info[0] == PY_MIN_VERSION[0] and (
-            version_info[1] > PY_MIN_VERSION[1]
-            or (version_info[1] == PY_MIN_VERSION[1] and version_info[2] >= PY_MIN_VERSION[2])
-        ), f"Python {'.'.join(str(d) for d in PY_MIN_VERSION)} or newer is required to be installed on the remote but found version {version_info_str}"
+        # The remotely executed worker is this installed xeda package, so its interpreter must
+        # satisfy the same floor as pyproject.toml rather than a historical transport-only floor.
+        check_remote_python(version_info)
 
         run_path = self.get_flow_run_path(
             design.name,
@@ -411,14 +516,15 @@ class RemoteRunner(FlowLauncher):
         settings_json = run_path / "settings.json"
         results_json_path = run_path / "results.json"
 
-        log.info("dumping effective settings to %s", settings_json)
+        log.info("dumping input settings to %s", settings_json)
         all_settings = dict(
             design=design,
             design_hash=design_hash,
             rtl_fingerprint=design.rtl_fingerprint,
             rtl_hash=design.rtl_hash,
             flow_name=flow_name,
-            flow_settings=flow_settings,
+            flow_settings=input_settings,
+            effective_flow_settings=input_settings,
             xeda_version=__version__,
             flowrun_hash=flowrun_hash,
         )
@@ -473,6 +579,28 @@ class RemoteRunner(FlowLauncher):
             artifacts = results.get("artifacts")
             artifacts_orig = artifacts
             remote_run_path = results.get("run_path")
+
+            # Keep the local settings document in the same shape as a local run. Its input and
+            # design stay local (and therefore re-runnable here); only the effective settings,
+            # which can be known only after the remote flow's `init()`, come back from the remote
+            # run directory. Older remote Xeda versions recorded those under `flow_settings`.
+            if remote_run_path:
+                try:
+                    remote_settings_path = str(Path(remote_run_path) / "settings.json")
+                    with conn.sftp().open(remote_settings_path, "r") as remote_settings_file:
+                        remote_settings = json.load(remote_settings_file)
+                    effective_settings = remote_settings.get(
+                        "effective_flow_settings", remote_settings.get("flow_settings")
+                    )
+                    if effective_settings is not None:
+                        all_settings["effective_flow_settings"] = effective_settings
+                        dump_json(all_settings, settings_json, backup=False)
+                except (OSError, ValueError, TypeError) as e:
+                    log.warning(
+                        "Could not read effective settings from remote run %s: %s",
+                        remote_run_path,
+                        e,
+                    )
 
             local_artifacts_dir = run_path / "artifacts"
 

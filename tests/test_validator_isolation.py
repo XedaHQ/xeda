@@ -9,6 +9,8 @@ writing back into `values`" pattern silently rewrote a design's `flow[...]` sect
 
 import copy
 
+import pytest
+
 from xeda.dataclass import ConfigDict, XedaBaseModel, model_validator
 from xeda.flow.synth import PhysicalClock
 from xeda.flows.openroad import Openroad
@@ -130,10 +132,22 @@ def test_rtl_parameter_assignment_does_not_mutate_input():
 
 
 def test_clock_shorthand_normalization_does_not_mutate_input():
+    payload = {"clock": {"name": "c", "freq": 100}}
+    before = copy.deepcopy(payload)
+
+    settings = YosysFpga.Settings(**payload)
+    assert payload == before
+    assert settings.main_clock is not None and settings.main_clock.freq == 100
+
+
+def test_clock_period_and_clock_combination_fails_without_mutating_input():
     payload = {"clock": {"name": "c", "freq": 100}, "clock_period": 5.0}
     before = copy.deepcopy(payload)
 
-    YosysFpga.Settings(**payload)
+    from xeda.dataclass import ValidationError
+
+    with pytest.raises(ValidationError, match="cannot be combined"):
+        YosysFpga.Settings(**payload)
     assert payload == before
 
 

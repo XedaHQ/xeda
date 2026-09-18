@@ -566,7 +566,8 @@ def settings_to_dict(
                 for key, val in override.items():  # type: ignore
                     set_hierarchy(res, key, conv(val))
         return res
-    if isinstance(settings, dict):
+    if isinstance(settings, Mapping):
+        settings = dict(settings)
         if not hierarchical_keys:
             return settings
         return expand_hierarchy(settings)

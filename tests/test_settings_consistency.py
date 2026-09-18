@@ -1,6 +1,6 @@
 """Settings that describe one thing must keep agreeing, after construction *and* assignment.
 
-`clock_period` and `clocks`, `generics` and `parameters`, and a platform's selected corner and
+`clock`/`clocks` and the legacy `clock_period` input, `generics` and `parameters`, and a platform's selected corner and
 its supply voltages are each correlated state. (A flow's settings and its dependency's are not:
 they are combined only when the dependency is launched; see `test_dependency_settings.py`.) With
 `validate_assignment`, pydantic 2 re-runs a `mode="before"` model validator on every assignment:
@@ -15,23 +15,26 @@ from pathlib import Path
 
 import pytest
 
+from xeda.dataclass import ValidationError
 from xeda.design import Design, RtlSettings
 from xeda.flow.synth import PhysicalClock
 from xeda.flows.yosys.yosys_fpga import YosysFpga
 
 # ---------------------------------------------------------------------------------------------
-# Clocks: `clock_period`, `clocks`, and a clock's `freq`/`period` describe one constraint.
+# Clocks: `clock`/`clocks` are canonical; `clock_period` is input-only compatibility syntax.
 # ---------------------------------------------------------------------------------------------
 
 
-def test_clock_period_and_main_clock_remain_consistent():
+def test_canonical_clock_is_stored_once_and_legacy_period_is_derived():
     settings = YosysFpga.Settings(
         fpga={"part": "LFE5U-25F-6BG381C"},
-        clocks={"main_clock": {"period": 10.0}},
-        clock_period=5.0,
+        clock={"name": "main_clock", "period": 10.0},
     )
     assert settings.main_clock is not None
-    assert (settings.clock_period, settings.main_clock.period) == (5.0, 5.0)
+    assert settings.clock is settings.main_clock
+    assert settings.clock_period == settings.main_clock.period == 10.0
+    assert "clock" not in settings.model_dump()
+    assert "clock_period" not in settings.model_dump()
 
     settings.clock_period = 4.0
     assert (settings.clock_period, settings.main_clock.period) == (4.0, 4.0)
@@ -42,6 +45,29 @@ def test_clock_period_and_main_clock_remain_consistent():
     assert clocks == before
     assert settings.main_clock is not None
     assert (settings.clock_period, settings.main_clock.period) == (8.0, 8.0)
+
+
+def test_legacy_clock_period_cannot_be_combined_with_canonical_clock():
+    with pytest.raises(ValidationError, match="cannot be combined"):
+        YosysFpga.Settings(
+            fpga={"part": "LFE5U-25F-6BG381C"},
+            clock={"name": "main_clock", "freq": 100.0},
+            clock_period=5.0,
+        )
+
+
+def test_single_clock_compatibility_accessors_do_not_choose_an_arbitrary_clock():
+    settings = YosysFpga.Settings(
+        fpga={"part": "LFE5U-25F-6BG381C"},
+        clocks={"clk_a": {"freq": 100.0}, "clk_b": {"freq": 50.0}},
+    )
+
+    assert settings.main_clock is None
+    assert settings.clock is None
+    assert settings.clock_period is None
+    with pytest.raises(ValueError, match="ambiguous with multiple clocks"):
+        settings.clock_period = 5.0
+    assert set(settings.clocks) == {"clk_a", "clk_b"}
 
 
 def test_physical_clock_assignment_keeps_frequency_and_period_consistent():
@@ -75,7 +101,7 @@ def test_unrelated_clock_assignment_does_not_reconcile_rounded_frequency(field, 
 
 
 def test_a_directly_edited_clock_is_not_reverted_by_an_unrelated_assignment():
-    """`clock_period` is the documented shorthand, but it must not keep overwriting `clocks`.
+    """Editing canonical clock state must not be reverted by unrelated assignment.
 
     The settings-wide `mode="before"` validator runs on *every* assignment, so re-imposing
     `clock_period` there silently undid an edit made through `settings.clocks`.
@@ -83,7 +109,6 @@ def test_a_directly_edited_clock_is_not_reverted_by_an_unrelated_assignment():
     settings = YosysFpga.Settings(
         fpga={"part": "LFE5U-25F-6BG381C"},
         clocks={"main_clock": {"period": 10.0}},
-        clock_period=5.0,
     )
     assert settings.main_clock is not None
     settings.main_clock.period = 7.0
@@ -184,8 +209,72 @@ def test_a_corner_free_platform_keeps_its_literal_voltages():
 
 
 # ---------------------------------------------------------------------------------------------
-# `generics` and `parameters` are two spellings of one setting and must never drift apart.
+# `generics` and `parameters` are two names of one setting, stored once (`parameters`).
 # ---------------------------------------------------------------------------------------------
+
+
+def test_generics_is_the_same_setting_stored_once_as_parameters():
+    rtl = RtlSettings(sources=[], generics={"WIDTH": 8})
+
+    assert rtl.parameters == rtl.generics == {"WIDTH": 8}
+    assert "generics" not in rtl.model_dump(), "one setting, one stored value"
+
+
+def test_giving_both_names_at_once_is_an_error_not_a_silent_choice():
+    with pytest.raises(ValidationError):
+        RtlSettings(sources=[], generics={"WIDTH": 8}, parameters={"WIDTH": 16})
+
+
+def test_the_design_schema_accepts_both_names():
+    from xeda.introspect import design_schema
+
+    schema = design_schema()
+    for section in ("RtlSettings", "TbSettings"):
+        properties = schema["$defs"][section]["properties"]
+        assert {"parameters", "generics"} <= set(properties), section
+    assert {"parameters", "generics"} <= set(schema["properties"]), "flat design form"
+
+
+def test_flat_design_input_accepts_either_parameters_name(tmp_path):
+    for spelling in ("parameters", "generics"):
+        design = Design(
+            name="d",
+            design_root=tmp_path,
+            sources=[],
+            top="top",
+            **{spelling: {"WIDTH": 8}},
+        )
+        assert design.rtl.parameters == {"WIDTH": 8}
+
+
+def test_flat_design_input_rejects_both_parameters_names(tmp_path):
+    from xeda.design import DesignValidationError
+
+    with pytest.raises(DesignValidationError, match="generics"):
+        Design(
+            name="d",
+            design_root=tmp_path,
+            sources=[],
+            top="top",
+            parameters={"WIDTH": 8},
+            generics={"WIDTH": 16},
+        )
+
+
+def test_design_construction_does_not_modify_nested_input(tmp_path):
+    data = {
+        "name": "d",
+        "rtl": {
+            "sources": [{"path": "generated.v", "type": "Verilog"}],
+            "top": "top",
+            "parameters": {"MEMORY": {"path": "memory.hex"}},
+        },
+    }
+    before = copy.deepcopy(data)
+
+    Design(design_root=tmp_path, **data)
+
+    assert data == before
 
 
 @pytest.mark.parametrize("spelling", ["generics", "parameters"])

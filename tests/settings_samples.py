@@ -41,13 +41,17 @@ def flow_classes() -> List[Tuple[Type[Flow], str]]:
 
 
 def minimal_settings(cls: Type[Flow], clock_period: bool = True) -> Dict[str, Any]:
-    """Minimal settings for `cls`. `clock_period=False` leaves it out where it is optional, for
-    sweeps that set `clocks` and must not meet the `clock_period` shorthand as well."""
+    """Minimal settings for `cls`. Legacy ``clock_period`` is accepted as input-only syntax.
+
+    It is included for synthesis settings even though it is intentionally absent from
+    ``model_fields`` and is normalized into canonical ``clocks`` by the model validator.
+    """
     fields = cls.Settings.model_fields
     settings = {
         key: value
         for key, value in MINIMAL_SETTINGS.items()
-        if key in fields and (clock_period or key != "clock_period" or fields[key].is_required())
+        if (key in fields and key != "clock_period")
+        or (key == "clock_period" and clock_period and "clocks" in fields)
     }
     settings.update(MINIMAL_SETTINGS_BY_FLOW.get(cls.name, {}))
     return settings

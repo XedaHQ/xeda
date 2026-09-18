@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Settings layers now merge key by key, in one order everywhere: flow defaults < project
+  `flows.<flow>` < design `[flows.<flow>]` < `-s`. Previously `-s yosys.flatten=true` replaced the
+  design file's whole `yosys` section, a design's `[flows.nextpnr]` replaced the project's whole
+  section, and a remote run let the design file override `-s` (the reverse of a local run).
+- A run's hash no longer depends on where anything is: the same settings run from another
+  directory, or an identical copy of a design somewhere else, used to get a different hash, so
+  `--cached-dependencies` re-ran them. A path under the design (`$DESIGN_ROOT/c.xdc`) now counts
+  relative to it. Local and remote runs compute the hash the same way. Design hashes now preserve
+  each source's relative path/layout and compilation order, and include source type/standard plus
+  clock, language, attribute and testbench metadata, so behaviorally different designs cannot
+  silently reuse one run. Moving the whole design together keeps those relative paths and
+  therefore keeps the design hash stable.
+- Example designs: every `[flows.*]` section now validates. Two named `cxxrtl`, which was never a
+  flow (it is `yosys_sim`); `examples/vhdl/xedaproject.toml` duplicated `vivado_synth` under its
+  pre-2022 name `vivado_prj_synth`; `sqrt.toml` asked `vivado_alt_synth` for a synthesis strategy
+  that only exists for implementation (`ExtraTimingCongestion`, now `ExtraTiming`). A test keeps
+  them valid.
 - `yosys`: a `netlist_*` switch set after the settings were created -- as the flow itself does to
   write liberty-mapped netlists without expressions (`-noexpr`) -- never reached `write_verilog`.
   The flags are now derived from the switches when the script is written.
@@ -26,10 +43,12 @@ All notable changes to this project will be documented in this file.
   is dash- and case-insensitive. An unknown flow name now suggests close matches.
 - `xeda.flows.__all__` exported `CxxRtl` (a settings model) as if it were a flow, and omitted
   the `YosysSim` flow.
-- Clocks: every command-line way of setting a clock period (`-s clock_period=5.5`,
+- Clocks: every command-line way of setting a clock period (`-s clock.period=5.5`,
   `-s clocks.main_clock.period=5.5`, `-s clocks.main_clock.freq=200MHz`) failed with
   `unsupported operand type(s) for /: 'float' and 'str'`. Non-positive periods and frequencies
-  now report a clear error, and `clock_period` is kept in step with `clocks`.
+  now report a clear error. The canonical single-clock setting is `clock.period`/`clock.freq`;
+  legacy `clock_period` remains accepted as compatibility input but cannot be combined with
+  `clock` or `clocks`.
 - `nextpnr`: the flow asked nextpnr for a JSON report (`--report`) and never read it, so it
   produced no timing or utilization results. It now reports `Fmax`, `wns`, `timing_met`,
   `clock_frequency`, `clock_period`, `clock_domains`, canonical `lut`/`ff`/`bram`/`dsp`/`io` for
@@ -178,6 +197,17 @@ All notable changes to this project will be documented in this file.
   rather than accepting it and failing later. An FPGA given as an empty mapping is reported as
   missing its device, the same as one with only empty fields.
 - A simulation's `vcd` setting of `false` or an empty name writes no waveform.
+- `settings.json` records `flow_settings`, the run's input exactly as it is identified (the
+  merged layers; feed it back to reproduce the run), and `effective_flow_settings`, what the flow
+  made of it. The input is never modified by the flow.
+- An FPGA's `speed`, `grade` and `generation` accept a number as well as text (`speed = -1`); no
+  other text setting does.
+- `generics` and `parameters` are one design setting stored once (as `parameters`); giving both
+  in one section is an error rather than a silent choice.
+- Library use: validate user-given flow settings with `Settings.from_input(data, design_root=...,
+  runner_cwd=...)`, which resolves path variables and reports a `FlowSettingsError`;
+  `Settings(**data)` raises pydantic's `ValidationError`. The hidden `design_root_`/`runner_cwd_`
+  settings are gone.
 
 ### Removed
 - Dependency on `click-help-colors`, replaced by `click-extra`.
