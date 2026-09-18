@@ -40,7 +40,11 @@ Most tests use `tests/fake_tools/`, but four end-to-end tests drive genuinely in
 (`test_ghdl.py`, `test_nvc.py`, `test_verilator.py`, `test_yosys.py`). They **skip** when the tool is
 missing or installed-but-broken, via the probes in `tests/tool_utils.py` (`require_ghdl()`,
 `require_yosys_ghdl_plugin()`, ...). Setting `XEDA_TESTS_REQUIRE_TOOLS=1` turns those skips into
-failures; CI sets it, so a tool vanishing from CI cannot look like a pass. Tests that exercise
+failures; CI sets it, so a tool vanishing from CI cannot look like a pass. tox passes
+`GHDL_PREFIX` through: on macOS the OSS CAD Suite yosys GHDL plugin cannot find `std` without it
+(the suite's `ghdl` wrapper sets it, its `yosys` wrapper does not). After sourcing the suite's
+`environment` for a local tox run, drop its `py3bin/` from `PATH`: it holds a bundled
+`python3.11` that tox would otherwise build `py311` on, and that venv cannot start. Tests that exercise
 cocotb-based example designs need `pip install -r examples/requirements.txt`.
 
 Running flows manually:
@@ -167,9 +171,11 @@ integration keyed on `cocotb_sim_name`), `SynthFlow` (adds `clock_period` / `clo
 
 Every flow declares a nested `class Settings(<Base>.Settings)`. Settings are pydantic models
 (`XedaBaseModel`) with `extra = forbid`, so an unknown key in a design/CLI override is a hard error -
-this is intentional and surfaces as `FlowSettingsError`. Fields typed `Path`/`Optional[Path]` get
-`$PWD`, `$DESIGN_ROOT`, `$DESIGN_DIR` expanded by a catch-all validator. CLI `-s key=value` supports
-dotted hierarchical keys.
+this is intentional and surfaces as `FlowSettingsError`. A catch-all validator expands `$PWD`,
+`$DESIGN_ROOT`, `$DESIGN_DIR` at every `Path` leaf of a field's annotation (`_expand_path_values` in
+`flow/flow.py`): scalars, `str | Path` unions, and list/dict/tuple elements -- in `lib_paths` only the
+path half of each tuple, never the library name. Fields with no `Path` in their annotation are
+passed through untouched. CLI `-s key=value` supports dotted hierarchical keys.
 
 **Every settings field must have a `description=`.** `tests/test_documentation.py` fails otherwise
 (its allowlist is empty - all ~520 visible fields are documented). The same test requires each flow

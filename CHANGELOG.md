@@ -183,6 +183,11 @@ All notable changes to this project will be documented in this file.
 - `dc` additionally reports `num_cells_sequential`. The key it has written since v0.2.5 is
   `num_cells_sequentual`, a misspelling baked into the area-report parser; the correct spelling is
   added alongside it and the old one keeps being reported, so existing scripts are unaffected.
+- Settings: `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` are now expanded wherever a setting holds a
+  path, not only in a single-path setting: in path lists (`sdc_files`, `xdc_files`,
+  `target_libraries`, including a comma-separated `-s` value), in mappings (`dc.hooks`), in the
+  path half of a `lib_paths` entry, and in settings that take either a string or a path (`vcd`,
+  `fst`). Strings that are not paths, such as a `lib_paths` library name, are left as written.
 - Results: flows declare `results_description` via `describe_results()`; the runner additively
   records canonical keys (`Fmax` from `f_max`/`maximum_frequency`, `lut` from `LUT`, `ff` from
   `FF`) alongside whatever the flow reported, so scripts need not know which flow produced the

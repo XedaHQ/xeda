@@ -354,7 +354,7 @@ class Openroad(AsicSynthFlow):
             if isinstance(value, AsicsPlatform):
                 # The selected corner is applied after all settings fields are available. Keep
                 # that normalization isolated from a caller-owned platform instance.
-                value = value.model_copy()
+                value = value.model_copy(deep=True)
             return value
 
         @model_validator(mode="after")

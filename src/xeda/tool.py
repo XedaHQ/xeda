@@ -268,8 +268,10 @@ class Tool(XedaBaseModel):
         if isinstance(value, dict):
             value = Docker(**value)
         elif isinstance(value, Docker):
-            # Same reason as above: do not write `command` into a `Docker` the caller still owns.
-            value = value.model_copy()
+            # Isolate the caller's nested containers too. Tool initialization adds mounts and
+            # derived tools replace the command, so a shallow copy still mutates caller-owned
+            # `mounts`, `default_env`, and `command` objects.
+            value = value.model_copy(deep=True)
             # The copy inherits the caller's `cached_property` cache, and `command` may be
             # filled in below -- `Docker.name` is derived from it.
             value.invalidate_cached_properties()
@@ -506,7 +508,9 @@ class Tool(XedaBaseModel):
         self.run(*args, env=env, stdout=redirect_to)
 
     def derive(self, executable, **kwargs) -> Tool:
-        new_tool = self.model_copy(update=kwargs)
+        # A derived tool changes its Docker command and may later add mounts/environment entries.
+        # It must not share those containers with the source tool.
+        new_tool = self.model_copy(deep=True, update=kwargs)
         new_tool.invalidate_cached_properties()
         if "default_args" not in kwargs:
             new_tool.default_args = []

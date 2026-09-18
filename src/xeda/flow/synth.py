@@ -97,6 +97,11 @@ class PhysicalClock(XedaBaseModel):
         if not isinstance(values, dict):
             return values
         assignment_field = info.field_name if info.data is None else None
+        if assignment_field is not None and assignment_field not in ("freq", "period"):
+            # Assignment validation re-runs this whole-model validator. Only the two correlated
+            # fields may reconcile one another; re-deriving 300 MHz from its rounded 3.333 ns
+            # period while assigning `rise` changed it to 300.030003... MHz.
+            return values
         freq = values.get("freq")
         if freq is not None:
             freq = convert_unit(freq, "MHz")

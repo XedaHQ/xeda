@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from xeda.design import Design
+from xeda.design import Design, RtlSettings
 from xeda.flow.synth import PhysicalClock
 from xeda.flows.yosys.yosys_fpga import YosysFpga
 
@@ -53,6 +53,26 @@ def test_physical_clock_assignment_keeps_frequency_and_period_consistent():
     assert (clock.freq, clock.period) == (250.0, 4.0)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("name", "clk"),
+        ("rise", 0.5),
+        ("duty_cycle", 0.4),
+        ("uncertainty", 0.1),
+        ("skew", 0.2),
+        ("port", "clk_i"),
+    ],
+)
+def test_unrelated_clock_assignment_does_not_reconcile_rounded_frequency(field, value):
+    clock = PhysicalClock(freq=300.0)
+    pair = (clock.freq, clock.period)
+
+    setattr(clock, field, value)
+
+    assert (clock.freq, clock.period) == pair
+
+
 def test_a_directly_edited_clock_is_not_reverted_by_an_unrelated_assignment():
     """`clock_period` is the documented shorthand, but it must not keep overwriting `clocks`.
 
@@ -70,6 +90,35 @@ def test_a_directly_edited_clock_is_not_reverted_by_an_unrelated_assignment():
     settings.verbose = 1
 
     assert settings.main_clock.period == 7.0
+
+
+def test_rtl_clock_list_is_not_replaced_by_an_unrelated_assignment():
+    rtl = RtlSettings(sources=[], clocks=[{"name": "clk", "port": "clk_i"}])
+    clocks = rtl.clocks
+    clock = rtl.clock
+
+    rtl.top = "top"
+
+    assert rtl.clocks is clocks
+    assert rtl.clock is clock
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "port"),
+    [
+        ("clock", {"name": "replacement", "port": "clk_a"}, "clk_a"),
+        ("clock_port", "clk_b", "clk_b"),
+    ],
+)
+def test_assigning_rtl_clock_shorthand_updates_the_clock_list(field, value, port):
+    rtl = RtlSettings(sources=[], clocks=[{"name": "old", "port": "old_clk"}])
+
+    setattr(rtl, field, value)
+
+    assert rtl.clock is not None
+    assert rtl.clock.port == port
+    assert len(rtl.clocks) == 1
+    assert rtl.clocks[0].port == port
 
 
 # ---------------------------------------------------------------------------------------------

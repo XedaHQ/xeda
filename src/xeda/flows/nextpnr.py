@@ -84,7 +84,7 @@ class EcpPLL(Tool):
         else:
             # Pydantic v2 retains nested model instances. Copy before assigning the generated
             # name so construction and assignment never mutate or retain a caller-owned clock.
-            clock = clock.model_copy()
+            clock = clock.model_copy(deep=True)
         if not clock.name:
             clock.name = "clk_i" if out_clk is None else f"clk_o_{out_clk}"
         return clock

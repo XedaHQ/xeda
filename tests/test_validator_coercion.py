@@ -6,10 +6,15 @@ to `str`; v2 rejects them. `XedaBaseModel` restores the v1 coercion -- for scala
 container's elements -- without disturbing annotations that genuinely discriminate on type.
 """
 
+import copy
+from collections import namedtuple
+from pathlib import Path
+
 import pytest
 
 from xeda.dataclass import Field, XedaBaseModel
 from xeda.design import Design, DesignValidationError
+from xeda.flow import Flow
 
 # ---------------------------------------------------------------------------------------------
 # Type coercion that v1 performed and v2 does not. TOML cannot mark a number as text, so files
@@ -119,3 +124,74 @@ def test_booleans_inside_a_string_list_are_still_rejected():
 
     with pytest.raises(ValueError):
         M(items=[True])
+
+
+def test_path_placeholders_expand_recursively_without_rewriting_non_path_strings(tmp_path):
+    """Path expansion follows the annotation through lists, mappings, tuples, and unions."""
+
+    class PathSettings(Flow.Settings):
+        scalar: Path
+        paths: list[Path]
+        hooks: dict[str, Path | None]
+        libraries: list[tuple[str, str | Path]]
+
+    payload = {
+        "scalar": "$DESIGN_ROOT/scalar.sdc",
+        "paths": ["$DESIGN_ROOT/a.sdc", "$DESIGN_DIR/b.sdc"],
+        "hooks": {"pre": "$DESIGN_ROOT/pre.tcl", "post": None},
+        "libraries": [("$LIBRARY_NAME", "$DESIGN_ROOT/lib/cells.lib")],
+    }
+    before = copy.deepcopy(payload)
+
+    settings = PathSettings(design_root_=tmp_path, **payload)
+
+    assert payload == before
+    assert settings.scalar == tmp_path / "scalar.sdc"
+    assert settings.paths == [tmp_path / "a.sdc", tmp_path / "b.sdc"]
+    assert settings.hooks == {"pre": tmp_path / "pre.tcl", "post": None}
+    assert settings.libraries == [("$LIBRARY_NAME", tmp_path / "lib/cells.lib")]
+
+
+def test_path_expansion_accepts_namedtuples_for_tuple_fields(tmp_path):
+    """Rebuilding a tuple as `type(value)(items)` breaks on a namedtuple, whose constructor takes
+    its fields positionally; the resulting TypeError surfaced as a validation error."""
+    Pair = namedtuple("Pair", "a b")
+    Lib = namedtuple("Lib", "name path")
+
+    class TupleSettings(Flow.Settings):
+        pair: tuple[int, int] = (0, 0)
+        lib: tuple[str, Path] = ("", Path())
+
+    settings = TupleSettings(
+        design_root_=tmp_path, pair=Pair(1, 2), lib=Lib("$NAME", "$DESIGN_ROOT/cells.lib")
+    )
+
+    assert settings.pair == (1, 2)
+    assert settings.lib == ("$NAME", tmp_path / "cells.lib")
+
+
+def test_real_path_list_setting_expands_design_root(tmp_path):
+    from xeda.flows.dc import Dc
+
+    settings = Dc.Settings(
+        design_root_=tmp_path,
+        platform="asap7",
+        target_libraries=["$DESIGN_ROOT/lib/cells.lib"],
+    )
+
+    assert settings.target_libraries == [tmp_path / "lib/cells.lib"]
+
+
+def test_comma_separated_path_list_expands_each_design_root(tmp_path):
+    from xeda.flows.dc import Dc
+
+    settings = Dc.Settings(
+        design_root_=tmp_path,
+        platform="asap7",
+        target_libraries="$DESIGN_ROOT/lib/a.lib,$DESIGN_ROOT/lib/b.lib",
+    )
+
+    assert settings.target_libraries == [
+        tmp_path / "lib/a.lib",
+        tmp_path / "lib/b.lib",
+    ]

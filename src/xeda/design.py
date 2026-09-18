@@ -722,10 +722,14 @@ class RtlSettings(DVSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def rtl_settings_validate(cls, values):  # pylint: disable=no-self-argument
+    def rtl_settings_validate(cls, values, info):  # pylint: disable=no-self-argument
         """copy equivalent clock fields (backward compatibility)"""
-        clock = values.get("clock") or values.get("clock_port")
-        clocks = values.get("clocks")
+        assigned = info.field_name if info.data is None else None
+        if assigned is not None and assigned not in ("clock", "clock_port", "clocks"):
+            # Pydantic 2 re-runs a before-model validator for every assignment. Rebuilding the
+            # list here detached it from code holding a reference to ``rtl.clocks`` even when,
+            # for example, only ``top`` changed.
+            return values
 
         def conv_clock(clock):
             if isinstance(clock, dict):
@@ -734,6 +738,17 @@ class RtlSettings(DVSettings):
                 clock = Clock(port=clock)
             return clock
 
+        if assigned in ("clock", "clock_port"):
+            # The shorthand being assigned is authoritative. Without this, assigning ``clock``
+            # changed that field but left ``clocks`` pointing at the previous clock; assigning
+            # ``clock_port`` was then overwritten from that stale list.
+            clock = conv_clock(values.get(assigned))
+            values["clocks"] = [clock] if clock else []
+            values["clock"] = clock
+            return values
+
+        clock = values.get("clock") or values.get("clock_port")
+        clocks = values.get("clocks")
         if clocks is None:
             if clock:
                 clocks = [clock]
@@ -745,8 +760,7 @@ class RtlSettings(DVSettings):
             raise ValueError(f"Expecting 'clocks' to be a list but found {clocks}")
         clocks = [conv_clock(clk) for clk in clocks if clk]
         values["clocks"] = clocks
-        if clocks:
-            values["clock"] = clocks[0]
+        values["clock"] = clocks[0] if clocks else None
         return values
 
 
