@@ -49,7 +49,7 @@ dependencies = [
     "rich                >= 15.0.0",
     "pebble              ~= 5.2.1",
     "pint                ~= 0.25.3",
-    "importlib_resources >= 6.0",                        # backport of importlib.resources, replaces pkg_resources
+    "importlib_resources >= 7.1.0",                      # backport of importlib.resources, replaces pkg_resources
     "simpleeval          ~= 1.0.7",
     "PyYAML              ~= 6.0",
     # experimental:

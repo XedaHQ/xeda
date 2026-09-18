@@ -76,9 +76,14 @@ class FmaxOptimizer(Optimizer):
         @classmethod
         def validate_init_freq(cls, value, info):
             values = info.data if isinstance(info.data, dict) else {}
-            assert (
-                value > values["init_freq_low"]
-            ), "init_freq_high should be more than init_freq_low"
+            # `.get`, not `[...]`: `info.data` carries only the fields that validated, so a
+            # missing or non-numeric `init_freq_low` turned `xeda dse` into a bare
+            # `KeyError: 'init_freq_low'` traceback instead of reporting that field's own error.
+            low = values.get("init_freq_low")
+            if low is not None and value <= low:
+                raise ValueError(
+                    f"init_freq_high ({value}) must be greater than init_freq_low ({low})"
+                )
             return value
 
     def __init__(self, *args, **kwargs):

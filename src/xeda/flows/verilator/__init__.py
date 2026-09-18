@@ -259,9 +259,13 @@ class Verilator(SimFlow):
 
         if self.cocotb:
             if verilator.docker is not None:
-                self.cocotb.docker = verilator.docker.model_copy(
+                cocotb_docker = verilator.docker.model_copy(
                     update=dict(command=[self.cocotb.executable]),
                 )
+                # `model_copy` carries the source's `cached_property` cache over verbatim, and
+                # `Docker.name` is derived from `command`, which `update` just replaced.
+                cocotb_docker.invalidate_cached_properties()
+                self.cocotb.docker = cocotb_docker
 
         model_args = ss.model_args
         if ss.vcd:

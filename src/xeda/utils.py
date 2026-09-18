@@ -17,6 +17,7 @@ from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager
 from copy import deepcopy
 from datetime import datetime, timedelta
+from enum import Enum
 from functools import cached_property, reduce
 from pathlib import Path
 from types import TracebackType
@@ -174,9 +175,19 @@ def model_state(obj: Any) -> Dict[str, Any]:
     `__dict__` alone silently drops every key a design supplied under `--design-allow-extra` --
     from `settings.json` and, worse, from the run hashes, which made two different designs hash
     identically.
+
+    The reverse is true too: a pydantic model's `__dict__` is also where `cached_property`
+    deposits its cache, so `__dict__` alone grows keys such as `Tool.version` the first time one
+    is read. Restricting to declared fields keeps `semantic_hash()` -- and therefore the run
+    directory a flow lands in -- independent of whether a cached property happened to be
+    evaluated first.
     """
     extra = getattr(obj, "__pydantic_extra__", None)
-    return {**obj.__dict__, **(extra or {})}
+    fields = getattr(type(obj), "model_fields", None)
+    state = obj.__dict__
+    if isinstance(fields, dict):
+        state = {k: v for k, v in state.items() if k in fields}
+    return {**state, **(extra or {})}
 
 
 def dump_json(data: object, path: Path, backup: bool = True, indent: int = 4) -> None:
@@ -826,6 +837,14 @@ def semantic_hash(data: Any) -> str:
             return {k: _sorted_dict_str(data[k]) for k in sorted(data.keys())}
         if isinstance(data, (list, tuple)):
             return [_sorted_dict_str(val) for val in data]
+        if isinstance(data, Enum):
+            # An enum member's `__dict__` carries `__objclass__`, i.e. the enum class, whose own
+            # `__dict__` lists every member -- descending into it never terminates. Hash the
+            # member the way it is written out instead. `SourceType` reaches here through
+            # `DesignSource.type` whenever a design is hashed directly.
+            return str(data)
+        if isinstance(data, type):
+            return f"{data.__module__}.{data.__qualname__}"
         if hasattr(data, "__dict__"):
             return _sorted_dict_str(model_state(data))
         return str(data)

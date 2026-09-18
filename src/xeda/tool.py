@@ -72,7 +72,9 @@ class Docker(XedaBaseModel):
 
     @cached_property
     def name(self) -> str:
-        return self.command[0].rsplit("/")[0] if self.command else "???"
+        # The basename of the containerized executable: `rsplit("/")[0]` (no `maxsplit`) took
+        # the leading component instead, so any absolute command produced an empty name.
+        return self.command[0].rsplit("/", 1)[-1] if self.command else "???"
 
     def run(
         self,
@@ -268,6 +270,9 @@ class Tool(XedaBaseModel):
         elif isinstance(value, Docker):
             # Same reason as above: do not write `command` into a `Docker` the caller still owns.
             value = value.model_copy()
+            # The copy inherits the caller's `cached_property` cache, and `command` may be
+            # filled in below -- `Docker.name` is derived from it.
+            value.invalidate_cached_properties()
         if isinstance(value, str):
             split = value.split(":")
             value = Docker(

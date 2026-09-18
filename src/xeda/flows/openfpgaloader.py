@@ -2,8 +2,8 @@ import logging
 from typing import Optional
 
 from ..board import WithFpgaBoardSettings, get_board_data
-from ..dataclass import Field, field_validator
-from ..flow import FlowSettingsException, FpgaSynthFlow
+from ..dataclass import Field, field_validator, model_validator
+from ..flow import FlowSettingsException, FpgaSynthFlow, propagate_to_dependency
 from ..tool import Tool
 from .nextpnr import Nextpnr
 
@@ -60,6 +60,25 @@ class Openfpgaloader(FpgaSynthFlow):
             value["board"] = board
             value["clocks"] = clocks
             return Nextpnr.Settings(**value)
+
+        @model_validator(mode="after")
+        def _sync_nextpnr_dependency(self, info):
+            """Keep the `nextpnr` dependency's target and constraints in step with ours.
+
+            The `before` validator above only runs when `nextpnr` itself is validated, so
+            without this an `openfpgaloader.fpga = ...` assignment left the dependency
+            placing and routing for the previous device.
+            """
+            if self.nextpnr is not None and info.field_name in (
+                None,
+                "nextpnr",
+                "fpga",
+                "board",
+                "clocks",
+                "clock_period",
+            ):
+                propagate_to_dependency(self.nextpnr, self, "fpga", "board", "clocks")
+            return self
 
     def init(self) -> None:
         self.packer: Optional[Tool] = None

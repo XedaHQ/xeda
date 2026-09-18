@@ -404,6 +404,39 @@ DefineType = Any
 Tuple012 = Union[Tuple[str, ...], Tuple[str], Tuple[str, str]]  # xtype: ignore
 
 
+_PARAMETERS_FORM_ERROR = (
+    "parameters/generics must be a dictionary or a list of objects with 'name' and 'value' "
+    "attributes"
+)
+
+
+def _normalize_parameters(value: Any) -> Any:
+    """Normalize the two interchangeable parameter/generic input forms."""
+    if not value:
+        return value
+    if isinstance(value, list):
+        normalized = {}
+        for entry in value:
+            # Checked before `.get`: a bare list such as `parameters = ["W"]` otherwise escaped
+            # as `AttributeError: 'str' object has no attribute 'get'`, which the validator
+            # guard (like v1) does not turn into a validation error.
+            if not isinstance(entry, Mapping):
+                raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got a list entry {entry!r}")
+            entry_name = entry.get("name")
+            entry_value = entry.get("value")
+            if entry_name and entry_value is not None:
+                normalized[entry_name] = entry_value
+            else:
+                raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got {dict(entry)!r}")
+        value = normalized
+    elif not isinstance(value, dict):
+        raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got {type(value).__name__}: {value!r}")
+    for key, parameter in value.items():
+        if isinstance(parameter, dict) and ("file" in parameter or "path" in parameter):
+            value[key] = str(FileResource(parameter))
+    return value
+
+
 class DVSettings(XedaBaseModel):
     """Design/Verification settings"""
 
@@ -422,33 +455,35 @@ class DVSettings(XedaBaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def the_root_validator(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        value = values.get("parameters")
-        if not value:
-            value = values.get("generics")
+    def the_root_validator(cls, values: Dict[str, Any], info) -> Dict[str, Any]:
+        # `generics` and `parameters` are two spellings of one setting and must always agree.
+        # On assignment pydantic keeps the raw value for the field being assigned and takes
+        # every *other* field from what this validator returns, so the spelling being assigned
+        # -- not its stale sibling -- has to be the source of truth. Reading `parameters` first
+        # unconditionally left the sibling behind: `design.tb.generics = design.rtl.generics`
+        # (ghdl, nvc) updated only `tb.generics`, while nvc builds its `-g` elaboration flags
+        # from `tb.parameters`, so cocotb testbench generics were silently dropped.
+        assigned = info.field_name if info.data is None else None
+        if assigned in ("generics", "parameters"):
+            value = values.get(assigned)
+        else:
+            value = values.get("parameters") or values.get("generics")
+            if not value:
+                return values
         if value:
-            if isinstance(value, (list)):
-                d = dict()
-                for e in value:
-                    e_name = e.get("name")
-                    e_value = e.get("value")
-                    if e_name and e_value is not None:
-                        d[e_name] = e_value
-                    else:
-                        raise ValueError(
-                            "parameters/generics must be a dictionary or a list of objects with 'name' and 'value' attributes"
-                        )
-                value = d
-            elif not isinstance(value, dict):
-                raise ValueError(
-                    "parameters/generics must be a dictionary or a list of objects with 'name' and 'value' attributes"
-                )
-            for k, v in value.items():
-                if isinstance(v, dict) and ("file" in v or "path" in v):
-                    value[k] = str(FileResource(v))
+            value = _normalize_parameters(value)
+        if value is not None:
             values["generics"] = value
             values["parameters"] = value
         return values
+
+    @field_validator("generics", "parameters", mode="before")
+    @classmethod
+    def _validate_parameters(cls, value):
+        # Assignment validation ultimately validates only the field being assigned, even when a
+        # before-model validator returned a normalized value for that key.  Keep normalization at
+        # the field boundary as well so the stored value never depends on mutating caller input.
+        return _normalize_parameters(value)
 
     @field_validator("sources", mode="before")
     @classmethod
@@ -1208,12 +1243,28 @@ class Design(XedaBaseModel):
             design_root = data.pop("design_root", Path.cwd())
         if not design_root:
             raise ValueError("design_root is not set")
-        if not isinstance(design_root, Path):
-            design_root = Path(design_root)
-        design_root = design_root.resolve()
+
+        # Everything up to `super().__init__` runs outside pydantic's validators, so a malformed
+        # design has to be turned into a `DesignValidationError` here by hand -- otherwise
+        # `rtl = ["x"]` or a mistyped `design_root` escaped as a bare AssertionError,
+        # FileNotFoundError or TypeError traceback instead of naming the offending key.
+        def invalid(loc: Optional[str], msg: str) -> DesignValidationError:
+            return DesignValidationError(
+                [(loc, msg, "", "value_error")], data=data, design_root=design_root
+            )
+
+        try:
+            design_root = Path(design_root).resolve()
+        except TypeError:
+            raise invalid("design_root", f"not a path: {design_root!r}") from None
+        if not design_root.is_dir():
+            raise invalid("design_root", f"directory does not exist: {design_root}")
         if not data.get("design_root"):
             data["design_root"] = design_root
-        data = Design.process_dict(data)
+        try:
+            data = Design.process_dict(data)
+        except (ValueError, TypeError, AssertionError) as e:
+            raise invalid(None, str(e)) from e
         with WorkingDirectory(design_root):
             try:
                 super().__init__(**data)
@@ -1223,7 +1274,10 @@ class Design(XedaBaseModel):
                 ) from e
 
             for dep in self.dependencies:
-                dep_design = dep.fetch_design()
+                try:
+                    dep_design = dep.fetch_design()
+                except ValueError as e:
+                    raise invalid("dependencies", str(e)) from e
                 log.info("adding dependency sources from %s", dep_design.name)
                 pos = dep.rtl.pos
                 if pos == -1:  # -1 means append 'after' the last element

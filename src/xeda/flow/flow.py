@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 from abc import ABCMeta, abstractmethod
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
@@ -46,6 +47,7 @@ __all__ = [
     "FlowSettingsError",
     "FlowSettingsException",
     "describe_results",
+    "propagate_to_dependency",
 ]
 
 registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
@@ -123,6 +125,24 @@ def describe_results(*keys: str, **extra: str) -> Dict[str, str]:
             ) from None
     described.update(extra)
     return described
+
+
+def propagate_to_dependency(target: Any, source: Any, *names: str) -> None:
+    """Copy the named settings of a flow onto the settings of one of its dependencies.
+
+    Only truthy values are copied, so a dependency keeps its own value where the parent has
+    none. Each one is deep-copied: pydantic v2 hands a nested model straight through instead of
+    re-validating (and thereby copying) it, so assigning the parent's own `clocks` mapping would
+    leave the two flows sharing one object, and an edit to either would silently alter the other.
+
+    Call this from a `mode="after"` model validator rather than a field validator, so that the
+    dependency is kept in step when one of these settings is *assigned* later, not only when the
+    parent is first constructed.
+    """
+    for name in names:
+        value = getattr(source, name, None)
+        if value:
+            setattr(target, name, deepcopy(value))
 
 
 class Flow(metaclass=ABCMeta):

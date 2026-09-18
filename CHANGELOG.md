@@ -103,8 +103,48 @@ All notable changes to this project will be documented in this file.
 - `Design.schema()` raised `ValueError: Value not declarable with JSON Schema`.
 - Design sources recorded their type as an integer ordinal (`"5"`) in `settings.json` instead
   of a name (`"Vhdl"`). Old files are still read correctly.
+- `openroad` with a non-default ASAP7 corner (`-s corner=FF`) wrote the default corner's supply
+  voltage into its scripts (`VDD` 0.7 V instead of 0.77 V). ASAP7 spells `VDD` as `$(VOLTAGE)`,
+  and selecting a corner did not re-evaluate it. `AsicsPlatform.select_corner()` now does, and the
+  source expression survives the platform being reloaded from `settings.json` or copied.
+- `nvc` with a cocotb testbench: when the design also gave the testbench generics of its own, `nvc`
+  elaborated with those instead of the RTL generics the flow had just copied over (`ghdl` used the
+  right ones). `generics` and `parameters` are two spellings of one setting, and assigning
+  `generics` left `parameters` stale. Assigning either one now updates both.
+- `ise_synth` quoted its project properties again each time its settings were re-validated -- on
+  any assignment, and on reloading `settings.json` -- so `"High"` became `""High""`. Values in
+  `translate_options` were never quoted at all. All five option groups are now quoted exactly
+  once, when the Tcl script is generated.
+- Malformed values in design and settings files escaped as raw `AttributeError` or
+  `FileNotFoundError` tracebacks instead of validation errors naming the field: for example
+  `parameters = ["W"]`, a `verilog_lib` file that does not exist, or a `set_attribute` that is not
+  a mapping. An unknown platform (`-s platform=asap8`) now lists the bundled platforms.
+- `fpga = "xc7a100tcsg324-1"`, the shorthand the `fpga` setting documents, was rejected. A bare
+  part number is now accepted there.
+- Repeating `-s`/`--settings` (`-s clock_period=5 -s impl.strategy=Debug`) kept only the last
+  group of overrides and silently dropped the others. Every occurrence now adds to the settings.
+- `xeda dse` with a missing or non-numeric `init_freq_low` crashed with `KeyError:
+  'init_freq_low'` instead of reporting that setting. An `init_freq_high` that is not above
+  `init_freq_low` is now a validation error rather than an `assert`, which `python -O` skips.
+- Docker: the environment file of a tool given by absolute path was named `._docker.env`, and a
+  `Docker` configuration shared between tools could keep the first tool's name. Both are now named
+  after the tool's own executable (`.ghdl_docker.env`).
+- `semantic_hash()` of a model included values cached by `cached_property`, so hashing a `Tool`
+  changed once its version had been probed, and objects written to `settings.json` through the
+  JSON fallback could carry those cached values too. Hashing a whole `Design` recursed without end
+  on its source types.
 
 ### Changed
+- **pydantic 2.** Xeda now requires `pydantic >= 2.13.5, < 3` (previously `>= 1.10.22, < 2`).
+  Design, settings, board and platform files that loaded under 1.x load unchanged: a number given
+  for a string setting (`speed = 2`, `MAX_BRAM = 0`, `compile_args = ["-j", 8]`) is still accepted
+  as text, and a malformed value is still reported as a validation error naming the field. Code
+  that uses xeda as a library must move to the pydantic 2 model API (`model_dump()`,
+  `model_validate()`, `model_json_schema()`, `model_copy()`).
+- The minimum `importlib_resources` version is now 7.1.0.
+- `ise_synth` records its project properties in `settings.json` as written (`High`, not
+  `"High"`) and quotes them only in the generated script. Its settings therefore hash differently,
+  and `--cached-dependencies` re-runs an ISE dependency once.
 - Help screens are now rendered by [click-extra](https://github.com/kdeldycke/click-extra) instead
   of `click-help-colors`, and `click` is required at 8.5 or newer. The xeda palette is unchanged
   (yellow headings, green options); options, choices, metavars, environment variables and defaults
@@ -113,7 +153,10 @@ All notable changes to this project will be documented in this file.
 - Examples now require cocotb 2.1 (`examples/requirements.txt`).
 - `xeda dse` now exits with a non-zero status when the exploration produced no successful run,
   matching `xeda run` and the other commands. It previously always exited 0.
-- WIP: Handling settings of dependency flow during `Settings` validation.
+- A flow's settings for its dependency flows keep following it after construction: assigning
+  `fpga`, `board`, `clocks` or `clock_period` on `nextpnr`, `open_xc7` or `openfpgaloader`
+  settings updates the `yosys_fpga` dependency (and, for `openfpgaloader`, `nextpnr`) too. Each
+  dependency gets its own copy, so editing one flow's settings never alters another's.
 
 ### Removed
 - Dependency on `click-help-colors`, replaced by `click-extra`.
