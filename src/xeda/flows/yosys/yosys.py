@@ -227,24 +227,10 @@ class Yosys(YosysBase, SynthFlow):
             "which some yosys versions require when several corners are given.",
         )
 
-        @field_validator("liberty", mode="before")
-        @classmethod
-        def _validate_liberty(cls, value):
-            if isinstance(value, (Path, str)):
-                value = [value]
-            return value
-
         @field_validator("platform", mode="before")
         @classmethod
         def _validate_platform(cls, value):
             return AsicsPlatform.from_setting(value)
-
-        @field_validator("gates", mode="before")
-        @classmethod
-        def _validate_commasep_to_list(cls, value):
-            if isinstance(value, str):
-                value = [x.strip() for x in value.split(",")]
-            return value
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)

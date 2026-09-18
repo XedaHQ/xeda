@@ -11,6 +11,18 @@ from ...dataclass import Field, XedaBaseModel, field_validator
 from ...design import SourceType
 from ...flow import FpgaSynthFlow, describe_results
 from ...utils import HierDict, parse_xml, try_convert
+
+#: A Vivado run property value: text, a number or a boolean (`MAX_BRAM 0`, `... IS_ENABLED true`).
+PropertyValue = Union[str, int, float, bool]
+
+
+def tcl_property_value(value: PropertyValue) -> str:
+    """Render a run property value for `set_property`: a boolean as Tcl `true`/`false`."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 from ..vivado import Vivado
 
 __all__ = ["RunOptions", "StepsValType", "VivadoSynth"]
@@ -180,11 +192,15 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         show_available_strategies: bool = Field(
             False, description="Show available synthesis and implementation strategies"
         )
-        set_synth_properties: Dict[str, str] = Field(
-            {}, description="Set properties for synthesis. "
+        set_synth_properties: Dict[str, PropertyValue] = Field(
+            {},
+            description="Properties to set on the synthesis run (`synth_1`), e.g. "
+            '`{"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM" = 0}`. Values may be text, numbers or booleans.',
         )
-        set_impl_properties: Dict[str, str] = Field(
-            {}, description="Set properties for implementation. "
+        set_impl_properties: Dict[str, PropertyValue] = Field(
+            {},
+            description="Properties to set on the implementation run (`impl_1`). Values may be "
+            "text, numbers or booleans.",
         )
         report_power: bool = Field(False, description="Run power estimation after implementation")
 
@@ -199,6 +215,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
+        self.add_template_global_func(tcl_property_value)
         # if ss.bitstream and "PROGRAM.FILE" not in ss.set_impl_properties:
         #     ss.set_impl_properties["PROGRAM.FILE"] = str(ss.bitstream)
 

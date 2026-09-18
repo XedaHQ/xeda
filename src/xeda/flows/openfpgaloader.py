@@ -2,8 +2,8 @@ import logging
 from typing import Optional
 
 from ..board import WithFpgaBoardSettings, get_board_data
-from ..dataclass import Field, field_validator, model_validator
-from ..flow import FlowSettingsException, FpgaSynthFlow, propagate_to_dependency
+from ..dataclass import Field
+from ..flow import FlowSettingsException, FpgaSynthFlow
 from ..tool import Tool
 from .nextpnr import Nextpnr
 
@@ -27,9 +27,10 @@ class Openfpgaloader(FpgaSynthFlow):
     ofpga_loader = Tool("openFPGALoader")
 
     class Settings(WithFpgaBoardSettings):
-        clock_period: float = Field(
+        clock_period: Optional[float] = Field(
+            None,
             description="Target clock period in nanoseconds, passed to the synthesis and place & "
-            "route dependencies."
+            "route dependencies.",
         )
         reset: bool = Field(
             False, description="Reset the FPGA after loading the bitstream (`--reset`)."
@@ -39,55 +40,20 @@ class Openfpgaloader(FpgaSynthFlow):
             description='Programming cable to use, e.g. "ft2232". Takes precedence over the '
             "cable implied by `board`.",
         )
-        nextpnr: Optional[Nextpnr.Settings] = Field(
-            None,
+        nextpnr: Nextpnr.Settings = Field(
+            default_factory=Nextpnr.Settings,
             description="Settings for the `nextpnr` dependency that places and routes the design.",
         )
 
-        @field_validator("nextpnr", mode="before")
-        @classmethod
-        def _validate_nextpnr(cls, value, info):
-            values = info.data if isinstance(info.data, dict) else {}
-            clocks = values.get("clocks")
-            fpga = values.get("fpga")
-            board = values.get("board")
-            if value is None:
-                value = {}
-            if isinstance(value, Nextpnr.Settings):
-                value = value.model_dump()
-            assert isinstance(value, (dict)), f"not a dict: {value}"
-            value["fpga"] = fpga
-            value["board"] = board
-            value["clocks"] = clocks
-            return Nextpnr.Settings(**value)
-
-        @model_validator(mode="after")
-        def _sync_nextpnr_dependency(self, info):
-            """Keep the `nextpnr` dependency's target and constraints in step with ours.
-
-            The `before` validator above only runs when `nextpnr` itself is validated, so
-            without this an `openfpgaloader.fpga = ...` assignment left the dependency
-            placing and routing for the previous device.
-            """
-            if self.nextpnr is not None and info.field_name in (
-                None,
-                "nextpnr",
-                "fpga",
-                "board",
-                "clocks",
-                "clock_period",
-            ):
-                propagate_to_dependency(self.nextpnr, self, "fpga", "board", "clocks")
-            return self
+        dependency_settings = {"nextpnr": ("fpga", "board", "clocks")}
 
     def init(self) -> None:
         self.packer: Optional[Tool] = None
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        assert ss.nextpnr is not None
-        self.add_dependency(Nextpnr, ss.nextpnr)
+        self.add_dependency(Nextpnr, ss.resolve_dependency("nextpnr"))
         if ss.fpga is None:
-            raise FlowSettingsException("")
+            raise FlowSettingsException("openfpgaloader needs a target: set `fpga` or `board`")
         if ss.fpga.family == "ecp5":  # FIXME from fpga/board
             self.packer = Tool("ecppack")
 

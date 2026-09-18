@@ -113,11 +113,11 @@ set_property -name {{"{"}}STEPS.{{step}}.{{name}}{{"}"}} -value {{"{"}}{{value}}
 
 # puts "\n====================( set_synth_properties )=============================="
 {% for k,v in settings.set_synth_properties.items() -%}
-set_property {{k}} { {{-v-}} } [get_runs synth_1]
+set_property {{k}} { {{-tcl_property_value(v)-}} } [get_runs synth_1]
 {% endfor -%}
 # puts "\n====================( set_impl_properties )=============================="
 {% for k,v in settings.set_impl_properties.items() -%}
-set_property { {{-k-}} } { {{-v-}} } [get_runs impl_1]
+set_property { {{-k-}} } { {{-tcl_property_value(v)-}} } [get_runs impl_1]
 {% endfor -%}
 
 # puts "\n====================( reset_run )=============================="

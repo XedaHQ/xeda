@@ -26,11 +26,11 @@ yosys write_json {{artifacts.netlist_json}}
 {% endif -%}
 
 {% if artifacts.netlist_verilog -%}
-{% for attr in settings.netlist_unset_attributes -%}
+{% for attr in settings.attributes_to_unset() -%}
 yosys setattr -unset {{attr}}
 {% endfor -%}
 yosys log -stdout "Writing netlist {{artifacts.netlist_verilog}}"
-yosys write_verilog {{settings.netlist_verilog_flags|join(" ")}} {{artifacts.netlist_verilog}}
+yosys write_verilog {{settings.write_verilog_flags()|join(" ")}} {{artifacts.netlist_verilog}}
 {% endif -%}
 
 {% if settings.write_blif -%}

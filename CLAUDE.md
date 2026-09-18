@@ -22,19 +22,19 @@ Tests, lint, format, type-check:
 ```bash
 pytest tests/                        # full test suite
 pytest tests/test_vivado.py::test_vivado_synth_py -s -v   # single test
-tox                                  # CI matrix: py311-py314 + mypy + black
+tox                                  # CI matrix: py311-py314 + mypy + black + ruff
 tox -e mypy                          # mypy --install-types --non-interactive src - currently clean
-tox -e black                         # black --check --diff src (line-length 100) - currently clean
+tox -e black                         # black --check --diff src tests (line-length 100) - clean
 ruff check src tests                 # .ruff.toml, line-length 120
 ```
 
 `jsonschema` is a test-only dependency (in the `dev` group and in tox), used to check that the
 published design schema agrees with the loader.
 
-`mypy src` and `black --check src` both pass as of now; keep them that way. `ruff check src tests`
-reports many pre-existing findings (mostly `UP006`/`UP007` PEP-585/604 annotations and `RUF012`) - it is
-*not* enforced: `envlist` names a `ruff` env but tox.ini has no `[testenv:ruff]`, so `tox -e ruff` just
-runs pytest. Don't mass-fix those; keep new code clean.
+`mypy src`, `black --check src tests` and the Pyflakes rules (`ruff check --select F src tests`, the
+`tox -e ruff` env) all pass; keep them that way. The full `ruff check` ruleset reports many
+pre-existing findings (mostly `UP006`/`UP007` PEP-585/604 annotations and `RUF012`) and is not
+enforced. Don't mass-fix those; keep new code clean.
 
 Most tests use `tests/fake_tools/`, but four end-to-end tests drive genuinely installed tools
 (`test_ghdl.py`, `test_nvc.py`, `test_verilator.py`, `test_yosys.py`). They **skip** when the tool is
@@ -171,11 +171,45 @@ integration keyed on `cocotb_sim_name`), `SynthFlow` (adds `clock_period` / `clo
 
 Every flow declares a nested `class Settings(<Base>.Settings)`. Settings are pydantic models
 (`XedaBaseModel`) with `extra = forbid`, so an unknown key in a design/CLI override is a hard error -
-this is intentional and surfaces as `FlowSettingsError`. A catch-all validator expands `$PWD`,
-`$DESIGN_ROOT`, `$DESIGN_DIR` at every `Path` leaf of a field's annotation (`_expand_path_values` in
-`flow/flow.py`): scalars, `str | Path` unions, and list/dict/tuple elements -- in `lib_paths` only the
-path half of each tuple, never the library name. Fields with no `Path` in their annotation are
-passed through untouched. CLI `-s key=value` supports dotted hierarchical keys.
+this is intentional and surfaces as `FlowSettingsError`. CLI `-s key=value` supports dotted
+hierarchical keys.
+
+**A setting accepts exactly its declared type; there is no implicit conversion.** A number is not
+text (`speed = "2"`, `compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. Where
+a setting's values really are of several kinds, its type says so and whatever consumes it renders
+each kind explicitly: Vivado run properties are `str | int | float | bool`, rendered for Tcl by
+`tcl_property_value`. On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
+setting three conveniences, applied before any field validator runs (by a model `before` validator
+on construction and reload, by `Flow.Settings.__setattr__` on assignment):
+
+1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around
+   items and empty items are dropped, so `""` is `[]`). A setting that also accepts plain text
+   keeps it whole.
+2. `$PWD`, `$DESIGN_ROOT`, `$DESIGN_DIR` are expanded at every `Path` leaf of the annotation
+   (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
+   `lib_paths` only the path half of each tuple, never the library name.
+3. A dependency's settings given as an instance are deep-copied, on construction and assignment.
+
+**Dependencies share settings declaratively, and resolve them at launch.** A flow that launches
+another declares which settings they share, keyed by the field holding the dependency's settings:
+`dependency_settings = {"yosys": ("fpga", "clocks")}`. Settings only ever hold what was written --
+validation copies nothing between a flow's settings and its dependency's, so the result never
+depends on the order settings were given in. `init()` launches the dependency with
+`self.add_dependency(YosysFpga, ss.resolve_dependency("yosys"))`: each shared setting comes from
+the flow unless it `is_unset` there (`None` or empty), otherwise from the dependency, and the flow
+adopts the resolved value too. The result is a private deep copy; the dependency settings as given
+stay untouched. Every nested `Flow.Settings` field must be declared; `tests/test_dependency_settings.py`
+enforces that and derives all its checks from the declarations.
+
+**Values derived from settings are computed where they are used, not stored in settings.** Yosys's
+`write_verilog_flags()` / `attributes_to_unset()` read the `netlist_*` switches when the script is
+rendered, so a switch set later (as `Yosys.init` does for `netlist_expr`) still takes effect.
+
+The sweeps in `tests/test_model_invariants.py` and `tests/test_malformed_input.py` pair every
+setting of every flow with each value in `tests/settings_samples.PROBES` (every structural kind:
+empties, numbers, bools, text, namedtuples, nested containers) and check that no input is a
+traceback, that assigning a value is identical to constructing with it, that settings reload
+unchanged from their `settings.json`, and that a setting all flows share keeps its type everywhere.
 
 **Every settings field must have a `description=`.** `tests/test_documentation.py` fails otherwise
 (its allowlist is empty - all ~520 visible fields are documented). The same test requires each flow
@@ -257,36 +291,42 @@ matching hashes and whose `results.json` reports success is skipped and its resu
   entry point from `cocotb-config --pygpi-entry-point`. That flag does not exist before 2.1, so it
   is probed rather than assumed, which is what keeps cocotb 2.0 working. When a cocotb upgrade
   breaks every simulation at once, compare `Cocotb.env()` against `cocotb_tools/runner.py` first.
-- **pydantic v2 is pinned** (`>=2.13.5,<3`). Use `field_validator` / `model_validator` /
-  `model_dump()` / `model_dump_json()` / `model_json_schema()` / `model_fields`, not the v1
-  spellings. Import them from `xeda.dataclass` (which re-exports and adds `XedaBaseModel`), not
-  directly from `pydantic`. Every validator needs an explicit `@classmethod` under its decorator.
+- **pydantic 2 is pinned** (`>=2.13.5,<3`). Import `field_validator` / `model_validator` from
+  `xeda.dataclass` (which re-exports and adds `XedaBaseModel`), not directly from `pydantic`.
+  Every validator needs an explicit `@classmethod` under its decorator.
 - `XedaBaseModel.model_config` sets `validate_assignment`, `arbitrary_types_allowed`,
   `ignored_types=(cached_property,)`, `populate_by_name`, `use_enum_values` and
   **`validate_default=True`**. After `model.model_copy(update=...)`, call
   `invalidate_cached_properties()` - stale `cached_property` values are a recurring bug source (see
   `Tool.derive`).
-- **`validate_default=True` is deliberate**: it restores v1's `always=True`, which nearly every
-  validator relied on. A validator that must *not* see the default needs
-  `Field(..., validate_default=False)` on the field - see `SynthFlow.Settings.fpga`, `sim.vcd`.
-- **`Optional[X]` needs an explicit `= None`.** v1 supplied it implicitly; in v2 a bare
-  `x: Optional[int]` (or `Field(description=...)` with no default) is a *required* field.
+- **`validate_default=True` is deliberate**: a default goes through the same validators as a given
+  value, so omitting a setting and writing its default explicitly (as `settings.json` does) are the
+  same. Never opt a field out with `validate_default=False`; that is what made reloaded settings
+  differ from the originals. Make the validator handle the default instead.
+- **`Optional[X]` needs an explicit `= None`.** A bare `x: Optional[int]` (or
+  `Field(description=...)` with no default) is a *required* field.
+- **pydantic runs a subclass's `before` validators ahead of its base class's**, at field and model
+  level alike. So a base-class *field* validator cannot normalize input for the subclass's
+  validators, and a model `before` validator cannot change the value being *assigned*.
+  `Flow.Settings` therefore normalizes with a model `before` validator plus `__setattr__`.
 - Fields ending in `_` (e.g. `design_root_`, `flow_settings_`, `runner_cwd_`) are internal and marked
   `json_schema_extra={"hidden_from_schema": True}`; they are excluded from user-facing settings docs.
 - Arbitrary (non-pydantic) types used as fields need `__get_pydantic_core_schema__` *and*
   `__get_pydantic_json_schema__` - see `FileResource`/`DesignSource` in `design.py`. Without the
   latter, `model_json_schema()` raises `PydanticInvalidForJsonSchema`.
-- **Import `field_validator`/`model_validator` from `xeda.dataclass`, never from `pydantic`.** The
-  shim's versions restore two things v1 did implicitly and v2 does not:
+- **Import `field_validator`/`model_validator` from `xeda.dataclass`, never from `pydantic`.**
+  Their versions guarantee two things for every validator:
   a `TypeError` raised in a validator becomes a validation error rather than escaping as a
   traceback, and a `mode="before"` validator gets a defensive copy of its input so the widespread
   "normalize by writing back into `values`" pattern cannot rewrite the caller's own mapping (a
   design's `flow[...]` section, a `Settings` kwargs dict), including nested clock/parameter/corner
   mappings. Validators should still guard their own inputs and raise `ValueError` with a useful
   message - the shim is a net, not a substitute.
-- **A validator must copy a nested *model instance* before normalizing it.** v1 re-validated (and
-  so copied) nested models; v2 keeps the caller's object, so `value.fpga = ...` edits settings the
-  caller still owns. See `Nextpnr.Settings._validate_yosys`, `VivadoAltSynth.validate_synth`.
+- **A validator must copy a nested *model instance* before normalizing it.** pydantic keeps the
+  caller's object rather than re-validating it, so `value.fpga = ...` edits settings the caller
+  still owns. See `VivadoAltSynth.validate_synth`. `revalidate_instances` is no way out: it
+  downcasts a subclass instance to the annotated class (`Design.dependencies`,
+  `RtlSettings.generator`, `Tool.docker`, `SimFlow.cocotb`, ... hold subclasses).
 - **A `mode="before"` model validator runs on every assignment, and its writes stick.** Under
   `validate_assignment`, `model.x = v` hands it the full state; `x` keeps its raw value, but every
   *other* field it rewrites is written back. So treat the assigned field as authoritative (detect
@@ -294,38 +334,28 @@ matching hashes and whose `results.json` reports success is skipped and its resu
   assignment that does not concern you, or you silently revert direct edits. See
   `DVSettings.the_root_validator` (`generics`/`parameters`) and
   `SynthFlow.Settings._synthflow_settings_root_validator`.
-- The shim passes a non-`dict` input to a `mode="before"` model validator straight through to
-  pydantic (v1 only ever gave `pre=True` root validators a mapping). A validator that converts a
+- The wrapper passes a non-`dict` input to a `mode="before"` model validator straight through to
+  pydantic, which rejects it, since those bodies are written against a mapping. A validator that converts a
   shorthand itself, like `FPGA` turning `"xc7a..."` into `{"part": ...}`, opts in with
   `@accepts_non_mapping` under `@classmethod`.
 - **Validators must be idempotent.** Assignment and every `settings.json` reload re-run them, so
   one that *transforms* drifts each time (ISE's option quoting turned `"High"` into `""High""`).
   Format for a tool at render time in the template instead. `tests/test_model_invariants.py`
   re-assigns every field of every flow's settings to itself and fails on any change.
-- Settings a flow passes to a dependency (`fpga`, `clocks`, ...) are propagated with
-  `flow.propagate_to_dependency()` from a `mode="after"` model validator, not a field validator,
-  so they also follow later assignments. It deep-copies, so the two flows never share an object.
-- **`XedaBaseModel` coerces a bare number to `str`** for fields whose annotation accepts `str` and
-  no numeric type -- and, for a container, whose *element* type does. TOML/YAML cannot mark a
-  number as text, so real files spell string settings numerically: an FPGA `speed = 2` grade, a
-  Vivado `set_synth_properties = {MAX_BRAM = 0}`, a `compile_args = ["-j", 8]`. v1 coerced all of
-  these; v2 would reject them. A `Union[str, int]` element is left alone so it still
-  discriminates, as is `bool`. The CLI is unaffected either way -- `-s key=value` never converts,
-  so overrides always arrive as strings.
-- **Nested models serialize by their *annotated* type in v2.** A field holding a subclass needs
+- **Nested models serialize by their *annotated* type.** A field holding a subclass needs
   `SerializeAsAny[...]` (see `Design.dependencies`, which holds `GitReference`s) or the subclass's
   own fields are silently dropped from `model_dump()`.
 - Read a model's state with `utils.model_state()`, not `__dict__`: permitted extras live in
-  `__pydantic_extra__` in v2, and `__dict__` alone drops them from `settings.json` and from
+  `__pydantic_extra__`, and `__dict__` alone drops them from `settings.json` and from
   `semantic_hash()`. Conversely `__dict__` also holds `cached_property` caches, which
   `model_state()` filters out.
 - State that must survive `model_dump()` -> `model_validate()` belongs in a hidden
   trailing-underscore field, not a `PrivateAttr` or an `__init__` side effect, since a dump
   carries only fields. See `AsicsPlatform.voltage_expressions_`, which lets `select_corner()`
   re-evaluate `$(VOLTAGE)` on a platform reloaded from `settings.json`.
-- **Physical quantities from PDK/board files must be `float`.** `abc_load_in_ff`,
-  `macro_place_halo` and `macro_place_channel` were typed `int`; v1 truncated asap7/nangate45's
-  fractional values and v2 refused to load those platforms at all.
+- **Physical quantities from PDK/board files must be `float`.** asap7/nangate45 give
+  `abc_load_in_ff`, `macro_place_halo` and `macro_place_channel` fractionally; typed `int`, the
+  platforms would not load.
 - `units.convert_unit()` translates pint's own exceptions (`UndefinedUnitError` derives from
   `AttributeError`, `DimensionalityError` from `TypeError`) into `ValueError`, so a bad unit in a
   design file is a field error rather than a traceback.

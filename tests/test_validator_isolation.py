@@ -184,35 +184,6 @@ def test_unrelated_assignment_preserves_nested_field_identities():
 # ---------------------------------------------------------------------------------------------
 
 
-def test_nested_settings_instance_is_not_mutated_by_a_dependent_flow():
-    from xeda.flows.nextpnr import Nextpnr
-
-    yosys = YosysFpga.Settings(fpga={"part": "LFE5U-25F-6BG381C"}, clock_period=10.0)
-    original = (yosys.fpga.part, yosys.clock_period)
-
-    nextpnr = Nextpnr.Settings(yosys=yosys, fpga={"part": "LFE5U-45F-6BG381C"}, clock_period=5.0)
-
-    assert (yosys.fpga.part, yosys.clock_period) == original, "caller's Yosys settings were edited"
-    assert nextpnr.yosys is not yosys
-    assert nextpnr.yosys.fpga.part == "LFE5U-45F-6BG381C"
-
-
-def test_openxc7_does_not_mutate_nested_yosys_settings():
-    from xeda.flows.openxc7 import OpenXC7
-
-    yosys = YosysFpga.Settings(fpga={"part": "LFE5U-25F-6BG381C"}, clock_period=10.0)
-    settings = OpenXC7.Settings(
-        yosys=yosys,
-        fpga={"part": "xc7a100tftg256-2L"},
-        clock_period=5.0,
-    )
-
-    assert yosys.fpga.part == "LFE5U-25F-6BG381C"
-    assert yosys.clock_period == 10.0
-    assert settings.yosys is not yosys
-    assert settings.yosys.fpga.part == "xc7a100tftg256-2L"
-
-
 def test_run_options_steps_are_not_expanded_in_the_caller_object():
     from xeda.flows.vivado.vivado_alt_synth import VivadoAltSynth
     from xeda.flows.vivado.vivado_synth import RunOptions
@@ -220,7 +191,9 @@ def test_run_options_steps_are_not_expanded_in_the_caller_object():
     run_options = RunOptions(strategy="Debug")
     before = dict(run_options.steps)
 
-    settings = VivadoAltSynth.Settings(synth=run_options, clock_period=5.0)
+    settings = VivadoAltSynth.Settings(
+        fpga="xc7a100tftg256-2L", synth=run_options, clock_period=5.0
+    )
 
     assert dict(run_options.steps) == before, "caller's RunOptions.steps was expanded in place"
     assert settings.synth.steps, "the flow's own copy should still be expanded"
@@ -279,20 +252,28 @@ def test_derived_tool_does_not_share_docker_state_with_its_source():
     assert source.docker.default_env == {"A": "B"}
 
 
-def test_after_list_validators_do_not_mutate_caller_owned_lists():
-    flags = ["custom"]
-    unset_attributes = ["keep"]
+def test_netlist_flags_are_derived_when_used_not_stored():
+    """The `netlist_*` switches imply `write_verilog` flags. Deriving them into the stored lists at
+    construction meant a switch set later -- `Yosys.init` sets `netlist_expr` for a liberty
+    netlist -- never reached the script, and re-validation had to guard against duplicates."""
+    flags, unset_attributes = ["custom"], ["keep"]
     settings = YosysFpga.Settings(
         fpga={"part": "LFE5U-25F-6BG381C"},
-        clock_period=10.0,
         netlist_verilog_flags=flags,
         netlist_unset_attributes=unset_attributes,
     )
 
-    assert flags == ["custom"]
-    assert unset_attributes == ["keep"]
-    assert settings.netlist_verilog_flags == ["custom", "-nodec"]
-    assert settings.netlist_unset_attributes == ["keep", "src"]
+    assert (settings.netlist_verilog_flags, settings.netlist_unset_attributes) == (
+        flags,
+        unset_attributes,
+    )
+    assert settings.write_verilog_flags() == ["custom", "-nodec"]
+    assert settings.attributes_to_unset() == ["keep", "src"]
+
+    settings.netlist_expr = False
+    settings.netlist_src_attrs = True
+    assert settings.write_verilog_flags() == ["custom", "-nodec", "-noexpr"]
+    assert settings.attributes_to_unset() == ["keep"]
 
 
 def test_openroad_corner_selection_uses_an_isolated_platform_copy():

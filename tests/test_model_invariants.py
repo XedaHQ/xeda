@@ -1,75 +1,44 @@
 """Invariants that must hold for *every* settings model, not just the ones with a bug history.
 
-The pydantic v2 migration broke these one model at a time, and each break was found by hand.
-Sweeping every registered flow instead means a newly added flow -- or a validator that gains a
-normalizing step -- cannot reintroduce the same class of bug unnoticed.
+Each sweep covers every registered flow and, where it takes values, every setting paired with
+every structural kind of value (`settings_samples.PROBES`), so a newly added flow, setting or
+validator cannot reintroduce a class of bug unnoticed.
 """
 
+import copy
+import json
 from pathlib import Path
 
 import pytest
 
+from xeda.dataclass import ValidationError
 from xeda.design import Design, SourceType
-from xeda.flow.flow import registered_flows
-from xeda.flows import __builtin_flows__
+from xeda.flow import FlowSettingsError
 from xeda.tool import Tool
-from xeda.utils import semantic_hash
+from xeda.utils import dump_json, semantic_hash
+
+from .settings_samples import PROBES, flow_classes, minimal_settings
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 
-assert __builtin_flows__, "importing `xeda.flows` is what populates `registered_flows`"
-
-#: Minimal settings that let every flow's `Settings` be constructed. Required dependency settings
-#: are supplied explicitly below; a new required field should fail this sweep until its minimal
-#: valid value is added, never silently reduce the coverage through a skip.
-MINIMAL_SETTINGS = {
-    "fpga": {"part": "xc7a100tcsg324-1"},
-    "clock_period": 5.0,
-    "platform": "asap7",
-    "target_libraries": ["nangate45.lib"],
-}
-
-MINIMAL_SETTINGS_BY_FLOW = {
-    "vivado_postsynth_sim": {
-        "synth": {
-            "fpga": MINIMAL_SETTINGS["fpga"],
-            "clock_period": MINIMAL_SETTINGS["clock_period"],
-        }
-    },
-    "vivado_power": {
-        "postsynthsim": {
-            "synth": {
-                "fpga": MINIMAL_SETTINGS["fpga"],
-                "clock_period": MINIMAL_SETTINGS["clock_period"],
-            }
-        }
-    },
-}
-
-#: Fields whose validator deliberately normalizes a value that `model_dump()` writes back out,
-#: so re-validating changes it. Each entry must name why it is not a defect.
-IDEMPOTENCE_EXCEPTIONS = {
-    # `syn_cmdline_args` carries `validate_default=False` to mirror v1's lack of `always=True`:
-    # the default `None` is left alone, but an explicitly supplied `None` becomes `[]`.
-    ("DiamondSynth", "syn_cmdline_args"),
-}
-
-
-def _flow_classes():
-    classes = {}
-    for _, (_, cls) in sorted(registered_flows.items()):
-        classes.setdefault(cls, cls.name)
-    return sorted(classes.items(), key=lambda kv: kv[1])
+FLOWS = flow_classes()
+FLOW_IDS = [name for _, name in FLOWS]
 
 
 def _settings(cls):
-    kwargs = {k: v for k, v in MINIMAL_SETTINGS.items() if k in cls.Settings.model_fields}
-    kwargs.update(MINIMAL_SETTINGS_BY_FLOW.get(cls.name, {}))
-    return cls.Settings(**kwargs)
+    return cls.Settings(**minimal_settings(cls))
 
 
-FLOWS = _flow_classes()
-FLOW_IDS = [name for _, name in FLOWS]
+def _outcome(build):
+    """`("accepted", settings dump)` or `("rejected", None)`; anything else propagates."""
+    try:
+        return "accepted", build().model_dump()
+    except (ValidationError, FlowSettingsError):
+        return "rejected", None
+
+
+def _settings_fields(cls):
+    return [name for name in cls.Settings.model_fields if not name.endswith("_")]
 
 
 @pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=FLOW_IDS)
@@ -77,6 +46,21 @@ def test_settings_json_schema_builds(cls):
     """`xeda list-settings`, `--json` and the agent skill all go through this."""
     schema = cls.Settings.model_json_schema(by_alias=True)
     assert schema.get("properties"), f"{cls.name}: schema has no properties"
+
+
+@pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=FLOW_IDS)
+def test_a_setting_every_flow_shares_has_the_same_type_in_every_flow(cls):
+    """`verbose` is a verbosity level everywhere; `nextpnr` and `open_xc7` once redeclared it as a
+    `bool`, so `-s verbose=2` worked for every flow but those two."""
+    from xeda.flow import Flow
+
+    common = Flow.Settings.model_fields
+    retyped = {
+        name: (common[name].annotation, info.annotation)
+        for name, info in cls.Settings.model_fields.items()
+        if name in common and info.annotation != common[name].annotation
+    }
+    assert not retyped, f"{cls.name} changes the type of shared settings: {retyped}"
 
 
 @pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=FLOW_IDS)
@@ -90,7 +74,7 @@ def test_assigning_a_field_its_own_value_changes_nothing(cls):
     """
     settings = _settings(cls)
     for name in cls.Settings.model_fields:
-        if name.endswith("_") or (cls.__name__, name) in IDEMPOTENCE_EXCEPTIONS:
+        if name.endswith("_"):
             continue
         before = settings.model_dump()
         setattr(settings, name, getattr(settings, name))
@@ -99,6 +83,64 @@ def test_assigning_a_field_its_own_value_changes_nothing(cls):
             k: (before.get(k), after.get(k)) for k in before if before.get(k) != after.get(k)
         }
         assert not changed, f"{cls.name}: re-assigning {name!r} changed {changed}"
+
+
+@pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=FLOW_IDS)
+def test_assigning_a_value_is_the_same_as_constructing_with_it(cls):
+    """Assigning any value to valid settings accepts or rejects it exactly as constructing with it
+    does, and leaves exactly the same settings behind.
+
+    The base leaves out `clock_period` where it is optional: given together with `clocks` at
+    construction it is the documented shorthand that wins (`test_settings_consistency.py`),
+    whereas a later assignment of either one is authoritative.
+    """
+    base = minimal_settings(cls, clock_period=False)
+    mismatches = []
+    for name in _settings_fields(cls):
+        for value in PROBES:
+            constructed = _outcome(lambda: cls.Settings(**{**base, name: copy.deepcopy(value)}))
+
+            def assign():
+                settings = cls.Settings(**base)
+                setattr(settings, name, copy.deepcopy(value))
+                return settings
+
+            assigned = _outcome(assign)
+            if constructed[0] != assigned[0]:
+                mismatches.append(
+                    f"{name}={value!r}: {constructed[0]} vs {assigned[0]} on assignment"
+                )
+            elif constructed != assigned:
+                differ = [k for k in constructed[1] if constructed[1][k] != assigned[1][k]]
+                mismatches.append(f"{name}={value!r}: assignment differs in {differ}")
+    assert not mismatches, f"{cls.name}:\n  " + "\n  ".join(mismatches)
+
+
+@pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=FLOW_IDS)
+def test_settings_reload_unchanged_from_their_settings_json(cls, tmp_path):
+    """What a run writes to `settings.json` must rebuild the same settings, for every accepted
+    value of every setting -- the remote runner, for one, relaunches a flow from it."""
+    base = minimal_settings(cls)
+    changed = []
+    for name in _settings_fields(cls):
+        for value in PROBES:
+            try:
+                settings = cls.Settings(**{**base, name: copy.deepcopy(value)})
+            except (ValidationError, FlowSettingsError):
+                continue
+            dump_json({"flow_settings": settings}, tmp_path / "settings.json", backup=False)
+            saved = json.loads((tmp_path / "settings.json").read_text())["flow_settings"]
+            try:
+                reloaded = cls.Settings(**saved)
+            except (ValidationError, FlowSettingsError) as e:
+                changed.append(f"{name}={value!r}: its settings.json does not load: {e}")
+                continue
+            if reloaded.model_dump() != settings.model_dump():
+                differ = [
+                    k for k, v in settings.model_dump().items() if reloaded.model_dump()[k] != v
+                ]
+                changed.append(f"{name}={value!r}: reloading changes {differ}")
+    assert not changed, f"{cls.name}:\n  " + "\n  ".join(changed)
 
 
 # ---------------------------------------------------------------------------------------------

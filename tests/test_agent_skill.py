@@ -7,6 +7,8 @@ checked into this repository's `.claude/skills/` has not drifted from the packag
 """
 
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -96,6 +98,32 @@ def test_repo_skill_copy_matches_the_packaged_source(name):
         f"{checked_in} differs from the packaged copy. Edit the packaged copy, then re-run "
         "`xeda skill install --force`."
     )
+
+
+def test_repo_skill_flow_catalog_matches_the_installed_flows():
+    """The checked-in catalog is generated, and goes stale whenever a flow's settings or results
+    change (it once still listed `openfpgaloader`'s dropped required `clock_period`, and result keys
+    `yosys` no longer reports)."""
+    checked_in = REPO_ROOT / ".claude" / "skills" / SKILL_NAME / "references" / "flows.md"
+    if not checked_in.is_file():
+        pytest.skip(f"{checked_in} is not present in this checkout")
+    # Generated in a fresh interpreter, as `xeda skill install` does: other tests register
+    # test-only flows in this process, which a catalog generated here would include.
+    generated = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from xeda.agent_skill import generate_flows_reference as g; "
+            "import sys; sys.stdout.write(g())",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        encoding="utf-8",
+    ).stdout
+    assert (
+        checked_in.read_text(encoding="utf-8") == generated
+    ), f"{checked_in} is stale. Re-run `xeda skill install --force`."
 
 
 def test_install_works_when_resources_are_not_on_the_filesystem(tmp_path, monkeypatch):

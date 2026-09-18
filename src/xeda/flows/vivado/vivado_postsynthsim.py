@@ -22,6 +22,7 @@ class VivadoPostsynthSim(VivadoSim):
             description="Settings for the `vivado_synth` dependency that produces the netlist. "
             "`write_netlist` is forced on."
         )
+        dependency_settings = {"synth": ()}  # nothing to propagate; `init` forces `write_netlist`
         timing_sim: bool = Field(
             False,
             description="Simulate the post-implementation netlist with SDF timing annotation "
@@ -32,8 +33,9 @@ class VivadoPostsynthSim(VivadoSim):
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
-        ss.synth.write_netlist = True
-        self.add_dependency(VivadoSynth, ss.synth)
+        synth = ss.resolve_dependency("synth")
+        synth.write_netlist = True
+        self.add_dependency(VivadoSynth, synth)
 
     def run(self) -> None:
         synth_flow = self.completed_dependencies[0]

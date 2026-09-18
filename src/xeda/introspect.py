@@ -201,7 +201,7 @@ def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) ->
         return "object"
     if typ == "array":
         # draft 2020-12 describes a fixed-length tuple with `prefixItems`, one schema per
-        # position; pydantic v1 used the draft-07 array form of `items` for the same thing.
+        # position.
         prefix_items = field_schema.get("prefixItems")
         if prefix_items:
             return "tuple[{}]".format(", ".join(type_str(i, definitions) for i in prefix_items))
@@ -212,7 +212,7 @@ def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) ->
     for key, joiner in (("allOf", " & "), ("anyOf", " | "), ("oneOf", " | ")):
         variants = field_schema.get(key)
         if variants:
-            # `Optional[X]` is `anyOf: [X, {"type": "null"}]` in v2 where v1 emitted a bare `X`.
+            # `Optional[X]` is `anyOf: [X, {"type": "null"}]`.
             # Nullability is already carried by `required`/`default`, so rendering it here would
             # turn every optional setting into "X | null" in `xeda list-settings` and the docs.
             non_null = [v for v in variants if not _is_null_branch(v)]
@@ -252,8 +252,8 @@ def _enum_of(field_schema: Any, definitions: Dict[str, Any]) -> Optional[List[An
     if isinstance(enum, list):
         return json_safe(enum)
     if "const" in field_schema:
-        # pydantic 2 renders a single-value `Literal["rtl"]` as `const`, where v1 emitted a
-        # one-element `enum`. It is still the setting's only valid choice.
+        # pydantic renders a single-value `Literal["rtl"]` as `const` rather than a one-element
+        # `enum`. It is still the setting's only valid choice.
         return json_safe([field_schema["const"]])
     ref = field_schema.get("$ref")
     if isinstance(ref, str) and ref.startswith("#/$defs/"):
@@ -276,7 +276,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
 
     entries: List[Dict[str, Any]] = []
     for name, model_field in cls.Settings.model_fields.items():
-        info = model_field  # in v2 the mapping's values *are* FieldInfo
+        info = model_field  # the mapping's values are `FieldInfo`s
         extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
         if extra.get("hidden_from_schema") or name.endswith("_"):
             continue

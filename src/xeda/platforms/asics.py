@@ -43,8 +43,7 @@ class AsicsPlatform(Platform):
     min_buf_ports: List[str] = []
     abc_driver_cell: Optional[str] = None
     # `float`, not `int`: these are physical quantities and the bundled PDKs give them
-    # fractionally (asap7/nangate45 use 3.898 fF, a 22.4um halo). pydantic v1 silently
-    # truncated them; v2 rejects the file outright, which made both platforms unloadable.
+    # fractionally (asap7/nangate45 use 3.898 fF, a 22.4um halo); an `int` type rejects them.
     abc_load_in_ff: Optional[float] = None
     max_ungroup_size: Optional[int] = None
     place_site: Optional[str] = None

@@ -99,6 +99,11 @@ running ``openfpgaloader``::
 
     xeda run openfpgaloader blinky.toml -s nextpnr.yosys.flatten=true
 
+Settings a flow shares with its dependency -- ``fpga``, ``clocks`` and ``board`` for the FPGA
+flows -- are resolved when the dependency is launched: the flow's own value is used for both, and
+if the flow leaves a shared setting unset, the value given in the dependency's nested settings is
+used instead.
+
 With ``--cached-dependencies``, a dependency whose recorded design and settings hashes match a
 previous successful run is skipped and its results reused.
 

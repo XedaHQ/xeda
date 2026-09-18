@@ -211,8 +211,8 @@ class YosysBase(Flow):
         )
         netlist_verilog_flags: List[str] = Field(
             [],
-            description="Extra flags for `write_verilog`. The `netlist_*` booleans above are "
-            "translated into flags and appended to this list.",
+            description="Extra flags for `write_verilog`, in addition to those the `netlist_*` "
+            "switches above imply.",
         )
         netlist_verilog_extmem: List[str] = Field(
             [],
@@ -253,34 +253,31 @@ class YosysBase(Flow):
         )
         ltp: bool = Field(False, description="Print the longest topological path in the design.")
 
-        @field_validator("netlist_verilog_flags")
-        @classmethod
-        def _validate_netlist_flags(cls, value, info):
-            values = info.data if isinstance(info.data, dict) else {}
+        def write_verilog_flags(self) -> List[str]:
+            """`write_verilog` flags: `netlist_verilog_flags` plus those the `netlist_*` switches
+            imply (a switch left `None` adds nothing). Computed when the script is written, so a
+            switch set after construction -- as `init` does for `netlist_expr` -- takes effect."""
+            flags = list(self.netlist_verilog_flags)
+            for switch, flag, flag_when in (
+                (self.netlist_dec, "-nodec", False),
+                (self.netlist_hex, "-nohex", False),
+                (self.netlist_expr, "-noexpr", False),
+                (self.netlist_attrs, "-noattr", False),
+                (self.netlist_blackboxes, "-blackboxes", True),
+                (self.netlist_simple_lhs, "-simple-lhs", True),
+            ):
+                if switch is flag_when:
+                    flags.append(flag)
+                elif switch is (not flag_when) and flag in flags:
+                    flags.remove(flag)
+            return unique(flags)
 
-            def add_remove(key, flag, neg_flag=True):
-                if values.get(key) is (not neg_flag):
-                    value.append(flag)
-                elif values.get(key) is neg_flag and flag in value:
-                    value.remove(flag)
-
-            if value is None:
-                value = []
-            add_remove("netlist_dec", "-nodec")
-            add_remove("netlist_hex", "-nohex")
-            add_remove("netlist_expr", "-noexpr")
-            add_remove("netlist_attrs", "-noattr")
-            add_remove("netlist_blackboxes", "-blackboxes", False)
-            add_remove("netlist_simple_lhs", "-simple-lhs", False)
-            return unique(value)
-
-        @field_validator("netlist_unset_attributes")
-        @classmethod
-        def _validate_netlist_unset_attributes(cls, value, info):
-            values = info.data if isinstance(info.data, dict) else {}
-            if values.get("netlist_attrs") is True and values.get("netlist_src_attrs") is False:
-                value.append("src")
-            return unique(value)
+        def attributes_to_unset(self) -> List[str]:
+            """`netlist_unset_attributes`, plus `src` when attributes are written without it."""
+            attributes = list(self.netlist_unset_attributes)
+            if self.netlist_attrs is True and self.netlist_src_attrs is False:
+                attributes.append("src")
+            return unique(attributes)
 
         @field_validator("abc_script", mode="before")
         @classmethod
@@ -292,8 +289,6 @@ class YosysBase(Flow):
         @field_validator("verilog_lib", mode="before")
         @classmethod
         def validate_verilog_lib(cls, value):
-            if isinstance(value, (str, Path)):
-                value = [value]
             if not isinstance(value, (list, tuple, set)):
                 raise ValueError(
                     f"'verilog_lib' must be a path or a list of paths, "

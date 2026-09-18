@@ -141,8 +141,6 @@ Reports: `f_max`, `Fmax`, `lut`, `ff`, `LUT`, `FF`, `DSP48E1`, `RAMB18E1`, `RAMB
 
 Build a bitstream and program it onto an FPGA board with openFPGALoader. Runs the full `yosys_fpga` -> `nextpnr` chain, packs the routed design into a bitstream (e.g. with `ecppack` for ECP5), and loads it over the configured `cable` or `board`. This is the only flow that touches real hardware.
 
-Required settings: `clock_period`
-
 8 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 
 Reports no results beyond the keys every flow reports.
@@ -197,7 +195,7 @@ Required settings: `target_libraries`
 
 33 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
 
-Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequentual`, `num_macro_bbox`
+Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_cells_sequentual`, `num_macro_bbox`
 
 ### `openroad`
 
@@ -227,7 +225,7 @@ Yosys Open SYnthesis Suite: ASICs and generic gate/LUT synthesis
 
 69 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
-Reports: `area`, `cells`, `sequential_cells`
+Reports: `area`, `cells`
 
 ## Other
 

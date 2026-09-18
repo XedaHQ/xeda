@@ -8,9 +8,22 @@ import os
 import shutil
 from abc import ABCMeta, abstractmethod
 from copy import deepcopy
+from functools import cache
 from pathlib import Path
 from types import UnionType
-from typing import Annotated, Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+)
 
 # from attrs import define
 import jinja2
@@ -21,9 +34,10 @@ from ..dataclass import (
     Field,
     ValidationError,
     XedaBaseModel,
-    annotation_is_list,
+    annotation_args,
     field_annotation,
     field_validator,
+    model_validator,
     validation_errors,
 )
 from ..design import Design
@@ -47,7 +61,7 @@ __all__ = [
     "FlowSettingsError",
     "FlowSettingsException",
     "describe_results",
-    "propagate_to_dependency",
+    "is_unset",
 ]
 
 registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
@@ -106,6 +120,35 @@ def _annotation_matches_value(annotation: Any, value: Any) -> bool:
         return False
 
 
+@cache
+def _input_names(model: Any) -> Dict[str, str]:
+    """Field name for every key a model's input may use: the field name and its alias."""
+    names: Dict[str, str] = {}
+    for name, info in model.model_fields.items():
+        if info.alias:
+            names.setdefault(info.alias, name)
+        names[name] = name
+    return names
+
+
+def _is_comma_separated_list(annotation: Any) -> bool:
+    """A list setting that does not also accept a plain string, so a string must be a list."""
+    accepted = annotation_args(annotation)
+    return str not in accepted and any((get_origin(a) or a) is list for a in accepted)
+
+
+def _rebuild_like(container: Any, items: List[Any]) -> Any:
+    """`items` in `container`'s builtin kind. Not `type(container)(items)`: a namedtuple's
+    constructor takes its fields positionally, and a subclass's may take anything."""
+    if isinstance(container, tuple):
+        return tuple(items)
+    if isinstance(container, frozenset):
+        return frozenset(items)
+    if isinstance(container, set):
+        return set(items)
+    return list(items)
+
+
 def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) -> Any:
     """Expand variables only at path-typed leaves, including nested containers.
 
@@ -131,7 +174,7 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
     if origin in (list, set, frozenset) and isinstance(value, (list, set, frozenset)):
         item_annotation = args[0] if args else Any
         mapped = [_expand_path_values(item, item_annotation, overrides) for item in value]
-        return type(value)(mapped)
+        return _rebuild_like(value, mapped)
     if origin is tuple and isinstance(value, (list, tuple)):
         if len(args) == 2 and args[1] is Ellipsis:
             mapped = [_expand_path_values(item, args[0], overrides) for item in value]
@@ -140,9 +183,7 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
                 _expand_path_values(item, args[index] if index < len(args) else Any, overrides)
                 for index, item in enumerate(value)
             ]
-        # Not `type(value)(mapped)`: a namedtuple's constructor takes its fields positionally.
-        # Validation yields a plain tuple for a `Tuple[...]` field either way.
-        return tuple(mapped) if isinstance(value, tuple) else mapped
+        return _rebuild_like(value, mapped)
     if origin is dict and isinstance(value, dict):
         key_annotation, value_annotation = args if len(args) == 2 else (Any, Any)
         return {
@@ -226,22 +267,16 @@ def describe_results(*keys: str, **extra: str) -> Dict[str, str]:
     return described
 
 
-def propagate_to_dependency(target: Any, source: Any, *names: str) -> None:
-    """Copy the named settings of a flow onto the settings of one of its dependencies.
+def is_unset(value: Any) -> bool:
+    """`None`, or an empty string or container: a setting that says nothing.
 
-    Only truthy values are copied, so a dependency keeps its own value where the parent has
-    none. Each one is deep-copied: pydantic v2 hands a nested model straight through instead of
-    re-validating (and thereby copying) it, so assigning the parent's own `clocks` mapping would
-    leave the two flows sharing one object, and an edit to either would silently alter the other.
-
-    Call this from a `mode="after"` model validator rather than a field validator, so that the
-    dependency is kept in step when one of these settings is *assigned* later, not only when the
-    parent is first constructed.
+    Decides which side of a setting shared with a dependency is used; see
+    `Flow.Settings.resolve_dependency`. An empty `clocks` is how `SynthFlow` spells "not given".
+    `False` and `0` are values.
     """
-    for name in names:
-        value = getattr(source, name, None)
-        if value:
-            setattr(target, name, deepcopy(value))
+    if value is None:
+        return True
+    return isinstance(value, (str, list, tuple, set, frozenset, dict)) and len(value) == 0
 
 
 class Flow(metaclass=ABCMeta):
@@ -322,31 +357,90 @@ class Flow(metaclass=ABCMeta):
         print_commands: bool = Field(True, description="Print executed commands")
         console_colors: bool = Field(True, description="Colorize tool output on the console.")
 
-        @field_validator("*", mode="before")
+        #: The settings this flow shares with each of its dependencies, keyed by the field that
+        #: holds that dependency's settings: `nextpnr` declares `{"yosys": ("fpga", "clocks")}`.
+        #: `resolve_dependency` applies it when the flow launches the dependency.
+        dependency_settings: ClassVar[Dict[str, Tuple[str, ...]]] = {}
+
+        # Every flow setting shares three input conveniences, applied by `_normalize_flow_setting`
+        # before *any* field validator runs, so a flow's own validators always receive the
+        # normalized value: on construction and `settings.json` reload through
+        # `_normalize_flow_settings`, on assignment through `__setattr__`. (pydantic runs a
+        # subclass's validators ahead of a base class's, so a base *field* validator could not
+        # guarantee this; only the few subclass *model* `before` validators see raw input.)
+
         @classmethod
-        def _all_fields_validator_subs_env_vars(cls, value, info):
-            if value is not None:
-                annotation = field_annotation(cls, info.field_name)
-                if annotation is None:
-                    return value
-                values = info.data if isinstance(info.data, dict) else {}
-                if annotation_is_list(annotation) and isinstance(value, str):
-                    value = value.split(",")
-                if not _annotation_contains_path(annotation):
-                    # Every field of every settings model passes through here, on construction,
-                    # assignment and `settings.json` reload. Leave non-path values untouched
-                    # rather than walking and rebuilding their containers.
-                    return value
-                return _expand_path_values(
-                    value,
-                    annotation,
-                    {
-                        "PWD": values.get("runner_cwd_"),
-                        "DESIGN_ROOT": values.get("design_root_"),
-                        "DESIGN_DIR": values.get("design_root_"),
-                    },
-                )
-            return value
+        def _normalize_flow_setting(cls, name: str, value: Any, roots: Dict[str, Any]) -> Any:
+            """One flow setting's input conveniences:
+
+            1. A dependency's settings (`dependency_settings`) are this flow's own object: an
+               instance given for them is deep-copied, so two flows never share settings.
+            2. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
+               Spaces around items and empty items are dropped, so `""` is an empty list. A
+               setting that also accepts plain text keeps the text whole.
+            3. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`.
+            """
+            annotation = field_annotation(cls, name)
+            if annotation is None:
+                return value
+            if name in cls.dependency_settings:
+                if isinstance(value, XedaBaseModel):
+                    copied = value.model_copy(deep=True)
+                    copied.invalidate_cached_properties()
+                    return copied
+                return value
+            if isinstance(value, str) and _is_comma_separated_list(annotation):
+                value = [item.strip() for item in value.split(",") if item.strip()]
+            if value is None or not _annotation_contains_path(annotation):
+                return value
+            return _expand_path_values(value, annotation, roots)
+
+        @staticmethod
+        def _path_roots(state: Any) -> Dict[str, Any]:
+            get = state.get if isinstance(state, dict) else lambda key: getattr(state, key, None)
+            design_root = get("design_root_")
+            return {
+                "PWD": get("runner_cwd_"),
+                "DESIGN_ROOT": design_root,
+                "DESIGN_DIR": design_root,
+            }
+
+        @model_validator(mode="before")
+        @classmethod
+        def _normalize_flow_settings(cls, values, info):
+            if info.field_name is not None and info.data is None:
+                return values  # an assignment: `__setattr__` has normalized the assigned value
+            roots = cls._path_roots(values)
+            names = _input_names(cls)
+            for key, value in values.items():
+                if key in names:
+                    values[key] = cls._normalize_flow_setting(names[key], value, roots)
+            return values
+
+        def __setattr__(self, name: str, value: Any) -> None:
+            if name in type(self).model_fields:
+                value = type(self)._normalize_flow_setting(name, value, self._path_roots(self))
+            super().__setattr__(name, value)
+
+        def resolve_dependency(self, field: str) -> Any:
+            """The settings to launch the dependency held in `field` with.
+
+            Each setting shared with it (`dependency_settings[field]`) takes this flow's value
+            unless that `is_unset`, and the dependency's own value otherwise; this flow adopts the
+            result as well, so the two always run with the same one. Returns a deep copy of the
+            dependency's settings carrying the shared values: the settings given for the
+            dependency are left exactly as written, which is what keeps the outcome independent
+            of the order settings were constructed and assigned in.
+            """
+            dependency = getattr(self, field).model_copy(deep=True)
+            dependency.invalidate_cached_properties()
+            for name in type(self).dependency_settings[field]:
+                ours, theirs = getattr(self, name), getattr(dependency, name)
+                if not is_unset(ours):
+                    setattr(dependency, name, deepcopy(ours))
+                elif not is_unset(theirs):
+                    setattr(self, name, deepcopy(theirs))
+            return dependency
 
         @field_validator("verbose", mode="before")
         @classmethod

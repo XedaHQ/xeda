@@ -97,7 +97,7 @@ def test_neither_period_nor_freq_is_rejected():
 )
 def test_synth_flow_settings_accept_string_clock_overrides(overrides):
     """`xeda run vivado_synth <design> -s clock_period=5.5` hands settings raw strings."""
-    settings = VivadoSynth.Settings(**overrides)  # type: ignore[arg-type]
+    settings = VivadoSynth.Settings(fpga="xc7a100tftg256-2L", **overrides)  # type: ignore[arg-type]
     assert settings.clock_period == pytest.approx(5.5, abs=1e-3)
     assert settings.main_clock is not None
     assert settings.main_clock.period == pytest.approx(5.5, abs=1e-3)
