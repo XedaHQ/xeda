@@ -122,6 +122,15 @@ def test_list_settings_preserves_optional_literal_choices():
     assert by_name["asserts"]["required"] is False
 
 
+@pytest.mark.parametrize("flow", ["yosys", "yosys_fpga"])
+def test_list_settings_preserves_single_value_literal_choices(flow):
+    """pydantic 2 emits a one-value `Literal` as `const` rather than `enum`."""
+    info = json.loads(run_xeda("list-settings", flow, "--json").stdout)
+    by_name = {f["name"]: f for f in info["fields"]}
+    assert by_name["stop_after"]["enum"] == ["rtl"]
+    assert by_name["stop_after"]["required"] is False
+
+
 def test_list_settings_no_common_excludes_shared_settings():
     info = json.loads(run_xeda("list-settings", "vivado_synth", "--json", "--no-common").stdout)
     assert all(not f["common"] for f in info["fields"])

@@ -122,12 +122,8 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
             return expand_env_vars(Path(value), overrides)
         return value
     if origin in (Union, UnionType):
-        # A raw string matches both branches of `str | Path`; the presence of the Path branch is
-        # what makes this a path-valued setting.
-        if isinstance(value, (str, os.PathLike)):
-            for choice in args:
-                if _is_path_annotation(choice):
-                    return _expand_path_values(value, choice, overrides)
+        # Follow the first branch that holds a path and fits the value. A raw string fits both
+        # branches of `str | Path`; the presence of the Path branch is what makes it a path.
         for choice in args:
             if _annotation_contains_path(choice) and _annotation_matches_value(choice, value):
                 return _expand_path_values(value, choice, overrides)
