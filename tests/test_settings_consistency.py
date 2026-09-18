@@ -258,6 +258,74 @@ def test_propagated_clocks_keep_nested_yosys_period_consistent(flow):
     assert settings.yosys.main_clock.period == 8.0
 
 
+def _yosys_parent(flow, **kwargs):
+    if flow == "nextpnr":
+        from xeda.flows.nextpnr import Nextpnr
+
+        return Nextpnr.Settings(fpga={"part": "LFE5U-45F-6BG381C"}, **kwargs)
+    from xeda.flows.openxc7 import OpenXC7
+
+    return OpenXC7.Settings(fpga={"part": "xc7a100tftg256-2L"}, **kwargs)
+
+
+@pytest.mark.parametrize("flow", ["nextpnr", "openxc7"])
+@pytest.mark.parametrize("parent_clocks", [{}, None], ids=["empty", "omitted"])
+def test_a_parent_without_clocks_leaves_its_dependencys_clocks_intact(flow, parent_clocks):
+    """An empty `clocks` means "not given" throughout `SynthFlow` -- it is what `clock_period`
+    is derived into -- not "no clocks". Propagating it made the dependency re-derive its clocks
+    from its own `clock_period`, collapsing `clk_a` and `clk_b` into a single `main_clock`; that
+    is what xeda did under pydantic 1, which assigned the parent's value unconditionally."""
+    yosys = YosysFpga.Settings(
+        fpga={"part": "LFE5U-25F-6BG381C"},
+        clocks={"clk_a": {"freq": "100MHz"}, "clk_b": {"freq": "50MHz"}},
+    )
+    kwargs = {} if parent_clocks is None else {"clocks": parent_clocks}
+
+    settings = _yosys_parent(flow, yosys=yosys, **kwargs)
+
+    assert settings.yosys is not None
+    assert {name: clk.freq for name, clk in settings.yosys.clocks.items()} == {
+        "clk_a": 100.0,
+        "clk_b": 50.0,
+    }
+
+
+@pytest.mark.parametrize("flow", ["nextpnr", "openxc7"])
+def test_parent_settings_reach_the_dependency_as_private_copies(flow):
+    """Validation happens to copy `clocks` on assignment, but it hands an `fpga` model straight
+    through; only `propagate_to_dependency`'s deep copy keeps the two flows from sharing it."""
+    yosys = YosysFpga.Settings(
+        fpga={"part": "LFE5U-25F-6BG381C"},
+        clocks={"clk_a": {"freq": "100MHz"}, "clk_b": {"freq": "50MHz"}},
+    )
+
+    settings = _yosys_parent(flow, yosys=yosys, clocks={"sys": {"freq": "25MHz"}})
+
+    assert settings.yosys is not None and settings.yosys.fpga is not None
+    assert settings.fpga is not None
+    assert list(settings.yosys.clocks) == ["sys"]
+    assert settings.yosys.fpga.part == settings.fpga.part
+    assert settings.yosys.clocks["sys"] is not settings.clocks["sys"]
+    assert settings.yosys.fpga is not settings.fpga
+
+    parent_part = settings.fpga.part
+    settings.yosys.clocks["sys"].name = "edited"
+    settings.yosys.fpga.part = "LFE5U-85F-6BG381C"
+    assert settings.clocks["sys"].name != "edited"
+    assert settings.fpga.part == parent_part
+
+
+def test_a_parent_without_an_fpga_leaves_its_dependencys_fpga_intact():
+    """`propagate_to_dependency` copies only what the parent actually has. Under pydantic 1 a
+    `nextpnr` with no `fpga` of its own wiped the one given to its `yosys` settings."""
+    from xeda.flows.nextpnr import Nextpnr
+
+    settings = Nextpnr.Settings(yosys=YosysFpga.Settings(fpga={"part": "LFE5U-25F-6BG381C"}))
+
+    assert settings.yosys is not None and settings.yosys.fpga is not None
+    assert settings.yosys.fpga.part == "LFE5U-25F-6BG381C"
+
+
 def test_openfpgaloader_keeps_its_whole_dependency_chain_in_step():
     """`openfpgaloader` -> `nextpnr` -> `yosys_fpga`, all constrained by the same device."""
     from xeda.flows.openfpgaloader import Openfpgaloader

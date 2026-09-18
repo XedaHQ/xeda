@@ -5,12 +5,14 @@ xeda, so an undocumented field is a real gap rather than a cosmetic one. These t
 coverage that has been reached so it cannot silently regress.
 """
 
+import enum
 import re
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Literal, Set, Tuple, get_args, get_origin
 
 import pytest
 
+from xeda.dataclass import annotation_args
 from xeda.flow import Flow, describe_results
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
 from xeda.introspect import all_flow_classes, results_info, settings_info
@@ -49,6 +51,35 @@ def test_every_setting_is_documented(flow_class):
         f"{flow_class.name} has settings with no description: {undocumented}. Add a "
         "`description=` to each Field; agents and `xeda list-settings` have nothing else to go on."
     )
+
+
+def _declared_choices(annotation: Any) -> list[Any] | None:
+    """The choices a `Literal` or `Enum` annotation allows, optional or not; else `None`."""
+    args = annotation_args(annotation)
+    if len(args) != 1:
+        return None
+    (arg,) = args
+    if get_origin(arg) is Literal:
+        return list(get_args(arg))
+    if isinstance(arg, type) and issubclass(arg, enum.Enum):
+        return [member.value for member in arg]
+    return None
+
+
+@pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
+def test_every_choice_setting_advertises_its_choices(flow_class):
+    """`enum` in `list-settings` is derived from the JSON Schema, whose shape pydantic chooses:
+    a one-value `Literal["rtl"]` became `{"const": "rtl"}` in pydantic 2 and silently lost its
+    choice. Check it against the Python annotations instead, so a shape change cannot hide one."""
+    fields = {field["name"]: field for field in settings_info(flow_class)["fields"]}
+    mismatched = {
+        name: {"advertised": fields[name]["enum"], "declared": declared}
+        for name, model_field in flow_class.Settings.model_fields.items()
+        if name in fields
+        and (declared := _declared_choices(model_field.annotation)) is not None
+        and fields[name]["enum"] != declared
+    }
+    assert not mismatched, f"{flow_class.name}: {mismatched}"
 
 
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)

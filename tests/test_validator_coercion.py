@@ -182,6 +182,55 @@ def test_real_path_list_setting_expands_design_root(tmp_path):
     assert settings.target_libraries == [tmp_path / "lib/cells.lib"]
 
 
+@pytest.mark.parametrize(
+    ("flow", "extra", "field", "value", "expected"),
+    [
+        # `str | Path` unions
+        ("ghdl_sim", {}, "vcd", "$DESIGN_ROOT/w.vcd", "{root}/w.vcd"),
+        ("verilator", {}, "fst", "$DESIGN_ROOT/w.fst", "{root}/w.fst"),
+        # lists of paths, and of `str | Path`
+        ("nvc", {}, "vhpi", ["$DESIGN_ROOT/v.so"], ["{root}/v.so"]),
+        (
+            "vivado_synth",
+            {"fpga": {"part": "xc7a100tftg256-2L"}},
+            "xdc_files",
+            ["$DESIGN_ROOT/a.xdc"],
+            ["{root}/a.xdc"],
+        ),
+        # a mapping's values
+        (
+            "dc",
+            {"platform": "asap7", "target_libraries": []},
+            "hooks",
+            {"pre_elab": "$DESIGN_ROOT/pre.tcl", "post_elab": None},
+            {"pre_elab": "{root}/pre.tcl", "post_elab": None},
+        ),
+        # only the path half of a `lib_paths` entry; the library name is not a path
+        ("ghdl_sim", {}, "lib_paths", [("$NAME", "$DESIGN_ROOT/lib")], [("$NAME", "{root}/lib")]),
+    ],
+)
+def test_real_settings_expand_design_root_at_every_path_leaf(
+    tmp_path, flow, extra, field, value, expected
+):
+    """The fields the changelog names, on the flows that declare them."""
+    from xeda.flow_runner import get_flow_class
+
+    def at_root(item):
+        if isinstance(item, str):
+            return Path(item.format(root=tmp_path)) if "{root}" in item else item
+        if isinstance(item, list):
+            return [at_root(i) for i in item]
+        if isinstance(item, tuple):
+            return tuple(at_root(i) for i in item)
+        if isinstance(item, dict):
+            return {k: at_root(v) for k, v in item.items()}
+        return item
+
+    settings = get_flow_class(flow).Settings(design_root_=tmp_path, **extra, **{field: value})
+
+    assert getattr(settings, field) == at_root(expected)
+
+
 def test_comma_separated_path_list_expands_each_design_root(tmp_path):
     from xeda.flows.dc import Dc
 

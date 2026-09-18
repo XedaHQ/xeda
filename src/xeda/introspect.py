@@ -251,6 +251,10 @@ def _enum_of(field_schema: Any, definitions: Dict[str, Any]) -> Optional[List[An
     enum = field_schema.get("enum")
     if isinstance(enum, list):
         return json_safe(enum)
+    if "const" in field_schema:
+        # pydantic 2 renders a single-value `Literal["rtl"]` as `const`, where v1 emitted a
+        # one-element `enum`. It is still the setting's only valid choice.
+        return json_safe([field_schema["const"]])
     ref = field_schema.get("$ref")
     if isinstance(ref, str) and ref.startswith("#/$defs/"):
         return _enum_of(definitions.get(ref.removeprefix("#/$defs/")), definitions)
