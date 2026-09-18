@@ -23,7 +23,7 @@ sections at the end:
     [rtl]
     sources = ["sqrt.vhdl"]
     top = "sqrt"
-    clock_port = "clk"
+    clock = { port = "clk" }
     parameters = { G_IN_WIDTH = 32 }
 
     [tb]
@@ -36,8 +36,9 @@ sections at the end:
 
 Three things worth noticing:
 
-* ``clock_port`` names the design's clock *port*. The clock's *period* is a flow setting, because
-  it constrains a particular build rather than describing the design.
+* ``clock`` names the design's clock *port*. The clock's *period* is a flow setting, because it
+  constrains a particular build rather than describing the design. ``clock_port`` remains accepted
+  as a compatibility shorthand.
 * ``sources`` is in compilation order, and paths resolve against the design file's directory.
 * The ``.py`` testbench source is recognized as cocotb automatically; ``cocotb = true`` is
   redundant here but harmless.

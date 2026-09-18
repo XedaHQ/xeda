@@ -83,7 +83,7 @@ Top level
      - Verilog preprocessor macros, as a mapping.
    * - ``clock_port``
      - no
-     - Shorthand for a single-clock design: the name of the clock port.
+     - Compatibility shorthand for a single-clock design. Prefer ``clock = { port = "..." }``.
    * - ``clock``
      - no
      - A single clock as ``{ port = "...", name = "..." }``.
@@ -103,10 +103,11 @@ is a flow setting, because it is a constraint on a particular build rather than 
 design. A single-clock design usually needs only::
 
     [rtl]
-    clock_port = "clk"
+    clock = { port = "clk" }
 
-and then, per flow, ``clock.period`` (ns) or ``clock.freq``. The legacy ``clock_period`` input is
-also accepted for compatibility, but cannot be combined with ``clock`` or ``clocks``.
+and then, per flow, ``clock.period`` (ns) or ``clock.freq``. The legacy ``clock_port`` and
+``clock_period`` inputs are accepted for compatibility, but cannot be combined with their
+canonical counterparts in the same layer.
 
 .. _tb:
 

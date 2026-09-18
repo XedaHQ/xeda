@@ -48,10 +48,31 @@ class PhysicalClock(XedaBaseModel):
             return convert_unit(value, "nanosecond")
         return value
 
-    @field_validator("duty_cycle", mode="before")
+    @field_validator("duty_cycle", mode="before", json_schema_input_type=float | str)
     @classmethod
     def duty_cycle_validator(cls, value):
-        return convert_unit(value, "nanosecond")
+        """Validate the duty cycle as a unitless fraction.
+
+        Unlike the other clock timing fields, ``duty_cycle`` is a ratio rather than a
+        duration.  In particular, passing it through :func:`convert_unit` accidentally
+        made values such as ``"0.5ns"`` look valid while rejecting the more useful
+        percentage spelling with an opaque dimensionality error.  Keep numeric strings
+        accepted because command-line overrides arrive as strings, but reject strings
+        carrying a unit (and other non-numeric values) before Pydantic applies the
+        ``0 < duty_cycle < 1`` bounds.
+        """
+        if isinstance(value, bool):
+            raise ValueError("duty_cycle must be a unitless number between 0 and 1")
+        if isinstance(value, str):
+            try:
+                return float(value.strip())
+            except ValueError as exc:
+                raise ValueError(
+                    "duty_cycle must be a unitless number between 0 and 1; do not specify a unit"
+                ) from exc
+        # Leave every other numeric representation (for example Decimal or Fraction) to
+        # pydantic's ordinary float validation instead of inventing a narrower number protocol.
+        return value
 
     @property
     def fall(self) -> float:
@@ -245,9 +266,10 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             named = self.clocks.get("main_clock")
             if named is not None:
                 return named
-            if len(self.clocks) == 1:
-                return first_value(self.clocks)
-            return None
+            # Keep the historical, deterministic fallback for consumers that support one
+            # timing target only (Yosys/nextpnr/OpenXC7).  A named ``main_clock`` remains the
+            # explicit way to choose one; otherwise insertion order identifies the legacy main.
+            return first_value(self.clocks)
 
         @property
         def clock(self) -> Optional[PhysicalClock]:
@@ -276,13 +298,10 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         @clock_period.setter
         def clock_period(self, value: Any) -> None:
             if value is None:
-                self.clocks = {}
-            elif self.main_clock is None:
-                if self.clocks:
-                    raise ValueError(
-                        "`clock_period` is ambiguous with multiple clocks; update a named "
-                        "entry in `clocks` instead"
-                    )
+                # ``None`` is an absent compatibility override, not a request to destroy the
+                # canonical clock topology.
+                return
+            if self.main_clock is None:
                 self.clock = {"period": value}
             else:
                 self.main_clock.period = value

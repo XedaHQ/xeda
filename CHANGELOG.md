@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- A project file giving both `flow` and `flows` (or `design` and `designs`) is an error instead
+  of one being silently ignored, and a design entry that is not a table is reported instead of
+  dropped.
+- `diamond_synth` constraints use the main clock's period, name and port, and a run without a
+  clock reports "diamond_synth needs a clock" instead of failing while writing the constraints.
+- A `clock_period` override applied to an existing clock keeps that clock's name and port, and
+  command-line and API runs with the same settings now share one run hash.
 - Settings layers now merge key by key, in one order everywhere: flow defaults < project
   `flows.<flow>` < design `[flows.<flow>]` < `-s`. Previously `-s yosys.flatten=true` replaced the
   design file's whole `yosys` section, a design's `[flows.nextpnr]` replaced the project's whole

@@ -57,16 +57,29 @@ class XedaProject:
             raise ValueError("Invalid xedaproject!")
         designs = None
         if not skip_designs:
-            designs = data.get("design") or data.get("designs")
+            if "design" in data and "designs" in data:
+                raise ValueError(
+                    "Specify project designs once, as `designs` (or `design`), not both"
+                )
+            designs = data.get("design", data.get("designs"))
         if designs:
             if not isinstance(designs, list):
                 designs = [designs]
 
-        flows = data.get("flow") or data.get("flows", {})
-        assert isinstance(flows, dict)
+        if "flow" in data and "flows" in data:
+            raise ValueError("Specify project flow settings once, as `flows` (or `flow`), not both")
+        flows = data.get("flow", data.get("flows", {}))
+        if not isinstance(flows, dict):
+            raise ValueError(f"Project `flows` must be a mapping, got {type(flows).__name__}")
 
         design_cls = Design
         if designs is not None:
+            for i, d in enumerate(designs):
+                if not isinstance(d, dict):
+                    raise ValueError(
+                        f"Design entry {i} must be a mapping (table), got "
+                        f"{type(d).__name__}: {d!r}"
+                    )
             if design_allow_extra:
                 design_cls = model_with_allow_extra(design_cls)
             else:
@@ -79,11 +92,7 @@ class XedaProject:
         with WorkingDirectory(file.parent):
             try:
                 return cls(
-                    designs=[
-                        hierarchical_merge(d, design_overrides)
-                        for d in designs
-                        if isinstance(d, dict)
-                    ],
+                    designs=[hierarchical_merge(d, design_overrides) for d in designs],
                     flows=flows,
                     design_cls=design_cls,
                     root_path=file.parent.resolve(),

@@ -32,8 +32,8 @@ required when this flat form is used.
 | `top` | no | Top-level module/entity. Required by synthesis flows. |
 | `parameters` / `generics` | no | Verilog parameters or VHDL generics for the top level. Use either interchangeable name; giving both is an error. |
 | `defines` | no | Verilog preprocessor macros. |
-| `clock_port` | no | Shorthand for a single-clock design: the clock port's name. |
-| `clock` | no | One clock: `{ port = "...", name = "..." }`. |
+| `clock` | no | Canonical single-clock description, e.g. `{ port = "clk" }`. |
+| `clock_port` | no | Compatibility shorthand for a single-clock design; prefer `clock`. |
 | `clocks` | no | A list of clocks, for multi-clock designs. |
 | `attributes` | no | HDL attributes, as `attribute -> (object -> value)`. |
 | `generator` | no | Command or generator class producing the sources before the flow runs. |
@@ -58,14 +58,17 @@ Single clock:
 
 ```toml
 [rtl]
-clock_port = "clk"
+clock = { port = "clk" }
 
 [flows.vivado_synth]
 clock.period = 5.0          # nanoseconds
 ```
 
-or, equivalently, `clock.freq = "200MHz"` in the flow section. The legacy `clock_period` input is
-also accepted for compatibility, but cannot be combined with `clock` or `clocks`.
+or, equivalently, `clock.freq = "200MHz"` in the flow section. The legacy `clock_port` and
+`clock_period` inputs are accepted for compatibility. Within one settings layer, use only one
+spelling for a concept; across layers the higher-precedence spelling wins and is merged into the
+canonical `clocks` mapping. Prefer `clock` in the design and `clock.period` or `clock.freq` in
+flow settings.
 
 Multiple clocks:
 

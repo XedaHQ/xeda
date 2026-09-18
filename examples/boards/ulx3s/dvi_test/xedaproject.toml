@@ -16,7 +16,7 @@ sources = [
 ]
 top = "top_vgatest"
 
-clock_port = "clk_25mhz"
+clock = { port = "clk_25mhz" }
 
 [flows.nextpnr]
 board = "ULX3S_85F"

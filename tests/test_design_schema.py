@@ -159,6 +159,40 @@ def test_documented_shorthands_are_accepted_by_both(label):
     assert not errors, f"schema rejects {label}: {[e.message for e in errors[:2]]}"
 
 
+def test_clock_compatibility_shorthands_are_in_the_input_schema():
+    """The derived clock aliases remain documented without becoming stored model fields."""
+    schema = design_schema()
+    rtl = schema["$defs"]["RtlSettings"]["properties"]
+    root = schema["properties"]
+
+    for properties in (rtl, root):
+        assert {"clock", "clock_port", "clocks"} <= set(properties)
+        for name in ("clock", "clock_port"):
+            assert properties[name].get("x-xeda-input-only") is True
+
+    assert rtl["clock_port"]["deprecated"] is True
+    assert root["clock_port"]["deprecated"] is True
+
+
+def test_flat_clock_port_is_accepted_by_the_loader_and_schema():
+    data = {"name": "d", "sources": [], "top": "t", "clock_port": "clk"}
+
+    Design(**data)
+    assert validator().is_valid(data)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"name": "d", "sources": [], "top": "t", "clock": {"port": "a"}, "clock_port": "b"},
+        {"name": "d", "sources": [], "top": "t", "clock_port": "a", "clocks": [{"port": "b"}]},
+    ],
+)
+def test_mixed_flat_clock_spellings_are_rejected_loudly(data):
+    with pytest.raises(Exception, match="Specify only one"):
+        Design(**data)
+
+
 def test_source_object_must_name_a_file_or_a_path():
     """FileResource rejects an object giving neither, and so must the schema."""
     bad = {"name": "d", "rtl": {"sources": [{"type": "Verilog"}], "top": "t"}}

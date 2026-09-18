@@ -4,7 +4,6 @@ description = 'Example VHDL design'
 [design.rtl]
 sources = ['full_adder.vhd']
 top = 'full_adder'
-clock_port = ''
 [design.tb]
 sources = ['full_adder_tb.vhd']
 top = 'full_adder_tb'

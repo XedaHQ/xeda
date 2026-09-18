@@ -289,9 +289,22 @@ class FmaxOptimizer(Optimizer):
             return random.randrange(0, min(vlist_len - 1, choice_max) + 1)
 
         base_settings = self.base_settings.model_dump()
-        base_settings.pop("clock_period", None)
-        base_settings.pop("clock", None)
-        base_settings.pop("clocks", None)
+        # Keep the complete clock topology while varying only the period of the
+        # optimizer's target clock.  The old implementation removed every clock
+        # spelling and then created a bare ``clock`` mapping, which discarded
+        # ports and timing attributes and collapsed multi-clock designs.
+        clocks = base_settings.get("clocks")
+        if clocks:
+            if "main_clock" in clocks:
+                target_clock_name = "main_clock"
+            else:
+                # Match SynthFlow.Settings.main_clock: legacy multi-clock designs without an
+                # explicitly named main clock use the first declared clock deterministically.
+                target_clock_name = next(iter(clocks))
+        else:
+            # Preserve the historical behavior for a flow with no explicit
+            # physical-clock settings: each candidate supplies the main clock.
+            target_clock_name = "main_clock"
         max_var = 0
         stop = False
         batch_settings: List[Dict[str, Any]] = []
@@ -334,9 +347,11 @@ class FmaxOptimizer(Optimizer):
                     settings_to_dict(variations, hierarchical_keys=True),
                     settings_cls=self.flow_class.Settings,
                 )
-                settings["clock"] = {
-                    "period": clock_period,
-                }
+                candidate_clocks = settings.setdefault("clocks", {})
+                if target_clock_name not in candidate_clocks:
+                    candidate_clocks[target_clock_name] = {}
+                candidate_clocks[target_clock_name].pop("freq", None)
+                candidate_clocks[target_clock_name]["period"] = clock_period
                 h = deep_hash(settings)
                 if h in self.batch_hashes:
                     log.info(
