@@ -16,17 +16,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: ghdl/setup-ghdl@v1
-        with:
-          backend: llvm
-      - uses: YosysHQ/setup-oss-cad-suite@v3
-      - uses: nickg/setup-nvc@v1
-        with:
-          version: latest
       - uses: actions/checkout@v4
         with:
           submodules: true
           fetch-depth: 0
+      # One coherent distribution supplies GHDL, Yosys and the Yosys GHDL plugin. Pin the
+      # release so a nightly tool change cannot alter a Python dependency PR underneath us.
+      # Authenticating the read-only release lookup avoids the shared-runner API rate limit.
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: "2026-09-15"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: nickg/setup-nvc@v1
+        with:
+          version: latest
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
