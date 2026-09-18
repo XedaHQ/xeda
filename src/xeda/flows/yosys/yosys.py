@@ -237,11 +237,7 @@ class Yosys(YosysBase, SynthFlow):
         @field_validator("platform", mode="before")
         @classmethod
         def _validate_platform(cls, value):
-            if isinstance(value, str) and not value.endswith(".toml"):
-                return AsicsPlatform.from_resource(value)
-            elif isinstance(value, (str, Path)):
-                return AsicsPlatform.from_toml(value)
-            return value
+            return AsicsPlatform.from_setting(value)
 
         @field_validator("gates", mode="before")
         @classmethod

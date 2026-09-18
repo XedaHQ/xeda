@@ -299,8 +299,13 @@ class YosysBase(Flow):
                     f"'verilog_lib' must be a path or a list of paths, "
                     f"got {type(value).__name__}: {value!r}"
                 )
-            value = [str(Path(v).resolve(strict=True)) for v in value]
-            return value
+            resolved = []
+            for v in value:
+                try:
+                    resolved.append(str(Path(v).resolve(strict=True)))
+                except FileNotFoundError:
+                    raise ValueError(f"'verilog_lib' file not found: {v}") from None
+            return resolved
 
         @field_validator("set_attribute", "set_mod_attribute", mode="before")
         @classmethod
@@ -336,6 +341,11 @@ class YosysBase(Flow):
                             raise ValueError(f"JSON TypeError: {e.args}") from e
                     else:
                         raise ValueError(f"Unsupported extension for JSON file: {value}")
+                if not isinstance(value, dict):
+                    raise ValueError(
+                        "expected a mapping of attribute -> value (or -> {path: value}), or a "
+                        f"path to a .json file of one; got {type(value).__name__}: {value!r}"
+                    )
                 for attr, attr_val in value.items():
                     if isinstance(attr_val, dict):
                         for path, v in attr_val.items():

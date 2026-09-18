@@ -54,19 +54,19 @@ project set "Enable Multi-Threading" {{[settings.nthreads, 4]|min if settings.nt
 {% endif %}
 
 {% for k, v in settings.translate_options.items() %}
-project set "{{k}}" {{v}} -process "Translate"
+project set "{{k}}" {{format_value(v)}} -process "Translate"
 {% endfor %}
 {% for k, v in settings.synthesis_options.items() %}
-project set "{{k}}" {{v}} -process "Synthesize - XST"
+project set "{{k}}" {{format_value(v)}} -process "Synthesize - XST"
 {% endfor %}
 {% for k, v in settings.map_options.items() %}
-project set "{{k}}" {{v}} -process "Map"
+project set "{{k}}" {{format_value(v)}} -process "Map"
 {% endfor %}
 {% for k, v in settings.pnr_options.items() %}
-project set "{{k}}" {{v}} -process "Place & Route"
+project set "{{k}}" {{format_value(v)}} -process "Place & Route"
 {% endfor %}
 {% for k, v in settings.trace_options.items() %}
-project set "{{k}}" {{v}} -process "Generate Post-Place & Route Static Timing"
+project set "{{k}}" {{format_value(v)}} -process "Generate Post-Place & Route Static Timing"
 {% endfor %}
 
 

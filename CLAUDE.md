@@ -281,6 +281,24 @@ matching hashes and whose `results.json` reports success is skipped and its resu
 - **A validator must copy a nested *model instance* before normalizing it.** v1 re-validated (and
   so copied) nested models; v2 keeps the caller's object, so `value.fpga = ...` edits settings the
   caller still owns. See `Nextpnr.Settings._validate_yosys`, `VivadoAltSynth.validate_synth`.
+- **A `mode="before"` model validator runs on every assignment, and its writes stick.** Under
+  `validate_assignment`, `model.x = v` hands it the full state; `x` keeps its raw value, but every
+  *other* field it rewrites is written back. So treat the assigned field as authoritative (detect
+  assignment with `info.field_name if info.data is None else None`) and change nothing on an
+  assignment that does not concern you, or you silently revert direct edits. See
+  `DVSettings.the_root_validator` (`generics`/`parameters`) and
+  `SynthFlow.Settings._synthflow_settings_root_validator`.
+- The shim passes a non-`dict` input to a `mode="before"` model validator straight through to
+  pydantic (v1 only ever gave `pre=True` root validators a mapping). A validator that converts a
+  shorthand itself, like `FPGA` turning `"xc7a..."` into `{"part": ...}`, opts in with
+  `@accepts_non_mapping` under `@classmethod`.
+- **Validators must be idempotent.** Assignment and every `settings.json` reload re-run them, so
+  one that *transforms* drifts each time (ISE's option quoting turned `"High"` into `""High""`).
+  Format for a tool at render time in the template instead. `tests/test_model_invariants.py`
+  re-assigns every field of every flow's settings to itself and fails on any change.
+- Settings a flow passes to a dependency (`fpga`, `clocks`, ...) are propagated with
+  `flow.propagate_to_dependency()` from a `mode="after"` model validator, not a field validator,
+  so they also follow later assignments. It deep-copies, so the two flows never share an object.
 - **`XedaBaseModel` coerces a bare number to `str`** for fields whose annotation accepts `str` and
   no numeric type -- and, for a container, whose *element* type does. TOML/YAML cannot mark a
   number as text, so real files spell string settings numerically: an FPGA `speed = 2` grade, a
@@ -293,7 +311,12 @@ matching hashes and whose `results.json` reports success is skipped and its resu
   own fields are silently dropped from `model_dump()`.
 - Read a model's state with `utils.model_state()`, not `__dict__`: permitted extras live in
   `__pydantic_extra__` in v2, and `__dict__` alone drops them from `settings.json` and from
-  `semantic_hash()`.
+  `semantic_hash()`. Conversely `__dict__` also holds `cached_property` caches, which
+  `model_state()` filters out.
+- State that must survive `model_dump()` -> `model_validate()` belongs in a hidden
+  trailing-underscore field, not a `PrivateAttr` or an `__init__` side effect, since a dump
+  carries only fields. See `AsicsPlatform.voltage_expressions_`, which lets `select_corner()`
+  re-evaluate `$(VOLTAGE)` on a platform reloaded from `settings.json`.
 - **Physical quantities from PDK/board files must be `float`.** `abc_load_in_ff`,
   `macro_place_halo` and `macro_place_channel` were typed `int`; v1 truncated asap7/nangate45's
   fractional values and v2 refused to load those platforms at all.

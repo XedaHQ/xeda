@@ -350,11 +350,8 @@ class Openroad(AsicSynthFlow):
         @field_validator("platform", mode="before")
         @classmethod
         def _validate_platform(cls, value):
-            if isinstance(value, str) and not value.endswith(".toml"):
-                value = AsicsPlatform.from_resource(value)
-            elif isinstance(value, (str, Path)):
-                value = AsicsPlatform.from_toml(value)
-            elif isinstance(value, AsicsPlatform):
+            value = AsicsPlatform.from_setting(value)
+            if isinstance(value, AsicsPlatform):
                 # The selected corner is applied after all settings fields are available. Keep
                 # that normalization isolated from a caller-owned platform instance.
                 value = value.model_copy()
@@ -364,7 +361,7 @@ class Openroad(AsicSynthFlow):
         def _select_platform_corner(self):
             if self.corner:
                 corner = self.corner[0] if isinstance(self.corner, list) else self.corner
-                self.platform.default_corner = corner
+                self.platform.select_corner(corner)
             return self
 
         @field_validator("input_delay", "output_delay", mode="before")

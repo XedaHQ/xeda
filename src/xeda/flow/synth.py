@@ -82,7 +82,7 @@ class PhysicalClock(XedaBaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def root_validate_phys_clock(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def root_validate_phys_clock(cls, values: Dict[str, Any], info) -> Dict[str, Any]:
         # This is a pre=True validator, so values are still raw here: a CLI override such as
         # `-s clock_period=5.5` arrives as the string "5.5". Normalize before any arithmetic --
         # dividing by the raw value used to fail with "unsupported operand type(s) for /".
@@ -91,16 +91,25 @@ class PhysicalClock(XedaBaseModel):
         # indistinguishable from an omitted `freq` and produced "Neither freq or period were
         # specified", which names the wrong problem. Same reasoning as the `period` test.
         #
-        # `values` is already a defensive copy -- `xeda.dataclass.model_validator` copies the
-        # input of every `mode="before"` validator, because writing back into the caller's own
-        # mapping used to rewrite `design.flow[...]["clocks"]["main_clock"]` in place.
+        # `values` is already isolated by `xeda.dataclass.model_validator`: construction input is
+        # copied in full, while assignment copies only the new field so unrelated model state
+        # keeps its identity.
         if not isinstance(values, dict):
             return values
+        assignment_field = info.field_name if info.data is None else None
         freq = values.get("freq")
         if freq is not None:
             freq = convert_unit(freq, "MHz")
         period = values.get("period")
-        if period is not None:
+        if assignment_field == "freq":
+            if freq is None:
+                raise ValueError("Clock frequency must be specified")
+            freq = float(freq)
+            if freq <= 0:
+                raise ValueError(f"Clock frequency must be positive, got {freq}")
+            values["period"] = round(1000.0 / freq, 3)
+            values["freq"] = freq
+        elif period is not None:
             period = convert_unit(period, "nanosecond")
             if period <= 0:
                 raise ValueError(f"Clock period must be positive, got {period}")
@@ -184,11 +193,12 @@ class SynthFlow(Flow, metaclass=ABCMeta):
 
         @model_validator(mode="before")
         @classmethod
-        def _synthflow_settings_root_validator(cls, values):
+        def _synthflow_settings_root_validator(cls, values, info):
             """
             if we only have 1 clock OR a clock named main_clock:
                 clock_period value takes priority for that particular value and overrides that clock's period
             """
+            assignment_field = info.field_name if info.data is None else None
             clocks = values.get("clocks")
             # main_clock_name = "main_clock"
             clock = values.pop("clock", None)
@@ -218,22 +228,43 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             #             log.debug("Setting main_clock period to %s", clock_period)
             #             main_clock["period"] = clock_period
             #         clocks[main_clock_name] = PhysicalClock(**main_clock)
+            if clocks and not isinstance(clocks, dict):
+                # e.g. `clocks = ["clk"]`: leave it for the `clocks` field to reject with a proper
+                # "valid dictionary" error rather than crash on `.get` below.
+                return values
             if clocks:
                 values["clocks"] = clocks
-                if values.get("clock_period") is None:
-                    # Back-fill `clock_period` from the main clock. The field-level validator
-                    # cannot do this: `clock_period` is declared before `clocks`, so pydantic
-                    # validates it while `clocks` is still absent from `values`.
-                    # `is None`, not truthiness: an explicit `clock_period=0` must reach the
-                    # field validator's positivity check rather than be silently replaced.
-                    main = clocks.get("main_clock") or first_value(clocks)
-                    if isinstance(main, dict):
-                        try:
-                            main = PhysicalClock(**main)
-                        except (ValueError, TypeError):
-                            main = None  # the error is reported by `clocks`' own validation
-                    if isinstance(main, PhysicalClock):
-                        values["clock_period"] = main.period
+                main_name = "main_clock" if "main_clock" in clocks else first_key(clocks)
+                main = clocks.get(main_name) if main_name is not None else None
+                validated_main = main
+                if isinstance(main, dict):
+                    try:
+                        validated_main = PhysicalClock(**main)
+                    except (ValueError, TypeError):
+                        validated_main = None  # reported by `clocks`' own validation
+
+                if assignment_field == "clocks":
+                    # A newly assigned clock is authoritative; keep the compatibility scalar in
+                    # sync rather than retaining the previously selected period.
+                    if isinstance(validated_main, PhysicalClock):
+                        values["clock_period"] = validated_main.period
+                elif assignment_field in (None, "clock_period"):
+                    if clock_period is not None:
+                        # During construction, or when `clock_period` itself is assigned, the
+                        # scalar shorthand is authoritative as documented. This is correlated
+                        # state, not unrelated-field detachment.
+                        if isinstance(main, PhysicalClock):
+                            main.period = clock_period
+                        elif isinstance(main, dict) and main_name is not None:
+                            main["period"] = clock_period
+                            clocks[main_name] = main
+                    elif isinstance(validated_main, PhysicalClock):
+                        # Back-fill `clock_period` from the main clock. The field-level validator
+                        # cannot do this because it is declared before `clocks`.
+                        values["clock_period"] = validated_main.period
+                # Any other assignment leaves the clock/period pair alone: this validator runs on
+                # *every* assignment, and re-imposing `clock_period` there would silently revert
+                # a direct edit of `settings.clocks[...].period`.
             return values
 
         @property

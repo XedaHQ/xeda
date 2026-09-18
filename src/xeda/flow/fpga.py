@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Any, Optional
 
-from ..dataclass import Field, XedaBaseModel, model_validator
+from ..dataclass import Field, XedaBaseModel, accepts_non_mapping, model_validator
 from ..utils import try_convert
 
 log = logging.getLogger(__name__)
@@ -48,8 +48,14 @@ class FPGA(XedaBaseModel):
     # this is called before all field validators!
     @model_validator(mode="before")
     @classmethod
+    @accepts_non_mapping
     def _fpga_root_validator(cls, values):  # pylint: disable=no-self-argument
-        if not values:
+        # A bare string is the part number: `fpga = "xc7a100tftg256-2L"` in a design file, or
+        # `-s fpga=...` on the command line, as the `fpga` settings field documents. The
+        # positional form `FPGA("xc7a...")` already accepted it; a field value never did.
+        if isinstance(values, str):
+            values = {"part": values}
+        if not isinstance(values, dict) or not values:
             return values
         # Intel: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf
         # Lattice: https://www.latticesemi.com/Support/PartNumberReferenceGuide
@@ -58,6 +64,8 @@ class FPGA(XedaBaseModel):
         #         https://www.xilinx.com/support/documents/selection-guides/ultrascale-fpga-product-selection-guide.pdf
         #         https://www.xilinx.com/support/documents/selection-guides/ultrascale-plus-fpga-product-selection-guide.pdf
         part = values.get("part")
+        if part is not None and not isinstance(part, str):
+            return values  # the `part` field reports the wrong type itself
 
         def set_if_not_exist(attr: str, v: Any) -> None:
             if attr not in values:

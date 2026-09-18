@@ -7,6 +7,7 @@ from .flow import (
     FlowSettingsError,
     FlowSettingsException,
     describe_results,
+    propagate_to_dependency,
     registered_flows,
 )
 
@@ -30,5 +31,6 @@ __all__ = [
     "SimFlow",
     "SynthFlow",
     "describe_results",
+    "propagate_to_dependency",
     "registered_flows",
 ]

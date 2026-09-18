@@ -144,3 +144,17 @@ cython_debug/
 xeda_run/
 tests_run_dir/
 
+# Environment file the Docker runner (`Docker.run`) writes into the working directory
+.*_docker.env
+# Ad-hoc run directories, e.g. vivado_synth_run/
+/*_run/
+
+# EDA tool output from runs started in the repository root
+/*.ddc
+/*.sdf
+/*_netlist.v
+/*_netlist.vhdl
+/*.gtkw
+
+# Editor backups (draw.io)
+.$*.bkp

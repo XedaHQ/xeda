@@ -6,7 +6,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from ...dataclass import Field, field_validator
+from ...dataclass import Field
 from ...flow import FpgaSynthFlow, describe_results
 from ...tool import Docker, OptionalBoolOrPath, OptionalPath, Tool
 from ...utils import try_convert_to_primitives
@@ -67,6 +67,12 @@ class XTclSh(Tool):
 
 
 def format_value(v) -> str:
+    """Render a project property the way ISE's `project set` expects it.
+
+    Applied by the templates at render time, never by a validator: quoting is not idempotent,
+    so normalizing on the way in turned `"High"` into `""High""` every time the settings were
+    re-validated -- on any attribute assignment, and on every `settings.json` round trip.
+    """
     if isinstance(v, bool):
         return "TRUE" if v else "FALSE"
     if isinstance(v, str):
@@ -132,16 +138,6 @@ class IseSynth(FpgaSynthFlow):
         ucf_files: List[Union[Path, str]] = Field(
             [], description="User constraint files (.ucf) with pin and timing constraints."
         )
-
-        @field_validator(
-            "synthesis_options", "map_options", "pnr_options", "trace_options", mode="before"
-        )
-        @classmethod
-        def _pre_process_values(cls, value):
-            if isinstance(value, dict):
-                for k, v in value.items():
-                    value[k] = format_value(v)
-            return value
 
     def init(self):
         logger.info("Deleting previous artifacts as ISE needs to run in a clean direcotry.")

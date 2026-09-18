@@ -39,6 +39,7 @@ __all__ = [
     "SerializeAsAny",
     "ValidationError",
     "XedaBaseModel",
+    "accepts_non_mapping",
     "annotation_accepts",
     "annotation_args",
     "annotation_is_list",
@@ -92,17 +93,44 @@ def _guarded(fn: Any, copy_input: bool) -> Any:
 
 
 def _guarded_before_model(fn: Any) -> Any:
-    """Guard a before-model validator without copying established state on assignment."""
+    """Guard a before-model validator while preserving v1 input-isolation semantics.
+
+    Pydantic supplies ``field_name`` both when a nested model is being constructed and when an
+    existing model is assignment-validated, so it cannot distinguish those cases by itself.
+    ``data`` is the containing model's already-validated state for nested construction, but is
+    ``None`` for assignment validation.  Construction inputs therefore need a full defensive
+    copy; assignment needs a shallow state copy plus a deep copy of only the newly assigned field.
+    That protects the caller's new value without detaching any unrelated established fields.
+    """
     is_classmethod = isinstance(fn, classmethod)
     unwrapped = fn.__func__ if is_classmethod else fn
     accepts_info = len(signature(unwrapped).parameters) == 3
+    accepts_non_mapping = getattr(unwrapped, "__xeda_accepts_non_mapping__", False)
 
     def wrapper(cls: Any, value: Any, info: Any) -> Any:
+        if not isinstance(value, dict) and not accepts_non_mapping:
+            # v1 only ever ran a `pre=True` root validator on a mapping: `BaseModel.validate`
+            # rejected anything else ("value is not a valid dict") first. v2 hands the raw input
+            # to a `mode="before"` model validator, so every v1-era body written against
+            # `values.get(...)` crashed with `AttributeError` on, say, `fpga = ["x"]`. Pass the
+            # input through untouched and pydantic reports its own "valid dictionary" error.
+            # A validator that converts a non-mapping shorthand itself opts in with
+            # `@accepts_non_mapping` (see `FPGA`).
+            return value
         try:
-            # Initial validation receives the caller's input, which a normalizing validator must
-            # not rewrite. Assignment receives established model state; copying that mapping
-            # would detach every unrelated model and container field.
-            if info.field_name is None and isinstance(value, (dict, list)):
+            if isinstance(value, dict):
+                is_assignment = info.field_name is not None and info.data is None
+                if is_assignment:
+                    # The mapping is the model's established state with the new raw field value
+                    # inserted.  Copy the mapping itself so validators can write top-level keys,
+                    # and isolate only the caller-owned value being assigned.
+                    value = value.copy()
+                    if info.field_name in value:
+                        value[info.field_name] = deepcopy(value[info.field_name])
+                else:
+                    # Root and nested construction both receive caller-owned input mappings.
+                    value = deepcopy(value)
+            elif isinstance(value, list):
                 value = deepcopy(value)
             if accepts_info:
                 return unwrapped(cls, value, info)
@@ -115,6 +143,16 @@ def _guarded_before_model(fn: Any) -> Any:
     wrapper.__doc__ = unwrapped.__doc__
     wrapper.__module__ = unwrapped.__module__
     return classmethod(wrapper) if is_classmethod else wrapper
+
+
+def accepts_non_mapping(fn: Any) -> Any:
+    """Mark a `mode="before"` model validator that converts a non-mapping shorthand itself.
+
+    Without it, the shim passes any input that is not a `dict` straight through to pydantic
+    (v1's contract for `pre=True` root validators). Apply it *under* `@classmethod`.
+    """
+    fn.__xeda_accepts_non_mapping__ = True
+    return fn
 
 
 def _is_before(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> bool:

@@ -151,6 +151,14 @@ class OptionEatAll(click.Option):
                 value_list += state.rargs
                 state.rargs[:] = []
 
+            # A repeated option (`-s a=1 -s b=2`) accumulates. Without this every occurrence
+            # *replaced* the previous one -- click's "store" action -- so all but the last group of
+            # settings were silently dropped, although the help text documents the repeated form.
+            dest = getattr(self._eat_all_parser, "dest", None) or self.name
+            previous = state.opts.get(dest)
+            if isinstance(previous, tuple):
+                value_list = [*previous, *value_list]
+
             # call the actual process
             if self._previous_parser_process is not None:
                 self._previous_parser_process(tuple(value_list), state)

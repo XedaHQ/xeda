@@ -1,7 +1,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from simpleeval import simple_eval
 
@@ -89,6 +89,13 @@ class AsicsPlatform(Platform):
     klayout_lvs_file: Optional[Path] = None
     klayout_layer_prop_file: Optional[Path] = None
 
+    voltage_expressions_: Dict[str, Dict[str, str]] = Field(
+        default_factory=dict,
+        description="Source expressions of the corner-dependent supply voltages, kept so that "
+        "`select_corner` can re-evaluate them. Derived from the raw input; not user-settable.",
+        json_schema_extra={"hidden_from_schema": True},
+    )
+
     @field_validator(
         "tiehi_cell",
         "tielo_cell",
@@ -119,6 +126,26 @@ class AsicsPlatform(Platform):
     @classmethod
     def _root_validator(cls, values):
         # log.debug("AsicsPlatform.root_validator: values=%s", str(values))
+        # Keep the source expressions that make supply voltages corner-dependent, before
+        # `_validate_nets_voltages` collapses them to concrete floats for the selected corner.
+        # They are stored in a field rather than a `PrivateAttr` so they survive `model_dump()`
+        # -> `model_validate()`: a platform reloaded from `settings.json` or rebuilt by
+        # `Platform.with_absolute_paths` must still be able to `select_corner` faithfully.
+        if not values.get("voltage_expressions_"):
+            expressions = {}
+            for field_name in ("pwr_nets_voltages", "gnd_nets_voltages"):
+                raw = values.get(field_name)
+                if isinstance(raw, dict):
+                    exprs = {
+                        str(net): expression
+                        for net, expression in raw.items()
+                        if isinstance(expression, str)
+                    }
+                    if exprs:
+                        expressions[field_name] = exprs
+            if expressions:
+                values["voltage_expressions_"] = expressions
+
         for k in ["gds_files"]:
             v = values.get(k)
             if v is not None and not isinstance(v, (list)):
@@ -179,6 +206,31 @@ class AsicsPlatform(Platform):
                         log.debug("Evaluating corner-dependent value: %s", v)
                         value[k] = float(simple_eval(v, names=selected_corner.model_dump()))
         return value
+
+    def select_corner(self, corner: str) -> None:
+        """Select `corner` and re-evaluate every value derived from a corner's properties.
+
+        Assigning `default_corner` alone is not enough: supply voltages such as ASAP7's
+        ``pwr_nets_voltages = {VDD = "$(VOLTAGE)"}`` were resolved against whichever corner was
+        default when the platform loaded, and pydantic re-runs only the validator of the field
+        being assigned.
+        """
+        selected_corner = self.corner.get(corner)
+        if selected_corner is None:
+            raise ValueError(
+                f"Unknown platform corner: {corner}. "
+                f"Available corners: {', '.join(sorted(self.corner))}"
+            )
+        if self.default_corner == corner:
+            return
+        self.default_corner = corner
+        names = selected_corner.model_dump()
+        for field_name, expressions in self.voltage_expressions_.items():
+            values = dict(getattr(self, field_name))
+            for net, expression in expressions.items():
+                resolved = re.sub(r"\$\(?(\w*)\)?", lambda pat: pat.group(1).lower(), expression)
+                values[net] = float(simple_eval(resolved, names=names))
+            setattr(self, field_name, values)
 
     @property
     def default_corner_settings(self):
