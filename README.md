@@ -56,7 +56,7 @@ xeda list-flows                   # every flow, with its aliases, category and d
 xeda list-settings vivado_synth   # every setting of a flow, with type, default and meaning
 xeda list-results vivado_synth    # the keys that flow writes to results.json
 xeda design-schema                # JSON Schema of a design description file
-xeda run vivado_synth sqrt.toml -s clock_period=5.0
+xeda run vivado_synth sqrt.toml -s clock.period=5.0
 ```
 
 Flow names accept snake case, dashes, CamelCase class names, and documented aliases. Setting
@@ -103,7 +103,7 @@ cocotb = true
 
 [flows.vivado_synth]
 fpga.part = "xc7a100tftg256-2L"
-clock_period = 5.0
+clock.period = 5.0
 ```
 
 Use `xeda design-schema` for the authoritative input schema.

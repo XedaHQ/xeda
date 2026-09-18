@@ -279,13 +279,12 @@ def test_a_multi_clock_dependency_is_kept_when_the_flow_gives_no_clocks(flow):
 
 
 @pytest.mark.parametrize("flow", ["nextpnr", "open_xc7"])
-def test_the_resolved_clock_keeps_its_period_shorthand_in_step(flow):
-    """`clock_period` and `clocks` describe one clock; resolving must not leave them disagreeing
-    inside the dependency's settings."""
+def test_the_resolved_clock_keeps_canonical_clock_in_step(flow):
+    """A canonical clock is propagated to the dependency without a second stored spelling."""
     from xeda.flow_runner import get_flow_class
 
     cls = get_flow_class(flow)
-    settings = _settings(cls, "yosys", clock_period=5.0, yosys={"clock_period": 10.0})
+    settings = _settings(cls, "yosys", clock={"period": 5.0}, yosys={"clock": {"period": 10.0}})
 
     resolved = settings.resolve_dependency("yosys")
 

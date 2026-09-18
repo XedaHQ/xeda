@@ -12,7 +12,7 @@ def quartus_synth():
             "--settings",
             "dockerized=true",
             "fpga.part=10CL016YU256C6G",
-            "clock_period=15",
+            "clock.period=15",
         ]
     )
 

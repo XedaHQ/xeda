@@ -30,10 +30,6 @@ from xeda.flow import Flow, FlowSettingsError
 @pytest.mark.parametrize(
     ("build", "setting"),
     [
-        (
-            lambda: __import__("xeda.flow.fpga", fromlist=["FPGA"]).FPGA(part="xc7a100t", speed=2),
-            "speed",
-        ),
         (lambda: Design(name=2024, rtl={"sources": [], "top": "t"}), "name"),
         (lambda: Design(name=True, rtl={"sources": [], "top": "t"}), "name"),
         (lambda: _flow("verilator").Settings(compile_args=["-j", 8]), "compile_args"),
@@ -43,7 +39,6 @@ from xeda.flow import Flow, FlowSettingsError
         ),
     ],
     ids=[
-        "fpga-speed-number",
         "design-name-number",
         "design-name-bool",
         "tool-arg-number",
@@ -56,6 +51,30 @@ def test_a_value_of_another_type_is_a_validation_error_naming_the_setting(build,
     with pytest.raises((ValidationError, DesignValidationError, FlowSettingsError)) as error:
         build()
     assert setting in str(error.value)
+
+
+def test_a_code_may_be_written_as_a_number():
+    """A speed grade or device generation is text (`"-2L"`), but naturally written as a number
+    (`speed = -1`); the FPGA declares those fields as `Code`, which accepts both. No other
+    setting turns a number into text."""
+    from xeda.flow.fpga import FPGA
+
+    fpga = FPGA(part="xc7a100t", speed=-1, grade=2, generation=7)
+    assert (fpga.speed, fpga.grade, fpga.generation) == ("-1", "2", "7")
+    with pytest.raises(ValidationError):
+        FPGA(part="xc7a100t", speed=True)
+
+
+def test_a_code_advertises_every_accepted_input_type():
+    from xeda.flow.fpga import FPGA
+
+    speed = FPGA.model_json_schema()["properties"]["speed"]
+    types = {
+        branch.get("type")
+        for branch in speed["anyOf"]
+        if isinstance(branch, dict) and branch.get("type") != "null"
+    }
+    assert types == {"string", "integer", "number"}
 
 
 def test_a_union_keeps_the_type_it_was_given():
@@ -140,7 +159,7 @@ def test_path_placeholders_expand_recursively_without_rewriting_non_path_strings
     }
     before = copy.deepcopy(payload)
 
-    settings = PathSettings(design_root_=tmp_path, **payload)
+    settings = PathSettings.from_input(payload, design_root=tmp_path)
 
     assert payload == before
     assert settings.scalar == tmp_path / "scalar.sdc"
@@ -159,8 +178,8 @@ def test_path_expansion_accepts_namedtuples_for_tuple_fields(tmp_path):
         pair: tuple[int, int] = (0, 0)
         lib: tuple[str, Path] = ("", Path())
 
-    settings = TupleSettings(
-        design_root_=tmp_path, pair=Pair(1, 2), lib=Lib("$NAME", "$DESIGN_ROOT/cells.lib")
+    settings = TupleSettings.from_input(
+        {"pair": Pair(1, 2), "lib": Lib("$NAME", "$DESIGN_ROOT/cells.lib")}, design_root=tmp_path
     )
 
     assert settings.pair == (1, 2)
@@ -170,10 +189,9 @@ def test_path_expansion_accepts_namedtuples_for_tuple_fields(tmp_path):
 def test_real_path_list_setting_expands_design_root(tmp_path):
     from xeda.flows.dc import Dc
 
-    settings = Dc.Settings(
-        design_root_=tmp_path,
-        platform="asap7",
-        target_libraries=["$DESIGN_ROOT/lib/cells.lib"],
+    settings = Dc.Settings.from_input(
+        {"platform": "asap7", "target_libraries": ["$DESIGN_ROOT/lib/cells.lib"]},
+        design_root=tmp_path,
     )
 
     assert settings.target_libraries == [tmp_path / "lib/cells.lib"]
@@ -223,7 +241,9 @@ def test_real_settings_expand_design_root_at_every_path_leaf(
             return {k: at_root(v) for k, v in item.items()}
         return item
 
-    settings = get_flow_class(flow).Settings(design_root_=tmp_path, **extra, **{field: value})
+    settings = get_flow_class(flow).Settings.from_input(
+        {**extra, field: value}, design_root=tmp_path
+    )
 
     assert getattr(settings, field) == at_root(expected)
 
@@ -231,13 +251,71 @@ def test_real_settings_expand_design_root_at_every_path_leaf(
 def test_comma_separated_path_list_expands_each_design_root(tmp_path):
     from xeda.flows.dc import Dc
 
-    settings = Dc.Settings(
-        design_root_=tmp_path,
-        platform="asap7",
-        target_libraries="$DESIGN_ROOT/lib/a.lib,$DESIGN_ROOT/lib/b.lib",
+    settings = Dc.Settings.from_input(
+        {"platform": "asap7", "target_libraries": "$DESIGN_ROOT/lib/a.lib,$DESIGN_ROOT/lib/b.lib"},
+        design_root=tmp_path,
     )
 
     assert settings.target_libraries == [
         tmp_path / "lib/a.lib",
         tmp_path / "lib/b.lib",
     ]
+
+
+def test_default_dependency_inherits_context_for_later_assignment(tmp_path):
+    from xeda.flows.nextpnr import Nextpnr
+
+    settings = Nextpnr.Settings.from_input(
+        {"fpga": "LFE5U-25F-6BG381C"}, design_root=tmp_path, runner_cwd=tmp_path / "start"
+    )
+
+    assert settings.yosys.context == settings.context
+    settings.yosys.netlist_json = "$DESIGN_ROOT/netlist.json"
+    assert settings.yosys.netlist_json == tmp_path / "netlist.json"
+
+
+def test_dependency_mapping_assignment_uses_parent_context(tmp_path):
+    from xeda.flows.nextpnr import Nextpnr
+
+    settings = Nextpnr.Settings.from_input(
+        {"fpga": "LFE5U-25F-6BG381C"}, design_root=tmp_path, runner_cwd=tmp_path / "start"
+    )
+    settings.yosys = {"netlist_json": "$DESIGN_ROOT/netlist.json"}
+
+    assert settings.yosys.context == settings.context
+    assert settings.yosys.netlist_json == tmp_path / "netlist.json"
+
+
+def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):
+    from xeda.flows import VivadoSynth
+
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "top"})
+    start = tmp_path / "start"
+    flow = VivadoSynth(
+        VivadoSynth.Settings(
+            fpga="xc7a100t",
+            xdc_files=["$DESIGN_ROOT/already-present.xdc"],
+        ),
+        design,
+        tmp_path / "run",
+        runner_cwd=start,
+    )
+
+    assert flow.settings.xdc_files == [tmp_path / "already-present.xdc"]
+    flow.settings.xdc_files = ["$DESIGN_ROOT/clock.xdc", "$PWD/hook.xdc"]
+    assert flow.settings.xdc_files == [tmp_path / "clock.xdc", start / "hook.xdc"]
+
+
+def test_runner_preserves_edits_inside_a_default_dependency_settings_object(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+    from xeda.flows import Nextpnr
+
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "top"})
+    settings = Nextpnr.Settings(fpga="LFE5U-25F-6BG381C")
+    settings.yosys.netlist_json = "$DESIGN_ROOT/netlist.json"
+
+    validated = DefaultRunner(tmp_path / "run")._input_settings(
+        Nextpnr, settings, design, tmp_path / "start"
+    )
+
+    assert validated.yosys.netlist_json == tmp_path / "netlist.json"

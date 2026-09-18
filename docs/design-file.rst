@@ -76,8 +76,8 @@ Top level
      - Top-level module/entity name. Required by synthesis flows.
    * - ``parameters`` / ``generics``
      - no
-     - Verilog parameters or VHDL generics for the top level, as a mapping. The two names are
-       interchangeable.
+     - Verilog parameters or VHDL generics for the top level, as a mapping. Use either
+       interchangeable name; giving both is an error.
    * - ``defines``
      - no
      - Verilog preprocessor macros, as a mapping.
@@ -105,7 +105,8 @@ design. A single-clock design usually needs only::
     [rtl]
     clock_port = "clk"
 
-and then, per flow, ``clock_period`` (ns) or ``clock.freq``.
+and then, per flow, ``clock.period`` (ns) or ``clock.freq``. The legacy ``clock_period`` input is
+also accepted for compatibility, but cannot be combined with ``clock`` or ``clocks``.
 
 .. _tb:
 
@@ -208,11 +209,11 @@ runs, so one design file can carry constraints for several targets:
 
     [flows.vivado_synth]
     fpga.part = "xc7a100tftg256-2L"
-    clock_period = 5.0
+    clock.period = 5.0
 
     [flows.openroad]
     platform = "sky130hd"
-    clock_period = 10.0
+    clock.period = 10.0
 
     [flows.ghdl_sim]
     stop_time = "100us"

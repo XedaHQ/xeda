@@ -39,7 +39,7 @@ def test_sqrt_yosys_synth() -> None:
         f = xeda_runner.run_flow(
             YosysFpga,
             design,
-            {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock_period": 10.0},
+            {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock": {"period": 10.0}},
         )
         assert f.succeeded
     except ExecutableNotFound:

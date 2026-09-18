@@ -18,10 +18,19 @@ import time
 from typing import List, Tuple
 
 import execnet
+import pytest
 
-from xeda.flow_runner.remote import STREAM_OUTPUT_SETUP, remote_runner
+from xeda.flow_runner.remote import STREAM_OUTPUT_SETUP, check_remote_python, remote_runner
 
 TimedChunks = List[Tuple[float, str]]
+
+
+def test_remote_python_must_satisfy_the_package_floor():
+    check_remote_python((3, 11, 0, "final", 0))
+    check_remote_python((3, 14, 1, "final", 0))
+    with pytest.raises(RuntimeError, match=r"Python 3\.11\.0 or newer.*3\.10\.9"):
+        check_remote_python((3, 10, 9, "final", 0))
+
 
 # Makes `import xeda` (and any submodule) fail inside the worker, to prove the
 # streaming setup is pure-stdlib and does not depend on the remote host's xeda.

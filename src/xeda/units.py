@@ -60,7 +60,7 @@ def convert_unit(
     to_unit, to_scale = unit_maybe_scale(to_unit)
     # pint raises its own exception types -- `UndefinedUnitError` derives from `AttributeError`
     # and `DimensionalityError` from `TypeError`, neither of which pydantic v2 treats as a
-    # validation failure. A bad unit in a design file (`clock_period = "5 furlongs"`) would
+    # validation failure. A bad unit in a design file (`clock.period = "5 furlongs"`) would
     # otherwise reach the user as a raw traceback instead of a field error.
     try:
         if from_unit and isinstance(value, (float, int)):

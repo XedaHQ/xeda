@@ -6,6 +6,7 @@ design document the remote runner ships over SSH.
 """
 
 import json
+import zipfile
 
 import pytest
 
@@ -81,6 +82,60 @@ def test_model_state_exposes_both_fields_and_extras():
     state = model_state(_with_extra("A"))
     assert state["name"] == "d"
     assert state["extra_key"] == "A"
+
+
+def test_remote_design_archive_preserves_source_compilation_metadata(tmp_path):
+    from fabric import Connection
+
+    from xeda.flow_runner.remote import send_design
+
+    for directory, content in (("one", "-- first\n"), ("two", "-- second\n")):
+        source_dir = tmp_path / directory
+        source_dir.mkdir()
+        (source_dir / "shared.src").write_text(content)
+    (tmp_path / "test.py").write_text("def test_dut(): pass\n")
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={
+            "sources": [
+                {"file": "one/shared.src", "type": "Vhdl", "standard": "2008"},
+                {
+                    "file": "two/shared.src",
+                    "type": "Vhdl",
+                    "standard": "1993",
+                    "variant": "legacy",
+                },
+            ],
+            "top": "top",
+        },
+        tb={"sources": ["test.py"], "cocotb": {"module": "test"}},
+    )
+    captured = {}
+    connection = Connection("unused")
+
+    def capture_archive(local, remote):
+        with zipfile.ZipFile(local) as archive:
+            captured["names"] = archive.namelist()
+            design_name = next(name for name in archive.namelist() if name.endswith(".xeda.json"))
+            captured["design"] = json.loads(archive.read(design_name))
+
+    connection.put = capture_archive
+    send_design(
+        design,
+        connection,
+        "/unused",
+        all_flows_settings={"yosys_fpga": {"flatten": False}},
+    )
+
+    rtl_sources = captured["design"]["rtl"]["sources"]
+    assert [source["standard"] for source in rtl_sources] == ["2008", "1993"]
+    assert [source["type"] for source in rtl_sources] == ["Vhdl", "Vhdl"]
+    assert rtl_sources[1]["variant"] == "legacy"
+    assert rtl_sources[0]["file"] != rtl_sources[1]["file"]
+    assert all(source["file"] in captured["names"] for source in rtl_sources)
+    assert captured["design"]["tb"]["cocotb"]["module"] == "test"
+    assert captured["design"]["flow"] == {"yosys_fpga": {"flatten": False}}
 
 
 # ---------------------------------------------------------------------------------------------

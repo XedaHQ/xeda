@@ -216,7 +216,7 @@ To run a flow:
 
     design = Design.from_file("sqrt.toml")
     runner = DefaultRunner("xeda_run")
-    flow = runner.run("vivado_synth", design, flow_settings=["clock_period=5.0"])
+    flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5.0"])
     if flow and flow.results.success:
         print(flow.results.Fmax)
 

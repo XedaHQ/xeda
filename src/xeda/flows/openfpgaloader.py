@@ -27,11 +27,6 @@ class Openfpgaloader(FpgaSynthFlow):
     ofpga_loader = Tool("openFPGALoader")
 
     class Settings(WithFpgaBoardSettings):
-        clock_period: Optional[float] = Field(
-            None,
-            description="Target clock period in nanoseconds, passed to the synthesis and place & "
-            "route dependencies.",
-        )
         reset: bool = Field(
             False, description="Reset the FPGA after loading the bitstream (`--reset`)."
         )

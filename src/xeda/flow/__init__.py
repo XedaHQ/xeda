@@ -7,6 +7,7 @@ from .flow import (
     FlowSettingsError,
     FlowSettingsException,
     describe_results,
+    flowrun_hash,
     is_unset,
     registered_flows,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "SimFlow",
     "SynthFlow",
     "describe_results",
+    "flowrun_hash",
     "is_unset",
     "registered_flows",
 ]

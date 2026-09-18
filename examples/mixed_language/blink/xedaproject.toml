@@ -7,5 +7,5 @@ sources = ["blink.sv"]
 [design.tb]
 sources = ["blink_tb.cpp"]
 
-[flows.cxxrtl]
+[flows.yosys_sim]
 cxxrtl.filename = "blink.cpp"

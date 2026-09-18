@@ -20,11 +20,11 @@ clock_port = "clk_25mhz"
 
 [flows.nextpnr]
 board = "ULX3S_85F"
-clock_period = 40   # 25 MHz
+clock.period = 40   # 25 MHz
 detailed_timing_report = false # nextpnr BUG, o/w crashes
 
 [flows.openfpgaloader]
 board = "ULX3S_85F"
-clock_period = 40   # 25 MHz
+clock.period = 40   # 25 MHz
 nextpnr.detailed_timing_report = false
 nextpnr.timing_allow_fail = true

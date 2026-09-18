@@ -9,7 +9,7 @@ import shutil
 from abc import ABCMeta, abstractmethod
 from copy import deepcopy
 from functools import cache
-from pathlib import Path
+from pathlib import Path, PurePath
 from types import UnionType
 from typing import (
     Annotated,
@@ -17,6 +17,7 @@ from typing import (
     ClassVar,
     Dict,
     List,
+    Mapping,
     Optional,
     Tuple,
     Type,
@@ -32,6 +33,7 @@ from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
 
 from ..dataclass import (
     Field,
+    PrivateAttr,
     ValidationError,
     XedaBaseModel,
     annotation_args,
@@ -47,6 +49,7 @@ from ..utils import (
     expand_env_vars,
     parse_patterns_in_file,
     regex_match,
+    semantic_hash,
     try_convert,
     unique,
 )
@@ -61,6 +64,7 @@ __all__ = [
     "FlowSettingsError",
     "FlowSettingsException",
     "describe_results",
+    "flowrun_hash",
     "is_unset",
 ]
 
@@ -195,6 +199,45 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
     return value
 
 
+def _location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
+    """`value` with every absolute path under one of `roots` rewritten as ``$VAR/relative``."""
+    if isinstance(value, dict):
+        return {key: _location_free(item, roots) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return _rebuild_like(value, [_location_free(item, roots) for item in value])
+    if isinstance(value, PurePath) or (isinstance(value, str) and os.path.isabs(value)):
+        path = PurePath(value)
+        for var, root in roots:
+            if path.is_relative_to(root):
+                relative = path.relative_to(root).as_posix()
+                return f"${var}" if relative == "." else f"${var}/{relative}"
+    return value
+
+
+def flowrun_hash(flow_name: str, settings: Flow.Settings) -> str:
+    """What identifies a run of `flow_name` with `settings`: the key `--cached-dependencies`
+    reuses a previous run by, and part of a hashed run directory's name.
+
+    It depends on what the settings mean, not on where anything is: a path under the design root
+    or under the directory xeda was started from counts relative to it (`$DESIGN_ROOT/c.xdc`),
+    so moving a design, or starting xeda elsewhere, keeps the hash. Paths count as their text:
+    only a design's source files are hashed by content (`Design.rtl_hash`), and no directory's
+    content is ever read.
+    """
+    roots = [
+        (var, Path(root).absolute())
+        for var, root in (
+            ("DESIGN_ROOT", settings.context.get("design_root")),
+            ("PWD", settings.context.get("runner_cwd")),
+        )
+        if root is not None
+    ]
+    roots.sort(key=lambda var_root: len(var_root[1].parts), reverse=True)  # most specific first
+    return semantic_hash(
+        dict(flow_name=flow_name, flow_settings=_location_free(settings.model_dump(), roots))
+    )
+
+
 #: Descriptions of result keys that several flows report with the same meaning. A flow declares
 #: the subset it actually reports through `describe_results`, so `xeda list-results <flow>` never
 #: advertises a key that flow does not produce.
@@ -319,8 +362,6 @@ class Flow(metaclass=ABCMeta):
         redirect_stdout: bool = Field(
             False, description="Redirect stdout from execution of tools to files."
         )
-        runner_cwd_: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
-        design_root_: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
         timeout_seconds: int = Field(3600 * 2, json_schema_extra={"hidden_from_schema": True})
         nthreads: Optional[int] = Field(
             None,
@@ -395,22 +436,88 @@ class Flow(metaclass=ABCMeta):
                 return value
             return _expand_path_values(value, annotation, roots)
 
+        #: Where the settings were given: ``design_root`` and ``runner_cwd`` (the directory xeda
+        #: was started from). Supplied as pydantic's validation context (`from_input`), never as
+        #: a setting, so it is neither written to `settings.json` nor hashed: the same settings
+        #: mean the same thing wherever the design lives and wherever xeda is started.
+        _context: dict[str, Any] = PrivateAttr(default_factory=dict)
+
+        @classmethod
+        def from_input(
+            cls,
+            data: Mapping[str, Any],
+            *,
+            design_root: Path | None = None,
+            runner_cwd: Path | None = None,
+        ):
+            """Validate settings as a user gave them: path variables are resolved against
+            `design_root` and `runner_cwd`, and invalid input is a `FlowSettingsError` listing
+            every problem. The context stays with the settings, so an assignment resolves paths
+            the same way.
+
+            Not an `__init__` override: pydantic validates a model with a custom `__init__`
+            through that `__init__`, which loses the validation context.
+            """
+            context = {"design_root": design_root, "runner_cwd": runner_cwd}
+            try:
+                return cls.model_validate(dict(data), context=context)
+            except ValidationError as e:
+                if data.get("debug", None):
+                    raise e
+                raise FlowSettingsError(validation_errors(e.errors()), cls, e.json()) from e
+
+        @property
+        def context(self) -> dict[str, Any]:
+            """The validation context these settings were given in; see `from_input`."""
+            return self._context
+
         @staticmethod
-        def _path_roots(state: Any) -> Dict[str, Any]:
-            get = state.get if isinstance(state, dict) else lambda key: getattr(state, key, None)
-            design_root = get("design_root_")
+        def _path_roots(context: Mapping[str, Any] | None) -> dict[str, Any]:
+            context = context or {}
+            design_root = context.get("design_root")
             return {
-                "PWD": get("runner_cwd_"),
+                "PWD": context.get("runner_cwd"),
                 "DESIGN_ROOT": design_root,
                 "DESIGN_DIR": design_root,
             }
+
+        def model_post_init(self, context: Any, /) -> None:
+            super().model_post_init(context)
+            if isinstance(context, Mapping):
+                self._attach_context(context)
+
+        def _attach_context(self, context: Mapping[str, Any]) -> None:
+            """Attach input location context to this setting tree.
+
+            Pydantic passes validation context to nested values supplied by the caller, but a
+            nested settings object created from a field default has already been constructed by
+            then.  Carry the parent's context into every declared dependency as well, so later
+            assignment has the same path semantics whether that dependency was explicit or a
+            default.
+            """
+            self._context = {k: context.get(k) for k in ("design_root", "runner_cwd")}
+            for field in type(self).dependency_settings:
+                dependency = getattr(self, field, None)
+                if isinstance(dependency, Flow.Settings):
+                    dependency._attach_context(self._context)
+
+        @classmethod
+        def _dependency_settings_class(cls, name: str) -> type[Flow.Settings] | None:
+            """Return the nested settings class declared for dependency field ``name``."""
+            annotation = field_annotation(cls, name)
+            if annotation is None:
+                return None
+            for accepted in annotation_args(annotation):
+                if isinstance(accepted, type) and issubclass(accepted, Flow.Settings):
+                    return accepted
+            return None
 
         @model_validator(mode="before")
         @classmethod
         def _normalize_flow_settings(cls, values, info):
             if info.field_name is not None and info.data is None:
                 return values  # an assignment: `__setattr__` has normalized the assigned value
-            roots = cls._path_roots(values)
+            roots = cls._path_roots(info.context)
             names = _input_names(cls)
             for key, value in values.items():
                 if key in names:
@@ -419,7 +526,15 @@ class Flow(metaclass=ABCMeta):
 
         def __setattr__(self, name: str, value: Any) -> None:
             if name in type(self).model_fields:
-                value = type(self)._normalize_flow_setting(name, value, self._path_roots(self))
+                value = type(self)._normalize_flow_setting(
+                    name, value, self._path_roots(self.context)
+                )
+                if name in type(self).dependency_settings:
+                    dependency_cls = type(self)._dependency_settings_class(name)
+                    if dependency_cls is not None and isinstance(value, Mapping):
+                        value = dependency_cls.from_input(value, **self.context)
+                    if isinstance(value, Flow.Settings):
+                        value._attach_context(self.context)
             super().__setattr__(name, value)
 
         def resolve_dependency(self, field: str) -> Any:
@@ -456,15 +571,6 @@ class Flow(metaclass=ABCMeta):
             if values.get("verbose") or values.get("debug"):
                 return False
             return value
-
-        def __init__(self, **data: Any) -> None:
-            try:
-                log.debug("Settings.__init__(): data=%s", data)
-                super().__init__(**data)
-            except ValidationError as e:
-                if data.get("debug", None):
-                    raise e
-                raise FlowSettingsError(validation_errors(e.errors()), type(self), e.json()) from e
 
     class Results(Box):
         """Flow results"""
@@ -575,6 +681,7 @@ class Flow(metaclass=ABCMeta):
         self.run_path = run_path
 
         if isinstance(design, dict):
+            design = dict(design)
             if design.get("design_root") is None:
                 design["design_root"] = run_path
             design = Design(**design)
@@ -589,14 +696,25 @@ class Flow(metaclass=ABCMeta):
         self.design_hash: Optional[str] = None
 
         if isinstance(settings, dict):
-            settings = self.Settings(**settings)
+            settings = self.Settings.from_input(
+                settings, design_root=design.root_path, runner_cwd=runner_cwd
+            )
 
         assert isinstance(settings, self.Settings)
-        # if we don't have a runner_cwd, use the one in Settings, otherwise set settings.runner_cwd_ if it's None
         if runner_cwd is None:
-            runner_cwd = settings.runner_cwd_
-        elif settings.runner_cwd_ is None:
-            settings.runner_cwd_ = runner_cwd
+            runner_cwd = settings.context.get("runner_cwd")
+            self.runner_cwd = runner_cwd
+        if not settings.context or any(value is None for value in settings.context.values()):
+            # Attaching context alone would affect only later assignments: path placeholders
+            # already present in a directly constructed Settings object would remain unresolved.
+            # Revalidate the complete effective value so nested default settings that the caller
+            # edited are preserved too.
+            settings = self.Settings.from_input(
+                settings.model_dump(),
+                design_root=settings.context.get("design_root") or design.root_path,
+                runner_cwd=settings.context.get("runner_cwd") or runner_cwd,
+            )
+        assert isinstance(settings, self.Settings)
         settings.outputs_dir = self.process_path(settings.outputs_dir)
         settings.reports_dir = self.process_path(settings.reports_dir)
         settings.checkpoints_dir = self.process_path(settings.checkpoints_dir)

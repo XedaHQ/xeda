@@ -8,8 +8,8 @@ import os
 import pprint
 import re
 import subprocess
-from collections import OrderedDict
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from enum import Enum
 from functools import cached_property
 from glob import glob
@@ -30,6 +30,7 @@ import yaml
 from pydantic_core import core_schema
 
 from .dataclass import (
+    AliasChoices,
     Field,
     SerializeAsAny,
     ValidationError,
@@ -47,6 +48,7 @@ from .utils import (
     expand_hierarchy,
     hierarchical_merge,
     removesuffix,
+    semantic_hash,
     settings_to_dict,
     toml_load,
     unique,
@@ -442,48 +444,26 @@ class DVSettings(XedaBaseModel):
     """Design/Verification settings"""
 
     sources: List[DesignSource]
-    generics: Dict[str, DefineType] = Field(
-        default={},
-        description="Top-level generics/defines specified as a mapping",
-        alias="parameters",
-    )  # top defines/generics
     parameters: Dict[str, DefineType] = Field(
         default={},
-        description="Top-level generics/defines specified as a mapping",
-        alias="generics",
+        validation_alias=AliasChoices("parameters", "generics"),
+        description="Top-level parameters (Verilog) or generics (VHDL): a mapping, or a list of "
+        "`{name, value}` objects. `generics` is accepted as the same setting's other name.",
     )
     defines: Dict[str, DefineType] = Field(default={})
 
-    @model_validator(mode="before")
-    @classmethod
-    def the_root_validator(cls, values: Dict[str, Any], info) -> Dict[str, Any]:
-        # `generics` and `parameters` are two spellings of one setting and must always agree.
-        # On assignment pydantic keeps the raw value for the field being assigned and takes
-        # every *other* field from what this validator returns, so the spelling being assigned
-        # -- not its stale sibling -- has to be the source of truth. Reading `parameters` first
-        # unconditionally left the sibling behind: `design.tb.generics = design.rtl.generics`
-        # (ghdl, nvc) updated only `tb.generics`, while nvc builds its `-g` elaboration flags
-        # from `tb.parameters`, so cocotb testbench generics were silently dropped.
-        assigned = info.field_name if info.data is None else None
-        if assigned in ("generics", "parameters"):
-            value = values.get(assigned)
-        else:
-            value = values.get("parameters") or values.get("generics")
-            if not value:
-                return values
-        if value:
-            value = _normalize_parameters(value)
-        if value is not None:
-            values["generics"] = value
-            values["parameters"] = value
-        return values
+    @property
+    def generics(self) -> Dict[str, DefineType]:
+        """`parameters`, by its VHDL name: one setting, stored once."""
+        return self.parameters
 
-    @field_validator("generics", "parameters", mode="before")
+    @generics.setter
+    def generics(self, value: Any) -> None:
+        self.parameters = value
+
+    @field_validator("parameters", mode="before")
     @classmethod
     def _validate_parameters(cls, value):
-        # Assignment validation ultimately validates only the field being assigned, even when a
-        # before-model validator returned a normalized value for that key.  Keep normalization at
-        # the field boundary as well so the stored value never depends on mutating caller input.
         return _normalize_parameters(value)
 
     @field_validator("sources", mode="before")
@@ -1124,11 +1104,17 @@ class Design(XedaBaseModel):
             if clocks is None:
                 clock = data.pop("clock", None)
                 clocks = [clock] if clock else []
+            # Keep both accepted names if both were written: `DVSettings` then reports the
+            # ambiguity instead of silently choosing one. A single `generics` spelling must be
+            # folded into `rtl` just like `parameters`; the published flat-form schema accepts
+            # both.
+            parameters = {
+                name: data.pop(name) for name in ("parameters", "generics") if name in data
+            }
             data["rtl"] = {
                 "sources": data.pop("sources", []),
                 "generator": data.pop("generator", None),
-                # `{}`, not `[]`: both are `Dict` fields.
-                "parameters": data.pop("parameters", {}),
+                **parameters,
                 "defines": data.pop("defines", {}),
                 "top": data.pop("top", None),
                 "clocks": clocks,
@@ -1252,6 +1238,9 @@ class Design(XedaBaseModel):
         design_root: Union[str, os.PathLike, None] = None,
         **data: Any,
     ) -> None:
+        # Compatibility processing, generators, and source normalization all consume or enrich
+        # nested mappings. A caller's design description is input, not workspace owned by Xeda.
+        data = deepcopy(data)
         if not design_root:
             design_root = data.pop("design_root", Path.cwd())
         if not design_root:
@@ -1464,54 +1453,56 @@ class Design(XedaBaseModel):
 
     @property
     def rtl_fingerprint(self) -> Dict[str, Any]:
+        """Location-independent inputs that can change RTL compilation or synthesis.
+
+        Source order is significant (notably for VHDL), and source metadata tells tools how to
+        compile identical bytes. The fingerprint contains no absolute location, so moving the
+        whole design does not change its identity.
+        """
         return {
-            "sources": OrderedDict(
-                sorted((str(self.relative_path(src)), src.content_hash) for src in self.rtl.sources)
-            ),
-            "parameters": OrderedDict((p, str(v)) for p, v in sorted(self.rtl.parameters.items())),
+            "sources": [self._source_fingerprint(src) for src in self.rtl.sources],
+            "parameters": dict(self.rtl.parameters),
+            "defines": dict(self.rtl.defines),
             "top": self.rtl.top,
+            "attributes": self.rtl.attributes,
+            "clocks": [clock.model_dump() for clock in self.rtl.clocks],
+            "language": self.language.model_dump(),
         }
 
     @property
     def tb_fingerprint(self) -> Dict[str, Any]:
         return {
-            "sources": OrderedDict(
-                sorted((str(self.relative_path(src)), src.content_hash) for src in self.tb.sources)
-            ),
-            "parameters": OrderedDict((p, str(v)) for p, v in sorted(self.tb.parameters.items())),
+            "sources": [self._source_fingerprint(src) for src in self.tb.sources],
+            "parameters": dict(self.tb.parameters),
+            "defines": dict(self.tb.defines),
             "top": self.tb.top,
+            "uut": self.tb.uut,
+            "cocotb": self.tb.cocotb.model_dump() if self.tb.cocotb is not None else None,
+        }
+
+    def _source_fingerprint(self, source: DesignSource) -> Dict[str, Any]:
+        return {
+            # Relative layout is semantic: HDL include lookup and generated tool scripts can
+            # distinguish `rtl/top.v` from `vendor/top.v`.  `relative_path` keeps the identity
+            # stable when the complete design directory moves.
+            "path": self.relative_path(source).as_posix(),
+            "content": source.content_hash,
+            "type": str(source.type) if source.type is not None else None,
+            "standard": source.standard,
+            "variant": source.variant,
         }
 
     @property
     def rtl_hash(self) -> str:
-        # assumptions:
-        #  - source file names/paths do not matter
-        #  - order of sources does not matter
-        #       -> alphabetically sort all file _hashes_
-        #  - order of parameters does not matter
-        # fingerprint = str(self.rtl_fingerprint)
-        # log.debug("RTL fingerprint: %s", fingerprint)
-        # return hashlib.sha3_256(bytes(fingerprint, "utf-8")).hexdigest()[:32]  # 128 bits
-
-        src_hashes = "|".join(sorted(src.content_hash for src in self.rtl.sources))
-        params = "|".join(f"{p}={v}" for p, v in sorted(self.rtl.parameters.items()))
-        defines = "|".join(f"{p}={v}" for p, v in sorted(self.rtl.defines.items()))
-        r = bytes(
-            f"sources={src_hashes},params={params},defines={defines},top={self.rtl.top}", "utf-8"
-        )
-        log.debug("RTL fingerprint: %s", r)
-        return hashlib.sha3_256(r).hexdigest()[:32]  # 128 bits
+        fingerprint = self.rtl_fingerprint
+        log.debug("RTL fingerprint: %s", fingerprint)
+        return semantic_hash(fingerprint)[:32]  # 128 bits
 
     @property
     def tb_hash(self) -> str:
-        src_hashes = "|".join(sorted(src.content_hash for src in self.tb.sources))
-        params = "|".join(f"{p}={v}" for p, v in sorted(self.tb.parameters.items()))
-        defines = "|".join(f"{p}={v}" for p, v in sorted(self.tb.defines.items()))
-        r = bytes(
-            f"sources={src_hashes},params={params},defines={defines},top={self.tb.top}", "utf-8"
-        )
-        log.debug("TB fingerprint: %s", r)
-        return hashlib.sha3_256(r).hexdigest()[:32]  # 128 bits
+        fingerprint = self.tb_fingerprint
+        log.debug("TB fingerprint: %s", fingerprint)
+        return semantic_hash(fingerprint)[:32]  # 128 bits
 
     #: Derived fields that are recomputed on load and must never be serialized.
     _NOT_SERIALIZED = {"rtl_hash", "tb_hash", "rtl_fingerprint", "tb_fingerprint"}

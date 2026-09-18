@@ -2,9 +2,10 @@
 
 ## First move: read `settings.json`
 
-Every run directory contains `settings.json` - the **effective** settings after the flow's
-defaults, the design file's `[flows.<flow>]` section and the command-line `-s` overrides have all
-been merged, plus the design as Xeda resolved it.
+Every run directory contains `settings.json`: `flow_settings`, the run's input (the flow's
+defaults, the project's and design file's `[flows.<flow>]` sections and the command-line `-s`
+overrides, merged key by key), and `effective_flow_settings`, what the flow made of it -- plus the
+design as Xeda resolved it.
 
 When a run did something unexpected, this is the difference between what you think you asked for
 and what was actually asked of the tool. `xeda run --json` reports its path.
@@ -28,10 +29,11 @@ Check for an `alias`: some settings have two accepted names (`vcd`/`waveform`,
 
 The value does not match the setting's type. `xeda list-settings <flow> --json` gives each
 field's `type` and, where the value is constrained, its `enum`. Text that spells a number is read
-as one, so `-s clock_period=5.5` is fine but `-s clock_period=fast` is not. The reverse does not
-happen: a text setting needs text in a design file (`speed = "2"`, `compile_args = ["-j", "8"]`),
-not a number, and `true`/`false` are not text. A list setting also accepts comma-separated text
-(`-s xdc_files=a.xdc,b.xdc`).
+as one, so `-s clock.period=5.5` is fine but `-s clock.period=fast` is not. The reverse does not
+happen: a text setting needs text in a design file (`compile_args = ["-j", "8"]`), not a number,
+and `true`/`false` are not text. The declared `Code` fields used for FPGA speed grades and device
+generations are the exception: `speed = -1` is accepted and stored as text. A list setting also
+accepts comma-separated text (`-s xdc_files=a.xdc,b.xdc`).
 
 ### `FlowNotFoundError`
 
@@ -67,9 +69,11 @@ directories, then correct the flow settings or adjust the search range.
 
 ### `DesignValidationError`
 
-The design file is invalid. Validate it against `xeda design-schema`. Common causes: a source file
-that does not exist (relative paths resolve against the *design file's* directory, not the working
-directory), an unknown field, or a missing `sources` list.
+The design file is invalid. `xeda design-schema` describes its structure, but deliberately leaves
+property sets open because the loader accepts dotted-key shorthands before validation; loading the
+file is the authoritative unknown-field check. Common causes are a source file that does not exist
+(relative paths resolve against the *design file's* directory, not the working directory), an
+unknown field, or a missing `sources` list.
 
 ### The flow "succeeds" but timing is not met
 

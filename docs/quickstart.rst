@@ -49,7 +49,7 @@ build it - tool choices stay out of it, except for the optional per-flow setting
 
     [flows.vivado_synth]
     fpga.part = "xc7a100tftg256-2L"
-    clock_period = 5.0
+    clock.period = 5.0
 
 Paths are resolved relative to the directory holding the design file, so the file is portable
 along with its sources. See :doc:`design-file` for the full reference.
@@ -68,7 +68,7 @@ To synthesize it for an FPGA with Vivado::
 The ``[flows.vivado_synth]`` section of the design file supplies that flow's settings. Override
 any of them on the command line with ``-s``/``--settings``, using dotted keys for nested values::
 
-    xeda run vivado_synth sqrt.toml -s clock_period=4.5 impl.strategy=Performance_ExplorePostRoutePhysOpt
+    xeda run vivado_synth sqrt.toml -s clock.period=4.5 impl.strategy=Performance_ExplorePostRoutePhysOpt
 
 Unknown settings are rejected rather than ignored, so a typo fails loudly instead of quietly
 doing nothing.
@@ -93,8 +93,8 @@ Where the output goes
 =====================
 
 Each run gets its own directory under ``./xeda_run/``, holding the generated scripts, the tool
-logs, ``reports/``, ``outputs/``, and two JSON files: ``settings.json`` (the effective settings)
-and ``results.json`` (what was parsed back out). See :doc:`run-directories`.
+logs, ``reports/``, ``outputs/``, and two JSON files: ``settings.json`` (the settings, as given and
+as used) and ``results.json`` (what was parsed back out). See :doc:`run-directories`.
 
 Explore the design space
 ========================

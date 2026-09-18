@@ -43,13 +43,16 @@ Every flow declares its own settings. They can be given in three places, in incr
 precedence:
 
 1. the flow's own defaults
-2. the design file's ``[flows.<flow_name>]`` section (or a ``xedaproject.toml``'s ``flows``
-   section)
-3. the command line, via ``-s``/``--settings``
+2. a ``xedaproject.toml``'s ``flows.<flow_name>`` section
+3. the design file's ``[flows.<flow_name>]`` section
+4. the command line, via ``-s``/``--settings``
+
+They merge key by key: ``-s yosys.flatten=true`` changes that one setting of a ``yosys`` section
+given in the design file, rather than replacing the whole section.
 
 Command-line settings take dotted keys for nested values, and several can be given at once::
 
-    xeda run vivado_synth sqrt.toml -s clock_period=4.5 synth.strategy=Flow_PerfOptimized_high
+    xeda run vivado_synth sqrt.toml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
 
 Unknown settings are a hard error, not a warning. This is deliberate: a mistyped setting that was
 silently ignored would produce a result that looks fine and is not what you asked for.

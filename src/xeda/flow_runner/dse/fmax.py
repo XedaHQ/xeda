@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 from ...dataclass import field_validator
 from ...utils import settings_to_dict, unique
 from ..dse.dse_runner import FlowOutcome, Optimizer, deep_hash, linspace
+from ..settings_layers import merge_layers
 
 log = logging.getLogger(__name__)
 
@@ -287,7 +288,7 @@ class FmaxOptimizer(Optimizer):
             choice_max = round(((vlist_len - 1) * var + random.random()) / self.num_variations)
             return random.randrange(0, min(vlist_len - 1, choice_max) + 1)
 
-        base_settings = dict(self.base_settings)
+        base_settings = self.base_settings.model_dump()
         base_settings.pop("clock_period", None)
         base_settings.pop("clock", None)
         base_settings.pop("clocks", None)
@@ -327,14 +328,12 @@ class FmaxOptimizer(Optimizer):
                         choice = rand_choice(len(v), max_var)
                         choice_indices[k] = choice
                         variations[k] = v[choice]
-                settings = base_settings
-                settings = {
-                    **settings,
-                    **settings_to_dict(
-                        variations,
-                        hierarchical_keys=True,
-                    ),
-                }
+                assert self.flow_class is not None
+                settings = merge_layers(
+                    base_settings,
+                    settings_to_dict(variations, hierarchical_keys=True),
+                    settings_cls=self.flow_class.Settings,
+                )
                 settings["clock"] = {
                     "period": clock_period,
                 }

@@ -496,11 +496,11 @@ def _run_document(
     cls=OptionEatAll,
     default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
-    Example: --settings clock_period=2.345 impl.strategy=Debug
+    Example: --settings clock.period=2.345 impl.strategy=Debug
     """,
     #  examples: # FIXME move to docs
     # - xeda vivado_sim --flow-settings stop_time=100us
-    # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock_period=2.345
+    # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock.period=2.345
 )
 @click.option("--detailed-logs/--no-detailed-logs", show_envvar=True, default=False)
 @click.option("--log-level", show_envvar=True, type=int, default=None)
@@ -633,7 +633,15 @@ def run(
         )
         assert design
         try:
-            remote_results = rl.run_remote(design, flow, host=remote, flow_settings=flow_settings)
+            remote_results = rl.run_remote(
+                design,
+                flow,
+                host=remote,
+                flow_settings=flow_settings,
+                xedaproject=xedaproject,
+                design_overrides=design_overrides,
+                design_allow_extra=design_allow_extra,
+            )
         except XedaException as e:
             log.critical("XedaException: %s", e)
             if json_flag:
@@ -803,7 +811,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     cls=OptionEatAll,
     default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
-    Example: --settings clock_period=2.345 impl.strategy=Debug
+    Example: --settings clock.period=2.345 impl.strategy=Debug
     """,
 )
 @click.option(

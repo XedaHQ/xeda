@@ -11,9 +11,9 @@ A flow failure is much easier to diagnose with the run directory's contents than
 Xeda records everything it decided there:
 
 ``settings.json``
-    The *effective* settings - after design-file values, per-flow overrides and command-line
-    ``-s`` overrides have all been merged. This answers "what did Xeda actually ask the tool to
-    do", which is usually the first question.
+    The run's input settings (``flow_settings``: defaults, design and project sections and ``-s``
+    overrides, merged) and what the flow made of them (``effective_flow_settings``). The latter
+    answers "what did Xeda actually ask the tool to do", which is usually the first question.
 
 ``results.json``
     What was parsed back out of the tool's reports.

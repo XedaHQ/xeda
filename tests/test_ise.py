@@ -40,6 +40,10 @@ def test_ise_synth_py() -> None:
         # turned "High" into ""High"" on every re-validation, including reloading this file.
         assert recorded["synthesis_options"]["Optimization Effort"] == "High"
 
+        effective = json.loads(settings_json.read_text())["effective_flow_settings"]
+        assert effective["xcf_file"] == "constraints.xcf"
+        assert effective["ucf_files"] == ["constraints.ucf"]
+
         script = (flow.run_path / "ise_synth.tcl").read_text()
         assert 'project set "Optimization Effort" "High" -process "Synthesize - XST"' in script
         assert (

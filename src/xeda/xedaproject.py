@@ -23,6 +23,7 @@ class XedaProject:
     # keep raw dict as flows are dynamically discovered
     flows: Dict[str, dict] = {}  # = attrs.field(default={}, validator=type_validator())
     design_cls: Type[Design] = Design
+    root_path: Path = attrs.field(factory=Path.cwd)
 
     @classmethod
     def from_file(
@@ -85,6 +86,7 @@ class XedaProject:
                     ],
                     flows=flows,
                     design_cls=design_cls,
+                    root_path=file.parent.resolve(),
                 )
             except Exception as e:
                 log.error("Error processing project file: %s", file.absolute())
@@ -98,12 +100,14 @@ class XedaProject:
         if name_or_idx is None:
             return self.get_design(0)
         if isinstance(name_or_idx, int):
-            return (
-                self.design_cls(**self.designs[name_or_idx])
-                if len(self.designs) > name_or_idx
-                else None
-            )
+            if len(self.designs) <= name_or_idx:
+                return None
+            data = dict(self.designs[name_or_idx])
+            data.setdefault("design_root", self.root_path)
+            return self.design_cls(**data)
         try:
-            return self.design_cls(**self.designs[self.design_names.index(name_or_idx)])
+            data = dict(self.designs[self.design_names.index(name_or_idx)])
+            data.setdefault("design_root", self.root_path)
+            return self.design_cls(**data)
         except ValueError:
             return None

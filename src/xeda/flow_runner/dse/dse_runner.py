@@ -21,12 +21,12 @@ from ...tool import NonZeroExitCode
 from ...utils import (
     Timer,
     dump_json,
-    hierarchical_merge,
     load_class,
     semantic_hash,
     settings_to_dict,
 )
 from ..default_runner import FlowLauncher, add_file_logger, get_flow_class, print_results
+from ..settings_layers import merge_layers
 
 log = logging.getLogger(__name__)
 
@@ -77,15 +77,27 @@ def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
 
 
 class Executioner:
-    def __init__(self, launcher: FlowLauncher, design: Design, flow_class):
+    def __init__(
+        self,
+        launcher: FlowLauncher,
+        design: Design,
+        flow_class,
+        all_flows_settings: Optional[Dict[str, Any]] = None,
+    ):
         self.launcher = launcher
         self.design = design
         self.flow_class = flow_class
+        self.all_flows_settings = all_flows_settings
 
     def __call__(self, args: Tuple[int, Dict[str, Any]]) -> Tuple[Optional[FlowOutcome], int]:
         idx, flow_settings = args
         try:
-            flow = self.launcher.launch_flow(self.flow_class, self.design, flow_settings)
+            flow = self.launcher.launch_flow(
+                self.flow_class,
+                self.design,
+                flow_settings,
+                all_flows_settings=self.all_flows_settings,
+            )
             return (
                 FlowOutcome(
                     settings=deepcopy(flow.settings),  # type: ignore[call-arg]
@@ -165,8 +177,10 @@ class Dse(FlowLauncher):
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
-        *args,
-        **kwargs,
+        depender: Optional[Flow] = None,
+        copy_resources: List[str] = [],
+        run_path: Optional[Path] = None,
+        all_flows_settings: Optional[Dict[str, Any]] = None,
     ):
         assert isinstance(self.settings, self.Settings)
         timer = Timer()
@@ -192,23 +206,17 @@ class Dse(FlowLauncher):
         ]
 
         successful_results: List[Dict[str, Any]] = []
-        executioner = Executioner(self, design, flow_class)
+        executioner = Executioner(self, design, flow_class, all_flows_settings)
 
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
 
         assert isclass(flow_class) and issubclass(flow_class, Flow)
-        flow_name = flow_class.name
         if flow_settings is None:
             flow_settings = {}
         if isinstance(flow_settings, Flow.Settings):
             flow_settings = flow_settings.model_dump()
         assert isinstance(flow_settings, dict)
-        design_flow_settings = design.flow.pop(flow_name, {})
-        if design_flow_settings:
-            flow_settings = hierarchical_merge(flow_settings, design_flow_settings)
-        if isinstance(flow_settings, Flow.Settings):
-            flow_settings = dict(flow_settings)
 
         if self.settings.variations is not None:
             optimizer.variations = self.settings.variations
@@ -226,9 +234,17 @@ class Dse(FlowLauncher):
             {k: v[0] for k, v in optimizer.variations.items() if v},
             hierarchical_keys=True,
         )
-        flow_settings = hierarchical_merge(flow_settings, base_variation)
+        flow_settings = merge_layers(
+            flow_settings,
+            base_variation,
+            settings_cls=flow_class.Settings,
+        )
 
-        base_settings = flow_class.Settings(**flow_settings)
+        base_settings = flow_class.Settings.from_input(
+            flow_settings,
+            design_root=design.root_path,
+            runner_cwd=Path.cwd(),
+        )
         base_settings.redirect_stdout = True
         base_settings.print_commands = False
 

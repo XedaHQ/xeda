@@ -31,7 +31,7 @@ xeda list-settings vivado_synth --json
 xeda list-results vivado_synth --json
 
 # 4. Run it, and read the result in the same pipe
-xeda run vivado_synth sqrt.toml -s clock_period=5.0 --json
+xeda run vivado_synth sqrt.toml -s clock.period=5.0 --json
 ```
 
 `xeda run --json` emits one object: `success`, `results`, `run_path`, `results_json`,
@@ -54,7 +54,7 @@ language.vhdl.standard = "2008"    # or language.verilog.standard
 sources = ["pkg.vhdl", "sqrt.vhdl"]   # required, IN COMPILATION ORDER
 top = "sqrt"                          # required by synthesis flows
 clock_port = "clk"                    # names the clock PORT, not its period
-parameters = { G_IN_WIDTH = 32 }      # or `generics`; the two are interchangeable
+parameters = { G_IN_WIDTH = 32 }      # or `generics`; use one spelling, not both
 
 [tb]
 sources = ["tb_sqrt.py"]              # a .py source is detected as cocotb automatically
@@ -62,7 +62,7 @@ top = "tb_sqrt"                       # required by simulation flows for non-coc
 
 [flows.vivado_synth]                  # per-flow settings, applied only for that flow
 fpga.part = "xc7a100tftg256-2L"
-clock_period = 5.0
+clock.period = 5.0
 ```
 
 Key points that are easy to get wrong:
@@ -71,8 +71,9 @@ Key points that are easy to get wrong:
 - **`sources` order is compilation order.** VHDL packages must precede their users.
 - **Clocks split in two.** `[rtl]` names the clock *port*; the *period or frequency* is a flow
   setting, because it constrains a particular build. Single clock: `clock_port = "clk"` in `[rtl]`
-  plus `clock_period` (ns) per flow. Multiple: `[[rtl.clocks]]` entries plus a `clocks` mapping in
-  the flow settings.
+  plus `clock.period` (ns) or `clock.freq` per flow. The legacy `clock_period` spelling is accepted
+  as compatibility input, but do not combine it with `clock` or `clocks`. Multiple: `[[rtl.clocks]]`
+  entries plus a `clocks` mapping in the flow settings.
 - Give a source a table instead of a string when inference is not enough:
   `{ file = "legacy.v", type = "SystemVerilog" }`. Use `path =` instead of `file =` for a source a
   generator will produce (it is not checked for existence).
@@ -81,12 +82,13 @@ See `references/design-file.md` for the full reference.
 
 ## Settings
 
-Precedence, lowest to highest: flow defaults -> the design file's `[flows.<flow>]` section ->
-command-line `-s`.
+Precedence, lowest to highest: flow defaults -> `xedaproject.toml`'s `flows.<flow>` -> the
+design file's `[flows.<flow>]` section -> command-line `-s`. Layers merge key by key, so
+`-s yosys.flatten=true` refines a nested section instead of replacing it.
 
 ```bash
 # dotted keys reach nested settings; several can be given at once
-xeda run vivado_synth sqrt.toml -s clock_period=4.5 synth.strategy=Flow_PerfOptimized_high
+xeda run vivado_synth sqrt.toml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
 ```
 
 Every flow also accepts `ncpus` (alias `nthreads`), `dockerized`/`docker`, `clean`,
@@ -142,8 +144,9 @@ Keys beginning with `_` are internal and may change.
 Default `./xeda_run/<design>/<flow>/`, holding the generated tool scripts, the tool logs,
 `reports/`, `outputs/`, `checkpoints/`, plus:
 
-- `settings.json` - the **effective** settings after every override was merged. Read this first
-  when a run did something unexpected.
+- `settings.json` - `flow_settings`, the run's input (every layer merged; re-runnable), and
+  `effective_flow_settings`, what the flow made of it. Read the latter first when a run did
+  something unexpected.
 - `results.json` - what was parsed back out.
 
 `xeda run --json` reports all three paths, so there is no need to guess.
@@ -183,7 +186,7 @@ from xeda import Design, DefaultRunner
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
 design = Design.from_file("sqrt.toml")
-flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock_period=5.0"])
+flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5.0"])
 if flow and flow.results.success:
     print(flow.results.Fmax)
 ```

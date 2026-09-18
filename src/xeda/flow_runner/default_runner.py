@@ -29,6 +29,7 @@ from ..console import console
 from ..dataclass import XedaBaseModel
 from ..design import AnyDesignValidationException, Design, DesignFileParseError
 from ..flow import Flow, FlowDependencyFailure, registered_flows
+from ..flow import flowrun_hash as flow_run_hash
 from ..tool import NonZeroExitCode
 from ..utils import (
     WorkingDirectory,
@@ -41,6 +42,7 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import XedaProject
+from .settings_layers import merge_flow_sections, merge_layers
 
 __all__ = [
     "DefaultRunner",
@@ -177,6 +179,14 @@ def get_flow_class(
     return flow_class
 
 
+def _get_flow_class_if_known(flow_name: str) -> Type[Flow] | None:
+    """Resolve a flow-section key without rejecting sections for unavailable plugin flows."""
+    try:
+        return get_flow_class(flow_name)
+    except FlowNotFoundError:
+        return None
+
+
 def on_rm_error(func, path, exc_info):
     log.error("Error while removing %s: %s, %s", path, func, exc_info)
 
@@ -227,6 +237,39 @@ def scrub_runs(flow_name: str, dir: Path, exclude: List[Path] = []) -> bool:
 
 
 FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
+
+
+def dependency_settings(
+    dep_cls: type[Flow],
+    given: Flow.Settings | None,
+    depender_settings: Flow.Settings,
+    all_flows_settings: Mapping[str, Any] | None = None,
+) -> Flow.Settings:
+    """The settings a dependency is launched with -- composed here, and only here.
+
+    `given` is what the depending flow passed to `add_dependency` (for a declared dependency,
+    already `resolve_dependency`-d). Layers, lowest precedence first:
+
+    1. the design's / project's own section for the dependency's flow (``[flows.yosys_fpga]``),
+       merged deeply like any settings layer (`settings_layers.merge_layers`);
+    2. `given`, which is more specific.
+
+    The depending flow's diagnostics then carry over: `debug` if it is on, and a `verbose` level
+    above 1 when the dependency has none of its own.
+    """
+    section = (all_flows_settings or {}).get(dep_cls.name)
+    if section or given is None or not given.context:
+        own = given.model_dump(exclude_unset=True) if given is not None else {}
+        settings = dep_cls.Settings.from_input(
+            merge_layers(section, own, settings_cls=dep_cls.Settings),
+            **depender_settings.context,
+        )
+    else:
+        settings = given
+    settings.debug |= depender_settings.debug
+    if not settings.verbose and depender_settings.verbose > 1:
+        settings.verbose = depender_settings.verbose
+    return settings
 
 
 class FlowLauncher:
@@ -308,121 +351,49 @@ class FlowLauncher:
         run_path: Optional[Path] = None,
         all_flows_settings: Union[Dict, None] = None,
     ) -> Flow:
-        """
-        Low-level interface for launching flows.
+        """Launch `flow_class` on `design`: the one procedure every flow run, and every
+        dependency run, goes through. Its stages, in order:
+
+        1. **input** (`_input_settings`): validate the settings in their context (design root,
+           start directory) and apply the launcher's ``--debug``. The result is the run's input,
+           never modified afterwards.
+        2. **identity** (`_run_identity`): the design's hash (its sources' contents) and the
+           settings' `flowrun_hash`, which also name the run directory.
+        3. **reuse** (`_previous_results`): with ``--cached-dependencies``, a successful previous
+           run with the same identity is reused instead of repeated.
+        4. **prepare**: construct the flow with its own copy of the input and call its `init()`,
+           which may do setup work and registers the flow's dependencies; record `settings.json`.
+        5. **dependencies** (`_run_dependencies`): launch each through this same procedure, with
+           settings composed by `dependency_settings`.
+        6. **run** (`_execute`): `run()`, `parse_reports()`, results.
+        7. **report** (`_report`): artifacts, `results.json`, clean-up.
         """
         self.debug |= self.settings.debug
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
         flow_name = flow_class.name
-        if flow_settings is None:
-            flow_settings = {}
         runner_cwd = Path.cwd()
-        if isinstance(flow_settings, dict):
-            flow_settings["runner_cwd_"] = runner_cwd
-            flow_settings = flow_class.Settings(**flow_settings)
-        elif isinstance(flow_settings, Flow.Settings):
-            flow_settings.runner_cwd_ = runner_cwd
-        assert isinstance(flow_settings, Flow.Settings)
-        if self.debug:
-            log.debug(
-                "Flow '%s' settings: %s",
-                flow_name,
-                flow_settings.model_dump_json(exclude_unset=True, indent=2),
-            )
-        if self.debug:
-            flow_settings.debug = True
-
+        input_settings = self._input_settings(flow_class, flow_settings, design, runner_cwd)
         copy_resources = [
             res for res in copy_resources if os.path.exists(res) and os.path.isfile(res)
         ]
-
-        # GOTCHA: design contains tb settings even for simulation flows
-        # OTOH removing tb from hash for sim flows creates a mismatch for different flows of the same design
-        design_hash = semantic_hash(
-            dict(
-                rtl_hash=design.rtl_hash,
-                tb_hash=design.tb_hash,
-            )
+        design_hash, flowrun_hash, run_path = self._run_identity(
+            flow_name, design, input_settings, run_path
         )
-        flowrun_hash = semantic_hash(
-            dict(
-                flow_name=flow_name,
-                flow_settings=flow_settings,
-                # copied_resources=[FileResource(res) for res in copy_resources],
-                # xeda_version=__version__,
-            ),
-        )
-        if run_path is None:
-            run_path = self.get_flow_run_path(
-                design.name,
-                flow_name,
-                design_hash,
-                flowrun_hash,
-            )
-        else:
-            self.settings.incremental = True
-            self.settings.scrub_old_runs = False
-            self.settings.post_cleanup_purge = False
-            self.settings.post_cleanup = False
-
         settings_json = run_path / "settings.json"
         results_json = run_path / "results.json"
-
-        previous_results = None
-        if (
-            (depender or self.settings.skip_if_previous_run_exists)
-            and self.settings.cached_dependencies
-            and run_path.exists()
-            and settings_json.exists()
-            and results_json.exists()
-        ):
-            prev_results, prev_settings = None, None
-            try:
-                with open(settings_json) as f:
-                    prev_settings = json.load(f)
-                with open(results_json) as f:
-                    prev_results = json.load(f)
-            except TypeError:
-                pass
-            except ValueError:
-                pass
-            if prev_results and prev_results.get("success") and prev_settings:
-                if (
-                    prev_settings.get("flow_name") == flow_name
-                    and prev_settings.get("design_hash") == design_hash
-                    and prev_settings.get("flowrun_hash") == flowrun_hash
-                ):
-                    previous_results = Box(prev_results)
-                else:
-                    log.warning(
-                        "%s does not contain the expected flow and/or design hash.",
-                        str(settings_json.absolute()),
-                    )
-            else:
-                log.warning(
-                    "No valid previous results found in %s. Running %s from scratch.",
-                    run_path,
-                    flow_name,
-                )
-        if self.settings.scrub_old_runs:
-            scrub_runs(flow_name, run_path.parent, [run_path])
-        if not previous_results and run_path.exists():
-            if not self.settings.incremental and self.settings.run_path is None:
-                if self.settings.backups:
-                    backup_existing(run_path)
-                else:
-                    rmtree(run_path)
-        if not run_path.exists():
-            run_path.mkdir(parents=True)
+        previous_results = self._previous_results(
+            flow_name, run_path, design_hash, flowrun_hash, depender
+        )
+        self._prepare_run_path(flow_name, run_path, previous_results)
 
         with WorkingDirectory(run_path):
             log.debug("Instantiating flow from %s", flow_class)
-            flow = flow_class(flow_settings, design, run_path, runner_cwd=runner_cwd)
-
+            flow = flow_class(
+                input_settings.model_copy(deep=True), design, run_path, runner_cwd=runner_cwd
+            )
         flow.design_hash = design_hash
         flow.flow_hash = flowrun_hash
-
         flow.incremental = self.settings.incremental
         if flow.runner_cwd is None:  # redundant, but OK
             flow.runner_cwd = runner_cwd
@@ -446,125 +417,248 @@ class FlowLauncher:
                 if flow.settings.clean:
                     flow.clean()
                 flow.init()
-
             if self.settings.dump_settings_json:
-                log.info("writing effective settings to %s", settings_json)
+                log.info("writing prepared settings to %s", settings_json)
                 all_settings = dict(
                     design=design,
                     design_hash=design_hash,
                     rtl_fingerprint=design.rtl_fingerprint,
                     rtl_hash=design.rtl_hash,
                     flow_name=flow_name,
-                    flow_settings=flow_settings,
+                    flow_settings=input_settings,
+                    effective_flow_settings=flow.settings,
                     xeda_version=__version__,
                     flowrun_hash=flowrun_hash,
                 )
                 dump_json(all_settings, settings_json, backup=self.settings.backups)
-
             copied_res_dir = run_path / flow_class.copied_resources_dir
             if copy_resources:
                 copied_res_dir.mkdir(parents=True, exist_ok=True)
             for res in copy_resources:
                 log.info("Copying %s to %s", str(res), str(copied_res_dir))
                 shutil.copy(res, copied_res_dir)
-            for dep_cls, dep_settings, dep_resources in flow.dependencies:
-                # NOTE this allows dependency flow to make changes to 'design'
-                # merge with existing self.flows[dep].settings
-                dep_cls_name = dep_cls if isinstance(dep_cls, str) else dep_cls.name
-                if isinstance(dep_cls, str):
-                    dep_cls = get_flow_class(dep_cls)
-                if all_flows_settings and dep_cls_name in all_flows_settings:
-                    meta_dep_settings = dep_cls.Settings(**all_flows_settings[dep_cls_name])
-                    md = meta_dep_settings.model_dump(
-                        exclude_defaults=True, exclude_unset=True
-                    )  # post validation
-                    if dep_settings is None:
-                        dep_settings = meta_dep_settings
-                    dsd = dep_settings.model_dump(exclude_defaults=True, exclude_unset=True)
-                    for field_name, field_info in type(dep_settings).model_fields.items():
-                        # if field is not already overriden in the dependent flow settings (dep_settings) and exists in the top level (meta_dep_settings)
-                        if (
-                            field_name in md
-                            and field_name not in dsd
-                            and field_name in type(meta_dep_settings).model_fields
-                        ):
-                            meta_val = md[field_name]
-                            if field_info.default != meta_val:
-                                log.warning(
-                                    "Updating dependent flow %s '%s' unset setting with the value '%s' from the top level 'flows' settings",
-                                    dep_cls_name,
-                                    field_name,
-                                    meta_val,
-                                )
-                                setattr(dep_settings, field_name, meta_val)
-                log.info(
-                    "Running dependency: %s (%s.%s)",
-                    dep_cls.name,
-                    dep_cls.__module__,
-                    dep_cls.__qualname__,
+            self._run_dependencies(flow, design, run_path, all_flows_settings)
+            self._execute(flow, run_path, input_settings)
+            if self.settings.dump_settings_json:
+                # `run()` may finish resolving generated files or derived switches. Keep the
+                # pre-run write above so a crash still leaves useful diagnostics, then replace
+                # its effective snapshot after a completed execution without backing up that
+                # transient snapshot.
+                dump_json(all_settings, settings_json, backup=False)
+
+        self._report(flow, design, settings_json, results_json)
+        return flow
+
+    def _input_settings(
+        self,
+        flow_class: type[Flow],
+        flow_settings: dict[str, Any] | Flow.Settings | None,
+        design: Design,
+        runner_cwd: Path,
+    ) -> Flow.Settings:
+        """Stage 1: the run's input settings, validated in context and owned by the launcher.
+
+        Never modified afterwards: the flow works on a copy of its own (`flow.settings`), which
+        its `__init__`/`init()`/`run()` may complete with derived values, resolved paths and
+        outputs without any of that leaking into the run's identity.
+        """
+        if flow_settings is None:
+            flow_settings = {}
+        if isinstance(flow_settings, dict):
+            settings = flow_class.Settings.from_input(
+                flow_settings, design_root=design.root_path, runner_cwd=runner_cwd
+            )
+        elif not flow_settings.context:
+            settings = flow_class.Settings.from_input(
+                # Preserve edits made inside default-created nested dependency settings. The
+                # parent field is not marked "set" when only its child is assigned, so
+                # `exclude_unset=True` would silently discard that caller input here.
+                flow_settings.model_dump(),
+                design_root=design.root_path,
+                runner_cwd=runner_cwd,
+            )
+        else:
+            settings = flow_settings.model_copy(deep=True)
+        if self.debug:
+            log.debug(
+                "Flow '%s' settings: %s",
+                flow_class.name,
+                settings.model_dump_json(exclude_unset=True, indent=2),
+            )
+            settings.debug = True  # the launcher's `--debug` is part of the input
+        return settings
+
+    def _run_identity(
+        self, flow_name: str, design: Design, settings: Flow.Settings, run_path: Path | None
+    ) -> tuple[str, str, Path]:
+        """Stage 2: `(design_hash, flowrun_hash, run_path)`."""
+        # GOTCHA: design contains tb settings even for simulation flows
+        # OTOH removing tb from hash for sim flows creates a mismatch for different flows of the same design
+        design_hash = semantic_hash(
+            dict(
+                rtl_hash=design.rtl_hash,
+                tb_hash=design.tb_hash,
+            )
+        )
+        flowrun_hash = flow_run_hash(flow_name, settings)
+        if run_path is None:
+            run_path = self.get_flow_run_path(
+                design.name,
+                flow_name,
+                design_hash,
+                flowrun_hash,
+            )
+        else:
+            self.settings.incremental = True
+            self.settings.scrub_old_runs = False
+            self.settings.post_cleanup_purge = False
+            self.settings.post_cleanup = False
+        return design_hash, flowrun_hash, run_path
+
+    def _previous_results(
+        self,
+        flow_name: str,
+        run_path: Path,
+        design_hash: str,
+        flowrun_hash: str,
+        depender: Flow | None,
+    ) -> Box | None:
+        """Stage 3: the results of a successful previous run with the same identity, if any is to
+        be reused."""
+        settings_json = run_path / "settings.json"
+        results_json = run_path / "results.json"
+        if not (
+            (depender or self.settings.skip_if_previous_run_exists)
+            and self.settings.cached_dependencies
+            and run_path.exists()
+            and settings_json.exists()
+            and results_json.exists()
+        ):
+            return None
+        prev_results, prev_settings = None, None
+        try:
+            with open(settings_json) as f:
+                prev_settings = json.load(f)
+            with open(results_json) as f:
+                prev_results = json.load(f)
+        except TypeError:
+            pass
+        except ValueError:
+            pass
+        if prev_results and prev_results.get("success") and prev_settings:
+            if (
+                prev_settings.get("flow_name") == flow_name
+                and prev_settings.get("design_hash") == design_hash
+                and prev_settings.get("flowrun_hash") == flowrun_hash
+            ):
+                return Box(prev_results)
+            log.warning(
+                "%s does not contain the expected flow and/or design hash.",
+                str(settings_json.absolute()),
+            )
+        else:
+            log.warning(
+                "No valid previous results found in %s. Running %s from scratch.",
+                run_path,
+                flow_name,
+            )
+        return None
+
+    def _prepare_run_path(
+        self, flow_name: str, run_path: Path, previous_results: Box | None
+    ) -> None:
+        if self.settings.scrub_old_runs:
+            scrub_runs(flow_name, run_path.parent, [run_path])
+        if not previous_results and run_path.exists():
+            if not self.settings.incremental and self.settings.run_path is None:
+                if self.settings.backups:
+                    backup_existing(run_path)
+                else:
+                    rmtree(run_path)
+        if not run_path.exists():
+            run_path.mkdir(parents=True)
+
+    def _run_dependencies(
+        self,
+        flow: Flow,
+        design: Design,
+        run_path: Path,
+        all_flows_settings: Dict | None,
+    ) -> None:
+        """Stage 5: launch every dependency `flow.init()` registered, through `launch_flow`."""
+        for dep_cls, dep_settings, dep_resources in flow.dependencies:
+            if isinstance(dep_cls, str):
+                dep_cls = get_flow_class(dep_cls)
+            dep_settings = dependency_settings(
+                dep_cls, dep_settings, flow.settings, all_flows_settings
+            )
+            log.info(
+                "Running dependency: %s (%s.%s)",
+                dep_cls.name,
+                dep_cls.__module__,
+                dep_cls.__qualname__,
+            )
+            resources: list[str] = []
+            for res in dep_resources:
+                if not os.path.isabs(res):
+                    res_path = os.path.join(flow.run_path.absolute(), res)
+                    resources += glob(res_path)
+            completed_dep = self.launch_flow(
+                dep_cls,
+                design,
+                dep_settings,
+                depender=flow,
+                copy_resources=resources,
+                run_path=run_path / dep_cls.name if run_path else None,
+                all_flows_settings=all_flows_settings,
+            )
+            if not completed_dep.succeeded:
+                log.critical("Dependency flow: %s failed!", dep_cls.name)
+                raise FlowDependencyFailure()
+            flow.completed_dependencies.append(completed_dep)
+
+    def _execute(self, flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
+        """Stage 6: `run()`, `parse_reports()`, and the run's results."""
+        flow.results["design"] = flow.design.name
+        flow.results["design_hash"] = flow.design_hash
+        flow.results["flow"] = flow.name
+        flow.results["flow_hash"] = flow.flow_hash
+        flow.results["run_path"] = run_path.absolute()
+
+        success = True
+
+        with WorkingDirectory(run_path):
+            if flow.settings.reports_dir:
+                flow.settings.reports_dir.mkdir(exist_ok=True, parents=True)
+            try:
+                flow.run()
+            except NonZeroExitCode as e:
+                log.error(
+                    "Execution of '%s' returned %d",
+                    (
+                        " ".join(e.command_args)
+                        if isinstance(e.command_args, (list, tuple))
+                        else e.command_args
+                    ),
+                    e.exit_code,
                 )
-                resources: List[str] = []
-                if dep_settings is None:
-                    dep_settings = dep_cls.Settings()
-                dep_settings.debug |= flow.settings.debug
-                if not dep_settings.verbose and flow.settings.verbose > 1:
-                    dep_settings.verbose = flow.settings.verbose
-                for res in dep_resources:
-                    if not os.path.isabs(res):
-                        res_path = os.path.join(flow.run_path.absolute(), res)
-                        resources += glob(res_path)
-                completed_dep = self.launch_flow(
-                    dep_cls,
-                    design,
-                    dep_settings,
-                    depender=flow,
-                    copy_resources=resources,
-                    run_path=run_path / dep_cls.name if run_path else None,
-                    all_flows_settings=all_flows_settings,
-                )
-                if not completed_dep.succeeded:
-                    log.critical("Dependency flow: %s failed!", dep_cls.name)
-                    raise FlowDependencyFailure()
-                flow.completed_dependencies.append(completed_dep)
+                success = False
+            if flow.init_time is not None:
+                flow.results.runtime = time.monotonic() - flow.init_time
+            try:
+                success &= flow.parse_reports()
+            except Exception as e:  # pylint: disable=broad-except
+                log.critical("parse_reports threw an exception: %s", e)
+                if success:  # if so far so good this is a bug!
+                    raise e
+            flow.add_canonical_result_aliases()
+            if not success and not input_settings.quiet:
+                log.debug("Failure was reported in the parsed results.")
+            flow.results.success = success
+            flow.results.timestamp = flow.timestamp
 
-            flow.results["design"] = flow.design.name
-            flow.results["design_hash"] = flow.design_hash
-            flow.results["flow"] = flow.name
-            flow.results["flow_hash"] = flow.flow_hash
-            flow.results["run_path"] = run_path.absolute()
-
-            success = True
-
-            with WorkingDirectory(run_path):
-                if flow.settings.reports_dir:
-                    flow.settings.reports_dir.mkdir(exist_ok=True, parents=True)
-                try:
-                    flow.run()
-                except NonZeroExitCode as e:
-                    log.error(
-                        "Execution of '%s' returned %d",
-                        (
-                            " ".join(e.command_args)
-                            if isinstance(e.command_args, (list, tuple))
-                            else e.command_args
-                        ),
-                        e.exit_code,
-                    )
-                    success = False
-                if flow.init_time is not None:
-                    flow.results.runtime = time.monotonic() - flow.init_time
-                try:
-                    success &= flow.parse_reports()
-                except Exception as e:  # pylint: disable=broad-except
-                    log.critical("parse_reports threw an exception: %s", e)
-                    if success:  # if so far so good this is a bug!
-                        raise e
-                flow.add_canonical_result_aliases()
-                if not success and not flow_settings.quiet:
-                    log.debug("Failure was reported in the parsed results.")
-                flow.results.success = success
-                flow.results.timestamp = flow.timestamp
-
+    def _report(self, flow: Flow, design: Design, settings_json: Path, results_json: Path) -> None:
+        """Stage 7: show and record the results; clean up the run directory as configured."""
         for k, v in flow.artifacts.items():
             if not flow.results.artifacts.get(k):
                 flow.results.artifacts[k] = v
@@ -636,7 +730,6 @@ class FlowLauncher:
                         os.remove(p)
                     elif os.path.isdir(p):
                         rmtree(p)
-        return flow
 
     def run_flow(
         self,
@@ -664,7 +757,7 @@ class FlowLauncher:
         flow: Union[Type[Flow], str],
         design: Union[str, Path, Design, Dict[str, Any], None] = None,
         xedaproject: Optional[str] = None,
-        flow_settings: Union[  # FIXME: this should only set defaults if not available in design/project
+        flow_settings: Union[  # the command line's `-s`: overrides the design and project
             List[str],
             Tuple[str, ...],
             Mapping[str, Any],
@@ -702,7 +795,7 @@ class FlowLauncher:
                 design_not_in_project = True
             else:
                 p = Path(design)
-                if p.suffix in [".toml", ".json"] and p.exists():
+                if p.suffix.lower() in {".toml", ".json", ".yaml", ".yml"} and p.exists():
                     design_not_in_project = True
                     design = p
         if Path(xedaproject).exists():
@@ -741,13 +834,10 @@ class FlowLauncher:
                     return None
 
             elif isinstance(design, dict):
+                design = dict(design)
                 if "design_root" not in design:
                     design["design_root"] = Path.cwd()
                 design = Design(**design)
-            flows_settings = {
-                **flows_settings,
-                **design.flow,
-            }
         else:
             if not xeda_project:
                 log.critical(
@@ -791,7 +881,7 @@ class FlowLauncher:
             flow_settings = flow_settings.model_dump()
         else:
             assert isinstance(
-                flow_settings, (list, tuple, dict)
+                flow_settings, (list, tuple, Mapping)
             ), "flow_settings should be a list, tuple or dict"
             flow_settings = settings_to_dict(flow_settings)
         if not isinstance(flow_overrides, dict):
@@ -804,26 +894,35 @@ class FlowLauncher:
         ), f"flow_overrides should be a dict at this stage, but was {type(flow_overrides)}"
         if isinstance(flow, str):
             flow = flow.replace("-", "_")
-            flow_name = flow
             flow_class = get_flow_class(flow)
+            flow_name = flow_class.name
         else:
             flow_name = flow.name
             flow_class = flow
 
-        final_flow_settings = flows_settings.get(flow_name, {})
-        if not isinstance(final_flow_settings, dict):
-            final_flow_settings = settings_to_dict(final_flow_settings)
-        if flow_settings:
-            final_flow_settings.update(flow_settings)
-        if flow_overrides:
-            log.debug("flow_overrides: %s", flow_overrides)
-            final_flow_settings.update(flow_overrides)
         if not design or not flow_class:
             log.critical("Failed to parse design and/or flow")
             raise ValueError(f"design={design} flow_class={flow_class}")
         assert isinstance(
             design, Design
         ), f"BUG: design should be of type Design but was {type(design)}"
+
+        # Canonicalize flow-section aliases and merge an embedded/project-selected design's own
+        # settings too. Previously only an explicitly supplied design file reached this merge;
+        # `[design.flows.*]` inside xedaproject.toml was silently ignored.
+        flows_settings = merge_flow_sections(
+            flows_settings,
+            design.flow,
+            flow_class_for=_get_flow_class_if_known,
+        )
+
+        # `-s` wins over the design and project files, as documented; see `settings_layers`.
+        final_flow_settings = merge_layers(
+            flows_settings.get(flow_name),
+            flow_settings,
+            flow_overrides,
+            settings_cls=flow_class.Settings,
+        )
         if self.settings.debug:
             log.info("design: %s" % PrettyPrinter().pformat(design.model_dump()))
         run_path = self.settings.run_path

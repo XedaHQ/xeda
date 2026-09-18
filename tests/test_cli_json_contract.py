@@ -183,7 +183,19 @@ from xeda.flow_runner import remote
 
 class FakeRunner:
     def __init__(self, *a, **k): pass
-    def run_remote(self, *a, **k):
+    def run_remote(
+        self,
+        design,
+        flow,
+        host,
+        flow_settings,
+        xedaproject,
+        design_overrides,
+        design_allow_extra,
+    ):
+        assert xedaproject is None
+        assert design_overrides == ()
+        assert design_allow_extra is False
         return {"success": %s, "run_path": "/tmp/remote-run"}
 
 remote.RemoteRunner = FakeRunner

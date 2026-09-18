@@ -39,7 +39,7 @@ What is in it
 .. code-block:: text
 
     xeda_run/sqrt/vivado_synth/
-      settings.json          effective settings, after every override was merged
+      settings.json          the run's input settings, and what the flow made of them
       results.json           what was parsed back out of the reports
       vivado_synth.tcl       generated tool script
       clock.xdc              generated constraints
@@ -51,13 +51,23 @@ What is in it
 ``settings.json``
 -----------------
 
-The *effective* settings: the flow's defaults, the design file's ``[flows.<flow>]`` section and the
-command-line ``-s`` overrides, all merged, plus the design as Xeda resolved it. When a run does
-something you did not expect, this is the file to read first - it is the difference between what
-you think you asked for and what was actually asked of the tool.
+``flow_settings`` holds the run's *input*: the flow's defaults, the project's and design file's
+``[flows.<flow>]`` sections and the command-line ``-s`` overrides, merged key by key. It is exactly
+what the run is identified by, so it can be fed back to reproduce the run.
+``effective_flow_settings`` holds what the flow made of them while preparing and executing the run
+(resolved paths, derived options and generated outputs) -- the difference between what you asked
+for and what was asked of the tool, and the first thing to read when a run did something you did
+not expect. It also records the design as Xeda resolved it.
 
-It also records ``design_hash``, ``flowrun_hash`` and ``xeda_version``, which is what dependency
-caching compares against.
+It records ``design_hash``, ``flowrun_hash`` and ``xeda_version`` too. Dependency caching compares
+the two hashes; the version is diagnostic metadata and is not part of run identity. Both hashes
+depend on what the inputs mean, not on where anything is: the design hash covers each source's
+relative path/layout, ordered source contents and compilation metadata, plus behavior-affecting
+RTL/testbench metadata, and ``flowrun_hash`` covers settings, with a path counted as its text
+relative to the design (``$DESIGN_ROOT/c.xdc``). Moving a design together with its source layout
+keeps those relative paths and therefore keeps the hashes; starting Xeda from another directory
+does too. No file or directory a setting names is ever read, so a constraint file whose content
+should decide reuse belongs among the design's sources.
 
 ``results.json``
 ----------------
