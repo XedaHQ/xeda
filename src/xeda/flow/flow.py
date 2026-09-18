@@ -9,7 +9,8 @@ import shutil
 from abc import ABCMeta, abstractmethod
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from types import UnionType
+from typing import Annotated, Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
 
 # from attrs import define
 import jinja2
@@ -20,7 +21,6 @@ from ..dataclass import (
     Field,
     ValidationError,
     XedaBaseModel,
-    annotation_accepts,
     annotation_is_list,
     field_annotation,
     field_validator,
@@ -53,6 +53,109 @@ __all__ = [
 registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
+
+
+def _is_path_annotation(annotation: Any) -> bool:
+    """Whether one annotation leaf represents a filesystem path."""
+    return annotation in (Path, os.PathLike) or get_origin(annotation) is os.PathLike
+
+
+def _annotation_contains_path(annotation: Any) -> bool:
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        return _annotation_contains_path(get_args(annotation)[0])
+    if _is_path_annotation(annotation):
+        return True
+    return any(_annotation_contains_path(arg) for arg in get_args(annotation))
+
+
+def _annotation_matches_value(annotation: Any, value: Any) -> bool:
+    """Best-effort matching used to select a container branch of a Union before validation."""
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin is Annotated:
+        return _annotation_matches_value(args[0], value)
+    if origin in (Union, UnionType):
+        return any(_annotation_matches_value(arg, value) for arg in args)
+    if annotation is Any:
+        return True
+    if annotation is type(None):
+        return value is None
+    if _is_path_annotation(annotation):
+        return isinstance(value, (str, os.PathLike))
+    if origin is list:
+        return isinstance(value, list)
+    if origin in (set, frozenset):
+        return isinstance(value, (list, set, frozenset))
+    if origin is tuple:
+        if not isinstance(value, (list, tuple)):
+            return False
+        if not args:
+            return True
+        if len(args) == 2 and args[1] is Ellipsis:
+            return all(_annotation_matches_value(args[0], item) for item in value)
+        return len(value) == len(args) and all(
+            _annotation_matches_value(item_annotation, item)
+            for item_annotation, item in zip(args, value)
+        )
+    if origin is dict:
+        return isinstance(value, dict)
+    try:
+        return isinstance(value, annotation)
+    except TypeError:
+        return False
+
+
+def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) -> Any:
+    """Expand variables only at path-typed leaves, including nested containers.
+
+    A container must be traversed according to its annotation rather than by value alone: in
+    ``lib_paths``, for example, the first tuple member is a library name while only the second is
+    a path. Treating every string as a path would corrupt names containing ``$``.
+    """
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin is Annotated:
+        return _expand_path_values(value, args[0], overrides)
+    if _is_path_annotation(annotation):
+        if isinstance(value, (str, os.PathLike)) and "$" in str(value):
+            return expand_env_vars(Path(value), overrides)
+        return value
+    if origin in (Union, UnionType):
+        # A raw string matches both branches of `str | Path`; the presence of the Path branch is
+        # what makes this a path-valued setting.
+        if isinstance(value, (str, os.PathLike)):
+            for choice in args:
+                if _is_path_annotation(choice):
+                    return _expand_path_values(value, choice, overrides)
+        for choice in args:
+            if _annotation_contains_path(choice) and _annotation_matches_value(choice, value):
+                return _expand_path_values(value, choice, overrides)
+        return value
+    if origin in (list, set, frozenset) and isinstance(value, (list, set, frozenset)):
+        item_annotation = args[0] if args else Any
+        mapped = [_expand_path_values(item, item_annotation, overrides) for item in value]
+        return type(value)(mapped)
+    if origin is tuple and isinstance(value, (list, tuple)):
+        if len(args) == 2 and args[1] is Ellipsis:
+            mapped = [_expand_path_values(item, args[0], overrides) for item in value]
+        else:
+            mapped = [
+                _expand_path_values(item, args[index] if index < len(args) else Any, overrides)
+                for index, item in enumerate(value)
+            ]
+        # Not `type(value)(mapped)`: a namedtuple's constructor takes its fields positionally.
+        # Validation yields a plain tuple for a `Tuple[...]` field either way.
+        return tuple(mapped) if isinstance(value, tuple) else mapped
+    if origin is dict and isinstance(value, dict):
+        key_annotation, value_annotation = args if len(args) == 2 else (Any, Any)
+        return {
+            _expand_path_values(key, key_annotation, overrides): _expand_path_values(
+                item, value_annotation, overrides
+            )
+            for key, item in value.items()
+        }
+    return value
 
 
 #: Descriptions of result keys that several flows report with the same meaning. A flow declares
@@ -232,27 +335,21 @@ class Flow(metaclass=ABCMeta):
                     return value
                 values = info.data if isinstance(info.data, dict) else {}
                 if annotation_is_list(annotation) and isinstance(value, str):
-                    return value.split(",")
-                # `"$" in ...` mirrors `expand_vars`'s own early-out. Without it every default
-                # Path of every settings model would pay for a full `os.environ` copy, because
-                # `validate_default=True` (restoring v1's `always=True`) now runs this on
-                # defaults, which the v1 `always=False` wildcard never saw.
-                if (
-                    annotation_accepts(annotation, Path)
-                    and isinstance(value, (str, Path))
-                    and "$" in str(value)
-                ):
-                    log.debug("field: %s, value: %s anno: %s", info.field_name, value, annotation)
-                    return expand_env_vars(
-                        value,
-                        # fmt: off
-                        {
-                            "PWD": values.get("runner_cwd_"),
-                            "DESIGN_ROOT": values.get("design_root_"), # we don't know DESIGN_ROOT, so just ignore it
-                            "DESIGN_DIR": values.get("design_root_"), # we don't know DESIGN_ROOT, so just ignore it
-                        },
-                        # fmt: on
-                    )
+                    value = value.split(",")
+                if not _annotation_contains_path(annotation):
+                    # Every field of every settings model passes through here, on construction,
+                    # assignment and `settings.json` reload. Leave non-path values untouched
+                    # rather than walking and rebuilding their containers.
+                    return value
+                return _expand_path_values(
+                    value,
+                    annotation,
+                    {
+                        "PWD": values.get("runner_cwd_"),
+                        "DESIGN_ROOT": values.get("design_root_"),
+                        "DESIGN_DIR": values.get("design_root_"),
+                    },
+                )
             return value
 
         @field_validator("verbose", mode="before")

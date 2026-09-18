@@ -226,14 +226,57 @@ def test_run_options_steps_are_not_expanded_in_the_caller_object():
     assert settings.synth.steps, "the flow's own copy should still be expanded"
 
 
-def test_docker_command_is_not_written_into_a_caller_owned_instance():
+def test_docker_model_and_nested_containers_are_isolated_from_the_caller(tmp_path):
     from xeda.tool import Docker, Tool
 
-    docker = Docker(image="img")
-    tool = Tool(executable="echo", docker=docker)
+    docker = Docker(
+        image="img",
+        command=["echo"],
+        mounts={"caller": "container"},
+        default_env={"A": "B"},
+    )
+    before = copy.deepcopy(docker.model_dump())
+    tool = Tool(executable="echo", docker=docker, design_root_=tmp_path)
 
-    assert not docker.command, "caller's Docker.command was populated"
+    assert docker.model_dump() == before
+    assert tool.docker is not docker
+    assert tool.docker.command is not docker.command
+    assert tool.docker.mounts is not docker.mounts
+    assert tool.docker.default_env is not docker.default_env
     assert tool.docker.command == ["echo"]
+    assert tool.docker.mounts[str(tmp_path)] == str(tmp_path)
+
+    tool.docker.command.append("arg")
+    tool.docker.mounts["new"] = "mount"
+    tool.docker.default_env["C"] = "D"
+    assert docker.model_dump() == before
+
+
+def test_derived_tool_does_not_share_docker_state_with_its_source():
+    from xeda.tool import Docker, Tool
+
+    source = Tool(
+        executable="first",
+        docker=Docker(
+            image="img",
+            command=["first"],
+            mounts={"caller": "container"},
+            default_env={"A": "B"},
+        ),
+    )
+
+    derived = source.derive("second")
+
+    assert source.docker.command == ["first"]
+    assert derived.docker.command == ["second"]
+    assert derived.docker is not source.docker
+    assert derived.docker.mounts is not source.docker.mounts
+    assert derived.docker.default_env is not source.docker.default_env
+
+    derived.docker.mounts["new"] = "mount"
+    derived.docker.default_env["C"] = "D"
+    assert source.docker.mounts == {"caller": "container"}
+    assert source.docker.default_env == {"A": "B"}
 
 
 def test_after_list_validators_do_not_mutate_caller_owned_lists():
