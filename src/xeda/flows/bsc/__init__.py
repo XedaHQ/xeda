@@ -235,7 +235,7 @@ class Bsc(Flow):
 
         if self.settings.verbose:
             bsc_flags.append("-verbose")
-        elif self.settings.quiet:
+        elif self.settings.is_quiet:
             bsc_flags.append("-quiet")
 
         vout_dir = self.settings.verilog_out_dir
@@ -353,7 +353,8 @@ class Bsc(Flow):
             vsearch_paths = unique([str(p.path.parent) for p in verilog_sources])
             bsc_flags += ["-vsearch", "+:" + ":".join(vsearch_paths)]
 
-        bsc_defines = self.design.rtl.parameters
+        # a copy: the design is shared by every flow of the run, and already hashed
+        bsc_defines = dict(self.design.rtl.parameters)
 
         verilog_defines: Dict[str, Any] = {}
 

@@ -9,7 +9,7 @@ import attrs
 import yaml
 
 from .dataclass import model_with_allow_extra
-from .design import Design
+from .design import DESIGN_FILE_FORMATS, Design
 from .utils import WorkingDirectory, hierarchical_merge, tomllib
 
 log = logging.getLogger(__name__)
@@ -41,18 +41,23 @@ class XedaProject:
             design_remove_extra = []
         if not isinstance(file, Path):
             file = Path(file)
-        ext = file.suffix.lower()
-        with open(file, "rb" if ext == ".toml" else "r") as f:
-            if ext == ".toml":
+        # The table design files are read by: case-sensitive, `.yml` is YAML too.
+        fmt = DESIGN_FILE_FORMATS.get(file.suffix)
+        if fmt is None:
+            hint = (
+                f"suffixes are case-sensitive, did you mean {file.suffix.lower()!r}?"
+                if file.suffix.lower() in DESIGN_FILE_FORMATS
+                else "a project file is TOML, JSON or YAML "
+                f"({', '.join(repr(s) for s in DESIGN_FILE_FORMATS)})"
+            )
+            raise ValueError(f"project file {file}: file suffix {file.suffix!r}: {hint}")
+        with open(file, "rb" if fmt == "toml" else "r") as f:
+            if fmt == "toml":
                 data = tomllib.load(f)
-            elif ext == ".json":
+            elif fmt == "json":
                 data = json.load(f)
-            elif ext == ".yaml":
-                data = yaml.safe_load(f)
             else:
-                raise ValueError(
-                    f"File {file} has unknown extension {ext}. Supported formats are TOML, JSON, and YAML."
-                )
+                data = yaml.safe_load(f)
         if not isinstance(data, dict) or not data:
             raise ValueError("Invalid xedaproject!")
         designs = None

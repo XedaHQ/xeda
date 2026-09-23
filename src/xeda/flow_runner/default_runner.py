@@ -12,12 +12,14 @@ import shutil
 import sys
 import time
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from glob import glob
 from pathlib import Path
 from pprint import PrettyPrinter
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
+import yaml
 from box import Box
 from pathvalidate import sanitize_filename
 from rich import box
@@ -27,27 +29,32 @@ from rich.text import Text
 
 from ..console import console
 from ..dataclass import XedaBaseModel
-from ..design import AnyDesignValidationException, Design, DesignFileParseError
+from ..design import Design, names_a_design_file
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..flow import flowrun_hash as flow_run_hash
 from ..tool import NonZeroExitCode
 from ..utils import (
     WorkingDirectory,
+    XedaException,
     backup_existing,
     dump_json,
+    json_encodable,
     semantic_hash,
     settings_to_dict,
     snakecase_to_camelcase,
     unique,
+    with_json_keys,
 )
 from ..version import __version__
 from ..xedaproject import XedaProject
-from .settings_layers import merge_flow_sections, merge_layers
+from .settings_layers import flow_settings_from_sections, merge_flow_sections, merge_layers
 
 __all__ = [
     "DefaultRunner",
+    "DesignNotFoundError",
     "FlowNotFoundError",
     "FlowRunner",
+    "ProjectFileError",
     "add_file_logger",
     "get_flow_class",
     "print_results",
@@ -68,6 +75,9 @@ def print_results(
     if results is None and flow:
         results = flow.results
     assert results is not None, "results is None"
+    # The table shows what `results.json` holds: keys as that file writes them, so a key it can
+    # write (a tuple, a `Path`) cannot crash the table printed after the run.
+    results = with_json_keys(dict(results))
     console.print()
     table = Table(
         title=title,
@@ -92,7 +102,7 @@ def print_results(
         skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
         if skipable and not v:
             continue
-        if v is not None and not k.startswith("_"):
+        if v is not None and not str(k).startswith("_"):
             if k == "success":
                 table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]")
                 continue
@@ -106,31 +116,23 @@ def print_results(
                 )
                 continue
             if isinstance(v, (dict,)):
-                table.add_row(k + ":", "", style=Style(bold=True))
+                table.add_row(f"{k}:", "", style=Style(bold=True))
                 for xk, xv in v.items():
                     if isinstance(xv, dict):
-                        xv = json.dumps(
-                            xv,
-                            indent=1,
-                            default=lambda obj: (
-                                obj.__json_encoder__
-                                if hasattr(obj, "__json_encoder__")
-                                else obj.__dict__ if hasattr(obj, "__dict__") else str(obj)
-                            ),
-                        )
+                        xv = json.dumps(xv, indent=1, default=json_encodable)
                     else:
                         xv = str(xv)
-                    table.add_row(Text(" " + xk), str(xv))
+                    table.add_row(Text(f" {xk}"), str(xv))
                 continue
             if isinstance(v, float):
                 v = f"{v:,.3f}"
             elif isinstance(v, int):
                 v = f"{v:,}"
-            table.add_row(k, str(v))
+            table.add_row(str(k), str(v))
     console.print(table)
 
 
-class FlowNotFoundError(Exception):
+class FlowNotFoundError(XedaException):
     def __init__(self, flow_name: Optional[str] = None, suggestions: Iterable[str] = ()) -> None:
         self.flow_name = flow_name
         self.suggestions = list(suggestions)
@@ -139,6 +141,29 @@ class FlowNotFoundError(Exception):
             msg += " Did you mean: " + ", ".join(self.suggestions) + "?"
         msg += " Run `xeda list-flows` to see all available flows."
         super().__init__(msg)
+
+
+class DesignNotFoundError(XedaException):
+    """The design to run cannot be determined: none was given and there is no project to take
+    one from, the project has no designs, or it has none of the given name."""
+
+
+class ProjectFileError(XedaException):
+    """A project file (`xedaproject.toml`) that cannot be opened, parsed or used."""
+
+
+@dataclass(frozen=True)
+class RunDirPolicy:
+    """What one launch does with its run directory (see `FlowLauncher._run_dir_policy`).
+
+    Decided per launch, never by writing to the launcher's settings: every launch of a launcher
+    shares those, each of its dependency launches included.
+    """
+
+    incremental: bool
+    scrub_old_runs: bool
+    post_cleanup: bool
+    post_cleanup_purge: bool
 
 
 def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
@@ -202,14 +227,22 @@ def rmtree(path):
 
 
 def scrub_runs(flow_name: str, dir: Path, exclude: List[Path] = []) -> bool:
-    regex = re.compile(f"^{flow_name}_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r"$")
+    """Find and (with confirmation) remove `flow_name`'s run directories under `dir`.
+
+    A run directory of the flow is named `flow_name`, optionally followed by an underscore and
+    a `DIR_NAME_HASH_LEN`-char `[a-z0-9]` `flowrun_hash` (the unhashed form is what every default
+    run creates; the hashed form only appears with `--cached-dependencies`). Matched against
+    `dir`'s children rather than a `f"{flow_name}_*"` glob, so the unhashed directory -- which
+    that glob can never match -- is included too.
+    """
+    regex = re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?$")
     xr = dir.resolve()
     if not dir.exists() or not xr.is_dir():
         return False
     dirs_to_rm = unique(
         [
             p
-            for p in dir.glob(f"{flow_name}_*")
+            for p in dir.iterdir()
             if p.is_dir()
             and regex.match(p.name)
             and all(not ex.exists() or not p.samefile(ex) for ex in exclude)
@@ -377,6 +410,7 @@ class FlowLauncher:
         copy_resources = [
             res for res in copy_resources if os.path.exists(res) and os.path.isfile(res)
         ]
+        policy = self._run_dir_policy(run_path)
         design_hash, flowrun_hash, run_path = self._run_identity(
             flow_name, design, input_settings, run_path
         )
@@ -385,16 +419,22 @@ class FlowLauncher:
         previous_results = self._previous_results(
             flow_name, run_path, design_hash, flowrun_hash, depender
         )
-        self._prepare_run_path(flow_name, run_path, previous_results)
+        self._prepare_run_path(flow_name, run_path, previous_results, policy)
 
         with WorkingDirectory(run_path):
             log.debug("Instantiating flow from %s", flow_class)
+            # A copy of each, the flow's own to complete: the design, like the settings, has
+            # been hashed already, is recorded beside that hash, and goes on to the flow's
+            # dependencies, none of which may see what the flow does to it.
             flow = flow_class(
-                input_settings.model_copy(deep=True), design, run_path, runner_cwd=runner_cwd
+                input_settings.model_copy(deep=True),
+                design.model_copy(deep=True),
+                run_path,
+                runner_cwd=runner_cwd,
             )
         flow.design_hash = design_hash
         flow.flow_hash = flowrun_hash
-        flow.incremental = self.settings.incremental
+        flow.incremental = policy.incremental
         if flow.runner_cwd is None:  # redundant, but OK
             flow.runner_cwd = runner_cwd
         flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
@@ -446,7 +486,7 @@ class FlowLauncher:
                 # transient snapshot.
                 dump_json(all_settings, settings_json, backup=False)
 
-        self._report(flow, design, settings_json, results_json)
+        self._report(flow, design, settings_json, results_json, policy)
         return flow
 
     def _input_settings(
@@ -486,6 +526,9 @@ class FlowLauncher:
                 settings.model_dump_json(exclude_unset=True, indent=2),
             )
             settings.debug = True  # the launcher's `--debug` is part of the input
+        # a setting the flow cannot run without is reported now, before anything is set up for
+        # the run
+        flow_class.check_required_settings(settings)
         return settings
 
     def _run_identity(
@@ -508,12 +551,23 @@ class FlowLauncher:
                 design_hash,
                 flowrun_hash,
             )
-        else:
-            self.settings.incremental = True
-            self.settings.scrub_old_runs = False
-            self.settings.post_cleanup_purge = False
-            self.settings.post_cleanup = False
         return design_hash, flowrun_hash, run_path
+
+    def _run_dir_policy(self, run_path: Path | None) -> RunDirPolicy:
+        """What this launch does with its run directory: the launcher's settings, except for a
+        launch into a given `run_path` -- a dependency in its depender's run directory, or the
+        directory `--cwd` names -- which works in it incrementally, and neither scrubs other runs
+        nor cleans up after itself, since that directory is not its own to clean."""
+        if run_path is not None:
+            return RunDirPolicy(
+                incremental=True, scrub_old_runs=False, post_cleanup=False, post_cleanup_purge=False
+            )
+        return RunDirPolicy(
+            incremental=self.settings.incremental,
+            scrub_old_runs=self.settings.scrub_old_runs,
+            post_cleanup=self.settings.post_cleanup,
+            post_cleanup_purge=self.settings.post_cleanup_purge,
+        )
 
     def _previous_results(
         self,
@@ -565,12 +619,12 @@ class FlowLauncher:
         return None
 
     def _prepare_run_path(
-        self, flow_name: str, run_path: Path, previous_results: Box | None
+        self, flow_name: str, run_path: Path, previous_results: Box | None, policy: RunDirPolicy
     ) -> None:
-        if self.settings.scrub_old_runs:
+        if policy.scrub_old_runs:
             scrub_runs(flow_name, run_path.parent, [run_path])
         if not previous_results and run_path.exists():
-            if not self.settings.incremental and self.settings.run_path is None:
+            if not policy.incremental and self.settings.run_path is None:
                 if self.settings.backups:
                     backup_existing(run_path)
                 else:
@@ -652,13 +706,20 @@ class FlowLauncher:
                 if success:  # if so far so good this is a bug!
                     raise e
             flow.add_canonical_result_aliases()
-            if not success and not input_settings.quiet:
+            if not success and not input_settings.is_quiet:
                 log.debug("Failure was reported in the parsed results.")
             flow.results.success = success
             flow.results.timestamp = flow.timestamp
 
-    def _report(self, flow: Flow, design: Design, settings_json: Path, results_json: Path) -> None:
-        """Stage 7: show and record the results; clean up the run directory as configured."""
+    def _report(
+        self,
+        flow: Flow,
+        design: Design,
+        settings_json: Path,
+        results_json: Path,
+        policy: RunDirPolicy,
+    ) -> None:
+        """Stage 7: show and record the results; clean up the run directory as `policy` says."""
         for k, v in flow.artifacts.items():
             if not flow.results.artifacts.get(k):
                 flow.results.artifacts[k] = v
@@ -703,8 +764,8 @@ class FlowLauncher:
                 skip_if_false={"artifacts", "reports"},
             )
 
-        if self.settings.post_cleanup:
-            if self.settings.post_cleanup_purge:
+        if policy.post_cleanup:
+            if policy.post_cleanup_purge:
                 log.warning("Deleting flow run path %s", flow.run_path)
                 rmtree(flow.run_path)
             else:
@@ -752,6 +813,46 @@ class FlowLauncher:
             all_flows_settings=all_flows_settings,
         )
 
+    @staticmethod
+    def _design_from_project(
+        xeda_project: XedaProject | None,
+        xedaproject: str,
+        name: Any,
+        select_design_in_project=None,
+    ) -> Design:
+        """The design called `name` in the project, or its only design (or the one the user
+        selects) when no name is given. A `DesignNotFoundError` saying why there is none."""
+        if not xeda_project:
+            given = f"'{name}' is not a design file, and" if name else "No design was given, and"
+            raise DesignNotFoundError(
+                f'{given} there is no project file "{xedaproject}" in {Path.cwd()} to take '
+                "a design from. Give a design file (.toml, .json, .yaml or .yml)."
+            )
+        names = xeda_project.design_names
+        if not xeda_project.designs:
+            raise DesignNotFoundError(
+                f'The project file "{xedaproject}" has no designs. Give a design file instead.'
+            )
+        log.info("Available designs in xedaproject: %s", ", ".join(names))
+        selected: Design | None = None
+        if name:
+            selected = xeda_project.get_design(str(name))
+            if selected is None:
+                raise DesignNotFoundError(
+                    f"Design '{name}' is not in the project file \"{xedaproject}\". "
+                    f"Its designs are: {', '.join(names)}."
+                )
+        elif len(xeda_project.designs) == 1:
+            selected = xeda_project.get_design()
+        elif select_design_in_project:
+            selected = select_design_in_project(xeda_project, name)
+        if selected is None:
+            raise DesignNotFoundError(
+                f'No design was given or selected among those of "{xedaproject}": '
+                f"{', '.join(names)}."
+            )
+        return selected
+
     def run(
         self,
         flow: Union[Type[Flow], str],
@@ -787,17 +888,17 @@ class FlowLauncher:
         design_not_in_project = False
         if xedaproject:
             if not Path(xedaproject).exists():
-                raise FileNotFoundError(f"Cannot open xeda-project file: {xedaproject}")
+                raise ProjectFileError(f'Cannot open project file "{xedaproject}": no such file')
         else:
             xedaproject = "xedaproject.toml"
         if design is not None:
             if isinstance(design, (Design, dict, Path)):
                 design_not_in_project = True
-            else:
-                p = Path(design)
-                if p.suffix.lower() in {".toml", ".json", ".yaml", ".yml"} and p.exists():
-                    design_not_in_project = True
-                    design = p
+            elif names_a_design_file(design):
+                # a design file, whether or not it exists: `Design.from_file` says what is wrong
+                # with it, rather than a project reporting a design of that name missing
+                design_not_in_project = True
+                design = Path(design)
         if Path(xedaproject).exists():
             try:
                 xeda_project = XedaProject.from_file(
@@ -807,31 +908,23 @@ class FlowLauncher:
                     design_allow_extra=design_allow_extra,
                     design_remove_extra=design_remove_fields,
                 )
-            except FileNotFoundError:
-                log.critical(
-                    f"Cannot open project file: {xedaproject}. Try specifing the correct path using the --xedaproject <path-to-file>."
-                )
-                return None
+            except (OSError, ValueError, yaml.YAMLError) as e:
+                # unreadable, not TOML/JSON/YAML (the decode errors are `ValueError`s), or not
+                # a project's contents
+                raise ProjectFileError(
+                    f'Cannot load project file "{Path(xedaproject).absolute()}": {e}'
+                ) from e
             flows_settings = xeda_project.flows
         if design and design_not_in_project:
             if isinstance(design, (str, Path)):
-                try:
-                    design = Design.from_file(
-                        design,
-                        overrides=design_overrides,
-                        allow_extra=design_allow_extra,
-                        remove_extra=design_remove_fields,
-                    )
-                except DesignFileParseError as e:
-                    log.critical(f"Error parsing design file {design}: {e}")
-                    if self.debug:
-                        raise e
-                    return None
-                except AnyDesignValidationException as e:
-                    log.critical(f"Error validating design file {design}:\n{e}")
-                    if self.debug or self.settings.debug:
-                        raise e
-                    return None
+                # An invalid design file raises, as a design from a project does: the caller
+                # reports it (`xeda run --json` names the error instead of "did not complete").
+                design = Design.from_file(
+                    design,
+                    overrides=design_overrides,
+                    allow_extra=design_allow_extra,
+                    remove_extra=design_remove_fields,
+                )
 
             elif isinstance(design, dict):
                 design = dict(design)
@@ -839,44 +932,9 @@ class FlowLauncher:
                     design["design_root"] = Path.cwd()
                 design = Design(**design)
         else:
-            if not xeda_project:
-                log.critical(
-                    "No design file or project files were specified and no `xedaproject.toml` was found in the working directory."
-                )
-                return None
-            if not xeda_project.designs:
-                log.critical(
-                    "There are no designs in the xedaproject file. You can specify a single design description using `--design-file` argument."
-                )
-                return None
-            assert isinstance(xeda_project.design_names, list)  # type checker
-            log.info(
-                "Available designs in xedaproject: %s",
-                ", ".join(xeda_project.design_names),
+            design = self._design_from_project(
+                xeda_project, xedaproject, design, select_design_in_project
             )
-            if isinstance(design, str):
-                design_ = xeda_project.get_design(design)
-                if design_:
-                    design = design_
-                else:
-                    if design:
-                        log.critical(
-                            'Design "%s" not found in %s. Available designs are: %s',
-                            design,
-                            xedaproject,
-                            ", ".join(xeda_project.design_names),
-                        )
-                        raise ValueError("Invalid design name")
-                    else:
-                        if len(xeda_project.designs) == 1:
-                            design = xeda_project.get_design()
-                        elif select_design_in_project:
-                            design = select_design_in_project(xeda_project, design)
-                    if not design:
-                        log.critical(
-                            "[ERROR] no design was specified and none were automatically discovered."
-                        )
-                        raise ValueError("no design was specified or discovered")
         if isinstance(flow_settings, Flow.Settings):
             flow_settings = flow_settings.model_dump()
         else:
@@ -895,9 +953,7 @@ class FlowLauncher:
         if isinstance(flow, str):
             flow = flow.replace("-", "_")
             flow_class = get_flow_class(flow)
-            flow_name = flow_class.name
         else:
-            flow_name = flow.name
             flow_class = flow
 
         if not design or not flow_class:
@@ -918,7 +974,7 @@ class FlowLauncher:
 
         # `-s` wins over the design and project files, as documented; see `settings_layers`.
         final_flow_settings = merge_layers(
-            flows_settings.get(flow_name),
+            flow_settings_from_sections(flow_class, flows_settings),
             flow_settings,
             flow_overrides,
             settings_cls=flow_class.Settings,

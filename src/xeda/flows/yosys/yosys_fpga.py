@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Literal, Optional
 
 from ...dataclass import Field
-from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
+from ...flow import FpgaSynthFlow, describe_results
 from ...flows.ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
 
@@ -63,9 +63,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             False,
             description="run additional optimization steps after synthesis if complete",
         )
-        optimize: Optional[Literal["speed", "area"]] = Field(
-            "area", description="Optimization target"
-        )
         stop_after: Optional[Literal["rtl"]] = Field(
             None,
             description='Stop the flow after this stage. "rtl" elaborates the design and writes '
@@ -89,10 +86,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        if ss.fpga:
-            assert ss.fpga.family or ss.fpga.vendor == "xilinx"
-        else:
-            raise FlowFatalError("FPGA target device not specified")
+        assert ss.fpga is not None, "checked at launch (`required_settings`)"
+        assert ss.fpga.family or ss.fpga.vendor == "xilinx"
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
         # if ss.noabc:
@@ -125,7 +120,9 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             f"yosys_fpga_synth{self.script_ext}",
             lstrip_blocks=True,
             trim_blocks=False,
-            ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design, one_shot_elab=True),
+            # `read_files.ys` lists the VHDL files and `-e <top>` itself, as for `yosys`: with
+            # `one_shot_elab` the arguments carried every file a second time.
+            ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design, one_shot_elab=False),
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
@@ -135,10 +132,10 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         if ss.log_file:
             log.info("Logging yosys output to %s", ss.log_file)
             args.extend(["-L", ss.log_file])
-        if ss.log_file and not ss.verbose:  # reduce noise when have log_file, unless verbose
-            args.extend(["-T", "-Q"])
-            if not ss.debug and not ss.verbose:
-                args.append("-q")
+        # With a log file, the console is left to the flow's own messages: the log has yosys's
+        # output. `-T -Q` come with the tool's defaults already (`yosys`), and were given twice.
+        if ss.log_file and not ss.verbose and not ss.debug:
+            args.append("-q")
         self.yosys.run(*args)
 
     def parse_reports(self) -> bool:

@@ -20,11 +20,19 @@ from ...utils import try_convert, unique
 log = logging.getLogger(__name__)
 
 
-def abc_opt_script(opt):
-    opt = str(opt)
-    scr = []
-    if "speed" in opt:
-        scr += [
+def abc_opt_script(opt: Optional[str]) -> Optional[str]:
+    """The abc mapping script for `optimize`, as the `abc_script` setting of `Yosys` takes it.
+
+    The scripts are OpenROAD-flow-scripts' `abc_area.script` and `abc_speed.script`, written
+    inline (``+cmd;cmd;...``, which `Yosys.Settings` adapts for `abc -script`). `None` keeps
+    yosys's own default mapping script.
+    """
+    if opt is None:
+        return None
+    if opt == "area":
+        scr = ["strash", "dch", "map -B 0.9", "topo", "stime -c", "buffer -c"]
+    else:
+        scr = [
             # fmt: off
             "&get -n", "&st", "&dch", "&nf", "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf",
             "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf", "&put", "&get -n", "&st", "&syn2",
@@ -32,9 +40,7 @@ def abc_opt_script(opt):
             "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf", "&put", "buffer -c", "topo", "stime -c",
             # fmt: on
         ]
-    if "area" in opt:
-        scr = ["strash", "dch", "map -B 0.9", "topo", "stime -c", "buffer -c"]
-    scr += ["upsize -c", "dnsize -c"]
+    return "+" + ";".join([*scr, "upsize -c", "dnsize -c"])
 
 
 def format_value(v, precision=3) -> Optional[str]:
@@ -130,8 +136,11 @@ class Openroad(AsicSynthFlow):
             description="Directory, relative to the run directory, where OpenROAD writes its "
             "output files.",
         )
-        optimize: Optional[Literal["speed", "area", "area+speed"]] = Field(
-            "area", description="Optimization target"
+        optimize: Optional[Literal["speed", "area"]] = Field(
+            "area",
+            description="Optimization target of synthesis: selects OpenROAD-flow-scripts' abc "
+            "mapping script for it. `null` keeps yosys's default script and skips post-synthesis "
+            "optimization.",
         )
         abc_load_in_ff: Optional[float] = Field(
             None,
@@ -381,7 +390,8 @@ class Openroad(AsicSynthFlow):
             clocks=ss.clocks,
             flatten=True,
             black_box=ss.blocks,
-            optimize=ss.optimize,
+            # `optimize` is OpenROAD's own setting: it reaches yosys as the abc mapping script
+            # it selects, plus post-synthesis optimization. Yosys has no such setting of its own.
             post_synth_opt=ss.optimize is not None,
             abc_script=abc_opt_script(ss.optimize),
             abc_constr=[

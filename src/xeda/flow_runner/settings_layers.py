@@ -3,9 +3,11 @@
 A flow's settings are assembled from these layers, lowest precedence first:
 
 1. the flow's own defaults (supplied by validation, not here)
-2. the project file's ``flows.<flow>`` section
-3. the design file's ``[flows.<flow>]`` section
-4. the command line (``-s KEY=VALUE``), then overrides given through the API
+2. under the field holding a dependency's settings (``nextpnr.yosys``), that dependency's own
+   sections (``[flows.yosys_fpga]``), in the order below (`flow_settings_from_sections`)
+3. the project file's ``flows.<flow>`` section
+4. the design file's ``[flows.<flow>]`` section
+5. the command line (``-s KEY=VALUE``), then overrides given through the API
 
 The layers are merged *deeply*: a nested section such as ``yosys = {...}`` combines key by key,
 so ``-s yosys.flatten=true`` changes that one setting of the design's ``yosys`` section instead
@@ -20,10 +22,11 @@ from copy import deepcopy
 from types import UnionType
 from typing import Annotated, Any, Union, get_args, get_origin
 
-from ..dataclass import XedaBaseModel
+from ..dataclass import XedaBaseModel, input_names
+from ..flow import Flow, registered_flows
 from ..utils import hierarchical_merge, settings_to_dict
 
-__all__ = ["merge_flow_sections", "merge_layers"]
+__all__ = ["flow_settings_from_sections", "merge_flow_sections", "merge_layers"]
 
 #: One layer: a (possibly nested, possibly dotted-key) mapping, or `KEY=VALUE` strings.
 Layer = None | Mapping[str, Any] | Sequence[str]
@@ -45,20 +48,6 @@ def _nested_model(annotation: Any) -> type[XedaBaseModel] | None:
     return None
 
 
-def _input_names(settings_cls: type[XedaBaseModel]) -> dict[str, str]:
-    """Every accepted simple input name -> the one stored field name."""
-    names: dict[str, str] = {}
-    for name, info in settings_cls.model_fields.items():
-        names[name] = name
-        if info.alias:
-            names[info.alias] = name
-        validation_alias = info.validation_alias
-        for choice in getattr(validation_alias, "choices", ()):
-            if isinstance(choice, str):
-                names[choice] = name
-    return names
-
-
 def _canonicalize_setting_names(
     values: Mapping[str, Any], settings_cls: type[XedaBaseModel]
 ) -> dict[str, Any]:
@@ -68,8 +57,8 @@ def _canonicalize_setting_names(
     If one layer gives both spellings, preserve both and let pydantic reject the ambiguity rather
     than silently choosing one.
     """
-    input_names = _input_names(settings_cls)
-    targets = [input_names.get(key, key) for key in values]
+    names = input_names(settings_cls)
+    targets = [names.get(key, key) for key in values]
     duplicates = {target for target, count in Counter(targets).items() if count > 1}
     canonical: dict[str, Any] = {}
     for (key, value), target in zip(values.items(), targets):
@@ -161,7 +150,7 @@ def _merge_settings_layer(
     merged = deepcopy(dict(base))
 
     for key, value in canonical.items():
-        target = _input_names(settings_cls).get(key, key)
+        target = input_names(settings_cls).get(key, key)
         info = settings_cls.model_fields.get(target)
         child_cls = _nested_model(info.annotation) if info is not None else None
         old = merged.get(key)
@@ -226,6 +215,41 @@ def merge_layers(*layers: Layer, settings_cls: type[XedaBaseModel] | None = None
             else:
                 merged = hierarchical_merge(merged, values)
     return merged
+
+
+def flow_settings_from_sections(
+    flow_cls: type[Flow], sections: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """What merged `flows` sections (`merge_flow_sections`) say for `flow_cls`: its own
+    section, over each of its declared dependencies' own sections.
+
+    A dependency's section (``[flows.yosys_fpga]``) is the base of the field holding that
+    dependency's settings (``nextpnr.yosys``), and the depender's section (``[flows.nextpnr]
+    yosys.*``) refines it -- the precedence the dependency's launch uses (`dependency_settings`).
+    Composed here, before the depender runs, because only then can the depender see it: a
+    setting it shares with the dependency is resolved in its `init()` (`resolve_dependency`),
+    long before the dependency launches -- so an `fpga` given only for `yosys_fpga` never
+    reached `nextpnr`, which cannot run without one. Recursive: `openfpgaloader.nextpnr.yosys`
+    sits on `[flows.yosys_fpga]` as well.
+    """
+    sections = sections or {}
+    dependencies: dict[str, Any] = {}
+    for field in flow_cls.Settings.dependency_settings:
+        dependency = _flow_of(flow_cls.Settings._dependency_settings_class(field))
+        if dependency is not None:
+            section = flow_settings_from_sections(dependency, sections)
+            if section:
+                dependencies[field] = section
+    return merge_layers(dependencies, sections.get(flow_cls.name), settings_cls=flow_cls.Settings)
+
+
+def _flow_of(settings_cls: type[Flow.Settings] | None) -> type[Flow] | None:
+    """The registered flow whose settings class `settings_cls` is."""
+    if settings_cls is None:
+        return None
+    return next(
+        (cls for _module, cls in registered_flows.values() if cls.Settings is settings_cls), None
+    )
 
 
 def merge_flow_sections(

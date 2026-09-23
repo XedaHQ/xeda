@@ -107,7 +107,9 @@ def test_before_model_validator_receives_assignment_context():
     assert seen_fields == [None, "value"]
 
 
-def test_nested_rtl_parameter_normalization_does_not_mutate_input():
+def test_nested_rtl_parameter_normalization_does_not_mutate_input(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "abc.mem").write_text("00\n")  # a `file` parameter must exist
     payload = {"sources": [], "parameters": {"rom": {"file": "abc.mem"}}}
     before = copy.deepcopy(payload)
 
@@ -117,7 +119,9 @@ def test_nested_rtl_parameter_normalization_does_not_mutate_input():
     assert payload == before
 
 
-def test_rtl_parameter_assignment_does_not_mutate_input():
+def test_rtl_parameter_assignment_does_not_mutate_input(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "abc.mem").write_text("00\n")  # a `file` parameter must exist
     from xeda.design import RtlSettings
 
     rtl = RtlSettings(sources=[])

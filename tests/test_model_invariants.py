@@ -170,3 +170,98 @@ def test_semantic_hash_of_a_whole_design_terminates():
     assert semantic_hash(design) == semantic_hash(
         Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Copies that drop their cached values: `Tool.derive`, the dependency settings a flow is handed.
+# ---------------------------------------------------------------------------------------------
+
+
+def _all_model_classes():
+    import xeda.flow_runner.dse  # noqa: F401 - registers the optimizer models
+    import xeda.flows  # noqa: F401 - registers every flow, tool and platform model
+    from xeda.dataclass import XedaBaseModel
+
+    seen, pending = set(), [XedaBaseModel]
+    while pending:
+        cls = pending.pop()
+        if cls not in seen:
+            seen.add(cls)
+            pending.extend(cls.__subclasses__())
+    return sorted(seen, key=lambda cls: f"{cls.__module__}.{cls.__qualname__}")
+
+
+def test_invalidating_cached_properties_clears_the_inherited_ones_too():
+    """A `cached_property` caches in the instance `__dict__` whichever class declares it; walking
+    only the instance's own class left `VivadoTool` holding `Tool.version` after `derive()`."""
+    from functools import cached_property
+
+    stale = {}
+    for cls in _all_model_classes():
+        names = {
+            name
+            for klass in cls.__mro__
+            for name, attr in vars(klass).items()
+            if isinstance(attr, cached_property)
+        }
+        if not names:
+            continue
+        model = cls.model_construct()
+        for name in names:
+            model.__dict__[name] = "stale"
+        model.invalidate_cached_properties()
+        if left := sorted(names & model.__dict__.keys()):
+            stale[f"{cls.__module__}.{cls.__qualname__}"] = left
+    assert not stale, f"cached values survive invalidation: {stale}"
+
+
+def test_a_tool_derived_from_a_tool_subclass_does_not_keep_its_version():
+    from xeda.flows.vivado import VivadoTool
+
+    vivado = VivadoTool()  # type: ignore[call-arg]
+    vivado.__dict__.update(version=("2023", "2"), version_output="Vivado v2023.2")
+    derived = vivado.derive("hw_server")
+    assert "version" not in derived.__dict__
+    assert "version_output" not in derived.__dict__
+    assert vivado.version == ("2023", "2")  # the source keeps its own cache
+
+
+# ---------------------------------------------------------------------------------------------
+# The order settings are given in never matters
+# ---------------------------------------------------------------------------------------------
+
+
+def _field_validators_reading_other_settings(settings_cls):
+    import inspect
+
+    return sorted(
+        name
+        for name, decorator in settings_cls.__pydantic_decorators__.field_validators.items()
+        if "info.data" in inspect.getsource(decorator.func)
+    )
+
+
+@pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=FLOW_IDS)
+def test_no_field_validator_reads_another_setting(cls):
+    """A field validator sees the other settings (`info.data`) only when its *own* field is
+    validated, so its result depends on the order settings were given in: `quiet` was reset by a
+    `verbose` given with it, but not by one assigned after it. Whatever depends on several
+    settings is decided where it is read (`Flow.Settings.is_quiet`)."""
+    assert not _field_validators_reading_other_settings(cls.Settings)
+
+
+def test_quiet_verbose_and_debug_mean_the_same_whatever_order_they_are_given_in():
+    from xeda.flows import YosysFpga
+
+    Settings = YosysFpga.Settings
+    for louder in ({"verbose": 2}, {"debug": True}):
+        constructed = Settings(quiet=True, **louder)
+        assigned_after = Settings(quiet=True)
+        assigned_before = Settings(**louder)
+        for name, value in louder.items():
+            setattr(assigned_after, name, value)
+        assigned_before.quiet = True
+        settings = [constructed, assigned_after, assigned_before]
+        assert all(s.model_dump() == constructed.model_dump() for s in settings), louder
+        assert not any(s.is_quiet for s in settings), louder
+    assert Settings(quiet=True).is_quiet

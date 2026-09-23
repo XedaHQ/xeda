@@ -1,9 +1,9 @@
 import logging
 from typing import Optional
 
-from ..board import WithFpgaBoardSettings, get_board_data
+from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings, get_board_data
 from ..dataclass import Field
-from ..flow import FlowSettingsException, FpgaSynthFlow
+from ..flow import FpgaSynthFlow
 from ..tool import Tool
 from .nextpnr import Nextpnr
 
@@ -19,6 +19,8 @@ class Openfpgaloader(FpgaSynthFlow):
     (e.g. with `ecppack` for ECP5), and loads it over the configured `cable` or `board`. This is
     the only flow that touches real hardware.
     """
+
+    required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
     # This flow reports no results beyond the keys every flow reports; declaring this
     # explicitly keeps `xeda list-results` from guessing.
@@ -47,8 +49,7 @@ class Openfpgaloader(FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         self.add_dependency(Nextpnr, ss.resolve_dependency("nextpnr"))
-        if ss.fpga is None:
-            raise FlowSettingsException("openfpgaloader needs a target: set `fpga` or `board`")
+        assert ss.fpga is not None, "checked at launch (`required_settings`)"
         if ss.fpga.family == "ecp5":  # FIXME from fpga/board
             self.packer = Tool("ecppack")
 

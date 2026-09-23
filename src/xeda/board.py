@@ -48,6 +48,14 @@ def get_board_data(
     return boards_data.get(board)
 
 
+#: How to give a flow whose settings take a `board` its device, for `Flow.required_settings`.
+FPGA_OR_BOARD_REQUIRED = (
+    "the target FPGA device: give its part number with `-s fpga.part=<part>`, or a board that has "
+    "one with `-s board=<name>` (see `xeda list-boards`); in the design file, as `fpga.part` or "
+    "`board` in its `[flows.{flow}]` section"
+)
+
+
 class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
     board: Optional[str] = Field(
         None,

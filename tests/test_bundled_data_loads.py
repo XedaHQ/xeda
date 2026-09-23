@@ -65,3 +65,19 @@ def test_every_bundled_board_is_usable_as_a_flow_setting():
         pytest.skip("no bundled boards available")
     for board in boards:
         WithFpgaBoardSettings(board=board, clock_period=10.0)
+
+
+@pytest.mark.parametrize("time_unit", ["1pF", "ps * 2", "0ps", "nS", "furlong"])
+def test_a_platform_time_unit_is_checked_when_it_loads(time_unit):
+    """A PDK's `time_unit` scales every delay OpenROAD reports; a bad one used to load and fail
+    only once a run rendered its SDC or parsed its reports."""
+    from xeda.platforms.asics import AsicsPlatform
+
+    platform = AsicsPlatform.from_resource("nangate45")
+    data = platform.model_dump()
+    data["time_unit"] = time_unit
+    with pytest.raises(ValueError, match="time_unit"):
+        AsicsPlatform(**data)
+    for good in ("1ps", "1ns", "10ps"):
+        data["time_unit"] = good
+        assert AsicsPlatform(**data).time_unit == good

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from ...board import WithFpgaBoardSettings
+from ...board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
 from ...dataclass import Field
 from ...design import SourceType
 from ...flow import (
@@ -28,6 +28,8 @@ class OpenXC7(FpgaSynthFlow):
     """
     OpenXC7: FPGA synthesis using nextpnr-xilinx
     """
+
+    required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
     aliases = ["openxc7"]
 
@@ -328,7 +330,7 @@ class OpenXC7(FpgaSynthFlow):
         args += setting_flag(ss.out_of_context)
         args += setting_flag(ss.debug)
         args += setting_flag(ss.verbose > 0, name="verbose")  # nextpnr has one level
-        args += setting_flag(ss.quiet)
+        args += setting_flag(ss.is_quiet, name="quiet")
         if ss.seed is None:
             args += setting_flag(ss.randomize_seed)
         args += setting_flag(ss.timing_allow_fail)

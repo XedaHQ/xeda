@@ -19,10 +19,11 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from enum import Enum
 from functools import cached_property, reduce
-from pathlib import Path
+from pathlib import Path, PurePath
 from types import TracebackType
 from typing import (
     Any,
+    Callable,
     Dict,
     List,
     Optional,
@@ -35,7 +36,7 @@ from xml.etree import ElementTree
 
 from varname import argname  # type: ignore
 
-from .dataclass import XedaBaseModel
+from .dataclass import BaseModel, XedaBaseModel
 
 # install_import_hook("xeda")
 
@@ -56,6 +57,8 @@ __all__ = [
     "try_convert",
     # list/container utils
     "unique",
+    "rebuild_like",
+    "location_free",
     # str utils
     "camelcase_to_snakecase",
     "snakecase_to_camelcase",
@@ -190,18 +193,120 @@ def model_state(obj: Any) -> Dict[str, Any]:
     return {**state, **(extra or {})}
 
 
+def rebuild_like(container: Any, items: List[Any]) -> Any:
+    """`items` in `container`'s builtin kind. Not `type(container)(items)`: a namedtuple's
+    constructor takes its fields positionally, and a subclass's may take anything."""
+    if isinstance(container, tuple):
+        return tuple(items)
+    if isinstance(container, frozenset):
+        return frozenset(items)
+    if isinstance(container, set):
+        return set(items)
+    return list(items)
+
+
+def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
+    """`value` with every absolute path under one of `roots` rewritten as ``$VAR/relative``."""
+    if isinstance(value, dict):
+        return {key: location_free(item, roots) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return rebuild_like(value, [location_free(item, roots) for item in value])
+    if isinstance(value, PurePath) or (isinstance(value, str) and os.path.isabs(value)):
+        path = PurePath(value)
+        for var, root in roots:
+            if path.is_relative_to(root):
+                relative = path.relative_to(root).as_posix()
+                return f"${var}" if relative == "." else f"${var}/{relative}"
+    return value
+
+
+def json_encodable(obj: Any) -> Any:
+    """What `json` cannot encode by itself, as something it can.
+
+    A pydantic model goes through pydantic (`mode="json"`), so every serializer its fields
+    declare actually runs and what lands in `settings.json` is what the model would validate
+    back. Reading `__dict__` instead recorded a `DesignSource` as its raw instance state --
+    private attributes and all -- which nothing can load, and quietly skipped the `Path`,
+    enum and `FileResource` conversions the models define.
+
+    Anything that is not a model says how it wants to be written by defining `as_json_value()`
+    (`FileResource`, `DesignSource`, `FlowOutcome`). An `Enum` is written as its value, as
+    pydantic writes one in JSON mode.
+
+    Nothing is written by reading its `__dict__`. An object's attributes are not a
+    serialization format: that is how a private `_specified_path` used to reach `settings.json`,
+    and on a plain `Enum`, whose `__dict__` carries `__objclass__`, descending into it does not
+    even terminate -- `semantic_hash` carries a guard against exactly that. Anything
+    unrecognized is written as its `str()`, which is legible and cannot recurse.
+
+    This is the one encoder: `introspect.json_safe`, which builds the documents the CLI prints,
+    hands it every value that is not plain data, so a value printed under `--json` and the same
+    value in a file xeda writes cannot differ.
+    """
+    if isinstance(obj, BaseModel):
+        return with_json_keys(obj.model_dump(mode="json"))
+    if isinstance(obj, Enum):
+        return with_json_keys(obj.value)
+    if isinstance(obj, (set, frozenset)):
+        return list(obj)  # as `json` itself writes a tuple; `str()` would write `{...}` text
+    as_json_value = getattr(obj, "as_json_value", None)
+    if callable(as_json_value):
+        return with_json_keys(as_json_value())
+    return str(obj)
+
+
+def json_key(key: Any) -> Any:
+    """A mapping key as `json` can write it, by the rule `json_encodable` writes a value: an
+    enum as its value, anything else as its text (`Path("/a")` -> `"/a"`, a tuple as
+    `"('clk', 'rise')"`). `str`, numbers, `bool` and `None` are left to `json`, which writes
+    them itself (`true`, `null`, a `str` enum member as its text)."""
+    if key is None or isinstance(key, (str, int, float, bool)):
+        return key
+    if isinstance(key, Enum):
+        return json_key(key.value)
+    return str(key)
+
+
+def with_json_keys(value: Any) -> Any:
+    """`value` with every mapping key in its plain containers one `json` can write.
+
+    `json` accepts only `str`, numbers, `bool` and `None` as keys, and raises on any other
+    before an encoder hook ever sees it -- so a `Path` or tuple key a flow reports its results
+    under failed `results.json`, and the `--json` document with it: the one document an agent
+    reads, turned into an error. Every document xeda writes or prints goes through this (and
+    `json_encodable` applies it to what it expands), so none can fail on a key, and a printed
+    one still agrees with the file. A key whose JSON text another key of the same mapping
+    already has is qualified with its type rather than dropping either value.
+    """
+    if isinstance(value, dict):
+        converted: Dict[str, Any] = {}
+        for key, item in value.items():
+            written = json_key(key)
+            # JSON turns even valid non-string keys into strings. Compare the keys *as JSON
+            # writes them*, or `1` and "1" produce duplicate JSON names, and a Path("a")
+            # followed by "a" silently overwrites one of the values here.
+            name = written if isinstance(written, str) else json.dumps(written)
+            if name in converted:
+                stem = f"{name} ({type(key).__name__})"
+                name = stem
+                suffix = 2
+                while name in converted:
+                    name = f"{stem} {suffix}"
+                    suffix += 1
+            converted[name] = with_json_keys(item)
+        return converted
+    if isinstance(value, (list, tuple)):
+        return [with_json_keys(item) for item in value]
+    return value
+
+
 def dump_json(data: object, path: Path, backup: bool = True, indent: int = 4) -> None:
     if path.exists() and backup:
         backup_existing(path)
         assert not path.exists(), "Old file still exists!"
 
     with open(path, "w") as outfile:
-        json.dump(
-            data,
-            outfile,
-            default=lambda x: model_state(x) if hasattr(x, "__dict__") else str(x),
-            indent=indent,
-        )
+        json.dump(with_json_keys(data), outfile, default=json_encodable, indent=indent)
 
 
 def unique(lst: List[Any]) -> List[Any]:
@@ -613,48 +718,59 @@ def expand_vars(path: str, environ: Dict[str, str]) -> str:
     return path
 
 
-_ENV_BLACKLIST = [
-    "PATH",
-    "TMPDIR",
-    "LANG",
-    "SHELL",
-    "USER",
-    "LOGNAME",
-    "LD_LIBRARY_PATH",
-    "DYLD_LIBRARY_PATH",
-    "PYTHONPATH",
-    "JAVA_HOME",
-    "OLDPWD",
-    "LD_PRELOAD",
-    "DISPLAY",
-    "TERM",
-    "TERM_PROGRAM",
-    "TERM_PROGRAM_VERSION",
-    "COLORTERM",
-    "EDITOR",
-    "CLICOLOR",
-    "INFOPATH",
-    "SHLVL",
-    "COMMAND_MODE",
-    "LDFLAGS",
-    "CPPFLAGS",
-    "CFLAGS",
-    "CXXFLAGS",
-    "PAGER",
-    "LESS",
-    "LSCOLORS",
-    "LS_COLORS",
-    "BASH_ENV",
-    "ZSH",
-    "SSH_AUTH_SOCK",
-    "ORIGINAL_XDG_CURRENT_DESKTOP",
-    "GIT_ASKPASS",
-]
+#: Environment variables that never name a design path, so expanding them into one is
+#: always a mistake. Immutable: this is read on every path expansion, and an earlier
+#: version appended to it from that read path, growing without bound.
+_ENV_BLACKLIST = frozenset(
+    {
+        "PATH",
+        "TMPDIR",
+        "LANG",
+        "SHELL",
+        "USER",
+        "LOGNAME",
+        "LD_LIBRARY_PATH",
+        "DYLD_LIBRARY_PATH",
+        "PYTHONPATH",
+        "JAVA_HOME",
+        "OLDPWD",
+        "LD_PRELOAD",
+        "DISPLAY",
+        "TERM",
+        "TERM_PROGRAM",
+        "TERM_PROGRAM_VERSION",
+        "COLORTERM",
+        "EDITOR",
+        "CLICOLOR",
+        "INFOPATH",
+        "SHLVL",
+        "COMMAND_MODE",
+        "LDFLAGS",
+        "CPPFLAGS",
+        "CFLAGS",
+        "CXXFLAGS",
+        "PAGER",
+        "LESS",
+        "LSCOLORS",
+        "LS_COLORS",
+        "BASH_ENV",
+        "ZSH",
+        "SSH_AUTH_SOCK",
+        "ORIGINAL_XDG_CURRENT_DESKTOP",
+        "GIT_ASKPASS",
+    }
+)
 
 
-def expand_env_vars(path: Union[str, Path], overrides: Optional[Dict[str, Any]] = None) -> Path:
+def expand_env_vars(
+    path: Union[str, Path],
+    overrides: Optional[Dict[str, Any]] = None,
+    escape: Optional[Callable[[str], str]] = None,
+) -> Path:
     """Substitute environment variables in path with their values.
     if the value for a variable in overrides is None, then the variable is ignored (not expanded).
+    `escape`, when given, is applied to every substituted value -- `glob.escape` for a pattern,
+    where a value is a literal place, not more pattern.
     """
     if not isinstance(path, str):
         path = str(path)
@@ -663,19 +779,18 @@ def expand_env_vars(path: Union[str, Path], overrides: Optional[Dict[str, Any]] 
         return Path(path)
     if overrides is None:
         overrides = {}
-    environ = dict(os.environ)
-    # we filter out some common environment variables that are not relevant to XEDA
-    # also filtering out any variable starting with an underscore ("_")
-    for k in environ.keys():
-        if k.startswith("_"):
-            _ENV_BLACKLIST.append(k)
-    for k in _ENV_BLACKLIST:
-        environ.pop(k, None)
+    # Variables that are not relevant to XEDA, and any starting with an underscore ("_"), are
+    # dropped rather than substituted into a design path.
+    environ = {
+        k: v for k, v in os.environ.items() if not k.startswith("_") and k not in _ENV_BLACKLIST
+    }
     for k, v in overrides.items():
         if v is None:
             environ.pop(k, None)
         else:
             environ[k] = str(v)
+    if escape is not None:
+        environ = {k: escape(v) for k, v in environ.items()}
     path = expand_vars(path, environ)
     return Path(path)
 

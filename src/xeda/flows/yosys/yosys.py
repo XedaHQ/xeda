@@ -1,5 +1,6 @@
 import contextlib
 import gzip
+import hashlib
 import logging
 import os
 import re
@@ -111,8 +112,7 @@ def preproc_libs(
     in_files, merged_file, dont_use_cells: List[str], new_lib_name=None, use_temp_folder=True
 ):
     in_files = unique(in_files)
-    merged_content = ""
-    proc_files = []
+    proc_files: list[Path] = []
     if len(in_files) > 1:
         log.info(f"Processing {len(in_files)} libraries")
     tmp_context: Union[tempfile.TemporaryDirectory[str], contextlib.ExitStack]
@@ -138,11 +138,15 @@ def preproc_libs(
                 ctx = open(in_file, encoding="utf-8")
             with ctx as f:
                 content = clean_ascii(f.read())
-            merged_content += preproc_lib_content(content, dont_use_cells)
-            out_file = temp_path / in_file.with_name(in_file.stem + "-mod" + suffix).name
+            # Named after the library's stem, unless another library already took that name:
+            # `a/cells.lib` and `b/cells.lib` are two libraries, not one written twice.
+            out_file = temp_path / f"{in_file.stem}-mod{suffix}"
+            if out_file in proc_files:
+                digest = hashlib.sha256(str(in_file.absolute()).encode()).hexdigest()[:8]
+                out_file = temp_path / f"{in_file.stem}-{digest}-mod{suffix}"
             log.info("Writing pre-processed file: %s", out_file)
             with open(out_file, "w") as f:
-                f.write(merged_content)
+                f.write(preproc_lib_content(content, dont_use_cells))
             proc_files.append(out_file)
         merge_libs(proc_files, merged_file, new_lib_name)
     log.info("Merged lib: %s", str(Path(merged_file).absolute()))
@@ -193,9 +197,6 @@ class Yosys(YosysBase, SynthFlow):
             None,
             description='Map to LUTs of this size instead of standard cells, e.g. "4" or a '
             '"<width>:<cost>" pair.',
-        )
-        optimize: Optional[Literal["speed", "area", "area+speed"]] = Field(
-            "area", description="Optimization target"
         )
         stop_after: Optional[Literal["rtl"]] = Field(
             None,

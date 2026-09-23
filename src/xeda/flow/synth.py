@@ -110,7 +110,7 @@ class PhysicalClock(XedaBaseModel):
 
     @period_ps.setter
     def period_ps(self, period):
-        self.period = convert_unit(period, to_unit="picosecond", from_unit=None)
+        self.period = convert_unit(period, to_unit="nanosecond", from_unit="picosecond")
 
     def period_unit(self, unit: str) -> float:
         unit = unit.strip()
@@ -367,8 +367,17 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                     )
 
 
+#: How to give an FPGA flow its device, for `Flow.required_settings`.
+FPGA_REQUIRED = (
+    "the target FPGA device: give its part number with `-s fpga.part=<part>` on the command line, "
+    'or as `fpga.part = "<part>"` in the design file\'s `[flows.{flow}]` section'
+)
+
+
 class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
     """Superclass of all FPGA synthesis flows"""
+
+    required_settings = {"fpga": FPGA_REQUIRED}
 
     class Settings(SynthFlow.Settings):
         """base FPGA Synthesis flow settings"""

@@ -19,46 +19,48 @@ yosys plugin -i slang
 {% if src.type is not none -%}
     {% if src.type.name == "Verilog" -%}
 yosys log -stdout "** Reading {{src}} **"
-yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|map('quote')|join(" ")}} "{{src}}"
+yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|path}}
     {% elif src.type.name == "SystemVerilog" %}
 yosys log -stdout "** Reading {{src}} **"
         {%- if slang_plugin %}
-yosys read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{include_dirs.i|map('quote')|join(" ")}} "{{src}}"
+yosys read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
         {%- elif uhdm_plugin %}
-yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} "{{src}}"
+yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {%- else %}
-yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|map('quote')|join(" ")}} "{{src}}"
+yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|path}}
         {%- endif %}
-    {% elif src.type.name == "VerilogHeader" and src.path.parent %}
-{% set include_dirs.i = include_dirs.i + ["-I{}".format(src.path.parent)] %}
+    {% elif src.type.name in ("VerilogHeader", "SVHeader") and src.path.parent %}
+{% set include_dirs.i = include_dirs.i + [("-I" ~ src.path.parent)|verbatim_path] %}
     {% endif -%}
 {% endif -%}
 {% endfor -%}
 
-{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) | map('quote') | list -%}
+{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) | list -%}
 {% if vhdl_files -%}
 yosys log -stdout "** Elaborating VHDL files **"
 yosys plugin -i ghdl
-set ghdl_args "{{ghdl_args|join(" ")}}"
-yosys ghdl {*}$ghdl_args {{vhdl_files|join (" ")}} -e {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
+yosys ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}} {{vhdl_files|map("verbatim_path")|join(" ")}} -e {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
 {% endif -%}
 
 {% if settings.liberty is defined -%}
 {% for lib in settings.liberty -%}
-yosys read_liberty -lib {{lib}}
+yosys read_liberty -lib {{lib|path}}
 {% endfor -%}
 {% endif -%}
 
 {% for src in settings.verilog_lib -%}
-yosys read_verilog -lib "{{src}}"
+yosys read_verilog -lib {{src|path}}
 {% endfor -%}
 
+{#- a VHDL top got its generics from GHDL, and has no parameters left #}
+{% if not top_is_vhdl() -%}
 {% for key, value in parameters.items() -%}
 yosys chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
 {% endfor -%}
+{% endif -%}
 
 {% if settings.clockgate_map -%}
-yosys read_verilog -defer {{settings.clockgate_map}}
+yosys read_verilog -defer {{settings.clockgate_map|path}}
 {% endif -%}
 
 {% if uhdm_plugin -%}

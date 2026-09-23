@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import inspect
 import json
@@ -8,14 +9,18 @@ import os
 import pprint
 import re
 import subprocess
+import tomllib
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from enum import Enum
 from functools import cached_property
+from glob import escape as glob_escape
 from glob import glob
+from os.path import isfile
 from pathlib import Path
 from typing import (
     Any,
+    Callable,
     Dict,
     List,
     Optional,
@@ -44,9 +49,11 @@ from .proc_utils import tool_output_redirect
 from .utils import (
     NonZeroExitCode,
     WorkingDirectory,
+    XedaException,
     expand_env_vars,
     expand_hierarchy,
     hierarchical_merge,
+    location_free,
     removesuffix,
     semantic_hash,
     settings_to_dict,
@@ -74,11 +81,36 @@ def pformat(data):
     return pprint.pformat(data, compact=True, sort_dicts=False).removeprefix("{").removesuffix("}")
 
 
-class DesignFileParseError(Exception):
-    pass
+class DesignFileParseError(XedaException):
+    """A design file that cannot be read as a design: it cannot be opened, is not valid
+    TOML/JSON/YAML, has a suffix xeda does not read, or does not hold a table of design fields.
+
+    Names the file and, when the parser knows it, the 1-based `line` and `column`.
+    """
+
+    def __init__(
+        self,
+        file: str | os.PathLike,
+        reason: str,
+        line: int | None = None,
+        column: int | None = None,
+    ) -> None:
+        self.file = str(Path(file).absolute())
+        self.reason = reason
+        self.line = line
+        self.column = column
+        super().__init__(self.file, reason, line, column)  # rebuilt from `args` when unpickled
+
+    def __str__(self) -> str:
+        where = f'"{self.file}"'
+        if self.line is not None:
+            where += f", line {self.line}"
+            if self.column is not None:
+                where += f", column {self.column}"
+        return f"Cannot load design file {where}: {self.reason}"
 
 
-class AnyDesignValidationException(Exception):
+class AnyDesignValidationException(XedaException):
     pass
 
 
@@ -108,13 +140,215 @@ class DesignValidationError(AnyDesignValidationException):
             return ""
 
         name = self.design_name or self.data.get("name")
-        return "{}: {} error{} validating design{}\n{}".format(
+        return "{}: {} error{} validating design{}{}\n{}".format(
             self.__class__.__qualname__,
             len(self.errors),
             "s" if len(self.errors) > 1 else "",
             f" '{name}'" if name else "",
+            # the design file `from_file` attaches: the one thing that says where to look
+            f' in "{self.file}"' if self.file else "",
             "\n".join(f"{fmt_loc(loc)}{msg}\n" for loc, msg, _, _ in self.errors),
         ) + (f"\nDesign:\n{pformat(self.data)}\n" if self.data and self.design_in_msg else "")
+
+
+#: The format a design file is read in, by its suffix. The one rule for what a design file is:
+#: `Design.from_file` reads by it, and the launcher tells a design file from a design's name by it.
+DESIGN_FILE_FORMATS: dict[str, str] = {
+    ".toml": "toml",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+}
+
+
+def names_a_design_file(path: str | os.PathLike) -> bool:
+    """Whether `path` is meant as a design file rather than as a design's name in a project:
+    it has a design-file suffix, in any case. A mis-cased suffix still means a file -- which
+    `Design.from_file` then rejects naming the right spelling -- rather than a name to look up
+    in a project and report missing there."""
+    return Path(path).suffix.lower() in DESIGN_FILE_FORMATS
+
+
+def design_file_format(path: str | os.PathLike) -> str:
+    """The format (`toml`, `json` or `yaml`) design file `path` is read in, by its suffix.
+
+    Suffixes are case-sensitive, like every name xeda reads: `.TOML` is rejected naming
+    `.toml`, not read as whatever it resembles.
+    """
+    suffix = Path(path).suffix
+    fmt = DESIGN_FILE_FORMATS.get(suffix)
+    if fmt is not None:
+        return fmt
+    if suffix.lower() in DESIGN_FILE_FORMATS:
+        reason = (
+            f"file suffix {suffix!r}: suffixes are case-sensitive, "
+            f"did you mean {suffix.lower()!r}?"
+        )
+    else:
+        what = f"unsupported file suffix {suffix!r}" if suffix else "no file suffix"
+        supported = ", ".join(repr(known) for known in DESIGN_FILE_FORMATS)
+        reason = f"{what}; a design file is TOML, JSON or YAML ({supported})"
+    raise DesignFileParseError(path, reason)
+
+
+def _toml_error_position(e: tomllib.TOMLDecodeError) -> tuple[str, int | None, int | None]:
+    """`(message, line, column)` of a TOML error. Python 3.14 gives them as attributes; before
+    that they are only in the message's `(at line L, column C)` suffix."""
+    line, column = getattr(e, "lineno", None), getattr(e, "colno", None)
+    msg = getattr(e, "msg", None)
+    if isinstance(msg, str) and line is not None:
+        return msg, line, column
+    m = re.fullmatch(r"(.*?)\s*\(at line (\d+), column (\d+)\)", str(e), re.DOTALL)
+    if m:
+        return m.group(1), int(m.group(2)), int(m.group(3))
+    return str(e), None, None
+
+
+def _yaml_error_position(e: yaml.MarkedYAMLError) -> tuple[str, int | None, int | None]:
+    """`(message, line, column)` of a YAML error, 1-based: where the parser found the problem,
+    with where the enclosing construct began (if it did) in the message."""
+    parts = []
+    if e.context:
+        context = e.context
+        if e.context_mark is not None and e.context_mark is not e.problem_mark:
+            context += f" (line {e.context_mark.line + 1}, column {e.context_mark.column + 1})"
+        parts.append(context)
+    if e.problem:
+        parts.append(e.problem)
+    if e.note:
+        parts.append(f"note: {e.note}")
+    mark = e.problem_mark or e.context_mark  # PyYAML marks are 0-based
+    reason = ": ".join(parts) or "invalid YAML"
+    if mark is None:
+        return reason, None, None
+    return reason, mark.line + 1, mark.column + 1
+
+
+def _read_design_file(path: Path) -> dict[str, Any]:
+    """The table of design fields in design file `path`.
+
+    Every way that fails is a `DesignFileParseError` naming the file (and the line and column,
+    when the parser knows them): a suffix xeda does not read, a file that cannot be opened or is
+    not UTF-8, TOML/JSON/YAML that does not parse, or a document that is not a table.
+    """
+    fmt = design_file_format(path)
+    try:
+        if fmt == "toml":
+            data = toml_load(path)
+        elif fmt == "json":
+            data = json.loads(path.read_bytes())
+        else:
+            data = yaml.safe_load(path.read_bytes())
+    except OSError as e:
+        raise DesignFileParseError(path, e.strerror or str(e)) from None
+    except UnicodeDecodeError as e:
+        raise DesignFileParseError(path, f"not UTF-8 text: {e.reason} at byte {e.start}") from None
+    except yaml.reader.ReaderError as e:
+        raise DesignFileParseError(
+            path, f"not UTF-8 text: {e.reason} at byte {e.position}"
+        ) from None
+    except tomllib.TOMLDecodeError as e:
+        raise DesignFileParseError(path, *_toml_error_position(e)) from None
+    except json.JSONDecodeError as e:
+        # `lineno` and `colno` are 1-based already
+        raise DesignFileParseError(path, e.msg, e.lineno, e.colno) from None
+    except yaml.MarkedYAMLError as e:
+        raise DesignFileParseError(path, *_yaml_error_position(e)) from None
+    except yaml.YAMLError as e:
+        raise DesignFileParseError(path, str(e)) from None
+    if data is None:  # an empty YAML document, as an empty TOML file is an empty table
+        data = {}
+    if not isinstance(data, dict):
+        raise DesignFileParseError(
+            path,
+            "a design file holds a table (mapping) of design fields, "
+            f"not a {type(data).__name__}",
+        )
+    return data
+
+
+def _expand_design_path(
+    path: Union[str, os.PathLike], root: Path, escape: Optional[Callable[[str], str]] = None
+) -> Path:
+    """`path` with its environment variables expanded. `$DESIGN_ROOT` and `$DESIGN_DIR` are
+    `root`, the directory a relative path resolves against, so `$DESIGN_ROOT/a.vhd` and `a.vhd`
+    are always the same file. `$PWD` is left as written. `escape` applies to every substituted
+    value (`glob.escape`, for a pattern)."""
+    return expand_env_vars(
+        str(path), {"PWD": None, "DESIGN_ROOT": root, "DESIGN_DIR": root}, escape=escape
+    )
+
+
+def _expand_source_glob(pattern: str, root: Path, what: str = "source") -> List[str]:
+    """The files a source pattern names, in a stable order.
+
+    Expanded before globbing, or `glob` looks for a directory literally named `$DESIGN_ROOT`.
+    Sorted, because `glob` returns them in filesystem order while source order is *semantic*:
+    it is the order VHDL units are compiled in, and it is part of the design hash, so an
+    unsorted pattern gives the same design a different identity on a different filesystem.
+    A pattern that names no file is an error -- contributing nothing silently is how a mistyped
+    pattern used to reach a tool as a missing top-level unit.
+
+    A variable's value is a place, not more pattern, so it is escaped: a design root named
+    `proj[1]` otherwise matched a sibling `proj1`, another project's sources. Only files match,
+    as a shell glob of source files would; a directory named like a source is passed over.
+    """
+    expanded = str(_expand_design_path(pattern, root))
+    matched = sorted(
+        m for m in glob(str(_expand_design_path(pattern, root, escape=glob_escape))) if isfile(m)
+    )
+    if not matched:
+        raise ValueError(
+            f"no file matches the {what} pattern '{pattern}'"
+            + (f" (expanded to '{expanded}')" if expanded != pattern else "")
+        )
+    return matched
+
+
+def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
+    """The files an unvalidated `rtl.sources` names, for deciding if a generator must run again.
+
+    `process_generation` runs *before* the sources validator, so it sees whatever the design
+    file wrote: a path, a `$DESIGN_ROOT` spelling, a glob or a `{ file = ... }` table. Comparing
+    those strings to the filesystem directly made every spelling but a plain relative path look
+    absent, so the generator re-ran on every load, and a table raised `Path(dict)` as an opaque
+    TypeError. Returns `None` for anything uninterpretable: the validator reports that properly
+    a moment later, and until then the safe answer is to run the generator.
+    """
+    if isinstance(sources, (str, os.PathLike, Mapping, FileResource)):
+        sources = [sources]  # the scalar shorthand the sources validator also accepts
+    if not isinstance(sources, (list, tuple, set)):
+        return None
+    paths: List[Path] = []
+    for src in sources:
+        if isinstance(src, FileResource):
+            paths.append(src.file)
+            continue
+        if isinstance(src, Mapping):
+            src = src.get("file") or src.get("path")
+        if not isinstance(src, (str, os.PathLike)):
+            return None
+        expanded = _expand_design_path(src, root)
+        if "*" in str(src):
+            # A pattern that matches nothing yet is exactly the case for running the generator.
+            paths.extend(Path(m) for m in sorted(glob(str(expanded))))
+        else:
+            paths.append(expanded if expanded.is_absolute() else root / expanded)
+    return paths
+
+
+def _describe_generator(generator: Any) -> str:
+    """How to name a generator in an error, whichever of its three input forms the design used."""
+    if isinstance(generator, Generator):
+        args = generator.args
+        return (
+            generator.command
+            or (args if isinstance(args, str) else " ".join(str(part) for part in args))
+            or generator.name
+        )
+    if isinstance(generator, (list, tuple)):
+        return " ".join(str(part) for part in generator)
+    return str(generator)
 
 
 class FileResource:
@@ -124,35 +358,42 @@ class FileResource:
         _root_path: Optional[Path] = None,
         resolve=True,
     ) -> None:
+        """A file of the design: a path, or a table naming either a `file`, which must exist, or
+        a `path`, which is not checked (a file a generator creates later). A plain path is a
+        `file`; a missing one raises `FileNotFoundError`.
+
+        A relative path resolves against `_root_path`, by default the working directory, which
+        `Design` sets to the design root while it validates; see `_expand_design_path`.
         """
-        A file resource
-        file: existing file, its existence is checked during validation
-        path:
-        """
-        try:
-            if isinstance(path, dict):
-                path_value = path.get("path")
-                if path_value:
-                    resolve = False  # override resolve
-                file_value = path.get("file")
-                if path_value and file_value:
-                    raise ValueError("'file' and 'path' are mutually exclusive.")
-                path_value = path_value or file_value
-                if not path_value:
-                    raise ValueError(
-                        "Either 'file' (existing file) or 'path' (unchecked path) must be set for a FireResource."
-                    )
-                path = path_value
-            path = Path(path)
-            self._specified_path = path  # keep a copy of path, as specified by user, without resolving or convertint to an absolute path
-            if not path.is_absolute():
-                if not _root_path:
-                    _root_path = Path.cwd()
-                path = _root_path / path
-            self.file = path.resolve(strict=False) if resolve else path.absolute()
-        except FileNotFoundError as e:
-            log.error("Design resource '%s' does not exist!", path)
-            raise e
+        if isinstance(path, dict):
+            path_value = path.get("path")
+            if path_value:
+                resolve = False  # override resolve
+            file_value = path.get("file")
+            if path_value and file_value:
+                raise ValueError("'file' and 'path' are mutually exclusive.")
+            path_value = path_value or file_value
+            if not path_value:
+                raise ValueError(
+                    "Either 'file' (existing file) or 'path' (unchecked path) must be set for a FireResource."
+                )
+            path = path_value
+        root = Path(_root_path) if _root_path else Path.cwd()
+        # As *written*, before any variable is expanded or the path is made absolute. Nothing
+        # about a design's identity depends on it -- see `Design._source_fingerprint` -- but a
+        # flow that has to name a file after where it came from (GHDL disambiguating two VHDL
+        # sources with the same stem) wants what the design said, not an absolute location.
+        self._specified_path = Path(path)
+        path = _expand_design_path(path, root)
+        if not path.is_absolute():
+            path = root / path
+        if resolve and not path.exists():
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
+        if resolve and not path.is_file():
+            raise IsADirectoryError(errno.EISDIR, "a directory, not a file", str(path))
+        self.file = path.resolve() if resolve else path.absolute()
+        #: Whether this names a file that must exist (`file`) or one that need not yet (`path`).
+        self._checked = bool(resolve)
 
     @property
     def path(self) -> Path:
@@ -160,18 +401,38 @@ class FileResource:
 
     @cached_property
     def content_hash(self) -> str:
-        """return hash of file content"""
-        with open(self.file, "rb") as f:
-            return hashlib.sha3_256(f.read()).hexdigest()[:32]  # first 128 bits is more than enough
+        """Hash of the file's content -- what a design is identified by.
 
+        A file that is not there has no content and so no identity: the design cannot be
+        hashed, cached or run. `{ path = ... }` defers the *check*, it does not waive it; by the
+        time a run is identified, whatever was going to write the file has had its chance.
+        """
+        try:
+            with open(self.file, "rb") as f:
+                # the first 128 bits is more than enough
+                return hashlib.sha3_256(f.read()).hexdigest()[:32]
+        except IsADirectoryError as e:
+            raise IsADirectoryError(
+                errno.EISDIR, "a directory where the design names a file", str(self.file)
+            ) from e
+        except FileNotFoundError as e:
+            raise FileNotFoundError(
+                f"{self.file} does not exist, so the design that uses it cannot be identified. "
+                "A file given as `{ path = ... }` is deliberately not checked while the design "
+                "loads, on the understanding that a generator writes it -- nothing did."
+            ) from e
+
+    # One resource is one file: the same place, whatever it holds -- which also covers a
+    # `{ path = ... }` file not written yet. Comparing contents here made de-duplicating such a
+    # source (on every re-validation) raise, and added nothing: the same file has the same
+    # contents. `file` is absolute, and resolved for a checked resource.
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, FileResource):
             return False
-        return self.content_hash == other.content_hash and self.file.samefile(other.file)
+        return self.file == other.file
 
     def __hash__(self) -> int:
-        # path is already absolute
-        return hash((self.content_hash, str(self.file)))
+        return hash(str(self.file))
 
     def __str__(self) -> str:
         return str(self.file)
@@ -182,6 +443,16 @@ class FileResource:
     def get_specified_path(self):
         return self._specified_path
 
+    def as_json_value(self) -> Union[str, Dict[str, Any]]:
+        """This resource as a JSON value that loads back as the same resource.
+
+        A bare path string reloads as a *checked* `file`, so a resource built from
+        `{ path = ... }` -- one naming a file that need not exist yet, a generator's output or a
+        file a testbench writes -- has to keep saying `path`, or reloading the document it was
+        written to fails on a file the design never promised was there.
+        """
+        return str(self.file) if self._checked else {"path": str(self.file)}
+
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any) -> Any:
         """Validate as an arbitrary type: an instance check.
@@ -189,12 +460,15 @@ class FileResource:
         Values reach here already coerced by the `mode="before"` validators on the fields that
         declare them, so an isinstance check is all that is required. The serializer is
         `when_used="json"` so that `model_dump()` returns the object itself while
-        `model_dump_json()` emits the path string.
+        serializing to JSON emits what `as_json_value()` builds: the path, or the
+        table the resource cannot be rebuilt without.
         """
         return core_schema.is_instance_schema(
             cls,
             serialization=core_schema.plain_serializer_function_ser_schema(
-                str, return_schema=core_schema.str_schema(), when_used="json"
+                lambda value: value.as_json_value(),
+                return_schema=core_schema.any_schema(),
+                when_used="json",
             ),
         )
 
@@ -291,6 +565,25 @@ class SourceType(str, Enum):
         return None
 
 
+#: Sources other files find by their name or place, so where one sits relative to the design
+#: root is part of the design (`Design._source_fingerprint`): a Verilog `include` searches the
+#: including file's directory, then the header directories; a Bluespec package, a C++ header, a
+#: cocotb module and a memory file are found by name on a search path. VHDL, constraints and
+#: scripts are named explicitly wherever they sit, and count by content alone.
+_LOCATED_SOURCE_TYPES = frozenset(
+    {
+        SourceType.Verilog,
+        SourceType.VerilogHeader,
+        SourceType.SystemVerilog,
+        SourceType.SVHeader,
+        SourceType.Bluespec,
+        SourceType.Cpp,
+        SourceType.Cocotb,
+        SourceType.MemoryFile,
+    }
+)
+
+
 class DesignSource(FileResource):
     def __init__(
         self,
@@ -341,6 +634,27 @@ class DesignSource(FileResource):
         if not self.type:
             self.type, self.variant = type_from_suffix(self.file)
         self.standard = standard
+        # What the design *stated*, as opposed to what the filename implied. Only the former is
+        # written back out: reloading re-infers the latter from the same suffix, while a stated
+        # `type` that contradicts it (`{ file = "legacy.v", type = "SystemVerilog" }`) is lost
+        # for good if the dump leaves it out -- and it is part of the design's identity.
+        self._stated: Dict[str, Any] = {
+            key: value
+            for key, value in (
+                ("type", str(self.type) if typ is not None and self.type is not None else None),
+                ("standard", standard),
+                ("variant", variant),
+            )
+            if value is not None
+        }
+
+    def as_json_value(self) -> Union[str, Dict[str, Any]]:
+        value = super().as_json_value()
+        if not self._stated:
+            return value
+        if isinstance(value, str):
+            value = {"file": value}
+        return {**value, **self._stated}
 
     def __eq__(self, other: Any) -> bool:  # pylint: disable=useless-super-delegation
         # added attributes do not change semantic equality
@@ -357,16 +671,6 @@ class DesignSource(FileResource):
         if self.standard:
             s += f" standard: {self.standard}"
         return s
-
-    def __json_encoder__(self) -> str:
-        return json.dumps(
-            {
-                "file": (self.file),
-                "type": (self.type),
-                "variant": (self.variant),
-                "standard": (self.standard),
-            }
-        )
 
     @classmethod
     def _json_schema(cls) -> Dict[str, Any]:
@@ -411,32 +715,54 @@ _PARAMETERS_FORM_ERROR = (
 )
 
 
+def _parameters_as_mapping(value: Any) -> Any:
+    """The two interchangeable parameter/generic input forms as the one mapping form.
+
+    Anything that is neither is returned unchanged, for the caller to reject or ignore.
+    """
+    if not isinstance(value, list):
+        return value
+    normalized = {}
+    for entry in value:
+        # Checked before `.get`: a bare list such as `parameters = ["W"]` otherwise escaped
+        # as `AttributeError: 'str' object has no attribute 'get'`, which the validator
+        # guard does not turn into a validation error.
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got a list entry {entry!r}")
+        entry_name = entry.get("name")
+        entry_value = entry.get("value")
+        if entry_name and entry_value is not None:
+            normalized[entry_name] = entry_value
+        else:
+            raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got {dict(entry)!r}")
+    return normalized
+
+
 def _normalize_parameters(value: Any) -> Any:
-    """Normalize the two interchangeable parameter/generic input forms."""
+    """Normalize the two interchangeable parameter/generic input forms.
+
+    A parameter written as a file (`{ file = ... }`, which must exist, or `{ path = ... }`, which
+    need not yet) becomes that file's absolute path: a tool takes a parameter as plain text, and
+    it runs in a run directory, not the design's. That text is then the parameter's one value;
+    nothing else remembers the table it was written as. What a design's identity must not depend
+    on -- where the design lives -- is left out where it is counted (`Design._parameters_
+    fingerprint`), and a remote run re-roots such a path from the value alone (`send_design`).
+    """
     if value is None:
         # Not `if not value`: an empty list (`parameters = []`) is the empty list form, and must
         # become `{}` like any other list rather than reach the mapping field as a list.
         return value
-    if isinstance(value, list):
-        normalized = {}
-        for entry in value:
-            # Checked before `.get`: a bare list such as `parameters = ["W"]` otherwise escaped
-            # as `AttributeError: 'str' object has no attribute 'get'`, which the validator
-            # guard does not turn into a validation error.
-            if not isinstance(entry, Mapping):
-                raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got a list entry {entry!r}")
-            entry_name = entry.get("name")
-            entry_value = entry.get("value")
-            if entry_name and entry_value is not None:
-                normalized[entry_name] = entry_value
-            else:
-                raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got {dict(entry)!r}")
-        value = normalized
-    elif not isinstance(value, dict):
+    value = _parameters_as_mapping(value)
+    if not isinstance(value, dict):
         raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got {type(value).__name__}: {value!r}")
     for key, parameter in value.items():
         if isinstance(parameter, dict) and ("file" in parameter or "path" in parameter):
-            value[key] = str(FileResource(parameter))
+            try:
+                value[key] = str(FileResource(parameter))
+            except IsADirectoryError as e:
+                raise ValueError(f"parameter {key!r}: {e.filename} is a directory") from e
+            except FileNotFoundError as e:
+                raise ValueError(f"parameter {key!r}: file does not exist: {e.filename}") from e
     return value
 
 
@@ -468,25 +794,14 @@ class DVSettings(XedaBaseModel):
 
     @field_validator("sources", mode="before")
     @classmethod
-    def _sources_to_files(cls, value, info):
-        values = info.data if isinstance(info.data, dict) else {}
-
+    def _sources_to_files(cls, value):
         def src_with_type(src, src_type):
             if src_type:
                 return {"file": src, "type": src_type}
             return src
 
         def ds(src: Union[str, Path], typ=None):
-            src = expand_env_vars(
-                src,
-                # fmt: off
-                    {
-                        "PWD": None, 
-                        "DESIGN_ROOT": values.get("design_root")
-                    },
-                # fmt: on
-            )
-            return DesignSource(src, typ=typ, _root_path=values.get("design_root"))
+            return DesignSource(src, typ=typ)
 
         if isinstance(value, (str, Path, DesignSource)):
             value = [value]
@@ -512,7 +827,7 @@ class DVSettings(XedaBaseModel):
                 #     src = m.group(2)
                 #     src_type = SourceType.from_str(m.group(1))
                 if src.count("*") > 0:
-                    glob_sources = glob(src)
+                    glob_sources = _expand_source_glob(src, Path.cwd())
                     srcs = [ds(s, src_type) for s in glob_sources]
                     sources.extend(s for s in srcs if not source_already_exists(s))
                     continue  # skip the append at the bottom
@@ -523,8 +838,13 @@ class DVSettings(XedaBaseModel):
                         src = ds(src, None)
                     else:
                         src = DesignSource(src)
+                except IsADirectoryError as e:
+                    raise ValueError(f"a source is a file, but {e.filename} is a directory") from e
                 except FileNotFoundError as e:
-                    raise ValueError(f"'{src}'   {e.strerror}: {e.filename}") from e
+                    raise ValueError(
+                        f"source file does not exist: {e.filename} (a source that is generated "
+                        "later is given as `{ path = ... }`)"
+                    ) from e
             if not source_already_exists(src):
                 sources.append(src)
         return sources
@@ -564,27 +884,32 @@ class Generator(XedaBaseModel):
 
     @field_validator("sources", mode="before")
     @classmethod
-    def _sources_to_files(cls, value, info):
-        values = info.data if isinstance(info.data, dict) else {}
+    def _sources_to_files(cls, value):
         # sources can contain globs which are expanded
         if isinstance(value, str):
             value = [value]
         sources: List[Path] = []
         for src in unique(value):
             if isinstance(src, str):
-                src = str(
-                    expand_env_vars(src, {"PWD": None, "DESIGN_ROOT": values.get("design_root")})
-                )
                 if "*" in src:
-                    sources.extend(Path(s).resolve() for s in glob(src))
+                    sources.extend(
+                        Path(m).resolve()
+                        for m in _expand_source_glob(src, Path.cwd(), "generator source")
+                    )
                 else:
-                    sources.append(Path(src).resolve())
+                    sources.append(_expand_design_path(src, Path.cwd()).resolve())
             elif isinstance(src, Path):
-                sources.append(src)
+                # Resolved like the string spelling, so a relative one does not keep depending
+                # on the working directory it was given in.
+                sources.append(src.resolve())
             else:
                 raise ValueError(f"Invalid source type: {type(src)} for source '{src}'")
         # remove duplicates, but keep order
         sources = unique(sources)
+        # The generator's inputs: whether to rerun it is decided by their modification times.
+        missing = [str(src) for src in sources if not src.exists()]
+        if missing:
+            raise ValueError(f"generator source file does not exist: {', '.join(missing)}")
         return sources
 
     def run(self):
@@ -683,7 +1008,12 @@ class RtlSettings(DVSettings):
         None,
         description="Toplevel RTL module/entity",
     )
-    generator: Union[str, List[str], Generator, None] = None
+    # `SerializeAsAny`: a generator may be a `ChiselGenerator`, and v2 serializes a nested model
+    # by its *annotated* type unless told otherwise. Declared on the field rather than asked for
+    # by a blanket dump flag, which duck-types *every* value and so skips the serializer an
+    # arbitrary type like `DesignSource` attaches to its own schema -- that is what made
+    # `Design.model_dump_json()` raise `PydanticSerializationError` outright.
+    generator: Union[str, List[str], SerializeAsAny[Generator], None] = None
     attributes: Dict[str, Dict[str, Any]] = Field(
         dict(),
         description="""
@@ -1183,9 +1513,9 @@ class Design(XedaBaseModel):
         generator = rtl.pop("generator", None)
         if generator:
             with WorkingDirectory(design_root):
-                env = os.environ.copy()
-                if "DESIGN_ROOT" not in env:
-                    env["DESIGN_ROOT"] = str(design_root)
+                # A generator is told the design root as `$DESIGN_ROOT` names it in the design's
+                # own paths: replacing whatever the shell exports, which is another directory's.
+                env = {**os.environ, "DESIGN_ROOT": str(design_root)}
                 if isinstance(generator, str):
                     log.info("Running generator command: %s", generator)
                     exit_code = subprocess.call(
@@ -1213,20 +1543,22 @@ class Design(XedaBaseModel):
                     if generator.cwd is None:
                         generator.cwd = str(design_root)
                     if generator.env is None:
-                        generator.env = os.environ.copy()
-                    if "DESIGN_ROOT" not in generator.env:
-                        generator.env["DESIGN_ROOT"] = str(design_root)
+                        generator.env = dict(env)
+                    else:
+                        # An `env` the design states is the generator's whole environment, and
+                        # a `DESIGN_ROOT` in it is the design's own word.
+                        generator.env.setdefault("DESIGN_ROOT", str(design_root))
                     skip_run = False
-                    rtl_sources = rtl.get("sources", [])
+                    rtl_sources = _source_paths_as_given(rtl.get("sources", []), design_root)
                     if generator.run_only_if_sources_modified and generator.sources and rtl_sources:
                         log.debug("Generator sources: %s", generator.sources)
                         # check if rtl.sources exist and if they are newer than the generator sources
-                        if all(Path(src).exists() for src in rtl_sources):
+                        if all(src.exists() for src in rtl_sources):
                             generator_sources_last_modified = max(
                                 Path(gen_src).stat().st_mtime for gen_src in generator.sources
                             )
                             if all(
-                                Path(src).stat().st_mtime >= generator_sources_last_modified
+                                src.stat().st_mtime >= generator_sources_last_modified
                                 for src in rtl_sources
                             ):
                                 skip_run = True
@@ -1260,7 +1592,21 @@ class Design(XedaBaseModel):
                         args,
                         check=True,
                         cwd=design_root,
+                        env=env,
                         stdout=tool_output_redirect(),
+                    )
+                # Whatever the design declares as a source has to be there now. Expanded again
+                # rather than reused from the skip check above, because the generator is exactly
+                # what a glob was waiting for. A source written `{ path = ... }` skips the check
+                # the sources validator does, so without this a generator that produced nothing
+                # surfaced much later and much worse: an errno from inside the design hash.
+                produced = _source_paths_as_given(rtl.get("sources", []), design_root)
+                missing = [str(src) for src in produced or [] if not src.exists()]
+                if missing:
+                    raise ValueError(
+                        f"generator ({_describe_generator(generator)}) did not produce "
+                        f"{'sources' if len(missing) > 1 else 'the source'} the design declares: "
+                        + ", ".join(missing)
                     )
 
     @classmethod
@@ -1335,6 +1681,19 @@ class Design(XedaBaseModel):
                     self.tb.sources = dep_design.tb.sources
                 if not self.tb.top and dep_design.tb.top:
                     self.tb.top = dep_design.tb.top
+            # Merged is consumed: the design now holds its dependencies' sources itself, and it
+            # is recorded as built. A record that kept them as well merged them again on every
+            # reload (a `settings.json`, the archive `send_design` ships), duplicating sources.
+            if self.dependencies:
+                self.dependencies = []
+
+    def header_dirs(self, rtl: bool = True, tb: bool = False) -> List[Path]:
+        """The directory of every Verilog/SystemVerilog header the design lists, once each, in
+        source order: the include search path (`-I`, `+incdir+`) a tool needs to find them."""
+        headers = self.sources_of_type(
+            SourceType.VerilogHeader, SourceType.SVHeader, rtl=rtl, tb=tb
+        )
+        return unique([src.path.parent for src in headers])
 
     def sources_of_type(
         self, *source_types: Union[str, SourceType], rtl=True, tb=False
@@ -1401,48 +1760,18 @@ class Design(XedaBaseModel):
         allow_extra: bool = False,
         remove_extra: Optional[List[str]] = None,
     ) -> DesignType:
-        """Load and validate a design description from TOML file"""
+        """Load and validate a design description from a TOML, JSON or YAML file.
+
+        A file that cannot be read as a design raises `DesignFileParseError`, and one whose
+        design does not validate `DesignValidationError`; both name the file.
+        """
         if overrides is None:
             overrides = {}
         if remove_extra is None:
             remove_extra = []
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
-        error_msg_parts = [f'File "{design_file.absolute()}"']
-        if design_file.suffix == ".toml":
-            design_dict = toml_load(design_file)
-        elif design_file.suffix == ".json":
-            with open(design_file) as f:
-                try:
-                    design_dict = json.load(f)
-                except json.JSONDecodeError as e:
-                    error_msg_parts += [
-                        f"line {e.lineno + 1}",
-                        f"column {e.colno + 1}",
-                        e.msg,
-                    ]
-                    raise DesignFileParseError(", ".join(error_msg_parts)) from None
-        elif design_file.suffix in {".yaml", ".yml"}:
-            with open(design_file) as f:
-                try:
-                    design_dict = yaml.safe_load(f)
-                except yaml.error.MarkedYAMLError as e:
-                    if e.context_mark:
-                        # context_mark's line and column start from 0, but most IDEs use 1 indexing for source locators
-                        error_msg_parts += [
-                            f"line {e.context_mark.line + 1}",
-                            f"column {e.context_mark.column + 1}",
-                        ]
-                        if e.problem:
-                            error_msg_parts.append(e.problem)
-                        if e.note:
-                            error_msg_parts.append("Note: " + e.note)
-
-                    raise DesignFileParseError(", ".join(error_msg_parts)) from None
-                except yaml.YAMLError as e:
-                    raise DesignFileParseError(f"{e.args}") from None
-        else:
-            raise ValueError(f"File extension `{design_file.suffix}` is not supported.")
+        design_dict = _read_design_file(design_file)
         design_dict = expand_hierarchy(design_dict)
         design_dict = hierarchical_merge(design_dict, overrides)
         if "name" not in design_dict:
@@ -1478,27 +1807,61 @@ class Design(XedaBaseModel):
             log.error("Error processing design file: %s", design_file.absolute())
             raise e
 
-    def relative_path(self, src: DesignSource):
-        if src.file and self.root_path:
-            file = src.file.absolute()
-            root = self.root_path.absolute()
+    def source_path_as_named(self, src: FileResource) -> Path:
+        """`src` as this design names it: relative to the design root when it is under it,
+        otherwise the path the design file wrote."""
+        if src.file and self.design_root:
             try:
-                return file.relative_to(root)
+                return src.file.absolute().relative_to(self.root_path.absolute())
             except ValueError:
                 pass
         return src.get_specified_path()
+
+    def source_artifact_name(self, src: FileResource, suffix: str = "") -> str:
+        """A filename-safe name for something a flow writes *about* one source.
+
+        Sources are distinct files, so their paths already tell them apart; a flow that writes
+        one artifact per source -- GHDL converting each VHDL file to its own Verilog file -- has
+        to fold that path into a single filename, and a stem alone does not: `rtl/a/fifo.vhd`
+        and `rtl/b/fifo.vhd` would both want to be `fifo.v`, and one would overwrite the other.
+
+        Folding a path into one filename cannot be both readable and injective: `my-fifo.vhd`
+        and `my_fifo.vhd`, `fifo.vhd` and `fifo.vhdl`, or a dependency's `rtl/fifo.vhd` (named
+        relative to *its* root) beside this design's all fold alike. So a name that another of
+        the design's sources would also get carries a short digest of its file's path; every
+        other name is only the fold. Distinct sources get distinct names by construction, and a
+        source gets the same name whichever of its lists it is found through.
+
+        This is naming, not identity: nothing here may be read back as design state.
+        """
+        name = self._folded_source_name(src)
+        this = src.file.resolve()
+        if any(
+            other.file.resolve() != this and self._folded_source_name(other) == name
+            for other in (*self.rtl.sources, *self.tb.sources)
+        ):
+            name += "_" + hashlib.sha256(str(this).encode()).hexdigest()[:8]
+        return name + suffix
+
+    def _folded_source_name(self, src: FileResource) -> str:
+        """`src`'s path as this design names it, folded into one filename-safe token."""
+        parts = (
+            re.sub(r"\W+", "_", part).strip("_")
+            for part in self.source_path_as_named(src).with_suffix("").parts
+        )
+        return "_".join(part for part in parts if part)
 
     @property
     def rtl_fingerprint(self) -> Dict[str, Any]:
         """Location-independent inputs that can change RTL compilation or synthesis.
 
         Source order is significant (notably for VHDL), and source metadata tells tools how to
-        compile identical bytes. The fingerprint contains no absolute location, so moving the
-        whole design does not change its identity.
+        compile identical bytes. The fingerprint names no path at all, so moving the design, or
+        laying the same files out differently, does not change its identity.
         """
         return {
             "sources": [self._source_fingerprint(src) for src in self.rtl.sources],
-            "parameters": dict(self.rtl.parameters),
+            "parameters": self._parameters_fingerprint(self.rtl),
             "defines": dict(self.rtl.defines),
             "top": self.rtl.top,
             "attributes": self.rtl.attributes,
@@ -1510,24 +1873,57 @@ class Design(XedaBaseModel):
     def tb_fingerprint(self) -> Dict[str, Any]:
         return {
             "sources": [self._source_fingerprint(src) for src in self.tb.sources],
-            "parameters": dict(self.tb.parameters),
+            "parameters": self._parameters_fingerprint(self.tb),
             "defines": dict(self.tb.defines),
             "top": self.tb.top,
             "uut": self.tb.uut,
             "cocotb": self.tb.cocotb.model_dump() if self.tb.cocotb is not None else None,
         }
 
+    def _parameters_fingerprint(self, dv: DVSettings) -> Dict[str, Any]:
+        """Parameter values as the tool sees them, except that a path under the design root
+        counts relative to it (`$DESIGN_ROOT/rom.mem`) -- the rule `flowrun_hash` applies to
+        settings -- so a design given a file under its root keeps its identity wherever it is
+        moved. A path outside the root is the location the design names, and counts as such.
+        """
+        roots = [("DESIGN_ROOT", self.root_path)] if self.design_root else []
+        return {k: location_free(v, roots) for k, v in dv.parameters.items()}
+
+    def relative_to_root(self, path: Union[str, os.PathLike]) -> Optional[Path]:
+        """`path` relative to the design root, or None when it is not an absolute path under
+        it: whether a path is part of the design's own tree, by the rule its fingerprint uses
+        (`location_free`). The root is resolved when the design is built, and so is every path
+        a design resolves against it."""
+        path = Path(path)
+        if self.design_root and path.is_absolute() and path.is_relative_to(self.root_path):
+            return path.relative_to(self.root_path)
+        return None
+
     def _source_fingerprint(self, source: DesignSource) -> Dict[str, Any]:
-        return {
-            # Relative layout is semantic: HDL include lookup and generated tool scripts can
-            # distinguish `rtl/top.v` from `vendor/top.v`.  `relative_path` keeps the identity
-            # stable when the complete design directory moves.
-            "path": self.relative_path(source).as_posix(),
+        """What a source *is*: its content, type and compile metadata -- and, for a source
+        that other files find by its name or place (`_LOCATED_SOURCE_TYPES`), where it is
+        relative to the design root.
+
+        For most sources the location does not change what they mean: the same bytes compiled
+        in the same order under the same metadata are the same design wherever they sit. But a
+        Verilog `include` is resolved by place -- the including file's directory first, then
+        the header directories a flow builds from the sources -- and a Bluespec package, a C++
+        header, a cocotb module or a memory file is found by name on a search path. Two layouts
+        of the same files can then build different results, and counted by content alone they
+        were one design, so a cached run of one was reused for the other.
+
+        Relative to the root, never absolute: moving a whole design keeps its identity. A source
+        outside the root counts by the path the design wrote (`source_path_as_named`).
+        """
+        fingerprint = {
             "content": source.content_hash,
             "type": str(source.type) if source.type is not None else None,
             "standard": source.standard,
             "variant": source.variant,
         }
+        if source.type in _LOCATED_SOURCE_TYPES:
+            fingerprint["path"] = self.source_path_as_named(source).as_posix()
+        return fingerprint
 
     @property
     def rtl_hash(self) -> str:
@@ -1541,20 +1937,25 @@ class Design(XedaBaseModel):
         log.debug("TB fingerprint: %s", fingerprint)
         return semantic_hash(fingerprint)[:32]  # 128 bits
 
-    #: Derived fields that are recomputed on load and must never be serialized.
-    _NOT_SERIALIZED = {"rtl_hash", "tb_hash", "rtl_fingerprint", "tb_fingerprint"}
-
     # pylint: disable=arguments-differ
     def model_dump(self, **kwargs: Any) -> Dict[str, Any]:  # type: ignore[override]
-        kwargs.setdefault("serialize_as_any", True)
+        """The design as it was *given*, not as it was filled in.
+
+        Every dump of a design is something a design gets rebuilt from -- `settings.json`, the
+        archive `send_design` ships -- so it records what the design file said and leaves out
+        what merely defaulted.
+
+        xeda writes a design as JSON through this method (`utils.json_encodable` calls
+        `model_dump(mode="json")`), and `model_dump_json` below prunes the same way, so a design
+        is one document however it is serialized. Neither passes `serialize_as_any`: it skips
+        the serializer `DesignSource` declares on its own schema.
+        """
         kwargs.setdefault("exclude_unset", True)
         kwargs.setdefault("exclude_defaults", True)
-        kwargs.setdefault("exclude", self._NOT_SERIALIZED)
         return super().model_dump(**kwargs)
 
     def model_dump_json(self, **kwargs: Any) -> str:  # type: ignore[override]
-        kwargs.setdefault("serialize_as_any", True)
+        """`model_dump(mode="json")` as text: pruned the same way, so it is the same document."""
         kwargs.setdefault("exclude_unset", True)
         kwargs.setdefault("exclude_defaults", True)
-        kwargs.setdefault("exclude", self._NOT_SERIALIZED)
         return super().model_dump_json(**kwargs)

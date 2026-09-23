@@ -108,3 +108,13 @@ warn_error = true
 
     with pytest.raises(ValueError, match=r"0.*str"):
         XedaProject.from_file(path)
+
+
+def test_a_project_file_suffix_is_read_as_strictly_as_a_design_file_s(tmp_path):
+    """One suffix table for both kinds of file: `.yml` is YAML here too, and a mis-cased suffix
+    is rejected naming the right spelling rather than read as whatever it resembles."""
+    yml = _write(tmp_path, "xedaproject.yml", "flows:\n  ghdl_sim:\n    warn_error: true\n")
+    assert XedaProject.from_file(yml, skip_designs=True).flows == {"ghdl_sim": {"warn_error": True}}
+    shouting = _write(tmp_path, "xedaproject.TOML", "[flows.ghdl_sim]\nwarn_error = true\n")
+    with pytest.raises(ValueError, match=r"case-sensitive.*'\.toml'"):
+        XedaProject.from_file(shouting, skip_designs=True)

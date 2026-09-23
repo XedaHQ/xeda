@@ -1,5 +1,7 @@
+import hashlib
 import json
 import logging
+import os
 import re
 from functools import cached_property
 from pathlib import Path
@@ -7,7 +9,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from ...dataclass import Field, field_validator
 from ...design import SourceType
-from ...flow import Flow
+from ...flow import Flow, FlowException
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
 from ...utils import hierarchical_merge, unique
@@ -39,6 +41,36 @@ def tcl_escape(value: Any) -> str:
     s = str(value)
     s = s.replace("[", "\\[").replace("]", "\\]")
     return s.replace('"', '\\"')
+
+
+def tcl_word(value: Any) -> str:
+    """`value` as one literal TCL word: double-quoted, with every character that would
+    substitute (`$`, `[`, `\\`) or end the word (`"`) backslash-escaped. TCL hands yosys each
+    word as one argument, so a path with spaces needs nothing more."""
+    return '"' + re.sub(r'([\\\[\]"$])', r"\\\1", str(value)) + '"'
+
+
+def ys_path(value: Any) -> str:
+    """A path as one `.ys` token, for the arguments yosys unquotes itself.
+
+    yosys splits a script line at whitespace, keeping a double-quoted token whole (quotes
+    included); its frontends and backends, `tee -o`, `stat`/`dfflibmap`/`abc -liberty`, `abc
+    -script`/`-constr` and `techmap -map` then strip those quotes. So a path containing
+    whitespace is quoted, and any other is written as is. A double quote inside the path cannot
+    be expressed at all.
+    """
+    text = str(value)
+    if '"' in text:
+        raise FlowException(f"A yosys script cannot name the path {text!r}.")
+    return f'"{text}"' if _NOT_A_YS_TOKEN.search(text) else text
+
+
+PATH_ALIASES_DIR = "path_aliases"
+"""Directory, in the run directory, of the whitespace-free aliases `YosysBase.verbatim_path`
+creates."""
+
+_NOT_A_YS_TOKEN = re.compile(r'[\s"]+')
+"""What keeps a path from being one verbatim `.ys` token: whitespace, or a double quote."""
 
 
 class YosysBase(Flow):
@@ -361,13 +393,29 @@ class YosysBase(Flow):
         assert isinstance(self.settings, self.Settings)
         return "-s" if self.settings.script_format == "ys" else "-c"
 
+    def add_template_helpers(self) -> None:
+        """The filters and globals every yosys template uses. One place, called by `init()`,
+        so that anything rendering a template without `init()` -- a test -- gets all of them,
+        not whichever it thought to add by hand."""
+        assert isinstance(self.settings, self.Settings)
+        tcl = self.settings.script_format == "tcl"
+        # values are stored canonically (unescaped); escape them for the target script language
+        self.add_template_filter("esc", tcl_escape if tcl else ys_escape, replace_existing=True)
+        # Every path a template emits goes through one of these two filters:
+        # `path` for an argument yosys unquotes, `verbatim_path` for one it passes on as is.
+        self.add_template_filter("path", tcl_word if tcl else ys_path, replace_existing=True)
+        self.add_template_filter(
+            "verbatim_path", tcl_word if tcl else self.verbatim_path, replace_existing=True
+        )
+        self.add_template_filter(
+            "ghdl_arg", tcl_word if tcl else self.ghdl_arg, replace_existing=True
+        )
+        self.jinja_env.globals["top_is_vhdl"] = self.top_is_vhdl
+
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        # values are stored canonically (unescaped); escape them for the target script language
-        self.add_template_filter(
-            "esc", tcl_escape if ss.script_format == "tcl" else ys_escape, replace_existing=True
-        )
+        self.add_template_helpers()
         if ss.ghdl is None:
             ss.ghdl = GhdlSynth.Settings()
         if ss.keep_hierarchy:
@@ -377,11 +425,6 @@ class YosysBase(Flow):
             for mod in ss.keep_hierarchy:
                 ss.set_mod_attribute[kh][mod] = 1
 
-        if ss.top_is_vhdl is True or (
-            ss.top_is_vhdl is None and self.design.rtl.sources[-1].type is SourceType.Vhdl
-        ):
-            # generics were already handled by GHDL and the synthesized design is no longer parametric
-            self.design.rtl.parameters = {}
         if ss.sta or ss.ltp:
             ss.flatten = True  # design must be flattened
         if ss.flatten:
@@ -403,13 +446,82 @@ class YosysBase(Flow):
             ss.netlist_json.parent.mkdir(parents=True, exist_ok=True)
             self.artifacts.netlist_json = ss.netlist_json
 
+    def top_is_vhdl(self) -> bool:
+        """Whether the top unit is VHDL: `top_is_vhdl`, or else whether the last source is.
+
+        A VHDL top's generics reach yosys through GHDL (`-g<name>=<value>`), and the top GHDL
+        elaborates has no parameters left to `chparam`. The design's own parameters stay as they
+        are: every flow of a run shares the design, and it has already been hashed.
+        """
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.top_is_vhdl is not None:
+            return self.settings.top_is_vhdl
+        sources = self.design.rtl.sources
+        return bool(sources) and sources[-1].type is SourceType.Vhdl
+
+    def verbatim_path(self, path: str | os.PathLike[str]) -> str:
+        """`path` as a `.ys` token for an argument yosys takes verbatim, quotes included.
+
+        `read_verilog -I<dir>`, `show -prefix`, and the ghdl and slang plugins' arguments are not
+        unquoted, and yosys splits a script line at whitespace, so no quoting passes them a path
+        containing a space. Such a path is named instead through a whitespace-free symbolic link
+        in the run directory (`path_aliases/`). A path that does not exist yet -- an output --
+        is named through an alias of its directory.
+        """
+        text = str(path)
+        if not _NOT_A_YS_TOKEN.search(text):
+            return text
+        # Scripts are rendered, and yosys runs, in the run directory: relative paths are
+        # relative to it, and so is the alias.
+        target = Path(text).absolute()
+        if target.exists():
+            return self._path_alias(target)
+        if _NOT_A_YS_TOKEN.search(target.name):
+            raise FlowException(
+                f"A yosys script cannot name {text!r}: the command takes the path verbatim, and "
+                "its file name contains whitespace. Choose a name without spaces."
+            )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return f"{self._path_alias(target.parent)}/{target.name}"
+
+    @staticmethod
+    def _path_alias(target: Path) -> str:
+        """The name, relative to the run directory, of a whitespace-free symbolic link there to
+        the absolute path `target`: `path_aliases/<digest of that path>/<its name>`, so one target
+        always gets the same alias, two never share one, and the name keeps its extension (the
+        ghdl plugin, for one, decides by it what a file is)."""
+        digest = hashlib.sha256(str(target).encode()).hexdigest()[:12]
+        alias = Path(PATH_ALIASES_DIR) / digest / _NOT_A_YS_TOKEN.sub("_", target.name)
+        alias.parent.mkdir(parents=True, exist_ok=True)
+        if alias.is_symlink():
+            if os.readlink(alias) == str(target):
+                return alias.as_posix()
+            alias.unlink()
+        try:
+            alias.symlink_to(target, target_is_directory=target.is_dir())
+        except OSError as e:
+            raise FlowException(
+                f"A yosys script cannot name {str(target)!r}, which contains whitespace, and "
+                f"creating a whitespace-free link to it failed: {e}"
+            ) from e
+        return alias.as_posix()
+
+    def ghdl_arg(self, arg: str) -> str:
+        """One of the ghdl plugin's arguments as a `.ys` token: it takes them all verbatim, so a
+        source file, or the directory of a `-P<dir>` library path, is named by `verbatim_path`."""
+        if arg.startswith("-P"):
+            return "-P" + self.verbatim_path(arg[2:])
+        if arg.startswith("-"):
+            return arg
+        return self.verbatim_path(arg)
+
     @cached_property
     def yosys(self):
         default_args = []
         ss = self.settings
-        if ss.quiet or (not ss.verbose and not ss.debug):
+        if ss.is_quiet or (not ss.verbose and not ss.debug):
             default_args += ["-T", "-Q"]
-        if ss.quiet:
+        if ss.is_quiet:
             default_args += ["-q"]
         if ss.debug:
             default_args += ["-g"]

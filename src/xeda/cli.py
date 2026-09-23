@@ -36,12 +36,10 @@ from .cli_utils import (
     select_design_in_project,
 )
 from .console import console
-from .design import DesignValidationError
-from .flow import Flow, FlowException, FlowFatalError, FlowSettingsError, registered_flows
+from .flow import Flow, FlowFatalError, registered_flows
 from .flow_runner import (
     DIR_NAME_HASH_LEN,
     DefaultRunner,
-    FlowNotFoundError,
     XedaOptions,
     add_file_logger,
     get_flow_class,
@@ -333,6 +331,20 @@ def list_optimizers(output_format: str, json_flag: bool):
         console.print(table)
 
 
+def _error_message(exc: BaseException) -> str:
+    """`exc` as the one message that reports it, in text and in `--json` alike: its text, led
+    by its kind -- once. Some exceptions already lead their text with their class name
+    (`DesignValidationError`, `FlowSettingsError`), and prefixing those again printed
+    "DesignValidationError: DesignValidationError: ..."."""
+    kind = type(exc).__name__
+    text = str(exc)
+    if not text:
+        return kind
+    if any(text.startswith(f"{name}:") for name in (kind, type(exc).__qualname__)):
+        return text
+    return f"{kind}: {text}"
+
+
 def _run_document(
     flow_name: str, design: Any, flow_obj: Optional[Flow], success: bool
 ) -> Dict[str, Any]:
@@ -418,7 +430,10 @@ def _run_document(
 @click.option(
     "--incremental/--no-incremental",
     default=True,
-    help="Incremental build. Useful during development. Flows run under a <design_name>/<flow_name>_<flow_settings_hash> subfolder in incremental mode.",
+    help="Incremental build (default): reuse the same run directory across runs. "
+    "--no-incremental deletes an existing run directory, and everything in it, before running "
+    "the flow; combined with --cached-dependencies, the design directory name also gets a "
+    "design-hash suffix.",
 )
 @click.option(
     "--cwd",
@@ -555,7 +570,7 @@ def run(
     flow: str,
     design_file: Optional[str] = None,
     design_file_opt: Optional[str] = None,
-    cached_dependencies: bool = True,
+    cached_dependencies: bool = False,
     flow_settings: Union[None, str, Iterable[str]] = None,
     incremental: bool = True,
     clean: bool = False,
@@ -643,7 +658,7 @@ def run(
                 design_allow_extra=design_allow_extra,
             )
         except XedaException as e:
-            log.critical("XedaException: %s", e)
+            log.critical("%s", _error_message(e))
             if json_flag:
                 emit_structured(
                     _remote_document(flow, design, remote, None, False, error=e), "json"
@@ -654,7 +669,7 @@ def run(
         except Exception as e:
             if not json_flag:
                 raise
-            log.critical("%s: %s", type(e).__name__, e)
+            log.critical("%s", _error_message(e))
             emit_structured(_remote_document(flow, design, remote, None, False, error=e), "json")
             if debug:
                 raise
@@ -715,8 +730,6 @@ def run(
         if json_flag:
             emit_structured(_run_document(flow, design, f, success), "json")
         sys.exit(0 if success else 1)
-    except FlowNotFoundError as e:
-        emit_failure("FlowNotFoundError", str(e), e)
     except FlowFatalError as e:
         emit_failure(
             "FlowFatalError",
@@ -732,18 +745,14 @@ def run(
             + (f", PATH:{e.path}" if debug else ""),
             e,
         )
-    except FlowSettingsError as e:
-        emit_failure("FlowSettingsError", str(e), e)
-    except FlowException as e:  # any flow exception
-        emit_failure("FlowException", str(e), e)
-    except DesignValidationError as e:
-        emit_failure("DesignValidationError", str(e), e)
     except XedaException as e:
-        emit_failure("XedaException", str(e), e)
+        # a user error -- a design or project file that does not load, an unknown flow or
+        # design, invalid settings, a failed dependency -- reported by its own class name
+        emit_failure(type(e).__name__, _error_message(e), e)
     except Exception as e:
         if not json_flag:
             raise
-        emit_failure(type(e).__name__, f"{type(e).__name__}: {e}", e)
+        emit_failure(type(e).__name__, _error_message(e), e)
 
 
 def _remote_document(
@@ -767,7 +776,7 @@ def _remote_document(
         document["run_path"] = str(run_path)
         document["results_json"] = str(Path(run_path) / "results.json")
     if error is not None:
-        document["error"] = {"type": type(error).__name__, "message": str(error)}
+        document["error"] = {"type": type(error).__name__, "message": _error_message(error)}
     elif not success:
         document["error"] = {
             "type": "FlowFailed",
@@ -780,15 +789,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     """The best `FlowOutcome` of a design-space exploration, as JSON-safe data."""
     if best is None:
         return None
-    settings: Any = getattr(best, "settings", None)
-    if settings is not None and hasattr(settings, "dict"):
-        settings = settings.model_dump()
-    return {
-        "results": json_safe(dict(getattr(best, "results", {}) or {})),
-        "settings": json_safe(settings),
-        "run_path": str(best.run_path) if getattr(best, "run_path", None) else None,
-        "timestamp": getattr(best, "timestamp", None),
-    }
+    return json_safe(best.as_json_value())
 
 
 @cli.command(
@@ -981,10 +982,15 @@ def dse(
 
     # will deprecate options and only use optimizer_settings
     opt_settings = {
-        **dict(
-            init_freq_low=init_freq_low,
-            init_freq_high=init_freq_high,
-        ),
+        # Only what was given: an omitted option is no value, and passing `None` for one made
+        # the optimizer report `input_value=None` instead of the setting it lacks.
+        **{
+            name: value
+            for name, value in dict(
+                init_freq_low=init_freq_low, init_freq_high=init_freq_high
+            ).items()
+            if value is not None
+        },
         **opt_settings,  # optimizer_settings overrides other options
     }
 
@@ -1035,7 +1041,7 @@ def dse(
     except SystemExit:
         raise
     except BaseException as e:
-        dse_failure(type(e).__name__, f"{type(e).__name__}: {e}", e)
+        dse_failure(type(e).__name__, _error_message(e), e)
         raise  # unreachable: dse_failure exits
     if json_flag:
         document = {
@@ -1090,7 +1096,8 @@ def dse(
 @click.option(
     "--incremental/--no-incremental",
     default=True,
-    help="Include incremental build directories (<design_name>/<flow_name>_<flow_settings_hash> name pattern)",
+    help="Also scrub runs under the plain <design_name> directory, not only "
+    "<design_name>_<design_hash> ones.",
 )
 @click.option(
     "--json",

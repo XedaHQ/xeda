@@ -156,14 +156,19 @@ class Ghdl(Flow, metaclass=ABCMeta):
         def common_flags(self, vhdl: VhdlSettings) -> List[str]:
             cf: List[str] = []
             if vhdl.standard:
-                if len(vhdl.standard) == 4 and vhdl.standard[:2] in ("20", "19"):
-                    vhdl.standard = vhdl.standard[2:]
-                cf.append(f"--std={vhdl.standard}")
+                # GHDL spells the standard with two digits ("2008" is --std=08). The design's
+                # own setting is left as written: the design is shared, and already hashed.
+                standard = vhdl.standard
+                if len(standard) == 4 and standard[:2] in ("20", "19"):
+                    standard = standard[2:]
+                cf.append(f"--std={standard}")
             if self.synopsys:
                 cf += ["-fsynopsys", "-fexplicit"]
             if self.work:
                 cf.append(f"--work={self.work}")
-            cf += [f"-P{p}" for p in self.lib_paths]
+            # each entry is a (library name, path) pair; `-P<dir>` adds the path to GHDL's
+            # library search path
+            cf += [f"-P{path}" for _, path in self.lib_paths if path is not None]
             return cf
 
         @staticmethod
@@ -247,91 +252,91 @@ class Ghdl(Flow, metaclass=ABCMeta):
                     tops = (entities[-1],)
         return tops
 
+    def analyze(
+        self,
+        sources: List[DesignSource],
+        top: Union[str, Tuple012, None],
+        vhdl: VhdlSettings,
+        find_top: bool = True,
+    ) -> Tuple012:
+        """Analyze the VHDL `sources` into the work library (after `ghdl remove`, if `clean`).
+
+        Returns the top unit(s): `top` as given or, when it is empty and `find_top` is set, as
+        discovered with `ghdl find-top`. Empty if neither yields one.
+        """
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        sources = [src for src in sources if src.type == SourceType.Vhdl]
+        if isinstance(top, str):
+            top = (top,)
+        backend = self.ghdl.info.get("backend", None)
+        if ss.clean:
+            self.ghdl.run("remove", *ss.get_flags(vhdl, "remove", backend=backend))
+        analysis_flags = ss.get_flags(vhdl, "analyze", backend=backend)
+        self.ghdl.run("analyze", *analysis_flags, *(str(s) for s in sources))
+        if not top and find_top:
+            log.info("No top units were specified. Trying to discover them with `find-top`.")
+            tops = self.find_top(*ss.get_flags(vhdl, "find-top"), sources=sources)
+            if tops:
+                # clunky way of converting to tuple, just to be safe and also keep mypy happy
+                top = (tops[0],) if len(tops) == 1 else (tops[0], tops[1])
+                log.info(
+                    "[ghdl:find-top] discovered top unit: %s. Set `top` explicitly if this was not the indtended top-level unit.",
+                    ", ".join(top),
+                )
+            else:
+                log.error(
+                    inspect.cleandoc(
+                        """[ghdl:find-top] Unable to determine the top unit.
+                        Please specify `tb.top` (for simulation) and/or `rtl.top` (for synthesis) in the design description."""
+                    )
+                )
+        return top or ()
+
     def elaborate(
         self,
         sources: List[DesignSource],
         top: Union[str, Tuple012, None],
         vhdl: VhdlSettings,
     ) -> Tuple012:
-        """returns top unit(s) as a Tuple012"""
+        """Analyze `sources` and build the simulation executable of the top unit (`ghdl make`).
+
+        Returns the top unit(s) as a Tuple012.
+        """
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        sources = [src for src in sources if src.type == SourceType.Vhdl]
-        if isinstance(top, str):
-            top = (top,)
-        steps = ["remove"] if ss.clean else []
-        steps.extend(["analyze", "make"])
+        top = self.analyze(sources, top, vhdl)
         if not top:
-            # run find-top after import
-            log.info("No top units were specified. Will try to discover by adding a find-top step")
-            find_top_index = (
-                steps.index("analyze")
-                if "analyze" in steps
-                else steps.index("import") if "import" in steps else -1
-            )
-            steps.insert(find_top_index + 1, "find-top")
+            raise FlowException("Unable to determine the top unit")
         backend = self.ghdl.info.get("backend", None)
-        for step in steps:
-            args = ss.get_flags(vhdl, step, backend=backend)
-            if step in ("import", "analyze"):
-                args += [str(s) for s in sources]
-            elif step in ("make", "elaborate"):
-                if isinstance(ss, SimFlow.Settings):
-                    args += ss.optimization_flags
-                if not top:
-                    raise Exception("Unable to determine the top unit")
-                if backend:
-                    log.info("GHDL backend: %s", backend)
-                    backend_split = backend.split()
-                    compiler = backend_split[0].lower() if backend_split else None
-                    backend_version = backend_split[1].split(".") if len(backend_split) > 1 else []
-                    # Workaround for annoying warnings on macOS/arm64 with earlier versions of the toolchains.
-                    # Not required when using the latest versions of Xcode/CommandLineTools, LLVM, GNAT, and GHDL.
-                    if compiler == "llvm" and backend_version and backend_version[0].isdigit():
-                        llvm_major = int(backend_version[0])
-                        link_flag = "-Wl,-no_compact_unwind"
-                        if (
-                            platform.system() == "Darwin"
-                            and platform.machine() == "arm64"
-                            and llvm_major
-                            < 19  # TODO Probably need to check the GNAT version? Also, no idea about the version number.
-                            and ss.linker_flags.count(link_flag) == 0
-                        ):
-                            log.info(
-                                "Adding no_compact_unwind linker flags for macOS/arm64 %s" % backend
-                            )
-                            ss.linker_flags.append(link_flag)
-                    if compiler in ("llvm", "gcc"):
-                        args += (f"-Wc,{x}" for x in ss.compiler_flags)
-                        args += (f"-Wa,{x}" for x in ss.assembler_flags)
-                        args += (f"-Wl,{x}" for x in ss.linker_flags)
-
-                args += list(top)
-            if step == "find-top":
-                tops = self.find_top(*args, sources=sources)
-                if tops:
-                    # clunky way of converting to tuple, just to be safe and also keep mypy happy
-                    top = (
-                        ()
-                        if len(tops) == 0
-                        else (tops[0],) if len(tops) == 1 else (tops[0], tops[1])
-                    )
-                    log.info(
-                        "[ghdl:find-top] discovered top unit: %s. Set `top` explicitly if this was not the indtended top-level unit.",
-                        ", ".join(top),
-                    )
-                else:
-                    log.error(
-                        inspect.cleandoc(
-                            """[ghdl:find-top] Unable to determine the top unit.
-                            Please specify `tb.top` (for simulation) and/or `rtl.top` (for synthesis) in the design description."""
-                        )
-                    )
-
-            else:
-                self.ghdl.run(step, *args)
-        if top is None:
-            top = tuple()
+        args = ss.get_flags(vhdl, "make", backend=backend)
+        if isinstance(ss, SimFlow.Settings):
+            args += ss.optimization_flags
+        if backend:
+            log.info("GHDL backend: %s", backend)
+            backend_split = backend.split()
+            compiler = backend_split[0].lower() if backend_split else None
+            backend_version = backend_split[1].split(".") if len(backend_split) > 1 else []
+            # Workaround for annoying warnings on macOS/arm64 with earlier versions of the toolchains.
+            # Not required when using the latest versions of Xcode/CommandLineTools, LLVM, GNAT, and GHDL.
+            if compiler == "llvm" and backend_version and backend_version[0].isdigit():
+                llvm_major = int(backend_version[0])
+                link_flag = "-Wl,-no_compact_unwind"
+                if (
+                    platform.system() == "Darwin"
+                    and platform.machine() == "arm64"
+                    and llvm_major
+                    < 19  # TODO Probably need to check the GNAT version? Also, no idea about the version number.
+                    and ss.linker_flags.count(link_flag) == 0
+                ):
+                    log.info("Adding no_compact_unwind linker flags for macOS/arm64 %s" % backend)
+                    ss.linker_flags.append(link_flag)
+            if compiler in ("llvm", "gcc"):
+                args += (f"-Wc,{x}" for x in ss.compiler_flags)
+                args += (f"-Wa,{x}" for x in ss.assembler_flags)
+                args += (f"-Wl,{x}" for x in ss.linker_flags)
+        args += list(top)
+        self.ghdl.run("make", *args)
         return top
 
 
@@ -375,57 +380,67 @@ class GhdlSynth(Ghdl, SynthFlow):
         design = self.design
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        top = self.elaborate(design.rtl.sources, design.rtl.top, design.language.vhdl)
-        # flags = ss.get_flags(design.language.vhdl, "elaborate")
         flags = self.synth_args(ss, design, one_shot_elab=False)
-        flags += setting_flag(ss.vendor_library, name="vendor_library")
-        flags += setting_flag(ss.no_formal, name="no_formal")
-        flags += setting_flag(ss.no_assert_cover, name="no_assert_cover")
-        flags += setting_flag(ss.assert_assumes, name="assert_assumes")
-        flags += setting_flag(ss.assume_asserts, name="assume_asserts")
-        flags += ss.generics_flags(design.rtl.generics)
         flags += ["--out=verilog", "--warn-nowrite"]
         if ss.verilog_output is None:
             ss.verilog_output = Path(design.rtl.top or design.name).with_suffix(".v")
-        if ss.verilog_output.is_dir() or (
+        per_source = ss.verilog_output.is_dir() or (
             not ss.verilog_output.exists() and ss.verilog_output.suffix not in {".v", ".sv"}
-        ):
-            if not ss.verilog_output.exists():
-                ss.verilog_output.mkdir(parents=True)
-            generated_files = []
-            for src in design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False):
+        )
+        # `ghdl synth` elaborates by itself, so the sources are only analyzed here: `ghdl make`
+        # would also build a simulation executable, and on the LLVM/GCC backends it rejects two
+        # sources sharing a base name (`rtl/a/fifo.vhd`, `rtl/b/fifo.vhd` are "both compiled to
+        # 'fifo.o'").
+        top = self.analyze(
+            design.rtl.sources, design.rtl.top, design.language.vhdl, find_top=not per_source
+        )
+        if per_source:
+            # Every output name is decided before anything is synthesized, so a collision is
+            # reported up front rather than after some outputs were already written.
+            outputs = self._per_source_outputs(ss.verilog_output)
+            ss.verilog_output.mkdir(parents=True, exist_ok=True)
+            fixed_params = "\n".join(
+                [f"  parameter {k} = {v};" for k, v in design.rtl.generics.items()]
+            )
+            for out_file, src in outputs.items():
                 verilog = self.ghdl.run_get_stdout("synth", *flags, str(src.path), "-e")
                 if not verilog:
-                    raise FlowException("ghdl synthesis failed!")
-                fixed_params = "\n".join(
-                    [f"  parameter {k} = {v};" for k, v in design.rtl.generics.items()]
-                )
+                    raise FlowException(f"ghdl synthesis of {src.path} failed!")
                 verilog = verilog.replace(");", f");\n{fixed_params}", 1)
-                out_file = ss.verilog_output / (src.path.stem + ".v")
-                if out_file in generated_files:  # TODO does this work as intended?
-                    # generate a prefix by turning the parent of src.path into an acceptable filename prefix
-                    new_prefix = "_".join(str(s) for s in src._specified_path.parents)
-                    log.warning("File %s already generated", out_file)
-                    out_file = ss.verilog_output / (new_prefix + "_" + src.path.stem + ".v")
-                    assert (
-                        out_file not in generated_files
-                    ), f"generated file name collision for {src.path}: file {out_file} already generated"
-                # TODO FIXME add settings for what to do, default to fail
                 if out_file.exists():
                     log.warning("File %s will be overwritten!", out_file)
                 else:
                     log.info("Generating verilog: %s", out_file)
                 with open(out_file, "w") as f:
                     f.write(verilog)
-                generated_files.append(out_file)
-            self.artifacts.generated_verilog = generated_files
+            self.artifacts.generated_verilog = list(outputs)
         else:
-            if top:
-                flags += [top[0]]
-            if not ss.verilog_output.parent.exists():
-                ss.verilog_output.parent.mkdir(parents=True)
+            if not top:
+                raise FlowException("Unable to determine the top unit")
+            ss.verilog_output.parent.mkdir(parents=True, exist_ok=True)
             log.info("Generating verilog: %s", ss.verilog_output)
-            self.ghdl.run("synth", *flags, stdout=ss.verilog_output)
+            self.ghdl.run("synth", *flags, *top, stdout=ss.verilog_output)
+
+    def _per_source_outputs(self, output_dir: Path) -> dict[Path, DesignSource]:
+        """The Verilog file each VHDL source is converted to, in source order.
+
+        Named after the source's path (`Design.source_artifact_name`), not its stem: two sources
+        under different directories may share one (`rtl/a/fifo.vhd`, `rtl/b/fifo.vhd`). Two
+        sources whose names still coincide are an error naming both, since one output would
+        silently replace the other.
+        """
+        design = self.design
+        outputs: dict[Path, DesignSource] = {}
+        for src in design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False):
+            out_file = output_dir / design.source_artifact_name(src, ".v")
+            other = outputs.get(out_file)
+            if other is not None:
+                raise FlowException(
+                    f"VHDL sources {other.path} and {src.path} would both be converted to "
+                    f"{out_file}; rename one of them."
+                )
+            outputs[out_file] = src
+        return outputs
 
     @staticmethod
     def synth_args(ss: Optional[Settings], design: Design, one_shot_elab: bool = True) -> List[str]:
@@ -592,15 +607,19 @@ class GhdlSim(Ghdl, SimFlow):
             if ss.vpi is None
             else [ss.vpi] if not isinstance(ss.vpi, (list, tuple)) else list(ss.vpi)
         )
+        # The testbench's generics and top as this run uses them. The design itself is not
+        # touched: every flow of a run shares it, and it has already been hashed.
+        tb_generics = design.tb.generics
+        tb_top = design.tb.top
         # TODO factor out cocotb handling
         if design.tb.cocotb and self.cocotb:
             vpi_path = self.cocotb.lib_path()
             assert vpi_path, "cocotb VPI library for GHDL was not found"
             vpi.append(vpi_path)
             # tb_generics = list(design.tb.generics)  # TODO pass to cocotb?
-            design.tb.generics = design.rtl.generics
-            if not design.tb.top and design.rtl.top:
-                design.tb.top = (design.rtl.top,)
+            tb_generics = design.rtl.generics
+            if not tb_top and design.rtl.top:
+                tb_top = (design.rtl.top,)
         run_flags += setting_flag(vpi, name="vpi")
 
         if ss.debug:
@@ -618,13 +637,15 @@ class GhdlSim(Ghdl, SimFlow):
         run_flags += setting_flag(ss.stop_time, name="stop_time")
         run_flags += setting_flag(ss.stop_delta, name="stop_delta")
 
-        run_flags.extend(ss.generics_flags(design.tb.generics))
+        run_flags.extend(ss.generics_flags(tb_generics))
 
-        design.tb.top = self.elaborate(design.sim_sources, design.tb.top, design.language.vhdl)
+        tb_top = self.elaborate(design.sim_sources, tb_top, design.language.vhdl)
+        # as `design.sim_tops`, with the top unit `elaborate` settled on
+        sim_tops = (design.rtl.top,) if design.tb.cocotb and design.rtl.top else tb_top
         self.ghdl.run(
             "run",
             *cf,
-            *design.sim_tops,
+            *sim_tops,
             *run_flags,
             env=self.cocotb.env(design) if self.cocotb else {},
         )
