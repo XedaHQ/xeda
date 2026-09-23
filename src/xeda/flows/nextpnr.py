@@ -7,7 +7,12 @@ from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
-from ..board import WithFpgaBoardSettings, get_board_data, get_board_file_path
+from ..board import (
+    FPGA_OR_BOARD_REQUIRED,
+    WithFpgaBoardSettings,
+    get_board_data,
+    get_board_file_path,
+)
 from ..dataclass import Field, XedaBaseModel, field_validator
 from ..flow import (
     FlowFatalError,
@@ -152,6 +157,8 @@ class Nextpnr(FpgaSynthFlow):
     bel types to canonical resource names (`lut`, `ff`, ...) are ECP5-specific, so another family
     gets the raw per-bel-type counts only.
     """
+
+    required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
     results_description = describe_results(
         "Fmax",
@@ -318,7 +325,7 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.lpf_allow_unconstrained)
         args += setting_flag(ss.debug)
         args += setting_flag(ss.verbose > 0, name="verbose")  # nextpnr has one level
-        args += setting_flag(ss.quiet)
+        args += setting_flag(ss.is_quiet, name="quiet")
         args += setting_flag(ss.randomize_seed)
         args += setting_flag(ss.timing_allow_fail)
         args += setting_flag(ss.ignore_loops)

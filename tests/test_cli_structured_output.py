@@ -243,3 +243,24 @@ def test_help_does_not_require_a_terminal():
         proc = run_xeda(*args)
         assert proc.returncode == 0, proc.stderr
         assert "Usage:" in proc.stdout
+
+
+def test_no_incremental_help_says_what_happens_to_the_previous_run(tmp_path):
+    """`--no-incremental` deletes the previous run directory: the CLI never asks the launcher
+    for backups. Its help used to say it "backs up or removes" it -- on a destructive option,
+    the one word that matters."""
+    import click
+
+    help_text = " ".join(click.unstyle(run_xeda("run", "--help", check=True).stdout).split())
+    assert "backs up" not in help_text
+    assert "--no-incremental deletes" in help_text
+
+    args = ("run", "vivado_synth", str(SQRT_DESIGN), "-s", "clock.period=5.5", "--json")
+    first = json.loads(run_xeda(*args, cwd=tmp_path, fake_tools=True).stdout)
+    run_path = Path(first["run_path"])
+    (run_path / "MARKER").write_text("from the previous run\n")
+    second = json.loads(run_xeda(*args, "--no-incremental", cwd=tmp_path, fake_tools=True).stdout)
+    assert second["success"] is True
+    assert Path(second["run_path"]) == run_path
+    assert not (run_path / "MARKER").exists()
+    assert sorted(p.name for p in run_path.parent.iterdir()) == [run_path.name]  # no backup

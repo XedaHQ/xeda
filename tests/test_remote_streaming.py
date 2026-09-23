@@ -20,7 +20,14 @@ from typing import List, Tuple
 import execnet
 import pytest
 
-from xeda.flow_runner.remote import STREAM_OUTPUT_SETUP, check_remote_python, remote_runner
+from xeda.flow_runner.remote import (
+    REMOTE_PROBE,
+    STREAM_OUTPUT_SETUP,
+    RemoteIncompatible,
+    check_remote_python,
+    check_remote_xeda,
+    remote_runner,
+)
 
 TimedChunks = List[Tuple[float, str]]
 
@@ -28,8 +35,27 @@ TimedChunks = List[Tuple[float, str]]
 def test_remote_python_must_satisfy_the_package_floor():
     check_remote_python((3, 11, 0, "final", 0))
     check_remote_python((3, 14, 1, "final", 0))
-    with pytest.raises(RuntimeError, match=r"Python 3\.11\.0 or newer.*3\.10\.9"):
+    with pytest.raises(RemoteIncompatible, match=r"Python 3\.11\.0 or newer.*3\.10\.9"):
         check_remote_python((3, 10, 9, "final", 0))
+
+
+def test_the_remote_xeda_must_read_what_this_side_sends():
+    """Which xeda the remote's interpreter imports is not a given (it is started by a non-login
+    shell), and an old one fails on the design archive with whatever its loader chokes on first
+    -- a 0.2 checkout said `rtl.sources: unhashable type: 'dict'`. The check names the version,
+    the interpreter and *where* that xeda lives, which is what finds a shadowing install."""
+    check_remote_xeda("0.4.0", "/site/xeda/__init__.py", "/usr/bin/python3")
+    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3")
+
+    with pytest.raises(RemoteIncompatible) as old:
+        check_remote_xeda(
+            "0.2.13.dev1+g13970c24c", "/home/u/src/xeda/src/xeda/__init__.py", "/usr/bin/python3"
+        )
+    for part in ("0.2.13.dev1", "/home/u/src/xeda/src/xeda", "/usr/bin/python3", "0.4.0"):
+        assert part in str(old.value)
+
+    with pytest.raises(RemoteIncompatible, match="/usr/bin/python3.*no xeda"):
+        check_remote_xeda(None, None, "/usr/bin/python3")
 
 
 # Makes `import xeda` (and any submodule) fail inside the worker, to prove the
@@ -147,14 +173,18 @@ except ImportError:
         gw.exit()
 
 
-def test_stream_output_setup_never_touches_xeda():
-    """Static counterpart to the test above: the streaming setup is shipped to
-    the remote host and runs against *its* xeda, so it must stay stdlib-only.
+@pytest.mark.parametrize(
+    "shipped", [STREAM_OUTPUT_SETUP, REMOTE_PROBE], ids=["STREAM_OUTPUT_SETUP", "REMOTE_PROBE"]
+)
+def test_code_shipped_as_text_never_touches_xeda(shipped):
+    """Static counterpart to the test above: the streaming setup and the version probe are
+    shipped to the remote host and run against *its* xeda (or none), so they must stay
+    stdlib-only.
 
     Checks the parsed code rather than the raw text, so that comments are free
     to explain why the constraint exists without tripping the check.
     """
-    tree = ast.parse(STREAM_OUTPUT_SETUP)
+    tree = ast.parse(shipped)
 
     imported = set()
     for node in ast.walk(tree):

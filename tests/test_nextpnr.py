@@ -364,3 +364,30 @@ def test_slack_exactly_zero_is_met(tmp_path):
     flow = make_flow(tmp_path, report)
     assert flow.parse_reports() is True
     assert flow.results["timing_met"] is True
+
+
+def test_nextpnr_runs_with_its_device_given_only_for_yosys_fpga(tmp_path, monkeypatch):
+    """End to end, with the real tools: the device given in `[flows.yosys_fpga]` alone reaches
+    both yosys and nextpnr."""
+    from xeda import Design
+    from xeda.flow_runner import DefaultRunner
+    from xeda.flows import Nextpnr
+
+    from .tool_utils import require_nextpnr_ecp5
+
+    require_nextpnr_ecp5()
+    (tmp_path / "blink.v").write_text(
+        "module blink(input clk, output reg q); always @(posedge clk) q <= ~q; endmodule\n"
+    )
+    design = Design(
+        name="blink",
+        design_root=tmp_path,
+        rtl={"sources": ["blink.v"], "top": "blink", "clock": {"port": "clk"}},
+        flow={"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}},
+    )
+    monkeypatch.chdir(tmp_path)
+    flow = DefaultRunner(tmp_path / "xeda_run").run(
+        Nextpnr, design, flow_overrides={"clock": {"period": 20.0}}
+    )
+    assert flow is not None and flow.succeeded
+    assert flow.settings.fpga is not None and flow.settings.fpga.part == "LFE5U-25F-6BG381C"

@@ -445,6 +445,7 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, m
         sources = ["top.v"]
         top = "top"
         [flows.nextpnr]
+        fpga.part = "LFE5U-25F-6BG381C"
         yosys.abc9 = true
         yosys.flatten = false
         """,
@@ -500,6 +501,7 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
         tmp_path / "xedaproject.toml",
         """
         [flows.nextpnr]
+        fpga.part = "LFE5U-25F-6BG381C"
         seed = 1
         yosys.abc9 = true
 
@@ -722,3 +724,65 @@ def test_running_a_design_mapping_does_not_modify_the_callers_mapping(tmp_path, 
         DefaultRunner(tmp_path / "run").run(VivadoSynth, design, flow_settings={"fpga": "x"})
 
     assert design == before
+
+
+# ---------------------------------------------------------------------------------------------
+# Every spelling of a setting is the same setting
+# ---------------------------------------------------------------------------------------------
+
+
+def test_every_accepted_spelling_of_a_setting_gets_the_same_input_conveniences(tmp_path):
+    """The layer merge and a flow's input conveniences resolve spellings with one table: when
+    they had one each, only the merge knew `validation_alias` choices, so a setting given by one
+    of them was merged right but skipped `$DESIGN_ROOT` expansion and comma-separated lists."""
+    from pathlib import Path
+    from typing import List
+
+    from xeda.dataclass import AliasChoices, Field
+    from xeda.flow import Flow
+
+    class Settings(Flow.Settings):
+        script: Path = Field(
+            Path("x"), validation_alias=AliasChoices("script", "tcl"), description="a path"
+        )
+        files: List[str] = Field(
+            [], validation_alias=AliasChoices("files", "srcs"), description="a list"
+        )
+
+    given = Settings.from_input(
+        {"tcl": "$DESIGN_ROOT/run.tcl", "srcs": "a, b"}, design_root=tmp_path
+    )
+    assert given.script == tmp_path / "run.tcl"
+    assert given.files == ["a", "b"]
+    assert merge_layers({"tcl": "lower"}, {"script": "higher"}, settings_cls=Settings) == {
+        "script": "higher"
+    }
+
+
+def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypatch):
+    """The remote runner composes a flow's settings as the local launcher does: the device given
+    only in `[flows.yosys_fpga]` reaches `nextpnr` (and gets it past its required settings)."""
+    from xeda.flow_runner import remote
+
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    design = _write(
+        tmp_path / "d.toml",
+        """
+        name = "d"
+        [rtl]
+        sources = ["top.v"]
+        top = "top"
+        [flows.yosys_fpga]
+        fpga.part = "LFE5U-25F-6BG381C"
+        """,
+    )
+    composed = {}
+
+    def capture(flow_name, settings):
+        composed.update(settings=settings)
+        raise _Launched
+
+    monkeypatch.setattr(remote, "flow_run_hash", capture)
+    with pytest.raises(_Launched):
+        remote.RemoteRunner().run_remote(design, "nextpnr", "host")
+    assert composed["settings"].yosys.fpga.part == "LFE5U-25F-6BG381C"

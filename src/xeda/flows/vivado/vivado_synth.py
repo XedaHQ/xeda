@@ -207,8 +207,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         @field_validator("fpga")
         @classmethod
         def _validate_fpga(cls, value):
-            if not value or not value.part:
-                raise ValueError("FPGA.part must be specified")
+            # A missing device is reported when the flow is launched (`required_settings`); a
+            # device given without a part is no device Vivado can target.
+            if value is not None and not value.part:
+                raise ValueError("Vivado needs the FPGA's part number (`fpga.part`)")
             return value
 
     def init(self):

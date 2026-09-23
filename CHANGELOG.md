@@ -5,6 +5,173 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- An FPGA flow launched without a device says so, once, before anything runs, naming the setting
+  and how to give it (`-s fpga.part=<part>`, or a `board` for the flows that take one), as a
+  `FlowSettingsException` the CLI reports in one line. Each flow used to fail
+  its own way: `yosys_fpga`, `nextpnr` and `open_xc7` with `FlowFatalException FPGA target device
+  not specified` from inside `run()`, `quartus` and `ise_synth` with a Jinja traceback (`'None' has
+  no attribute 'part'`). A flow declares what it cannot run without (`Flow.required_settings`) and
+  the launcher checks it at launch -- also on the local side of a remote run, before anything is
+  shipped -- counting a value given in a dependency's section when the flow shares it
+  (`nextpnr`'s `yosys.fpga`).
+- `xeda run --remote` ships a design's sources laid out as they are under the design root, rather
+  than flattened into one directory. A Verilog `include` finds the header beside the including
+  file first, so flattening could make the remote build another design from the same files: two
+  `defs.vh` were renamed apart, and an includer lost the one beside it. A source outside the root
+  still travels among the flat sources.
+- A design with a dependency is recorded as built: the dependency's sources, merged into the
+  design when it is built, are no longer recorded beside a dependency that merges them again. A
+  design reloaded from its `settings.json` had every dependency source twice -- so the recorded
+  `design_hash` could not be reproduced from the design beside it -- and a remote run got the
+  duplicates and tried to fetch the dependency all over again.
+- Files a flow writes one per source (GHDL's Verilog output) get distinct names by construction:
+  a name that another source would fold to as well -- `my-fifo.vhd` and `my_fifo.vhd`,
+  `fifo.vhd` and `fifo.vhdl`, a dependency's `rtl/fifo.vhd` beside the design's own -- carries a
+  short digest of its path; every other name is unchanged.
+- `$DESIGN_ROOT` (and any other variable) in a source pattern stands for the place it names: a
+  design root called `proj[1]` made `$DESIGN_ROOT/rtl/*.vhd` match a sibling `proj1`'s sources,
+  and `proj[v2]` matched nothing. A pattern matches files only, and a directory named as a source
+  is a validation error naming it, rather than loading and failing later with
+  `IsADirectoryError`.
+- A `{ path = ... }` source not written yet can be validated again (an assignment, a reload of a
+  dumped design): de-duplicating sources compared their contents, which such a source does not
+  have yet, and raised `FileNotFoundError`. One resource is one file, by place.
+- Clock and timing values are parsed strictly: a number, optionally followed by one unit (`5.5`,
+  `"5.5ns"`, `"1e3 kHz"`). They were evaluated as pint expressions, so `"100.mHz"` and
+  `"(100)mHz"` got past the unit case check and became a 0.1 Hz clock, `"5 ns * 2"` was a 10 ns
+  clock, and `"5_ns"`, `"("` or `"5/0 ns"` crashed with a traceback; `clock.period = true` was
+  1 ns, and `"nan ns"`/`"inf ns"` were accepted. All are now field errors showing the expected
+  form, and so is an ambiguous unit (`min`).
+- A design file that cannot be loaded is a `DesignFileParseError` naming the file -- and the line
+  and column, when the parser knows them -- whatever the cause: malformed TOML (a bare
+  `TOMLDecodeError` traceback before), malformed JSON or YAML, an unreadable or non-UTF-8 file, an
+  unsupported suffix, or a document that is not a table. JSON positions were one off.
+- A design that fails validation names its file again.
+- `xeda run` and `xeda dse` report a user error -- a design or project file that does not load, a
+  design name the project lacks, no design at all -- as one CRITICAL line, or one `--json`
+  document typed by the exception's own class, instead of a traceback or a flow that "did not
+  complete successfully". Messages no longer repeat their type
+  (`DesignValidationError: DesignValidationError: ...`).
+- `xeda dse` without `--init-freq-low`/`--init-freq-high` reports the settings the optimizer
+  lacks, as a flow's settings are reported, instead of pydantic's `input_value=None`: the CLI
+  handed it `None` for an option not given. A flow setting the search cannot run without (an
+  FPGA's device) is reported once, before any run starts -- it failed every run of the search
+  separately, and was reported only as `NoSuccessfulRun`.
+- Launching a flow with a dependency no longer switches off `--post-cleanup` and
+  `--post-cleanup-purge` for it, and no longer leaves a reused launcher incremental and
+  non-scrubbing: the launcher wrote the dependency's run-directory policy onto its own settings.
+- `--no-incremental`'s help said it "backs up or removes" the previous run directory; it deletes
+  it, and says so.
+- No mapping key turns a JSON document into an error. `json` accepts only text, numbers, `bool`
+  and `None` as keys, so results reported under a tuple or `Path` key failed to write
+  `results.json` (and a remote run's results failed to come back at all); a key is now written by
+  the rule a value is -- its text, an enum its value -- in `results.json`, `settings.json`, the
+  results table, a remote run's results, and every `--json` document. A printed document keeps
+  the keys the file has (`true`, `null`, a string enum's value), so the two cannot differ.
+- A dependency's own settings section reaches the flow that launches it: an `fpga` given only in
+  `[flows.yosys_fpga]` is `nextpnr`'s (and `open_xc7`'s, and `openfpgaloader`'s) device as well.
+  That section was applied only when the dependency launched -- after the depending flow's
+  `init()` had resolved the settings they share -- so `nextpnr` ran yosys and then failed on a
+  missing device. It is now the base of the depending flow's own `yosys` settings, which
+  `[flows.nextpnr] yosys.*` and `-s yosys.*` refine, locally and for a remote run alike.
+- A flow can no longer change the design anyone else sees. Every flow of a run shared one
+  `Design` object, hashed before the flows ran and recorded beside that hash, so a flow that
+  edited it changed what its dependencies were given and what `settings.json` recorded under a
+  hash computed from something else. The launcher now gives each flow its own copy, as it already
+  did for settings, and the flows that did edit it no longer do:
+    - `yosys`/`yosys_fpga` emptied `rtl.parameters`, so a VHDL top's generics never reached GHDL
+      at all: synthesis used their defaults;
+    - GHDL rewrote the VHDL standard (`2008` to `08`) and stored the top it found in `tb.top`;
+    - Verilator merged the testbench's defines into the RTL's; bsc added `BSV_POSITIVE_RESET` to
+      the RTL parameters.
+- `ghdl_synth` only analyzes before `ghdl synth`, which elaborates by itself: on the LLVM and GCC
+  backends, `ghdl make` rejected two sources sharing a base name ("both compiled to 'fifo.o'")
+  before the per-source conversion began. Two sources whose output names would collide are an
+  error naming both, raised before anything is converted (a bare `assert` before). Its synthesis
+  flags are no longer given twice, and an `(entity, architecture)` top passes both.
+- `yosys_fpga` handed GHDL each VHDL file twice (`ghdl ... sqrt.vhdl sqrt.vhdl -e sqrt`): the
+  script lists them already.
+- Yosys scripts accept paths with spaces. A `.ys` path is quoted where yosys strips the quotes;
+  where it passes them on verbatim (`read_verilog -I`, `show -prefix`, the GHDL and slang
+  plugins), a space-free link in the run directory stands in. `rtl_graph` no longer crashes,
+  `.svh` headers are include directories, and GHDL `lib_paths` become `-P<dir>`.
+- VCS is given `+incdir+` for every header directory, and Verilator also searches the
+  testbench's header directories (`Design.header_dirs`).
+- Liberty files that share a stem no longer overwrite each other when pre-processed, and each no
+  longer carries every earlier library's content.
+- A PDK's `time_unit` is checked when the platform loads, instead of failing once a run renders
+  its SDC or scales the delays it parses.
+- `$DESIGN_ROOT` and `$DESIGN_DIR` in a design's file paths (sources in either form, `{ file =
+  ... }` parameters, a generator's `sources`) were never expanded: the path kept a literal
+  `$DESIGN_ROOT` and failed only once a flow read the file. They now name the design root, so
+  `$DESIGN_ROOT/src/a.vhd` and `src/a.vhd` are the same source. A glob is expanded after them, so
+  `$DESIGN_ROOT/src/*.vhd` no longer silently matches nothing. However a source's path is
+  spelled, and wherever the design sits, it is the same source: see *Changed* for the design
+  hash, which counts a source by its path only relative to the design root, and only where other
+  files find it by its place.
+- A glob in a design's sources expands in a stable, sorted order. `glob` returns filesystem
+  order, while source order is semantic -- it is the order VHDL units are compiled in, and it is
+  part of the design hash -- so one design got a different compile order, and a different
+  identity, on a different filesystem.
+- A glob that matches no file is an error naming the pattern, instead of contributing no sources
+  at all and letting the design reach a tool missing its top-level unit.
+- A generator is skipped by what its sources *name*: `run_only_if_sources_modified` compared the
+  raw `rtl.sources` entries against the filesystem, before the validator that interprets them, so
+  every spelling but a plain relative path looked absent and the generator re-ran on every load.
+  A `{ file = ... }` source reached `Path(dict)` and failed the design with an opaque
+  `TypeError` naming no key.
+- Expanding a path no longer accumulates state: the environment filter was a module-level list
+  that every expansion appended to, so it grew without bound as a design's sources, parameters
+  and generator inputs were resolved.
+- A design's source files are checked when it is loaded again, as documented: a missing source,
+  `{ file = ... }` parameter or generator source is a validation error naming it. It used to
+  load and fail only once a flow read the file (a generator source, with a traceback). A source a
+  generator creates later is given as `{ path = ... }`, which is not checked.
+- `xeda run --json` reports an invalid design file as a `DesignValidationError` (or
+  `DesignFileParseError`) with its message, as it already did for a design from a project file,
+  instead of only saying the flow "did not complete successfully".
+- Clock units are case-sensitive, as in SI, and parse the same on every run. The unit registry
+  was case-insensitive, so `"5.5nS"`, `"10uS"` or `"2mS"` were nanoseconds on some runs and
+  siemens on others (it depended on Python's hash seed), and `"100mhz"` was silently a 0.1 Hz
+  clock (millihertz). A clock unit in another case (`mhz`, `mHz`, `NS`, `Ms`, `KHz`) is now an
+  error naming the right spelling (`MHz`, `ns`, `ms`, `kHz`).
+- `openroad`: the `optimize` setting never reached synthesis -- the function that builds the abc
+  script returned nothing -- so abc always ran yosys's default mapping script. See *Changed*.
+- `xeda scrub <flow> <design>` never removed the `<design>/<flow>` directory a default run
+  creates, only the hashed ones `--cached-dependencies` makes, and still reported success. The
+  `--incremental` help of `run` and `scrub` also described run directory names that only exist
+  with `--cached-dependencies`.
+- `quiet` no longer depends on the order settings are given in: `verbose` or `debug` given with it
+  turned it off, but assigned after it (as a depending flow passes its `verbose` level on to its
+  dependencies) did not. `verbose` and `debug` now always take precedence.
+- A copy of a tool subclass (`VivadoTool`, `GhdlTool`, the cocotb tool, ...) kept the cached
+  version and info of the tool it was copied from, since invalidating only looked at the
+  subclass's own cached properties, not inherited ones.
+- `PhysicalClock.period_ps = 2500` set a 2500 ns period instead of 2.5 ns.
+- A generator that does not write the sources the design declares is reported against the
+  generator, naming it and the files it was supposed to produce, when the design loads. A source
+  written `{ path = ... }` skips the check the sources validator does, so this used to surface
+  far later and far worse: a bare `FileNotFoundError` from inside the design hash, naming a path
+  and nothing else. The sources are re-expanded after the generator runs, since a glob is
+  exactly what was waiting for it, so a generated source counts the same however it is declared
+  -- checked, `{ path = ... }` or a glob all give one design one hash.
+- A file that is missing when a design is hashed explains itself: `{ path = ... }` defers the
+  existence check, it does not waive it, and a design whose sources have no content has no
+  identity. It used to be an errno from `open()`.
+- Nothing xeda writes as JSON is serialized by reading an object's `__dict__` any more. That is
+  not a serialization format: it is what put a source's private `_specified_path` into
+  `settings.json`, it left a `Path` for the encoder to stringify by luck rather than by rule,
+  and on a plain `Enum` -- whose `__dict__` carries `__objclass__` -- descending into it does
+  not terminate (`semantic_hash` already carried a guard against exactly that). A pydantic model
+  serializes through pydantic; anything else states its JSON form in `as_json_value()`; anything
+  unrecognized is written as its text.
+- `ghdl`: converting a design to Verilog (`--out=verilog` into a directory) failed when two VHDL
+  sources shared a filename stem, as `rtl/a/fifo.vhd` and `rtl/b/fifo.vhd` do. The fallback meant
+  to tell them apart built its prefix from `Path.parents`, a list of *ancestors*, so the name it
+  produced (`vout/rtl/b_rtl_._fifo.v`) still held path separators and named a directory that does
+  not exist. Each generated file is now named after the source's path relative to the design root
+  (`rtl_a_fifo.v`), via `Design.source_artifact_name`, which any flow that writes one artifact per
+  source should use.
 - A project file giving both `flow` and `flows` (or `design` and `designs`) is an error instead
   of one being silently ignored, and a design entry that is not a table is reported instead of
   dropped.
@@ -19,11 +186,11 @@ All notable changes to this project will be documented in this file.
 - A run's hash no longer depends on where anything is: the same settings run from another
   directory, or an identical copy of a design somewhere else, used to get a different hash, so
   `--cached-dependencies` re-ran them. A path under the design (`$DESIGN_ROOT/c.xdc`) now counts
-  relative to it. Local and remote runs compute the hash the same way. Design hashes now preserve
-  each source's relative path/layout and compilation order, and include source type/standard plus
-  clock, language, attribute and testbench metadata, so behaviorally different designs cannot
-  silently reuse one run. Moving the whole design together keeps those relative paths and
-  therefore keeps the design hash stable.
+  relative to it. Local and remote runs compute the hash the same way. Design hashes now include
+  each source's content, type, `standard` and `variant`, and its position in the compile order,
+  plus clock, language, attribute and testbench metadata, so behaviorally different designs
+  cannot silently reuse one run. See *Changed* for source and parameter paths, which the design
+  hash no longer covers at all.
 - Example designs: every `[flows.*]` section now validates. Two named `cxxrtl`, which was never a
   flow (it is `yosys_sim`); `examples/vhdl/xedaproject.toml` duplicated `vivado_synth` under its
   pre-2022 name `vivado_prj_synth`; `sqrt.toml` asked `vivado_alt_synth` for a synthesis strategy
@@ -162,8 +329,82 @@ All notable changes to this project will be documented in this file.
   changed once its version had been probed, and objects written to `settings.json` through the
   JSON fallback could carry those cached values too. Hashing a whole `Design` recursed without end
   on its source types.
+- `Design.model_dump()` and `Design.model_dump_json()` no longer pass `serialize_as_any=True`.
+  That flag duck-types every value by shape, so it skipped the serializer an *arbitrary*
+  (non-pydantic) type declares on its own core schema -- exactly how `FileResource`/`DesignSource`
+  serialize -- which is what made `model_dump_json()` of a design with sources raise
+  `PydanticSerializationError`. Polymorphism is now declared only where it is needed:
+  `RtlSettings.generator` is `SerializeAsAny[Generator]` (so a `ChiselGenerator` keeps its own
+  fields), joining `Design.dependencies`, which already was. Both still prune
+  (`exclude_unset`/`exclude_defaults`), so `model_dump_json()` is the same document xeda writes
+  through `model_dump(mode="json")`; their `exclude=` of `rtl_hash`, `tb_hash`, `rtl_fingerprint`
+  and `tb_fingerprint` is gone, since those are properties, not fields, and were never dumped.
+- A design source now serializes to JSON faithfully. The new `FileResource.as_json_value()`
+  (overridden by `DesignSource`) emits a bare path string when there is nothing else to say, and
+  otherwise a table: `{"file": ...}` plus any `type`/`standard`/`variant` the design *stated* (a
+  value merely inferred from the filename suffix is left out, since reloading re-infers it the same
+  way), or `{"path": ...}` for an unchecked resource. It previously serialized to a bare path, which
+  lost stated compile metadata that is part of the design hash, and turned a `{ path = ... }`
+  source -- one naming a file that need not exist yet -- into a checked one, so reloading the
+  document it was written to failed on a file the design never promised was there.
+- `settings.json` is now written through pydantic. `utils.dump_json` serializes with the new
+  `utils.json_encodable`: a pydantic model through `model_dump(mode="json")`, an enum as its
+  value, a set as a list, an object declaring `as_json_value()` as that, and anything else as its
+  text. It used to read `__dict__` directly, so a `DesignSource` was recorded as its raw instance
+  state (private `_specified_path` included), which nothing could load back, and the
+  `Path`/enum/`FileResource` conversions the models declare were skipped. `settings.json` is also
+  leaner now, because `Design.model_dump()`'s `exclude_unset`/`exclude_defaults` finally apply to
+  it.
+- The documents `--json` prints and the JSON files xeda writes encode a value the same way:
+  `introspect.json_safe` now hands everything that is not plain data to `json_encodable`. It used
+  to dump a model in python mode and stringify what was left, which flattened a design's sources
+  to bare paths -- dropping a `{ path = ... }` table and every stated `type` -- where the file
+  kept them; and a raw set was written to a file as its `repr` text.
+- Two pydantic-v1 leftovers are gone: `DesignSource.__json_encoder__` (v2 never calls it, and it
+  would have raised anyway, since `json.dumps` cannot encode a `Path`), and the `default=` encoder
+  chains in `send_design` and `print_results` that probed for `obj.json` and `obj.__json_encoder__`
+  -- in v2 `obj.json` is a deprecated bound method, which those chains would have handed to `json`
+  as a value. Both now use `json_encodable`.
+- `xeda run --remote` now ships file-valued parameters correctly. `send_design` used to send
+  `rtl.parameters` as they were, i.e. as absolute paths on the *sending* machine, so the remote
+  handed its tool a path to nothing. A parameter is now re-rooted from its value alone: a path
+  under the design root keeps its place relative to the root -- an existing file travels in the
+  archive at that same place, a path with no file yet (an output a testbench writes) is only a
+  place for the remote to write -- and an existing file elsewhere travels among the sources. Both
+  travel as tables, so the remote resolves them against its own design root rather than its
+  working directory, and a remote run computes the same design hash as the local run that sent it
+  -- which they never did before, since repointed sources alone used to change it.
+- A generator is told the design root in `$DESIGN_ROOT` in all three of its forms. The shell
+  string and table forms deferred to a `DESIGN_ROOT` the shell happened to export -- another
+  project's, say -- and the argv form set none at all. A `DESIGN_ROOT` the generator's own `env`
+  states is still kept.
+- `xeda run --remote` no longer crashes after fetching the run's artifacts when the local run
+  directory is not under the directory xeda was started in (`--xeda-run-dir`, `XEDA_RUN_DIR`):
+  a log message computed its path relative to the start directory.
 
 ### Changed
+- Design- and project-file suffixes are case-sensitive, and read by one table: `.TOML` is rejected
+  naming `.toml`, and `.yml` is YAML for a project file too. A string with a design-file suffix is
+  always a design file -- for `xeda run --remote` as for a local run -- never a design's name to
+  look up in a project.
+- `DesignFileParseError`, `DesignValidationError` and `FlowNotFoundError` are `XedaException`s. The
+  new `DesignNotFoundError` and `ProjectFileError` are raised by `FlowLauncher.run`, which no longer
+  returns `None` for a design it cannot load or find.
+- `xeda dse` builds the `best.json` it updates and the `--json` document the CLI prints from one
+  method, `FlowOutcome.as_json_value()`, instead of two by hand (one by dumping the outcome's
+  `__dict__`); the two documents did not differ in practice. `FlowOutcome` is slotted again --
+  `slots=False` existed only for that dump, and `attrs` generates the pickle protocol a slotted
+  class needs to cross the process boundary a design-space exploration sends it over.
+- **`openroad` synthesizes with the abc script its `optimize` setting selects**, now that it
+  reaches yosys: OpenROAD-flow-scripts' area script for `"area"` (the default), its speed script
+  for `"speed"`. Both size and buffer for timing, so synthesized area differs from before, when
+  abc used yosys's default script.
+- **`optimize = "area+speed"` is gone** from `openroad` and `yosys`: it selected exactly the area
+  script. Write `"area"`.
+- **`yosys` and `yosys_fpga` no longer have an `optimize` setting.** It was documented and
+  settable but nothing ever read it; `optimize` is `openroad`'s setting, and reaches yosys as the
+  abc mapping script it selects (`abc_script`) together with `post_synth_opt`. Setting it on
+  `yosys` is now the error it always was in effect.
 - **pydantic 2.** Xeda now requires `pydantic >= 2.13.5, < 3` (previously `>= 1.10.22, < 2`).
   Code that uses xeda as a library must move to the pydantic 2 model API (`model_dump()`,
   `model_validate()`, `model_json_schema()`, `model_copy()`).
@@ -215,11 +456,41 @@ All notable changes to this project will be documented in this file.
   runner_cwd=...)`, which resolves path variables and reports a `FlowSettingsError`;
   `Settings(**data)` raises pydantic's `ValidationError`. The hidden `design_root_`/`runner_cwd_`
   settings are gone.
+- **A design no longer counts where it is.** A source counts by its content, type, `standard` and
+  `variant`, and its position in the source order. A source that other files find by its name or
+  place also counts by its path *relative to the design root*: a Verilog `include` searches the
+  including file's directory first, then the header directories, so two layouts of the same files
+  can build different netlists -- counted by content alone they were one design, and
+  `--cached-dependencies` reused one's netlist for the other. That covers Verilog and
+  SystemVerilog sources and headers, Bluespec, C++, cocotb modules and memory files; VHDL,
+  constraints and scripts are named explicitly wherever they sit, and count by content alone.
+  Before, the recorded path was absolute whenever a glob or an absolute spelling produced it, so a
+  design's identity changed when it moved; moving a whole design now never changes it. Similarly,
+  a parameter whose value is a path under the design root -- typically one given as a file
+  (`{ file = ... }` or `{ path = ... }`) relative to it -- counts relative to it
+  (`$DESIGN_ROOT/rom.mem`), the rule `flowrun_hash` applies to settings; a path outside the root
+  (`{ file = "../shared/rom.mem" }`) still counts as the location it names. The parameter's value
+  is still the absolute path the tool is handed, and it is the parameter's only value: nothing
+  else records how it was written. `file` and `path` differ only in whether the file must exist
+  when the design loads, so the two spellings of one path are the same design. A parameter file's
+  content is not hashed. **Existing run directories and cached results will not be reused after
+  upgrading**, because these changes give every design a new `design_hash`.
 
 ### Removed
 - Dependency on `click-help-colors`, replaced by `click-extra`.
+- `Design.relative_path` (use `Design.source_path_as_named`), and `units.normalize_quantity`,
+  `units.UNIT_ALIASES` and `units.unit_maybe_scale`; `units.check_unit_case` now takes
+  `(unit, text)`.
 
 ### Added
+
+- `xeda run --remote` asks the remote which xeda its interpreter imports, and where from, before
+  shipping anything, and logs both (`Remote xeda: 0.4.0 at ...`). The worker is started as
+  `python3` by the remote's *non-login* shell -- the `PATH` from its login environment is applied
+  only once that interpreter runs -- so it can import another install than the one the user
+  upgraded. That is how a stale 0.2 checkout surfaced as `rtl.sources: unhashable type: 'dict'`.
+  A remote without xeda, or with one older than the design archive needs (0.4.0), is refused with
+  that interpreter and install named; one on another release line is warned about.
 - Machine-readable CLI output, for scripts and coding agents:
     - query commands take `--format {table,json,jsonl,yaml}` with `--json` as a shorthand:
       `list-flows`, `list-settings`, `list-results`, `design-schema`, `list-boards`,

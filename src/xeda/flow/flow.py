@@ -8,8 +8,7 @@ import os
 import shutil
 from abc import ABCMeta, abstractmethod
 from copy import deepcopy
-from functools import cache
-from pathlib import Path, PurePath
+from pathlib import Path
 from types import UnionType
 from typing import (
     Annotated,
@@ -39,6 +38,7 @@ from ..dataclass import (
     annotation_args,
     field_annotation,
     field_validator,
+    input_names,
     model_validator,
     validation_errors,
 )
@@ -47,7 +47,9 @@ from ..utils import (
     XedaException,
     camelcase_to_snakecase,
     expand_env_vars,
+    location_free,
     parse_patterns_in_file,
+    rebuild_like,
     regex_match,
     semantic_hash,
     try_convert,
@@ -124,33 +126,10 @@ def _annotation_matches_value(annotation: Any, value: Any) -> bool:
         return False
 
 
-@cache
-def _input_names(model: Any) -> Dict[str, str]:
-    """Field name for every key a model's input may use: the field name and its alias."""
-    names: Dict[str, str] = {}
-    for name, info in model.model_fields.items():
-        if info.alias:
-            names.setdefault(info.alias, name)
-        names[name] = name
-    return names
-
-
 def _is_comma_separated_list(annotation: Any) -> bool:
     """A list setting that does not also accept a plain string, so a string must be a list."""
     accepted = annotation_args(annotation)
     return str not in accepted and any((get_origin(a) or a) is list for a in accepted)
-
-
-def _rebuild_like(container: Any, items: List[Any]) -> Any:
-    """`items` in `container`'s builtin kind. Not `type(container)(items)`: a namedtuple's
-    constructor takes its fields positionally, and a subclass's may take anything."""
-    if isinstance(container, tuple):
-        return tuple(items)
-    if isinstance(container, frozenset):
-        return frozenset(items)
-    if isinstance(container, set):
-        return set(items)
-    return list(items)
 
 
 def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) -> Any:
@@ -178,7 +157,7 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
     if origin in (list, set, frozenset) and isinstance(value, (list, set, frozenset)):
         item_annotation = args[0] if args else Any
         mapped = [_expand_path_values(item, item_annotation, overrides) for item in value]
-        return _rebuild_like(value, mapped)
+        return rebuild_like(value, mapped)
     if origin is tuple and isinstance(value, (list, tuple)):
         if len(args) == 2 and args[1] is Ellipsis:
             mapped = [_expand_path_values(item, args[0], overrides) for item in value]
@@ -187,7 +166,7 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
                 _expand_path_values(item, args[index] if index < len(args) else Any, overrides)
                 for index, item in enumerate(value)
             ]
-        return _rebuild_like(value, mapped)
+        return rebuild_like(value, mapped)
     if origin is dict and isinstance(value, dict):
         key_annotation, value_annotation = args if len(args) == 2 else (Any, Any)
         return {
@@ -196,21 +175,6 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
             )
             for key, item in value.items()
         }
-    return value
-
-
-def _location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
-    """`value` with every absolute path under one of `roots` rewritten as ``$VAR/relative``."""
-    if isinstance(value, dict):
-        return {key: _location_free(item, roots) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return _rebuild_like(value, [_location_free(item, roots) for item in value])
-    if isinstance(value, PurePath) or (isinstance(value, str) and os.path.isabs(value)):
-        path = PurePath(value)
-        for var, root in roots:
-            if path.is_relative_to(root):
-                relative = path.relative_to(root).as_posix()
-                return f"${var}" if relative == "." else f"${var}/{relative}"
     return value
 
 
@@ -234,7 +198,7 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings) -> str:
     ]
     roots.sort(key=lambda var_root: len(var_root[1].parts), reverse=True)  # most specific first
     return semantic_hash(
-        dict(flow_name=flow_name, flow_settings=_location_free(settings.model_dump(), roots))
+        dict(flow_name=flow_name, flow_settings=location_free(settings.model_dump(), roots))
     )
 
 
@@ -345,6 +309,32 @@ class Flow(metaclass=ABCMeta):
         "ff": ("ff", "FF"),
     }
 
+    #: Settings this flow cannot run without, each with what it is and how to give it (the text
+    #: may name the flow as ``{flow}``). Checked when the flow is launched, by
+    #: `check_required_settings`, not when its settings are validated: the same settings also sit
+    #: inside another flow's settings as a dependency's, where the launching flow supplies what
+    #: they lack, so a model that insisted on them could not even be nested.
+    required_settings: Dict[str, str] = {}
+
+    @classmethod
+    def check_required_settings(cls, settings: "Flow.Settings") -> None:
+        """Fail a launch that lacks a `required_settings` entry, naming each and how to give it,
+        before anything is set up for the run. A value given in a dependency's section counts
+        when the flow shares that setting with the dependency (`dependency_settings`), since
+        `resolve_dependency` adopts it from there."""
+        dependency_settings = type(settings).dependency_settings
+        missing = []
+        for name, how in cls.required_settings.items():
+            candidates = [getattr(settings, name, None)] + [
+                getattr(getattr(settings, field, None), name, None)
+                for field, shared in dependency_settings.items()
+                if name in shared
+            ]
+            if all(is_unset(value) for value in candidates):
+                missing.append(f"`{name}`, {how.format(flow=cls.name)}")
+        if missing:
+            raise FlowSettingsException(f"{cls.name} needs " + "; and ".join(missing))
+
     class Settings(XedaBaseModel):
         """Settings that can affect flow's behavior"""
 
@@ -358,7 +348,9 @@ class Flow(metaclass=ABCMeta):
             description="Run the flow in debug mode: verbose logging, and exceptions are re-raised "
             "instead of being reported as a failure.",
         )
-        quiet: bool = Field(False, description="Run the flow quietly.")
+        quiet: bool = Field(
+            False, description="Run the flow quietly, unless `verbose` or `debug` is set."
+        )
         redirect_stdout: bool = Field(
             False, description="Redirect stdout from execution of tools to files."
         )
@@ -518,7 +510,7 @@ class Flow(metaclass=ABCMeta):
             if info.field_name is not None and info.data is None:
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)
-            names = _input_names(cls)
+            names = input_names(cls)
             for key, value in values.items():
                 if key in names:
                     values[key] = cls._normalize_flow_setting(names[key], value, roots)
@@ -536,6 +528,13 @@ class Flow(metaclass=ABCMeta):
                     if isinstance(value, Flow.Settings):
                         value._attach_context(self.context)
             super().__setattr__(name, value)
+
+        @property
+        def is_quiet(self) -> bool:
+            """`quiet`, unless `verbose` or `debug` asks for more output. Decided here, where it
+            is read, so `quiet` holds what was written and the order the three were given in
+            does not matter."""
+            return self.quiet and not (self.verbose or self.debug)
 
         def resolve_dependency(self, field: str) -> Any:
             """The settings to launch the dependency held in `field` with.
@@ -562,14 +561,6 @@ class Flow(metaclass=ABCMeta):
         def _validate_verbose(cls, value):
             if not isinstance(value, int):
                 return try_convert(value, int, 0)
-            return value
-
-        @field_validator("quiet", mode="before")
-        @classmethod
-        def _validate_quiet(cls, value, info):
-            values = info.data if isinstance(info.data, dict) else {}
-            if values.get("verbose") or values.get("debug"):
-                return False
             return value
 
     class Results(Box):

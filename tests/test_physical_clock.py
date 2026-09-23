@@ -169,3 +169,27 @@ def test_clock_period_setter_targets_main_clock_with_multiple_unnamed_clocks():
     assert settings.clock_period == pytest.approx(5.0)
     assert settings.clocks["clk_a"].period == pytest.approx(5.0)
     assert settings.clocks["clk_b"].period == pytest.approx(20.0)
+
+
+def test_period_ps_setter_converts_picoseconds_to_nanoseconds():
+    """`period` is stored in nanoseconds; assigning `period_ps` must convert, not just store.
+
+    The setter used to call `convert_unit(period, to_unit="picosecond", from_unit=None)`, which
+    -- for a plain number, with no `from_unit` to attach and nothing for pint to parse -- left
+    the value untouched and wrote the raw picosecond number straight into the nanosecond field:
+    `clk.period_ps = 2500` set `period` to 2500 (ns) instead of 2.5.
+    """
+    clock = PhysicalClock(period=1.0)  # type: ignore[call-arg]
+
+    clock.period_ps = 2500
+
+    assert clock.period == pytest.approx(2.5)
+    assert clock.period_ps == pytest.approx(2500)
+
+
+def test_period_ps_setter_accepts_a_string_with_its_own_unit():
+    clock = PhysicalClock(period=1.0)  # type: ignore[call-arg]
+
+    clock.period_ps = "2.5ns"
+
+    assert clock.period == pytest.approx(2.5)

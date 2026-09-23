@@ -15,23 +15,22 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 import logging
-import os
 import re
 import textwrap
-from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type, Union, get_args
 
 from importlib_resources import as_file, files
 from pydantic import BaseModel
 
-from .dataclass import PydanticUndefined
+from .dataclass import PydanticUndefined, input_names
 from .design import Design
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
 from .flow_runner import get_flow_class
 from .flows import __builtin_flows__
-from .utils import toml_load, unique
+from .utils import json_encodable, toml_load, unique, with_json_keys
 
 log = logging.getLogger(__name__)
 
@@ -55,20 +54,17 @@ __all__ = [
 
 
 def json_safe(value: Any) -> Any:
-    """Best-effort conversion of `value` into something `json.dump`-able."""
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, dict):
-        return {str(k): json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return [json_safe(v) for v in value]
-    if isinstance(value, (Path, os.PathLike)):
-        return str(value)
-    if isinstance(value, BaseModel):
-        return json_safe(value.model_dump())
-    if isinstance(value, Enum):
-        return json_safe(value.value)
-    return str(value)
+    """`value` as plain JSON data, exactly as xeda writes it to a file: encoded by `json` with
+    `utils.json_encodable` -- the encoder behind every JSON file xeda writes -- and read back.
+    So a document the CLI prints agrees with `settings.json` or `best.json` on the same value.
+
+    It is built by that round trip rather than by walking the value, because a walk re-derives
+    `json`'s own rules and gets some wrong: `json` writes a key `True` as `"true"`, `None` as
+    `"null"` and a `str` enum member as its text, where `str(key)` gave `"True"`, `"None"` and
+    `"E.A"`. The result holds only plain `dict`/`list`/`str`/number/`bool`/`None` data, which
+    `--format yaml` renders as well. Keys go through `utils.with_json_keys` first, as they do for
+    a file, so no key -- a `Path`, a tuple -- turns a document into an error."""
+    return json.loads(json.dumps(with_json_keys(value), default=json_encodable))
 
 
 def all_flow_classes() -> List[Type[Flow]]:
@@ -645,22 +641,21 @@ def _models_reachable_from(model: type[BaseModel]) -> list[type[BaseModel]]:
 
 def _accept_alias_choices(schema: dict[str, Any]) -> None:
     """Accept every name of a field with several (`AliasChoices`): the loader takes any of them,
-    but pydantic's schema names only the first -- `generics` is `parameters` by another name."""
+    but pydantic's schema names only the first -- `generics` is `parameters` by another name.
+    The spellings come from `dataclass.input_names`, the one table of what the loader accepts."""
     for model in _models_reachable_from(Design):
         target = schema if model is Design else schema.get("$defs", {}).get(model.__name__)
         properties = (target or {}).get("properties")
         if not properties:
             continue
-        for name, info in model.model_fields.items():
-            choices = [
-                c for c in getattr(info.validation_alias, "choices", []) if isinstance(c, str)
-            ]
-            spec = properties.get(name) or next(
-                (properties[c] for c in choices if c in properties), None
-            )
+        spellings: Dict[str, List[str]] = {}
+        for spelling, name in input_names(model).items():
+            spellings.setdefault(name, []).append(spelling)
+        for names in spellings.values():
+            spec = next((properties[s] for s in names if s in properties), None)
             if spec is not None:
-                for choice in choices:
-                    properties.setdefault(choice, spec)
+                for spelling in names:
+                    properties.setdefault(spelling, spec)
 
 
 def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
@@ -697,6 +692,7 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
         for name, extra in properties.items():
             if name in target_properties:
                 target_properties[name] = _widen(target_properties[name], extra)
+    # Last: the transforms above copy properties in from the by-name schema, which has them too.
     return schema
 
 

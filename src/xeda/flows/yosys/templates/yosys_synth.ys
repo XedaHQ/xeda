@@ -30,18 +30,18 @@ opt -purge
 
 {%- if settings.adder_map %}
 extract_fa
-techmap -map {{settings.adder_map}}
+techmap -map {{settings.adder_map|path}}
 techmap
 opt -purge
 {%- endif %}
 
 {%- for map in settings.other_maps %}
-techmap -map {{map}}
+techmap -map {{map|path}}
 {%- endfor %}
 
 {%- if settings.liberty %}
 log -stdout Prepare mapping FFs to technology
-dfflibmap -prepare -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty}} {%- else -%} {{settings.liberty[0]}} {%- endif %}
+dfflibmap -prepare -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty|path}} {%- else -%} {{settings.liberty[0]|path}} {%- endif %}
 opt -purge
 {%- endif %}
 
@@ -49,15 +49,15 @@ opt -purge
 log -stdout Running ABC
 abc {{settings.abc_flags|join(" ")}}
 {%- if settings.main_clock and settings.main_clock.period_ps %} -D {{"%.3f"|format(settings.main_clock.period_ps)}} {% endif %}
-{%- if settings.abc_script %} -script "{{settings.abc_script}}" {%- endif %}
-{%- if settings.liberty %} -liberty "{{settings.liberty[0]}}" {%- endif %}
-{%- if abc_constr_file %} -constr "{{abc_constr_file}}" {%- endif %}
+{%- if settings.abc_script %} -script {{settings.abc_script|path}} {%- endif %}
+{%- if settings.liberty %} -liberty {{settings.liberty[0]|path}} {%- endif %}
+{%- if abc_constr_file %} -constr {{abc_constr_file|path}} {%- endif %}
 opt -purge
 {%- endif %}
 
 {%- if settings.liberty %}
 log -stdout Mapping FFs to technology
-dfflibmap -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty}} {%- else -%} {{settings.liberty[0]}} {%- endif %}
+dfflibmap -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty|path}} {%- else -%} {{settings.liberty[0]|path}} {%- endif %}
 opt -purge
 {%- endif %}
 

@@ -253,7 +253,7 @@ class Vcs(SimFlow):
             vhdlan_args.append("-nc")
             vcs_args.append("-nc")
             simv_args.append("-nc")
-        if ss.quiet:
+        if ss.is_quiet:
             vlogan_args.append("-q")
             vhdlan_args.append("-q")
             vcs_args.append("-q")
@@ -278,8 +278,8 @@ class Vcs(SimFlow):
             vhdlan_args.append("-xlrm")
         if ss.functional_vital:
             vhdlan_args.append("-functional_vital")
-        incdirs: List[str] = []
-        for d in incdirs:
+        # every header's directory is an include directory, as for Verilator and yosys
+        for d in self.design.header_dirs(tb=True):
             vlogan_args.append(f"+incdir+{d}")
         if self.design.language.vhdl.standard in ("08", "2008"):
             vhdlan_args.append("-vhdl08")

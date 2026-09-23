@@ -90,8 +90,8 @@ freq = "100MHz"
 
 A `PhysicalClock` takes `period` (ns) or `freq` (MHz), and derives the other. A consistent pair is
 accepted for compatibility; a contradictory pair is an error. Both accept unit strings
-(`"5.5ns"`, `"200MHz"`, `"0.2GHz"`). It also takes `rise`, `duty_cycle`, `uncertainty`, `skew`
-and `port`.
+(`"5.5ns"`, `"200MHz"`, `"0.2GHz"`). Units are case-sensitive, as in SI: `"200mhz"` is an error
+that names `MHz`. It also takes `rise`, `duty_cycle`, `uncertainty`, `skew` and `port`.
 
 ## Source files
 
@@ -110,6 +110,9 @@ A path string is enough; the type comes from the extension:
 | `.xdc` / `.sdc` | `Xdc` / `Sdc` |
 | `.tcl` | `Tcl` |
 | `.mem` | `MemoryFile` |
+
+A source may be a glob (`"src/*.vhd"`); its matches are inserted in sorted order, and a pattern
+matching no file is an error.
 
 When inference is not enough, use a table:
 
@@ -163,6 +166,9 @@ Path-typed settings expand `$PWD`, `$DESIGN_ROOT` and `$DESIGN_DIR`:
 [flows.dc]
 target_libraries = ["$DESIGN_ROOT/lib/SAED90/saed90nm_typ_ht.db"]
 ```
+
+Design sources expand environment variables too, except `$PWD`; `$DESIGN_ROOT`/`$DESIGN_DIR` are
+the design root, so `"$DESIGN_ROOT/src/*.vhd"` and `"src/*.vhd"` are the same sources.
 
 ## Multiple designs
 

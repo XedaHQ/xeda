@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 from simpleeval import simple_eval
 
 from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
+from ..units import convert_unit
 from ..utils import first_key, first_value
 from .platform import Platform
 
@@ -27,7 +28,11 @@ class AsicsPlatform(Platform):
     process: Optional[float] = None
     corner: Dict[str, CornerSettings]
     default_corner: str = DEFAULT_CORNER_FALLBACK
-    time_unit: str = "1ns"
+    time_unit: str = Field(
+        "1ns",
+        description="The unit of time the PDK's timing figures are in, optionally scaled "
+        '("1ps", "1ns", "10ps"); OpenROAD reports delays in it.',
+    )
     rcx_rc_corner: Optional[str] = None
     stackup: Optional[str] = None
     dont_use_cells: List[str] = []
@@ -94,6 +99,17 @@ class AsicsPlatform(Platform):
         "`select_corner` can re-evaluate them. Derived from the raw input; not user-settable.",
         json_schema_extra={"hidden_from_schema": True},
     )
+
+    @field_validator("time_unit")
+    @classmethod
+    def _time_unit_is_a_time(cls, value: str) -> str:
+        # Checked as it loads: a bad unit otherwise surfaces only once a run renders its SDC or
+        # scales the delays it parses from a report.
+        try:
+            convert_unit(1.0, "ns", from_unit=value)
+        except ValueError as e:
+            raise ValueError(f"time_unit {value!r} is not a unit of time: {e}") from e
+        return value
 
     @field_validator(
         "tiehi_cell",

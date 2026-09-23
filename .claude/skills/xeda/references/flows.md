@@ -181,7 +181,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 Yosys Open SYnthesis Suite: FPGA synthesis
 
-70 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
+69 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
 Reports: `LUT`, `lut`, `ff`, `LUT:RAM`, `FF`
 
@@ -223,7 +223,7 @@ Reports no results beyond the keys every flow reports.
 
 Yosys Open SYnthesis Suite: ASICs and generic gate/LUT synthesis
 
-70 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
+69 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
 Reports: `area`, `cells`
 

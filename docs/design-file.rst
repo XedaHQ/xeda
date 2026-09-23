@@ -105,9 +105,10 @@ design. A single-clock design usually needs only::
     [rtl]
     clock = { port = "clk" }
 
-and then, per flow, ``clock.period`` (ns) or ``clock.freq``. The legacy ``clock_port`` and
-``clock_period`` inputs are accepted for compatibility, but cannot be combined with their
-canonical counterparts in the same layer.
+and then, per flow, ``clock.period`` (ns) or ``clock.freq`` (MHz), as a number or with a unit
+(``"5.5ns"``, ``"200MHz"``). Units are case-sensitive, as in SI: ``"200mhz"`` is an error that
+names ``MHz``. The legacy ``clock_port`` and ``clock_period`` inputs are accepted for
+compatibility, but cannot be combined with their canonical counterparts in the same layer.
 
 .. _tb:
 
@@ -181,9 +182,20 @@ When inference is not enough, give a table instead of a string:
       { path = "generated/top.v" },              # not checked for existence
     ]
 
-``file`` must exist and is checked when the design is loaded; ``path`` is not checked, for sources
-a generator will produce. Every source carries a content hash, which is what lets Xeda tell runs
-apart and reuse cached dependency runs.
+``file`` must exist, and be a file rather than a directory, when the design is loaded; ``path``
+is not checked, for sources a generator will produce. Every source carries a content hash, which
+is what lets Xeda tell runs apart and reuse cached dependency runs. A source that other files find
+by its name or place -- Verilog and its headers (an ``include`` searches the including file's
+directory first), Bluespec, C++, cocotb modules, memory files -- also counts by its path relative
+to the design root, so re-arranging those files is a different design; moving the whole design
+never is.
+
+A source may be a glob (``"src/*.vhd"``). Its matches are inserted in sorted order, so the
+compilation order -- and the design's hash -- do not depend on the filesystem. Only files match:
+a directory whose name fits the pattern is passed over. A variable in a pattern
+(``$DESIGN_ROOT``, or any environment variable) stands for the place it names, so a character
+such as ``[`` in it is not pattern syntax. A pattern that matches no file is an error, so that a
+mistyped one cannot quietly contribute nothing.
 
 .. _language:
 
@@ -232,6 +244,10 @@ design file portable across machines:
 
     [flows.dc]
     target_libraries = ["$DESIGN_ROOT/lib/SAED90/saed90nm_typ_ht.db"]
+
+Design sources expand environment variables too, except ``$PWD``. There ``$DESIGN_ROOT`` and
+``$DESIGN_DIR`` name the design root, the directory a relative source is resolved against, so
+``"$DESIGN_ROOT/src/*.vhd"`` and ``"src/*.vhd"`` are the same sources.
 
 Multiple designs in one project
 ===============================

@@ -48,7 +48,7 @@ def test_yosys_abc9_hint_uses_first_unnamed_clock(tmp_path):
         },
     )
     flow = YosysFpga(settings, design, tmp_path)
-    flow.add_template_filter("esc", str)
+    flow.add_template_helpers()
     flow.artifacts.update(
         utilization_report="utilization.json",
         timing_report="timing.rpt",

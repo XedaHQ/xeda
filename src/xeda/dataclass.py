@@ -51,11 +51,13 @@ __all__ = [
     "PydanticUndefined",
     "SerializeAsAny",
     "ValidationError",
+    "BaseModel",
     "XedaBaseModel",
     "accepts_non_mapping",
     "annotation_args",
     "asdict",
     "field_validator",
+    "input_names",
     "model_validator",
     "validation_errors",
 ]
@@ -233,6 +235,23 @@ def field_annotation(model: Any, name: Optional[str]) -> Any:
     return info.annotation if info is not None else None
 
 
+@cache
+def input_names(model: Type[BaseModel]) -> Dict[str, str]:
+    """The field every simple key a model's input may use stands for: each field's name, its
+    `alias` and every text choice of its `validation_alias`. A field's own name wins a clash."""
+    names: Dict[str, str] = {}
+    for name, info in model.model_fields.items():
+        spellings = [
+            info.alias,
+            *getattr(info.validation_alias, "choices", [info.validation_alias]),
+        ]
+        for spelling in spellings:
+            if isinstance(spelling, str):
+                names.setdefault(spelling, name)
+    names.update((name, name) for name in model.model_fields)
+    return names
+
+
 def field(
     default: Any = attrs.NOTHING,
     *,
@@ -279,10 +298,13 @@ class XedaBaseModel(BaseModel):
     )
 
     def invalidate_cached_properties(self):
-        for key, value in self.__class__.__dict__.items():
-            if isinstance(value, cached_property):
-                log.debug("invalidating: %s", str(key))
-                self.__dict__.pop(key, None)
+        # A `cached_property` caches in the instance `__dict__` whichever class along the MRO
+        # declares it, so every base must be searched: `VivadoTool` inherits `Tool.version`.
+        for klass in type(self).__mro__:
+            for key, value in vars(klass).items():
+                if isinstance(value, cached_property) and key not in type(self).model_fields:
+                    log.debug("invalidating: %s", str(key))
+                    self.__dict__.pop(key, None)
 
 
 _XedaModelType = TypeVar("_XedaModelType", bound=XedaBaseModel)

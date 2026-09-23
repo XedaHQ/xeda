@@ -13,10 +13,11 @@ import psutil
 from attrs import define
 from pebble.common import ProcessExpired  # type: ignore
 from pebble.pool.process import ProcessPool
+from pydantic import ValidationError
 
-from ...dataclass import Field, XedaBaseModel
+from ...dataclass import Field, XedaBaseModel, validation_errors
 from ...design import Design
-from ...flow import Flow, FlowFatalError
+from ...flow import Flow, FlowFatalError, FlowSettingsError
 from ...tool import NonZeroExitCode
 from ...utils import (
     Timer,
@@ -31,12 +32,32 @@ from ..settings_layers import merge_layers
 log = logging.getLogger(__name__)
 
 
-@define(slots=False)
+# Slotted, the `attrs` default: an outcome crosses a process boundary (the worker builds it,
+# `pool.map` returns it) and is written to `best.json`, and it does both without an instance
+# `__dict__` -- `attrs` generates `__getstate__`/`__setstate__` for pickling, and JSON goes
+# through `as_json_value()` below. `slots=False` was there to leave a `__dict__` for a
+# serializer to read, which is not a serialization format: it left `run_path` a `Path` for the
+# encoder to stringify by luck, and nothing stopped a private attribute joining it.
+@define
 class FlowOutcome:
     settings: Flow.Settings
     results: Flow.Results
     timestamp: Optional[str]
     run_path: Optional[Path]
+
+    def as_json_value(self) -> Dict[str, Any]:
+        """This outcome as JSON: what a design-space exploration records as its best run.
+
+        Written out rather than left to whatever its `__dict__` happens to hold -- `run_path` is
+        a `Path`, and the two places that serialize an outcome (the `best.json` a search writes
+        as it improves, and the `--json` document the CLI prints) have to agree.
+        """
+        return {
+            "settings": self.settings,
+            "results": dict(self.results),
+            "timestamp": self.timestamp,
+            "run_path": str(self.run_path) if self.run_path else None,
+        }
 
 
 class Optimizer:
@@ -167,7 +188,14 @@ class Dse(FlowLauncher):
             optimizer_class = cls
         if not isinstance(optimizer_settings, Optimizer.Settings):
             assert isinstance(optimizer_settings, dict)
-            optimizer_settings = optimizer_class.Settings(**optimizer_settings)
+            try:
+                optimizer_settings = optimizer_class.Settings(**optimizer_settings)
+            except ValidationError as e:
+                # Reported as a flow's settings are, naming each field -- not as pydantic's own
+                # error, which is what `xeda dse` without its frequency bounds printed.
+                raise FlowSettingsError(
+                    validation_errors(e.errors()), optimizer_class.Settings
+                ) from None
         self.optimizer: Optimizer = optimizer_class(
             max_workers=self.settings.max_workers, settings=optimizer_settings
         )
@@ -245,6 +273,9 @@ class Dse(FlowLauncher):
             design_root=design.root_path,
             runner_cwd=Path.cwd(),
         )
+        # Once, here: launched in each worker instead, a missing setting failed every run of
+        # the search separately and was reported only as "no successful run".
+        flow_class.check_required_settings(base_settings)
         base_settings.redirect_stdout = True
         base_settings.print_commands = False
 

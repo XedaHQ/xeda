@@ -4,7 +4,7 @@ import shutil
 from glob import glob
 from pathlib import Path
 from random import randint
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from ...dataclass import Field
 from ...design import SourceType
@@ -165,10 +165,9 @@ class Verilator(SimFlow):
 
         compile_args = ss.compile_args
         parameters = self.design.tb.parameters
-        defines: Dict[str, Any] = self.design.rtl.defines
-
-        # use any self.design.tb.defines to override rtl defines
-        defines.update(self.design.tb.defines)
+        # tb defines override rtl defines; merged into a new mapping, as the design is shared by
+        # every flow of the run and already hashed
+        defines: dict[str, Any] = {**self.design.rtl.defines, **self.design.tb.defines}
 
         args: List[Any] = []
 
@@ -313,14 +312,8 @@ class Verilator(SimFlow):
 
         env = None
 
-        include_dirs = unique(
-            ss.include_dirs
-            + [
-                str(src.path.parent)
-                for src in self.design.rtl.sources
-                if src.type in (SourceType.VerilogHeader, SourceType.SVHeader)
-            ]
-        )
+        # every header's directory, the testbench's included: Verilator compiles both
+        include_dirs = unique(ss.include_dirs + [str(d) for d in self.design.header_dirs(tb=True)])
 
         args += compile_args
         args += [f"-D{k}" if v is None else f"-D{k}={v}" for k, v in defines.items()]

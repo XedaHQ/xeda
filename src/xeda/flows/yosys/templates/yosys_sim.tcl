@@ -15,13 +15,13 @@ yosys plugin -i {{plugin}}
     {%- if src.type.name == "Verilog" %}
     puts "$log_prefix Reading {{src}}"
     ## -Dname=value -Idir
-    yosys read_verilog {{settings.read_verilog_flags|join(" ")}} {{src}}
+    yosys read_verilog {{settings.read_verilog_flags|join(" ")}} {{src|path}}
     {%- elif src.type.name == "SystemVerilog" %}
     puts "$log_prefix Reading {{src}}"
         {%- if systemverilog_plugin_defered %}
-        yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src}}
+        yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {% else %}
-        yosys read_verilog {{settings.read_verilog_flags|join(" ")}} -sv {{src}}
+        yosys read_verilog {{settings.read_verilog_flags|join(" ")}} -sv {{src|path}}
         {%- endif %}
     {%- endif %}
 {%- endfor %}
@@ -34,11 +34,11 @@ yosys read_systemverilog -link
 {%- if vhdl_files %}
     puts "$log_prefix Reading VHDL files: {{vhdl_files|join(" ")}}"
     yosys plugin -i ghdl
-    yosys ghdl {{ghdl_args|join(" ")}}
+    yosys ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}}
 {%- endif %}
 
 {%- for src in settings.verilog_lib %}
-yosys read_verilog -lib {{src}}
+yosys read_verilog -lib {{src|path}}
 {%- endfor %}
 
 yosys hierarchy -nodefaults -check {%- if design.tb.top %} -top {{design.tb.top}} {%- else %} -auto-top {%- endif %}
@@ -67,17 +67,17 @@ yosys check {% if settings.check_assert %} -assert {%- endif %}
 
 {%- if settings.rtl_json %}
 puts "$log_prefix Writing JSON output to: {{settings.rtl_json}}"
-yosys write_json {{settings.rtl_json}}
+yosys write_json {{settings.rtl_json|path}}
 {%- endif %}
 {%- if settings.rtl_verilog %}
 puts "$log_prefix Writing Verilog output to: {{settings.rtl_verilog}}"
-yosys write_verilog {{settings.rtl_verilog}}
+yosys write_verilog {{settings.rtl_verilog|path}}
 {%- endif %}
 {%- if settings.rtl_graph %}
-yosys log -stdout "Writing RTL graph to {{settings.rtl_graph.with_suffix('dot')}}"
-yosys show -prefix {{settings.rtl_graph.with_suffix("")}} -format dot {{settings.rtl_graph_flags|join(" ")}}
+yosys log -stdout "Writing RTL graph to {{settings.rtl_graph.with_suffix('.dot')|esc}}"
+yosys show -prefix {{settings.rtl_graph.with_suffix("")|verbatim_path}} -format dot {{settings.rtl_graph_flags|join(" ")}}
 {%- endif %}
 
 puts "$log_prefix Writing CXXRTL output to: {{settings.cxxrtl.filename}}"
-yosys write_cxxrtl {%- if settings.cxxrtl.header %} -header {%- endif %} {%- if settings.cxxrtl.opt is not none %} -O{{settings.cxxrtl.opt}} {%- endif %} {{settings.cxxrtl.filename}}
+yosys write_cxxrtl {%- if settings.cxxrtl.header %} -header {%- endif %} {%- if settings.cxxrtl.opt is not none %} -O{{settings.cxxrtl.opt}} {%- endif %} {{settings.cxxrtl.filename|path}}
 

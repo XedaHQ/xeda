@@ -62,12 +62,18 @@ not expect. It also records the design as Xeda resolved it.
 It records ``design_hash``, ``flowrun_hash`` and ``xeda_version`` too. Dependency caching compares
 the two hashes; the version is diagnostic metadata and is not part of run identity. Both hashes
 depend on what the inputs mean, not on where anything is: the design hash covers each source's
-relative path/layout, ordered source contents and compilation metadata, plus behavior-affecting
-RTL/testbench metadata, and ``flowrun_hash`` covers settings, with a path counted as its text
-relative to the design (``$DESIGN_ROOT/c.xdc``). Moving a design together with its source layout
-keeps those relative paths and therefore keeps the hashes; starting Xeda from another directory
-does too. No file or directory a setting names is ever read, so a constraint file whose content
-should decide reuse belongs among the design's sources.
+content hash, type, ``standard`` and ``variant``, and its position in the source order, plus
+behavior-affecting RTL/testbench metadata. A source that other files find by its name or place
+(Verilog and its headers, Bluespec, C++, cocotb modules, memory files) also counts by its path
+relative to the design root, since an ``include`` resolved by place can build another design from
+the same files; VHDL and constraint files count by content alone. A parameter whose value is a path
+under the design root, such as one given as a file relative to it, counts relative to it; one
+outside the root counts as the location it names, and a parameter file's content is not hashed.
+``flowrun_hash`` covers settings, with a path counted as its text relative to the design
+(``$DESIGN_ROOT/c.xdc``). Moving a whole design anywhere keeps both hashes (unless a parameter
+names a file outside it); starting Xeda from another directory does too. No file or directory a
+setting names is ever read, so a constraint file whose content should decide reuse belongs among
+the design's sources.
 
 ``results.json``
 ----------------
