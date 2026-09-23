@@ -41,7 +41,16 @@ def test_every_spelling_of_the_design_root_names_the_same_file(root, source):
     assert design.rtl_hash  # reads the file
 
 
-@pytest.mark.parametrize("pattern", ["sub/*.vhd", "$DESIGN_ROOT/sub/*.vhd", "$DESIGN_DIR/*/*.vhd"])
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "sub/*.vhd",
+        "$DESIGN_ROOT/sub/*.vhd",
+        "$DESIGN_DIR/*/*.vhd",
+        "sub/?.vhd",
+        "$DESIGN_ROOT/sub/[ab].vhd",
+    ],
+)
 def test_a_glob_under_the_design_root_matches_its_files(root, pattern):
     """Variables are expanded before globbing, or the glob looks for a `$DESIGN_ROOT` directory
     and silently matches no sources at all."""
@@ -202,7 +211,10 @@ def test_a_glob_expands_in_a_stable_order(root):
     assert design.rtl_hash == spelled_out.rtl_hash
 
 
-@pytest.mark.parametrize("pattern", ["sub/*.sv", "$DESIGN_ROOT/sub/*.sv", "nowhere/*.vhd"])
+@pytest.mark.parametrize(
+    "pattern",
+    ["sub/*.sv", "$DESIGN_ROOT/sub/*.sv", "nowhere/*.vhd", "sub/?.sv", "sub/[ab].sv"],
+)
 def test_a_glob_that_matches_nothing_is_an_error(root, pattern):
     """A mistyped pattern used to contribute no sources at all and load successfully, so the
     design reached a tool missing its top-level unit instead of naming the bad pattern."""
@@ -215,6 +227,10 @@ def test_a_generator_glob_expands_in_a_stable_order_and_must_match(root):
     with WorkingDirectory(root):  # as `Design` builds its generator
         generator = Generator(command="true", sources=["$DESIGN_ROOT/*.vhd", "sub/*.vhd"])
         assert generator.sources == [root / "a.vhd", root / "sub" / "b.vhd"]
+        for pattern in ("?.vhd", "sub/[ab].vhd"):
+            assert Generator(command="true", sources=[pattern]).sources == [
+                root / ("a.vhd" if pattern.startswith("?") else "sub/b.vhd")
+            ]
         with pytest.raises(ValueError, match="no file matches the generator source pattern"):
             Generator(command="true", sources=["*.sv"])
 
@@ -257,9 +273,20 @@ def generated(tmp_path, monkeypatch):
         ["$DESIGN_DIR/out.vhd"],
         [{"file": "out.vhd"}],
         ["*.vhd"],
+        ["out.vh?"],
+        ["[o]ut.vhd"],
         "out.vhd",  # the scalar shorthand
     ],
-    ids=["relative", "design_root", "design_dir", "table", "glob", "scalar"],
+    ids=[
+        "relative",
+        "design_root",
+        "design_dir",
+        "table",
+        "glob_star",
+        "glob_question",
+        "glob_class",
+        "scalar",
+    ],
 )
 def test_a_generator_is_skipped_by_what_its_sources_name_not_how_they_are_written(
     generated, sources
@@ -282,14 +309,15 @@ def test_a_generator_is_skipped_by_what_its_sources_name_not_how_they_are_writte
     assert [s.file for s in design.rtl.sources] == [generated / "out.vhd"]
 
 
-def test_a_generator_runs_when_its_output_is_missing(generated):
+@pytest.mark.parametrize("source", ["$DESIGN_ROOT/out.vhd", "out.vh?", "[o]ut.vhd"])
+def test_a_generator_runs_when_its_output_is_missing(generated, source):
     (generated / "out.vhd").unlink()
 
     Design(
         name="d",
         design_root=generated,
         rtl={
-            "sources": ["$DESIGN_ROOT/out.vhd"],
+            "sources": [source],
             "top": "out_",
             "generator": {"command": f"{sys.executable} gen.py", "sources": ["gen.py"]},
         },
@@ -446,7 +474,11 @@ def test_an_unwritten_source_says_why_the_design_cannot_be_hashed(root):
 
 
 @pytest.mark.parametrize("root_name", ["proj[1]", "proj[v2]", "proj*"])
-def test_the_design_root_is_a_place_not_a_pattern(tmp_path, root_name):
+@pytest.mark.parametrize(
+    "pattern",
+    ["$DESIGN_ROOT/rtl/*.vhd", "$DESIGN_ROOT/rtl/m?ne.vhd", "$DESIGN_ROOT/rtl/[m]ine.vhd"],
+)
+def test_the_design_root_is_a_place_not_a_pattern(tmp_path, root_name, pattern):
     """`$DESIGN_ROOT` goes into a glob as the directory it is. Unescaped, a root named
     `proj[1]` matched its sibling `proj1` -- another project's sources -- and `proj[v2]` matched
     nothing at all."""
@@ -456,9 +488,7 @@ def test_the_design_root_is_a_place_not_a_pattern(tmp_path, root_name):
     (tmp_path / "proj1" / "rtl").mkdir(parents=True)
     (tmp_path / "proj1" / "rtl" / "someone_elses.vhd").write_text("-- not mine\n")
 
-    design = Design(
-        name="d", design_root=root, rtl={"sources": ["$DESIGN_ROOT/rtl/*.vhd"], "top": "t"}
-    )
+    design = Design(name="d", design_root=root, rtl={"sources": [pattern], "top": "t"})
     assert [src.file.name for src in design.rtl.sources] == ["mine.vhd"]
     assert design.rtl.sources[0].file.parent.parent == root.resolve()
 
