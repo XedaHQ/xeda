@@ -15,7 +15,7 @@ from copy import deepcopy
 from enum import Enum
 from functools import cached_property
 from glob import escape as glob_escape
-from glob import glob
+from glob import glob, has_magic
 from os.path import isfile
 from pathlib import Path
 from typing import (
@@ -294,15 +294,19 @@ def _expand_source_glob(pattern: str, root: Path, what: str = "source") -> List[
     as a shell glob of source files would; a directory named like a source is passed over.
     """
     expanded = str(_expand_design_path(pattern, root))
-    matched = sorted(
-        m for m in glob(str(_expand_design_path(pattern, root, escape=glob_escape))) if isfile(m)
-    )
+    matched = _globbed_source_files(pattern, root)
     if not matched:
         raise ValueError(
             f"no file matches the {what} pattern '{pattern}'"
             + (f" (expanded to '{expanded}')" if expanded != pattern else "")
         )
     return matched
+
+
+def _globbed_source_files(pattern: str, root: Path) -> List[str]:
+    """Files matching a pattern, with variable values treated as literal path components."""
+    expanded = _expand_design_path(pattern, root, escape=glob_escape)
+    return sorted(m for m in glob(str(expanded)) if isfile(m))
 
 
 def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
@@ -328,11 +332,13 @@ def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
             src = src.get("file") or src.get("path")
         if not isinstance(src, (str, os.PathLike)):
             return None
-        expanded = _expand_design_path(src, root)
-        if "*" in str(src):
+        if isinstance(src, str) and has_magic(src):
             # A pattern that matches nothing yet is exactly the case for running the generator.
-            paths.extend(Path(m) for m in sorted(glob(str(expanded))))
+            for match in _globbed_source_files(src, root):
+                path = Path(match)
+                paths.append(path if path.is_absolute() else root / path)
         else:
+            expanded = _expand_design_path(src, root)
             paths.append(expanded if expanded.is_absolute() else root / expanded)
     return paths
 
@@ -826,7 +832,7 @@ class DVSettings(XedaBaseModel):
                 # if m:
                 #     src = m.group(2)
                 #     src_type = SourceType.from_str(m.group(1))
-                if src.count("*") > 0:
+                if has_magic(src):
                     glob_sources = _expand_source_glob(src, Path.cwd())
                     srcs = [ds(s, src_type) for s in glob_sources]
                     sources.extend(s for s in srcs if not source_already_exists(s))
@@ -891,7 +897,7 @@ class Generator(XedaBaseModel):
         sources: List[Path] = []
         for src in unique(value):
             if isinstance(src, str):
-                if "*" in src:
+                if has_magic(src):
                     sources.extend(
                         Path(m).resolve()
                         for m in _expand_source_glob(src, Path.cwd(), "generator source")
