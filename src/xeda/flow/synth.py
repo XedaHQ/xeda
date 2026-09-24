@@ -110,6 +110,7 @@ class PhysicalClock(XedaBaseModel):
 
     @period_ps.setter
     def period_ps(self, period):
+        """Accept a period in picoseconds and store it in nanoseconds."""
         self.period = convert_unit(period, to_unit="nanosecond", from_unit="picosecond")
 
     def period_unit(self, unit: str) -> float:

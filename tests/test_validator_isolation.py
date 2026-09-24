@@ -108,6 +108,7 @@ def test_before_model_validator_receives_assignment_context():
 
 
 def test_nested_rtl_parameter_normalization_does_not_mutate_input(tmp_path, monkeypatch):
+    """Nested rtl parameter normalization does not mutate input."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "abc.mem").write_text("00\n")  # a `file` parameter must exist
     payload = {"sources": [], "parameters": {"rom": {"file": "abc.mem"}}}
@@ -120,6 +121,7 @@ def test_nested_rtl_parameter_normalization_does_not_mutate_input(tmp_path, monk
 
 
 def test_rtl_parameter_assignment_does_not_mutate_input(tmp_path, monkeypatch):
+    """Rtl parameter assignment does not mutate input."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "abc.mem").write_text("00\n")  # a `file` parameter must exist
     from xeda.design import RtlSettings

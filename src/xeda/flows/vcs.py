@@ -214,6 +214,7 @@ class Vcs(SimFlow):
             ss.ucli_script = Path("dump_evcd.do")
 
     def run(self):
+        """Compile and simulate the design with VCS."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if not os.environ.get("VCS_TARGET_ARCH"):

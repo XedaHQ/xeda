@@ -295,6 +295,7 @@ class OpenXC7(FpgaSynthFlow):
                 self.ofpga_loader.run(*args)
 
     def run(self) -> None:
+        """Build an XC7 bitstream from synthesized design artifacts."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         log.debug("design_hash=%s flow_hash=%s", self.design_hash, self.flow_hash)

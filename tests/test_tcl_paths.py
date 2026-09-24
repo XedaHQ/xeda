@@ -37,6 +37,7 @@ EXPRESSION = re.compile(r"\{\{-?\s*(.*?)\s*-?\}\}")
 
 
 def _tcl_templates():
+    """Find Tcl templates that handle user supplied paths."""
     for template in sorted(FLOWS_DIR.glob("*/templates/*.tcl")):
         if template.parts[-3] != "yosys":  # yosys' own filters: tests/test_yosys_templates.py
             yield template
@@ -65,6 +66,7 @@ def _odd(name: str) -> str:
 
 
 def _design(root: Path) -> Design:
+    """Create a design with paths requiring Tcl quoting."""
     rtl = [_odd(f"rtl/{n}") for n in ("pkg.vhd", "core.v", "top.vhd")]
     tb = [_odd("tb/tb.vhd")]
     for rel in rtl + tb:
@@ -79,6 +81,7 @@ def _design(root: Path) -> Design:
 
 
 def _file(root: Path, name: str) -> str:
+    """Write an input file with a chosen path."""
     path = root / "constr" / _odd(name)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("# a user's file\n")
@@ -87,6 +90,7 @@ def _file(root: Path, name: str) -> str:
 
 # flow -> (its settings, the settings' user-named files it must hand a tool)
 def _cases(root: Path) -> dict[str, tuple[dict, list[str]]]:
+    """Provide path cases for Tcl quoting checks."""
     xdc, hook, ucf, xcf, sdc = (
         _file(root, n) for n in ("c.xdc", "h.tcl", "c.ucf", "c.xcf", "c.sdc")
     )
@@ -190,6 +194,7 @@ def test_dc_sources_each_hook_at_its_stage(tmp_path, monkeypatch) -> None:
 
 
 def test_dc_rejects_a_hook_at_an_unknown_stage() -> None:
+    """Dc rejects a hook at an unknown stage."""
     with pytest.raises(FlowSettingsError, match="the stages are pre_elab, post_elab"):
         dc.Dc.Settings.from_input({"hooks": {"post_synth": "h.tcl"}})
 

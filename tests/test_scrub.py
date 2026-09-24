@@ -52,6 +52,7 @@ def _make_flow_dirs(base: Path) -> dict:
 
 
 def test_scrub_runs_removes_unhashed_and_hashed_dirs_only(tmp_path, monkeypatch):
+    """Scrub runs removes unhashed and hashed dirs only."""
     base = tmp_path / "foo"
     base.mkdir()
     dirs = _make_flow_dirs(base)
@@ -83,6 +84,7 @@ def test_scrub_runs_respects_exclude(tmp_path, monkeypatch):
 
 
 def test_scrub_runs_declines_without_confirmation(tmp_path, monkeypatch):
+    """Scrub runs declines without confirmation."""
     base = tmp_path / "foo"
     base.mkdir()
     dirs = _make_flow_dirs(base)
@@ -111,6 +113,7 @@ def test_scrub_runs_does_not_match_longer_flow_name(tmp_path, monkeypatch):
 
 
 def _run_xeda(*args: str, cwd=None, input_text: str = "yes\n") -> subprocess.CompletedProcess:
+    """Invoke the Xeda CLI for scrub tests."""
     env = dict(os.environ, COLUMNS="80")
     return subprocess.run(
         [sys.executable, "-m", "xeda", *args],
@@ -124,6 +127,7 @@ def _run_xeda(*args: str, cwd=None, input_text: str = "yes\n") -> subprocess.Com
 
 
 def test_cli_scrub_removes_unhashed_and_hashed_dirs_only(tmp_path):
+    """Cli scrub removes unhashed and hashed dirs only."""
     xeda_run_dir = tmp_path / "xeda_run"
     base = xeda_run_dir / "foo"
     base.mkdir(parents=True)
@@ -157,6 +161,7 @@ def test_cli_scrub_removes_unhashed_and_hashed_dirs_only(tmp_path):
 
 
 def test_run_help_does_not_mention_flow_settings_hash():
+    """Run help does not mention flow settings hash."""
     runner = CliRunner()
     result = runner.invoke(cli, ["run", "--help"])
     assert result.exit_code == 0
@@ -168,6 +173,7 @@ def test_run_help_does_not_mention_flow_settings_hash():
 
 
 def test_scrub_help_does_not_mention_flow_settings_hash():
+    """Scrub help does not mention flow settings hash."""
     runner = CliRunner()
     result = runner.invoke(cli, ["scrub", "--help"])
     assert result.exit_code == 0

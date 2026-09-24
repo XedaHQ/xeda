@@ -33,6 +33,7 @@ TimedChunks = List[Tuple[float, str]]
 
 
 def test_remote_python_must_satisfy_the_package_floor():
+    """Remote python must satisfy the package floor."""
     check_remote_python((3, 11, 0, "final", 0))
     check_remote_python((3, 14, 1, "final", 0))
     with pytest.raises(RemoteIncompatible, match=r"Python 3\.11\.0 or newer.*3\.10\.9"):

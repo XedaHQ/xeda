@@ -32,6 +32,7 @@ class Modelsim(SimFlow):
         )
 
     def run(self) -> None:
+        """Compile design sources and execute the ModelSim script."""
         assert isinstance(self.settings, self.Settings)
         vcom_options = ["-lint"]
         vlog_options = ["-lint"]

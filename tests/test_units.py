@@ -31,21 +31,25 @@ MHZ_PER_UNIT = {"Hz": 1e-6, "kHz": 1e-3, "MHz": 1.0, "GHz": 1e3}
 
 
 def _target(unit):
+    """Choose the target unit for conversion tests."""
     return ("nanosecond", NS_PER_UNIT[unit]) if unit in NS_PER_UNIT else ("MHz", MHZ_PER_UNIT[unit])
 
 
 def test_every_clock_unit_has_a_known_magnitude():
+    """Every clock unit has a known magnitude."""
     assert set(CLOCK_UNITS) == NS_PER_UNIT.keys() | MHZ_PER_UNIT.keys()
 
 
 @pytest.mark.parametrize("unit", CLOCK_UNITS)
 @pytest.mark.parametrize("space", ["", " "])
 def test_a_clock_unit_spelled_right_converts(unit, space):
+    """A clock unit spelled right converts."""
     to_unit, factor = _target(unit)
     assert convert_unit(f"2{space}{unit}", to_unit) == pytest.approx(2 * factor)
 
 
 def _miscased():
+    """Generate invalid case variants of clock units."""
     for unit in CLOCK_UNITS:
         for chars in itertools.product(*((c.lower(), c.upper()) for c in unit)):
             if (spelling := "".join(chars)) != unit:
@@ -73,11 +77,13 @@ def test_a_clock_unit_in_another_case_is_rejected_with_the_right_spelling(spelli
     ],
 )
 def test_other_spellings_and_plain_numbers(value, to_unit, expected):
+    """Other spellings and plain numbers."""
     assert convert_unit(value, to_unit) == pytest.approx(expected)
 
 
 @pytest.mark.parametrize("value", ["5 furlongs", "5 MHz"])
 def test_a_quantity_that_is_not_a_time_is_a_value_error(value):
+    """A quantity that is not a time is a value error."""
     with pytest.raises(ValueError, match="cannot interpret"):
         convert_unit(value, "nanosecond")
 
@@ -117,6 +123,7 @@ NUMBER_SPELLINGS += [("2E+0", 2.0), ("0.2e1", 2.0), ("200e-2", 2.0)]
 @pytest.mark.parametrize("space", ["", " "])
 @pytest.mark.parametrize("unit", CLOCK_UNITS)
 def test_every_number_spelling_converts_with_every_clock_unit(number, magnitude, space, unit):
+    """Every number spelling converts with every clock unit."""
     to_unit, factor = _target(unit)
     assert convert_unit(f"{number}{space}{unit}", to_unit) == pytest.approx(magnitude * factor)
 
@@ -170,6 +177,7 @@ NOT_A_QUANTITY = [
 @pytest.mark.parametrize("value", NOT_A_QUANTITY)
 @pytest.mark.parametrize("to_unit", ["nanosecond", "MHz"])
 def test_text_that_is_not_a_number_and_a_unit_is_a_value_error(value, to_unit):
+    """Text that is not a number and a unit is a value error."""
     with pytest.raises(ValueError, match="cannot interpret"):
         convert_unit(value, to_unit)
 
@@ -178,6 +186,7 @@ def test_text_that_is_not_a_number_and_a_unit_is_a_value_error(value, to_unit):
     "to_unit,example", [("nanosecond", "'5 ns'"), ("ps", "'5 ns'"), ("MHz", "'200 MHz'")]
 )
 def test_the_error_shows_the_expected_form(to_unit, example):
+    """The error shows the expected form."""
     with pytest.raises(ValueError, match=f"expected a number.*e.g. {example}"):
         convert_unit("5_ns", to_unit)
 
@@ -189,6 +198,7 @@ NON_FINITE += [math.nan, math.inf, -math.inf, "1e308 s"]  # the last overflows o
 @pytest.mark.parametrize("value", NON_FINITE, ids=repr)
 @pytest.mark.parametrize("to_unit", ["nanosecond", "MHz"])
 def test_a_non_finite_value_is_a_value_error(value, to_unit):
+    """A non finite value is a value error."""
     with pytest.raises(ValueError, match="cannot interpret"):
         convert_unit(value, to_unit)
 
@@ -203,6 +213,7 @@ def test_a_bool_is_not_a_quantity(value, from_unit):
 
 @pytest.mark.parametrize("value", [None, [], {}, [5], b"5 ns", 1 + 0j], ids=repr)
 def test_any_other_type_is_a_value_error(value):
+    """Any other type is a value error."""
     with pytest.raises(ValueError, match="cannot interpret"):
         convert_unit(value, "nanosecond")
 
@@ -211,6 +222,7 @@ def test_any_other_type_is_a_value_error(value):
     "value,expected", [(5, 5.0), (5.5, 5.5), (Decimal("5.5"), 5.5), (Fraction(11, 2), 5.5)]
 )
 def test_a_number_is_taken_in_the_target_unit(value, expected):
+    """A number is taken in the target unit."""
     result = convert_unit(value, "nanosecond")
     assert result == expected and type(result) is float
 
@@ -219,6 +231,7 @@ def test_a_number_is_taken_in_the_target_unit(value, expected):
     "value,spelling", [("5 Nanoseconds", "nanoseconds"), ("200 MegaHertz", "megahertz")]
 )
 def test_a_spelled_out_unit_in_another_case_names_the_right_spelling(value, spelling):
+    """A spelled out unit in another case names the right spelling."""
     with pytest.raises(ValueError, match=f"not defined.*did you mean '{spelling}'"):
         convert_unit(value, "MHz" if "Hertz" in value else "nanosecond")
 
@@ -245,6 +258,7 @@ def test_an_ambiguous_unit_is_rejected():
     ],
 )
 def test_a_unit_specification_may_carry_a_scale(value, to_unit, from_unit, expected):
+    """A unit specification may carry a scale."""
     assert convert_unit(value, to_unit, from_unit=from_unit) == pytest.approx(expected)
 
 
@@ -301,6 +315,7 @@ FPGA_PART = {"part": "xc7a12tcpg238-1"}
     ids=repr,
 )
 def test_a_bad_clock_setting_is_a_flow_settings_error(clock):
+    """A bad clock setting is a flow settings error."""
     with pytest.raises(FlowSettingsError):
         VivadoSynth.Settings.from_input({"fpga": FPGA_PART, "clock": clock})
 
@@ -321,5 +336,6 @@ def test_a_bad_clock_setting_is_a_flow_settings_error(clock):
     ids=repr,
 )
 def test_every_documented_clock_spelling_still_works(clock, period):
+    """Every documented clock spelling still works."""
     settings = VivadoSynth.Settings.from_input({"fpga": FPGA_PART, "clock": clock})
     assert settings.clocks["main_clock"].period == pytest.approx(period)

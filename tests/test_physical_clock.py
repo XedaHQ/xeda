@@ -188,6 +188,7 @@ def test_period_ps_setter_converts_picoseconds_to_nanoseconds():
 
 
 def test_period_ps_setter_accepts_a_string_with_its_own_unit():
+    """Period ps setter accepts a string with its own unit."""
     clock = PhysicalClock(period=1.0)  # type: ignore[call-arg]
 
     clock.period_ps = "2.5ns"

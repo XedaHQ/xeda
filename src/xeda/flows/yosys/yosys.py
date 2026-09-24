@@ -111,6 +111,7 @@ def merge_libs(in_files, out_file, new_lib_name=None):
 def preproc_libs(
     in_files, merged_file, dont_use_cells: List[str], new_lib_name=None, use_temp_folder=True
 ):
+    """Merge Liberty inputs after excluding unusable cells."""
     in_files = unique(in_files)
     proc_files: list[Path] = []
     if len(in_files) > 1:

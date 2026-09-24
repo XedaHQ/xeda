@@ -20,6 +20,7 @@ from xeda.flow_runner import DefaultRunner
 
 @pytest.fixture
 def toy_flows():
+    """Provide flows that mutate and inspect design copies."""
     seen = {}
 
     class DesignDep(Flow):
@@ -55,6 +56,7 @@ def toy_flows():
 
 
 def test_a_flow_editing_its_design_changes_nobody_else_s(toy_flows, tmp_path):
+    """A flow editing its design changes nobody else s."""
     editor, seen = toy_flows
     (tmp_path / "top.vhd").write_text("entity top is generic (W : natural := 1); end;\n")
     design = Design(

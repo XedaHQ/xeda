@@ -300,6 +300,7 @@ class XedaBaseModel(BaseModel):
     def invalidate_cached_properties(self):
         # A `cached_property` caches in the instance `__dict__` whichever class along the MRO
         # declares it, so every base must be searched: `VivadoTool` inherits `Tool.version`.
+        """Discard inherited cached properties after model state changes."""
         for klass in type(self).__mro__:
             for key, value in vars(klass).items():
                 if isinstance(value, cached_property) and key not in type(self).model_fields:

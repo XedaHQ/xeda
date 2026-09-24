@@ -510,6 +510,7 @@ class Flow(metaclass=ABCMeta):
         @model_validator(mode="before")
         @classmethod
         def _normalize_flow_settings(cls, values, info):
+            """Normalize each supplied flow setting before model validation."""
             if info.field_name is not None and info.data is None:
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)
@@ -632,6 +633,7 @@ class Flow(metaclass=ABCMeta):
         trim_blocks=False,
         lstrip_blocks=False,
     ) -> jinja2.Environment:
+        """Create the template environment with Xeda filters and helpers."""
         if extra_modules is None:
             extra_modules = []
         loaderChoices = []

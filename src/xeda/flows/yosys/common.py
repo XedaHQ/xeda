@@ -427,6 +427,7 @@ class YosysBase(Flow):
         self.jinja_env.globals["top_is_vhdl"] = self.top_is_vhdl
 
     def init(self):
+        """Prepare template helpers and Yosys synthesis settings."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         self.add_template_helpers()
@@ -531,6 +532,7 @@ class YosysBase(Flow):
 
     @cached_property
     def yosys(self):
+        """Create the Yosys tool with output and debug options."""
         default_args = []
         ss = self.settings
         if ss.is_quiet or (not ss.verbose and not ss.debug):

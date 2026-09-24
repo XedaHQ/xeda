@@ -542,6 +542,7 @@ def test_an_assignment_inside_a_nested_model_is_recorded(tmp_path, monkeypatch, 
 
 
 def _design_with_a_rom(root: Path, **parameters) -> Design:
+    """Create a design containing a ROM source."""
     root.mkdir(parents=True, exist_ok=True)
     (root / "top.vhd").write_text("-- top\n")
     (root / "rom.mem").write_text("00\n")

@@ -381,6 +381,7 @@ class Openroad(AsicSynthFlow):
             return value
 
     def init(self):
+        """Resolve platform corners and register synthesis dependencies."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if len(ss.platform.corner) < 2:

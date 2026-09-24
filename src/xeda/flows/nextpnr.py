@@ -264,6 +264,7 @@ class Nextpnr(FpgaSynthFlow):
         self.add_dependency(YosysFpga, ss.resolve_dependency("yosys"))
 
     def run(self) -> None:
+        """Place and route the netlist produced by Yosys."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         yosys_flow = self.completed_dependencies[0]

@@ -248,6 +248,7 @@ def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
 
 
 def _opted_in(variable: str) -> bool:
+    """Check whether an optional tool test was requested."""
     return os.environ.get(variable, "").lower() in ("1", "true", "yes", "on")
 
 
@@ -261,6 +262,7 @@ def require_vivado() -> None:
 
 @lru_cache(maxsize=None)
 def _docker_works() -> bool:
+    """Check whether Docker is usable for opt-in tests."""
     return _command_succeeds(["docker", "info"])
 
 

@@ -224,6 +224,7 @@ class Bsc(Flow):
                         f.write(translate)
 
     def run(self):
+        """Compile Bluespec sources and collect generated Verilog files."""
         assert isinstance(self.settings, self.Settings)
 
         bluespec_sources = self.design.sources_of_type(SourceType.Bluespec, rtl=True, tb=True)

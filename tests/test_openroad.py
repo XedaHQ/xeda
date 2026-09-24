@@ -31,6 +31,7 @@ OPTIMIZE_CHOICES = [
 
 
 def test_every_optimize_choice_is_covered():
+    """Every optimize choice is covered."""
     assert set(OPTIMIZE_CHOICES) == {"speed", "area"}
 
 
@@ -39,6 +40,7 @@ DISTINCTIVE_ABC_COMMAND = {"area": "map -B 0.9", "speed": "&if -g -K 6"}
 
 
 def _mac_design(root: Path) -> Design:
+    """Create a multiply-accumulate design for OpenROAD."""
     (root / "mac.v").write_text(
         "module mac(input clk, input rst, input [7:0] a, b, output reg [19:0] q);\n"
         "  always @(posedge clk) if (rst) q <= 0; else q <= q + a * b;\n"
@@ -52,6 +54,7 @@ def _mac_design(root: Path) -> Design:
 
 
 def test_every_optimize_target_has_a_distinctive_abc_command():
+    """Every optimize target has a distinctive abc command."""
     assert set(DISTINCTIVE_ABC_COMMAND) == set(OPTIMIZE_CHOICES)
 
 
@@ -115,6 +118,7 @@ def test_an_optimize_target_selects_an_abc_script_yosys_accepts(optimize):
 
 
 def test_area_and_speed_select_different_scripts():
+    """Area and speed select different scripts."""
     assert abc_opt_script("area") != abc_opt_script("speed")
 
 
@@ -125,6 +129,7 @@ def test_area_plus_speed_is_no_longer_a_target():
 
 
 def _contains_run(sequence, run):
+    """Check whether a generated script invokes a command."""
     return any(sequence[i : i + len(run)] == run for i in range(len(sequence) - len(run) + 1))
 
 

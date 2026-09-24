@@ -169,6 +169,7 @@ class Dse(FlowLauncher):
         xeda_run_dir: Union[str, Path] = "xeda_run_dse",
         **kwargs,
     ) -> None:
+        """Configure the optimizer and run directory for a DSE runner."""
         super().__init__(
             xeda_run_dir,
             **kwargs,
@@ -210,6 +211,7 @@ class Dse(FlowLauncher):
         run_path: Optional[Path] = None,
         all_flows_settings: Optional[Dict[str, Any]] = None,
     ):
+        """Explore flow setting variations and return the best run."""
         assert isinstance(self.settings, self.Settings)
         timer = Timer()
 

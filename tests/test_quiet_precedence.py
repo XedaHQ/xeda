@@ -24,6 +24,7 @@ TEMPLATE_QUIET = re.compile(r"(?<![\w-])\w+\s*(\.\s*quiet\b|\[\s*[\"']quiet[\"']
 
 
 def _python_reads_of_quiet(path: Path) -> Iterator[tuple[int, str]]:
+    """Find direct reads of quiet in Python flow code."""
     tree = ast.parse(path.read_text(), filename=str(path))
     for node in ast.walk(tree):
         if (
@@ -44,12 +45,14 @@ def _python_reads_of_quiet(path: Path) -> Iterator[tuple[int, str]]:
 
 
 def _template_reads_of_quiet(path: Path) -> Iterator[tuple[int, str]]:
+    """Find direct reads of quiet in flow templates."""
     for lineno, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
         for match in TEMPLATE_QUIET.finditer(line):
             yield lineno, match.group(0)
 
 
 def test_no_flow_reads_quiet_except_through_is_quiet():
+    """No flow reads quiet except through is quiet."""
     offenders: list[str] = []
     for path in sorted(FLOWS_DIR.rglob("*")):
         if not path.is_file() or "__pycache__" in path.parts:
@@ -77,6 +80,7 @@ def test_no_flow_reads_quiet_except_through_is_quiet():
     ],
 )
 def test_the_python_sweep_sees_a_read_of_quiet(probe, found, tmp_path):
+    """The python sweep sees a read of quiet."""
     source = tmp_path / "probe.py"
     source.write_text(probe + "\n")
     assert bool(list(_python_reads_of_quiet(source))) is found
@@ -92,6 +96,7 @@ def test_the_python_sweep_sees_a_read_of_quiet(probe, found, tmp_path):
     ],
 )
 def test_the_template_sweep_sees_a_read_of_quiet(probe, found, tmp_path):
+    """The template sweep sees a read of quiet."""
     template = tmp_path / "probe.tcl"
     template.write_text(probe + "\n")
     assert bool(list(_template_reads_of_quiet(template))) is found
@@ -120,6 +125,7 @@ def commands(monkeypatch) -> list[list[str]]:
     ],
 )
 def test_yosys_is_quiet_only_when_nothing_asks_for_more(settings, quiet, tmp_path, commands):
+    """Yosys is quiet only when nothing asks for more."""
     (tmp_path / "top.v").write_text("module top(input a, output y); assign y = ~a; endmodule\n")
     design = Design(name="top", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)

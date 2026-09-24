@@ -125,6 +125,7 @@ def send_design(
     remote_path: str,
     all_flows_settings: Mapping[str, Any] | None = None,
 ) -> Tuple[str, str]:
+    """Archive the design and transfer it to the remote host."""
     assert isinstance(conn, Connection)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -274,6 +275,7 @@ def send_design(
 
 def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settings, env=None):
     # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
+    """Unpack and execute a flow in the remote Python process."""
     import json
     import os
     import zipfile
@@ -535,6 +537,7 @@ class RemoteRunner(FlowLauncher):
         design_overrides: Iterable[str] | Mapping[str, Any] | None = None,
         design_allow_extra: bool = False,
     ):
+        """Execute a design flow remotely and return its results."""
         project_flow_settings: Mapping[str, Any] | None = None
         if design_overrides is None:
             design_overrides = {}

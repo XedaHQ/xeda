@@ -494,6 +494,7 @@ def test_a_remote_run_canonicalizes_the_flow_name_and_does_not_mutate_the_design
 
 
 def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypatch):
+    """A remote run layers project design and command line."""
     from xeda.flow_runner import remote
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")

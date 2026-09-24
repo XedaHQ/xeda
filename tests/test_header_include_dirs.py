@@ -28,6 +28,7 @@ def commands(monkeypatch) -> list[list[str]]:
 
 
 def _write(path: Path, text: str) -> None:
+    """Write source files for include directory tests."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
 

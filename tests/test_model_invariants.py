@@ -178,6 +178,7 @@ def test_semantic_hash_of_a_whole_design_terminates():
 
 
 def _all_model_classes():
+    """Find model classes whose invariants must hold."""
     import xeda.flow_runner.dse  # noqa: F401 - registers the optimizer models
     import xeda.flows  # noqa: F401 - registers every flow, tool and platform model
     from xeda.dataclass import XedaBaseModel
@@ -216,6 +217,7 @@ def test_invalidating_cached_properties_clears_the_inherited_ones_too():
 
 
 def test_a_tool_derived_from_a_tool_subclass_does_not_keep_its_version():
+    """A tool derived from a tool subclass does not keep its version."""
     from xeda.flows.vivado import VivadoTool
 
     vivado = VivadoTool()  # type: ignore[call-arg]
@@ -232,6 +234,7 @@ def test_a_tool_derived_from_a_tool_subclass_does_not_keep_its_version():
 
 
 def _field_validators_reading_other_settings(settings_cls):
+    """Find validators that read other settings."""
     import inspect
 
     return sorted(
@@ -251,6 +254,7 @@ def test_no_field_validator_reads_another_setting(cls):
 
 
 def test_quiet_verbose_and_debug_mean_the_same_whatever_order_they_are_given_in():
+    """Quiet verbose and debug mean the same whatever order they are given in."""
     from xeda.flows import YosysFpga
 
     Settings = YosysFpga.Settings

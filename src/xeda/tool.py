@@ -262,6 +262,7 @@ class Tool(XedaBaseModel):
     @field_validator("docker", mode="before")
     @classmethod
     def validate_docker(cls, value, info):
+        """Normalize Docker settings around the tool executable."""
         values = info.data if isinstance(info.data, dict) else {}
         # The executable alone: `execute` passes `default_args` with every run, as for a tool run
         # natively, so a command holding them too gave the container each of them twice.

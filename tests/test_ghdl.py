@@ -59,6 +59,7 @@ def test_lib_paths_become_ghdl_search_directories(lib_paths, flags):
 
 
 def _vhdl_inverter(entity: str) -> str:
+    """Create a small VHDL inverter design."""
     return (
         "library ieee; use ieee.std_logic_1164.all;\n"
         f"entity {entity} is port(a: in std_logic; y: out std_logic); end;\n"
@@ -93,6 +94,7 @@ def _same_stem_design(root: Path, top: bool = False) -> Design:
 
 
 def _modules(verilog: Path) -> list:
+    """Return the VHDL modules used by GHDL tests."""
     return re.findall(r"^module\s+(\w+)", verilog.read_text(), re.M)
 
 

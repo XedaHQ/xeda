@@ -21,6 +21,7 @@ SQRT = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
 
 
 def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
+    """An exploration records one rerunnable best run."""
     for name in ("sqrt.vhdl", "sqrt.toml", "tb_sqrt.py"):
         shutil.copy(SQRT / name, tmp_path)
     proc = subprocess.run(
@@ -76,6 +77,7 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
 
 
 def _dse(tmp_path, design_toml: str, *args):
+    """Configure a design space exploration run."""
     (tmp_path / "sqrt.vhdl").write_text((SQRT / "sqrt.vhdl").read_text())
     (tmp_path / "d.toml").write_text(design_toml)
     proc = subprocess.run(
@@ -114,6 +116,7 @@ def test_a_search_without_its_bounds_names_them(tmp_path):
 
 
 def test_a_search_without_a_device_says_so_before_starting_any_run(tmp_path):
+    """A search without a device says so before starting any run."""
     proc, document = _dse(tmp_path, BARE, "--init-freq-low", "100", "--init-freq-high", "300")
     assert proc.returncode != 0 and document["success"] is False
     assert document["error"]["type"] == "FlowSettingsException"

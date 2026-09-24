@@ -105,6 +105,7 @@ class AsicsPlatform(Platform):
     def _time_unit_is_a_time(cls, value: str) -> str:
         # Checked as it loads: a bad unit otherwise surfaces only once a run renders its SDC or
         # scales the delays it parses from a report.
+        """Validate that the platform time unit has time dimensions."""
         try:
             convert_unit(1.0, "ns", from_unit=value)
         except ValueError as e:

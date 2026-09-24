@@ -84,6 +84,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         )
 
     def run(self) -> None:
+        """Synthesize the design for the selected FPGA target."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         assert ss.fpga is not None, "checked at launch (`required_settings`)"

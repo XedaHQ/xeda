@@ -154,6 +154,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
         )
 
         def common_flags(self, vhdl: VhdlSettings) -> List[str]:
+            """Build GHDL flags shared by analysis and execution."""
             cf: List[str] = []
             if vhdl.standard:
                 # GHDL spells the standard with two digits ("2008" is --std=08). The design's
@@ -381,6 +382,7 @@ class GhdlSynth(Ghdl, SynthFlow):
             )
 
     def run(self) -> None:
+        """Synthesize VHDL sources into Verilog artifacts."""
         design = self.design
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
@@ -536,6 +538,7 @@ class GhdlSim(Ghdl, SimFlow):
             return value
 
     def run(self) -> None:
+        """Compile and run the GHDL testbench."""
         design = self.design
         assert design.tb
         assert isinstance(self.settings, self.Settings)

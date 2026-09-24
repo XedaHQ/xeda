@@ -59,6 +59,7 @@ def test_a_glob_under_the_design_root_matches_its_files(root, pattern):
 
 @pytest.mark.parametrize("source", ROOT_SPELLINGS)
 def test_testbench_sources_resolve_the_same_way(root, source):
+    """Testbench sources resolve the same way."""
     design = Design(
         name="d",
         design_root=root,
@@ -69,6 +70,7 @@ def test_testbench_sources_resolve_the_same_way(root, source):
 
 
 def test_a_design_file_resolves_the_design_root_from_its_own_location(root):
+    """A design file resolves the design root from its own location."""
     (root / "d.toml").write_text(
         'name = "d"\n[rtl]\nsources = ["$DESIGN_ROOT/a.vhd", "$DESIGN_DIR/sub/*.vhd"]\ntop = "a"\n'
     )
@@ -78,6 +80,7 @@ def test_a_design_file_resolves_the_design_root_from_its_own_location(root):
 
 @pytest.mark.parametrize("source", ROOT_SPELLINGS)
 def test_generator_sources_resolve_the_same_way(root, source):
+    """Generator sources resolve the same way."""
     with WorkingDirectory(root):  # as `Design` builds its generator
         generator = Generator(command="true", sources=[source])
     assert generator.sources == [Path(root / "a.vhd")]
@@ -86,6 +89,7 @@ def test_generator_sources_resolve_the_same_way(root, source):
 @pytest.mark.parametrize("key", ["file", "path"])
 @pytest.mark.parametrize("prefix", ["", "$DESIGN_ROOT/", "$DESIGN_DIR/"])
 def test_a_source_table_resolves_the_design_root_too(root, key, prefix):
+    """A source table resolves the design root too."""
     design = Design(
         name="d",
         design_root=root,
@@ -139,6 +143,7 @@ def test_a_missing_parameter_file_is_a_validation_error(root):
 
 @pytest.mark.parametrize("spelling", ["init.mem", "$DESIGN_ROOT/init.mem"])
 def test_a_parameter_file_resolves_like_a_source(root, spelling):
+    """A parameter file resolves like a source."""
     (root / "init.mem").write_text("00\n")
     design = Design(
         name="d",
@@ -223,6 +228,7 @@ def test_a_glob_that_matches_nothing_is_an_error(root, pattern):
 
 
 def test_a_generator_glob_expands_in_a_stable_order_and_must_match(root):
+    """A generator glob expands in a stable order and must match."""
     with WorkingDirectory(root):  # as `Design` builds its generator
         generator = Generator(command="true", sources=["$DESIGN_ROOT/*.vhd", "sub/*.vhd"])
         assert generator.sources == [root / "a.vhd", root / "sub" / "b.vhd"]
@@ -304,6 +310,7 @@ def test_a_generator_is_skipped_by_what_its_sources_name_not_how_they_are_writte
 
 @pytest.mark.parametrize("source", ["$DESIGN_ROOT/out.vhd", "o*.vhd"])
 def test_a_generator_runs_when_its_output_is_missing(generated, source):
+    """A generator runs when its output is missing."""
     (generated / "out.vhd").unlink()
 
     Design(
