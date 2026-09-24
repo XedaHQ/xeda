@@ -70,7 +70,7 @@ def _require_bsc() -> None:
 
 
 def _files(root: Path, files: dict[str, str]) -> None:
-    """Collect design files for before and after comparisons."""
+    """Write design files for before and after comparisons."""
     for name, text in files.items():
         (root / name).write_text(text)
 

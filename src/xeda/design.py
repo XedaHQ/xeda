@@ -447,13 +447,13 @@ class FileResource:
     # source (on every re-validation) raise, and added nothing: the same file has the same
     # contents. `file` is absolute, and resolved for a checked resource.
     def __eq__(self, other: Any) -> bool:
-        """Compare resources by their resolved files."""
+        """Compare resources by their stored absolute paths."""
         if not isinstance(other, FileResource):
             return False
         return self.file == other.file
 
     def __hash__(self) -> int:
-        """Hash the resolved file path used for resource equality."""
+        """Hash the stored absolute path used for resource equality."""
         return hash(str(self.file))
 
     def __str__(self) -> str:

@@ -52,7 +52,7 @@ def _template_reads_of_quiet(path: Path) -> Iterator[tuple[int, str]]:
 
 
 def test_no_flow_reads_quiet_except_through_is_quiet():
-    """No flow reads quiet except through is quiet."""
+    """No flow reads `quiet` directly; flows use `is_quiet`."""
     offenders: list[str] = []
     for path in sorted(FLOWS_DIR.rglob("*")):
         if not path.is_file() or "__pycache__" in path.parts:

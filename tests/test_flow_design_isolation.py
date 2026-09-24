@@ -56,7 +56,7 @@ def toy_flows():
 
 
 def test_a_flow_editing_its_design_changes_nobody_else_s(toy_flows, tmp_path):
-    """A flow editing its design changes nobody else s."""
+    """A flow's design edits do not change the input or its dependency's copy."""
     editor, seen = toy_flows
     (tmp_path / "top.vhd").write_text("entity top is generic (W : natural := 1); end;\n")
     design = Design(
