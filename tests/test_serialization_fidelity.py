@@ -41,6 +41,7 @@ def test_git_dependency_keeps_its_own_fields_when_dumped():
 
 
 def test_git_dependency_survives_json_round_trip():
+    """Git dependency survives json round trip."""
     reference = DesignReference.from_data(GIT_URI)
     design = Design.model_construct(name="d", dependencies=[reference])
 

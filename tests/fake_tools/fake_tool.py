@@ -318,6 +318,7 @@ def fake_tool_options(fake_tool: Optional[FakeTool]) -> FC:
 @fake_tool_options(tool)
 @click.pass_context
 def cli(ctx: click.Context, **kwargs):
+    """Dispatch a fake EDA tool invocation."""
     if tool:
         print(f"Fake {ctx.info_name} kwargs:{kwargs} args:{ctx.args}")
         ctx.exit(tool.execute(**kwargs) or 0)

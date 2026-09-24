@@ -95,6 +95,7 @@ class DesignFileParseError(XedaException):
         line: int | None = None,
         column: int | None = None,
     ) -> None:
+        """Record the design file and source location of a load failure."""
         self.file = str(Path(file).absolute())
         self.reason = reason
         self.line = line
@@ -102,6 +103,7 @@ class DesignFileParseError(XedaException):
         super().__init__(self.file, reason, line, column)  # rebuilt from `args` when unpickled
 
     def __str__(self) -> str:
+        """Include the file and available source location in the error message."""
         where = f'"{self.file}"'
         if self.line is not None:
             where += f", line {self.line}"
@@ -134,6 +136,8 @@ class DesignValidationError(AnyDesignValidationException):
         self.design_in_msg = design_in_msg
 
     def __str__(self) -> str:
+        """Format validation errors with their design name and field locations."""
+
         def fmt_loc(loc):
             if loc:
                 return ".".join(re.split(r"\s*->\s*", loc)) + ":\n "
@@ -443,11 +447,13 @@ class FileResource:
     # source (on every re-validation) raise, and added nothing: the same file has the same
     # contents. `file` is absolute, and resolved for a checked resource.
     def __eq__(self, other: Any) -> bool:
+        """Compare resources by their resolved files."""
         if not isinstance(other, FileResource):
             return False
         return self.file == other.file
 
     def __hash__(self) -> int:
+        """Hash the resolved file path used for resource equality."""
         return hash(str(self.file))
 
     def __str__(self) -> str:
@@ -591,6 +597,7 @@ class DesignSource(FileResource):
         _root_path: Optional[Path] = None,
         **kwargs: Any,
     ) -> None:
+        """Build a design source while retaining its stated metadata."""
         if isinstance(path, dict):
             typ = typ or path.pop("type", None)
             standard = standard or path.pop("standard", None)
@@ -646,6 +653,7 @@ class DesignSource(FileResource):
         }
 
     def as_json_value(self) -> Union[str, Dict[str, Any]]:
+        """Serialize a source with only the metadata explicitly supplied."""
         value = super().as_json_value()
         if not self._stated:
             return value
@@ -803,12 +811,15 @@ class DVSettings(XedaBaseModel):
     @field_validator("sources", mode="before")
     @classmethod
     def _sources_to_files(cls, value):
+        """Normalize source entries into file resources."""
+
         def src_with_type(src, src_type):
             if src_type:
                 return {"file": src, "type": src_type}
             return src
 
         def ds(src: Union[str, Path], typ=None):
+            """Create a design source from a path and optional source type."""
             return DesignSource(src, typ=typ)
 
         if isinstance(value, (str, Path, DesignSource)):
@@ -895,6 +906,7 @@ class Generator(XedaBaseModel):
     @field_validator("sources", mode="before")
     @classmethod
     def _sources_to_files(cls, value):
+        """Expand source patterns and normalize the resulting paths."""
         # sources can contain globs which are expanded
         if isinstance(value, str):
             value = [value]
@@ -1513,6 +1525,7 @@ class Design(XedaBaseModel):
 
     @classmethod
     def process_generation(cls, data: Dict[str, Any]):
+        """Run declared generators and collect their produced sources."""
         design_root = data.get("design_root")
         if not design_root:
             design_root = Path.cwd()
@@ -1633,6 +1646,7 @@ class Design(XedaBaseModel):
     ) -> None:
         # Compatibility processing, generators, and source normalization all consume or enrich
         # nested mappings. A caller's design description is input, not workspace owned by Xeda.
+        """Copy caller data before compatibility and source processing."""
         data = deepcopy(data)
         if not design_root:
             design_root = data.pop("design_root", Path.cwd())
@@ -1886,6 +1900,7 @@ class Design(XedaBaseModel):
 
     @property
     def tb_fingerprint(self) -> Dict[str, Any]:
+        """Describe testbench inputs used to identify a run."""
         return {
             "sources": [self._source_fingerprint(src) for src in self.tb.sources],
             "parameters": self._parameters_fingerprint(self.tb),

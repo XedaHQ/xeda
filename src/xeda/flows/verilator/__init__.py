@@ -150,6 +150,7 @@ class Verilator(SimFlow):
         )
 
     def run(self):
+        """Compile the design and run its Verilator simulation."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
 

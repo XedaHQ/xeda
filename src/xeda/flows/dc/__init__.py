@@ -125,6 +125,7 @@ class Dc(AsicSynthFlow):
         @field_validator("hooks")
         @classmethod
         def _hooks_at_known_stages(cls, value):
+            """Reject Design Compiler hooks at unsupported stages."""
             unknown = sorted(set(value) - set(HOOK_STAGES))
             if unknown:
                 raise ValueError(

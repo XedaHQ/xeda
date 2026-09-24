@@ -64,11 +64,13 @@ BSV_TOP = (
 def _require_bsc() -> None:
     # bsc is not part of the tool set CI provides, so it is optional here even under
     # XEDA_TESTS_REQUIRE_TOOLS.
+    """Skip when the Bluespec compiler is unavailable."""
     if not shutil.which("bsc"):
         pytest.skip("bsc is not installed")
 
 
 def _files(root: Path, files: dict[str, str]) -> None:
+    """Collect design files for before and after comparisons."""
     for name, text in files.items():
         (root / name).write_text(text)
 
@@ -129,6 +131,7 @@ CASES: dict[str, Any] = {
 
 
 def _snapshot(design: Design) -> Any:
+    """Capture the design state before a flow runs."""
     return (
         design.model_dump(mode="json"),
         design.rtl_fingerprint,
@@ -140,6 +143,7 @@ def _snapshot(design: Design) -> Any:
 
 @pytest.mark.parametrize("case", sorted(CASES))
 def test_a_flow_leaves_the_design_it_runs_on_unchanged(case: str, tmp_path: Path) -> None:
+    """A flow leaves the design it runs on unchanged."""
     flow_class, require_tool, files, fields, settings = CASES[case]
     guard: Callable[[], None] = require_tool
     guard()

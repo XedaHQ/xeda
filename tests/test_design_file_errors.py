@@ -41,6 +41,7 @@ MALFORMED = {
 
 
 def write(path: Path, content) -> Path:
+    """Write a design file in the temporary project."""
     if isinstance(content, bytes):
         path.write_bytes(content)
     else:
@@ -49,6 +50,7 @@ def write(path: Path, content) -> Path:
 
 
 def run_xeda(*args: str, cwd: Path, fake_tools: bool = False) -> subprocess.CompletedProcess:
+    """Run the Xeda CLI against a temporary design."""
     env = dict(os.environ, COLUMNS="200")
     if fake_tools:
         env["PATH"] = str(FAKE_TOOLS_DIR) + os.pathsep + env.get("PATH", "")
@@ -96,6 +98,7 @@ def assert_one_critical_line(proc, *mentions: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(MALFORMED))
 def test_a_malformed_design_file_is_a_parse_error_at_its_position(tmp_path, name):
+    """A malformed design file is a parse error at its position."""
     content, line, column = MALFORMED[name]
     path = write(tmp_path / name, content)
     with pytest.raises(DesignFileParseError) as raised:
@@ -122,6 +125,7 @@ def test_a_malformed_design_file_is_a_parse_error_at_its_position(tmp_path, name
     ],
 )
 def test_a_file_that_is_not_a_design_is_a_parse_error_naming_it(tmp_path, name, content, mentions):
+    """A file that is not a design is a parse error naming it."""
     path = write(tmp_path / name, content)
     with pytest.raises(DesignFileParseError) as raised:
         Design.from_file(path)
@@ -133,6 +137,7 @@ def test_a_file_that_is_not_a_design_is_a_parse_error_naming_it(tmp_path, name, 
 
 
 def test_an_unreadable_design_file_is_a_parse_error_naming_it(tmp_path):
+    """An unreadable design file is a parse error naming it."""
     with pytest.raises(DesignFileParseError, match=re.escape("missing.toml")):
         Design.from_file(tmp_path / "missing.toml")
     (tmp_path / "dir.toml").mkdir()
@@ -172,6 +177,7 @@ CLI_CASES = {
 @pytest.mark.parametrize("name", sorted(CLI_CASES))
 @pytest.mark.parametrize("json_flag", [False, True], ids=["text", "json"])
 def test_xeda_run_reports_an_unloadable_design_file_cleanly(tmp_path, name, json_flag):
+    """Xeda run reports an unloadable design file cleanly."""
     content, error_type, detail = CLI_CASES[name]
     path = write(tmp_path / name, content)
     args = ["run", "ghdl_sim", str(path)] + (["--json"] if json_flag else [])
@@ -208,6 +214,7 @@ top = "sqrt"
 
 
 def _project(tmp_path: Path) -> Path:
+    """Create a project file for error reporting tests."""
     project = tmp_path / "xedaproject.toml"
     project.write_text(PROJECT.format(sqrt=SQRT_DIR / "sqrt.vhdl"))
     return project
@@ -215,6 +222,7 @@ def _project(tmp_path: Path) -> Path:
 
 @pytest.mark.parametrize("json_flag", [False, True], ids=["text", "json"])
 def test_a_design_name_the_project_lacks_is_reported_cleanly(tmp_path, json_flag):
+    """A design name the project lacks is reported cleanly."""
     _project(tmp_path)
     args = ["run", "ghdl_sim", "--design-name", "nosuch"] + (["--json"] if json_flag else [])
     proc = run_xeda(*args, cwd=tmp_path)
@@ -243,6 +251,7 @@ def test_a_design_name_without_a_project_is_reported_as_such(tmp_path, json_flag
     ],
 )
 def test_a_project_file_that_cannot_be_loaded_is_reported_cleanly(tmp_path, content, detail):
+    """A project file that cannot be loaded is reported cleanly."""
     (tmp_path / "xedaproject.toml").write_text(content)
     proc = run_xeda("run", "ghdl_sim", "--design-name", "sqrt", "--json", cwd=tmp_path)
     assert_one_error_document(proc, "ProjectFileError", "xedaproject.toml", detail)

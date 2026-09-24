@@ -34,6 +34,7 @@ def _image(docker: Docker) -> str:
 
 @pytest.fixture
 def work_dir():
+    """Provide a workspace that Docker can mount."""
     require_docker()
     path = checkout_work_dir("docker_test_")
     yield path
@@ -41,6 +42,7 @@ def work_dir():
 
 
 def _design(root: Path, name: str, rtl: dict, **files: str) -> Design:
+    """Create a small design for a containerized flow."""
     for rel, text in files.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text)
@@ -48,6 +50,7 @@ def _design(root: Path, name: str, rtl: dict, **files: str) -> Design:
 
 
 def test_vivado_synth_runs_in_its_default_image(work_dir) -> None:
+    """Vivado synth runs in its default image."""
     docker = VivadoTool.model_fields["docker"].default
     assert docker is not None
     require_docker_image(_image(docker))
@@ -65,6 +68,7 @@ def test_vivado_synth_runs_in_its_default_image(work_dir) -> None:
 
 
 def test_ghdl_sim_runs_in_its_default_image(work_dir) -> None:
+    """Ghdl sim runs in its default image."""
     docker = GhdlTool.model_fields["docker"].default
     assert docker is not None
     require_docker_image(_image(docker))
@@ -87,6 +91,7 @@ def test_ghdl_sim_runs_in_its_default_image(work_dir) -> None:
 
 
 def test_yosys_runs_in_its_default_image(work_dir) -> None:
+    """Yosys runs in its default image."""
     design = _design(
         work_dir / "design",
         "ys",

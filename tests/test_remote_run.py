@@ -101,6 +101,7 @@ def remote_host(tmp_path, monkeypatch):
 
 
 def _remote_run_dir(home: Path, flow_name: str) -> Path:
+    """Locate the run directory created on the remote host."""
     (settings,) = home.glob(f".xeda/remote_run/*/*/{flow_name}*/settings.json")
     return settings.parent
 
@@ -133,6 +134,7 @@ EXAMPLE_DESIGNS = sorted(
 
 @pytest.mark.parametrize("design_file", EXAMPLE_DESIGNS, ids=lambda p: p.name)
 def test_the_design_archive_is_readable_by_a_released_remote(design_file, tmp_path, monkeypatch):
+    """The design archive is readable by a released remote."""
     design = Design.from_file(design_file)
     monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
     remote_dir = tmp_path / "remote"
@@ -205,6 +207,7 @@ def test_plain_testbench_parameters_do_not_need_a_newer_remote(tmp_path, monkeyp
 
 
 def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remote_host):
+    """A remote run comes back whole and hashed as it was sent."""
     design_root = tmp_path / "design"
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)

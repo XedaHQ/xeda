@@ -22,6 +22,7 @@ COMPARISON = re.compile(
 
 
 def test_every_source_type_compared_with_text_is_a_name_the_type_has() -> None:
+    """Every source type compared with text is a name the type has."""
     wrong = []
     for path in sorted(SRC.rglob("*")):
         if path.suffix not in (".py", ".tcl", ".ys", ".xdc", ".sdc", ".fdc", ".ldc"):

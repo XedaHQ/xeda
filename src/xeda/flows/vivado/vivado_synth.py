@@ -278,6 +278,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         def _validate_fpga(cls, value):
             # A missing device is reported when the flow is launched (`required_settings`); a
             # device given without a part is no device Vivado can target.
+            """Require a part number when an FPGA target is supplied."""
             if value is not None and not value.part:
                 raise ValueError("Vivado needs the FPGA's part number (`fpga.part`)")
             return value
@@ -291,6 +292,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         #     ss.set_impl_properties["PROGRAM.FILE"] = str(ss.bitstream)
 
     def run(self):
+        """Run Vivado synthesis and collect requested artifacts."""
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
         if settings.write_netlist:

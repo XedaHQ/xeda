@@ -62,6 +62,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         )
 
     def init(self):
+        """Set up Vivado project execution and optional GUI mode."""
         super().init()
         assert isinstance(self.settings, self.Settings)
         if self.settings.gui:
@@ -72,6 +73,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
             self.vivado.default_args = args
 
     def run(self):
+        """Create the Vivado project and run its configured steps."""
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
         self.artifacts.project = f"{self.design.name}.xpr"
@@ -99,6 +101,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         self.vivado.run("-source", script_path)
 
     def parse_reports(self) -> bool:
+        """Check that the Vivado project file was created."""
         return (self.run_path / f"{self.design.name}.xpr").is_file()
 
 

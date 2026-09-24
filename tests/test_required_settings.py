@@ -28,6 +28,7 @@ FPGA_FLOWS = sorted(
 
 @pytest.fixture
 def design(tmp_path):
+    """Provide a design for required settings tests."""
     root = tmp_path / "design"
     root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", root)
@@ -39,6 +40,7 @@ def design(tmp_path):
 
 
 def test_the_sweep_covers_the_fpga_flows():
+    """The sweep covers the fpga flows."""
     assert {"yosys_fpga", "nextpnr", "vivado_synth", "quartus", "ise_synth"} <= {
         cls.name for cls in FPGA_FLOWS
     }
@@ -48,6 +50,7 @@ def test_the_sweep_covers_the_fpga_flows():
 def test_an_fpga_flow_launched_without_a_device_names_the_setting(
     flow_class, design, tmp_path, monkeypatch
 ):
+    """An fpga flow launched without a device names the setting."""
     monkeypatch.setenv("PATH", "")  # a tool that ran would be `ExecutableNotFound`, not this
     monkeypatch.chdir(tmp_path)
     run_dir = tmp_path / "xeda_run"

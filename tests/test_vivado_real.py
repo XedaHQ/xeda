@@ -36,6 +36,7 @@ IO_XDC = "set_property IOSTANDARD LVCMOS33 [get_ports *]\n"
 
 @pytest.fixture
 def work_dir():
+    """Provide a workspace for optional real Vivado tests."""
     require_vivado()
     path = checkout_work_dir("vivado_test_")
     yield path
@@ -43,12 +44,14 @@ def work_dir():
 
 
 def _write(path: Path, text: str) -> str:
+    """Write a source file for a real Vivado test."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return str(path)
 
 
 def _logged(run_path: Path, text: str) -> bool:
+    """Read messages from a Vivado run log."""
     return any(text in log.read_text(errors="ignore") for log in run_path.rglob("*.log"))
 
 
@@ -124,6 +127,7 @@ def test_vivado_project_creates_the_project_without_a_display(work_dir) -> None:
 
 
 def test_vivado_sim_runs_a_testbench(work_dir) -> None:
+    """Vivado sim runs a testbench."""
     root = work_dir / "design"
     _write(root / "inv.v", INVERTER_V)
     _write(

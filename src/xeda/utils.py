@@ -301,6 +301,7 @@ def with_json_keys(value: Any) -> Any:
 
 
 def dump_json(data: object, path: Path, backup: bool = True, indent: int = 4) -> None:
+    """Write JSON with normalized keys and optional backup."""
     if path.exists() and backup:
         backup_existing(path)
         assert not path.exists(), "Old file still exists!"

@@ -61,6 +61,7 @@ class DiamondSynth(FpgaSynthFlow):
         )
 
     def run(self) -> None:
+        """Generate constraints and launch Diamond synthesis."""
         assert isinstance(self.settings, self.Settings)
         if self.settings.main_clock is None:
             raise FlowSettingsException(
@@ -75,6 +76,7 @@ class DiamondSynth(FpgaSynthFlow):
         diamondc.run(script_path)
 
     def parse_reports(self) -> bool:
+        """Read Diamond timing and utilization reports."""
         assert isinstance(self.settings, self.Settings)
         reports_dir = self.run_path / "diamond_impl"
         design_name = self.design.name

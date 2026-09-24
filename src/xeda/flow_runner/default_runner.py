@@ -72,6 +72,7 @@ def print_results(
     subset: Optional[Iterable[str]] = None,
     skip_if_false: Union[bool, Iterable[str], None] = None,
 ) -> None:
+    """Display selected flow results in a formatted table."""
     if results is None and flow:
         results = flow.results
     assert results is not None, "results is None"
@@ -621,6 +622,7 @@ class FlowLauncher:
     def _prepare_run_path(
         self, flow_name: str, run_path: Path, previous_results: Box | None, policy: RunDirPolicy
     ) -> None:
+        """Apply the run directory policy before starting a flow."""
         if policy.scrub_old_runs:
             scrub_runs(flow_name, run_path.parent, [run_path])
         if not previous_results and run_path.exists():

@@ -59,6 +59,7 @@ def toy_flows():
 
 @pytest.fixture
 def design(request):
+    """Provide a design for run directory policy tests."""
     return Design.from_file(request.config.rootpath / EXAMPLE)
 
 
@@ -74,6 +75,7 @@ LAUNCHER_OPTIONS = [
 def test_launching_a_flow_with_a_dependency_leaves_the_launcher_settings_alone(
     tmp_path, toy_flows, design, options
 ):
+    """Launching a flow with a dependency leaves the launcher settings alone."""
     _, top = toy_flows
     launcher = DefaultRunner(tmp_path / "run", display_results=False, **options)
     before = launcher.settings.model_dump()
@@ -82,6 +84,7 @@ def test_launching_a_flow_with_a_dependency_leaves_the_launcher_settings_alone(
 
 
 def test_post_cleanup_applies_to_a_flow_with_a_dependency(tmp_path, toy_flows, design):
+    """Post cleanup applies to a flow with a dependency."""
     _, top = toy_flows
     launcher = DefaultRunner(tmp_path / "run", display_results=False, post_cleanup=True)
     flow = launcher.launch_flow(top, design, {})
@@ -92,6 +95,7 @@ def test_post_cleanup_applies_to_a_flow_with_a_dependency(tmp_path, toy_flows, d
 
 
 def test_post_cleanup_purge_applies_to_a_flow_with_a_dependency(tmp_path, toy_flows, design):
+    """Post cleanup purge applies to a flow with a dependency."""
     _, top = toy_flows
     launcher = DefaultRunner(
         tmp_path / "run", display_results=False, post_cleanup=True, post_cleanup_purge=True

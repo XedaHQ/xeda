@@ -352,6 +352,7 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         @field_validator("tcl_files")
         @classmethod
         def _no_tcl_files(cls, value):
+            """Reject project-only Tcl hooks for non-project synthesis."""
             if value:
                 raise ValueError(
                     "vivado_alt_synth runs Vivado in non-project mode, which has no fileset for "
@@ -408,6 +409,7 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         )
 
     def run(self):
+        """Render and execute the non-project Vivado synthesis steps."""
         ss = self.settings
         assert isinstance(ss, self.Settings)
 

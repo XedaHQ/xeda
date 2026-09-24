@@ -80,12 +80,14 @@ NOT_SWEPT = {"reports_dir", "outputs_dir", "checkpoints_dir", "lib_paths"}
 
 
 def _write(path: Path, text: str) -> Path:
+    """Write a source file for Yosys tests."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return path
 
 
 def _is_path_field(annotation) -> bool:
+    """Identify settings fields containing paths."""
     return annotation is Path or any(_is_path_field(a) for a in get_args(annotation))
 
 
@@ -101,6 +103,7 @@ def test_the_spaced_path_sweep_covers_every_path_setting():
 
 @cache
 def _yosys_has_tcl() -> bool:
+    """Check whether the installed Yosys supports Tcl."""
     return _command_succeeds(["yosys", "-q", "-c", "/dev/null"])
 
 
@@ -223,6 +226,7 @@ def test_yosys_reads_vhdl_from_a_path_with_spaces(tmp_path):
 
 @cache
 def _probe_yosys_slang() -> bool:
+    """Check whether the installed Yosys has slang support."""
     return _command_succeeds(["yosys", "-p", "plugin -i slang"])
 
 
@@ -282,6 +286,7 @@ def test_yosys_passes_vhdl_top_generics_to_ghdl_and_leaves_the_design_alone(tmp_
 
 
 def _liberty(cell: str) -> str:
+    """Write a Liberty file for Yosys tests."""
     return (
         "library (cells) {\n"
         '  time_unit : "1ns" ;\n'
