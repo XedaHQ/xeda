@@ -46,7 +46,8 @@ def write_file(path, data):
 # The commands of the tool a script runs are recorded, not run: `unknown` catches every command
 # tclsh does not know. The recording goes to `fake_<tool>.calls` in the working directory (the
 # run directory), one `CALL <n>` line per command followed by its `ARG` lines -- and `ELEM` lines
-# for the files of an argument that is a TCL list (`[list "a b.v"]`).
+# for the files of an argument that is a TCL list (`[list "a b.v"]`). The commands named in
+# `XEDA_FAKE_TOOL_FAIL` (space-separated) raise a TCL error after being recorded.
 TCL_RECORDER = r"""
 set __calls [open {%(calls)s} a]
 proc __record {args} {
@@ -60,7 +61,13 @@ proc __record {args} {
     flush $::__calls
     return 1
 }
-proc unknown {args} { __record {*}$args }
+# `XEDA_FAKE_TOOL_FAIL`: the tool commands that fail, as a compiler does on a bad source
+set __fail [expr {[info exists ::env(XEDA_FAKE_TOOL_FAIL)] ? $::env(XEDA_FAKE_TOOL_FAIL) : {}}]
+proc unknown {args} {
+    set result [__record {*}$args]
+    if {[lindex $args 0] in $::__fail} { error "[lindex $args 0] failed" }
+    return $result
+}
 rename source __source
 proc source {args} { __record source {*}$args }
 proc exec {args} { __record exec {*}$args; return "" }
@@ -73,7 +80,7 @@ proc set_app_var {name value} { __record set_app_var $name $value; uplevel #0 [l
 set search_path {}
 namespace eval rdi { variable mode batch }
 rename exit __exit
-proc exit {{code 0}} { flush $::__calls; __exit $code }
+%(exit_proc)s
 if {[catch {__source {%(script)s}} e]} {
     puts $::__calls "TCL-ERROR $e"
     puts stderr "TCL-ERROR in %(script)s: $e\n$::errorInfo"
@@ -82,6 +89,18 @@ if {[catch {__source {%(script)s}} e]} {
 }
 flush $::__calls
 """
+
+
+# A tool's own `exit`, where it differs from TCL's. ModelSim's takes its status as `-code N` and
+# ignores anything else: `exit 1` exits vsim with status 0, so a script must not rely on it.
+TCL_EXIT = {
+    "vsim": r"""proc exit {args} {
+    set i [lsearch -exact $args -code]
+    set code [expr {$i >= 0 ? [lindex $args [expr {$i + 1}]] : 0}]
+    flush $::__calls; __exit $code
+}""",
+}
+TCL_EXIT_DEFAULT = "proc exit {{code 0}} { flush $::__calls; __exit $code }"
 
 
 def run_tcl(script: Union[str, os.PathLike], tool_name: str) -> int:
@@ -99,7 +118,8 @@ def run_tcl(script: Union[str, os.PathLike], tool_name: str) -> int:
     script = Path(script).absolute()
     calls = Path.cwd() / f"fake_{tool_name}.calls"
     runner = Path.cwd() / f"fake_{tool_name}_runner.tcl"
-    runner.write_text(TCL_RECORDER % {"calls": calls, "script": script})
+    exit_proc = TCL_EXIT.get(tool_name, TCL_EXIT_DEFAULT)
+    runner.write_text(TCL_RECORDER % {"calls": calls, "script": script, "exit_proc": exit_proc})
     return subprocess.run([tclsh, str(runner)], check=False).returncode
 
 
@@ -265,6 +285,7 @@ fake_tools: Dict[str, FakeTool] = dict(
     vsim=FakeTool(
         version="2024.1",
         version_template="Model Technology ModelSim vsim {version} Simulator",
+        version_options=["-version"],
         options={
             "-batch": None,
             "-do": dict(type=str),

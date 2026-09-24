@@ -14,8 +14,9 @@ import pytest
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import GhdlSim, VivadoSynth, Yosys
+from xeda.flows import GhdlSim, Modelsim, VivadoSynth, Yosys
 from xeda.flows.ghdl import GhdlTool
+from xeda.flows.modelsim import ModelsimTool
 from xeda.flows.vivado import VivadoTool
 from xeda.flows.yosys.common import YOSYS_DOCKER_IMAGE
 import xeda.tool
@@ -102,6 +103,78 @@ def test_yosys_runs_in_its_default_image(work_dir) -> None:
     require_docker_image(_image(Docker(image=YOSYS_DOCKER_IMAGE)))
     flow = DefaultRunner(work_dir / "run").run_flow(Yosys, design, {"dockerized": True})
     assert flow is not None and flow.succeeded
+
+
+# A VHDL testbench over a SystemVerilog unit whose `input logic` ports need `-svinputport=var`
+# under `default_nettype none`. Its one check expects `y` to be `expect`, with `severity`.
+MODELSIM_SV = """`default_nettype none
+module inv(input logic a, output logic y); assign y = ~a; endmodule
+"""
+MODELSIM_TB = """library ieee; use ieee.std_logic_1164.all;
+entity tb is end;
+architecture a of tb is
+  signal a, y : std_logic := '0';
+  component inv port (a : in std_logic; y : out std_logic); end component;
+begin
+  u : inv port map (a, y);
+  process begin
+    wait for 1 ns;
+    assert y = '{expect}' report "y /= {expect}" severity {severity};
+    std.env.finish;
+  end process;
+end;
+"""
+
+
+def _modelsim_run(work_dir: Path, tb: str, sv: str = MODELSIM_SV, **settings) -> bool:
+    """Whether the flow succeeds on a mixed-language design in the default ModelSim image."""
+    require_docker_image(_image(ModelsimTool.model_fields["docker"].default))
+    root = work_dir / "design"
+    root.mkdir()
+    (root / "inv.sv").write_text(sv)
+    (root / "tb.vhd").write_text(tb)
+    design = Design(
+        name="inv",
+        design_root=root,
+        language={"vhdl": {"standard": "2008"}},
+        rtl={"sources": ["inv.sv"], "top": "inv"},
+        tb={"sources": ["tb.vhd"], "top": "tb"},
+    )
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        Modelsim, design, {"dockerized": True, **settings}
+    )
+    assert flow is not None
+    return flow.succeeded
+
+
+def test_modelsim_runs_in_its_default_image(work_dir) -> None:
+    """A passing testbench passes; `std.env.finish` returns to the script, which exits 0."""
+    assert _modelsim_run(work_dir, MODELSIM_TB.format(expect="1", severity="failure"))
+
+
+@pytest.mark.parametrize(
+    "severity, fail_severity, fails",
+    [
+        ("error", None, False),
+        ("failure", None, True),
+        ("error", "error", True),
+        ("failure", "fatal", False),
+    ],
+)
+def test_modelsim_fails_a_testbench_at_its_fail_severity(
+    work_dir, severity, fail_severity, fails
+) -> None:
+    """vsim exits 0 whatever the testbench reports; the flow reads its test status and fails at
+    `fail_severity`, by default `failure`."""
+    tb = MODELSIM_TB.format(expect="0", severity=severity)
+    settings = {"fail_severity": fail_severity} if fail_severity else {}
+    assert _modelsim_run(work_dir, tb, **settings) is not fails
+
+
+def test_modelsim_fails_a_compile_error(work_dir) -> None:
+    """The script's `exit 1` exited vsim with status 0: a source that did not compile passed."""
+    tb = MODELSIM_TB.format(expect="1", severity="failure")
+    assert not _modelsim_run(work_dir, tb, sv="module inv(;\n")
 
 
 def test_a_containerized_tool_gets_its_default_arguments_once(monkeypatch, tmp_path) -> None:

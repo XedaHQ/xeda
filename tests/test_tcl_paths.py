@@ -188,7 +188,7 @@ def test_modelsim_keeps_systemverilog_and_lint_as_separate_options(tmp_path, mon
         tb={"top": "top"},
     )
     calls = _calls("modelsim", design, {}, tmp_path, monkeypatch)
-    assert ["vlog", str(source), "-sv", "-lint"] in calls
+    assert ["vlog", str(source), "-sv", "-lint", "-svinputport=var"] in calls
 
 
 @needs_tclsh
