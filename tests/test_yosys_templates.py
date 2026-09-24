@@ -6,6 +6,8 @@ the `.tcl` templates to their historical escaping.
 """
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -142,3 +144,62 @@ def test_stop_after_rtl_omits_synthesis(tmp_path: Path) -> None:
     assert "synth_xilinx" not in script
     assert "write_netlist" not in script
     assert "opt_clean" not in script
+
+
+# yosys commands that expand a file name as a glob pattern, so their file arguments go through
+# `read_path` (`frontend_name`); `test_yosys.py::test_yosys_reads_every_input_by_its_own_name`
+# pins the list against a real yosys.
+EXPANDING_COMMANDS = re.compile(r"\b(read_verilog|read_liberty|techmap -map|dfflibmap)\b")
+TEMPLATES_DIR = Path(__file__).parent.parent / "src" / "xeda" / "flows" / "yosys" / "templates"
+
+
+def test_a_file_yosys_expands_the_name_of_is_named_by_read_path() -> None:
+    """Every path a template hands a command that expands it as a pattern goes through
+    `read_path`, and no other path does: escaped, a name finds no file where it is taken as is."""
+    for template in sorted(TEMPLATES_DIR.glob("*")):
+        if template.suffix not in (".ys", ".tcl"):
+            continue
+        for n, line in enumerate(template.read_text().splitlines(), 1):
+            where = f"{template.name}:{n}: {line.strip()}"
+            if EXPANDING_COMMANDS.search(line):
+                assert "|path}}" not in line, where
+            elif "|read_path}}" in line:
+                raise AssertionError(where)
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_a_source_name_with_pattern_characters_reaches_yosys_escaped(
+    script_format, tmp_path: Path
+) -> None:
+    """`top[1].v` is a file name, and yosys' `read_verilog` expands it as a pattern: the script
+    names it `top[[]1].v`, which matches only itself -- in a `.tcl` script as the word TCL hands
+    yosys."""
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "top[1].v").write_text("module top; endmodule\n")
+    design = Design(name="d", design_root=root, rtl={"sources": ["top[1].v"], "top": "top"})
+    flow = Yosys(Yosys.Settings(script_format=script_format), design, tmp_path)
+    flow.init()
+    script = (
+        tmp_path
+        / flow.copy_from_template(
+            f"read_files{flow.script_ext}",
+            lstrip_blocks=True,
+            trim_blocks=False,
+            ghdl_args=[],
+            parameters={},
+            defines=[],
+        )
+    ).read_text()
+    (line,) = [line for line in script.splitlines() if "read_verilog" in line]
+    word = line.split()[-1]
+    if script_format == "ys":
+        assert word == f"{root}/top[[]1].v"
+    else:
+        tclsh = shutil.which("tclsh")
+        if tclsh is None:
+            pytest.skip("tclsh is needed to evaluate the TCL word")
+        evaluated = subprocess.run(
+            [tclsh], input=f"puts {word}\n", capture_output=True, text=True, check=True
+        ).stdout.strip()
+        assert evaluated == f"{root}/top[[]1].v"

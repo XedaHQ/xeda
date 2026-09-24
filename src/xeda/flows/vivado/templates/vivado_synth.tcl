@@ -16,33 +16,33 @@ set_msg_config -id "\[{{msg}}\]" -suppress
 puts "\n=====================( Read Design Files and Constraints )======================"
 {%- for src in design.rtl.sources %}
 {%- if src.type.name == "Verilog" %}
-puts "Reading Verilog file {{src}}"
-if { [catch {read_verilog "{{src}}"} myError]} {
+puts "Reading Verilog file {{src|tcl_quote}}"
+if { [catch {read_verilog {{src|tcl_list}}} myError]} {
   errorExit $myError
 }
 {%- elif src.type.name == "SystemVerilog" %}
-puts "Reading SystemVerilog file {{src}}"
-if { [catch {read_verilog -sv "{{src}}"} myError]} {
+puts "Reading SystemVerilog file {{src|tcl_quote}}"
+if { [catch {read_verilog -sv {{src|tcl_list}}} myError]} {
   errorExit $myError
 }
 {%- elif src.type.name == "Vhdl" %}
-puts "Reading VHDL file {{src}}"
-if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") -%} -vhdl2008 {% endif -%} "{{src}}"} myError]} {
+puts "Reading VHDL file {{src|tcl_quote}}"
+if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") -%} -vhdl2008 {% endif -%} {{src|tcl_list}}} myError]} {
   errorExit $myError
 }
 {%- elif src.type.name == "MemoryFile" %}
-puts "Adding MemoryFile file {{src}}"
-add_files -fileset sources_1 -norecurse {{src}}
-set_property -name "file_type" -value "Memory File" -objects [get_files {{src}}]
+puts "Adding MemoryFile file {{src|tcl_quote}}"
+add_files -fileset sources_1 -norecurse {{src|tcl_list}}
+set_property -name "file_type" -value "Memory File" -objects [get_files {{src|tcl_list}}]
 {%- elif src.type.name == "Xdc" %}
 # puts "Reading XDC file {{src}}"
 # source -verbose {{src}}
 {%- elif src.type.name == "Tcl" %}
-puts "Reading TCL file {{src}}"
-source -verbose {{src}}
+puts "Reading TCL file {{src|tcl_quote}}"
+source -verbose {{src|tcl_word}}
 {%- else %}
-puts "Adding source file with unknown type: {{src}}"
-add_files -fileset sources_1 -norecurse {{src}}
+puts "Adding source file with unknown type: {{src|tcl_quote}}"
+add_files -fileset sources_1 -norecurse {{src|tcl_list}}
 {%- endif %}
 {%- endfor %}
 
@@ -53,12 +53,12 @@ set_property top {{design.rtl.top}} [get_fileset sources_1]
 
 
 {%- for file in tcl_files %}
-puts "====================( Adding TCL file {{file}} )======================================"
-add_files -fileset utils_1 -norecurse {{file}}
+puts "====================( Adding TCL file {{file|tcl_quote}} )======================================"
+add_files -fileset utils_1 -norecurse {{file|tcl_list}}
 {%- endfor %}
 {%- for file in xdc_files %}
-puts "====================( Adding constraints file {{file}} )======================================"
-add_files -fileset constrs_1 -norecurse {{file}}
+puts "====================( Adding constraints file {{file|tcl_quote}} )======================================"
+add_files -fileset constrs_1 -norecurse {{file|tcl_list}}
 # read_xdc {{file}}
 {%- endfor %}
 

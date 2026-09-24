@@ -2,7 +2,7 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
 # Area/Balanced/Timing
-set strategy            {{settings.strategy}}
+set strategy            {{settings.strategy|tcl_word}}
 
 set implementation_name "{{settings.impl_name}}"
 set impl_dir            "{{settings.impl_folder}}"
@@ -13,15 +13,15 @@ file delete -force ${impl_dir}
 #   after 2000 puts "delete failed. retrying..."
 # }
 
-prj_project new -name {{design.name}} -dev "{{settings.fpga_part}}" -impl ${implementation_name} -impl_dir ${impl_dir}
+prj_project new -name {{design.name}} -dev {{settings.fpga.part|tcl_word}} -impl ${implementation_name} -impl_dir ${impl_dir}
 
 prj_impl option synthesis {{settings.synthesis_engine}}
 
 ##strategy
-eval prj_strgy copy -from {{settings.strategy}} -name custom_strategy -file diamond_strategy.sty
+prj_strgy copy -from $strategy -name custom_strategy -file diamond_strategy.sty
 
 {% for src in design.rtl.sources %}
-eval prj_src add {% if src.type.name == "Vhdl" -%} -format VHDL {%- elif src.type.name == "Verilog" -%} -format Verilog {%- elif src.type.name == "SystemVerilog" -%} -format SystemVerilog {%- endif %} {{src.file}}
+prj_src add {% if src.type.name == "Vhdl" -%} -format VHDL {%- elif src.type.name == "Verilog" -%} -format Verilog {%- elif src.type.name == "SystemVerilog" -%} -format SystemVerilog {%- endif %} {{src.file|tcl_word}}
 {% endfor %}
 
 
@@ -99,12 +99,12 @@ prj_strgy set_value -strategy custom_strategy par_place_effort_level=5
 # LSE options
 # lse_disable_distram=False ?
 {% if not settings.allow_brams %}
-prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0 lse_ebr_util=0 lse_rom_style=Logic
+prj_strgy set_value -strategy custom_strategy lse_ebr_util=0 lse_rom_style=Logic
 {% endif %}
 #lse_ram_style=Distributed
 
 {% if not settings.allow_dsps %}
-eval prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0
+prj_strgy set_value -strategy custom_strategy lse_dsp_style=Logic lse_dsp_util=0
 {% endif %}
 
 prj_strgy set_value -strategy custom_strategy {par_cmdline_args=-exp nbrMaxRunTime=200}

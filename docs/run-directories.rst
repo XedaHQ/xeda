@@ -63,10 +63,9 @@ It records ``design_hash``, ``flowrun_hash`` and ``xeda_version`` too. Dependenc
 the two hashes; the version is diagnostic metadata and is not part of run identity. Both hashes
 depend on what the inputs mean, not on where anything is: the design hash covers each source's
 content hash, type, ``standard`` and ``variant``, and its position in the source order, plus
-behavior-affecting RTL/testbench metadata. A source that other files find by its name or place
-(Verilog and its headers, Bluespec, C++, cocotb modules, memory files) also counts by its path
-relative to the design root, since an ``include`` resolved by place can build another design from
-the same files; VHDL and constraint files count by content alone. A parameter whose value is a path
+behavior-affecting RTL/testbench metadata. Every source also counts by its path relative to the
+design root -- outside the root too, as ``../lib/defs.vh`` -- since a tool can resolve other files
+by the source's location. A parameter whose value is a path
 under the design root, such as one given as a file relative to it, counts relative to it; one
 outside the root counts as the location it names, and a parameter file's content is not hashed.
 ``flowrun_hash`` covers settings, with a path counted as its text relative to the design

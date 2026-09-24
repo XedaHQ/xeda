@@ -19,7 +19,7 @@ yosys plugin -i slang
 {% if src.type is not none -%}
     {% if src.type.name == "Verilog" -%}
 yosys log -stdout "** Reading {{src}} **"
-yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|path}}
+yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
     {% elif src.type.name == "SystemVerilog" %}
 yosys log -stdout "** Reading {{src}} **"
         {%- if slang_plugin %}
@@ -27,7 +27,7 @@ yosys read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} 
         {%- elif uhdm_plugin %}
 yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {%- else %}
-yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|path}}
+yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
         {%- endif %}
     {% elif src.type.name in ("VerilogHeader", "SVHeader") and src.path.parent %}
 {% set include_dirs.i = include_dirs.i + [("-I" ~ src.path.parent)|verbatim_path] %}
@@ -44,12 +44,12 @@ yosys ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}} {{vhdl_files|map("verbatim_pa
 
 {% if settings.liberty is defined -%}
 {% for lib in settings.liberty -%}
-yosys read_liberty -lib {{lib|path}}
+yosys read_liberty -lib {{lib|read_path}}
 {% endfor -%}
 {% endif -%}
 
 {% for src in settings.verilog_lib -%}
-yosys read_verilog -lib {{src|path}}
+yosys read_verilog -lib {{src|read_path}}
 {% endfor -%}
 
 {#- a VHDL top got its generics from GHDL, and has no parameters left #}
@@ -60,7 +60,7 @@ yosys chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.t
 {% endif -%}
 
 {% if settings.clockgate_map -%}
-yosys read_verilog -defer {{settings.clockgate_map|path}}
+yosys read_verilog -defer {{settings.clockgate_map|read_path}}
 {% endif -%}
 
 {% if uhdm_plugin -%}

@@ -15,7 +15,7 @@ from copy import deepcopy
 from enum import Enum
 from functools import cached_property
 from glob import escape as glob_escape
-from glob import glob, has_magic
+from glob import glob
 from os.path import isfile
 from pathlib import Path
 from typing import (
@@ -279,8 +279,16 @@ def _expand_design_path(
     )
 
 
+def _is_source_pattern(source: str) -> bool:
+    """Whether a source names its files by pattern. Only `*` is pattern syntax: `?`, `[` and `]`
+    are ordinary characters of a file name (`foo[1].v`, a bus index), and as glob syntax they
+    made such a name match another file (`foo1.v`) whenever one existed. A `*` is no character
+    of any file name worth naming (Windows forbids it)."""
+    return "*" in source
+
+
 def _expand_source_glob(pattern: str, root: Path, what: str = "source") -> List[str]:
-    """The files a source pattern names, in a stable order.
+    """The files a source pattern (`_is_source_pattern`) names, in a stable order.
 
     Expanded before globbing, or `glob` looks for a directory literally named `$DESIGN_ROOT`.
     Sorted, because `glob` returns them in filesystem order while source order is *semantic*:
@@ -304,8 +312,10 @@ def _expand_source_glob(pattern: str, root: Path, what: str = "source") -> List[
 
 
 def _globbed_source_files(pattern: str, root: Path) -> List[str]:
-    """Files matching a pattern, with variable values treated as literal path components."""
-    expanded = _expand_design_path(pattern, root, escape=glob_escape)
+    """Files matching a pattern, in which only `*` matches: `?` and `[` are escaped in the text
+    written, and variable values are literal path components altogether."""
+    written = re.sub(r"[?\[]", r"[\g<0>]", pattern)
+    expanded = _expand_design_path(written, root, escape=glob_escape)
     return sorted(m for m in glob(str(expanded)) if isfile(m))
 
 
@@ -332,7 +342,7 @@ def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
             src = src.get("file") or src.get("path")
         if not isinstance(src, (str, os.PathLike)):
             return None
-        if isinstance(src, str) and has_magic(src):
+        if isinstance(src, str) and _is_source_pattern(src):
             # A pattern that matches nothing yet is exactly the case for running the generator.
             for match in _globbed_source_files(src, root):
                 path = Path(match)
@@ -571,25 +581,6 @@ class SourceType(str, Enum):
         return None
 
 
-#: Sources other files find by their name or place, so where one sits relative to the design
-#: root is part of the design (`Design._source_fingerprint`): a Verilog `include` searches the
-#: including file's directory, then the header directories; a Bluespec package, a C++ header, a
-#: cocotb module and a memory file are found by name on a search path. VHDL, constraints and
-#: scripts are named explicitly wherever they sit, and count by content alone.
-_LOCATED_SOURCE_TYPES = frozenset(
-    {
-        SourceType.Verilog,
-        SourceType.VerilogHeader,
-        SourceType.SystemVerilog,
-        SourceType.SVHeader,
-        SourceType.Bluespec,
-        SourceType.Cpp,
-        SourceType.Cocotb,
-        SourceType.MemoryFile,
-    }
-)
-
-
 class DesignSource(FileResource):
     def __init__(
         self,
@@ -772,10 +763,21 @@ def _normalize_parameters(value: Any) -> Any:
     return value
 
 
+#: What `sources` accepts, shown by `xeda design-schema`.
+SOURCES_DESCRIPTION = (
+    "Source files, in compile order: a path relative to the design root (`$DESIGN_ROOT` and "
+    "`$DESIGN_DIR` name it too), or a table `{ file = ..., type = ..., standard = ..., "
+    "variant = ... }` (`path` in place of `file` for one not written yet). A path containing `*` "
+    "is a pattern: its files are inserted in sorted order, and it must match at least one. `*` is "
+    "the only pattern character: `?`, `[` and `]` are part of a file name, so `rtl/fifo[1].v` "
+    "names exactly that file."
+)
+
+
 class DVSettings(XedaBaseModel):
     """Design/Verification settings"""
 
-    sources: List[DesignSource]
+    sources: List[DesignSource] = Field(description=SOURCES_DESCRIPTION)
     parameters: Dict[str, DefineType] = Field(
         default={},
         validation_alias=AliasChoices("parameters", "generics"),
@@ -832,7 +834,7 @@ class DVSettings(XedaBaseModel):
                 # if m:
                 #     src = m.group(2)
                 #     src_type = SourceType.from_str(m.group(1))
-                if has_magic(src):
+                if _is_source_pattern(src):
                     glob_sources = _expand_source_glob(src, Path.cwd())
                     srcs = [ds(s, src_type) for s in glob_sources]
                     sources.extend(s for s in srcs if not source_already_exists(s))
@@ -879,7 +881,9 @@ class Generator(XedaBaseModel):
     parameters: dict = {}
     sources: List[Union[str, Path]] = Field(
         default_factory=list,
-        description="List of design sources used by this generator",
+        description="The sources this generator produces or reads, as a design's `sources` "
+        "name them: a path relative to the design root, or a pattern where `*` is the only "
+        "pattern character.",
     )
     run_only_if_sources_modified: bool = Field(
         default=True,
@@ -897,7 +901,7 @@ class Generator(XedaBaseModel):
         sources: List[Path] = []
         for src in unique(value):
             if isinstance(src, str):
-                if has_magic(src):
+                if _is_source_pattern(src):
                     sources.extend(
                         Path(m).resolve()
                         for m in _expand_source_glob(src, Path.cwd(), "generator source")
@@ -1133,7 +1137,7 @@ class CocotbTestbench(XedaBaseModel):
 class TbSettings(DVSettings):
     """design.tb"""
 
-    sources: List[DesignSource] = []
+    sources: List[DesignSource] = Field([], description=SOURCES_DESCRIPTION)
     top: Tuple012 = Field(
         tuple(),
         description="Toplevel testbench module(s), specified as a tuple of strings. In addition to the primary toplevel, a secondary toplevel module can also be specified.",
@@ -1671,8 +1675,9 @@ class Design(XedaBaseModel):
                     raise invalid("dependencies", str(e)) from e
                 log.info("adding dependency sources from %s", dep_design.name)
                 pos = dep.rtl.pos
+                sources = list(self.rtl.sources)
                 if pos == -1:  # -1 means append 'after' the last element
-                    self.rtl.sources.extend(dep_design.rtl.sources)
+                    sources.extend(dep_design.rtl.sources)
                     if not self.rtl.top and dep_design.rtl.top:
                         self.rtl.top = dep_design.rtl.top
                     if not self.rtl.parameters and dep_design.rtl.parameters:
@@ -1682,7 +1687,10 @@ class Design(XedaBaseModel):
                 else:
                     if pos < 0:
                         pos += 1  # afterwards: pos=-2 means the position 'before' the last element
-                    self.rtl.sources[pos:pos] = dep_design.rtl.sources
+                    sources[pos:pos] = dep_design.rtl.sources
+                # Assigned, not edited in place, so the merge is validated like sources given
+                # any other way: a file the design and the dependency both list is compiled once.
+                self.rtl.sources = sources
                 if not self.tb.sources and dep_design.tb.sources:
                     self.tb.sources = dep_design.tb.sources
                 if not self.tb.top and dep_design.tb.top:
@@ -1862,8 +1870,9 @@ class Design(XedaBaseModel):
         """Location-independent inputs that can change RTL compilation or synthesis.
 
         Source order is significant (notably for VHDL), and source metadata tells tools how to
-        compile identical bytes. The fingerprint names no path at all, so moving the design, or
-        laying the same files out differently, does not change its identity.
+        compile identical bytes. Every source's path counts relative to the design root
+        (`_source_fingerprint`), as does a parameter whose value is a path
+        (`_parameters_fingerprint`). Moving the whole design does not change its identity.
         """
         return {
             "sources": [self._source_fingerprint(src) for src in self.rtl.sources],
@@ -1906,30 +1915,22 @@ class Design(XedaBaseModel):
         return None
 
     def _source_fingerprint(self, source: DesignSource) -> Dict[str, Any]:
-        """What a source *is*: its content, type and compile metadata -- and, for a source
-        that other files find by its name or place (`_LOCATED_SOURCE_TYPES`), where it is
-        relative to the design root.
+        """What a source *is*: its content, type, compile metadata and path relative to the
+        design root. A source's location may affect include resolution, commands in a sourced
+        constraint or script, and tool lookup. Counting every declared source by path avoids
+        reusing a cached result for a different layout.
 
-        For most sources the location does not change what they mean: the same bytes compiled
-        in the same order under the same metadata are the same design wherever they sit. But a
-        Verilog `include` is resolved by place -- the including file's directory first, then
-        the header directories a flow builds from the sources -- and a Bluespec package, a C++
-        header, a cocotb module or a memory file is found by name on a search path. Two layouts
-        of the same files can then build different results, and counted by content alone they
-        were one design, so a cached run of one was reused for the other.
-
-        Relative to the root, never absolute: moving a whole design keeps its identity. A source
-        outside the root counts by the path the design wrote (`source_path_as_named`).
+        Always relative to the root, outside it too (`../lib/defs.vh`): what a lookup by place
+        depends on is where files sit relative to each other, so moving a design together with
+        what it names keeps its identity, and so does however the path was written.
         """
-        fingerprint = {
+        return {
             "content": source.content_hash,
             "type": str(source.type) if source.type is not None else None,
             "standard": source.standard,
             "variant": source.variant,
+            "path": Path(os.path.relpath(source.file, self.root_path)).as_posix(),
         }
-        if source.type in _LOCATED_SOURCE_TYPES:
-            fingerprint["path"] = self.source_path_as_named(source).as_posix()
-        return fingerprint
 
     @property
     def rtl_hash(self) -> str:
@@ -1942,26 +1943,3 @@ class Design(XedaBaseModel):
         fingerprint = self.tb_fingerprint
         log.debug("TB fingerprint: %s", fingerprint)
         return semantic_hash(fingerprint)[:32]  # 128 bits
-
-    # pylint: disable=arguments-differ
-    def model_dump(self, **kwargs: Any) -> Dict[str, Any]:  # type: ignore[override]
-        """The design as it was *given*, not as it was filled in.
-
-        Every dump of a design is something a design gets rebuilt from -- `settings.json`, the
-        archive `send_design` ships -- so it records what the design file said and leaves out
-        what merely defaulted.
-
-        xeda writes a design as JSON through this method (`utils.json_encodable` calls
-        `model_dump(mode="json")`), and `model_dump_json` below prunes the same way, so a design
-        is one document however it is serialized. Neither passes `serialize_as_any`: it skips
-        the serializer `DesignSource` declares on its own schema.
-        """
-        kwargs.setdefault("exclude_unset", True)
-        kwargs.setdefault("exclude_defaults", True)
-        return super().model_dump(**kwargs)
-
-    def model_dump_json(self, **kwargs: Any) -> str:  # type: ignore[override]
-        """`model_dump(mode="json")` as text: pruned the same way, so it is the same document."""
-        kwargs.setdefault("exclude_unset", True)
-        kwargs.setdefault("exclude_defaults", True)
-        return super().model_dump_json(**kwargs)

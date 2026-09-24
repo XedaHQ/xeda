@@ -39,18 +39,18 @@ puts "Targeting device: $fpga_part"
 
 {% for src in design.rtl.sources %}
 {% if src.type.name == "Verilog" %}
-puts "Reading Verilog file {{src.file}}"
-if { [catch {eval read_verilog \"{{src.file}}\" } myError]} {
+puts "Reading Verilog file {{src.file|tcl_quote}}"
+if { [catch {read_verilog {{src.file|tcl_list}}} myError]} {
     errorExit $myError
 }
 {%- elif src.type.name == "SystemVerilog" %}
-puts "Reading SystemVerilog file {{src.file}}"
-if { [catch {eval read_verilog -sv \"{{src.file}}\" } myError]} {
+puts "Reading SystemVerilog file {{src.file|tcl_quote}}"
+if { [catch {read_verilog -sv {{src.file|tcl_list}}} myError]} {
     errorExit $myError
 }
 {%- elif src.type.name == "Vhdl" %}
-puts "Reading VHDL file {{src.file}}"
-if { [catch {eval read_vhdl {% if design.language.vhdl.standard in ("08", "2008") %} -vhdl2008 {%- endif %} \"{{src.file}}\" } myError]} {
+puts "Reading VHDL file {{src.file|tcl_quote}}"
+if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") %} -vhdl2008 {%- endif %} {{src.file|tcl_list}}} myError]} {
     errorExit $myError
 }
 {%- endif %}
@@ -59,8 +59,8 @@ if { [catch {eval read_vhdl {% if design.language.vhdl.standard in ("08", "2008"
 # TODO: Skip saving some artifects in case timing not met or synthesis failed for any reason
 
 {%- for xdc_file in xdc_files %}
-puts "Reading XDC file {{xdc_file}}"
-read_xdc {{xdc_file}}
+puts "Reading XDC file {{xdc_file|tcl_quote}}"
+read_xdc {{xdc_file|tcl_list}}
 {%- endfor %}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="

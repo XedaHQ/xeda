@@ -1,6 +1,6 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
-from typing import Optional
+from typing import List, Optional
 
 from ...dataclass import Field
 from ...flow import SimFlow
@@ -35,24 +35,26 @@ class Modelsim(SimFlow):
         assert isinstance(self.settings, self.Settings)
         vcom_options = ["-lint"]
         vlog_options = ["-lint"]
-        vsim_opts = []
+        # vsim's arguments, one word each: the template writes each as a TCL word, so an SDF
+        # path with a space is one argument
+        vsim_opts: List[str] = []
         tb = self.design.tb
         ss = self.settings
         # TODO are library paths supported?
-        vsim_opts.extend([f"-L {lib_name}" for lib_name in ss.lib_paths])
+        for lib_name, _ in ss.lib_paths:  # (name, path) pairs; `-L` takes the name
+            if lib_name:
+                vsim_opts += ["-L", lib_name]
         sdf_root = ss.sdf.root if ss.sdf.root else tb.uut
         for dt, f in ss.sdf.delay_items():
             assert sdf_root, "Neither settings.sdf.root or design.tb.uut are provided"
             vsim_opts.extend([f"-sdf{dt}", f"{sdf_root}={f}"])
-
-        tb_generics_opts = " ".join([f"-g{k}={v}" for k, v in tb.parameters.items()])
+        vsim_opts += [f"-g{k}={v}" for k, v in tb.parameters.items()]
 
         script_path = self.copy_from_template(
             "run.tcl",
-            generics_options=tb_generics_opts,
             vcom_opts=" ".join(vcom_options),
             vlog_opts=" ".join(vlog_options),
-            vsim_opts=" ".join(vsim_opts),
+            vsim_opts=vsim_opts,
         )
 
         modelsim_opts = ["-batch", "-do", f"do {script_path}"]

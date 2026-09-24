@@ -1,3 +1,13 @@
+{#- a hook the settings name for `stage`, sourced where the stage is (`Dc.Settings.hooks`) #}
+{%- macro hook(stage) %}
+{%- if settings.hooks.get(stage) %}
+puts "\n===================( Running the {{stage}} hook {{settings.hooks[stage]|tcl_quote}} )==================="
+if { [catch {source -echo {{settings.hooks[stage]|tcl_word}}} err] } {
+    puts "\[ERROR]\ The {{stage}} hook failed!\n$err"
+    exit 1
+}
+{%- endif %}
+{%- endmacro %}
 set_app_var sh_new_variable_message false
 set_app_var echo_include_commands false
 
@@ -65,7 +75,7 @@ set_app_var link_library "* $synthetic_library $target_library"
 
 remove_design -all
 
-set SOURCE_FILES { {{- design.rtl.sources | join(' ') -}} }
+set SOURCE_FILES [list {{ design.rtl.sources | map("tcl_word") | join(' ') }}]
 
 foreach src $SOURCE_FILES {
     set ext [file extension $src]
@@ -107,6 +117,8 @@ foreach src $SOURCE_FILES {
     }
 }
 
+{{ hook("pre_elab") }}
+
 puts "\n===================( Elaborating design ${TOP_MODULE} )==================="
 # if { [elaborate -update -ref ${TOP_MODULE}] != 1 } {
 if { [elaborate ${TOP_MODULE}] != 1 } {
@@ -116,7 +128,7 @@ if { [elaborate ${TOP_MODULE}] != 1 } {
 
 
 
-if { [catch {current_design ${TOP_MODULE} } $err] } {
+if { [catch {current_design ${TOP_MODULE} } err] } {
     puts "\[ERROR]\ Setting current design to '${TOP_MODULE}' failed!\n$err"
     exit 1
 }
@@ -149,12 +161,15 @@ write_file -hierarchy -format vhdl -output ${OUTPUTS_DIR}/${TOP_MODULE}.elab.vhd
 # change_names -rules verilog -hierarchy
 # set_app_var vhdlout_dont_create_dummy_nets false
 
+{{ hook("post_elab") }}
+
 puts "\n===================( Linking design )==================="
 if { [link] != 1 } {
     puts "\[ERROR]\ Linking design failed!\n"
     exit 1
 }
 check_design -summary
+{{ hook("post_link") }}
 
 {% if settings.flatten -%}
 ungroup -flatten -all
@@ -167,9 +182,9 @@ if { $OPTIMIZATION == "area" } {
 
 puts "\n=========( Loading the constraints )========="
 {% for constraint_file in settings.sdc_files -%}
-puts "Loading constraints file: {{constraint_file}}"
-if { [catch {source -echo {{constraint_file}}} err] } {
-    puts "\[ERROR]\ Loading constraints file {{constraint_file}} failed!\n$err"
+puts "Loading constraints file: {{constraint_file|tcl_quote}}"
+if { [catch {source -echo {{constraint_file|tcl_word}}} err] } {
+    puts "\[ERROR]\ Loading constraints file {{constraint_file|tcl_quote}} failed!\n$err"
     exit 1
 }
 {% endfor -%}
@@ -343,6 +358,8 @@ change_names -rules vhdl -hierarchy
 set_app_var vhdlout_dont_create_dummy_nets true
 write -hierarchy -format vhdl -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.vhd
 # change_names -rules verilog -hierarchy
+
+{{ hook("finalize") }}
 
 puts "==========================( Synthesis flow completed. )=========================="
 

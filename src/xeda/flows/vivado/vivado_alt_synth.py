@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from ...dataclass import Field, field_validator
 from ...flow import FpgaSynthFlow
-from .vivado_synth import RunOptions, StepsValType, VivadoSynth
+from .vivado_synth import RunOptions, StepsValType, VivadoSynth, constraint_files
 
 log = logging.getLogger(__name__)
 
@@ -332,7 +332,12 @@ def flatten_options(d) -> str:
 
 
 class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
-    """Synthesize with Xilinx Vivado using an alternative TCL-based flow"""
+    """FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode.
+
+    A generated TCL script reads the design and runs synth_design through route_design on it in
+    memory, each step with the options its `synth`/`impl` strategy and steps give it, and reports
+    utilization and timing. See `vivado_synth` for the same in project mode.
+    """
 
     class Settings(VivadoSynth.Settings):
         synth: RunOptions = Field(
@@ -343,6 +348,16 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             RunOptions(strategy="Default"),
             description="Implementation run options for the alternative TCL flow.",
         )
+
+        @field_validator("tcl_files")
+        @classmethod
+        def _no_tcl_files(cls, value):
+            if value:
+                raise ValueError(
+                    "vivado_alt_synth runs Vivado in non-project mode, which has no fileset for "
+                    "TCL hooks to be added to: `tcl_files` is a setting of vivado_synth"
+                )
+            return value
 
         @field_validator("synth", "impl")
         @classmethod
@@ -427,9 +442,8 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             "flatten_options",
             flatten_options,
         )
-        clock_xdc_path = self.copy_from_template("clock.xdc")
         script_path = self.copy_from_template(
             "vivado_alt_synth.tcl",
-            xdc_files=[clock_xdc_path],
+            xdc_files=constraint_files(self, ss),
         )
         self.vivado.run("-source", script_path)

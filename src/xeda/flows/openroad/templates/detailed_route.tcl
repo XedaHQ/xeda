@@ -38,7 +38,7 @@ detailed_route -output_drc {{settings.reports_dir}}/{{step_id}}_drc.rpt \
     -save_guide_updates -verbose {{settings.verbose}} {{additional_args}}
 
 {% if settings.post_detailed_route_tcl %}
-source {{settings.post_detailed_route_tcl}}
+source {{settings.post_detailed_route_tcl|tcl_word}}
 {% endif %}
 
 {{ write_checkpoint(step) }}

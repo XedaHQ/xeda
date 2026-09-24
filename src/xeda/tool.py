@@ -263,8 +263,10 @@ class Tool(XedaBaseModel):
     @classmethod
     def validate_docker(cls, value, info):
         values = info.data if isinstance(info.data, dict) else {}
-        default_args = values.get("default_args", [])
-        command = [values.get("executable"), *default_args]
+        # The executable alone: `execute` passes `default_args` with every run, as for a tool run
+        # natively, so a command holding them too gave the container each of them twice.
+        executable = values.get("executable")
+        command: List[str] = [executable] if executable else []
         if isinstance(value, dict):
             value = Docker(**value)
         elif isinstance(value, Docker):

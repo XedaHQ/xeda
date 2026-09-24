@@ -15,13 +15,13 @@ yosys plugin -i {{plugin}}
     {%- if src.type.name == "Verilog" %}
     puts "$log_prefix Reading {{src}}"
     ## -Dname=value -Idir
-    yosys read_verilog {{settings.read_verilog_flags|join(" ")}} {{src|path}}
+    yosys read_verilog {{settings.read_verilog_flags|join(" ")}} {{src|read_path}}
     {%- elif src.type.name == "SystemVerilog" %}
     puts "$log_prefix Reading {{src}}"
         {%- if systemverilog_plugin_defered %}
         yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {% else %}
-        yosys read_verilog {{settings.read_verilog_flags|join(" ")}} -sv {{src|path}}
+        yosys read_verilog {{settings.read_verilog_flags|join(" ")}} -sv {{src|read_path}}
         {%- endif %}
     {%- endif %}
 {%- endfor %}
@@ -38,7 +38,7 @@ yosys read_systemverilog -link
 {%- endif %}
 
 {%- for src in settings.verilog_lib %}
-yosys read_verilog -lib {{src|path}}
+yosys read_verilog -lib {{src|read_path}}
 {%- endfor %}
 
 yosys hierarchy -nodefaults -check {%- if design.tb.top %} -top {{design.tb.top}} {%- else %} -auto-top {%- endif %}

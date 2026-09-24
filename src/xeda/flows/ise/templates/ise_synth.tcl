@@ -24,7 +24,7 @@ project set "Generate Detailed MAP Report" TRUE
 
 puts "\n==============================( Adding RTL Sources )================================"
 {% for src in design.rtl.sources %}
-xfile add {{src.file}} -copy
+xfile add {{src.file|tcl_word}} -copy
 {%- endfor %}
 
 {% if design.rtl.top %}
@@ -35,14 +35,14 @@ project set "Auto Implementation Top" TRUE
 
 puts "\n==============================( Adding Constraint Files )================================"
 {% for ucf_file in settings.ucf_files %}
-if { [catch  { xfile add {{ucf_file}} }] } {
-    puts "unable to add {{ucf_file}}"
+if { [catch  { xfile add {{ucf_file|tcl_word}} }] } {
+    puts "unable to add {{ucf_file|tcl_quote}}"
 }
 {% endfor %}
 
 {% if settings.xcf_file %}
 project set "Use Synthesis Constraints File" TRUE
-project set "Synthesis Constraints File" "{{settings.xcf_file}}"
+project set "Synthesis Constraints File" {{settings.xcf_file|tcl_word}}
 {% endif %}
 
 # puts [project properties] # to see the full list of properties

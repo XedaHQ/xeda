@@ -3,7 +3,7 @@ puts "Skipping IO placement as DEF file was used to initialize floorplan."
 {% else %}
 
 {% if settings.io_constraints %} {# ---------------------------- #}
-source {{settings.io_constraints}}
+source {{settings.io_constraints|tcl_word}}
 
 {% else %} {# -------------------------------------------------- #}
 # check the lower boundary of the PLACE_DENSITY and add PLACE_DENSITY_LB_ADDON if it exists

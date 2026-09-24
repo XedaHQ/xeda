@@ -18,7 +18,7 @@ plugin -i slang
 {% if src.type is not none -%}
     {% if src.type.name == "Verilog" -%}
 log -stdout ** Reading {{src}} **
-read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|path}}
+read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
     {% elif src.type.name == "SystemVerilog" %}
 log -stdout ** Reading {{src}} **
         {#- plugin frontends (slang/uhdm) do not strip quotes: `verbatim_path` #}
@@ -27,7 +27,7 @@ read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{incl
         {%- elif uhdm_plugin %}
 read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {%- else %}
-read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|path}}
+read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
         {%- endif %}
     {% elif src.type.name in ("VerilogHeader", "SVHeader") and src.path.parent %}
 {#- `-I<dir>` is taken verbatim, quotes included #}
@@ -48,12 +48,12 @@ ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}} {{vhdl_files|map("verbatim_path")|j
 
 {% if settings.liberty is defined -%}
 {% for lib in settings.liberty -%}
-read_liberty -lib {{lib|path}}
+read_liberty -lib {{lib|read_path}}
 {% endfor -%}
 {% endif -%}
 
 {% for src in settings.verilog_lib -%}
-read_verilog -lib {{src|path}}
+read_verilog -lib {{src|read_path}}
 {% endfor -%}
 
 {#- a VHDL top got its generics from GHDL, and has no parameters left #}
@@ -64,7 +64,7 @@ chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.top}} {
 {% endif -%}
 
 {% if settings.clockgate_map -%}
-read_verilog -defer {{settings.clockgate_map|path}}
+read_verilog -defer {{settings.clockgate_map|read_path}}
 {% endif -%}
 
 {% if uhdm_plugin -%}

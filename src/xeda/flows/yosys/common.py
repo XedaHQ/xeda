@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from functools import cached_property
+from glob import escape as glob_escape
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -12,7 +13,7 @@ from ...design import SourceType
 from ...flow import Flow, FlowException
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
-from ...utils import hierarchical_merge, unique
+from ...utils import hierarchical_merge, tcl_word, unique
 
 log = logging.getLogger(__name__)
 
@@ -43,11 +44,19 @@ def tcl_escape(value: Any) -> str:
     return s.replace('"', '\\"')
 
 
-def tcl_word(value: Any) -> str:
-    """`value` as one literal TCL word: double-quoted, with every character that would
-    substitute (`$`, `[`, `\\`) or end the word (`"`) backslash-escaped. TCL hands yosys each
-    word as one argument, so a path with spaces needs nothing more."""
-    return '"' + re.sub(r'([\\\[\]"$])', r"\\\1", str(value)) + '"'
+def frontend_name(value: Any) -> str:
+    """A file name as yosys has to be given it to read that very file, where yosys expands the
+    name as a glob pattern.
+
+    yosys' own frontends -- `read_verilog`, `read_liberty`, and `techmap -map`, which reads its
+    maps through one -- and `dfflibmap -liberty` expand a file name as a glob pattern, falling
+    back to the name itself only when nothing matches: `top[1].v` read `top1.v` whenever one
+    existed. Escaped (`top[[]1].v`), the pattern matches only the file itself. The other
+    commands take a name as it is (`abc` and `stat` with `-liberty`, the plugins, the writers),
+    and an escaped one names no file there. `test_yosys_reads_every_input_by_its_own_name` pins
+    which is which.
+    """
+    return glob_escape(str(value))
 
 
 def ys_path(value: Any) -> str:
@@ -401,9 +410,14 @@ class YosysBase(Flow):
         tcl = self.settings.script_format == "tcl"
         # values are stored canonically (unescaped); escape them for the target script language
         self.add_template_filter("esc", tcl_escape if tcl else ys_escape, replace_existing=True)
-        # Every path a template emits goes through one of these two filters:
-        # `path` for an argument yosys unquotes, `verbatim_path` for one it passes on as is.
-        self.add_template_filter("path", tcl_word if tcl else ys_path, replace_existing=True)
+        # Every path a template emits goes through one of these filters: `read_path` for a file
+        # yosys reads by a name it expands as a pattern (`frontend_name`), `path` for any other
+        # argument yosys unquotes, `verbatim_path` for one it passes on as is.
+        path = tcl_word if tcl else ys_path
+        self.add_template_filter("path", path, replace_existing=True)
+        self.add_template_filter(
+            "read_path", lambda value: path(frontend_name(value)), replace_existing=True
+        )
         self.add_template_filter(
             "verbatim_path", tcl_word if tcl else self.verbatim_path, replace_existing=True
         )

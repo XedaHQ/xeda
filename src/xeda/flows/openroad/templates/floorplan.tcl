@@ -1,16 +1,16 @@
 {% if settings.floorplan_def %}
 # Initialize floorplan by reading in floorplan DEF
-puts "Read in Floorplan DEF to initialize floorplan: {{settings.floorplan_def}}"
-read_def -floorplan_initialize {{settings.floorplan_def}}
+puts "Read in Floorplan DEF to initialize floorplan: {{settings.floorplan_def|tcl_quote}}"
+read_def -floorplan_initialize {{settings.floorplan_def|tcl_word}}
 
 {% elif settings.footprint %}
 # Initialize floorplan using ICeWall footprint
-ICeWall load_footprint {{settings.footprint}}
+ICeWall load_footprint {{settings.footprint|tcl_word}}
 initialize_floorplan \
   -die_area  [ICeWall get_die_area] \
   -core_area [ICeWall get_core_area] \
   -site      {{platform.place_site}}
-ICeWall init_footprint {{settings.sig_map_file}}
+ICeWall init_footprint {{settings.sig_map_file|tcl_word}}
 
 {% elif settings.core_utilization %}
 # Initialize floorplan using core_utilization
@@ -28,13 +28,13 @@ initialize_floorplan -die_area {{settings.die_area|join(" ")|embrace}} \
 
 {% set make_tracks_tcl = settings.make_tracks_tcl or platform.make_tracks_tcl %}
 {% if make_tracks_tcl %}
-source {{make_tracks_tcl}}
+source {{make_tracks_tcl|tcl_word}}
 {% else %}
 make_tracks
 {% endif %}
 
 {% if settings.footprint_tcl %}
-source {{settings.footprint_tcl}}
+source {{settings.footprint_tcl|tcl_word}}
 {% endif %}
 
 # remove buffers inserted by yosys/abc

@@ -111,8 +111,13 @@ A path string is enough; the type comes from the extension:
 | `.tcl` | `Tcl` |
 | `.mem` | `MemoryFile` |
 
-A source may be a glob (`"src/*.vhd"`); its matches are inserted in sorted order, and a pattern
-matching no file is an error.
+A source containing `*` is a pattern (`"src/*.vhd"`); its matches are inserted in sorted order,
+and a pattern matching no file is an error. `*` is the only pattern character: `?`, `[` and `]` are
+part of a file name, so `"rtl/fifo[1].v"` names exactly that file (never `fifo1.v`), and
+`"rtl/fifo[1]_*.v"` matches `fifo[1]_a.v`. Never escape them. Xeda passes such names to yosys and
+to TCL-scripted tools intact, but Vivado's `add_files` (every file in `vivado_project`; memory
+files, sources of an unknown type, `xdc_files` and `tcl_files` in `vivado_synth`) refuses a name
+containing `[`, `]` or `$`: rename those for Vivado.
 
 When inference is not enough, use a table:
 

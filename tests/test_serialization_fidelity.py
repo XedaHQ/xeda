@@ -33,7 +33,7 @@ def test_git_dependency_keeps_its_own_fields_when_dumped():
     reference = DesignReference.from_data(GIT_URI)
     design = Design.model_construct(name="d", dependencies=[reference])
 
-    dumped = design.model_dump(exclude_unset=False)["dependencies"][0]
+    dumped = design.model_dump()["dependencies"][0]
 
     assert dumped["repo_url"] == "https://github.com/u/r.git"
     assert dumped["design_file"] == "sub/d.toml"
@@ -44,7 +44,7 @@ def test_git_dependency_survives_json_round_trip():
     reference = DesignReference.from_data(GIT_URI)
     design = Design.model_construct(name="d", dependencies=[reference])
 
-    payload = json.loads(design.model_dump_json(exclude_unset=False))
+    payload = json.loads(design.model_dump_json())
 
     assert payload["dependencies"][0]["repo_url"] == "https://github.com/u/r.git"
 
@@ -489,7 +489,7 @@ def test_a_value_printed_under_json_is_the_value_xeda_writes_to_a_file(tmp_path)
         written = json.loads(json.dumps(value, default=json_encodable))
         assert json_safe(value) == written, name
     assert json_safe(design.rtl.sources[1]) == {"path": str(tmp_path / "gen" / "later.v")}
-    # ... and a library caller's `model_dump_json()` is that same document, not an unpruned one
+    # ... and a library caller's `model_dump_json()` is that same document
     assert json.loads(design.model_dump_json()) == json_safe(design)
 
 

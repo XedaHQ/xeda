@@ -43,6 +43,22 @@ class DiamondSynth(FpgaSynthFlow):
             description="Synthesis engine: Lattice Synthesis Engine (`lse`) or Synplify Pro "
             "(`synplify`). They give noticeably different results.",
         )
+        strategy: str = Field(
+            "Timing",
+            description="The Diamond strategy the flow's own starts from, by the name Diamond "
+            "gives it (e.g. `Timing`, `Area`). `Timing` also turns on pipelining and retiming and "
+            "timing-driven mapping, `Area` area optimization.",
+        )
+        allow_dsps: bool = Field(
+            True,
+            description="Let synthesis infer DSP blocks. When false, multipliers are built from "
+            "logic, and a run whose map report still shows a DSP fails.",
+        )
+        allow_brams: bool = Field(
+            True,
+            description="Let synthesis infer block RAMs. When false, memories are built from "
+            "logic, and a run whose map report still shows a block RAM fails.",
+        )
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -56,7 +72,7 @@ class DiamondSynth(FpgaSynthFlow):
             self.copy_from_template(constraint)
         script_path = self.copy_from_template("synth.tcl")
         diamondc = Tool("diamondc")
-        diamondc.run("diamondc", script_path)
+        diamondc.run(script_path)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
@@ -115,8 +131,13 @@ class DiamondSynth(FpgaSynthFlow):
 
         failed = False
 
-        # TODO FIXME move to LwcSynth
-        forbidden_resources = ["dsp", "bram"]
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        forbidden_resources = [
+            res
+            for res, allowed in (("dsp", ss.allow_dsps), ("bram", ss.allow_brams))
+            if not allowed
+        ]
         for res in forbidden_resources:
             if res in self.results and self.results[res] != 0:
                 log.critical(

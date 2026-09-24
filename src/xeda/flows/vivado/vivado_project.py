@@ -1,17 +1,22 @@
 import itertools
 import logging
-import os
 import re
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ...dataclass import XedaBaseModel
+from ...dataclass import Field, XedaBaseModel
+from ...design import SourceType
 from ...flow import FpgaSynthFlow
 from ...utils import HierDict, parse_xml
 from ..vivado import Vivado
 from ..vivado.vivado_sim import VivadoSim
-from ..vivado.vivado_synth import VivadoSynth
+from ..vivado.vivado_synth import (
+    VivadoSynth,
+    constraint_files,
+    normalize_run_steps,
+    post_step_hooks,
+)
 
 log = logging.getLogger(__name__)
 
@@ -36,73 +41,65 @@ class RunOptions(XedaBaseModel):
 
 
 class VivadoProject(Vivado, FpgaSynthFlow):
-    """Synthesize with Xilinx Vivado using a project-based flow"""
+    """Create a Xilinx Vivado project for the design, to work on in Vivado.
 
-    # The project-based flow parses the same reports as `vivado_synth`.
-    results_description = VivadoSynth.results_description
+    The project holds the design's sources and testbench, its constraints, the synthesis and
+    implementation strategies and step settings, and the hooks that write `vivado_synth`'s
+    reports after each step. Nothing is run: open the project (`artifacts.project`) in Vivado, or
+    set `gui` to have the flow open it. For synthesis and implementation in batch, use
+    `vivado_synth`.
+    """
+
+    # Creating a project reports nothing beyond the keys every flow reports.
+    results_description: dict = {}
 
     class Settings(VivadoSynth.Settings, VivadoSim.Settings):
-        """Settings for Vivado synthesis and simulation in project mode"""
+        """Settings for a Vivado project: synthesis, implementation and simulation"""
 
-        pass
+        gui: bool = Field(
+            False,
+            description="Open the created project in the Vivado GUI, which needs a display.",
+        )
+
+    def init(self):
+        super().init()
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.gui:
+            # `vivado -mode gui -source ...`: the script runs in the GUI, and the project stays
+            # open there, as DC's `gui` runs `dc_shell -gui`
+            args = list(self.vivado.default_args)
+            args[args.index("-mode") + 1] = "gui"
+            self.vivado.default_args = args
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
-        if settings.write_netlist:
-            for o in [
-                "timesim.min.sdf",
-                "timesim.max.sdf",
-                "timesim.v",
-                "funcsim.vhdl",
-                "xdc",
-            ]:
-                self.artifacts[o] = os.path.join(settings.outputs_dir, o)
+        self.artifacts.project = f"{self.design.name}.xpr"
 
-        settings.synth.steps = {
-            **{
-                "SYNTH_DESIGN": {},
-                "OPT_DESIGN": {},
-                "POWER_OPT_DESIGN": {},
-            },
-            **settings.synth.steps,
-        }
-        settings.impl.steps = {
-            **{
-                "PLACE_DESIGN": {},
-                "POST_PLACE_POWER_OPT_DESIGN": {},
-                "PHYS_OPT_DESIGN": {},
-                "ROUTE_DESIGN": {},
-                "WRITE_BITSTREAM": {},
-            },
-            **settings.impl.steps,
-        }
-
-        clock_xdc_path = self.copy_from_template("clock.xdc")
-
-        if settings.synth.steps["SYNTH_DESIGN"] is None:
-            settings.synth.steps["SYNTH_DESIGN"] = {}
+        normalize_run_steps(settings)
         assert isinstance(settings.synth.steps["SYNTH_DESIGN"], dict)
         if settings.flatten_hierarchy:
             settings.synth.steps["SYNTH_DESIGN"]["flatten_hierarchy"] = settings.flatten_hierarchy
-
-        reports_tcl = self.copy_from_template("vivado_report_helper.tcl")
-
-        xdc_files = [p.file for p in self.design.rtl.sources if p.type == "xdc"]
-        xdc_files += [self.normalize_path_to_design_root(p) for p in settings.xdc_files]
-        assert clock_xdc_path not in xdc_files, f"XDC file {xdc_files} was already included."
-        xdc_files.append(clock_xdc_path)
+        # reports are written after each major step, as `vivado_synth` writes them
+        tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
+        tcl_files += post_step_hooks(self, settings)
 
         script_path = self.copy_from_template(
             "vivado_project.tcl",
-            xdc_files=xdc_files,
-            reports_tcl=reports_tcl,
+            # constraints go to the constraint fileset, as `vivado_synth` reads them
+            sources=[
+                src
+                for src in self.design.rtl.sources
+                if src.type not in (SourceType.Xdc, SourceType.Sdc)
+            ],
+            xdc_files=constraint_files(self, settings),
+            tcl_files=tcl_files,
             generics=" ".join(vivado_synth_generics(self.design.rtl.parameters)),
         )
         self.vivado.run("-source", script_path)
 
     def parse_reports(self) -> bool:
-        return super().parse_reports()
+        return (self.run_path / f"{self.design.name}.xpr").is_file()
 
 
 def parse_hier_util(

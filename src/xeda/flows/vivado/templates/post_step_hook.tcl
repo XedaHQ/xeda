@@ -2,7 +2,7 @@
 showWarningsAndErrors
 
 {%- for file in user_hooks %}
-source {{file}}
+source {{file|tcl_word}}
 {%- endfor %}
 
 set RUN_DIR {{run_dir}}
