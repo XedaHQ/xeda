@@ -1,7 +1,7 @@
 puts "\n===========================( Compiling HDL Sources )==========================="
 {%- for src in design.sim_sources if src.type %}
 {%- if src.type.name in ("Verilog", "SystemVerilog") %}
-if { [catch {vlog {{src.file|tcl_word}} {% if src.type.name == "SystemVerilog" or src.variant == "systemverilog" -%} -sv {%- endif -%} {{vlog_opts}} } error]} {
+if { [catch {vlog {{src.file|tcl_word}}{% if src.type.name == "SystemVerilog" or src.variant == "systemverilog" %} -sv{% endif %} {{vlog_opts}} } error]} {
     puts $error
     exit 1
 }

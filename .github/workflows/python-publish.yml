@@ -16,9 +16,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v5
+      with:
+        # setuptools_scm derives the version from the tags: a shallow clone has none
+        fetch-depth: 0
     - name: Set up 🐍
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v6
       with:
         python-version: '3.x'
     - name: Install dependencies

@@ -203,3 +203,12 @@ def test_a_source_name_with_pattern_characters_reaches_yosys_escaped(
             [tclsh], input=f"puts {word}\n", capture_output=True, text=True, check=True
         ).stdout.strip()
         assert evaluated == f"{root}/top[[]1].v"
+        (log_line,) = [
+            line for line in script.splitlines() if "log -stdout" in line and "Reading" in line
+        ]
+        check_script = tmp_path / "check_log.tcl"
+        check_script.write_text("proc yosys {args} {puts [lindex $args end]}\n" + log_line + "\n")
+        logged = subprocess.run(
+            [tclsh, str(check_script)], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        assert logged == f"** Reading {root}/top[1].v **"
