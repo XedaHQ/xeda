@@ -511,9 +511,16 @@ With `--cached-dependencies`, a dependency whose `settings.json` records matchin
   directory), and fails as the tool would on a TCL error -- so a template that renders broken TCL
   fails every test using it. Vivado's then writes canned reports
   (`tests/fake_tools/resource/fake_vivado_reports`). `tool_utils.use_fake_tools(monkeypatch)` puts
-  them on `PATH`; `tool_utils.fake_calls(run_dir)` reads what the scripts ran. To fake a new tool:
+  them on `PATH`; `tool_utils.fake_calls(run_dir)` reads what the scripts ran; commands named in
+  `XEDA_FAKE_TOOL_FAIL` raise a TCL error, as a failed compile does. To fake a new tool:
   add a symlink, add an entry to the `fake_tools` dict (the option or argument naming its script,
   for `RunTcl`), and use `use_fake_tools`.
+- **ModelSim exits 0 unless told otherwise.** Its `exit` takes the status as `exit -code N` (a
+  plain `exit 1` exits 0, and the fake `vsim` mimics that); without `vsim -onfinish stop`, `$finish`
+  exits vsim at once with status 0; and a testbench's `$error` or failed assertion never changes
+  the status -- `run.tcl` reads `coverage attribute -name TESTSTATUS` instead and fails at
+  the `fail_severity` setting (default `failure`). The flow's default
+  image is `chaseruskin/modelsim-intel` (ModelSim-Intel Starter 2020.1, amd64, no license).
 - **Real proprietary tools and containers are opt-in layers**, skipped unless their variable is set
   (and then failing on what they need): `XEDA_TESTS_VIVADO=1` runs Vivado flows on tiny designs
   (`tests/test_vivado_real.py`, `vivado` on PATH); `XEDA_TESTS_DOCKER=1` runs flows `dockerized`

@@ -25,7 +25,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens ModelSim. Handles both RTL and gate-level netlist simulation; a netlist simulation can be annotated with timing from an SDF file via the `sdf` setting.
 
-6 flow-specific settings (plus the common ones): `xeda list-settings modelsim --json`
+10 flow-specific settings (plus the common ones): `xeda list-settings modelsim --json`
 
 Reports no results beyond the keys every flow reports.
 

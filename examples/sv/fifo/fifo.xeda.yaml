@@ -10,7 +10,7 @@ tb:
     - fifo_tb.sv
     # - tb/fifo_tb.py
   # cocotb: true
-  # top: fifo_tb
+  top: fifo_tb
 
 flows:
   verilator:
