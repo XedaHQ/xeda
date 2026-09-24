@@ -9,8 +9,9 @@ from ...flow import SimFlow
 from ...tool import Docker, Tool
 from ...utils import SDF
 
-# ModelSim's TESTSTATUS: the most severe message a simulation reported
-TEST_STATUS: Dict[str, int] = {"note": 0, "warning": 1, "error": 2, "failure": 3, "fatal": 4}
+# ModelSim's TESTSTATUS groups VHDL failure and SystemVerilog $fatal at 3. This differs from
+# BreakOnAssertion, where fatal is 4.
+TEST_STATUS: Dict[str, int] = {"note": 0, "warning": 1, "error": 2, "failure": 3, "fatal": 3}
 
 
 class ModelsimTool(Tool):
@@ -68,8 +69,9 @@ class Modelsim(SimFlow):
         fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
             "failure",
             description="Fail the run when the simulation reports a message of this severity or "
-            "higher: a failed VHDL assertion of that severity, or the SystemVerilog `$warning`, "
-            "`$error` or `$fatal` task.",
+            "higher: a failed VHDL assertion or the SystemVerilog `$warning`, `$error` or "
+            "`$fatal` task. ModelSim reports VHDL `failure` and SystemVerilog `$fatal` with the "
+            "same TESTSTATUS, so `fatal` uses the same threshold as `failure`.",
         )
 
     def run(self) -> None:

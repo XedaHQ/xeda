@@ -519,8 +519,11 @@ With `--cached-dependencies`, a dependency whose `settings.json` records matchin
   plain `exit 1` exits 0, and the fake `vsim` mimics that); without `vsim -onfinish stop`, `$finish`
   exits vsim at once with status 0; and a testbench's `$error` or failed assertion never changes
   the status -- `run.tcl` reads `coverage attribute -name TESTSTATUS` instead and fails at
-  the `fail_severity` setting (default `failure`). The flow's default
-  image is `chaseruskin/modelsim-intel` (ModelSim-Intel Starter 2020.1, amd64, no license).
+  the `fail_severity` setting (default `failure`). `BreakOnAssertion` is set to 4 after loading
+  the design so VHDL `failure` does not stop the testbench before its finish. ModelSim reports
+  VHDL `failure` and SystemVerilog `$fatal` as the same TESTSTATUS (3), so `fatal` and `failure`
+  have the same status threshold. The flow's default image is `chaseruskin/modelsim-intel`
+  (ModelSim-Intel Starter 2020.1, amd64, no license).
 - **Real proprietary tools and containers are opt-in layers**, skipped unless their variable is set
   (and then failing on what they need): `XEDA_TESTS_VIVADO=1` runs Vivado flows on tiny designs
   (`tests/test_vivado_real.py`, `vivado` on PATH); `XEDA_TESTS_DOCKER=1` runs flows `dockerized`
