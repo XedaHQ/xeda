@@ -25,15 +25,15 @@ yosys opt_clean -purge
 {% if settings.main_clock and settings.main_clock.period_ps -%} yosys scratchpad -set abc9.D {{settings.main_clock.period_ps / 1.5}} {%- endif %}
 {% endif -%}
 
-yosys log -stdout "** FPGA synthesis for device {{settings.fpga}} **"
+yosys log -stdout "** FPGA synthesis for device {{settings.fpga|tcl_quote}} **"
 {% if settings.fpga.vendor == "xilinx" -%}
-yosys log -stdout "*** Target: Xilinx {%if settings.fpga.part%} {{settings.fpga.part}} {%else%} {{settings.fpga.device}} {%endif%} ***"
+yosys log -stdout "*** Target: Xilinx {%if settings.fpga.part%} {{settings.fpga.part|tcl_quote}} {%else%} {{settings.fpga.device|tcl_quote}} {%endif%} ***"
 yosys synth_xilinx {% if settings.fpga.family %} -family {{"xc7" if settings.fpga.family.endswith("7") else settings.fpga.family}} {% endif %} {{settings.synth_flags|join(" ")}}
 {% elif settings.fpga.family %}
-yosys log -stdout "*** Target: {{settings.fpga.family}} ***"
+yosys log -stdout "*** Target: {{settings.fpga.family|tcl_quote}} ***"
 yosys synth_{{settings.fpga.family}} {{settings.synth_flags|join(" ")}} {% if design.rtl.top %} -top {{design.rtl.top}}{% endif %}
 {% else %}
-yosys log -stdout "[ERROR] Unknown FPGA vendor, family, or device"
+yosys log -stdout "\[ERROR\] Unknown FPGA vendor, family, or device"
 {% endif -%}
 
 

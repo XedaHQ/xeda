@@ -175,6 +175,23 @@ def test_a_user_named_path_reaches_the_tool_whole(flow, tmp_path, monkeypatch) -
 
 
 @needs_tclsh
+def test_modelsim_keeps_systemverilog_and_lint_as_separate_options(tmp_path, monkeypatch) -> None:
+    """A SystemVerilog source must give vlog separate `-sv` and `-lint` arguments."""
+    root = tmp_path / "design"
+    root.mkdir()
+    source = root / "top.sv"
+    source.write_text("module top; endmodule\n")
+    design = Design(
+        name="sv",
+        design_root=root,
+        rtl={"sources": ["top.sv"], "top": "top"},
+        tb={"top": "top"},
+    )
+    calls = _calls("modelsim", design, {}, tmp_path, monkeypatch)
+    assert ["vlog", str(source), "-sv", "-lint"] in calls
+
+
+@needs_tclsh
 def test_dc_sources_each_hook_at_its_stage(tmp_path, monkeypatch) -> None:
     """`hooks` were resolved and then never sourced: every stage's script was silently ignored."""
     design = _design(tmp_path / "design")

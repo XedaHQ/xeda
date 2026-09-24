@@ -16,6 +16,7 @@ from ...tool import Docker, Tool
 from ...utils import hierarchical_merge, tcl_word, unique
 
 log = logging.getLogger(__name__)
+YOSYS_DOCKER_IMAGE = "hdlc/impl"
 
 
 def append_flag(flag_list: List[str], flag: str) -> List[str]:
@@ -543,7 +544,7 @@ class YosysBase(Flow):
             default_args += ["-g"]
         return Tool(
             executable="yosys",
-            docker=Docker(image="hdlc/impl"),  # type: ignore
+            docker=Docker(image=YOSYS_DOCKER_IMAGE),  # type: ignore
             version_flag="-V",
             minimum_version=(0, 21),
             default_args=default_args,

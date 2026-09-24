@@ -18,10 +18,10 @@ yosys plugin -i slang
 {% for src in design.rtl.sources -%}
 {% if src.type is not none -%}
     {% if src.type.name == "Verilog" -%}
-yosys log -stdout "** Reading {{src}} **"
+yosys log -stdout "** Reading {{src|tcl_quote}} **"
 yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
     {% elif src.type.name == "SystemVerilog" %}
-yosys log -stdout "** Reading {{src}} **"
+yosys log -stdout "** Reading {{src|tcl_quote}} **"
         {%- if slang_plugin %}
 yosys read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
         {%- elif uhdm_plugin %}
@@ -68,7 +68,7 @@ yosys read_systemverilog -link
 {% endif -%}
 yosys hierarchy -check {% if design.rtl.top -%} -top {{design.rtl.top}} {% else %} -auto-top {%- endif %}
 {% for mod in settings.black_box -%}
-puts "Converting module {{mod}} into blackbox"
+puts "Converting module {{mod|tcl_quote}} into blackbox"
 yosys blackbox {{mod}}
 {% endfor -%}
 

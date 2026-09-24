@@ -17,6 +17,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, VivadoSynth, Yosys
 from xeda.flows.ghdl import GhdlTool
 from xeda.flows.vivado import VivadoTool
+from xeda.flows.yosys.common import YOSYS_DOCKER_IMAGE
 import xeda.tool
 from xeda.tool import Docker, Tool
 
@@ -98,9 +99,7 @@ def test_yosys_runs_in_its_default_image(work_dir) -> None:
         {"sources": ["inv.v"], "top": "inv", "clock_port": "clk"},
         **{"inv.v": INVERTER_V},
     )
-    probe = Yosys(Yosys.Settings(), design, work_dir / "probe")
-    assert probe.yosys.docker is not None
-    require_docker_image(_image(probe.yosys.docker))
+    require_docker_image(_image(Docker(image=YOSYS_DOCKER_IMAGE)))
     flow = DefaultRunner(work_dir / "run").run_flow(Yosys, design, {"dockerized": True})
     assert flow is not None and flow.succeeded
 
