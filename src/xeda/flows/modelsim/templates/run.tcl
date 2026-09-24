@@ -27,6 +27,10 @@ if { [catch {vsim -t ps -onfinish stop {{design.sim_tops|join(' ')}} {{vsim_opts
     puts $error
     exit -code 1
 }
+{#- Loading a design restores BreakOnAssertion from modelsim.ini (default 3, VHDL failure).
+    Leave lower-severity assertions running so the testbench reaches its finish and status check.
+    Fatal is the highest supported break level; a fatal break still returns to this script. #}
+set BreakOnAssertion 4
 vcd add -r {% if not settings.debug and design.tb.uut %} {{design.tb.uut}}/* {% else %} * {% endif %}
 #run_wave
 run {% if settings.stop_time is not none %} {{settings.stop_time}} {%- else %} -all {%- endif %}
@@ -36,12 +40,12 @@ puts "\n===========================( *DISABLE ECHO* )===========================
 vcd flush
 {% endif %}
 
-{#- TESTSTATUS is the most severe message the simulation reported: 0 note, 1 warning, 2 error
-    (`$error`, a VHDL `severity error` assertion), 3 failure, 4 fatal. A testbench signals a failed
-    test with one of these, and vsim exits with status 0 regardless. #}
+{#- TESTSTATUS is 0 OK, 1 warning, 2 error, 3 fatal. ModelSim groups VHDL severity failure
+    and SystemVerilog $fatal at 3, unlike BreakOnAssertion's separate 3 and 4 levels.
+    A testbench signals a failed test with one of these, and vsim exits with status 0 regardless. #}
 set test_status [lindex [coverage attribute -name TESTSTATUS -concise] 0]
 if { $test_status >= {{fail_status}} } {
-    puts "ERROR: the simulation reported a message of severity {{settings.fail_severity}} or higher (TESTSTATUS=$test_status)"
+    puts "ERROR: simulation TESTSTATUS=$test_status reached threshold {{fail_status}} (fail_severity={{settings.fail_severity}})"
     exit -code 1
 }
 

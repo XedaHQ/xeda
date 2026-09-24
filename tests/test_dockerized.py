@@ -111,22 +111,32 @@ MODELSIM_SV = """`default_nettype none
 module inv(input logic a, output logic y); assign y = ~a; endmodule
 """
 MODELSIM_TB = """library ieee; use ieee.std_logic_1164.all;
+use std.textio.all;
 entity tb is end;
 architecture a of tb is
   signal a, y : std_logic := '0';
   component inv port (a : in std_logic; y : out std_logic); end component;
 begin
   u : inv port map (a, y);
-  process begin
+  process
+    file marker : text;
+    variable marker_line : line;
+  begin
     wait for 1 ns;
     assert y = '{expect}' report "y /= {expect}" severity {severity};
+    file_open(marker, "post_assertion.marker", write_mode);
+    write(marker_line, string'("reached"));
+    writeline(marker, marker_line);
+    file_close(marker);
     std.env.finish;
   end process;
 end;
 """
 
 
-def _modelsim_run(work_dir: Path, tb: str, sv: str = MODELSIM_SV, **settings) -> bool:
+def _modelsim_run(
+    work_dir: Path, tb: str, sv: str = MODELSIM_SV, check_post_assertion: bool = False, **settings
+) -> bool:
     """Whether the flow succeeds on a mixed-language design in the default ModelSim image."""
     require_docker_image(_image(ModelsimTool.model_fields["docker"].default))
     root = work_dir / "design"
@@ -144,6 +154,8 @@ def _modelsim_run(work_dir: Path, tb: str, sv: str = MODELSIM_SV, **settings) ->
         Modelsim, design, {"dockerized": True, **settings}
     )
     assert flow is not None
+    if check_post_assertion:
+        assert (flow.run_path / "post_assertion.marker").read_text().strip() == "reached"
     return flow.succeeded
 
 
@@ -158,7 +170,7 @@ def test_modelsim_runs_in_its_default_image(work_dir) -> None:
         ("error", None, False),
         ("failure", None, True),
         ("error", "error", True),
-        ("failure", "fatal", False),
+        ("failure", "fatal", True),
     ],
 )
 def test_modelsim_fails_a_testbench_at_its_fail_severity(
@@ -168,7 +180,14 @@ def test_modelsim_fails_a_testbench_at_its_fail_severity(
     `fail_severity`, by default `failure`."""
     tb = MODELSIM_TB.format(expect="0", severity=severity)
     settings = {"fail_severity": fail_severity} if fail_severity else {}
-    assert _modelsim_run(work_dir, tb, **settings) is not fails
+    assert _modelsim_run(work_dir, tb, check_post_assertion=True, **settings) is not fails
+
+
+def test_modelsim_fatal_status_fails_at_fatal_threshold(work_dir) -> None:
+    """ModelSim reports SystemVerilog `$fatal` as TESTSTATUS 3, also used by VHDL failure."""
+    tb = MODELSIM_TB.format(expect="1", severity="failure")
+    sv = MODELSIM_SV.replace("endmodule", 'initial $fatal(1, "fatal check"); endmodule')
+    assert not _modelsim_run(work_dir, tb, sv=sv, fail_severity="fatal")
 
 
 def test_modelsim_fails_a_compile_error(work_dir) -> None:
