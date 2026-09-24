@@ -156,6 +156,51 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
     assert "DFF_X" in (flow.run_path / SPACED_OUTPUTS["netlist_verilog"]).read_text()
 
 
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_yosys_reads_every_input_by_its_own_name(script_format, tmp_path):
+    """yosys' own frontends -- `read_verilog`, `read_liberty`, `techmap -map` -- expand glob
+    patterns in a file name, and fall back to the name itself only when nothing matches: handed
+    `top[1].v`, they read `top1.v` whenever one existed. So every input here has brackets in its
+    name, beside a decoy of garbage named as the pattern matches. The commands that take a name
+    as it is (`dfflibmap`, `abc` and `stat` with `-liberty`) must get it unescaped, or they find
+    no file at all."""
+    require_yosys()
+    if script_format == "tcl" and not _yosys_has_tcl():
+        pytest.skip("this yosys has no TCL support")
+    root = tmp_path / "d"
+
+    def with_decoy(path: Path, text: str) -> Path:
+        _write(path.with_name(path.name.replace("[1]", "1")), "garbage, no yosys input\n")
+        return _write(path, text)
+
+    lib = with_decoy(root / "lib" / "cells[1].lib", "")
+    with gzip.open(NANGATE45_LIB, "rb") as src, open(lib, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+    bb = "module bb(input a, output y); endmodule\n"
+    settings = {
+        "liberty": [str(lib)],
+        "dff_liberty": str(lib),
+        "verilog_lib": [str(with_decoy(root / "lib" / "bb[1].v", bb))],
+        "adder_map": str(with_decoy(root / "map" / "fa[1].v", "module _unused_fa(); endmodule\n")),
+        "clockgate_map": str(with_decoy(root / "map" / "cg[1].v", "module cg(); endmodule\n")),
+        "other_maps": [str(with_decoy(root / "map" / "o[1].v", "module _unused(); endmodule\n"))],
+        "netlist_verilog": "net[1].v",
+        "script_format": script_format,
+    }
+    assert set(SPACED_INPUTS) <= set(settings)
+    with_decoy(
+        root / "rtl" / "top[1].v",
+        "module top(input clk, input [3:0] a, b, output reg [4:0] q, output y);\n"
+        "  always @(posedge clk) q <= a + b;\n"
+        "  bb u_bb(.a(a[0]), .y(y));\n"
+        "endmodule\n",
+    )
+    design = Design(name="d", design_root=root, rtl={"sources": ["rtl/top[1].v"], "top": "top"})
+    flow = DefaultRunner(tmp_path / "run").run_flow(Yosys, design, settings)
+    assert flow is not None and flow.succeeded
+    assert "DFF_X" in (flow.run_path / "net[1].v").read_text()
+
+
 def test_yosys_reads_vhdl_from_a_path_with_spaces(tmp_path):
     """The ghdl plugin takes its arguments verbatim, like `read_verilog -I`: the source files,
     and the directory of each `-P<dir>` library path."""

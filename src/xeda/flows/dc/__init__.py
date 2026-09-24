@@ -15,6 +15,9 @@ from ...utils import try_convert, try_convert_to_primitives
 
 log = logging.getLogger(__name__)
 
+#: The points of the flow a `hooks` script can be sourced at, in the order the flow reaches them.
+HOOK_STAGES = ("pre_elab", "post_elab", "post_link", "finalize")
+
 
 def get_hier(dct, dotted_path, default=None):
     splitted = dotted_path.split(".")
@@ -112,14 +115,24 @@ class Dc(AsicSynthFlow):
             description="Run the synthesis tool in GUI mode.",
         )
         hooks: Dict[str, Optional[Union[str, Path]]] = Field(
-            {
-                "pre_elab": None,
-                "post_elab": None,
-                "post_link": None,
-                "finalize": None,
-            },
-            description="Custom TCL hooks to be run at the specified point in the flow.",
+            {stage: None for stage in HOOK_STAGES},
+            description="TCL scripts to source at points of the flow, by stage: `pre_elab` "
+            "(before elaboration), `post_elab` (after it, before linking), `post_link` (after "
+            "linking, before the constraints are read) and `finalize` (after the netlist is "
+            "written).",
         )
+
+        @field_validator("hooks")
+        @classmethod
+        def _hooks_at_known_stages(cls, value):
+            unknown = sorted(set(value) - set(HOOK_STAGES))
+            if unknown:
+                raise ValueError(
+                    f"no hook stage {', '.join(map(repr, unknown))}: the stages are "
+                    + ", ".join(HOOK_STAGES)
+                )
+            return value
+
         platform: Optional[AsicsPlatform] = Field(
             None,
             description="ASIC platform (PDK) supplying the target/link libraries: a bundled "

@@ -1,9 +1,10 @@
 """What identifies a flow run: `flowrun_hash` over the settings, beside the design's hash.
 
 A run's identity depends on what its inputs mean, not on where anything is: moving a design,
-copying it, or starting xeda from another directory keeps it. Design sources count by content
-(`Design.rtl_hash`); settings count by value, with a path counting as its text relative to the
-design root or start directory -- no file or directory named in the settings is ever read.
+copying it, or starting xeda from another directory keeps it. Design sources count by content,
+metadata and path relative to the design root (`Design.rtl_hash`); settings count by value, with
+a path counting as its text relative to the design root or start directory -- no file or
+directory named in the settings is ever read.
 """
 
 import json
@@ -106,10 +107,9 @@ def test_design_source_order_and_compile_metadata_are_part_of_the_hash(tmp_path)
     assert original.rtl_hash != design([{"file": "a.vhd", "standard": "2008"}, "b.vhd"]).rtl_hash
 
 
-def test_a_source_layout_is_not_part_of_the_hash(tmp_path):
-    """A design is its sources' contents, order and compile metadata -- not their layout, for
-    a source nothing else finds by its place: VHDL, constraints. Moving a whole design never
-    changes its hash, whatever its sources."""
+def test_every_source_path_is_part_of_the_hash_relative_to_the_design_root(tmp_path):
+    """A changed layout may change a tool's lookup, including files sourced by constraints.
+    The same layout still has the same identity when the whole design moves."""
     one = tmp_path / "one"
     other = tmp_path / "other"
     for root in (one, other):
@@ -118,6 +118,9 @@ def test_a_source_layout_is_not_part_of_the_hash(tmp_path):
         for sub in ("rtl", "vendor"):
             (root / sub / "top.vhd").write_text("entity top is end;\n")
             (root / sub / "top.v").write_text("module top; endmodule\n")
+            (root / sub / "timing.xdc").write_text(
+                "source [file dirname [info script]]/other.xdc\n"
+            )
 
     def source_hash(root, source):
         return Design(
@@ -126,8 +129,9 @@ def test_a_source_layout_is_not_part_of_the_hash(tmp_path):
             rtl={"sources": [source], "top": "top"},
         ).rtl_hash
 
-    assert source_hash(one, "rtl/top.vhd") == source_hash(one, "vendor/top.vhd")
-    for source in ("rtl/top.vhd", "rtl/top.v"):
+    for source in ("top.vhd", "top.v", "timing.xdc"):
+        assert source_hash(one, f"rtl/{source}") != source_hash(one, f"vendor/{source}")
+    for source in ("rtl/top.vhd", "rtl/top.v", "rtl/timing.xdc"):
         assert source_hash(one, source) == source_hash(other, source), "the design moved"
 
     # What the sources *are* still decides it.
@@ -140,8 +144,7 @@ def test_where_an_include_finds_a_header_is_part_of_the_hash(tmp_path):
     the header directories -- so two layouts of the same files can build different netlists:
     here `rtl/top.v` includes whichever `defs.vh` sits beside it. Counted by content alone,
     both were one design, and `--cached-dependencies` reused one's netlist for the other.
-    So a source that other files find by its name or place (Verilog, headers, Bluespec, C++,
-    cocotb modules, memory files) also counts by its path relative to the design root."""
+    Every source counts by its path relative to the design root."""
 
     def layout(root: Path, beside: str, elsewhere: str) -> Design:
         (root / "rtl").mkdir(parents=True)
@@ -168,6 +171,48 @@ def test_where_an_include_finds_a_header_is_part_of_the_hash(tmp_path):
 
     # Still relative to the root: the same layout elsewhere is the same design.
     assert layout(tmp_path / "moved" / "d1", beside="1", elsewhere="2").rtl_hash == ones.rtl_hash
+
+
+def test_a_tcl_script_counts_by_its_place(tmp_path):
+    """A TCL script finds other files by its own place (`[file dirname [info script]]`), so the
+    same script elsewhere in the design can read another file: it is another design."""
+    for sub in ("a", "b"):
+        (tmp_path / sub).mkdir()
+        (tmp_path / sub / "setup.tcl").write_text("source [file dirname [info script]]/more.tcl\n")
+
+    def rtl_hash(script: str) -> str:
+        return Design(name="d", design_root=tmp_path, rtl={"sources": [script]}).rtl_hash
+
+    assert rtl_hash("a/setup.tcl") != rtl_hash("b/setup.tcl")
+
+
+def test_a_header_outside_the_root_counts_by_its_place_relative_to_the_root(tmp_path):
+    """A source outside the design root counts by its path relative to the root
+    as well (`../lib/defs.vh`): an `include` depends on where files sit relative to each other.
+    It counted by the path as the design file wrote it, so the same header written absolutely was
+    another design, and a design reloaded from its own record -- which names the file absolutely
+    -- could not reproduce its `design_hash`."""
+
+    def tree(where: Path) -> Path:
+        (where / "lib").mkdir(parents=True)
+        (where / "lib" / "defs.vh").write_text("`define VAL 1\n")
+        (where / "d").mkdir()
+        (where / "d" / "top.v").write_text('`include "defs.vh"\nmodule top; endmodule\n')
+        return (where / "d").resolve()
+
+    def design(root: Path, header: str) -> Design:
+        return Design(name="d", design_root=root, rtl={"sources": ["top.v", header], "top": "top"})
+
+    here = tree(tmp_path / "here")
+    written = design(here, "../lib/defs.vh")
+    assert written.rtl_hash == design(here, str(here.parent / "lib" / "defs.vh")).rtl_hash
+
+    recorded = tmp_path / "settings.json"
+    dump_json({"design": written}, recorded)
+    assert Design(**json.loads(recorded.read_text())["design"]).rtl_hash == written.rtl_hash
+
+    # moved together with the directory beside it, it is the same design
+    assert design(tree(tmp_path / "there"), "../lib/defs.vh").rtl_hash == written.rtl_hash
 
 
 def test_behavior_affecting_design_metadata_is_part_of_the_hash(tmp_path):
@@ -391,34 +436,109 @@ def test_a_parameter_inherited_from_a_dependency_keeps_how_it_was_written(tmp_pa
     assert designs[0].rtl_hash == designs[1].rtl_hash
 
 
-def test_a_recorded_design_with_a_dependency_reloads_as_itself(tmp_path):
+@pytest.mark.parametrize("own_tb", [None, {"top": "own_tb"}], ids=["no_tb", "tb_top_only"])
+@pytest.mark.parametrize("pos", [-1, 0])
+def test_a_recorded_design_with_a_dependency_reloads_as_itself(tmp_path, pos, own_tb):
     """A dependency's sources are merged into the design when it is built, and a design is
     recorded as it was built. Recording the dependency *as well* merged its sources again on
     every reload -- `['top.vhd', 'core.vhd', 'core.vhd']` -- so the `design_hash` in a
     `settings.json` could not be reproduced from the design beside it, and a remote run was
-    handed the duplicate (and a dependency to fetch all over again)."""
+    handed the duplicate (and a dependency to fetch all over again).
+
+    The record has to hold the whole merge, testbench included: a design that gave no `tb` of
+    its own was recorded without the testbench its dependency supplied, and reloaded as another
+    design."""
     root = tmp_path / "d"
     (root / "dep").mkdir(parents=True)
     (root / "top.vhd").write_text("-- top\n")
     (root / "dep" / "core.vhd").write_text("-- core\n")
+    (root / "dep" / "tb.vhd").write_text("-- tb\n")
     (root / "dep" / "dep.toml").write_text(
         'name = "dep"\n[rtl]\nsources = ["core.vhd"]\ntop = "core"\n'
+        '[tb]\nsources = ["tb.vhd"]\ntop = "tb"\n'
     )
-    for pos in (-1, 0):
-        design = Design(
-            name="d",
-            design_root=root,
-            rtl={"sources": ["top.vhd"], "top": "top"},
-            dependencies=[{"uri": str(root / "dep" / "dep.toml"), "rtl": {"pos": pos}}],
-        )
-        recorded = tmp_path / "settings.json"
-        dump_json({"design": design}, recorded)
-        reloaded = Design(**json.loads(recorded.read_text())["design"])
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": ["top.vhd"], "top": "top"},
+        **({"tb": own_tb} if own_tb else {}),
+        dependencies=[{"uri": str(root / "dep" / "dep.toml"), "rtl": {"pos": pos}}],
+    )
+    recorded = tmp_path / "settings.json"
+    dump_json({"design": design}, recorded)
+    reloaded = Design(**json.loads(recorded.read_text())["design"])
 
-        names = [src.file.name for src in reloaded.rtl.sources]
-        assert names == [src.file.name for src in design.rtl.sources], pos
-        assert sorted(names) == ["core.vhd", "top.vhd"]
-        assert reloaded.rtl_hash == design.rtl_hash
+    names = [src.file.name for src in reloaded.rtl.sources]
+    assert names == [src.file.name for src in design.rtl.sources]
+    assert sorted(names) == ["core.vhd", "top.vhd"]
+    assert [src.file.name for src in reloaded.tb.sources] == ["tb.vhd"]
+    assert reloaded.tb.top == design.tb.top
+    assert reloaded.rtl_hash == design.rtl_hash
+    assert reloaded.tb_hash == design.tb_hash
+
+
+@pytest.mark.parametrize("pos", [-1, 0])
+def test_a_file_the_design_and_its_dependency_both_list_is_compiled_once(tmp_path, pos):
+    """A design and its dependency may both list a shared file (a package). The merge appended
+    the dependency's sources as they were, so the design compiled the file twice -- and reloaded
+    from its record, where the sources validator drops the repeat, it was another design."""
+    root = tmp_path / "d"
+    (root / "dep").mkdir(parents=True)
+    (root / "top.vhd").write_text("-- top\n")
+    (root / "dep" / "pkg.vhd").write_text("-- pkg\n")
+    (root / "dep" / "core.vhd").write_text("-- core\n")
+    (root / "dep" / "dep.toml").write_text(
+        'name = "dep"\n[rtl]\nsources = ["pkg.vhd", "core.vhd"]\n'
+    )
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": ["dep/pkg.vhd", "top.vhd"], "top": "top"},
+        dependencies=[{"uri": str(root / "dep" / "dep.toml"), "rtl": {"pos": pos}}],
+    )
+    names = [src.file.name for src in design.rtl.sources]
+    assert sorted(names) == ["core.vhd", "pkg.vhd", "top.vhd"]
+
+    recorded = tmp_path / "settings.json"
+    dump_json({"design": design}, recorded)
+    reloaded = Design(**json.loads(recorded.read_text())["design"])
+    assert [src.file.name for src in reloaded.rtl.sources] == names
+    assert reloaded.rtl_hash == design.rtl_hash
+
+
+@pytest.mark.parametrize(
+    "path, value",
+    [
+        ("tb.top", ("tb",)),
+        ("tb.sources", ["tb.vhd"]),
+        ("language.vhdl.standard", "08"),
+        ("language.vhdl.synopsys", True),
+    ],
+)
+def test_an_assignment_inside_a_nested_model_is_recorded(tmp_path, monkeypatch, path, value):
+    """`design.tb.top = ...` is ordinary use of a design, and whatever it assigns is the design's
+    own: a record of it has to hold it. pydantic marks a field set only when it is assigned on its
+    own model, so on a design that gave no `tb` (or no `language`) the assignment set a field of
+    the default testbench, the design's `tb` stayed unset, and the record -- which leaves out what
+    is unset -- dropped it."""
+    (tmp_path / "top.vhd").write_text("-- top\n")
+    (tmp_path / "tb.vhd").write_text("-- tb\n")
+    monkeypatch.chdir(tmp_path)
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.vhd"], "top": "top"})
+    *parents, name = path.split(".")
+    owner = design
+    for parent in parents:
+        owner = getattr(owner, parent)
+    setattr(owner, name, value)
+    assigned = design.model_dump(mode="json")
+
+    recorded = tmp_path / "settings.json"
+    dump_json({"design": design}, recorded)
+    reloaded = Design(**json.loads(recorded.read_text())["design"])
+
+    assert reloaded.model_dump(mode="json") == assigned
+    assert (reloaded.rtl_hash, reloaded.tb_hash) == (design.rtl_hash, design.tb_hash)
+    assert design.model_fields_set == {"name", "design_root", "rtl"}, "a dump changes nothing"
 
 
 def _design_with_a_rom(root: Path, **parameters) -> Design:

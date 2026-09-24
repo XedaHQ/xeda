@@ -52,6 +52,9 @@ from ..utils import (
     rebuild_like,
     regex_match,
     semantic_hash,
+    tcl_list,
+    tcl_quote,
+    tcl_word,
     try_convert,
     unique,
 )
@@ -645,13 +648,16 @@ class Flow(metaclass=ABCMeta):
                 loaderChoices.append(PackageLoader(mp))
             except ValueError:
                 pass
-        return jinja2.Environment(
+        env = jinja2.Environment(
             loader=ChoiceLoader(loaderChoices),
             autoescape=False,
             undefined=StrictUndefined,
             trim_blocks=trim_blocks,
             lstrip_blocks=lstrip_blocks,
         )
+        # a path a user named goes into a TCL script as a literal word, inside one, or as a list
+        env.filters.update(tcl_word=tcl_word, tcl_quote=tcl_quote, tcl_list=tcl_list)
+        return env
 
     @property
     def design_root(self):

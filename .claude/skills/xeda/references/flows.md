@@ -103,7 +103,7 @@ Reports no results beyond the keys every flow reports.
 
 FPGA synthesis, place & route for Lattice devices using Lattice Diamond. Runs the full Diamond implementation flow (synthesis through bitstream generation) in batch mode and reports resource utilization and timing.
 
-8 flow-specific settings (plus the common ones): `xeda list-settings diamond_synth --json`
+11 flow-specific settings (plus the common ones): `xeda list-settings diamond_synth --json`
 
 Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `ff`, `slice`, `dsp`, `bram`
 
@@ -155,7 +155,7 @@ Reports: `Fmax`, `wns`, `whs`, `lut`, `ff`
 
 ### `vivado_alt_synth`
 
-Synthesize with Xilinx Vivado using an alternative TCL-based flow
+FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode. A generated TCL script reads the design and runs synth_design through route_design on it in memory, each step with the options its `synth`/`impl` strategy and steps give it, and reports utilization and timing. See `vivado_synth` for the same in project mode.
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
@@ -163,15 +163,15 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 ### `vivado_project`
 
-Synthesize with Xilinx Vivado using a project-based flow
+Create a Xilinx Vivado project for the design, to work on in Vivado. The project holds the design's sources and testbench, its constraints, the synthesis and implementation strategies and step settings, and the hooks that write `vivado_synth`'s reports after each step. Nothing is run: open the project (`artifacts.project`) in Vivado, or set `gui` to have the flow open it. For synthesis and implementation in batch, use `vivado_synth`.
 
-47 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
+48 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
 
-Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
+Reports no results beyond the keys every flow reports.
 
 ### `vivado_synth`
 
-FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project (batch) mode. Drives synth_design through route_design from a generated TCL script without creating a Vivado project, and reports utilization, timing and (optionally) power. See `vivado_project` for the project-based equivalent and `vivado_alt_synth` for an alternative script.
+FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado.
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 

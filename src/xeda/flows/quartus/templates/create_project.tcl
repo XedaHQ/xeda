@@ -32,7 +32,7 @@ set_global_assignment -name VHDL_INPUT_VERSION VHDL_{{design.language.vhdl.stand
 {%- endif %}
 
 {%- for src in design.rtl.sources %}
-set_global_assignment -name {{src.type.name|upper}}_FILE {{src.file}}
+set_global_assignment -name {{src.type.name|upper}}_FILE {{src.file|tcl_word}}
 {%- endfor %}
 
 {%- for k,v in design.rtl.parameters.items() %}
@@ -40,7 +40,7 @@ set_parameter -name {{k}} {%if v is boolean -%} {{"true" if v else "false"}} {% 
 {%- endfor %}
 
 {%- for sdc_file in sdc_files %}
-set_global_assignment -name SDC_FILE {{sdc_file}}
+set_global_assignment -name SDC_FILE {{sdc_file|tcl_word}}
 {%- endfor %}
 
 {%- for k,v in project_settings.items() %}

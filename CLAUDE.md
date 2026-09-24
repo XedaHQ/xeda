@@ -300,10 +300,9 @@ A run is identified by `design_hash` (from `rtl_hash` + `tb_hash`: each source's
 type, `standard`, `variant`, and its position in the source order, plus behavior-affecting
 RTL/testbench metadata) and `flow.flowrun_hash` (flow name + input settings). Both are semantic --
 they depend on what the inputs mean, not where anything is: moving a whole design never changes
-`design_hash`. A source counts by its path only where other files find it by its place
-(`_LOCATED_SOURCE_TYPES`: Verilog/SV and headers -- an `include` searches the includer's
-directory first -- Bluespec, C++, cocotb modules, memory files), and then relative to the design
-root (`Design._source_fingerprint`); re-arranging VHDL or constraint files never changes it.
+`design_hash`. Every source counts by its path relative to the design root, outside it too
+(`../lib/defs.vh`, `Design._source_fingerprint`): a tool can resolve another file from any
+source's location, so re-arranging even VHDL or constraint sources changes the identity.
 `send_design` keeps sources under the root at their relative place for the same reason.
 `flowrun_hash` writes any path under the design
 root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), the start directory and design
@@ -470,14 +469,31 @@ With `--cached-dependencies`, a dependency whose `settings.json` records matchin
   `{ path = ... }` is unchecked, for files a generator creates later. A validator that builds one
   converts `FileNotFoundError` (neither a `ValueError` nor a `TypeError`) into a `ValueError`.
   `FileResource._specified_path` keeps the path *as written*, before expansion; it plays no part
-  in the design hash (a source counts by content, type, `standard`, `variant`, and order - never
-  path). It is how `Design.source_path_as_named` names a source that lies outside the design
+  in the design hash, which counts every source's path relative to the design root. It is how
+  `Design.source_path_as_named` names a source that lies outside the design
   root, which has no relative name.
+- **A path a user named goes into a tool script through a filter, never raw.** yosys templates:
+  `read_path` for a file yosys expands as a glob pattern of its own (`read_verilog`,
+  `read_liberty`, `techmap -map`, `dfflibmap -liberty`; `yosys.common.frontend_name`), `path`
+  for any other argument it unquotes, `verbatim_path` for plugins. TCL templates of every flow:
+  `tcl_word` for one literal argument, `tcl_quote` inside a `"..."` message, `tcl_list` for
+  Vivado's file-list commands (`read_verilog`, `read_vhdl`, `read_xdc`, `add_files`, `get_files`), which
+  split a single word at its spaces (`utils.py`, registered by `Flow._create_jinja_env`). Never
+  `eval` a command with a path: it parses the path a second time. `tests/test_yosys_templates.py`
+  and `tests/test_tcl_paths.py` enforce this; the latter runs rendered scripts under `tclsh` with
+  every tool command recorded. PDK files and xeda's own run-directory paths are left raw.
+- **Compare a source's type with `SourceType`, never with free text**: `src.type is
+  SourceType.Xdc` in Python, `src.type.name == "Vhdl"` in a template. A `SourceType` equals only
+  its own name, so `src.type == 'verilog'` is silently never true -- ModelSim compiled no source
+  and `vivado_project` read no design XDC that way. `tests/test_source_type_comparisons.py`
+  sweeps the flows' code and templates.
 - **Every consumer of a design path goes through `design.py`'s helpers**, or it re-derives the
   loader's rules and gets them wrong. `_expand_design_path` expands one path;
   `_expand_source_glob` expands *and sorts* a pattern and rejects one matching no file (`glob`
   returns filesystem order, and source order is semantic -- VHDL compile order, and part of the
-  design hash); `_source_paths_as_given` interprets an unvalidated `rtl.sources` entry, which is
+  design hash); only `*` makes a source a pattern (`_is_source_pattern`) -- `?`, `[` and `]` are
+  part of a file name (`fifo[1].v`), and as glob syntax named another file (`fifo1.v`);
+  `_source_paths_as_given` interprets an unvalidated `rtl.sources` entry, which is
   what `process_generation` needs since it runs before the sources validator.
   **A flow that writes one artifact per source names it with `Design.source_artifact_name(src,
   suffix)`**, never from `src.path.stem`: sources are distinct files but their stems are not
@@ -489,8 +505,20 @@ With `--cached-dependencies`, a dependency whose `settings.json` records matchin
   back as design state. GHDL (`--out=verilog`, one Verilog file per VHDL source) is the only
   flow that needs it today; any other that emits per-source artifacts uses the same helper.
 - Most tests use fake EDA tools: `tests/fake_tools/` holds symlinks (`vivado`, `quartus_sh`,
-  `xtclsh`, `dc_shell`) to `fake_tool.py`, a click-based stub that dispatches on `Path(__file__).stem`
-  and writes canned reports (`tests/fake_tools/resource/fake_vivado_reports`). To fake a new tool: add a
-  symlink, add an entry to the `fake_tools` dict, and have the test prepend `tests/fake_tools` to `PATH`.
+  `xtclsh`, `dc_shell`, `diamondc`, `vsim`) to `fake_tool.py`, a click-based stub that dispatches
+  on `Path(__file__).stem`. A fake **runs the TCL script it is handed under `tclsh`**, the tool's
+  own commands recorded rather than run (`TCL_RECORDER`, into `fake_<tool>.calls` in the run
+  directory), and fails as the tool would on a TCL error -- so a template that renders broken TCL
+  fails every test using it. Vivado's then writes canned reports
+  (`tests/fake_tools/resource/fake_vivado_reports`). `tool_utils.use_fake_tools(monkeypatch)` puts
+  them on `PATH`; `tool_utils.fake_calls(run_dir)` reads what the scripts ran. To fake a new tool:
+  add a symlink, add an entry to the `fake_tools` dict (the option or argument naming its script,
+  for `RunTcl`), and use `use_fake_tools`.
+- **Real proprietary tools and containers are opt-in layers**, skipped unless their variable is set
+  (and then failing on what they need): `XEDA_TESTS_VIVADO=1` runs Vivado flows on tiny designs
+  (`tests/test_vivado_real.py`, `vivado` on PATH); `XEDA_TESTS_DOCKER=1` runs flows `dockerized`
+  in their default images (`tests/test_dockerized.py`), skipping one whose image is not present
+  locally -- a test never pulls. Both work under the checkout's `xeda_run/` (or
+  `XEDA_TESTS_WORK_DIR`), which a container can mount where the system temp directory is not.
 - Formatting is inconsistent by design: `black` (line-length 100) is enforced on `src/` only; `ruff`
   (line-length 120, `target-version = "py311"`) checks the whole repo.

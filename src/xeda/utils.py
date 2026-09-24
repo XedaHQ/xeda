@@ -309,6 +309,33 @@ def dump_json(data: object, path: Path, backup: bool = True, indent: int = 4) ->
         json.dump(with_json_keys(data), outfile, default=json_encodable, indent=indent)
 
 
+_TCL_SUBSTITUTED = re.compile(r'([\\\[\]"${}])')
+
+
+def tcl_quote(value: Any) -> str:
+    """`value` escaped to stand for itself inside a double-quoted TCL word: every character TCL
+    would substitute (`$`, `[`, `\\`), end the word (`"`) or count as a brace of a script the
+    word sits in (`{`, `}`: `catch {read_verilog ...}`) backslash-escaped. For a path in a
+    message (`puts "Reading {{src|tcl_quote}}"`); a whole word is `tcl_word`."""
+    return _TCL_SUBSTITUTED.sub(r"\\\1", str(value))
+
+
+def tcl_word(value: Any) -> str:
+    """`value` as one literal TCL word, however it is spelled: a path with a space, brackets
+    (`fifo[1].v`) or a `$` reaches the command as it is. Unquoted or merely double-quoted, TCL
+    split such a path, read `$v` as a variable, and ran `[x]` as a command -- Vivado's TCL even
+    starts an external program whose name begins with `x`. Every flow's templates have it."""
+    return f'"{tcl_quote(value)}"'
+
+
+def tcl_list(value: Any) -> str:
+    """`value` -- one path, or a list of them -- as a TCL expression for the list of them:
+    `[list "a b.v"]`. For a command that takes its files as a list and splits a single word at its
+    spaces: Vivado's `read_verilog`, `read_vhdl`, `read_xdc`, `add_files`, `get_files`."""
+    items = value if isinstance(value, (list, tuple)) else [value]
+    return "[list " + " ".join(tcl_word(item) for item in items) + "]"
+
+
 def unique(lst: List[Any]) -> List[Any]:
     """returns unique elements of the list in their original order (first occurrence).
 

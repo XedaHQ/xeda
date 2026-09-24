@@ -13,16 +13,20 @@ set_param general.maxThreads {{settings.nthreads}}
 set_msg_config -id "\[{{msg}}\]" -suppress
 {%- endfor %}
 
-{%- if design.rtl.sources %}
-add_files -fileset sources_1 -norecurse {{ design.rtl.sources | join(" ") }}
+{%- if sources %}
+add_files -fileset sources_1 -norecurse {{ sources | tcl_list }}
 {%- endif %}
 
 {%- if design.tb and design.tb.sources %}
-add_files -fileset sim_1 -norecurse {{ design.tb.sources | join(" ") }}
+add_files -fileset sim_1 -norecurse {{ design.tb.sources | tcl_list }}
 {%- endif %}
 
 {%- for xdc_file in xdc_files %}
-add_files -fileset constrs_1 -norecurse  {{xdc_file}}
+add_files -fileset constrs_1 -norecurse {{xdc_file|tcl_list}}
+{%- endfor %}
+
+{%- for tcl_file in tcl_files %}
+add_files -fileset utils_1 -norecurse {{tcl_file|tcl_list}}
 {%- endfor %}
 
 update_compile_order -fileset sources_1
@@ -82,32 +86,9 @@ set_property STEPS.{{step}}.{{name}} {{value}} [get_runs impl_1]
 {%- endfor %}
 {%- endfor %}
 
-add_files -fileset utils_1 -norecurse [pwd]/{{reports_tcl}}
-set_property STEPS.OPT_DESIGN.TCL.POST [pwd]/vivado_report_helper.tcl [get_runs impl_1]
-set_property STEPS.PLACE_DESIGN.TCL.POST [pwd]/vivado_report_helper.tcl [get_runs impl_1]
-set_property STEPS.ROUTE_DESIGN.TCL.POST [pwd]/{{reports_tcl}} [get_runs impl_1]
 
 #-----
 
-set script_mode $rdi::mode
-
-set the_current_project [current_project]
-
-
-if { $script_mode ne "gui" } {
-  if { $the_current_project ne "" } {
-    close_project
-  }
-  open_project "$project_file"
-
-  
-
-  start_gui
-}
-
-if { $the_current_project ne "" } {
-  close_project
-}
-open_project "$project_file"
-
+{%- if not settings.gui %}
 close_project
+{%- endif %}

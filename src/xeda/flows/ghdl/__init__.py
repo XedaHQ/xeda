@@ -319,11 +319,15 @@ class Ghdl(Flow, metaclass=ABCMeta):
             backend_version = backend_split[1].split(".") if len(backend_split) > 1 else []
             # Workaround for annoying warnings on macOS/arm64 with earlier versions of the toolchains.
             # Not required when using the latest versions of Xcode/CommandLineTools, LLVM, GNAT, and GHDL.
+            # A flag of Apple's linker: only for a GHDL that runs on this macOS host, not in a
+            # (Linux) container, where GNU ld misreads it and the link fails (`-lgcc_s`).
+            runs_on_host = not (self.ghdl.dockerized and self.ghdl.docker)
             if compiler == "llvm" and backend_version and backend_version[0].isdigit():
                 llvm_major = int(backend_version[0])
                 link_flag = "-Wl,-no_compact_unwind"
                 if (
-                    platform.system() == "Darwin"
+                    runs_on_host
+                    and platform.system() == "Darwin"
                     and platform.machine() == "arm64"
                     and llvm_major
                     < 19  # TODO Probably need to check the GNAT version? Also, no idea about the version number.

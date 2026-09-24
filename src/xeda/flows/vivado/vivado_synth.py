@@ -44,17 +44,86 @@ def vivado_synth_generics(parameters: dict) -> List[str]:
     return generics
 
 
+def normalize_run_steps(settings: Any) -> None:
+    """Every step of the synthesis and implementation runs as a mapping holding its `ARGS` and
+    `TCL` mappings, so the steps' properties, and the hooks attached to them, have a place."""
+    for run_settings, steps in (
+        (settings.synth, ["SYNTH_DESIGN", "OPT_DESIGN", "POWER_OPT_DESIGN"]),
+        (
+            settings.impl,
+            [
+                "PLACE_DESIGN",
+                "POST_PLACE_POWER_OPT_DESIGN",
+                "PHYS_OPT_DESIGN",
+                "ROUTE_DESIGN",
+                "WRITE_BITSTREAM",
+            ],
+        ),
+    ):
+        for step in steps:
+            step_setting: Union[Dict[str, Any], List[str]] = run_settings.steps.get(step, {}) or {}
+            if isinstance(step_setting, list):
+                step_setting = {k: None for k in step_setting}
+            assert isinstance(step_setting, dict)
+            for sub in ["ARGS", "TCL"]:
+                if step_setting.get(sub) is None:
+                    step_setting[sub] = {}
+            run_settings.steps[step] = step_setting
+
+
+def post_step_hooks(flow: Any, settings: Any) -> List[Path]:
+    """A generated `TCL.POST` hook for each major step of a project-mode run: it sources the
+    user's own `TCL.POST` for the step, if any, then writes the step's reports. Returns the
+    hooks, which the project's `utils_1` fileset has to hold. Needs `normalize_run_steps`."""
+    hooks: List[Path] = []
+    for run_settings, steps in (
+        (settings.synth, ["SYNTH_DESIGN"]),
+        (settings.impl, ["PLACE_DESIGN", "PHYS_OPT_DESIGN", "ROUTE_DESIGN"]),
+    ):
+        for step in steps:
+            step_settings = run_settings.steps.get(step)
+            assert isinstance(step_settings, dict)
+            tcl_settings = step_settings.get("TCL")
+            assert isinstance(tcl_settings, dict)
+            current_hook = tcl_settings.get("POST")
+            user_hooks = []  # TODO add alternative methods for adding multiple user hooks?
+            if current_hook:
+                user_hooks.append(current_hook)
+            post_step_hook = flow.copy_from_template(
+                "post_step_hook.tcl",
+                script_filename=f"post_{step.lower()}_hook.tcl",
+                run_dir=flow.run_path,
+                user_hooks=user_hooks,
+            ).resolve()
+            tcl_settings["POST"] = post_step_hook
+            hooks.append(post_step_hook)
+    return hooks
+
+
+def constraint_files(flow: Any, settings: Any) -> List[Path]:
+    """The constraints a Vivado synthesis reads, in order: the generated clock constraints, the
+    design's XDC and SDC sources, then the flow's `xdc_files`."""
+    xdc_files = [flow.copy_from_template("clock.xdc")]
+    xdc_files += (
+        p.file
+        for p in flow.design.rtl.sources
+        if p.type is SourceType.Xdc or p.type is SourceType.Sdc
+    )
+    xdc_files += (flow.normalize_path_to_design_root(p) for p in settings.xdc_files)
+    return xdc_files
+
+
 class RunOptions(XedaBaseModel):
     strategy: Optional[str] = None
     steps: Dict[str, StepsValType] = {}
 
 
 class VivadoSynth(Vivado, FpgaSynthFlow):
-    """FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project (batch) mode.
+    """FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch.
 
-    Drives synth_design through route_design from a generated TCL script without creating a
-    Vivado project, and reports utilization, timing and (optionally) power. See `vivado_project`
-    for the project-based equivalent and `vivado_alt_synth` for an alternative script.
+    Creates a Vivado project in the run directory, runs its synthesis and implementation, and
+    reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in
+    non-project mode, and `vivado_project` to create a project to work on in Vivado.
     """
 
     results_description = describe_results(
@@ -234,30 +303,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             ]:
                 self.artifacts[o] = os.path.join(settings.outputs_dir, o)
 
-        for run_settings, steps in (
-            (settings.synth, ["SYNTH_DESIGN", "OPT_DESIGN", "POWER_OPT_DESIGN"]),
-            (
-                settings.impl,
-                [
-                    "PLACE_DESIGN",
-                    "POST_PLACE_POWER_OPT_DESIGN",
-                    "PHYS_OPT_DESIGN",
-                    "ROUTE_DESIGN",
-                    "WRITE_BITSTREAM",
-                ],
-            ),
-        ):
-            for step in steps:
-                step_setting: Union[Dict[str, Any], List[str]] = (
-                    run_settings.steps.get(step, {}) or {}
-                )
-                if isinstance(step_setting, list):
-                    step_setting = {k: None for k in step_setting}
-                assert isinstance(step_setting, dict)
-                for sub in ["ARGS", "TCL"]:
-                    if step_setting.get(sub) is None:
-                        step_setting[sub] = {}
-                run_settings.steps[step] = step_setting
+        normalize_run_steps(settings)
 
         if not self.design.rtl.clocks:
             log.warning("No clocks specified for top RTL design.")
@@ -296,42 +342,8 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 self.settings.bitstream = self.runner_cwd / bs_str[5:]
             self.settings.bitstream = Path(self.settings.bitstream).resolve()
 
-        for run_settings, steps in (
-            (settings.synth, ["SYNTH_DESIGN"]),
-            (
-                settings.impl,
-                [
-                    "PLACE_DESIGN",
-                    "PHYS_OPT_DESIGN",
-                    "ROUTE_DESIGN",
-                ],
-            ),
-        ):
-            for step in steps:
-                step_settings = run_settings.steps.get(step)
-                assert isinstance(step_settings, dict)
-                tcl_settings = step_settings.get("TCL")
-                assert isinstance(tcl_settings, dict)
-                current_hook = tcl_settings.get("POST")
-                user_hooks = []  # TODO add alternative methods for adding multiple user hooks?
-                if current_hook:
-                    user_hooks.append(current_hook)
-                post_step_hook = self.copy_from_template(
-                    "post_step_hook.tcl",
-                    script_filename=f"post_{step.lower()}_hook.tcl",
-                    run_dir=self.run_path,
-                    user_hooks=user_hooks,
-                ).resolve()
-                tcl_settings["POST"] = post_step_hook
-                tcl_files += [post_step_hook]
-
-        xdc_files = [self.copy_from_template("clock.xdc")]
-        xdc_files += (
-            p.file
-            for p in self.design.rtl.sources
-            if p.type is SourceType.Xdc or p.type is SourceType.Sdc
-        )
-        xdc_files += (self.normalize_path_to_design_root(p) for p in settings.xdc_files)
+        tcl_files += post_step_hooks(self, settings)
+        xdc_files = constraint_files(self, settings)
 
         log.debug("XDC files: %s", ", ".join(str(s) for s in xdc_files))
         log.debug("TCL files: %s", ", ".join(str(s) for s in tcl_files))

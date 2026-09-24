@@ -3,6 +3,8 @@
 import inspect
 import logging
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from time import sleep
 from typing import (
@@ -39,6 +41,86 @@ def write_file(path, data):
                 f.writelines(data)
             else:
                 f.write(data)
+
+
+# The commands of the tool a script runs are recorded, not run: `unknown` catches every command
+# tclsh does not know. The recording goes to `fake_<tool>.calls` in the working directory (the
+# run directory), one `CALL <n>` line per command followed by its `ARG` lines -- and `ELEM` lines
+# for the files of an argument that is a TCL list (`[list "a b.v"]`).
+TCL_RECORDER = r"""
+set __calls [open {%(calls)s} a]
+proc __record {args} {
+    puts $::__calls "CALL [llength $args]"
+    foreach a $args {
+        puts $::__calls "ARG $a"
+        if {![catch {llength $a} n] && $n >= 1 && [lindex $a 0] ne $a} {
+            foreach e $a { puts $::__calls "ELEM $e" }
+        }
+    }
+    flush $::__calls
+    return 1
+}
+proc unknown {args} { __record {*}$args }
+rename source __source
+proc source {args} { __record source {*}$args }
+proc exec {args} { __record exec {*}$args; return "" }
+rename package __package
+proc package {sub args} {
+    if {$sub eq "require"} { __record package require {*}$args; return 1 }
+    __package $sub {*}$args
+}
+proc set_app_var {name value} { __record set_app_var $name $value; uplevel #0 [list set $name $value] }
+set search_path {}
+namespace eval rdi { variable mode batch }
+rename exit __exit
+proc exit {{code 0}} { flush $::__calls; __exit $code }
+if {[catch {__source {%(script)s}} e]} {
+    puts $::__calls "TCL-ERROR $e"
+    puts stderr "TCL-ERROR in %(script)s: $e\n$::errorInfo"
+    flush $::__calls
+    __exit 1
+}
+flush $::__calls
+"""
+
+
+def run_tcl(script: Union[str, os.PathLike], tool_name: str) -> int:
+    """Run `script` under tclsh the way the tool would, its commands recorded (`TCL_RECORDER`).
+    A TCL error fails the fake tool as it fails the real one. Without tclsh the script is not run,
+    unless `XEDA_TESTS_REQUIRE_TOOLS` asks for every tool a test uses."""
+    tclsh = shutil.which("tclsh")
+    if tclsh is None:
+        if os.environ.get("XEDA_TESTS_REQUIRE_TOOLS", "").lower() in ("1", "true", "yes", "on"):
+            print(
+                "fake tool: tclsh is needed to run the TCL script, and XEDA_TESTS_REQUIRE_TOOLS is set"
+            )
+            return 1
+        return 0
+    script = Path(script).absolute()
+    calls = Path.cwd() / f"fake_{tool_name}.calls"
+    runner = Path.cwd() / f"fake_{tool_name}_runner.tcl"
+    runner.write_text(TCL_RECORDER % {"calls": calls, "script": script})
+    return subprocess.run([tclsh, str(runner)], check=False).returncode
+
+
+class RunTcl:
+    """Execute the TCL script a fake tool is handed, taken from the named option or argument
+    (`transform` extracts it, e.g. from `vsim -do "do x.tcl"`)."""
+
+    def __init__(self, tool_name: str, param: str, transform=None, then=None) -> None:
+        self.tool_name = tool_name
+        self.param = param
+        self.transform = transform
+        self.then = then
+
+    def __call__(self, **kwargs: Any) -> int:
+        script = kwargs.get(self.param)
+        if script and self.transform:
+            script = self.transform(script)
+        status = run_tcl(script, self.tool_name) if script else 0
+        if status == 0 and self.then is not None:
+            status = self.then(**kwargs)
+        return status
 
 
 @runtime_checkable
@@ -85,6 +167,8 @@ class FakeTool(XedaBaseModel):
     version_options: list = ["--version"]
     options: dict = {}  # param_decls -> attrs
     arguments: dict = {}  # Dict[str, Optional[Dict[str, Any]]] = {}
+    # arguments click cannot parse, rewritten first: an option may not start with a digit
+    argv_aliases: dict = {}
     execute_: Executer = lambda **_kwargs: 0
 
     @property
@@ -122,6 +206,9 @@ class FakeVivado(FakeTool):
         print("cwd =", Path.cwd())
         tcl = kwargs.get("source")
         if tcl:
+            status = run_tcl(tcl, "vivado")
+            if status:
+                return status
             sleep(0.3)
             with ZipFile(RESOURCE_DIR / "fake_vivado_reports") as zf:
                 for file in zf.namelist():
@@ -130,19 +217,62 @@ class FakeVivado(FakeTool):
                     with zf.open(file) as rf:
                         data = rf.read()
                         write_file(Path("reports") / "route_design" / file, data)
+        return 0
 
 
 fake_tools: Dict[str, FakeTool] = dict(
     vivado=FakeVivado(),  # type: ignore
     quartus_sh=FakeTool(
+        version="23.1std.0",
+        version_template="Quartus Prime Shell\nVersion {version} Build 991 Lite Edition",
         options={"-t": dict(type=click.Path(exists=True), required=True)},
-        execute_=TouchFiles(
-            "reports/Flow_Summary.csv",
-            "reports/Fitter/Resource_Section/Fitter_Resource_Utilization_by_Entity.csv",
-            "reports/Timing_Analyzer/Multicorner_Timing_Analysis_Summary.csv",
+        execute_=RunTcl(
+            "quartus_sh",
+            "t",
+            then=TouchFiles(
+                "reports/Flow_Summary.csv",
+                "reports/Fitter/Resource_Section/Fitter_Resource_Utilization_by_Entity.csv",
+                "reports/Timing_Analyzer/Multicorner_Timing_Analysis_Summary.csv",
+            ),
         ),
     ),
-    xtclsh=FakeTool(arguments={"script": dict(required=False, type=click.Path(exists=True))}),
+    xtclsh=FakeTool(
+        version="14.7",
+        arguments={"script": dict(required=False, type=click.Path(exists=True))},
+        execute_=RunTcl("xtclsh", "script"),
+    ),
+    dc_shell=FakeTool(
+        version="W-2024.09-SP2",
+        version_template="dc_shell version    -  {version}",
+        version_options=["-version"],
+        argv_aliases={"-64bit": "--sixty-four-bit"},
+        options={
+            "-f": dict(type=click.Path(exists=True)),
+            "--sixty-four-bit": None,
+            "-topographical_mode": None,
+            "-no_home_init": None,
+            "-no_local_init": None,
+            "-gui": None,
+            "-output_log_file": dict(type=click.Path()),
+        },
+        execute_=RunTcl("dc_shell", "f"),
+    ),
+    diamondc=FakeTool(
+        version="3.13.0.56.2",
+        arguments={"script": dict(required=False, type=click.Path(exists=True))},
+        execute_=RunTcl("diamondc", "script"),
+    ),
+    vsim=FakeTool(
+        version="2024.1",
+        version_template="Model Technology ModelSim vsim {version} Simulator",
+        options={
+            "-batch": None,
+            "-do": dict(type=str),
+            "-modelsimini": dict(type=click.Path()),
+        },
+        # `vsim -do "do run.tcl"`: the script is what the `do` command names
+        execute_=RunTcl("vsim", "do", transform=lambda command: command.split(None, 1)[1]),
+    ),
 )
 
 symlink_name = Path(__file__).stem
@@ -190,8 +320,11 @@ def fake_tool_options(fake_tool: Optional[FakeTool]) -> FC:
 def cli(ctx: click.Context, **kwargs):
     if tool:
         print(f"Fake {ctx.info_name} kwargs:{kwargs} args:{ctx.args}")
-        tool.execute(**kwargs)
+        ctx.exit(tool.execute(**kwargs) or 0)
 
 
 if __name__ == "__main__":
+    import sys
+
+    sys.argv[1:] = [tool.argv_aliases.get(arg, arg) for arg in sys.argv[1:]]
     cli()  # pylint: disable=no-value-for-parameter

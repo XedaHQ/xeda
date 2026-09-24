@@ -23,11 +23,64 @@ All notable changes to this project will be documented in this file.
   design when it is built, are no longer recorded beside a dependency that merges them again. A
   design reloaded from its `settings.json` had every dependency source twice -- so the recorded
   `design_hash` could not be reproduced from the design beside it -- and a remote run got the
-  duplicates and tried to fetch the dependency all over again.
+  duplicates and tried to fetch the dependency all over again. The record holds the whole merge,
+  including a testbench the dependency supplies to a design that has none of its own, and the
+  merged sources are validated like any others, so a file the design and its dependency both list
+  is compiled once (it was compiled twice, and the reloaded design hashed differently).
 - Files a flow writes one per source (GHDL's Verilog output) get distinct names by construction:
   a name that another source would fold to as well -- `my-fifo.vhd` and `my_fifo.vhd`,
   `fifo.vhd` and `fifo.vhdl`, a dependency's `rtl/fifo.vhd` beside the design's own -- carries a
   short digest of its path; every other name is unchanged.
+- Only `*` makes a source a pattern; `?`, `[` and `]` are ordinary characters of a file name. As
+  glob syntax, `rtl/fifo[1].v` -- a bus index in a name -- named the other file `rtl/fifo1.v`
+  whenever one existed, silently, and failed to load when none did; `rtl/fifo[1]_*.v` matched
+  `fifo1_a.v` rather than `fifo[1]_a.v`. A generator's sources follow the same rule.
+- yosys reads every file by its own name. Its `read_verilog`, `read_liberty`, `techmap -map` and
+  `dfflibmap -liberty` expand a file name as a glob pattern of their own, so a source, liberty
+  file or map named `fifo[1].v` was read from `fifo1.v` whenever one existed -- a successful run
+  with the wrong netlist. The scripts name those files escaped (`fifo[[]1].v`); every other path
+  is left as it is, since the commands that take a name literally find no escaped one.
+- A TCL-scripted flow is given every source, and every constraint or script file a design or
+  setting names, as one literal word (`tcl_word`, `tcl_quote`, `tcl_list`, shared by every flow's
+  templates). Written raw or merely double-quoted, a path with a space was split, `$v` read as a
+  variable, and `[x]` run as a command -- Vivado's TCL even started an external program whose name
+  begins with `x` -- while a numeric index (`fifo[1].v`) got through by an accident of Vivado's
+  `unknown`. Vivado's `read_verilog`, `read_vhdl` and `read_xdc` get a one-file list, since they
+  split a single word at its spaces; `vivado_alt_synth`, `diamond_synth` and `modelsim` no longer
+  `eval` a command with a path in it, which parsed the path again.
+- `vivado_project` could not run: it rendered a report helper removed in 2025, and it ended in
+  `start_gui`, which fails in every headless Vivado; the design's XDC sources never reached it
+  (`p.type == "xdc"`, which no source type equals). It now creates and saves the project -- the
+  sources and testbench, the constraints, the strategies and steps, the report hooks
+  `vivado_synth` uses, and `tcl_files` -- reports it as `artifacts.project`, and opens it in the
+  GUI only when `gui` is set. Its description said it synthesizes, and it listed
+  `vivado_synth`'s results; it runs nothing, and reports none.
+- `vivado_alt_synth` reads the design's XDC and SDC sources and `xdc_files`, like `vivado_synth`
+  (one list, `vivado_synth.constraint_files`): it read only its generated clock constraints and
+  ignored both. `tcl_files`, which a non-project run has no fileset for, is a settings error
+  naming `vivado_synth` instead of being ignored.
+- `diamond_synth` could not render its script: the template used `strategy`, `allow_dsps`,
+  `allow_brams` and `fpga_part`, settings the flow had lost. `strategy` (default `Timing`) and
+  `allow_dsps`/`allow_brams` (default true) are settings again, the device is `fpga.part`, and a
+  run fails for a DSP or block RAM only where that resource is disallowed -- it failed every run
+  using one. `diamondc` is no longer handed its own name as the script's first argument.
+- `modelsim` compiled no source: its script compared `src.type` with lowercase names, which no
+  source type equals. It also read an undefined `debug` and `flow`, so it did not render, and a
+  VHDL source's command ran into the next one. `tests/test_source_type_comparisons.py` checks
+  every comparison of a source type with text in the flows' code and templates. `vsim` no longer
+  `eval`s its options, which split an SDF path with a space, and `-L` names a library of
+  `lib_paths` rather than its whole `(name, path)` pair.
+- `dc` sources its `hooks` at their stages -- `pre_elab`, `post_elab`, `post_link`, `finalize` --
+  which it resolved and then ignored; a hook at another stage is an error naming the stages.
+- `vivado_synth` is described as what it is: a project-mode run in batch (it said non-project
+  mode, which is `vivado_alt_synth`).
+- A `dockerized` GHDL on an Apple silicon Mac could not link: the flow added Apple's
+  `-no_compact_unwind` linker flag, meant for a GHDL on the host, to the one in the Linux
+  container, where GNU ld misread it (`cannot find -lgcc_s`).
+- A tool run in a container got its default arguments twice (`yosys -T -Q -T -Q`): the
+  container's command held them, and every run passed them again.
+- `dc` failed at `current_design` on every run: its `catch` named the error variable `$err`,
+  reading a variable that did not exist yet.
 - `$DESIGN_ROOT` (and any other variable) in a source pattern stands for the place it names: a
   design root called `proj[1]` made `$DESIGN_ROOT/rtl/*.vhd` match a sibling `proj1`'s sources,
   and `proj[v2]` matched nothing. A pattern matches files only, and a directory named as a source
@@ -107,8 +160,7 @@ All notable changes to this project will be documented in this file.
   `$DESIGN_ROOT/src/a.vhd` and `src/a.vhd` are the same source. A glob is expanded after them, so
   `$DESIGN_ROOT/src/*.vhd` no longer silently matches nothing. However a source's path is
   spelled, and wherever the design sits, it is the same source: see *Changed* for the design
-  hash, which counts a source by its path only relative to the design root, and only where other
-  files find it by its place.
+  hash, which counts every source by its path relative to the design root.
 - A glob in a design's sources expands in a stable, sorted order. `glob` returns filesystem
   order, while source order is semantic -- it is the order VHDL units are compiled in, and it is
   part of the design hash -- so one design got a different compile order, and a different
@@ -189,8 +241,8 @@ All notable changes to this project will be documented in this file.
   relative to it. Local and remote runs compute the hash the same way. Design hashes now include
   each source's content, type, `standard` and `variant`, and its position in the compile order,
   plus clock, language, attribute and testbench metadata, so behaviorally different designs
-  cannot silently reuse one run. See *Changed* for source and parameter paths, which the design
-  hash no longer covers at all.
+  cannot silently reuse one run. See *Changed* for how the design hash counts source and
+  parameter paths: relative to the design root for every source.
 - Example designs: every `[flows.*]` section now validates. Two named `cxxrtl`, which was never a
   flow (it is `yosys_sim`); `examples/vhdl/xedaproject.toml` duplicated `vivado_synth` under its
   pre-2022 name `vivado_prj_synth`; `sqrt.toml` asked `vivado_alt_synth` for a synthesis strategy
@@ -335,10 +387,10 @@ All notable changes to this project will be documented in this file.
   serialize -- which is what made `model_dump_json()` of a design with sources raise
   `PydanticSerializationError`. Polymorphism is now declared only where it is needed:
   `RtlSettings.generator` is `SerializeAsAny[Generator]` (so a `ChiselGenerator` keeps its own
-  fields), joining `Design.dependencies`, which already was. Both still prune
-  (`exclude_unset`/`exclude_defaults`), so `model_dump_json()` is the same document xeda writes
-  through `model_dump(mode="json")`; their `exclude=` of `rtl_hash`, `tb_hash`, `rtl_fingerprint`
-  and `tb_fingerprint` is gone, since those are properties, not fields, and were never dumped.
+  fields), joining `Design.dependencies`, which already was. `model_dump_json()` is therefore
+  the same document xeda writes through `model_dump(mode="json")`; the `exclude=` of `rtl_hash`,
+  `tb_hash`, `rtl_fingerprint` and `tb_fingerprint` is gone, since those are properties, not
+  fields, and were never dumped.
 - A design source now serializes to JSON faithfully. The new `FileResource.as_json_value()`
   (overridden by `DesignSource`) emits a bare path string when there is nothing else to say, and
   otherwise a table: `{"file": ...}` plus any `type`/`standard`/`variant` the design *stated* (a
@@ -352,9 +404,10 @@ All notable changes to this project will be documented in this file.
   value, a set as a list, an object declaring `as_json_value()` as that, and anything else as its
   text. It used to read `__dict__` directly, so a `DesignSource` was recorded as its raw instance
   state (private `_specified_path` included), which nothing could load back, and the
-  `Path`/enum/`FileResource` conversions the models declare were skipped. `settings.json` is also
-  leaner now, because `Design.model_dump()`'s `exclude_unset`/`exclude_defaults` finally apply to
-  it.
+  `Path`/enum/`FileResource` conversions the models declare were skipped. A design is recorded
+  whole, every field, as flow settings are: a record of only the fields pydantic counts as set
+  lost whatever was assigned inside a nested model (`design.tb.sources = ...`), because assigning
+  a field of the testbench does not mark the design's own `tb` as set.
 - The documents `--json` prints and the JSON files xeda writes encode a value the same way:
   `introspect.json_safe` now hands everything that is not plain data to `json_encodable`. It used
   to dump a model in python mode and stringify what was left, which flattened a design's sources
@@ -456,14 +509,16 @@ All notable changes to this project will be documented in this file.
   runner_cwd=...)`, which resolves path variables and reports a `FlowSettingsError`;
   `Settings(**data)` raises pydantic's `ValidationError`. The hidden `design_root_`/`runner_cwd_`
   settings are gone.
-- **A design no longer counts where it is.** A source counts by its content, type, `standard` and
-  `variant`, and its position in the source order. A source that other files find by its name or
-  place also counts by its path *relative to the design root*: a Verilog `include` searches the
-  including file's directory first, then the header directories, so two layouts of the same files
-  can build different netlists -- counted by content alone they were one design, and
-  `--cached-dependencies` reused one's netlist for the other. That covers Verilog and
-  SystemVerilog sources and headers, Bluespec, C++, cocotb modules and memory files; VHDL,
-  constraints and scripts are named explicitly wherever they sit, and count by content alone.
+- **A design no longer counts where it is.** Every source counts by its content, type,
+  `standard`, `variant`, position in source order, and path *relative to the design root*.
+  A Verilog `include` searches the including file's directory first, and a constraint or script
+  may source another file from its own directory, so two layouts of the same files can build
+  different results; counted by content alone they were one design, and
+  `--cached-dependencies` reused one's result for the other. The path is relative to the root
+  outside it too
+  (`../lib/defs.vh`): counted as the design file wrote it, the same header written absolutely was
+  another design, and a design reloaded from its `settings.json`, which names it absolutely,
+  could not reproduce its `design_hash`.
   Before, the recorded path was absolute whenever a glob or an absolute spelling produced it, so a
   design's identity changed when it moved; moving a whole design now never changes it. Similarly,
   a parameter whose value is a path under the design root -- typically one given as a file
@@ -477,12 +532,19 @@ All notable changes to this project will be documented in this file.
   upgrading**, because these changes give every design a new `design_hash`.
 
 ### Removed
+- `dc/templates/run_old.tcl`, which no flow rendered.
 - Dependency on `click-help-colors`, replaced by `click-extra`.
 - `Design.relative_path` (use `Design.source_path_as_named`), and `units.normalize_quantity`,
   `units.UNIT_ALIASES` and `units.unit_maybe_scale`; `units.check_unit_case` now takes
   `(unit, text)`.
 
 ### Added
+- Tests: the fake tools (`tests/fake_tools/`: `vivado`, `quartus_sh`, `xtclsh`, `dc_shell`, and now
+  `diamondc` and `vsim`) run the TCL script a flow hands them under `tclsh`, the tool's commands
+  recorded, and fail on a TCL error as the tool would -- every test using a fake now checks the
+  scripts its flow renders. Two opt-in layers run the real thing: `XEDA_TESTS_VIVADO=1` runs
+  Vivado flows on tiny designs, and `XEDA_TESTS_DOCKER=1` runs flows `dockerized` in their
+  default images.
 
 - `xeda run --remote` asks the remote which xeda its interpreter imports, and where from, before
   shipping anything, and logs both (`Remote xeda: 0.4.0 at ...`). The worker is started as

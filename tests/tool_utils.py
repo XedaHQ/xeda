@@ -22,13 +22,19 @@ from typing import List, Optional, Sequence
 import pytest
 
 __all__ = [
+    "fake_calls",
     "require_c_toolchain",
     "require_ghdl",
     "require_nextpnr_ecp5",
     "require_nvc",
     "require_verilator",
+    "require_vivado",
     "require_yosys",
     "require_yosys_ghdl_plugin",
+    "use_fake_tools",
+    "checkout_work_dir",
+    "require_docker",
+    "require_docker_image",
 ]
 
 REQUIRE_TOOLS = os.environ.get("XEDA_TESTS_REQUIRE_TOOLS", "").lower() in ("1", "true", "yes", "on")
@@ -200,3 +206,85 @@ def require_yosys_ghdl_plugin() -> None:
         _probe_yosys_ghdl_plugin(),
         "reading a trivial VHDL entity through `yosys -p 'plugin -i ghdl; ghdl ...'`",
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Fake tools: `tests/fake_tools/` stands in for the proprietary tools. Each runs the TCL script it
+# is handed under tclsh with the tool's commands recorded, as `fake_<tool>.calls` in the run
+# directory -- so a script the real tool would reject fails the fake as well.
+# ---------------------------------------------------------------------------------------------
+
+FAKE_TOOLS_DIR = Path(__file__).parent / "fake_tools"
+
+
+def use_fake_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put the fake tools first on PATH for the rest of the test."""
+    monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ.get("PATH", ""))
+
+
+def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
+    """Every tool command the fake tools recorded under `run_dir`, in the order each tool ran
+    them, as its arguments -- and, with `elements`, also the items of each argument that is a TCL
+    list, such as the files of `[list "a b.v" c.v]` (an argument with a space is a list too, so
+    only a presence check wants them). A TCL error a fake recorded fails the test."""
+    calls: List[List[str]] = []
+    for log in sorted(run_dir.rglob("fake_*.calls")):
+        for line in log.read_text().splitlines():
+            kind, _, value = line.partition(" ")
+            if kind == "TCL-ERROR":
+                pytest.fail(f"{log.name}: the script failed: {value}")
+            elif kind == "CALL":
+                calls.append([])
+            elif calls and (kind == "ARG" or (elements and kind == "ELEM")):
+                calls[-1].append(value)
+    return calls
+
+
+# ---------------------------------------------------------------------------------------------
+# Opt-in layers, skipped unless their variable is set -- and then insisting on what they need:
+#   XEDA_TESTS_VIVADO=1  flows run by a real `vivado` (tests/test_vivado_real.py)
+#   XEDA_TESTS_DOCKER=1  flows run `dockerized`, in their default images (tests/test_dockerized.py)
+# ---------------------------------------------------------------------------------------------
+
+
+def _opted_in(variable: str) -> bool:
+    return os.environ.get(variable, "").lower() in ("1", "true", "yes", "on")
+
+
+def require_vivado() -> None:
+    """Run Vivado only when asked (`XEDA_TESTS_VIVADO=1`), and then insist on it."""
+    if not _opted_in("XEDA_TESTS_VIVADO"):
+        pytest.skip("set XEDA_TESTS_VIVADO=1 to run the tests that run Vivado")
+    if shutil.which("vivado") is None:
+        pytest.fail("XEDA_TESTS_VIVADO is set, but no `vivado` is on PATH")
+
+
+@lru_cache(maxsize=None)
+def _docker_works() -> bool:
+    return _command_succeeds(["docker", "info"])
+
+
+def require_docker() -> None:
+    """Run tools in containers only when asked (`XEDA_TESTS_DOCKER=1`), then insist on a working
+    `docker`."""
+    if not _opted_in("XEDA_TESTS_DOCKER"):
+        pytest.skip("set XEDA_TESTS_DOCKER=1 to run the tests that run tools in containers")
+    if not _docker_works():
+        pytest.fail("XEDA_TESTS_DOCKER is set, but `docker info` fails")
+
+
+def require_docker_image(image: str) -> None:
+    """`require_docker`, and `image` present locally: a missing one skips the test with the pull
+    to run, since images of commercial tools are tens of GB and a test never pulls one."""
+    require_docker()
+    if not _command_succeeds(["docker", "image", "inspect", image]):
+        pytest.skip(f"{image} is not present: `docker pull {image}` to run this test")
+
+
+def checkout_work_dir(prefix: str) -> Path:
+    """A fresh directory for a test that runs a tool elsewhere -- in a container, or through a
+    `vivado` wrapper that runs one: under `XEDA_TESTS_WORK_DIR` if set, else in the checkout's
+    `xeda_run/`, which such a container can mount where the system temp directory is not."""
+    base = Path(os.environ.get("XEDA_TESTS_WORK_DIR") or Path(__file__).parent.parent / "xeda_run")
+    base.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=base))

@@ -2,7 +2,7 @@
 {{ section("io_placement_random") }}
 {% if not settings.floorplan_def %}
 {% if settings.io_constraints %}
-source {{settings.io_constraints}}
+source {{settings.io_constraints|tcl_word}}
 {% endif %}
 place_pins -hor_layer {{platform.io_placer_h}} -ver_layer {{platform.io_placer_v}} -random {{settings.place_pins_args|join(" ")}}
 {% endif %}
@@ -29,7 +29,7 @@ if {$macros_found != ""} {
     # If wrappers defined replace macros with their wrapped version
     # # ----------------------------------------------------------------------------
     {% if settings.macro_wrappers %}
-    source {{settings.macro_wrappers}}
+    source {{settings.macro_wrappers|tcl_word}}
 
     set wrapped_macros [dict keys [dict get $wrapper around]]
     set db [ord::get_db]
@@ -111,8 +111,8 @@ if {$macros_found != ""} {
     {% else %}
 
     {% if settings.macro_placement_file %}
-    puts "\[INFO\]\[FLOW-xxxx\] Using manual macro placement file {{settings.macro_placement_file}}"
-    read_macro_placement {{settings.macro_placement_file}}
+    puts "\[INFO\]\[FLOW-xxxx\] Using manual macro placement file {{settings.macro_placement_file|tcl_quote}}"
+    read_macro_placement {{settings.macro_placement_file|tcl_word}}
     {% else %}
     macro_placement \
         -halo {{platform.macro_place_halo[0]}} {{platform.macro_place_halo[1]}} \

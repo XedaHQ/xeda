@@ -117,10 +117,11 @@ route. Results, generated scripts, reports, and effective settings are kept unde
 ### Supported Tools and Flows
 
 - AMD-Xilinx [Vivado](https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html) Design Suite
-  - `vivado_synth`: FPGA synthesis and implementation in non-project (batch) mode, driving
-    `synth_design` through `route_design` from a generated TCL script
-  - `vivado_project`: the project-based equivalent of `vivado_synth`
-  - `vivado_alt_synth`: an alternative TCL-based synthesis and implementation script
+  - `vivado_synth`: FPGA synthesis and implementation in project mode, run in batch
+  - `vivado_alt_synth`: the same in non-project mode, driving `synth_design` through
+    `route_design` from a generated TCL script
+  - `vivado_project`: creates a Vivado project for the design, to work on in Vivado (`gui = true`
+    opens it)
   - `vivado_sim`: functional simulation of an RTL design with the Vivado simulator (`xsim`)
   - `vivado_postsynth_sim`: post-synthesis and post-implementation simulation of the generated
     netlist, optionally annotated with timing from an SDF file

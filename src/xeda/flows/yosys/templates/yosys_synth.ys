@@ -30,18 +30,18 @@ opt -purge
 
 {%- if settings.adder_map %}
 extract_fa
-techmap -map {{settings.adder_map|path}}
+techmap -map {{settings.adder_map|read_path}}
 techmap
 opt -purge
 {%- endif %}
 
 {%- for map in settings.other_maps %}
-techmap -map {{map|path}}
+techmap -map {{map|read_path}}
 {%- endfor %}
 
 {%- if settings.liberty %}
 log -stdout Prepare mapping FFs to technology
-dfflibmap -prepare -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty|path}} {%- else -%} {{settings.liberty[0]|path}} {%- endif %}
+dfflibmap -prepare -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty|read_path}} {%- else -%} {{settings.liberty[0]|read_path}} {%- endif %}
 opt -purge
 {%- endif %}
 
@@ -57,7 +57,7 @@ opt -purge
 
 {%- if settings.liberty %}
 log -stdout Mapping FFs to technology
-dfflibmap -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty|path}} {%- else -%} {{settings.liberty[0]|path}} {%- endif %}
+dfflibmap -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty|read_path}} {%- else -%} {{settings.liberty[0]|read_path}} {%- endif %}
 opt -purge
 {%- endif %}
 

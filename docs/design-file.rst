@@ -183,19 +183,30 @@ When inference is not enough, give a table instead of a string:
     ]
 
 ``file`` must exist, and be a file rather than a directory, when the design is loaded; ``path``
-is not checked, for sources a generator will produce. Every source carries a content hash, which
-is what lets Xeda tell runs apart and reuse cached dependency runs. A source that other files find
-by its name or place -- Verilog and its headers (an ``include`` searches the including file's
-directory first), Bluespec, C++, cocotb modules, memory files -- also counts by its path relative
-to the design root, so re-arranging those files is a different design; moving the whole design
-never is.
+is not checked, for sources a generator will produce. Every source carries a content hash and a
+path relative to the design root in its design identity. A tool can resolve another file from a
+source's location -- for example, a Verilog ``include`` searches the including file's directory
+first, and a TCL script can use ``[file dirname [info script]]``. Re-arranging sources is a
+different design; moving the whole design never is.
 
-A source may be a glob (``"src/*.vhd"``). Its matches are inserted in sorted order, so the
-compilation order -- and the design's hash -- do not depend on the filesystem. Only files match:
-a directory whose name fits the pattern is passed over. A variable in a pattern
-(``$DESIGN_ROOT``, or any environment variable) stands for the place it names, so a character
-such as ``[`` in it is not pattern syntax. A pattern that matches no file is an error, so that a
-mistyped one cannot quietly contribute nothing.
+A source containing ``*`` is a pattern (``"src/*.vhd"``), and ``*`` is the only pattern
+character: ``?``, ``[`` and ``]`` are ordinary characters of a file name, so ``"rtl/fifo[1].v"``
+names exactly that file, and ``"rtl/fifo[1]_*.v"`` matches ``fifo[1]_a.v`` but not ``fifo1_a.v``.
+A pattern's matches are inserted in sorted order, so the compilation order -- and the design's
+hash -- do not depend on the filesystem. Only files match: a directory whose name fits the
+pattern is passed over. A variable in a pattern (``$DESIGN_ROOT``, or any environment variable)
+stands for the place it names, so a ``*`` in its value is not pattern syntax either. A pattern
+that matches no file is an error, so that a mistyped one cannot quietly contribute nothing. A
+generator's ``sources`` follow the same rules.
+
+Xeda hands each tool a file by its own name, however it is spelled. Yosys, whose readers would
+expand ``fifo[1].v`` as a pattern of their own (and read ``fifo1.v``), is given it escaped;
+TCL-scripted tools are given every source and every constraint or script file you name as one
+literal word, so a space, ``[`` or ``$`` in it is never split, substituted or run. Such names are
+verified end to end with yosys, and with Vivado's ``read_verilog``, ``read_vhdl`` and
+``read_xdc``. Vivado's ``add_files`` -- which ``vivado_project`` uses for every file, and
+``vivado_synth`` for memory files, sources of an unknown type, ``xdc_files`` and ``tcl_files`` --
+refuses a name containing ``[``, ``]`` or ``$``: rename such a file for Vivado.
 
 .. _language:
 

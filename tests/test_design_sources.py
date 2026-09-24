@@ -47,8 +47,7 @@ def test_every_spelling_of_the_design_root_names_the_same_file(root, source):
         "sub/*.vhd",
         "$DESIGN_ROOT/sub/*.vhd",
         "$DESIGN_DIR/*/*.vhd",
-        "sub/?.vhd",
-        "$DESIGN_ROOT/sub/[ab].vhd",
+        "sub/b*.vhd",
     ],
 )
 def test_a_glob_under_the_design_root_matches_its_files(root, pattern):
@@ -213,7 +212,7 @@ def test_a_glob_expands_in_a_stable_order(root):
 
 @pytest.mark.parametrize(
     "pattern",
-    ["sub/*.sv", "$DESIGN_ROOT/sub/*.sv", "nowhere/*.vhd", "sub/?.sv", "sub/[ab].sv"],
+    ["sub/*.sv", "$DESIGN_ROOT/sub/*.sv", "nowhere/*.vhd", "sub/b*.sv"],
 )
 def test_a_glob_that_matches_nothing_is_an_error(root, pattern):
     """A mistyped pattern used to contribute no sources at all and load successfully, so the
@@ -227,10 +226,6 @@ def test_a_generator_glob_expands_in_a_stable_order_and_must_match(root):
     with WorkingDirectory(root):  # as `Design` builds its generator
         generator = Generator(command="true", sources=["$DESIGN_ROOT/*.vhd", "sub/*.vhd"])
         assert generator.sources == [root / "a.vhd", root / "sub" / "b.vhd"]
-        for pattern in ("?.vhd", "sub/[ab].vhd"):
-            assert Generator(command="true", sources=[pattern]).sources == [
-                root / ("a.vhd" if pattern.startswith("?") else "sub/b.vhd")
-            ]
         with pytest.raises(ValueError, match="no file matches the generator source pattern"):
             Generator(command="true", sources=["*.sv"])
 
@@ -273,8 +268,7 @@ def generated(tmp_path, monkeypatch):
         ["$DESIGN_DIR/out.vhd"],
         [{"file": "out.vhd"}],
         ["*.vhd"],
-        ["out.vh?"],
-        ["[o]ut.vhd"],
+        ["o*.vhd"],
         "out.vhd",  # the scalar shorthand
     ],
     ids=[
@@ -283,8 +277,7 @@ def generated(tmp_path, monkeypatch):
         "design_dir",
         "table",
         "glob_star",
-        "glob_question",
-        "glob_class",
+        "glob_prefix",
         "scalar",
     ],
 )
@@ -309,7 +302,7 @@ def test_a_generator_is_skipped_by_what_its_sources_name_not_how_they_are_writte
     assert [s.file for s in design.rtl.sources] == [generated / "out.vhd"]
 
 
-@pytest.mark.parametrize("source", ["$DESIGN_ROOT/out.vhd", "out.vh?", "[o]ut.vhd"])
+@pytest.mark.parametrize("source", ["$DESIGN_ROOT/out.vhd", "o*.vhd"])
 def test_a_generator_runs_when_its_output_is_missing(generated, source):
     (generated / "out.vhd").unlink()
 
@@ -476,7 +469,7 @@ def test_an_unwritten_source_says_why_the_design_cannot_be_hashed(root):
 @pytest.mark.parametrize("root_name", ["proj[1]", "proj[v2]", "proj*"])
 @pytest.mark.parametrize(
     "pattern",
-    ["$DESIGN_ROOT/rtl/*.vhd", "$DESIGN_ROOT/rtl/m?ne.vhd", "$DESIGN_ROOT/rtl/[m]ine.vhd"],
+    ["$DESIGN_ROOT/rtl/*.vhd", "$DESIGN_ROOT/rtl/m*ne.vhd", "$DESIGN_ROOT/rtl/mine.vhd"],
 )
 def test_the_design_root_is_a_place_not_a_pattern(tmp_path, root_name, pattern):
     """`$DESIGN_ROOT` goes into a glob as the directory it is. Unescaped, a root named
@@ -491,6 +484,30 @@ def test_the_design_root_is_a_place_not_a_pattern(tmp_path, root_name, pattern):
     design = Design(name="d", design_root=root, rtl={"sources": [pattern], "top": "t"})
     assert [src.file.name for src in design.rtl.sources] == ["mine.vhd"]
     assert design.rtl.sources[0].file.parent.parent == root.resolve()
+
+
+@pytest.mark.parametrize(
+    "name, decoys",
+    [("foo[1].v", ["foo1.v"]), ("a?.v", ["ab.v"]), ("[x].vhd", ["x.vhd"]), ("f[!0].v", ["f1.v"])],
+)
+def test_only_a_star_makes_a_source_a_pattern(tmp_path, name, decoys):
+    """`?`, `[` and `]` are ordinary characters of a file name (`foo[1].v`, a bus index), not
+    pattern syntax. Read as a pattern, `foo[1].v` named the *other* file `foo1.v` whenever one
+    existed -- silently -- and was rejected when none did."""
+    for file in (name, *decoys):
+        (tmp_path / file).write_text(f"// {file}\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [name], "top": "t"})
+    assert [src.file.name for src in design.rtl.sources] == [name]
+    with WorkingDirectory(tmp_path):  # as `Design` builds its generator
+        assert Generator(command="true", sources=[name]).sources == [tmp_path / name]
+
+
+def test_brackets_in_a_star_pattern_are_literal(tmp_path):
+    """In a pattern, only `*` matches: the brackets of `foo[1]_*.v` are the file names' own."""
+    for file in ("foo[1]_a.v", "foo[1]_b.v", "foo1_a.v"):
+        (tmp_path / file).write_text(f"// {file}\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["foo[1]_*.v"], "top": "t"})
+    assert [src.file.name for src in design.rtl.sources] == ["foo[1]_a.v", "foo[1]_b.v"]
 
 
 def test_a_source_is_a_file(tmp_path):
