@@ -94,7 +94,7 @@ def _same_stem_design(root: Path, top: bool = False) -> Design:
 
 
 def _modules(verilog: Path) -> list:
-    """Return the VHDL modules used by GHDL tests."""
+    """Return the Verilog module names in a file."""
     return re.findall(r"^module\s+(\w+)", verilog.read_text(), re.M)
 
 

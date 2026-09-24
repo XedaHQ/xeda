@@ -286,7 +286,7 @@ def test_yosys_passes_vhdl_top_generics_to_ghdl_and_leaves_the_design_alone(tmp_
 
 
 def _liberty(cell: str) -> str:
-    """Write a Liberty file for Yosys tests."""
+    """Return Liberty source text for a cell used in Yosys tests."""
     return (
         "library (cells) {\n"
         '  time_unit : "1ns" ;\n'
