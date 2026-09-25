@@ -76,6 +76,13 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
         return as_file(files("xeda.data").joinpath(name))
 
     @staticmethod
+    def _board_fpga(board_data: dict[str, Any] | None) -> FPGA | None:
+        """Build the device named by a board entry, if it provides one."""
+        if not board_data or not (value := board_data.get("fpga")):
+            return None
+        return FPGA(**({"part": value} if isinstance(value, str) else value))
+
+    @staticmethod
     def _resolve_boards_path(value: Any, context: dict[str, Any]) -> Any:
         if not isinstance(value, (str, os.PathLike)) or not value:
             return value
@@ -91,9 +98,16 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
         return Path(root) / path if root is not None and not path.is_absolute() else path
 
     def __setattr__(self, name: str, value: Any) -> None:
+        board_derived_fpga = False
+        if name in ("board", "custom_boards_file") and self.board and self.fpga:
+            board_derived_fpga = self.fpga == self._board_fpga(self.board_data())
         if name == "custom_boards_file":
             value = self._resolve_boards_path(value, self.context)
         super().__setattr__(name, value)
+        if board_derived_fpga:
+            # A board or database change invalidates the device obtained from the old board.
+            # A different, explicitly selected FPGA remains the caller's choice.
+            self.fpga = self._board_fpga(self.board_data())
 
     @model_validator(mode="before")
     @classmethod
@@ -119,10 +133,8 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
             if fpga:
                 return values
             if board_data:
-                board_fpga = board_data.get("fpga")
+                board_fpga = cls._board_fpga(board_data)
                 log.info("FPGA info for board %s: %s", board_name, str(board_fpga))
                 if board_fpga:
-                    if isinstance(board_fpga, str):
-                        board_fpga = {"part": board_fpga}
-                    values["fpga"] = FPGA(**board_fpga)
+                    values["fpga"] = board_fpga
         return values

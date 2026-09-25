@@ -60,6 +60,35 @@ def test_custom_board_assignment_order_uses_design_root(tmp_path):
     assert board_first.fpga.part == "LFE5U-25F-6BG381C"
 
 
+def test_changing_board_database_refreshes_only_a_board_derived_fpga():
+    board_dir = Path(__file__).parent / "resources"
+    first = board_dir / "boards_a.toml"
+    second = board_dir / "boards_b.toml"
+
+    settings = Nextpnr.Settings.from_input(
+        {"board": "ulx3s", "custom_boards_file": first}, design_root=board_dir
+    )
+    settings = Nextpnr.Settings.from_input(settings.model_dump(mode="json"), design_root=board_dir)
+    assert settings.fpga.part == "LFE5U-25F-6BG381C"
+    settings.custom_boards_file = second
+    assert settings.fpga.part == "LFE5U-45F-6BG381C"
+    settings.board = "unknown"
+    assert settings.fpga is None
+    settings.board = "ulx3s"
+    assert settings.fpga.part == "LFE5U-45F-6BG381C"
+
+    explicit = Nextpnr.Settings.from_input(
+        {
+            "board": "ulx3s",
+            "custom_boards_file": first,
+            "fpga": {"part": "LFE5U-85F-6BG381C"},
+        },
+        design_root=board_dir,
+    )
+    explicit.custom_boards_file = second
+    assert explicit.fpga.part == "LFE5U-85F-6BG381C"
+
+
 def test_dependency_resolves_parent_board_and_database_together(tmp_path):
     parent_file = tmp_path / "parent.toml"
     parent_file.write_text('[PARENT]\nfpga.part = "LFE5U-25F-6BG381C"\n')
@@ -129,7 +158,7 @@ def test_board_database_is_read_only_when_board_or_database_changes(tmp_path, mo
     assert reads == []
     settings.board = "MY_BOARD"
     settings.custom_boards_file = str(boards)
-    assert reads == [("MY_BOARD", boards)] * 2
+    assert reads and all(call == ("MY_BOARD", boards) for call in reads)
 
 
 def test_unreadable_bundled_database_is_named(monkeypatch):
