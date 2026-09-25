@@ -109,8 +109,11 @@ def test_simulation_top_and_hdl_testbench_source_are_used(tmp_path):
     (tmp_path / "sim_top.v").write_text(
         "module sim_top(input a, output y); dut u(.a(a), .y(y)); endmodule\n"
     )
+    # The general Yosys include root is needed by older generated CXXRTL models and can also
+    # be used by testbenches; the current generated model exercises the newer runtime root.
     (tmp_path / "sim_main.cpp").write_text(
-        '#include "model.h"\nint main() { cxxrtl_design::p_sim__top top; return 0; }\n'
+        '#include <libs/sha1/sha1.h>\n#include "model.h"\n'
+        "int main() { cxxrtl_design::p_sim__top top; return 0; }\n"
     )
     design = Design(
         name="sim_top_example",
