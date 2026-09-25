@@ -308,6 +308,92 @@ def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remo
     assert not (design_root / "trace.txt").exists(), "the local tree is not the remote's"
 
 
+def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
+    """GHDL per-source synthesis reports a list under generated_verilog."""
+    require_ghdl()
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.toml").write_text(
+        'name = "sqrt"\nlanguage.vhdl.standard = "2008"\n'
+        '[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\n'
+    )
+
+    results = RemoteRunner(tmp_path / "local" / "xeda_run").run_remote(
+        design_root / "sqrt.toml",
+        "ghdl_synth",
+        host="somewhere",
+        flow_settings=["verilog_output=vout"],
+    )
+
+    assert results and results["success"], results
+    generated = results["artifacts"]["generated_verilog"]
+    assert isinstance(generated, list) and len(generated) == 1
+    assert Path(generated[0]).is_file()
+    assert Path(generated[0]).is_relative_to(Path(results["run_path"]) / "artifacts")
+    saved = json.loads((Path(results["run_path"]) / "results.json").read_text())
+    assert saved["artifacts"]["generated_verilog"] == generated
+
+
+def test_transfer_nested_artifacts_keeps_external_paths_local(tmp_path):
+    remote_run = tmp_path / "remote" / "run"
+    (remote_run / "reports").mkdir(parents=True)
+    (remote_run / "reports" / "report.txt").write_text("internal")
+    outside = tmp_path / "remote" / "report.txt"
+    outside.write_text("external")
+    absolute_outside = tmp_path / "elsewhere" / "report.txt"
+    absolute_outside.parent.mkdir()
+    absolute_outside.write_text("absolute")
+    artifacts = {
+        "nested": [
+            "reports/report.txt",
+            ("../report.txt", str(absolute_outside), Path("reports/report.txt")),
+        ],
+        "empty": "",
+        "metadata": None,
+    }
+    local_dir = tmp_path / "local" / "artifacts"
+
+    transferred = remote_module._transfer_artifacts(
+        _LocalConnection("somewhere"), artifacts, str(remote_run), local_dir
+    )
+
+    assert isinstance(transferred["nested"], list)
+    assert isinstance(transferred["nested"][1], tuple)
+    assert transferred["empty"] == "" and transferred["metadata"] is None
+    paths = [transferred["nested"][0], *transferred["nested"][1]]
+    assert all(Path(path).is_relative_to(local_dir) for path in paths)
+    assert [Path(path).read_text() for path in paths] == [
+        "internal",
+        "external",
+        "absolute",
+        "internal",
+    ]
+    assert paths[0] == paths[3], "the repeated source needs only one local copy"
+    assert len(set(paths)) == 3, "same-named external files must remain distinct"
+
+
+def test_transfer_rejects_artifact_destination_symlink(tmp_path):
+    remote_run = tmp_path / "remote"
+    (remote_run / "reports").mkdir(parents=True)
+    (remote_run / "reports" / "report.txt").write_text("remote")
+    local_dir = tmp_path / "local" / "artifacts"
+    local_dir.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (local_dir / "reports").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="outside"):
+        remote_module._transfer_artifacts(
+            _LocalConnection("somewhere"),
+            {"report": "reports/report.txt"},
+            str(remote_run),
+            local_dir,
+        )
+
+    assert list(outside.iterdir()) == []
+
+
 def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch):
     """`remote_runner` encodes the remote's results for the trip back. `json` raises on a key it
     cannot write (a tuple, a `Path`), which lost a remote run's results entirely; the function

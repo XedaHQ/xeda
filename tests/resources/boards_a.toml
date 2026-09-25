@@ -1,0 +1,5 @@
+[ulx3s]
+fpga.part = "LFE5U-25F-6BG381C"
+
+[custom_board]
+fpga.part = "LFE5U-25F-6BG381C"

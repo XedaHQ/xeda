@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ import execnet
 from fabric import Connection
 from fabric.transfer import Transfer
 
+from ..artifacts import ArtifactPath, iter_artifact_paths, map_artifact_paths
 from ..design import Design, DesignSource, DVSettings, FileResource, names_a_design_file
 from ..flow import flowrun_hash as flow_run_hash
 from ..proc_utils import tool_output_stream
@@ -31,6 +33,54 @@ from .default_runner import FlowLauncher, FlowNotFoundError, get_flow_class, pri
 from .settings_layers import flow_settings_from_sections, merge_flow_sections, merge_layers
 
 log = logging.getLogger(__name__)
+
+
+def _transfer_artifacts(
+    conn: Connection, artifacts: Any, remote_run_path: str, local_dir: Path
+) -> Any:
+    """Fetch path leaves and return the same artifact tree with local path strings."""
+    remote_root = os.path.normpath(remote_run_path)
+    local_dir.mkdir(exist_ok=True, parents=True)
+    local_root = local_dir.resolve()
+    remote_to_local: dict[str, str] = {}
+    destinations: dict[Path, str] = {}
+
+    for artifact in iter_artifact_paths(artifacts):
+        named_path = os.fspath(artifact)
+        remote_path = os.path.normpath(
+            named_path if os.path.isabs(named_path) else os.path.join(remote_root, named_path)
+        )
+        if remote_path in remote_to_local:
+            continue
+        relative = Path(os.path.relpath(remote_path, remote_root))
+        if ".." in relative.parts:
+            # An absolute path or a relative ../ path outside the run must not escape the
+            # local artifacts directory. The digest keeps same-named external files apart.
+            digest = hashlib.sha256(remote_path.encode()).hexdigest()[:16]
+            relative = Path("_external") / digest / Path(remote_path).name
+        local_path = local_dir / relative
+        if local_path in destinations and destinations[local_path] != remote_path:
+            raise ValueError(f"Artifacts have conflicting local destination: {local_path}")
+        if not local_path.resolve().is_relative_to(local_root):
+            raise ValueError(f"Artifact destination is outside {local_dir}: {local_path}")
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        result = conn.get(remote_path, str(local_path))
+        log.debug("Transferred artifact %s to %s", named_path, result.local)
+        remote_to_local[remote_path] = str(local_path)
+        destinations[local_path] = remote_path
+
+    if remote_to_local:
+        log.info("Transferred %d artifact(s) to %s", len(remote_to_local), local_dir)
+
+    def rewrite_path(artifact: ArtifactPath) -> str:
+        named_path = os.fspath(artifact)
+        remote_path = os.path.normpath(
+            named_path if os.path.isabs(named_path) else os.path.join(remote_root, named_path)
+        )
+        return remote_to_local[remote_path]
+
+    return map_artifact_paths(artifacts, rewrite_path)
+
 
 REMOTE_PYTHON_MIN_VERSION = (3, 11, 0)
 
@@ -755,7 +805,6 @@ class RemoteRunner(FlowLauncher):
             )
 
             artifacts = results.get("artifacts")
-            artifacts_orig = artifacts
             remote_run_path = results.get("run_path")
 
             # Keep the local settings document in the same shape as a local run. Its input and
@@ -784,61 +833,9 @@ class RemoteRunner(FlowLauncher):
 
             if remote_run_path and artifacts:
                 assert isinstance(remote_run_path, str)
-                if isinstance(artifacts, (dict)):
-                    artifacts = list(artifacts.values())
-                local_artifacts_dir.mkdir(exist_ok=True, parents=True)
-                num_transferred = 0
-                # remote path -> local path, used to rewrite `results["artifacts"]` below
-                remote_to_local: Dict[str, str] = {}
-
-                # TODO: compress artifacts in a single Zip file before transfer, unzip after transfer
-                # conn.sftp().chdir(remote_run_path)
-                # artifacts_zipfile = run_path / "artifacts.zip"
-                # with zipfile.ZipFile(artifacts_zipfile, mode="w") as archive:
-                #     for f in artifacts:
-                #         remote_path = f if os.path.isabs(f) else remote_run_path + "/" + f
-                #         rel_path = os.path.relpath(f, remote_run_path) if os.path.isabs(f) else f
-                #         archive.write(remote_path, arcname=rel_path)
-                # log.info("Transferring artifacts to %s", local_artifacts_dir.relative_to(Path.cwd()))
-                # conn.get(str(artifacts_zipfile), str(local_artifacts_dir / "artifacts.zip"))
-                # with zipfile.ZipFile(artifacts_zipfile, mode="r") as archive:
-                #     archive.extractall(path=local_artifacts_dir)
-                # artifacts_zipfile.unlink()
-
-                for f in artifacts:
-                    remote_path = f if os.path.isabs(f) else remote_run_path + "/" + f
-                    rel_path = os.path.relpath(f, remote_run_path) if os.path.isabs(f) else f
-                    local_path = local_artifacts_dir / rel_path
-                    if local_path.exists():
-                        # backup = backup_existing(local_path)
-                        # log.warning("Backed up exitsting artifact to %s", str(backup))
-                        pass
-                    elif not local_path.parent.exists():
-                        local_path.parent.mkdir(parents=True)
-                    assert local_path.is_relative_to(local_artifacts_dir)
-                    result = conn.get(remote_path, str(local_path))
-                    log.debug("Transferred artifact %s to %s", f, result.local)
-                    remote_to_local[f] = str(local_path)
-                    num_transferred += 1
-                if num_transferred > 0:
-                    # Not `relative_to(Path.cwd())`: the run directory need not be under the
-                    # start directory (`--xeda-run-dir`, `XEDA_RUN_DIR`), and that raised.
-                    log.info(
-                        "Transferred %d artifact(s) to %s", num_transferred, local_artifacts_dir
-                    )
-
-                # rewrite reported artifact paths to point at the local copies, preserving
-                # the original list/dict shape
-                if isinstance(artifacts_orig, dict):
-                    results["artifacts"] = {
-                        k: remote_to_local.get(v, v) if isinstance(v, str) else v
-                        for k, v in artifacts_orig.items()
-                    }
-                else:
-                    results["artifacts"] = [
-                        remote_to_local.get(f, f) if isinstance(f, str) else f
-                        for f in artifacts_orig
-                    ]
+                results["artifacts"] = _transfer_artifacts(
+                    conn, artifacts, remote_run_path, local_artifacts_dir
+                )
 
             # the remote run_path no longer exists locally; report the local copy's path instead
             if "run_path" in results:

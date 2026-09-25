@@ -1,18 +1,15 @@
 import json
 import logging
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
-from ..board import (
-    FPGA_OR_BOARD_REQUIRED,
-    WithFpgaBoardSettings,
-    get_board_data,
-    get_board_file_path,
-)
+from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
 from ..dataclass import Field, XedaBaseModel, field_validator
 from ..flow import (
     FlowFatalError,
@@ -288,31 +285,8 @@ class Nextpnr(FpgaSynthFlow):
         if not netlist_json.exists():
             raise FlowFatalError(f"netlist json file {netlist_json} does not exist!")
 
-        lpf = ss.lpf_cfg
-        board_data = get_board_data(ss.board)
-        if not lpf and board_data and "lpf" in board_data:
-            uri = board_data["lpf"]
-            r = urlparse(uri)
-            if r.scheme and r.netloc:
-                try:
-                    lpf, _ = urlretrieve(uri)
-                except HTTPError as e:
-                    log.critical(
-                        "Unable to retrive file from %s (HTTP Error %d)",
-                        uri,
-                        e.code,
-                    )
-                    raise FlowFatalError("Unable to retreive LPF file") from None
-            else:
-                if "name" in board_data:
-                    board_name = board_data["name"]
-                else:
-                    board_name = ss.board
-                lpf = get_board_file_path(f"{board_name}.lpf")
-
         args = setting_flag(netlist_json, name="json")
         args += setting_flag(ss.clock_period and (1000 / ss.clock_period), name="freq")
-        args += setting_flag(lpf)
         args += setting_flag(self.design.rtl.top)
         args += setting_flag(ss.seed)
         args += setting_flag(ss.fpga.speed)
@@ -354,7 +328,33 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.parallel_refine)
         if ss.extra_args:
             args += ss.extra_args
-        next_pnr.run(*args)
+        with self._lpf_file() as lpf:
+            next_pnr.run(*setting_flag(lpf), *args)
+
+    @contextmanager
+    def _lpf_file(self) -> Iterator[Path | str | None]:
+        """The LPF constraints: `lpf_cfg`, else the board's `lpf`, if it has one.
+
+        A board's `lpf` is a URL, or a file named relative to its board database.
+        """
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        board_data = None if ss.lpf_cfg else ss.board_data()
+        if not board_data or "lpf" not in board_data:
+            yield ss.lpf_cfg
+            return
+        uri = board_data["lpf"]
+        r = urlparse(uri)
+        if r.scheme and r.netloc:
+            try:
+                lpf, _ = urlretrieve(uri)
+            except HTTPError as e:
+                log.critical("Unable to retrieve file from %s (HTTP Error %d)", uri, e.code)
+                raise FlowFatalError("Unable to retrieve LPF file") from None
+            yield lpf
+        else:
+            with ss.board_file(uri) as lpf_path:
+                yield lpf_path
 
     # ------------------------------------------------------------------ report parsing
 

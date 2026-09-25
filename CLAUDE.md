@@ -265,6 +265,12 @@ and to declare `results_description`.
 
 ### Results
 
+Artifact labels map to paths or nested mappings, lists and tuples of paths; relative paths
+are rooted at the flow's run directory. Use `artifacts.iter_artifact_paths` to visit their
+path leaves and `artifacts.map_artifact_paths` to rewrite paths without losing the grouping.
+The remote runner rewrites every fetched path to its local copy; `--post-cleanup` keeps
+the artifacts in `results.json`, their parent directories, and the two JSON documents.
+
 Flows document the keys they write to `results.json` via a class-level `results_description`, built
 with `describe_results(*shared_keys, **flow_specific)` from `xeda.flow`. Shared keys come from
 `COMMON_RESULT_DESCRIPTIONS` in `flow/flow.py`; `describe_results` raises `KeyError` for a key that
@@ -333,6 +339,13 @@ With `--cached-dependencies`, a dependency whose `settings.json` records matchin
   which xeda the remote interpreter imports (execnet starts `python3` from the *non-login* PATH).
 - `platforms/` - ASIC PDK descriptions (asap7, nangate45, sky130hd/hs) for OpenROAD/DC;
   `board.py` + `data/boards.toml` for FPGA boards.
+
+Board-aware settings read their database through `WithFpgaBoardSettings.board_data()`.
+`custom_boards_file` replaces the bundled database and resolves relative to the design root.
+A board's local `lpf` resolves relative to its database file, bundled or custom
+(`WithFpgaBoardSettings.board_file`, a context manager: a bundled file may exist on disk only
+while it is open). A flow sharing
+`board` with a board-aware dependency must also share `custom_boards_file`.
 
 ## Conventions and gotchas
 

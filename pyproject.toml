@@ -106,6 +106,7 @@ namespaces = false
     "*.j2",
     "*.json",
     "*.ldc",
+    "*.lpf",
     "*.lef",
     "*.lib",
     "*.sdc",
