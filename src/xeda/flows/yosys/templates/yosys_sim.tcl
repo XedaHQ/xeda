@@ -1,82 +1,14 @@
-{# yosys -import#}
-set log_prefix "yosys> "
+{% include 'read_files.tcl' %}
 
-{# handle errors?? remove nonexisting plugins? #}
-{%- for plugin in settings.plugins %}
-yosys plugin -i {{plugin}}
-{%- endfor %}
+{% if settings.prep is not none -%}
+yosys prep {% if settings.flatten %} -flatten {% endif %} {{settings.prep|join(" ")}}
+{% else -%}
+yosys proc
+{% if settings.flatten -%}yosys flatten{% endif -%}
+{% endif -%}
+yosys check {% if settings.check_assert %} -assert {% endif %}
 
-{%- set sv_files = design.sim_sources_of_type("SystemVerilog", rtl=True, tb=True) | list %}
+{% include 'post_rtl.tcl' %}
 
-{# defered loading of systemverilog files #}
-{%- set systemverilog_plugin_defered = sv_files and "systemverilog" in settings.plugins %}
-
-{%- for src in design.rtl.sources %}
-    {%- if src.type.name == "Verilog" %}
-    puts "$log_prefix Reading {{src|tcl_quote}}"
-    ## -Dname=value -Idir
-    yosys read_verilog {{settings.read_verilog_flags|join(" ")}} {{src|read_path}}
-    {%- elif src.type.name == "SystemVerilog" %}
-    puts "$log_prefix Reading {{src|tcl_quote}}"
-        {%- if systemverilog_plugin_defered %}
-        yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
-        {% else %}
-        yosys read_verilog {{settings.read_verilog_flags|join(" ")}} -sv {{src|read_path}}
-        {%- endif %}
-    {%- endif %}
-{%- endfor %}
-
-{%- if systemverilog_plugin_defered %}
-yosys read_systemverilog -link
-{% endif %}
-
-{%- set vhdl_files = design.sim_sources_of_type("Vhdl", rtl=True, tb=True) | list %}
-{%- if vhdl_files %}
-    puts "$log_prefix Reading VHDL files: {{vhdl_files|join(" ")|tcl_quote}}"
-    yosys plugin -i ghdl
-    yosys ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}}
-{%- endif %}
-
-{%- for src in settings.verilog_lib %}
-yosys read_verilog -lib {{src|read_path}}
-{%- endfor %}
-
-yosys hierarchy -nodefaults -check {%- if design.tb.top %} -top {{design.tb.top}} {%- else %} -auto-top {%- endif %}
-
-yosys check -initdrv -assert
-{% for attr, value in settings.set_attribute.items() %}
-{% if value is mapping %}
-{% for path, v in value.items() %}
-yosys setattr -set {{attr}} {{v|esc}} {{path}}
-{% endfor %}
-{% else %}
-yosys setattr -set {{attr}} {{value|esc}}
-{% endif %}
-{% endfor %}
-
-{%- if settings.prep is not none %}
-    yosys prep {%- if settings.flatten %} -flatten {%- endif %} {{settings.prep|join(" ")}}
-{%- else %}
-    yosys proc
-    {%- if settings.flatten %}
-        yosys flatten
-    {%- endif %}
-{%- endif %}
-
-yosys check {% if settings.check_assert %} -assert {%- endif %}
-
-{%- if settings.rtl_json %}
-puts "$log_prefix Writing JSON output to: {{settings.rtl_json|tcl_quote}}"
-yosys write_json {{settings.rtl_json|path}}
-{%- endif %}
-{%- if settings.rtl_verilog %}
-puts "$log_prefix Writing Verilog output to: {{settings.rtl_verilog|tcl_quote}}"
-yosys write_verilog {{settings.rtl_verilog|path}}
-{%- endif %}
-{%- if settings.rtl_graph %}
-yosys log -stdout "Writing RTL graph to {{settings.rtl_graph.with_suffix('.dot')|tcl_quote}}"
-yosys show -prefix {{settings.rtl_graph.with_suffix("")|verbatim_path}} -format dot {{settings.rtl_graph_flags|join(" ")}}
-{%- endif %}
-
-puts "$log_prefix Writing CXXRTL output to: {{settings.cxxrtl.filename|tcl_quote}}"
-yosys write_cxxrtl {%- if settings.cxxrtl.header %} -header {%- endif %} {%- if settings.cxxrtl.opt is not none %} -O{{settings.cxxrtl.opt}} {%- endif %} {{settings.cxxrtl.filename|path}}
+yosys log -stdout "Writing CXXRTL output to: {{settings.cxxrtl.filename|tcl_quote}}"
+yosys write_cxxrtl {%- if settings.cxxrtl.header %} -header {%- endif %} {%- if not settings.cxxrtl.flatten %} -noflatten {%- endif %} {%- if not settings.cxxrtl.hierarchy %} -nohierarchy {%- endif %} {%- if not settings.cxxrtl.proc %} -noproc {%- endif %} {%- if settings.cxxrtl.debug is not none %} -g{{settings.cxxrtl.debug}} {%- endif %} {%- if settings.cxxrtl.opt is not none %} -O{{settings.cxxrtl.opt}} {%- endif %} {%- if settings.cxxrtl.namespace %} -namespace {{settings.cxxrtl.namespace|tcl_word}} {%- endif %} {{settings.cxxrtl.filename|path}}

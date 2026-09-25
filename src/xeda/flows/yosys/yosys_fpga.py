@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Literal, Optional
 
 from ...dataclass import Field
-from ...flow import FpgaSynthFlow, describe_results
+from ...flow import FlowException, FpgaSynthFlow, describe_results
 from ...flows.ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
 
@@ -27,11 +27,19 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     )
 
     class Settings(YosysBase.Settings, FpgaSynthFlow.Settings):
-        abc9: bool = Field(True, description="Use abc9")
+        abc9: bool = Field(
+            True,
+            description="Use ABC9. Only iCE40 supports disabling it (`-noabc`); other FPGA "
+            "synthesis passes require ABC9 and reject false.",
+        )
         flow3: bool = Field(
             True, description="Use flow3, which runs the mapping several times, if abc9 is set"
         )
-        retime: bool = Field(False, description="Enable flip-flop retiming")
+        retime: bool = Field(
+            False,
+            description="Reserved for compatibility; device synthesis passes do not accept "
+            "a retiming flag, so enabling this raises an error.",
+        )
         nobram: bool = Field(False, description="Do not map to block RAM cells")
         nodsp: bool = Field(False, description="Do not use DSP resources")
         nolutram: bool = Field(False, description="Do not use LUT RAM cells")
@@ -40,8 +48,9 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             description="Run a simple static timing analysis (requires `flatten`)",
         )
         nowidelut: bool = Field(
-            True,
-            description="Do not use MUX resources to implement LUTs larger than native for the target",
+            False,
+            description="Disable wide LUT implementations using hard MUX resources. Leave false "
+            "to use the target synthesis pass's normal mapping choices.",
         )
         abc_dff: bool = Field(False, description="Run abc/abc9 with -dff option")
         widemux: int = Field(
@@ -52,8 +61,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         synth_flags: List[str] = Field(
             [],
             description="Extra flags passed to yosys' device-specific `synth_<family>` command. "
-            "The booleans above (abc9, retime, nobram, ...) are translated into flags and "
-            "appended to this list.",
+            "Supported settings above are validated and converted to flags for the selected "
+            "device pass; these extra flags allow newer tool options.",
         )
         pre_synth_opt: bool = Field(
             False,
@@ -83,6 +92,184 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             [], description="Additional Verilog files with device-specific cell mappings."
         )
 
+        preserve_hierarchy: bool = Field(
+            False,
+            description="Preserve module hierarchy on FPGA families whose synthesis pass "
+            "normally flattens it (iCE40, Lattice and Gowin).",
+        )
+        ice40_spram: bool = Field(
+            False, description="Infer UltraPlus SPRAM256KA cells with `synth_ice40 -spram`."
+        )
+        ice40_dsp: bool = Field(
+            False, description="Infer UltraPlus MAC16 DSP cells with `synth_ice40 -dsp`."
+        )
+        ice40_device: Optional[Literal["hx", "lp", "u"]] = Field(
+            None, description="iCE40 timing model; inferred from fpga.device/type when unset."
+        )
+
+        def device_synth_flags(self) -> List[str]:
+            """Flags supported by this target's synthesis pass, plus explicit custom flags."""
+            assert self.fpga is not None
+            family = (self.fpga.family or "").lower()
+            vendor = (self.fpga.vendor or "").lower()
+            kind = (
+                "xilinx"
+                if vendor == "xilinx"
+                else (
+                    "gowin"
+                    if vendor == "gowin" or family in {"gowin", "gw1n", "gw2a", "gw5a"}
+                    else family
+                )
+            )
+            if kind not in {"xilinx", "ecp5", "ice40", "nexus", "gowin"}:
+                raise FlowException(f"No supported Yosys FPGA synthesis pass for {family!r}.")
+            flags = list(self.synth_flags)
+            if not self.abc9:
+                if kind != "ice40":
+                    raise FlowException(
+                        f"synth_{kind} always uses ABC9; abc9=false is unsupported."
+                    )
+                append_flag(flags, "-noabc")
+            if self.noabc and kind != "ice40":
+                raise FlowException(f"synth_{kind} does not support noabc=true.")
+            if self.widemux and kind != "xilinx":
+                raise FlowException(f"synth_{kind} does not support widemux.")
+            if kind in {"ecp5", "nexus", "gowin"}:
+                # Lattice and Gowin synthesis already use ABC9 and flatten by default.
+                if self.preserve_hierarchy:
+                    append_flag(flags, "-noflatten")
+                if self.nobram:
+                    append_flag(flags, "-nobram")
+                if self.nolutram:
+                    append_flag(flags, "-nolutram")
+                if self.nodsp:
+                    append_flag(flags, "-nodsp")
+                if self.nowidelut:
+                    append_flag(flags, "-nowidelut")
+            elif kind == "ice40":
+                if self.nowidelut or self.nolutram:
+                    raise FlowException("synth_ice40 has no nowidelut or nolutram option.")
+                device = self.ice40_device
+                if device is None:
+                    name = (self.fpga.device or "").lower()
+                    device = (
+                        "u"
+                        if name.startswith(("ice40up", "ice5lp"))
+                        else ("lp" if name.startswith("ice40lp") else "hx")
+                    )
+                    if self.fpga.type:
+                        device_type = self.fpga.type.lower()
+                        if device_type not in {"hx", "lp", "up", "u"}:
+                            raise FlowException(f"Unsupported iCE40 type {device_type!r}.")
+                        device = (
+                            "u"
+                            if device_type in {"up", "u"}
+                            else ("lp" if device_type == "lp" else "hx")
+                        )
+                append_flag(flags, f"-device {device}")
+                if device != "u" and (self.ice40_dsp or self.ice40_spram):
+                    raise FlowException(
+                        "iCE40 DSP and SPRAM inference require an UltraPlus device."
+                    )
+                if self.ice40_dsp and self.nodsp:
+                    raise FlowException("ice40_dsp and nodsp cannot both be true.")
+                if self.preserve_hierarchy:
+                    append_flag(flags, "-noflatten")
+                if self.nobram:
+                    append_flag(flags, "-nobram")
+                if self.ice40_spram:
+                    append_flag(flags, "-spram")
+                if self.ice40_dsp and not self.nodsp:
+                    append_flag(flags, "-dsp")
+            else:
+                if self.preserve_hierarchy and self.flatten:
+                    raise FlowException("preserve_hierarchy and flatten cannot both be true.")
+                if self.flatten:
+                    append_flag(flags, "-flatten")
+                for enabled, flag in (
+                    (self.nobram, "-nobram"),
+                    (self.nolutram, "-nolutram"),
+                    (self.nodsp, "-nodsp"),
+                    (self.nowidelut, "-nowidelut"),
+                ):
+                    if enabled:
+                        append_flag(flags, flag)
+                if self.widemux:
+                    append_flag(flags, f"-widemux {self.widemux}")
+            if self.abc_dff:
+                if kind == "gowin":
+                    raise FlowException("synth_gowin has no -dff option.")
+                append_flag(flags, "-dff")
+            if self.retime:
+                raise FlowException(
+                    "The selected FPGA synthesis pass has no -retime option; "
+                    "use abc_dff or a custom staged synthesis script."
+                )
+            return flags
+
+        def synth_command(self) -> str:
+            """Select the installed Yosys family pass, including Gowin subfamilies."""
+            assert self.fpga is not None
+            family = (self.fpga.family or "").lower()
+            if (self.fpga.vendor or "").lower() == "xilinx":
+                return "synth_xilinx"
+            if family in {"gowin", "gw1n", "gw2a", "gw5a"}:
+                return "synth_gowin"
+            if family == "nexus" and (self.fpga.device or "").lower().startswith("lfd2nx"):
+                return "synth_lattice"
+            return f"synth_{family}"
+
+        def synth_family_flags(self) -> List[str]:
+            assert self.fpga is not None
+            family = (self.fpga.family or "").lower()
+            if self.synth_command() == "synth_xilinx":
+                if not family:
+                    return []  # synth_xilinx defaults to Series 7
+                if family.endswith("-usp"):
+                    target = "xcup"
+                elif family.endswith("-us"):
+                    target = "xcu"
+                elif family.endswith("7"):
+                    target = "xc7"
+                else:
+                    target = {
+                        "spartan6": "xc6s",
+                        "spartan-6": "xc6s",
+                        "virtex6": "xc6v",
+                        "virtex-6": "xc6v",
+                        "virtex5": "xc5v",
+                        "virtex-5": "xc5v",
+                        "virtex4": "xc4v",
+                        "virtex-4": "xc4v",
+                        "spartan3": "xc3s",
+                        "spartan-3": "xc3s",
+                        "spartan3a": "xc3sa",
+                        "spartan3e": "xc3se",
+                    }.get(family, family)
+                if target not in {
+                    "xcup",
+                    "xcu",
+                    "xc7",
+                    "xc6s",
+                    "xc6v",
+                    "xc5v",
+                    "xc4v",
+                    "xc3sda",
+                    "xc3sa",
+                    "xc3se",
+                    "xc3s",
+                    "xc2vp",
+                    "xcve",
+                    "xcv",
+                }:
+                    raise FlowException(f"Unsupported synth_xilinx family {family!r}.")
+                return ["-family", target]
+            if self.synth_command() == "synth_gowin" and family in {"gw1n", "gw2a", "gw5a"}:
+                return ["-family", family]
+            if self.synth_command() == "synth_lattice":
+                return ["-family", "lfd2nx"]
+            return []
+
     def run(self) -> None:
         """Synthesize the design for the selected FPGA target."""
         assert isinstance(self.settings, self.Settings)
@@ -91,25 +278,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         assert ss.fpga.family or ss.fpga.vendor == "xilinx"
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
-        # if ss.noabc:
-        #     self.artifacts.utilization_report = None
-        # add FPGA-specific synth_xx flags
-        if ss.abc9:  # ABC9 is for only FPGAs?
-            append_flag(ss.synth_flags, "-abc9")
-        if ss.retime:
-            append_flag(ss.synth_flags, "-retime")
-        if ss.abc_dff:
-            append_flag(ss.synth_flags, "-dff")
-        if ss.nobram:
-            append_flag(ss.synth_flags, "-nobram")
-        if ss.nolutram:
-            append_flag(ss.synth_flags, "-nolutram")
-        if ss.nodsp:
-            append_flag(ss.synth_flags, "-nodsp")
-        if ss.nowidelut:
-            append_flag(ss.synth_flags, "-nowidelut")
-        if ss.widemux:
-            append_flag(ss.synth_flags, f"-widemux {ss.widemux}")
+        synth_flags = ss.device_synth_flags()
 
         abc_constr_file = None
         if ss.abc_constr:
@@ -127,6 +296,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
+            synth_flags=synth_flags,
         )
         log.info("Yosys script: %s", script_path.absolute())
         args = [self.script_flag, script_path]

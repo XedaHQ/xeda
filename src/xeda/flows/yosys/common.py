@@ -330,16 +330,21 @@ class YosysBase(Flow):
 
         @field_validator("verilog_lib", mode="before")
         @classmethod
-        def validate_verilog_lib(cls, value):
+        def validate_verilog_lib(cls, value, info):
             if not isinstance(value, (list, tuple, set)):
                 raise ValueError(
                     f"'verilog_lib' must be a path or a list of paths, "
                     f"got {type(value).__name__}: {value!r}"
                 )
             resolved = []
+            context = info.context if isinstance(info.context, dict) else {}
+            design_root = context.get("design_root")
             for v in value:
                 try:
-                    resolved.append(str(Path(v).resolve(strict=True)))
+                    path = Path(v)
+                    if not path.is_absolute() and design_root:
+                        path = design_root / path
+                    resolved.append(str(path.resolve(strict=True)))
                 except FileNotFoundError:
                     raise ValueError(f"'verilog_lib' file not found: {v}") from None
             return resolved
@@ -432,6 +437,14 @@ class YosysBase(Flow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         self.add_template_helpers()
+        if ss.abc_script and not ss.abc_script.startswith("+"):
+            ss.abc_script = str(self.normalize_path_to_design_root(ss.abc_script))
+        for name in ("adder_map", "clockgate_map"):
+            value = getattr(ss, name, None)
+            if value:
+                setattr(ss, name, str(self.normalize_path_to_design_root(value)))
+        if hasattr(ss, "other_maps"):
+            ss.other_maps = [str(self.normalize_path_to_design_root(p)) for p in ss.other_maps]
         if ss.ghdl is None:
             ss.ghdl = GhdlSynth.Settings()
         if ss.keep_hierarchy:
@@ -443,8 +456,8 @@ class YosysBase(Flow):
 
         if ss.sta or ss.ltp:
             ss.flatten = True  # design must be flattened
-        if ss.flatten:
-            append_flag(ss.synth_flags, "-flatten")
+        # The generic `synth` and FPGA `synth_<family>` passes have different flatten
+        # switches. Device-specific flags are assembled by YosysFpga.Settings.
         if ss.abc_dff:
             append_flag(ss.abc_flags, "-dff")
         ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)

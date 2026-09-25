@@ -19,6 +19,7 @@ from xeda import Design
 from xeda.flow import FPGA
 from xeda.flows import Nextpnr
 from xeda.flows.nextpnr import ECP5_RESOURCES, EcpPLL, NextpnrTool
+from xeda.flows import YosysFpga
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources" / "nextpnr"
@@ -259,6 +260,126 @@ def test_version_banner_is_on_stderr_not_stdout():
 def test_report_setting_defaults_to_a_file_the_flow_reads():
     settings = Nextpnr.Settings(fpga=FPGA(family="ecp5"))  # type: ignore[call-arg]
     assert settings.report == "report.json"
+
+
+@pytest.mark.parametrize(
+    "fpga,expected,forbidden",
+    [
+        (
+            {
+                "family": "ecp5",
+                "vendor": "lattice",
+                "type": "u",
+                "capacity": "25k",
+                "package": "BG",
+                "pins": 381,
+                "speed": 6,
+            },
+            {"--25k", "--package=CABGA381", "--speed=6", "--textcfg=config.txt"},
+            {"--asc=config.asc", "--fasm=config.fasm", "--device"},
+        ),
+        (
+            {"family": "ice40", "vendor": "lattice", "device": "ice40HX1K", "package": "tq144"},
+            {"--hx1k", "--package=tq144", "--asc=config.asc"},
+            {"--textcfg=config.txt", "--fasm=config.fasm", "--speed=6"},
+        ),
+        (
+            {"family": "nexus", "vendor": "lattice", "device": "LIFCL-40-9BG400C"},
+            {"--device=LIFCL-40-9BG400C", "--fasm=config.fasm"},
+            {"--textcfg=config.txt", "--asc=config.asc", "--package=tq144"},
+        ),
+    ],
+)
+def test_target_specific_nextpnr_arguments(tmp_path, monkeypatch, fpga, expected, forbidden):
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    settings = Nextpnr.Settings(fpga=fpga)
+    flow = Nextpnr(settings, design, tmp_path / "pnr")
+    yosys = YosysFpga(YosysFpga.Settings(fpga=fpga), design, tmp_path / "synth")
+    yosys.run_path.mkdir()
+    (yosys.run_path / "netlist.json").write_text("{}")
+    flow.completed_dependencies.append(yosys)
+    calls = []
+    monkeypatch.setattr(
+        NextpnrTool, "run", lambda self, *args: calls.append((self.executable, args))
+    )
+    flow.run()
+    executable, args = calls[0]
+    assert executable == f"nextpnr-{fpga['family']}"
+    assert expected <= set(args)
+    assert not forbidden.intersection(args)
+
+
+@pytest.mark.parametrize(
+    "part,device,device_flag",
+    [
+        ("iCE40HX1K-TQ144", "ICE40HX1K", "--hx1k"),
+        ("iCE40UP5K-SG48", "ICE40UP5K", "--up5k"),
+        ("iCE5LP4K-SG48", "ICE5LP4K", "--u4k"),
+    ],
+)
+def test_ice40_part_identifies_synthesis_and_pnr_device(
+    tmp_path, monkeypatch, part, device, device_flag
+):
+    fpga = FPGA(part=part)
+    assert fpga.family == "ice40" and fpga.vendor == "lattice"
+    assert fpga.device == device
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    flow = Nextpnr(Nextpnr.Settings(fpga=fpga), design, tmp_path / "pnr")
+    yosys = YosysFpga(YosysFpga.Settings(fpga=fpga), design, tmp_path / "synth")
+    yosys.run_path.mkdir()
+    (yosys.run_path / "netlist.json").write_text("{}")
+    flow.completed_dependencies.append(yosys)
+    calls = []
+    monkeypatch.setattr(NextpnrTool, "run", lambda self, *args: calls.append(args))
+    flow.run()
+    assert device_flag in calls[0]
+
+
+def test_nextpnr_resolves_explicit_constraint_paths_against_design_root(tmp_path, monkeypatch):
+    (tmp_path / "pins.lpf").write_text('LOCATE COMP "clk" SITE "A1";\n')
+    (tmp_path / "timing.sdc").write_text("# timing\n")
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    fpga = FPGA(part="LFE5U-25F-6BG381C")
+    flow = Nextpnr(
+        Nextpnr.Settings(fpga=fpga, lpf_cfg="pins.lpf", sdc="timing.sdc"),
+        design,
+        tmp_path / "pnr",
+    )
+    yosys = YosysFpga(YosysFpga.Settings(fpga=fpga), design, tmp_path / "synth")
+    yosys.run_path.mkdir()
+    (yosys.run_path / "netlist.json").write_text("{}")
+    flow.completed_dependencies.append(yosys)
+    calls = []
+    monkeypatch.setattr(NextpnrTool, "run", lambda self, *args: calls.append(args))
+    flow.run()
+    assert f"--lpf={tmp_path / 'pins.lpf'}" in calls[0]
+    assert f"--sdc={tmp_path / 'timing.sdc'}" in calls[0]
+
+
+def test_nextpnr_ice40_end_to_end(tmp_path, monkeypatch):
+    """The iCE40 chain writes an ASC and a parsed report with the real tools."""
+    from xeda.flow_runner import DefaultRunner
+    from .tool_utils import require_nextpnr_ice40
+
+    require_nextpnr_ice40()
+    (tmp_path / "blink.v").write_text(
+        "module blink(input clk, output reg q); always @(posedge clk) q <= ~q; endmodule\n"
+    )
+    design = Design(
+        name="blink",
+        design_root=tmp_path,
+        rtl={"sources": ["blink.v"], "top": "blink", "clock": {"port": "clk"}},
+    )
+    monkeypatch.chdir(tmp_path)
+    flow = DefaultRunner(tmp_path / "runs").run_flow(
+        Nextpnr,
+        design,
+        {"fpga": "iCE40HX1K-TQ144", "clock": {"period": 20.0}, "pcf_allow_unconstrained": True},
+    )
+    assert flow is not None and flow.succeeded
+    assert (flow.run_path / "config.asc").is_file()
+    assert (flow.run_path / "report.json").is_file()
+    assert Path(flow.artifacts["asc"]).is_file()
 
 
 # --------------------------------------------------------------------------- ECP5 PLL settings

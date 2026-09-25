@@ -1,13 +1,13 @@
 import logging
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from ...dataclass import Field, XedaBaseModel
 from ...design import SourceType
-from ...flow import SimFlow
+from ...flow import FlowFatalError, SimFlow
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
-from .common import YosysBase
+from .common import YosysBase, process_parameters
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +32,13 @@ class YosysSim(YosysBase, SimFlow):
     results_description: dict = {}
 
     class Settings(YosysBase.Settings):
+        systemverilog: Literal["default", "uhdm", "slang"] = Field(
+            "default",
+            description="SystemVerilog reader for CXXRTL; the built-in reader generates cells "
+            "accepted by write_cxxrtl for common designs.",
+        )
+        netlist_verilog: Optional[Path] = Field(None, description="Unused by CXXRTL simulation.")
+        netlist_json: Optional[Path] = Field(None, description="Unused by CXXRTL simulation.")
         cxxrtl: CxxRtl = Field(
             CxxRtl(), description="Options for the generated CXXRTL C++ simulation model."
         )
@@ -43,18 +50,19 @@ class YosysSim(YosysBase, SimFlow):
             executable="yosys",
             docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
         )
-        ss.flatten = True
         if not ss.cxxrtl.filename:
-            ss.cxxrtl.filename = (
-                self.design.rtl.top if self.design.rtl.top else self.design.name + ".cpp"
-            )
+            ss.cxxrtl.filename = f"{self.design.rtl.top or self.design.name}.cpp"
+        cxxrtl_cpp = Path(ss.cxxrtl.filename)
+        cxxrtl_cpp.parent.mkdir(parents=True, exist_ok=True)
         script_path = self.copy_from_template(
             f"yosys_sim{self.script_ext}",
             lstrip_blocks=True,
-            trim_blocks=True,
-            ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design),
+            trim_blocks=False,
+            ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design, one_shot_elab=False),
+            parameters=process_parameters(self.design.rtl.parameters),
+            defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
         )
-        log.info("Yosys script: %s", self.run_path.relative_to(Path.cwd()) / script_path)
+        log.info("Yosys script: %s", self.run_path / script_path)
         args = [self.script_flag, script_path]
         if ss.log_file:
             args.extend(["-L", ss.log_file])
@@ -68,9 +76,14 @@ class YosysSim(YosysBase, SimFlow):
 
         yosys_config = yosys.derive("yosys-config")
         yosys_include_dir = yosys_config.run_get_stdout("--datdir/include")
+        if not yosys_include_dir:
+            raise FlowFatalError("yosys-config did not report its include directory.")
+        runtime_include = Path(yosys_include_dir) / "backends" / "cxxrtl" / "runtime"
         cxx = yosys.derive("g++")
         assert ss.cxxrtl.filename
-        cxxrtl_cpp = Path(ss.cxxrtl.filename)
+        self.artifacts["cxxrtl_cpp"] = cxxrtl_cpp
+        if ss.cxxrtl.header:
+            self.artifacts["cxxrtl_header"] = cxxrtl_cpp.with_suffix(".h")
         cxx_args: List[Any] = [cxxrtl_cpp] + [
             f.path for f in self.design.sim_sources_of_type(SourceType.Cpp)
         ]
@@ -78,11 +91,14 @@ class YosysSim(YosysBase, SimFlow):
         cxx_args += ["-std=c++14"]
         cxx_args += ["-o", sim_bin_file]
         cxx_args += [f"-I{yosys_include_dir}"]
+        if runtime_include.is_dir():
+            cxx_args += [f"-I{runtime_include}"]
         if ss.cxxrtl.header:
             cxx_args += [f"-I{cxxrtl_cpp.parent}"]
         cxx_args += ss.cxxrtl.ccflags
         cxx.run(*cxx_args)
-        sim_bin = yosys.derive(executable=Path.cwd() / sim_bin_file)
+        self.artifacts["simulator"] = sim_bin_file
+        sim_bin = yosys.derive(executable=str(Path.cwd() / sim_bin_file))
         sim_bin.run()
 
     def parse_reports(self) -> bool:

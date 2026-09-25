@@ -119,9 +119,9 @@ Reports: `minimum_period`, `maximum_frequency`, `Fmax`, `wns`, `lut`, `ff`, `sli
 
 *runs first: `yosys_fpga`*
 
-Place and route an FPGA design with nextpnr, the portable open-source PnR tool. Synthesis is delegated to the `yosys_fpga` dependency flow; this flow places and routes the resulting JSON netlist with the nextpnr variant matching `fpga.family`, then parses nextpnr's JSON report for achieved frequency, slack and resource utilization. Use the `openfpgaloader` flow to pack and program the result onto a board. Lattice **ECP5** is the supported and tested target. Other nextpnr backends are invoked on a best-effort basis: the report is parsed for any of them (nextpnr writes it from shared, architecture-independent code), but device-selection arguments and the mapping from nextpnr bel types to canonical resource names (`lut`, `ff`, ...) are ECP5-specific, so another family gets the raw per-bel-type counts only.
+Place and route an FPGA design with nextpnr, the portable open-source PnR tool. Synthesis is delegated to the `yosys_fpga` dependency flow; this flow places and routes the resulting JSON netlist with the nextpnr variant matching `fpga.family`, then parses nextpnr's JSON report for achieved frequency, slack and resource utilization. Use the `openfpgaloader` flow to pack and program the result onto a board. ECP5 and iCE40 are exercised by real-tool tests; Nexus has verified command construction. The report parser works across architectures, but canonical resource names (`lut`, `ff`, ...) are currently mapped from ECP5 bel types only. Other families report raw bel-type counts. Targets without a tested device/constraint/output mapping fail with an actionable error.
 
-25 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
+59 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
 
 Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`
 
@@ -139,9 +139,9 @@ Reports: `f_max`, `Fmax`, `lut`, `ff`, `LUT`, `FF`, `DSP48E1`, `RAMB18E1`, `RAMB
 
 *runs first: `nextpnr`*
 
-Build a bitstream and program it onto an FPGA board with openFPGALoader. Runs the full `yosys_fpga` -> `nextpnr` chain, packs the routed design into a bitstream (e.g. with `ecppack` for ECP5), and loads it over the configured `cable` or `board`. This is the only flow that touches real hardware.
+Build a bitstream and program it onto an FPGA board with openFPGALoader. Runs the full `yosys_fpga` -> `nextpnr` chain, packs the routed design into a bitstream with `ecppack` for ECP5 or `icepack` for iCE40, and loads it over the configured `cable` or `board`. Other families are rejected until a packer is verified. This is the only flow here that touches real hardware.
 
-9 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
+24 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 
 Reports no results beyond the keys every flow reports.
 
@@ -181,7 +181,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 Yosys Open SYnthesis Suite: FPGA synthesis
 
-69 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
+73 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
 Reports: `LUT`, `lut`, `ff`, `LUT:RAM`, `FF`
 

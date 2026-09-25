@@ -332,3 +332,21 @@ def test_yosys_fpga_hands_ghdl_each_vhdl_file_once(tmp_path):
         if line.startswith("ghdl ")
     )
     assert ghdl_line.count("sqrt.vhdl") == 1, ghdl_line
+
+
+def test_yosys_finds_a_header_listed_after_the_verilog_source(tmp_path):
+    """Explicit headers supply include directories regardless of source-list position."""
+    require_yosys()
+    _write(tmp_path / "include" / "defs.vh", "`define WIDTH 4\n")
+    _write(
+        tmp_path / "rtl" / "top.v",
+        '`include "defs.vh"\nmodule top(input [`WIDTH-1:0] a, output [`WIDTH-1:0] y); '
+        "assign y = a; endmodule\n",
+    )
+    design = Design(
+        name="headers",
+        design_root=tmp_path,
+        rtl={"sources": ["rtl/top.v", "include/defs.vh"], "top": "top"},
+    )
+    flow = DefaultRunner(tmp_path / "runs").run_flow(Yosys, design, {})
+    assert flow is not None and flow.succeeded

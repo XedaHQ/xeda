@@ -198,6 +198,12 @@ def require_nextpnr_ecp5() -> None:
     _require_command("nextpnr-ecp5", ["nextpnr-ecp5", "--version"])
 
 
+def require_nextpnr_ice40() -> None:
+    """nextpnr-ice40 plus the yosys that synthesizes for it."""
+    require_yosys()
+    _require_command("nextpnr-ice40", ["nextpnr-ice40", "--version"])
+
+
 def require_yosys_ghdl_plugin() -> None:
     """yosys plus a working ghdl plugin, needed to synthesize VHDL sources through yosys."""
     require_yosys()

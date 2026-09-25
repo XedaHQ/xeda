@@ -17,7 +17,7 @@ def test_nextpnr_uses_first_unnamed_clock_as_frequency_target(tmp_path, monkeypa
     """The historical single-target nextpnr hint remains deterministic for multiple clocks."""
     design = _design()
     settings = Nextpnr.Settings(
-        fpga=FPGA(family="ecp5"),
+        fpga=FPGA(family="ecp5", capacity="25k"),
         clocks={
             "clk_a": {"port": "clk_a", "period": 5.0},
             "clk_b": {"port": "clk_b", "period": 10.0},
@@ -25,7 +25,11 @@ def test_nextpnr_uses_first_unnamed_clock_as_frequency_target(tmp_path, monkeypa
     )
     flow = Nextpnr(settings, design, tmp_path / "nextpnr")
 
-    dependency = YosysFpga(YosysFpga.Settings(fpga=FPGA(family="ecp5")), design, tmp_path / "yosys")
+    dependency = YosysFpga(
+        YosysFpga.Settings(fpga=FPGA(family="ecp5", capacity="25k")),
+        design,
+        tmp_path / "yosys",
+    )
     dependency.run_path.mkdir(parents=True)
     (dependency.run_path / "netlist.json").write_text("{}")
     flow.completed_dependencies = [dependency]

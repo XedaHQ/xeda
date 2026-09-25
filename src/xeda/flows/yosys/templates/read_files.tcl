@@ -4,14 +4,22 @@ yosys echo on
 {% endif -%}
 
 {% set include_dirs=namespace(i=[]) %}
+{% for src in design.rtl.sources if src.type is not none and src.type.name in ("VerilogHeader", "SVHeader") -%}
+{% set flag = ("-I" ~ src.path.parent)|verbatim_path -%}
+{% if flag not in include_dirs.i -%}{% set include_dirs.i = include_dirs.i + [flag] %}{% endif -%}
+{% endfor -%}
+
+{% for plugin in settings.plugins -%}
+yosys plugin -i {{plugin|tcl_word}}
+{% endfor -%}
 
 {% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=false) -%}
 {% set uhdm_plugin = (settings.systemverilog == "uhdm") and sv_files -%}
-{% if uhdm_plugin -%}
+{% if uhdm_plugin and "systemverilog" not in settings.plugins -%}
 yosys plugin -i systemverilog
 {% endif -%}
 {% set slang_plugin = (settings.systemverilog == "slang") and sv_files -%}
-{% if slang_plugin -%}
+{% if slang_plugin and settings.use_slang_plugin and "slang" not in settings.plugins -%}
 yosys plugin -i slang
 {% endif -%}
 
@@ -29,8 +37,6 @@ yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} 
         {%- else %}
 yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
         {%- endif %}
-    {% elif src.type.name in ("VerilogHeader", "SVHeader") and src.path.parent %}
-{% set include_dirs.i = include_dirs.i + [("-I" ~ src.path.parent)|verbatim_path] %}
     {% endif -%}
 {% endif -%}
 {% endfor -%}
@@ -59,7 +65,7 @@ yosys chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.t
 {% endfor -%}
 {% endif -%}
 
-{% if settings.clockgate_map -%}
+{% if settings.clockgate_map is defined and settings.clockgate_map -%}
 yosys read_verilog -defer {{settings.clockgate_map|read_path}}
 {% endif -%}
 
