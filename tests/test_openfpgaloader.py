@@ -55,10 +55,14 @@ def test_packs_before_programming(tmp_path, monkeypatch, fpga, config, packer, e
     monkeypatch.setattr(Tool, "run", fake_run)
     flow.run()
     assert [name for name, _ in calls] == [packer, "openFPGALoader"]
-    output = Path(calls[0][1][1])
-    assert output.suffix == extension
+    packed_output = Path(calls[0][1][1])
+    output = flow.artifacts["bitstream"]
+    assert packed_output.suffix == extension
+    assert output.is_file()
+    assert output.read_bytes() == b"packed"
     assert calls[1][1][:2] == ("--bitstream", output)
     assert {"--cable", "--write-flash", "--verify", "--freq", "--scan-usb"} <= set(calls[1][1])
+    assert calls[1][1][calls[1][1].index("--freq") + 1] == "6000000"
     assert flow.artifacts["bitstream"] == output
 
 
@@ -90,3 +94,25 @@ def test_missing_packer_output_never_programs(tmp_path, monkeypatch):
     with pytest.raises(FlowFatalError, match="did not write"):
         flow.run()
     assert calls == ["ecppack"]
+
+
+def test_stale_bitstream_is_not_programmed(tmp_path, monkeypatch):
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    settings = Openfpgaloader.Settings(fpga={"family": "ecp5", "capacity": "25k"})
+    flow = Openfpgaloader(settings, design, tmp_path / "loader")
+    flow.init()
+    pnr = Nextpnr(
+        settings.nextpnr.model_copy(update={"fpga": settings.fpga}), design, tmp_path / "pnr"
+    )
+    pnr.run_path.mkdir()
+    (pnr.run_path / "config.txt").write_text("config")
+    flow.completed_dependencies.append(pnr)
+    flow.run_path.mkdir()
+    bitstream = flow.run_path / "bitstream.bit"
+    bitstream.write_bytes(b"old bitstream")
+    calls = []
+    monkeypatch.setattr(Tool, "run", lambda self, *args: calls.append(self.executable))
+    with pytest.raises(FlowFatalError, match="did not write"):
+        flow.run()
+    assert calls == ["ecppack"]
+    assert bitstream.read_bytes() == b"old bitstream"

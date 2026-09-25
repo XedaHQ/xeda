@@ -3,8 +3,12 @@ yosys -import
 yosys echo on
 {% endif -%}
 
+{% set include_tb = read_tb_sources|default(false) -%}
+{% set sources = design.sources_of_type("*", rtl=true, tb=include_tb) -%}
+{% set top = hierarchy_top|default(design.rtl.top) -%}
+{% set vhdl_top = ghdl_top|default(design.rtl.top) -%}
 {% set include_dirs=namespace(i=[]) %}
-{% for src in design.rtl.sources if src.type is not none and src.type.name in ("VerilogHeader", "SVHeader") -%}
+{% for src in sources if src.type is not none and src.type.name in ("VerilogHeader", "SVHeader") -%}
 {% set flag = ("-I" ~ src.path.parent)|verbatim_path -%}
 {% if flag not in include_dirs.i -%}{% set include_dirs.i = include_dirs.i + [flag] %}{% endif -%}
 {% endfor -%}
@@ -13,7 +17,7 @@ yosys echo on
 yosys plugin -i {{plugin|tcl_word}}
 {% endfor -%}
 
-{% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=false) -%}
+{% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=include_tb) -%}
 {% set uhdm_plugin = (settings.systemverilog == "uhdm") and sv_files -%}
 {% if uhdm_plugin and "systemverilog" not in settings.plugins -%}
 yosys plugin -i systemverilog
@@ -23,7 +27,7 @@ yosys plugin -i systemverilog
 yosys plugin -i slang
 {% endif -%}
 
-{% for src in design.rtl.sources -%}
+{% for src in sources -%}
 {% if src.type is not none -%}
     {% if src.type.name == "Verilog" -%}
 yosys log -stdout "** Reading {{src|tcl_quote}} **"
@@ -41,11 +45,11 @@ yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{define
 {% endif -%}
 {% endfor -%}
 
-{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=false) | list -%}
+{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=include_tb) | list -%}
 {% if vhdl_files -%}
 yosys log -stdout "** Elaborating VHDL files **"
 yosys plugin -i ghdl
-yosys ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}} {{vhdl_files|map("verbatim_path")|join(" ")}} -e {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
+yosys ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}} {{vhdl_files|map("verbatim_path")|join(" ")}} -e {% if vhdl_top -%} {{vhdl_top}} {%- endif %}
 {% endif -%}
 
 {% if settings.liberty is defined -%}
@@ -72,7 +76,7 @@ yosys read_verilog -defer {{settings.clockgate_map|read_path}}
 {% if uhdm_plugin -%}
 yosys read_systemverilog -link
 {% endif -%}
-yosys hierarchy -check {% if design.rtl.top -%} -top {{design.rtl.top}} {% else %} -auto-top {%- endif %}
+yosys hierarchy -check {% if top -%} -top {{top}} {% else %} -auto-top {%- endif %}
 {% for mod in settings.black_box -%}
 puts "Converting module {{mod|tcl_quote}} into blackbox"
 yosys blackbox {{mod}}

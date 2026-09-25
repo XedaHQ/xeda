@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import List, Optional
 
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
@@ -116,9 +117,16 @@ class Openfpgaloader(FpgaSynthFlow):
         if not bitstream.is_absolute():
             bitstream = self.run_path / bitstream
         bitstream.parent.mkdir(parents=True, exist_ok=True)
-        self.packer.run(config, bitstream, *ss.packer_args)
-        if not bitstream.is_file():
-            raise FlowFatalError(f"Bitstream packer did not write {bitstream}.")
+        if bitstream.resolve() == config.resolve():
+            raise FlowFatalError("The packed bitstream cannot overwrite the nextpnr configuration.")
+        # A successful packer invocation may produce no file (for example, --help). Pack to a
+        # fresh path, then publish it only after this invocation has written an output.
+        with TemporaryDirectory(prefix=".xeda-pack-", dir=bitstream.parent) as temporary_dir:
+            packed = Path(temporary_dir) / bitstream.name
+            self.packer.run(config, packed, *ss.packer_args)
+            if not packed.is_file():
+                raise FlowFatalError(f"Bitstream packer did not write {packed}.")
+            packed.replace(bitstream)
         self.artifacts["bitstream"] = bitstream
         args = ["--bitstream", bitstream]
         if ss.cable:
