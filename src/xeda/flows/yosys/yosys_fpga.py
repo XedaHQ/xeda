@@ -6,7 +6,7 @@ from typing import List, Literal, Optional
 from ...dataclass import Field, field_validator
 from ...flow import FlowSettingsException, FpgaSynthFlow, describe_results
 from ...flows.ghdl import GhdlSynth
-from .common import YosysBase, YosysRelease, process_parameters, yosys_release
+from .common import MINIMUM_YOSYS, YosysBase, YosysRelease, process_parameters, yosys_release
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     """
     Yosys Open SYnthesis Suite: FPGA synthesis
     """
+
+    minimum_yosys = MINIMUM_YOSYS
 
     results_description = describe_results(
         "LUT",

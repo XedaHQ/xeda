@@ -18,7 +18,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowSettingsException
-from xeda.flows import YosysFpga
+from xeda.flows import Yosys, YosysFpga, YosysSim
 from xeda.flows.yosys.common import (
     MINIMUM_YOSYS,
     NEWEST_CHECKED_YOSYS,
@@ -298,6 +298,19 @@ def test_sta_needs_a_flat_design(tmp_path):
 def test_yosys_release(version, release):
     tool = SimpleNamespace(version=version, version_str=".".join(version))
     assert yosys_release(tool) == release  # type: ignore[arg-type]
+
+
+def test_only_fpga_synthesis_raises_the_yosys_minimum(tmp_path, monkeypatch):
+    """The FPGA flag floor must not narrow generic synthesis or CXXRTL compatibility."""
+    monkeypatch.setattr("xeda.flows.yosys.common.Tool", lambda **kwargs: SimpleNamespace(**kwargs))
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    for flow_class, settings, expected in (
+        (Yosys, Yosys.Settings(), (0, 21)),
+        (YosysFpga, YosysFpga.Settings(fpga=TARGETS["ecp5"]), MINIMUM_YOSYS),
+        (YosysSim, YosysSim.Settings(), None),
+    ):
+        flow = flow_class(settings, design, tmp_path)
+        assert flow.yosys.minimum_version == expected
 
 
 COUNTER = """
