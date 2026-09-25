@@ -148,11 +148,10 @@ class Nextpnr(FpgaSynthFlow):
     JSON report for achieved frequency, slack and resource utilization. Use the `openfpgaloader`
     flow to pack and program the result onto a board.
 
-    Lattice **ECP5** is the supported and tested target. Other nextpnr backends are invoked on a
-    best-effort basis: the report is parsed for any of them (nextpnr writes it from shared,
-    architecture-independent code), but device-selection arguments and the mapping from nextpnr
-    bel types to canonical resource names (`lut`, `ff`, ...) are ECP5-specific, so another family
-    gets the raw per-bel-type counts only.
+    ECP5 and iCE40 are exercised by real-tool tests; Nexus has verified command construction.
+    The report parser works across architectures, but canonical resource names (`lut`, `ff`, ...)
+    are currently mapped from ECP5 bel types only. Other families report raw bel-type counts.
+    Targets without a tested device/constraint/output mapping fail with an actionable error.
     """
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
@@ -178,6 +177,12 @@ class Nextpnr(FpgaSynthFlow):
             description="Lattice LPF pin-constraint file. Taken from the board database when "
             "`board` is set and this is unset.",
         )
+        pcf_cfg: Optional[str] = Field(
+            None, description="iCE40 PCF pin-constraint file, or the board's `pcf` when unset."
+        )
+        pdc_cfg: Optional[str] = Field(
+            None, description="Nexus PDC pin-constraint file, or the board's `pdc` when unset."
+        )
         seed: Optional[int] = Field(
             None,
             description="Seed for nextpnr's placer. Different seeds give different results; "
@@ -201,6 +206,12 @@ class Nextpnr(FpgaSynthFlow):
             description="Write the routed design to this textual configuration file, which the "
             "bitstream packer (and the `openfpgaloader` flow) consumes.",
         )
+        asc: Optional[str] = Field(
+            "config.asc", description="iCE40 ASCII configuration written with `--asc`."
+        )
+        fasm: Optional[str] = Field(
+            "config.fasm", description="Nexus FASM configuration written with `--fasm`."
+        )
         out_of_context: bool = Field(
             False,
             description="disable IO buffer insertion and global promotion/routing, for building pre-routed blocks",
@@ -208,6 +219,72 @@ class Nextpnr(FpgaSynthFlow):
         lpf_allow_unconstrained: bool = Field(
             False,
             description="don't require LPF file(s) to constrain all IOs",
+        )
+        pcf_allow_unconstrained: bool = Field(
+            False, description="Allow iCE40 IOs without a PCF pin assignment."
+        )
+        placer: Optional[str] = Field(
+            None, description="nextpnr placer (`heap`, `sa`, or a backend-specific choice)."
+        )
+        router: Optional[str] = Field(None, description="nextpnr router (`router1` or `router2`).")
+        cstrweight: Optional[float] = Field(None, description="Placer constraint weight.")
+        starttemp: Optional[float] = Field(
+            None, description="Simulated-annealing starting temperature."
+        )
+        placer_heap_alpha: Optional[float] = Field(None, description="HeAP placer alpha.")
+        placer_heap_beta: Optional[float] = Field(None, description="HeAP placer density limit.")
+        placer_heap_critexp: Optional[int] = Field(
+            None, description="HeAP placer criticality exponent."
+        )
+        placer_heap_timingweight: Optional[int] = Field(
+            None, description="HeAP placer timing weight."
+        )
+        tmg_ripup: bool = Field(
+            False, description="Enable experimental timing-driven router ripup."
+        )
+        no_tmdriv: bool = Field(False, description="Disable timing-driven placement.")
+        ignore_rel_clk: bool = Field(False, description="Ignore clock-to-clock timing relations.")
+        sdc: Optional[str] = Field(None, description="Generic SDC timing constraints file.")
+        pre_pack: Optional[str] = Field(None, description="Python hook before packing.")
+        pre_place: Optional[str] = Field(None, description="Python hook before placement.")
+        pre_route: Optional[str] = Field(None, description="Python hook before routing.")
+        post_route: Optional[str] = Field(None, description="Python hook after routing.")
+        no_promote_globals: bool = Field(
+            False, description="Disable global signal promotion (ECP5/iCE40)."
+        )
+        opt_timing: bool = Field(
+            False, description="Enable experimental iCE40 post-placement timing optimization."
+        )
+        disable_router_lutperm: bool = Field(
+            False, description="Disable ECP5 router LUT input permutation."
+        )
+        override_basecfg: Optional[str] = Field(
+            None, description="ECP5 Trellis base configuration override."
+        )
+        allow_fabric_eclk: bool = Field(
+            False, description="Allow ECP5 ECLK routing in general fabric."
+        )
+        promote_logic: bool = Field(
+            False, description="Promote iCE40 logic globals as well as clocks."
+        )
+        no_promote_ce: bool = Field(
+            False, description="Disable iCE40 clock-enable global promotion."
+        )
+        no_pack_lutff: bool = Field(False, description="Disable Nexus LUT/FF clustering.")
+        no_post_place_opt: bool = Field(
+            False, description="Disable Nexus post-placement repacking."
+        )
+        carry_lutff_ratio: Optional[float] = Field(
+            None, description="Nexus carry-chain LUT/FF clustering ratio."
+        )
+        estimate_delay_mult: Optional[float] = Field(
+            None, description="Nexus estimated-delay multiplier."
+        )
+        router2_alt_weights: bool = Field(
+            False, description="Use alternative router2 congestion weights."
+        )
+        placer_heap_no_ctrl_set: bool = Field(
+            False, description="Disable control-set awareness in HeAP."
         )
         extra_args: List[str] = Field(
             [], description="Extra command-line arguments appended to the nextpnr invocation."
@@ -270,16 +347,12 @@ class Nextpnr(FpgaSynthFlow):
         assert yosys_flow.settings.netlist_json
         netlist_json = yosys_flow.run_path / yosys_flow.settings.netlist_json
         assert ss.fpga is not None, "FPGA settings is None!"
-        fpga_family = ss.fpga.family if ss.fpga.family else "generic"
-        assert fpga_family in {
-            "generic",
-            "ecp5",
-            "ice40",
-            "nexus",
-            "gowin",
-            "fpga-interchange",
-            "xilinx",
-        }, "unsupported fpga family"
+        fpga_family = (ss.fpga.family or "").lower()
+        if fpga_family not in {"ecp5", "ice40", "nexus"}:
+            raise FlowFatalError(
+                f"nextpnr target {fpga_family!r} has no verified device/output mapping in this "
+                "flow; use an architecture-specific flow or add a tested backend."
+            )
         next_pnr = NextpnrTool(executable=f"nextpnr-{fpga_family}")
 
         if not netlist_json.exists():
@@ -289,15 +362,60 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.clock_period and (1000 / ss.clock_period), name="freq")
         args += setting_flag(self.design.rtl.top)
         args += setting_flag(ss.seed)
-        args += setting_flag(ss.fpga.speed)
-        if ss.fpga.capacity:
-            device_type = ss.fpga.type
-            if device_type and device_type.lower() != "u":
-                args.append(f"--{device_type}-{ss.fpga.capacity}")
-            else:
-                args.append(f"--{ss.fpga.capacity}")
-        args += setting_flag(ss.out_of_context)
-        args += setting_flag(ss.lpf_allow_unconstrained)
+        if fpga_family == "ecp5":
+            if not ss.fpga.capacity:
+                raise FlowFatalError("ECP5 nextpnr requires fpga.capacity or a parseable part.")
+            device_type = (ss.fpga.type or "u").lower()
+            prefix = "" if device_type == "u" else f"{device_type}-"
+            args.append(f"--{prefix}{ss.fpga.capacity.lower()}")
+            args += setting_flag(ss.fpga.speed)
+            args += setting_flag(ss.out_of_context)
+            args += setting_flag(ss.lpf_allow_unconstrained)
+            args += setting_flag(ss.no_promote_globals)
+            args += setting_flag(ss.disable_router_lutperm)
+            args += setting_flag(ss.allow_fabric_eclk)
+            if ss.override_basecfg:
+                args += setting_flag(
+                    self.normalize_path_to_design_root(ss.override_basecfg), name="override_basecfg"
+                )
+        elif fpga_family == "ice40":
+            device = (ss.fpga.device or "").lower().removeprefix("ice40")
+            if device.startswith("ice5lp"):
+                device = "u" + device.removeprefix("ice5lp")
+            if not device and ss.fpga.type and ss.fpga.capacity:
+                device = f"{ss.fpga.type}{ss.fpga.capacity}".lower()
+            if device not in {
+                "lp384",
+                "lp1k",
+                "lp4k",
+                "lp8k",
+                "hx1k",
+                "hx4k",
+                "hx8k",
+                "up3k",
+                "up5k",
+                "u1k",
+                "u2k",
+                "u4k",
+            }:
+                raise FlowFatalError(
+                    "iCE40 nextpnr requires fpga.device (e.g. ice40HX8K) or type/capacity."
+                )
+            args.append(f"--{device}")
+            args += setting_flag(ss.pcf_allow_unconstrained)
+            args += setting_flag(ss.no_promote_globals)
+            args += setting_flag(ss.opt_timing)
+            args += setting_flag(ss.promote_logic)
+            args += setting_flag(ss.no_promote_ce)
+        else:
+            nexus_device = ss.fpga.device or ss.fpga.part
+            if not nexus_device:
+                raise FlowFatalError("Nexus nextpnr requires fpga.device or fpga.part.")
+            args += setting_flag(nexus_device, name="device")
+            args += setting_flag(ss.no_pack_lutff)
+            args += setting_flag(ss.no_post_place_opt)
+            args += setting_flag(ss.carry_lutff_ratio)
+            args += setting_flag(ss.estimate_delay_mult)
         args += setting_flag(ss.debug)
         args += setting_flag(ss.verbose > 0, name="verbose")  # nextpnr has one level
         args += setting_flag(ss.is_quiet, name="quiet")
@@ -305,8 +423,8 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.timing_allow_fail)
         args += setting_flag(ss.ignore_loops)
         args += setting_flag(ss.py_script, name="run")
-        package = ss.fpga.package
-        if ss.fpga.vendor and ss.fpga.vendor.lower() == "lattice":
+        package = ss.fpga.package if fpga_family in {"ecp5", "ice40"} else None
+        if fpga_family == "ecp5":
             if package:
                 package = package.upper()
                 if package == "BG":
@@ -316,7 +434,12 @@ class Nextpnr(FpgaSynthFlow):
                 assert ss.fpga.pins
                 package += str(ss.fpga.pins)
         args += setting_flag(package)
-        args += setting_flag(ss.textcfg)
+        if fpga_family == "ecp5" and not ss.out_of_context:
+            args += setting_flag(ss.textcfg)
+        elif fpga_family == "ice40":
+            args += setting_flag(ss.asc)
+        elif fpga_family == "nexus":
+            args += setting_flag(ss.fasm)
         args += setting_flag(ss.write)
         args += setting_flag(ss.nthreads, name="threads")
         args += setting_flag(ss.sdf)
@@ -326,10 +449,45 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.routed_svg)
         args += setting_flag(ss.detailed_timing_report)
         args += setting_flag(ss.parallel_refine)
+        for name in (
+            "placer",
+            "router",
+            "cstrweight",
+            "starttemp",
+            "placer_heap_alpha",
+            "placer_heap_beta",
+            "placer_heap_critexp",
+            "placer_heap_timingweight",
+        ):
+            args += setting_flag(getattr(ss, name), name=name)
+        for name in ("sdc", "pre_pack", "pre_place", "pre_route", "post_route"):
+            value = getattr(ss, name)
+            if value:
+                args += setting_flag(self.normalize_path_to_design_root(value), name=name)
+        args += setting_flag(ss.tmg_ripup)
+        args += setting_flag(ss.no_tmdriv)
+        args += setting_flag(ss.ignore_rel_clk)
+        args += setting_flag(ss.router2_alt_weights)
+        args += setting_flag(ss.placer_heap_no_ctrl_set)
         if ss.extra_args:
             args += ss.extra_args
-        with self._lpf_file() as lpf:
-            next_pnr.run(*setting_flag(lpf), *args)
+        constraint_name = {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc"}[fpga_family]
+        with self._constraint_file(constraint_name) as constraint:
+            next_pnr.run(*setting_flag(constraint, name=constraint_name), *args)
+        for name in ("textcfg", "asc", "fasm", "write", "sdf", "placed_svg", "routed_svg", "log"):
+            if (
+                (name == "textcfg" and fpga_family != "ecp5")
+                or (name == "asc" and fpga_family != "ice40")
+                or (name == "fasm" and fpga_family != "nexus")
+            ):
+                continue
+            filename = getattr(ss, name)
+            if filename:
+                path = Path(filename)
+                if not path.is_absolute():
+                    path = self.run_path / path
+                if path.is_file():
+                    self.artifacts[name] = path
 
     @contextmanager
     def _lpf_file(self) -> Iterator[Path | str | None]:
@@ -338,12 +496,19 @@ class Nextpnr(FpgaSynthFlow):
         A board's `lpf` is a URL, or a file named relative to its board database.
         """
         assert isinstance(self.settings, self.Settings)
+        with self._constraint_file("lpf") as lpf:
+            yield lpf
+
+    @contextmanager
+    def _constraint_file(self, kind: str) -> Iterator[Path | str | None]:
+        assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        board_data = None if ss.lpf_cfg else ss.board_data()
-        if not board_data or "lpf" not in board_data:
-            yield ss.lpf_cfg
+        explicit = getattr(ss, f"{kind}_cfg")
+        board_data = None if explicit else ss.board_data()
+        if not board_data or kind not in board_data:
+            yield self.normalize_path_to_design_root(explicit) if explicit else None
             return
-        uri = board_data["lpf"]
+        uri = board_data[kind]
         r = urlparse(uri)
         if r.scheme and r.netloc:
             try:

@@ -238,7 +238,13 @@ def test_openfpgaloader_forwards_database_and_uses_programmer_name(tmp_path, mon
     (nextpnr.run_path / nextpnr.settings.textcfg).write_text("config")
     flow.completed_dependencies.append(nextpnr)
     calls = []
-    monkeypatch.setattr(Tool, "run", lambda self, *args: calls.append((self.executable, args)))
+
+    def fake_run(self, *args):
+        calls.append((self.executable, args))
+        if self.executable == "ecppack":
+            Path(args[1]).write_bytes(b"bitstream")
+
+    monkeypatch.setattr(Tool, "run", fake_run)
 
     flow.run()
 

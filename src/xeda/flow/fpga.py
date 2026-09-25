@@ -110,6 +110,31 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("pins", try_convert(match_ecp5.group("pins"), int))
                 set_if_not_exist("grade", match_ecp5.group("gr"))
                 return values
+            match_ice40 = re.match(
+                r"^(ICE40)(HX|LP|UP)(384|\d+K)-([A-Z]{2}\d+)(?:-([0-9]+))?$",
+                part,
+                flags=re.IGNORECASE,
+            )
+            match_ice5 = re.match(
+                r"^(ICE5)(LP)([124]K)-([A-Z]{2}\d+)(?:-([0-9]+))?$",
+                part,
+                flags=re.IGNORECASE,
+            )
+            match_ice = match_ice40 or match_ice5
+            if match_ice:
+                prefix, device_type, capacity, package, speed = match_ice.groups()
+                device_type = "u" if prefix.lower() == "ice5" else device_type.lower()
+                set_if_not_exist("vendor", "lattice")
+                set_if_not_exist("family", "ice40")
+                set_if_not_exist("type", device_type)
+                set_if_not_exist(
+                    "device", f"{prefix.upper()}{match_ice.group(2).upper()}{capacity.upper()}"
+                )
+                set_if_not_exist("capacity", capacity.lower())
+                set_if_not_exist("package", package.lower())
+                if speed:
+                    set_if_not_exist("speed", speed)
+                return values
             # Commercial Xilinx # Generation # Family # Logic Cells in 1K units # Speed Grade (-1 slowest, L: low-power) # Package Type
             match_xc6 = re.match(
                 r"^(XC)(6)(?P<f>[A-Z]+)(?P<lc>\d+)(-(?P<speed_grade>\d))?(-(?P<pkg>[A-Z]+)(?P<pins>\d+))?$",

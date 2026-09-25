@@ -263,6 +263,8 @@ class Yosys(YosysBase, SynthFlow):
             append_flag(ss.abc_flags, f"-lut {ss.lut}")
         elif ss.liberty and ss.netlist_expr is None:
             ss.netlist_expr = False
+        if ss.flatten:
+            append_flag(ss.synth_flags, "-flatten")
 
         for lib in ss.liberty:
             if not lib.exists():
