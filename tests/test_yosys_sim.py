@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.yosys.cxx_rtl import YosysSim
@@ -73,6 +75,31 @@ def test_flatten_is_a_separate_command_in_both_script_formats(tmp_path):
         lines = [line.strip() for line in (tmp_path / script).read_text().splitlines()]
         assert command in lines
         assert any(line.startswith(command.replace("flatten", "check")) for line in lines)
+        assert f"{command.replace('flatten', 'check')} -initdrv -assert" in lines
+
+
+@pytest.mark.parametrize("check_assert", [True, False])
+def test_invalid_init_driver_fails_before_cxxrtl(tmp_path, check_assert):
+    require_yosys()
+    (tmp_path / "bad.v").write_text(
+        "module top(input a, output b); "
+        "(* init = 1'b0 *) wire w; assign w = a; assign b = w; endmodule\n"
+    )
+    (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
+    design = Design(
+        name="bad_init_driver",
+        design_root=tmp_path,
+        rtl={"sources": ["bad.v"], "top": "top"},
+        tb={"sources": ["main.cpp"]},
+    )
+    flow = DefaultRunner(tmp_path / "runs").run_flow(
+        YosysSim, design, {"check_assert": check_assert, "cxxrtl": {"filename": "sim.cpp"}}
+    )
+    assert flow is not None and not flow.succeeded
+    log = (flow.run_path / "yosys.log").read_text()
+    assert "has 'init' attribute and is not driven by an FF cell" in log
+    assert "ERROR: Found 1 problems in 'check -assert'" in log
+    assert not (flow.run_path / "sim.cpp").exists()
 
 
 def test_simulation_top_and_hdl_testbench_source_are_used(tmp_path):
