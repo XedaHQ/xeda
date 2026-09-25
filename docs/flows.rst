@@ -117,19 +117,31 @@ Open-source FPGA flow targets and tuning
 Xilinx and Gowin synthesis. ``nextpnr`` adds verified device selection, constraints and output
 formats for ECP5 (Trellis ``textcfg``), iCE40 (``asc``) and Nexus (``fasm``). The
 ``openfpgaloader`` chain packs and programs ECP5 with ``ecppack`` and iCE40 with ``icepack``.
-It rejects families without a verified bitstream packer. For Xilinx 7-series placement and
-routing, use the separate ``openxc7`` flow.
+Both reject a family they have no tested mapping or packer for when they start, before any
+synthesis runs. For Xilinx 7-series placement and routing, use the separate ``openxc7`` flow.
 
-The default FPGA synthesis keeps ABC9 and the device pass's DSP and memory inference. The
-``nowidelut`` restriction is off: it can reduce area or timing on one design and worsen the
-other on another. iCE40 UltraPlus DSP and SPRAM inference are available as
-``yosys.ice40_dsp`` and ``yosys.ice40_spram``. A supplied iCE40 part such as
-``iCE40HX1K-TQ144`` selects the matching Yosys timing model and nextpnr device.
+The options of Yosys' synthesis passes changed between releases, so ``yosys_fpga`` chooses them
+by the installed Yosys version (0.63 is the minimum; flags are checked through 0.69). ABC9 is
+the default mapper everywhere: opt-in ``-abc9`` for Xilinx before 0.69, built in otherwise.
+``abc9 = false`` maps with classic ABC and ``retime`` enables ``-retime``;
+Yosys 0.69 removed both choices, so there they are errors. On iCE40, ``noabc`` maps LUTs without
+ABC altogether. ``flatten`` left unset keeps each pass's own choice (Xilinx keeps the hierarchy,
+the Lattice, iCE40 and Gowin passes flatten it); ``true`` or ``false`` overrides it. A setting the
+selected pass has no option for is an error rather than being ignored. The ``nowidelut``
+restriction is off: it can reduce area or timing on one design and worsen the other on another.
+iCE40 UltraPlus DSP and SPRAM inference are available as ``yosys.ice40_dsp`` and
+``yosys.ice40_spram``.
+
+A Lattice ordering code as ``fpga.part`` selects the Yosys timing model and the nextpnr device
+and package: ``iCE40UP5K-SG48I`` or ``iCE40HX8K-CT256`` (temperature grade and tape-and-reel
+suffixes are accepted), ``LFE5U-85F-8BG381C``, and for Nexus the full device nextpnr-nexus
+names, ``LIFCL-40-9BG400C`` (``nextpnr-nexus --list-devices``).
 
 nextpnr uses each backend's own default timing-driven placer and router. Specify the actual
 part, package, speed grade and timing constraints before comparing results. ``clock.period``
-sets the target frequency; ``lpf_cfg`` (ECP5), ``pcf_cfg`` (iCE40), ``pdc_cfg`` (Nexus) and
-``sdc`` accept files relative to the design root. A fixed ``seed`` makes comparisons
+sets the target frequency; ``lpf_cfg`` (ECP5), ``pcf_cfg`` (iCE40), ``pdc_cfg`` (Nexus),
+``sdc``, the hooks and ``py_script`` name files relative to the design root (or with
+``$DESIGN_ROOT``). A setting of another architecture is an error. A fixed ``seed`` makes comparisons
 reproducible; try several fixed seeds when optimizing a particular design. The common
 ``placer``, ``router``, HeAP weights and hook settings allow measured experiments. Experimental
 ``tmg_ripup``, ``parallel_refine`` and iCE40 ``opt_timing`` stay opt-in. A faster or smaller

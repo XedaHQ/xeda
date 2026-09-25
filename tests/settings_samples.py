@@ -28,6 +28,9 @@ _SYNTH = {"fpga": MINIMAL_SETTINGS["fpga"], "clock_period": MINIMAL_SETTINGS["cl
 MINIMAL_SETTINGS_BY_FLOW: Dict[str, Dict[str, Any]] = {
     "vivado_postsynth_sim": {"synth": _SYNTH},
     "vivado_power": {"postsynthsim": {"synth": _SYNTH}},
+    # The open-source place-and-route chain targets ECP5, iCE40 and Nexus, not Xilinx.
+    "nextpnr": {"fpga": {"part": "LFE5U-25F-6BG381C"}},
+    "openfpgaloader": {"fpga": {"part": "LFE5U-25F-6BG381C"}},
 }
 
 

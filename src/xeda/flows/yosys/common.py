@@ -6,17 +6,41 @@ import re
 from functools import cached_property
 from glob import escape as glob_escape
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import Field, field_validator
 from ...design import SourceType
-from ...flow import Flow, FlowException
+from ...flow import Flow, FlowException, FlowSettingsException
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
 from ...utils import hierarchical_merge, tcl_word, unique
 
 log = logging.getLogger(__name__)
 YOSYS_DOCKER_IMAGE = "hdlc/impl"
+
+#: A yosys release as (major, minor): what the flags of its synthesis passes are chosen by.
+YosysRelease = Tuple[int, int]
+
+#: The oldest yosys release xeda runs: older ones are refused rather than supported.
+MINIMUM_YOSYS: YosysRelease = (0, 63)
+
+#: The newest yosys release whose synthesis passes the flags xeda generates were checked
+#: against. A newer yosys, or one whose version cannot be read, is taken to be this one.
+NEWEST_CHECKED_YOSYS: YosysRelease = (0, 69)
+
+
+def yosys_release(yosys: Tool) -> YosysRelease:
+    """The release of `yosys`, e.g. (0, 69) for "Yosys 0.69+152 (git sha1 ...)"."""
+    parts = [re.match(r"\d+", part) for part in yosys.version[:2]]
+    if len(parts) == 2 and parts[0] and parts[1]:
+        release = (int(parts[0].group()), int(parts[1].group()))
+        return min(release, NEWEST_CHECKED_YOSYS)
+    log.warning(
+        "Could not read the yosys version (%r); choosing flags for yosys %d.%d.",
+        yosys.version_str,
+        *NEWEST_CHECKED_YOSYS,
+    )
+    return NEWEST_CHECKED_YOSYS
 
 
 def append_flag(flag_list: List[str], flag: str) -> List[str]:
@@ -102,7 +126,12 @@ class YosysBase(Flow):
             description='Yosys plugins to load with `plugin -i`, e.g. "ghdl" for VHDL input or '
             '"slang" for SystemVerilog.',
         )
-        flatten: bool = Field(False, description="flatten design")
+        flatten: Optional[bool] = Field(
+            None,
+            description="Flatten the design hierarchy. Unset leaves it to the synthesis command: "
+            "`synth` and `synth_xilinx` keep the hierarchy, while the Lattice, iCE40 and Gowin "
+            "passes flatten it.",
+        )
         read_verilog_flags: List[str] = Field(
             ["-noautowire", "-sv"],
             description="Flags passed to yosys' `read_verilog` for each Verilog source.",
@@ -153,7 +182,7 @@ class YosysBase(Flow):
             description='Load the slang plugin when `systemverilog` is "slang". Disable if slang '
             "is compiled into your yosys build.",
         )
-        verilog_lib: List[str] = Field(
+        verilog_lib: List[Path] = Field(
             [],
             description="Verilog library files read with `-lib`: their modules are used only when "
             "instantiated, and are otherwise treated as black boxes.",
@@ -344,7 +373,7 @@ class YosysBase(Flow):
                     path = Path(v)
                     if not path.is_absolute() and design_root:
                         path = design_root / path
-                    resolved.append(str(path.resolve(strict=True)))
+                    resolved.append(path.resolve(strict=True))
                 except FileNotFoundError:
                     raise ValueError(f"'verilog_lib' file not found: {v}") from None
             return resolved
@@ -442,9 +471,9 @@ class YosysBase(Flow):
         for name in ("adder_map", "clockgate_map"):
             value = getattr(ss, name, None)
             if value:
-                setattr(ss, name, str(self.normalize_path_to_design_root(value)))
+                setattr(ss, name, self.normalize_path_to_design_root(value))
         if hasattr(ss, "other_maps"):
-            ss.other_maps = [str(self.normalize_path_to_design_root(p)) for p in ss.other_maps]
+            ss.other_maps = [self.normalize_path_to_design_root(p) for p in ss.other_maps]
         if ss.ghdl is None:
             ss.ghdl = GhdlSynth.Settings()
         if ss.keep_hierarchy:
@@ -455,9 +484,12 @@ class YosysBase(Flow):
                 ss.set_mod_attribute[kh][mod] = 1
 
         if ss.sta or ss.ltp:
-            ss.flatten = True  # design must be flattened
-        # The generic `synth` and FPGA `synth_<family>` passes have different flatten
-        # switches. Device-specific flags are assembled by YosysFpga.Settings.
+            if ss.flatten is False:
+                raise FlowSettingsException(
+                    "sta and ltp analyze the flattened design, so they cannot be combined with "
+                    "flatten=false."
+                )
+            ss.flatten = True
         if ss.abc_dff:
             append_flag(ss.abc_flags, "-dff")
         ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)
@@ -559,7 +591,7 @@ class YosysBase(Flow):
             executable="yosys",
             docker=Docker(image=YOSYS_DOCKER_IMAGE),  # type: ignore
             version_flag="-V",
-            minimum_version=(0, 21),
+            minimum_version=MINIMUM_YOSYS,
             default_args=default_args,
         )
 

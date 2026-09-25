@@ -204,13 +204,13 @@ class Yosys(YosysBase, SynthFlow):
             description='Stop the flow after this stage. "rtl" elaborates the design and writes '
             "the RTL outputs without synthesizing.",
         )
-        adder_map: Optional[str] = Field(
+        adder_map: Optional[Path] = Field(
             None, description="Verilog file with technology-specific adder cell mappings."
         )
-        clockgate_map: Optional[str] = Field(
+        clockgate_map: Optional[Path] = Field(
             None, description="Verilog file with technology-specific clock-gating cell mappings."
         )
-        other_maps: List[str] = Field(
+        other_maps: List[Path] = Field(
             [], description="Additional Verilog files with technology-specific cell mappings."
         )
         hilomap: Optional[HiLoMap] = Field(
@@ -248,8 +248,6 @@ class Yosys(YosysBase, SynthFlow):
         ss.liberty = [self.normalize_path_to_design_root(lib) for lib in ss.liberty]
         if ss.dff_liberty:
             ss.dff_liberty = self.normalize_path_to_design_root(ss.dff_liberty)
-        if isinstance(ss.abc_script, str) and not ss.abc_script.startswith("+"):
-            ss.abc_script = str(self.normalize_path_to_design_root(ss.abc_script))
 
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"

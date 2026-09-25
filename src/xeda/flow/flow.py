@@ -92,6 +92,18 @@ def _annotation_contains_path(annotation: Any) -> bool:
     return any(_annotation_contains_path(arg) for arg in get_args(annotation))
 
 
+def _is_optional_path(annotation: Any) -> bool:
+    """An optional path setting that takes no plain text: `""` can only mean it is unset."""
+    if get_origin(annotation) not in (Union, UnionType):
+        return False
+    members = get_args(annotation)
+    return (
+        type(None) in members
+        and str not in members
+        and any(_is_path_annotation(member) for member in members)
+    )
+
+
 def _annotation_matches_value(annotation: Any, value: Any) -> bool:
     """Best-effort matching used to select a container branch of a Union before validation."""
     origin = get_origin(annotation)
@@ -413,7 +425,9 @@ class Flow(metaclass=ABCMeta):
                instance given for them is deep-copied, so two flows never share settings.
             2. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
                Spaces around items and empty items are dropped, so `""` is an empty list. A
-               setting that also accepts plain text keeps the text whole.
+               setting that also accepts plain text keeps the text whole. Likewise an optional
+               path given as `""` is unset (`-s textcfg=`): as a `Path` it would name the
+               current directory.
             3. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`.
             """
             annotation = field_annotation(cls, name)
@@ -427,6 +441,8 @@ class Flow(metaclass=ABCMeta):
                 return value
             if isinstance(value, str) and _is_comma_separated_list(annotation):
                 value = [item.strip() for item in value.split(",") if item.strip()]
+            if value == "" and _is_optional_path(annotation):
+                return None
             if value is None or not _annotation_contains_path(annotation):
                 return value
             return _expand_path_values(value, annotation, roots)

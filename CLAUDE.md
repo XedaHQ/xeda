@@ -537,6 +537,19 @@ while it is open). A flow sharing
   VHDL `failure` and SystemVerilog `$fatal` as the same TESTSTATUS (3), so `fatal` and `failure`
   have the same status threshold. The flow's default image is `chaseruskin/modelsim-intel`
   (ModelSim-Intel Starter 2020.1, amd64, no license).
+- **Yosys FPGA synthesis options are chosen by the installed yosys release.** The `synth_*`
+  passes changed their options across releases (ABC9 became the default in 0.36, Nexus moved to
+  `synth_lattice` in 0.59, 0.69 made ABC9 unconditional and dropped `-retime`), so
+  `YosysFpga.Settings.synth_command(release)` maps each setting to the option the target's pass
+  has in that release, or rejects it -- a setting is never silently dropped. `yosys_release`
+  treats an unreadable or newer yosys as `NEWEST_CHECKED_YOSYS`. The oracle is `PASS_OPTIONS` in
+  `tests/test_yosys_fpga_flags.py`, read from the passes' sources for every supported release
+  from 0.63:
+  on a new yosys release, add its option changes there and raise `NEWEST_CHECKED_YOSYS`.
+- **A flow rejects a target it cannot handle in `init()`, before its dependencies run** --
+  after `resolve_dependency`, which may be what supplies `fpga`. `nextpnr` checks its device
+  mapping and settings of other architectures (`_target`), `openfpgaloader` its packer, so an
+  unsupported family never costs a synthesis or place-and-route run.
 - **Real proprietary tools and containers are opt-in layers**, skipped unless their variable is set
   (and then failing on what they need): `XEDA_TESTS_VIVADO=1` runs Vivado flows on tiny designs
   (`tests/test_vivado_real.py`, `vivado` on PATH); `XEDA_TESTS_DOCKER=1` runs flows `dockerized`

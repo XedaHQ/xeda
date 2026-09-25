@@ -463,9 +463,9 @@ class Openroad(AsicSynthFlow):
             yosys_settings.dff_liberty = Path(dff_lib_file).absolute()
         copy_resources += yosys_libs
         yosys_settings.liberty = [Path(lib).absolute() for lib in yosys_libs]
-        yosys_settings.adder_map = str(ss.platform.adder_map_file)
-        yosys_settings.clockgate_map = str(ss.platform.clkgate_map_file)
-        yosys_settings.other_maps = [str(ss.platform.latch_map_file)]
+        yosys_settings.adder_map = ss.platform.adder_map_file
+        yosys_settings.clockgate_map = ss.platform.clkgate_map_file
+        yosys_settings.other_maps = [path for path in (ss.platform.latch_map_file,) if path]
         if (
             ss.platform.tiehi_cell
             and ss.platform.tiehi_port

@@ -16,10 +16,9 @@ from typing import Any, Dict
 import pytest
 
 from xeda import Design
-from xeda.flow import FPGA
-from xeda.flows import Nextpnr
+from xeda.flow import FPGA, FlowSettingsException
+from xeda.flows import Nextpnr, YosysFpga
 from xeda.flows.nextpnr import ECP5_RESOURCES, EcpPLL, NextpnrTool
-from xeda.flows import YosysFpga
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources" / "nextpnr"
@@ -259,7 +258,7 @@ def test_version_banner_is_on_stderr_not_stdout():
 
 def test_report_setting_defaults_to_a_file_the_flow_reads():
     settings = Nextpnr.Settings(fpga=FPGA(family="ecp5"))  # type: ignore[call-arg]
-    assert settings.report == "report.json"
+    assert settings.report == Path("report.json")
 
 
 @pytest.mark.parametrize(
@@ -314,7 +313,10 @@ def test_target_specific_nextpnr_arguments(tmp_path, monkeypatch, fpga, expected
     [
         ("iCE40HX1K-TQ144", "ICE40HX1K", "--hx1k"),
         ("iCE40UP5K-SG48", "ICE40UP5K", "--up5k"),
+        ("iCE40UP5K-SG48I", "ICE40UP5K", "--up5k"),
+        ("iCE40UP5K-UWG30ITR", "ICE40UP5K", "--up5k"),
         ("iCE5LP4K-SG48", "ICE5LP4K", "--u4k"),
+        ("iCE5LP4K-SG48ITR", "ICE5LP4K", "--u4k"),
     ],
 )
 def test_ice40_part_identifies_synthesis_and_pnr_device(
@@ -356,9 +358,84 @@ def test_nextpnr_resolves_explicit_constraint_paths_against_design_root(tmp_path
     assert f"--sdc={tmp_path / 'timing.sdc'}" in calls[0]
 
 
+def _nextpnr_args(tmp_path, monkeypatch, **settings):
+    """The arguments `Nextpnr.run` hands nextpnr, for a design rooted at `tmp_path`."""
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    flow = Nextpnr(
+        Nextpnr.Settings.from_input(settings, design_root=tmp_path, runner_cwd=tmp_path),
+        design,
+        tmp_path / "pnr",
+    )
+    yosys = YosysFpga(YosysFpga.Settings(fpga=flow.settings.fpga), design, tmp_path / "synth")
+    yosys.run_path.mkdir()
+    (yosys.run_path / "netlist.json").write_text("{}")
+    flow.completed_dependencies.append(yosys)
+    calls = []
+    monkeypatch.setattr(NextpnrTool, "run", lambda self, *args: calls.append(args))
+    flow.run()
+    return calls[0]
+
+
+def test_nextpnr_expands_design_root_in_file_settings(tmp_path, monkeypatch):
+    args = _nextpnr_args(
+        tmp_path,
+        monkeypatch,
+        fpga="LFE5U-25F-6BG381C",
+        lpf_cfg="$DESIGN_ROOT/pins.lpf",
+        sdc="$DESIGN_ROOT/timing.sdc",
+        pre_route="hooks/pre_route.py",
+        py_script="report.py",
+    )
+    assert f"--lpf={tmp_path / 'pins.lpf'}" in args
+    assert f"--sdc={tmp_path / 'timing.sdc'}" in args
+    assert f"--pre-route={tmp_path / 'hooks/pre_route.py'}" in args
+    assert f"--run={tmp_path / 'report.py'}" in args
+
+
+@pytest.mark.parametrize(
+    "fpga,flags",
+    [
+        ("iCE40UP5K-SG48I", {"--up5k", "--package=sg48"}),
+        ("iCE40LP1K-SWG16TR", {"--lp1k", "--package=swg16tr"}),
+        ({"family": "ice40", "device": "iCE40UP5K", "package": "UWG30"}, {"--package=uwg30"}),
+        ("LFE5U-85F-8MG285C", {"--85k", "--speed=8", "--package=CSFBGA285"}),
+        ({"family": "ecp5", "capacity": "25k", "package": "cabga256"}, {"--package=CABGA256"}),
+        ("LFD2NX-40-7BG256C", {"--device=LFD2NX-40-7BG256C", "--fasm=config.fasm"}),
+    ],
+)
+def test_nextpnr_names_the_device_and_package_its_own_way(tmp_path, monkeypatch, fpga, flags):
+    assert flags <= set(_nextpnr_args(tmp_path, monkeypatch, fpga=fpga))
+
+
+@pytest.mark.parametrize(
+    "settings,message",
+    [
+        ({"fpga": {"vendor": "gowin", "family": "gowin", "device": "GW1N-9"}}, "no tested"),
+        ({"fpga": "xc7a35tcpg236-1"}, "no tested"),
+        ({"fpga": "iCE40HX1K-TQ144", "lpf_cfg": "pins.lpf"}, "does not take lpf_cfg"),
+        (
+            {"fpga": "LFE5U-25F-6BG381C", "opt_timing": True, "pdc_cfg": "p.pdc"},
+            "does not take opt_timing, pdc_cfg",
+        ),
+        ({"fpga": {"family": "nexus", "device": "LIFCL-40"}}, "LIFCL-40-9BG400C"),
+        ({"fpga": {"family": "ice40", "device": "iCE40UL1K"}}, "no device 'ul1k'"),
+        ({"fpga": {"family": "ecp5"}}, "fpga.capacity"),
+    ],
+)
+def test_nextpnr_rejects_a_target_before_synthesis(tmp_path, settings, message):
+    """An unsupported target or a setting of another architecture fails in `init`, before the
+    yosys_fpga dependency is registered, let alone run."""
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    flow = Nextpnr(Nextpnr.Settings(**settings), design, tmp_path)
+    with pytest.raises(FlowSettingsException, match=re.escape(message)):
+        flow.init()
+    assert not flow.dependencies
+
+
 def test_nextpnr_ice40_end_to_end(tmp_path, monkeypatch):
     """The iCE40 chain writes an ASC and a parsed report with the real tools."""
     from xeda.flow_runner import DefaultRunner
+
     from .tool_utils import require_nextpnr_ice40
 
     require_nextpnr_ice40()

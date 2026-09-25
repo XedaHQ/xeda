@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowFatalError
+from xeda.flow import FlowFatalError, FlowSettingsException
 from xeda.flows import Nextpnr, Openfpgaloader
 from xeda.tool import Tool
 
@@ -66,16 +66,15 @@ def test_packs_before_programming(tmp_path, monkeypatch, fpga, config, packer, e
     assert flow.artifacts["bitstream"] == output
 
 
-def test_unsupported_target_never_programs(tmp_path, monkeypatch):
+def test_unsupported_target_is_rejected_before_place_and_route(tmp_path, monkeypatch):
+    """Nexus has no tested packer: rejected in `init`, before nextpnr is even registered."""
     design = Design(name="d", rtl={"sources": [], "top": "d"})
-    settings = Openfpgaloader.Settings(
-        fpga={"family": "nexus", "vendor": "lattice", "device": "LIFCL-40"}
-    )
+    settings = Openfpgaloader.Settings(fpga="LIFCL-40-9BG400C")
     flow = Openfpgaloader(settings, design, tmp_path)
-    flow.init()
-    monkeypatch.setattr(Tool, "run", lambda self, *args: pytest.fail("must not program"))
-    with pytest.raises(FlowFatalError, match="no verified bitstream packer"):
-        flow.run()
+    monkeypatch.setattr(Tool, "run", lambda self, *args: pytest.fail("must not run a tool"))
+    with pytest.raises(FlowSettingsException, match="no tested bitstream packer"):
+        flow.init()
+    assert not flow.dependencies
 
 
 def test_missing_packer_output_never_programs(tmp_path, monkeypatch):

@@ -13,7 +13,7 @@ echo on
 {% endfor -%}
 
 {% for plugin in settings.plugins -%}
-plugin -i {{plugin}}
+plugin -i {{plugin|verbatim_path}}
 {% endfor -%}
 
 {% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=include_tb) -%}
