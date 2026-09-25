@@ -26,6 +26,9 @@ class CxxRtl(XedaBaseModel):
 class YosysSim(YosysBase, SimFlow):
     """Simulate with CXXRTL"""
 
+    # Before this flow used the shared tool, its direct Yosys invocation had no version floor.
+    minimum_yosys = None
+
     # This flow reports no results beyond the keys every flow reports; declaring this
     # explicitly keeps `xeda list-results` from guessing.
     results_description: dict = {}

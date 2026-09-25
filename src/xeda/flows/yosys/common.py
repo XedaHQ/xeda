@@ -21,7 +21,7 @@ YOSYS_DOCKER_IMAGE = "hdlc/impl"
 #: A yosys release as (major, minor): what the flags of its synthesis passes are chosen by.
 YosysRelease = Tuple[int, int]
 
-#: The oldest yosys release xeda runs: older ones are refused rather than supported.
+#: The oldest yosys release supported by the FPGA synthesis pass option mapping.
 MINIMUM_YOSYS: YosysRelease = (0, 63)
 
 #: The newest yosys release whose synthesis passes the flags xeda generates were checked
@@ -109,6 +109,9 @@ _NOT_A_YS_TOKEN = re.compile(r'[\s"]+')
 
 class YosysBase(Flow):
     """Synthesize the design using Yosys Open SYnthesis Suite"""
+
+    # Generic synthesis retains its historical minimum; FPGA pass flags have a separate floor.
+    minimum_yosys: Optional[YosysRelease] = (0, 21)
 
     class Settings(Flow.Settings):
         log_file: Optional[str] = Field(
@@ -591,7 +594,7 @@ class YosysBase(Flow):
             executable="yosys",
             docker=Docker(image=YOSYS_DOCKER_IMAGE),  # type: ignore
             version_flag="-V",
-            minimum_version=MINIMUM_YOSYS,
+            minimum_version=self.minimum_yosys,
             default_args=default_args,
         )
 
