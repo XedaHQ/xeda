@@ -103,7 +103,9 @@ class YosysSim(YosysBase, SimFlow):
         sim_bin_file = cxxrtl_cpp.with_suffix("")
         cxx_args += ["-std=c++14"]
         cxx_args += ["-o", sim_bin_file]
-        cxx_args += [f"-I{runtime_include}"]
+        # Older Yosys CXXRTL output includes headers under backends/cxxrtl/; newer output uses
+        # cxxrtl/ inside the runtime directory. Keep both installed include roots available.
+        cxx_args += [f"-I{runtime_include}", f"-I{yosys_include_dir}"]
         if ss.cxxrtl.header:
             cxx_args += [f"-I{cxxrtl_cpp.parent}"]
         cxx_args += ss.cxxrtl.ccflags
