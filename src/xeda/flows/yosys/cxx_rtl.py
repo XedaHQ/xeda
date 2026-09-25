@@ -6,7 +6,6 @@ from ...dataclass import Field, XedaBaseModel
 from ...design import SourceType
 from ...flow import FlowFatalError, SimFlow
 from ...flows.ghdl import GhdlSynth
-from ...tool import Docker, Tool
 from .common import YosysBase, process_parameters
 
 log = logging.getLogger(__name__)
@@ -37,8 +36,14 @@ class YosysSim(YosysBase, SimFlow):
             description="SystemVerilog reader for CXXRTL; the built-in reader generates cells "
             "accepted by write_cxxrtl for common designs.",
         )
-        netlist_verilog: Optional[Path] = Field(None, description="Unused by CXXRTL simulation.")
-        netlist_json: Optional[Path] = Field(None, description="Unused by CXXRTL simulation.")
+        # CXXRTL simulation writes no netlist: the synthesis flows' defaults are cleared, under
+        # the same names (and aliases) as theirs.
+        netlist_verilog: Optional[Path] = Field(
+            None, alias="netlist", description="Unused by CXXRTL simulation."
+        )
+        netlist_json: Optional[Path] = Field(
+            None, alias="json_netlist", description="Unused by CXXRTL simulation."
+        )
         cxxrtl: CxxRtl = Field(
             CxxRtl(), description="Options for the generated CXXRTL C++ simulation model."
         )
@@ -46,10 +51,7 @@ class YosysSim(YosysBase, SimFlow):
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        yosys = Tool(
-            executable="yosys",
-            docker=Docker(image="hdlc/impl"),  # pyright: reportGeneralTypeIssues=none
-        )
+        yosys = self.yosys
         if not ss.cxxrtl.filename:
             ss.cxxrtl.filename = f"{self.design.rtl.top or self.design.name}.cpp"
         cxxrtl_cpp = Path(ss.cxxrtl.filename)
@@ -75,10 +77,9 @@ class YosysSim(YosysBase, SimFlow):
         args = [self.script_flag, script_path]
         if ss.log_file:
             args.extend(["-L", ss.log_file])
-        if not ss.verbose:  # reduce noise unless verbose
-            args.extend(["-T", "-Q"])
-            if not ss.debug:
-                args.append("-q")
+        # `-T -Q` come with the tool's defaults (`yosys`) unless verbose.
+        if not ss.verbose and not ss.debug and not ss.is_quiet:
+            args.append("-q")
         self.results["_tool"] = yosys.info  # TODO where should this go?
         log.info("Logging yosys output to %s", ss.log_file)
         yosys.run(*args)
@@ -99,9 +100,7 @@ class YosysSim(YosysBase, SimFlow):
         sim_bin_file = cxxrtl_cpp.with_suffix("")
         cxx_args += ["-std=c++14"]
         cxx_args += ["-o", sim_bin_file]
-        cxx_args += [f"-I{yosys_include_dir}"]
-        if runtime_include.is_dir():
-            cxx_args += [f"-I{runtime_include}"]
+        cxx_args += [f"-I{runtime_include}"]
         if ss.cxxrtl.header:
             cxx_args += [f"-I{cxxrtl_cpp.parent}"]
         cxx_args += ss.cxxrtl.ccflags

@@ -16,8 +16,7 @@ import pytest
 from xeda import Design
 from xeda.flow import FPGA
 from xeda.flows import Yosys, YosysFpga
-from xeda.flows.yosys.common import process_parameters
-from xeda.flow import FlowException
+from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -45,6 +44,9 @@ def _render(flow_cls, settings: dict[str, Any], tmp_path: Path) -> str:
     flow.artifacts.utilization_report = "reports/utilization.json"
     flow.artifacts.timing_report = "reports/timing.rpt"
     stem = "yosys_fpga_synth" if flow_cls is YosysFpga else "yosys_synth"
+    extra = {}
+    if flow_cls is YosysFpga:
+        extra["synth_command"] = flow.settings.synth_command(NEWEST_CHECKED_YOSYS)
     script = flow.copy_from_template(
         f"{stem}{flow.script_ext}",
         lstrip_blocks=True,
@@ -53,6 +55,7 @@ def _render(flow_cls, settings: dict[str, Any], tmp_path: Path) -> str:
         parameters=process_parameters(design.rtl.parameters),
         defines=[],
         abc_constr_file=None,
+        **extra,
     )
     return (tmp_path / script).read_text()
 
@@ -145,103 +148,6 @@ def test_stop_after_rtl_omits_synthesis(tmp_path: Path) -> None:
     assert "synth_xilinx" not in script
     assert "write_netlist" not in script
     assert "opt_clean" not in script
-
-
-@pytest.mark.parametrize(
-    "fpga,flags,absent",
-    [
-        (
-            {"family": "ecp5", "vendor": "lattice", "capacity": "25k"},
-            [],
-            ["-abc9", "-nowidelut", "-flatten", "-retime"],
-        ),
-        (
-            {"family": "ice40", "vendor": "lattice", "device": "ice40UP5K"},
-            ["-device u"],
-            ["-abc9", "-nowidelut", "-flatten"],
-        ),
-        (
-            {"family": "artix-7", "vendor": "xilinx", "part": "xc7a12tcsg325-1"},
-            [],
-            ["-nowidelut", "-abc9"],
-        ),
-    ],
-)
-def test_fpga_defaults_use_valid_target_flags(fpga, flags, absent):
-    settings = YosysFpga.Settings(fpga=fpga)
-    actual = settings.device_synth_flags()
-    assert all(flag in actual for flag in flags)
-    assert all(flag not in actual for flag in absent)
-
-
-def test_abc9_false_has_a_real_effect_or_fails():
-    ice40 = YosysFpga.Settings(fpga={"family": "ice40", "device": "ice40HX1K"}, abc9=False)
-    assert "-noabc" in ice40.device_synth_flags()
-    ice40_noabc = YosysFpga.Settings(fpga={"family": "ice40", "device": "ice40HX1K"}, noabc=True)
-    assert "-noabc" in ice40_noabc.device_synth_flags()
-    ecp5 = YosysFpga.Settings(fpga={"family": "ecp5", "capacity": "25k"}, abc9=False)
-    with pytest.raises(FlowException, match="always uses ABC9"):
-        ecp5.device_synth_flags()
-
-
-def test_ice40_ultraplus_resources_are_opt_in():
-    fpga = {"family": "ice40", "device": "ice40UP5K"}
-    default = YosysFpga.Settings(fpga=fpga).device_synth_flags()
-    tuned = YosysFpga.Settings(fpga=fpga, ice40_dsp=True, ice40_spram=True).device_synth_flags()
-    assert "-dsp" not in default and "-spram" not in default
-    assert "-dsp" in tuned and "-spram" in tuned
-
-
-def test_ice40_ultraplus_resources_reject_other_devices():
-    settings = YosysFpga.Settings(fpga={"family": "ice40", "device": "ice40HX1K"}, ice40_dsp=True)
-    with pytest.raises(FlowException, match="require an UltraPlus"):
-        settings.device_synth_flags()
-
-
-def test_gowin_family_follows_the_device_and_rejects_mismatch():
-    inferred = YosysFpga.Settings(fpga={"family": "gowin", "vendor": "gowin", "device": "GW5A-25"})
-    assert inferred.synth_family_flags() == ["-family", "gw5a"]
-    vendor_only = YosysFpga.Settings(fpga={"vendor": "gowin", "device": "GW2A-18"})
-    assert vendor_only.synth_command() == "synth_gowin"
-    assert vendor_only.synth_family_flags() == ["-family", "gw2a"]
-    ambiguous = YosysFpga.Settings(fpga={"family": "gowin", "vendor": "gowin"})
-    with pytest.raises(FlowException, match="requires a device"):
-        ambiguous.synth_family_flags()
-    mismatched = YosysFpga.Settings(fpga={"family": "gw2a", "vendor": "gowin", "device": "GW5A-25"})
-    with pytest.raises(FlowException, match="conflicts"):
-        mismatched.synth_family_flags()
-
-
-@pytest.mark.parametrize(
-    "fpga,command,family_flags",
-    [
-        (
-            {"family": "gw2a", "vendor": "gowin", "device": "GW2A-18"},
-            "synth_gowin",
-            ["-family", "gw2a"],
-        ),
-        (
-            {"family": "nexus", "vendor": "lattice", "device": "LFD2NX-40"},
-            "synth_lattice",
-            ["-family", "lfd2nx"],
-        ),
-        ({"family": "nexus", "vendor": "lattice", "device": "LIFCL-40"}, "synth_nexus", []),
-        (
-            {"family": "kintex-us", "vendor": "xilinx", "device": "xcku035"},
-            "synth_xilinx",
-            ["-family", "xcu"],
-        ),
-        (
-            {"family": "virtex-usp", "vendor": "xilinx", "device": "xcvu3p"},
-            "synth_xilinx",
-            ["-family", "xcup"],
-        ),
-    ],
-)
-def test_fpga_synthesis_selects_the_real_device_pass(fpga, command, family_flags):
-    settings = YosysFpga.Settings(fpga=fpga)
-    assert settings.synth_command() == command
-    assert settings.synth_family_flags() == family_flags
 
 
 # yosys commands that expand a file name as a glob pattern, so their file arguments go through

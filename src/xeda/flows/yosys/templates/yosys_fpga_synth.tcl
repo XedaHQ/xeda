@@ -27,7 +27,7 @@ yosys opt_clean -purge
 
 yosys log -stdout "** FPGA synthesis for device {{settings.fpga|tcl_quote}} **"
 yosys log -stdout "*** Target: {{(settings.fpga.family or settings.fpga.vendor)|tcl_quote}} ***"
-yosys {{settings.synth_command()}} {{settings.synth_family_flags()|join(" ")}} {{synth_flags|default(settings.device_synth_flags())|join(" ")}} {% if design.rtl.top %} -top {{design.rtl.top}}{% endif %}
+yosys {{synth_command|join(" ")}} {% if design.rtl.top %} -top {{design.rtl.top}}{% endif %}
 
 
 {% if settings.post_synth_opt -%}

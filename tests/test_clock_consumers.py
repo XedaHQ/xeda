@@ -4,6 +4,7 @@ from xeda import Design
 from xeda.flow import FPGA
 from xeda.flows import Nextpnr, YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
+from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS
 
 
 def _design() -> Design:
@@ -67,6 +68,7 @@ def test_yosys_abc9_hint_uses_first_unnamed_clock(tmp_path):
         parameters={},
         defines=[],
         abc_constr_file=None,
+        synth_command=settings.synth_command(NEWEST_CHECKED_YOSYS),
     )
 
     assert "abc9.D 3333.333333333334" in rendered

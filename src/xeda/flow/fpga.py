@@ -110,30 +110,41 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("pins", try_convert(match_ecp5.group("pins"), int))
                 set_if_not_exist("grade", match_ecp5.group("gr"))
                 return values
-            match_ice40 = re.match(
-                r"^(ICE40)(HX|LP|UP)(384|\d+K)-([A-Z]{2}\d+)(?:-([0-9]+))?$",
+            # iCE40/iCE5 ordering codes: device, package (`SG48`, `UWG30`), then an optional
+            # temperature grade (`I`) and tape-and-reel quantity (`TR`, `TR50`, `TR1K`).
+            match_ice = re.match(
+                r"^(?P<device>ICE40(?P<type>HX|LP|UP)(?P<cap>384|\d+K)|ICE5LP(?P<cap5>[124]K))"
+                r"-(?P<pkg>[A-Z]{2,3}\d+)(?P<gr>I)?(?:TR\d*K?)?$",
                 part,
                 flags=re.IGNORECASE,
             )
-            match_ice5 = re.match(
-                r"^(ICE5)(LP)([124]K)-([A-Z]{2}\d+)(?:-([0-9]+))?$",
-                part,
-                flags=re.IGNORECASE,
-            )
-            match_ice = match_ice40 or match_ice5
             if match_ice:
-                prefix, device_type, capacity, package, speed = match_ice.groups()
-                device_type = "u" if prefix.lower() == "ice5" else device_type.lower()
+                ice5_capacity = match_ice.group("cap5")
                 set_if_not_exist("vendor", "lattice")
                 set_if_not_exist("family", "ice40")
-                set_if_not_exist("type", device_type)
-                set_if_not_exist(
-                    "device", f"{prefix.upper()}{match_ice.group(2).upper()}{capacity.upper()}"
-                )
-                set_if_not_exist("capacity", capacity.lower())
-                set_if_not_exist("package", package.lower())
-                if speed:
-                    set_if_not_exist("speed", speed)
+                set_if_not_exist("type", "u" if ice5_capacity else match_ice.group("type").lower())
+                set_if_not_exist("device", match_ice.group("device").upper())
+                set_if_not_exist("capacity", (ice5_capacity or match_ice.group("cap")).lower())
+                set_if_not_exist("package", match_ice.group("pkg").lower())
+                if match_ice.group("gr"):
+                    set_if_not_exist("grade", match_ice.group("gr").upper())
+                return values
+            # Nexus ordering codes, as nextpnr-nexus names its devices: LIFCL-40-9BG400C.
+            match_nexus = re.match(
+                r"^(?P<device>(?:LIFCL|LFD2NX)-(?P<cap>\d+))-(?P<sp>\d)(?P<pkg>[A-Z]+)"
+                r"(?P<pins>\d+)(?P<gr>[CI])(?:ES2?)?$",
+                part,
+                flags=re.IGNORECASE,
+            )
+            if match_nexus:
+                set_if_not_exist("vendor", "lattice")
+                set_if_not_exist("family", "nexus")
+                set_if_not_exist("device", match_nexus.group("device").upper())
+                set_if_not_exist("capacity", match_nexus.group("cap") + "k")
+                set_if_not_exist("speed", match_nexus.group("sp"))
+                set_if_not_exist("package", match_nexus.group("pkg").upper())
+                set_if_not_exist("pins", try_convert(match_nexus.group("pins"), int))
+                set_if_not_exist("grade", match_nexus.group("gr").upper())
                 return values
             # Commercial Xilinx # Generation # Family # Logic Cells in 1K units # Speed Grade (-1 slowest, L: low-power) # Package Type
             match_xc6 = re.match(
