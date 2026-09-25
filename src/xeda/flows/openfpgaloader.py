@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings, get_board_data
+from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
 from ..dataclass import Field
 from ..flow import FpgaSynthFlow
 from ..tool import Tool
@@ -42,7 +42,7 @@ class Openfpgaloader(FpgaSynthFlow):
             description="Settings for the `nextpnr` dependency that places and routes the design.",
         )
 
-        dependency_settings = {"nextpnr": ("fpga", "board", "clocks")}
+        dependency_settings = {"nextpnr": ("fpga", "board", "custom_boards_file", "clocks")}
 
     def init(self) -> None:
         """Select the FPGA packer and register the nextpnr dependency."""
@@ -60,7 +60,7 @@ class Openfpgaloader(FpgaSynthFlow):
         board_id = ss.board
         board_name = None
         if board_id:
-            board_data = get_board_data(board_id)
+            board_data = ss.board_data()
             if board_data:
                 board_name = board_data.get("name")
         next_pnr = self.completed_dependencies[0]

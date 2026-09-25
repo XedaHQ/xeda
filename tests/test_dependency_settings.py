@@ -14,6 +14,7 @@ The contract, checked for every declared (flow, dependency, shared setting):
 Everything here is driven by the declarations, so a new dependency flow is covered automatically.
 """
 
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import pytest
@@ -59,6 +60,10 @@ SAMPLES: Dict[str, Tuple[Any, Any]] = {
         {"clk_a": {"freq": "100MHz"}, "clk_b": {"freq": "50MHz"}},
     ),
     "board": ("ulx3s", "custom_board"),
+    "custom_boards_file": (
+        Path(__file__).parent / "resources" / "boards_a.toml",
+        Path(__file__).parent / "resources" / "boards_b.toml",
+    ),
     "timing_sim": (True, False),
     "elab_debug": ("all", "off"),
     "saif": ("flow.saif", "dependency.saif"),

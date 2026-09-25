@@ -105,6 +105,140 @@ def test_post_cleanup_purge_applies_to_a_flow_with_a_dependency(tmp_path, toy_fl
     assert not flow.run_path.exists()
 
 
+def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path, design):
+    """Artifact values can be nested and can be reported through either results mapping."""
+    external = tmp_path / "external.txt"
+    external.write_text("outside the run directory")
+
+    class ArtifactFlow(Flow):
+        """Write artifacts and scratch files at several depths."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        def run(self) -> None:
+            for name in (
+                "top.txt",
+                "scratch.txt",
+                "outputs/kept.txt",
+                "outputs/scratch.txt",
+                "reports/result.txt",
+                "reports/scratch.txt",
+                "bundle/netlist.v",
+                "bundle/other.txt",
+                "targets/real.txt",
+                "unused/scratch.txt",
+            ):
+                path = self.run_path / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(name)
+            (self.run_path / "top_link.txt").symlink_to("targets/real.txt")
+            (self.run_path / "external_link.txt").symlink_to(external)
+            self.artifacts["netlist"] = "top.txt"
+            self.artifacts["outputs"] = {"primary": ["outputs/kept.txt", None, ""]}
+            self.artifacts["bundle"] = "bundle"
+            self.artifacts["links"] = ["top_link.txt", "external_link.txt"]
+            self.artifacts["external"] = external
+            self.results.artifacts["result"] = "reports/result.txt"
+
+        def parse_reports(self) -> bool:
+            return True
+
+    try:
+        flow = DefaultRunner(
+            tmp_path / "run", display_results=False, post_cleanup=True
+        ).launch_flow(ArtifactFlow, design, {})
+        assert flow.succeeded
+        assert external.read_text() == "outside the run directory"
+        assert sorted(str(p.relative_to(flow.run_path)) for p in flow.run_path.rglob("*")) == [
+            "bundle",
+            "bundle/netlist.v",
+            "bundle/other.txt",
+            "external_link.txt",
+            "outputs",
+            "outputs/kept.txt",
+            "reports",
+            "reports/result.txt",
+            "results.json",
+            "settings.json",
+            "targets",
+            "targets/real.txt",
+            "top.txt",
+            "top_link.txt",
+        ]
+    finally:
+        for name in (ArtifactFlow.name, ArtifactFlow.__name__):
+            registered_flows.pop(name, None)
+
+
+def test_post_cleanup_keeps_a_run_directory_artifact(tmp_path, design):
+    """The run directory itself can be a reported directory artifact."""
+
+    class DirectoryFlow(Flow):
+        """Report the full run directory."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        def run(self) -> None:
+            (self.run_path / "whole_run.txt").write_text("keep")
+            self.artifacts["directory"] = "."
+
+        def parse_reports(self) -> bool:
+            return True
+
+    try:
+        flow = DefaultRunner(
+            tmp_path / "run", display_results=False, post_cleanup=True
+        ).launch_flow(DirectoryFlow, design, {})
+        assert flow.succeeded
+        assert (flow.run_path / "whole_run.txt").read_text() == "keep"
+    finally:
+        for name in (DirectoryFlow.name, DirectoryFlow.__name__):
+            registered_flows.pop(name, None)
+
+
+@pytest.mark.parametrize("target_inside_run_root", [True, False])
+@pytest.mark.parametrize("absolute_artifact", [True, False])
+def test_post_cleanup_through_run_path_alias(
+    tmp_path, design, target_inside_run_root, absolute_artifact
+):
+    """Preserve internal targets, and never clean a run directory outside the run root."""
+
+    class LinkedFlow(Flow):
+        """Report an internal symlink as an artifact."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        def run(self) -> None:
+            (self.run_path / "target.txt").write_text("keep")
+            (self.run_path / "scratch.txt").write_text("remove")
+            (self.run_path / "link.txt").symlink_to("target.txt")
+            self.artifacts["link"] = self.run_path / "link.txt" if absolute_artifact else "link.txt"
+
+        def parse_reports(self) -> bool:
+            return True
+
+    try:
+        launcher = DefaultRunner(
+            tmp_path / "run",
+            display_results=False,
+            cached_dependencies=False,
+            incremental=True,
+            post_cleanup=True,
+        )
+        alias = launcher.get_flow_run_path(design.name, LinkedFlow.name)
+        actual = (launcher.xeda_run_dir if target_inside_run_root else tmp_path) / "actual_flow"
+        actual.mkdir()
+        alias.parent.mkdir()
+        alias.symlink_to(actual, target_is_directory=True)
+        flow = launcher.launch_flow(LinkedFlow, design, {})
+        assert flow.succeeded
+        assert (flow.run_path / "link.txt").read_text() == "keep"
+        assert (flow.run_path / "scratch.txt").exists() is not target_inside_run_root
+    finally:
+        for name in (LinkedFlow.name, LinkedFlow.__name__):
+            registered_flows.pop(name, None)
+
+
 def test_a_reused_launcher_stays_non_incremental(tmp_path, toy_flows, design):
     """`incremental=False` starts every launch from an empty run directory -- including the
     ones after a launch that happened to have dependencies."""

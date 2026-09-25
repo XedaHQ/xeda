@@ -720,7 +720,8 @@ class Flow(metaclass=ABCMeta):
         self.settings = settings
         assert isinstance(self.settings, self.Settings)
 
-        # generated artifacts as a dict of category to list of file paths
+        # Artifact labels map to paths or nested mappings/lists/tuples of paths. Relative
+        # paths are rooted at run_path; runners walk path leaves through xeda.artifacts.
         self.artifacts = Box()
         self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])

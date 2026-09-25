@@ -27,6 +27,7 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
+from ..artifacts import iter_artifact_paths
 from ..console import console
 from ..dataclass import XedaBaseModel
 from ..design import Design, names_a_design_file
@@ -304,6 +305,22 @@ def dependency_settings(
     if not settings.verbose and depender_settings.verbose > 1:
         settings.verbose = depender_settings.verbose
     return settings
+
+
+def _artifact_rows(artifacts: Mapping[str, Any]) -> list[tuple[str, str, bool]]:
+    """Flatten an artifacts mapping into `(label, path, end_section)` "Artifacts:" table rows.
+
+    Each label's paths are found with `iter_artifact_paths`, so a value nested through any mix
+    of mappings, lists and tuples is flattened the same way as everywhere else artifacts are
+    walked. The label is shown once, on the row of its first path; a label with no path leaves
+    (`None`, `""`, an empty list/dict, ...) gets no rows at all.
+    """
+    rows: list[tuple[str, str, bool]] = []
+    for label, value in artifacts.items():
+        paths = [str(path) for path in iter_artifact_paths(value)]
+        for i, path in enumerate(paths):
+            rows.append((label if i == 0 else "", path, i == len(paths) - 1))
+    return rows
 
 
 class FlowLauncher:
@@ -740,16 +757,8 @@ class FlowLauncher:
             )
             table.add_column("", justify="left", style="green", no_wrap=False)
 
-            for k, v in flow.artifacts.items():
-                if isinstance(v, list) and v:
-                    v = [str(i) for i in v]
-                    table.add_row(v[0], end_section=len(v) == 1)
-                    for vi in v[1:-1]:
-                        table.add_row("", vi, end_section=False)
-                    if len(v) > 1:
-                        table.add_row("", v[-1], end_section=True)
-                else:
-                    table.add_row(str(v), end_section=True)
+            for label, artifact, end_section in _artifact_rows(flow.artifacts):
+                table.add_row(label, artifact, end_section=end_section)
 
             console.print("")
             console.print(table)
@@ -772,27 +781,52 @@ class FlowLauncher:
                 rmtree(flow.run_path)
             else:
                 log.warning("Cleaning up %s", flow.run_path)
-                exclude = [settings_json, results_json]
-                exclude += [
-                    Path(p) if os.path.isabs(p) else flow.run_path / p
-                    for p in flow.artifacts
-                    if p and isinstance(p, (str, Path))
-                ]
-                paths_to_rm = unique(
-                    [
-                        p
-                        for p in flow.run_path.glob("*")
-                        if p not in exclude and self.xeda_run_dir.resolve() in p.resolve().parents
-                    ]
-                )
-                log.warning(
-                    "Removing the following files: %s", " ".join(str(p) for p in paths_to_rm)
-                )
-                for p in paths_to_rm:
-                    if os.path.isfile(p):
-                        os.remove(p)
-                    elif os.path.isdir(p):
-                        rmtree(p)
+                named_run_path = Path(os.path.abspath(flow.run_path))
+                run_path = flow.run_path.resolve()
+                kept: set[Path] = set()
+                for raw_path in (
+                    settings_json,
+                    results_json,
+                    *iter_artifact_paths(flow.results.artifacts),
+                ):
+                    path = Path(os.path.abspath(named_run_path / raw_path))
+                    if path.is_relative_to(named_run_path):
+                        # Resolve the run-directory alias without resolving an artifact's
+                        # own symlink: both that link and its internal target must survive.
+                        path = run_path / path.relative_to(named_run_path)
+                    target = path.resolve()
+                    if path.is_relative_to(run_path):
+                        kept.add(path)
+                        # A retained symlink to an internal file needs its target as well.
+                        if target.is_relative_to(run_path):
+                            kept.add(target)
+                    elif target.is_relative_to(run_path):
+                        # Absolute paths may spell the run path through a symlink.
+                        kept.add(target)
+
+                ancestors = {
+                    parent for path in kept for parent in path.parents if parent != run_path
+                }
+                removed: list[Path] = []
+
+                def prune(directory: Path) -> None:
+                    for path in directory.iterdir():
+                        if path in kept:
+                            continue
+                        if path in ancestors and path.is_symlink():
+                            continue
+                        if path in ancestors and path.is_dir() and not path.is_symlink():
+                            prune(path)
+                        else:
+                            removed.append(path)
+                            if path.is_symlink() or path.is_file():
+                                path.unlink()
+                            elif path.is_dir():
+                                rmtree(path)
+
+                if run_path.is_relative_to(self.xeda_run_dir) and run_path not in kept:
+                    prune(run_path)
+                log.warning("Removed the following files: %s", " ".join(str(p) for p in removed))
 
     def run_flow(
         self,
