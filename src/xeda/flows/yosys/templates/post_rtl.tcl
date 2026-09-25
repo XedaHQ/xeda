@@ -11,6 +11,6 @@ yosys log -stdout "Writing RTL graph to {{settings.rtl_graph.with_suffix('.dot')
 yosys show -prefix {{settings.rtl_graph.with_suffix("")|verbatim_path}} -format dot {{settings.rtl_graph_flags|join(" ")}}
 {%- endif %}
 
-{%- if settings.stop_after == "rtl" %}
+{%- if settings.stop_after is defined and settings.stop_after == "rtl" %}
 exit
 {%- endif %}

@@ -5,7 +5,9 @@ logger -notime
 prep {% if settings.flatten %} -flatten {% endif %} {{settings.prep|join(" ")}}
 {% else -%}
 proc
-{% if settings.flatten -%}flatten{% endif -%}
+{% if settings.flatten -%}
+flatten
+{% endif %}
 {% endif -%}
 check {% if settings.check_assert %} -assert {% endif %}
 

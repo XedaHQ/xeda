@@ -177,6 +177,8 @@ def test_fpga_defaults_use_valid_target_flags(fpga, flags, absent):
 def test_abc9_false_has_a_real_effect_or_fails():
     ice40 = YosysFpga.Settings(fpga={"family": "ice40", "device": "ice40HX1K"}, abc9=False)
     assert "-noabc" in ice40.device_synth_flags()
+    ice40_noabc = YosysFpga.Settings(fpga={"family": "ice40", "device": "ice40HX1K"}, noabc=True)
+    assert "-noabc" in ice40_noabc.device_synth_flags()
     ecp5 = YosysFpga.Settings(fpga={"family": "ecp5", "capacity": "25k"}, abc9=False)
     with pytest.raises(FlowException, match="always uses ABC9"):
         ecp5.device_synth_flags()
@@ -194,6 +196,20 @@ def test_ice40_ultraplus_resources_reject_other_devices():
     settings = YosysFpga.Settings(fpga={"family": "ice40", "device": "ice40HX1K"}, ice40_dsp=True)
     with pytest.raises(FlowException, match="require an UltraPlus"):
         settings.device_synth_flags()
+
+
+def test_gowin_family_follows_the_device_and_rejects_mismatch():
+    inferred = YosysFpga.Settings(fpga={"family": "gowin", "vendor": "gowin", "device": "GW5A-25"})
+    assert inferred.synth_family_flags() == ["-family", "gw5a"]
+    vendor_only = YosysFpga.Settings(fpga={"vendor": "gowin", "device": "GW2A-18"})
+    assert vendor_only.synth_command() == "synth_gowin"
+    assert vendor_only.synth_family_flags() == ["-family", "gw2a"]
+    ambiguous = YosysFpga.Settings(fpga={"family": "gowin", "vendor": "gowin"})
+    with pytest.raises(FlowException, match="requires a device"):
+        ambiguous.synth_family_flags()
+    mismatched = YosysFpga.Settings(fpga={"family": "gw2a", "vendor": "gowin", "device": "GW5A-25"})
+    with pytest.raises(FlowException, match="conflicts"):
+        mismatched.synth_family_flags()
 
 
 @pytest.mark.parametrize(

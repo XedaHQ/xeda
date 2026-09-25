@@ -54,6 +54,12 @@ class YosysSim(YosysBase, SimFlow):
             ss.cxxrtl.filename = f"{self.design.rtl.top or self.design.name}.cpp"
         cxxrtl_cpp = Path(ss.cxxrtl.filename)
         cxxrtl_cpp.parent.mkdir(parents=True, exist_ok=True)
+        simulation_top = self.design.sim_tops[0] if self.design.sim_tops else self.design.rtl.top
+        ghdl_top = (
+            simulation_top
+            if any(src.type is SourceType.Vhdl for src in self.design.tb.sources)
+            else self.design.rtl.top
+        )
         script_path = self.copy_from_template(
             f"yosys_sim{self.script_ext}",
             lstrip_blocks=True,
@@ -61,6 +67,9 @@ class YosysSim(YosysBase, SimFlow):
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design, one_shot_elab=False),
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
+            read_tb_sources=True,
+            hierarchy_top=simulation_top,
+            ghdl_top=ghdl_top,
         )
         log.info("Yosys script: %s", self.run_path / script_path)
         args = [self.script_flag, script_path]

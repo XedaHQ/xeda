@@ -130,8 +130,10 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                         f"synth_{kind} always uses ABC9; abc9=false is unsupported."
                     )
                 append_flag(flags, "-noabc")
-            if self.noabc and kind != "ice40":
-                raise FlowException(f"synth_{kind} does not support noabc=true.")
+            if self.noabc:
+                if kind != "ice40":
+                    raise FlowException(f"synth_{kind} does not support noabc=true.")
+                append_flag(flags, "-noabc")
             if self.widemux and kind != "xilinx":
                 raise FlowException(f"synth_{kind} does not support widemux.")
             if kind in {"ecp5", "nexus", "gowin"}:
@@ -213,7 +215,12 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             family = (self.fpga.family or "").lower()
             if (self.fpga.vendor or "").lower() == "xilinx":
                 return "synth_xilinx"
-            if family in {"gowin", "gw1n", "gw2a", "gw5a"}:
+            if (self.fpga.vendor or "").lower() == "gowin" or family in {
+                "gowin",
+                "gw1n",
+                "gw2a",
+                "gw5a",
+            }:
                 return "synth_gowin"
             if family == "nexus" and (self.fpga.device or "").lower().startswith("lfd2nx"):
                 return "synth_lattice"
@@ -264,8 +271,30 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 }:
                     raise FlowException(f"Unsupported synth_xilinx family {family!r}.")
                 return ["-family", target]
-            if self.synth_command() == "synth_gowin" and family in {"gw1n", "gw2a", "gw5a"}:
-                return ["-family", family]
+            if self.synth_command() == "synth_gowin":
+                device = (self.fpga.device or self.fpga.part or "").lower()
+                inferred = next(
+                    (
+                        candidate
+                        for candidate in ("gw1n", "gw2a", "gw5a")
+                        if device.startswith(candidate)
+                    ),
+                    None,
+                )
+                if family in {"gw1n", "gw2a", "gw5a"}:
+                    if inferred and inferred != family:
+                        raise FlowException(
+                            f"Gowin family {family!r} conflicts with device {device!r}."
+                        )
+                    return ["-family", family]
+                if family not in {"", "gowin"}:
+                    raise FlowException(f"Unsupported Gowin family {family!r}.")
+                if not inferred:
+                    raise FlowException(
+                        "A generic Gowin target requires a device or part beginning with "
+                        "GW1N, GW2A, or GW5A."
+                    )
+                return ["-family", inferred]
             if self.synth_command() == "synth_lattice":
                 return ["-family", "lfd2nx"]
             return []
@@ -275,7 +304,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         assert ss.fpga is not None, "checked at launch (`required_settings`)"
-        assert ss.fpga.family or ss.fpga.vendor == "xilinx"
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
         synth_flags = ss.device_synth_flags()

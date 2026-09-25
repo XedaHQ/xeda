@@ -52,3 +52,47 @@ def test_cxxrtl_backend_settings_are_rendered(tmp_path):
         "write_cxxrtl -header -noflatten -nohierarchy -noproc -g1 -O3 -namespace sim sim.cpp"
         in text
     )
+
+
+def test_flatten_is_a_separate_command_in_both_script_formats(tmp_path):
+    design = Design(name="d", rtl={"sources": [], "top": "d"})
+    flow = YosysSim(YosysSim.Settings(flatten=True), design, tmp_path)
+    flow.init()
+    for template, command in (
+        ("yosys_sim.ys", "flatten"),
+        ("yosys_sim.tcl", "yosys flatten"),
+    ):
+        script = flow.copy_from_template(
+            template,
+            ghdl_args=[],
+            parameters={},
+            defines=[],
+            lstrip_blocks=True,
+            trim_blocks=False,
+        )
+        lines = [line.strip() for line in (tmp_path / script).read_text().splitlines()]
+        assert command in lines
+        assert any(line.startswith(command.replace("flatten", "check")) for line in lines)
+
+
+def test_simulation_top_and_hdl_testbench_source_are_used(tmp_path):
+    require_yosys()
+    require_c_toolchain()
+    (tmp_path / "dut.v").write_text("module dut(input a, output y); assign y = a; endmodule\n")
+    (tmp_path / "sim_top.v").write_text(
+        "module sim_top(input a, output y); dut u(.a(a), .y(y)); endmodule\n"
+    )
+    (tmp_path / "sim_main.cpp").write_text(
+        '#include "model.h"\nint main() { cxxrtl_design::p_sim__top top; return 0; }\n'
+    )
+    design = Design(
+        name="sim_top_example",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.v"], "top": "dut"},
+        tb={"sources": ["sim_top.v", "sim_main.cpp"], "top": "sim_top"},
+    )
+    flow = DefaultRunner(tmp_path / "runs").run_flow(
+        YosysSim, design, {"cxxrtl": {"filename": "model.cpp"}}
+    )
+    assert flow is not None and flow.succeeded
+    assert "struct p_sim__top : public module" in (flow.run_path / "model.h").read_text()

@@ -4,7 +4,9 @@
 yosys prep {% if settings.flatten %} -flatten {% endif %} {{settings.prep|join(" ")}}
 {% else -%}
 yosys proc
-{% if settings.flatten -%}yosys flatten{% endif -%}
+{% if settings.flatten -%}
+yosys flatten
+{% endif %}
 {% endif -%}
 yosys check {% if settings.check_assert %} -assert {% endif %}
 
