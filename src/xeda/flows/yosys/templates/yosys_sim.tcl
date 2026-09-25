@@ -1,4 +1,5 @@
 {% include 'read_files.tcl' %}
+yosys check -initdrv -assert
 
 {% if settings.prep is not none -%}
 yosys prep {% if settings.flatten %} -flatten {% endif %} {{settings.prep|join(" ")}}

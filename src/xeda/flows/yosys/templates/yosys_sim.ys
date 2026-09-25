@@ -1,5 +1,6 @@
 logger -notime
 {% include 'read_files.ys' %}
+check -initdrv -assert
 
 {% if settings.prep is not none -%}
 prep {% if settings.flatten %} -flatten {% endif %} {{settings.prep|join(" ")}}
