@@ -55,9 +55,8 @@ class YosysSim(YosysBase, SimFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         yosys = self.yosys
-        if not ss.cxxrtl.filename:
-            ss.cxxrtl.filename = f"{self.design.rtl.top or self.design.name}.cpp"
-        cxxrtl_cpp = Path(ss.cxxrtl.filename)
+        cxxrtl_filename = ss.cxxrtl.filename or f"{self.design.rtl.top or self.design.name}.cpp"
+        cxxrtl_cpp = Path(cxxrtl_filename)
         cxxrtl_cpp.parent.mkdir(parents=True, exist_ok=True)
         simulation_top = self.design.sim_tops[0] if self.design.sim_tops else self.design.rtl.top
         ghdl_top = (
@@ -75,16 +74,17 @@ class YosysSim(YosysBase, SimFlow):
             read_tb_sources=True,
             hierarchy_top=simulation_top,
             ghdl_top=ghdl_top,
+            cxxrtl_filename=cxxrtl_filename,
         )
         log.info("Yosys script: %s", self.run_path / script_path)
         args = [self.script_flag, script_path]
         if ss.log_file:
             args.extend(["-L", ss.log_file])
+            log.info("Logging yosys output to %s", ss.log_file)
         # `-T -Q` come with the tool's defaults (`yosys`) unless verbose.
-        if not ss.verbose and not ss.debug and not ss.is_quiet:
+        if ss.log_file and not ss.verbose and not ss.debug and not ss.is_quiet:
             args.append("-q")
         self.results["_tool"] = yosys.info  # TODO where should this go?
-        log.info("Logging yosys output to %s", ss.log_file)
         yosys.run(*args)
 
         yosys_config = yosys.derive("yosys-config")
@@ -93,7 +93,6 @@ class YosysSim(YosysBase, SimFlow):
             raise FlowFatalError("yosys-config did not report its include directory.")
         runtime_include = Path(yosys_include_dir) / "backends" / "cxxrtl" / "runtime"
         cxx = yosys.derive("g++")
-        assert ss.cxxrtl.filename
         self.artifacts["cxxrtl_cpp"] = cxxrtl_cpp
         if ss.cxxrtl.header:
             self.artifacts["cxxrtl_header"] = cxxrtl_cpp.with_suffix(".h")

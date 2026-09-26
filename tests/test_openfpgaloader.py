@@ -77,6 +77,17 @@ def test_unsupported_target_is_rejected_before_place_and_route(tmp_path, monkeyp
     assert not flow.dependencies
 
 
+def test_ecp5_out_of_context_is_rejected_before_place_and_route(tmp_path):
+    design = Design(name="d", rtl={"sources": [], "top": "d"})
+    settings = Openfpgaloader.Settings(
+        fpga={"family": "ecp5", "capacity": "25k"}, nextpnr={"out_of_context": True}
+    )
+    flow = Openfpgaloader(settings, design, tmp_path)
+    with pytest.raises(FlowSettingsException, match="out_of_context=true"):
+        flow.init()
+    assert not flow.dependencies
+
+
 def test_missing_packer_output_never_programs(tmp_path, monkeypatch):
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
     settings = Openfpgaloader.Settings(fpga={"family": "ecp5", "capacity": "25k"})

@@ -14,5 +14,5 @@ check {% if settings.check_assert %} -assert {% endif %}
 
 {% include 'post_rtl.ys' %}
 
-log -stdout yosys> Writing CXXRTL output to: {{settings.cxxrtl.filename}}
-write_cxxrtl {%- if settings.cxxrtl.header %} -header {%- endif %} {%- if not settings.cxxrtl.flatten %} -noflatten {%- endif %} {%- if not settings.cxxrtl.hierarchy %} -nohierarchy {%- endif %} {%- if not settings.cxxrtl.proc %} -noproc {%- endif %} {%- if settings.cxxrtl.debug is not none %} -g{{settings.cxxrtl.debug}} {%- endif %} {%- if settings.cxxrtl.opt is not none %} -O{{settings.cxxrtl.opt}} {%- endif %} {%- if settings.cxxrtl.namespace %} -namespace {{settings.cxxrtl.namespace}} {%- endif %} {{settings.cxxrtl.filename|path}}
+log -stdout yosys> Writing CXXRTL output to: {{cxxrtl_filename}}
+write_cxxrtl {%- if settings.cxxrtl.header %} -header {%- endif %} {%- if not settings.cxxrtl.flatten %} -noflatten {%- endif %} {%- if not settings.cxxrtl.hierarchy %} -nohierarchy {%- endif %} {%- if not settings.cxxrtl.proc %} -noproc {%- endif %} {%- if settings.cxxrtl.debug is not none %} -g{{settings.cxxrtl.debug}} {%- endif %} {%- if settings.cxxrtl.opt is not none %} -O{{settings.cxxrtl.opt}} {%- endif %} {%- if settings.cxxrtl.namespace %} -namespace {{settings.cxxrtl.namespace}} {%- endif %} {{cxxrtl_filename|path}}

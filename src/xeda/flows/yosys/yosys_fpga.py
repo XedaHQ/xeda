@@ -309,7 +309,18 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             assert self.fpga is not None
             family = (self.fpga.family or "").lower()
             if not family:
-                return []  # synth_xilinx defaults to Series 7
+                generation = (self.fpga.generation or "").lower()
+                inferred = {"usp": "xcup", "u": "xcu", "7": "xc7"}.get(generation)
+                if inferred:
+                    return ["-family", inferred]
+                if self.fpga.part or self.fpga.device or generation:
+                    raise FlowSettingsException(
+                        "Cannot select synth_xilinx family from the Xilinx target: "
+                        f"part={self.fpga.part!r}, device={self.fpga.device!r}, "
+                        f"generation={generation or None!r}; set fpga.family or a recognized "
+                        "generation (usp, u, or 7)."
+                    )
+                return []  # An unspecified Xilinx target uses synth_xilinx's Series 7 default.
             if family.endswith("-usp"):
                 target = "xcup"
             elif family.endswith("-us"):
