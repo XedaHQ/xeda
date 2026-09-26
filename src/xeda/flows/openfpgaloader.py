@@ -94,6 +94,11 @@ class Openfpgaloader(FpgaSynthFlow):
                 f" (packers: {', '.join(f'{k}: {v}' for k, v in PACKERS.items())}); run nextpnr "
                 "directly for other families."
             )
+        if family == "ecp5" and nextpnr.out_of_context:
+            raise FlowSettingsException(
+                "openfpgaloader cannot use nextpnr.out_of_context=true for ECP5 because "
+                "nextpnr does not emit textcfg."
+            )
         self.packer = Tool(PACKERS[family])
         self.add_dependency(Nextpnr, nextpnr)
 

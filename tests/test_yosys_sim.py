@@ -22,6 +22,7 @@ def test_yosys_sim_runs_the_cxxrtl_example(tmp_path):
     assert (flow.run_path / "blink.h").is_file()
     assert (flow.run_path / "blink").is_file()
     assert flow.artifacts["cxxrtl_cpp"] == Path("blink.cpp")
+    assert flow.settings.cxxrtl.filename is None
     assert "netlist_json" not in flow.artifacts
 
 
@@ -46,6 +47,7 @@ def test_cxxrtl_backend_settings_are_rendered(tmp_path):
         ghdl_args=[],
         parameters={},
         defines=[],
+        cxxrtl_filename=settings.cxxrtl.filename,
         lstrip_blocks=True,
         trim_blocks=False,
     )
@@ -69,6 +71,7 @@ def test_flatten_is_a_separate_command_in_both_script_formats(tmp_path):
             ghdl_args=[],
             parameters={},
             defines=[],
+            cxxrtl_filename="d.cpp",
             lstrip_blocks=True,
             trim_blocks=False,
         )
@@ -76,6 +79,7 @@ def test_flatten_is_a_separate_command_in_both_script_formats(tmp_path):
         assert command in lines
         assert any(line.startswith(command.replace("flatten", "check")) for line in lines)
         assert f"{command.replace('flatten', 'check')} -initdrv -assert" in lines
+        assert any(line.endswith(" d.cpp") and "write_cxxrtl" in line for line in lines)
 
 
 @pytest.mark.parametrize("check_assert", [True, False])
@@ -102,7 +106,7 @@ def test_invalid_init_driver_fails_before_cxxrtl(tmp_path, check_assert):
     assert not (flow.run_path / "sim.cpp").exists()
 
 
-def test_simulation_top_and_hdl_testbench_source_are_used(tmp_path):
+def test_simulation_top_and_hdl_testbench_source_are_used(tmp_path, capfd):
     require_yosys()
     require_c_toolchain()
     (tmp_path / "dut.v").write_text("module dut(input a, output y); assign y = a; endmodule\n")
@@ -122,7 +126,9 @@ def test_simulation_top_and_hdl_testbench_source_are_used(tmp_path):
         tb={"sources": ["sim_top.v", "sim_main.cpp"], "top": "sim_top"},
     )
     flow = DefaultRunner(tmp_path / "runs").run_flow(
-        YosysSim, design, {"cxxrtl": {"filename": "model.cpp"}}
+        YosysSim, design, {"log_file": None, "cxxrtl": {"filename": "model.cpp"}}
     )
     assert flow is not None and flow.succeeded
     assert "struct p_sim__top : public module" in (flow.run_path / "model.h").read_text()
+    assert "Executing CHECK pass" in capfd.readouterr().out
+    assert not (flow.run_path / "yosys.log").exists()

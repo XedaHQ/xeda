@@ -247,6 +247,8 @@ def test_widemux_is_off_or_at_least_two():
         ({"vendor": "gowin", "family": "gowin"}, "requires a device"),
         ({"vendor": "gowin", "family": "gw2a", "device": "GW5A-25"}, "conflicts"),
         ({"vendor": "xilinx", "family": "versal"}, "has no family"),
+        ({"vendor": "xilinx", "device": "mystery"}, "Cannot select synth_xilinx family"),
+        ({"vendor": "xilinx", "part": "XCMYSTERY"}, "Cannot select synth_xilinx family"),
         ({"vendor": "lattice", "family": "machxo2"}, "no FPGA synthesis"),
         ({"vendor": "lattice", "family": "nexus", "device": "unknown"}, "needs an LIFCL"),
         ({"part": "iCE40HX1K-TQ144", "type": "ul"}, "Unknown iCE40"),
@@ -264,6 +266,26 @@ def test_unknown_targets_are_rejected(fpga, message):
 def test_xilinx_family(family, flag):
     settings = YosysFpga.Settings(fpga={"vendor": "xilinx", "family": family})
     assert settings.synth_command(NEWEST_CHECKED_YOSYS)[1:3] == ["-family", flag]
+
+
+@pytest.mark.parametrize(
+    "fpga,flag",
+    [
+        ({"vendor": "xilinx", "generation": "usp"}, "xcup"),
+        ({"vendor": "xilinx", "generation": "u"}, "xcu"),
+        ({"vendor": "xilinx", "generation": 7}, "xc7"),
+        ({"part": "XCVU9P-FLGA2104-2"}, "xcup"),
+        ({"part": "XCVU095-2FLGA2104"}, "xcu"),
+    ],
+)
+def test_xilinx_generation_selects_synthesis_family(fpga, flag):
+    command = YosysFpga.Settings(fpga=fpga).synth_command(NEWEST_CHECKED_YOSYS)
+    assert command[1:3] == ["-family", flag]
+
+
+def test_unspecified_xilinx_target_keeps_series_7_default():
+    command = YosysFpga.Settings(fpga={"vendor": "xilinx"}).synth_command(NEWEST_CHECKED_YOSYS)
+    assert "-family" not in command
 
 
 def test_ice40_options_are_rejected_for_other_targets():
