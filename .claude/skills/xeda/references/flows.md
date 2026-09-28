@@ -167,7 +167,7 @@ FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode. A
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
-Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
+Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 
 ### `vivado_project`
 
@@ -179,7 +179,7 @@ Reports no results beyond the keys every flow reports.
 
 ### `vivado_synth`
 
-FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing; with a `bitstream` requested it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs asked for are registered as artifacts (label in parentheses). `write_checkpoint`: `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in `outputs/route_design/`: the functional and timing Verilog netlists `funcsim.v` (`netlist`) and `timesim.v` (`netlist_timing`), the fast- and slow-corner SDF `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`), and the constraints `impl.xdc` (`xdc_exported`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`).
+FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing; with a `bitstream` requested it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs asked for are registered as artifacts (label in parentheses). `write_checkpoint`: `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in `outputs/route_design/`: the functional and timing Verilog netlists `funcsim.v` (`netlist`) and `timesim.v` (`netlist_timing`), the fast- and slow-corner SDF `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`), and the constraints `impl.xdc` (`xdc_exported`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`). The flow fails unless each run completes the step it is launched to (Vivado's own status of the run, which the `status` result records), and, with a bitstream asked for, unless the bitstream is where it is registered.
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 

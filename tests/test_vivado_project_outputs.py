@@ -5,9 +5,10 @@ Vivado's own runs source after the step: the synthesis checkpoint after `synth_d
 routed checkpoint, the netlists, the SDF corners and the exported constraints after
 `route_design`; the bitstream, which Vivado's `write_bitstream` step writes, is put at the
 requested path after that step. The fake Vivado records the project script -- the hooks it
-attaches, the step each run is launched to -- but runs no step. So these tests source each
-attached hook as its run would, in step order, and check that every output the flow registers is
-written by the hook of its step, at the registered path.
+attaches, the step each run is launched to -- and runs the runs' steps and hooks too
+(`TCL_MODEL`), but records what every hook ran in one file. So these tests source each attached
+hook again as its run would, in step order, each in a directory of its own, and check that every
+output the flow registers is written by the hook of its step, at the registered path.
 """
 
 import shutil
@@ -299,12 +300,20 @@ def test_a_bitstream_outside_the_run_directory_is_registered_where_it_is(
     registered as its own."""
     bitstream = tmp_path / "bits" / "sqrt.bit"
     bitstream.parent.mkdir()
-    bitstream.write_text("an earlier run's")
     flow = _synth(tmp_path, monkeypatch, bitstream=str(bitstream))
     assert _registered(flow) == {vs.BITSTREAM: bitstream}
-    assert not bitstream.exists()
+    assert bitstream.is_file()
     _source_hooks(flow, tmp_path / "runs")
     assert bitstream.read_text() == "bit"
+
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "write_bitstream")
+    failed = DefaultRunner(tmp_path / "run").run_flow(
+        VivadoSynth,
+        Design.from_toml(SQRT),
+        {"fpga": PART, "clock_period": 5.5, "bitstream": str(bitstream)},
+    )
+    assert failed is not None and not failed.succeeded
+    assert not bitstream.exists()
 
 
 def test_hooks_render_only_their_own_steps_writes_and_leave_active_step_to_vivado(

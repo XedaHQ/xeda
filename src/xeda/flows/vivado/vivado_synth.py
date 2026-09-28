@@ -33,7 +33,8 @@ StepsValType = Union[None, List[str], Dict[str, Any]]
 
 # The artifact labels of the outputs a project-mode run writes on request (`project_outputs`).
 # `vivado_synth` registers them, and its consumers (`vivado_postsynth_sim`, `vivado_power`) look
-# them up by these names (`artifact_path`).
+# them up by these names (`artifact_path`). `vivado_alt_synth` records what it writes under the
+# same names, and its placed checkpoint and its one (slow-corner) SDF under the last two.
 CHECKPOINT_SYNTH = "checkpoint_synth"
 CHECKPOINT_ROUTE = "checkpoint_route"
 NETLIST = "netlist"
@@ -42,6 +43,12 @@ SDF_MIN = "sdf_min"
 SDF_MAX = "sdf_max"
 XDC_EXPORTED = "xdc_exported"
 BITSTREAM = "bitstream"
+CHECKPOINT_PLACE = "checkpoint_place"
+SDF = "sdf"
+
+#: Where, in the reports directory, a project-mode script records the status of the Vivado run
+#: it waited for last (the `status` result).
+RUN_STATUS_FILE = "run_status.txt"
 
 
 def vivado_synth_generics(parameters: dict) -> List[str]:
@@ -206,6 +213,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     (`sdf_min`) and `timesim.max.sdf` (`sdf_max`), and the constraints `impl.xdc`
     (`xdc_exported`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name
     beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`).
+
+    The flow fails unless each run completes the step it is launched to (Vivado's own status of
+    the run, which the `status` result records), and, with a bitstream asked for, unless the
+    bitstream is where it is registered.
     """
 
     results_description = describe_results(
@@ -221,8 +232,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         "ff",
         "slice",
         "dsp",
-        status="Vivado's own status string for the implementation run, e.g. \"route_design "
-        'Complete!". The flow fails if it is anything but a completed run.',
+        status="Vivado's own status of the last run the flow waited for: the implementation "
+        'run\'s, "route_design Complete!" (or "write_bitstream Complete!" with a `bitstream`), '
+        'or the one that did not complete its step, e.g. "synth_design ERROR". The flow fails '
+        "unless the run completed the step it was launched to.",
         **{
             "lut_logic": "Number of LUTs used as logic.",
             "lut_mem": "Number of LUTs used as memory (distributed RAM or shift registers).",
@@ -422,8 +435,9 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             self.settings.bitstream = Path(self.settings.bitstream).resolve()
 
         outputs = project_outputs(self, settings)
-        # What a run registers is what it wrote: nothing an earlier run left at these paths
-        stale = list(outputs.values())
+        run_status = self.run_path / settings.reports_dir / RUN_STATUS_FILE
+        # What a run registers or reports is what it wrote: nothing an earlier run left there
+        stale = [*outputs.values(), run_status]
         if BITSTREAM in outputs:
             stale.append(bitstream_bin_file(outputs[BITSTREAM]))
         for path in stale:
@@ -442,8 +456,15 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             tcl_files=tcl_files,
             generics=vivado_synth_generics(self.design.rtl.parameters),
             impl_to_step="write_bitstream" if BITSTREAM in outputs else "route_design",
+            run_status_file=run_status,
         )
         self.vivado.run("-source", script_path)
+        # The script has checked that each run completed its step (`vivado_synth.tcl`)
+        if BITSTREAM in outputs and not (self.run_path / outputs[BITSTREAM]).is_file():
+            raise FlowFatalError(
+                "Vivado's implementation run completed write_bitstream, but no bitstream is at "
+                f"{self.run_path / outputs[BITSTREAM]}."
+            )
 
     def parse_timing_report(self, reports_dir) -> bool:
         assert isinstance(self.settings, self.Settings)
@@ -538,9 +559,12 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                         self.artifacts[BITSTREAM] = bitstream
                         break
 
+        run_status = self.run_path / self.settings.reports_dir / RUN_STATUS_FILE
+        if run_status.is_file():  # project mode, once a run was waited for
+            self.results["status"] = run_status.read_text().strip()
+
         reports_dir = self.settings.reports_dir / "route_design"
-        failed: bool = self.results.get("status", False)
-        failed |= not self.parse_timing_report(reports_dir)
+        failed = not self.parse_timing_report(reports_dir)
         hier_util = parse_hier_util(reports_dir / "hierarchical_utilization.xml")
         if hier_util:
             with open(reports_dir / "hierarchical_utilization.json", "w") as f:

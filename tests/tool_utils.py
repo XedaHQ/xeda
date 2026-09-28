@@ -27,6 +27,7 @@ import pytest
 
 __all__ = [
     "fake_calls",
+    "fake_returns",
     "require_bluesim",
     "require_bsc",
     "require_c_toolchain",
@@ -376,6 +377,20 @@ FAKE_TOOLS_DIR = Path(__file__).parent / "fake_tools"
 def use_fake_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Put the fake tools first on PATH for the rest of the test."""
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ.get("PATH", ""))
+
+
+def fake_returns(monkeypatch: pytest.MonkeyPatch, returns: dict[tuple[str, ...], str]) -> None:
+    """Make the fake tools answer each call that begins with the given words with the given text
+    (`XEDA_FAKE_TOOL_RETURNS`): what the real tool would report in a case the fake does not reach
+    on its own, such as a Vivado run reporting `{("get_property", "STATUS", "impl_1"):
+    "write_bitstream Complete!"}` although its step failed. The longest match wins."""
+    for words, value in returns.items():  # braced as they are, so none may hold a brace
+        assert all(re.fullmatch(r"[\w.:-]+", word) for word in words), words
+        assert not set("{}\\") & set(value), value
+    monkeypatch.setenv(
+        "XEDA_FAKE_TOOL_RETURNS",
+        " ".join(f"{{{' '.join(words)}}} {{{value}}}" for words, value in returns.items()),
+    )
 
 
 def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
