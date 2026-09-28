@@ -23,6 +23,7 @@ from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Bsc, BscSim
+from xeda.flows import bsc as bsc_module
 from xeda.flows.bsc import (
     MIN_BSC_VERSION,
     BscFlow,
@@ -32,7 +33,13 @@ from xeda.flows.bsc import (
 )
 from xeda.utils import WorkingDirectory
 
-from .tool_utils import require_bluesim, require_bsc, require_iverilog, require_verilator
+from .tool_utils import (
+    require_bluesim,
+    require_bsc,
+    require_c_toolchain,
+    require_iverilog,
+    require_verilator,
+)
 
 # ---------------------------------------------------------------------------------------------
 # small designs
@@ -103,12 +110,16 @@ endmodule
 endpackage
 """
 
-#: Never finishes by itself: only `max_cycles` ends it.
+#: Finishes by itself only after a million cycles: `max_cycles` ends it long before.
 ENDLESS_TB = """package Endless;
 (* synthesize *)
 module mkEndless(Empty);
   Reg#(UInt#(32)) n <- mkReg(0);
   rule tick; n <= n + 1; endrule
+  rule stop (n == 1000000);
+    $display("RAN TO THE END");
+    $finish(0);
+  endrule
 endmodule
 endpackage
 """
@@ -466,6 +477,40 @@ def test_collect_verilog(tmp_path, caplog):
     assert "VendorPrim" in caplog.text
 
 
+def test_the_modules_a_design_verilog_source_instantiates_are_collected(tmp_path):
+    """A Verilog wrapper the design imports may instantiate a library module, and a module bsc
+    generated: both belong to the file set, which no `.use` file says."""
+    root = tmp_path / "d"
+    wrap = (
+        "module wrap(input CLK);\n"
+        "  mkInner inner (.CLK(CLK));\n"
+        "  SizedFIFO #(.p1width(1)) f (.CLK(CLK));\n"
+        "endmodule\n"
+    )
+    _write(root, {"rtl/Top.bsv": TOP_PKG, "rtl/wrap.v": wrap})
+    design = Design(
+        name="t",
+        design_root=root,
+        rtl={"sources": ["rtl/wrap.v", "rtl/Top.bsv"], "top": "mkTop"},
+    )
+    out = tmp_path / "out"
+    lib = tmp_path / "lib"
+    _write(
+        out,
+        {
+            "mkTop.v": "module mkTop(); endmodule\n",
+            "mkTop.use": "wrap\n",
+            "mkInner.v": "module mkInner(); endmodule\n",
+            "mkInner.use": "",
+        },
+    )
+    _write(lib, {"SizedFIFO.v": "module SizedFIFO(); endmodule\n"})
+    flow = _flow(Bsc, design, tmp_path / "run", positive_reset=False)
+    modules, files = flow._collect_verilog("mkTop", root / "rtl/Top.bsv", out, [out, lib])
+    assert modules == ["mkTop", "wrap", "mkInner", "SizedFIFO"]
+    assert files == [out / "SizedFIFO.v", root / "rtl/wrap.v", out / "mkInner.v", out / "mkTop.v"]
+
+
 def test_collect_verilog_needs_the_top(tmp_path):
     root = tmp_path / "d"
     _write(root, {"rtl/Top.bsv": TOP_PKG})
@@ -694,6 +739,93 @@ def test_bluesim_is_handed_no_verilog_search_path(tmp_path, capfd):
     assert "-vsearch" not in flow._path_flags("sim", tmp_path / "out", design.rtl.sources)
 
 
+@pytest.mark.parametrize("simulator", ["bluesim", "verilator", "iverilog"])
+def test_the_path_flags_of_each_simulator(simulator, tmp_path):
+    """`-fdir` reaches every compile; `-vsearch` only a Verilog one (Bluesim reads no Verilog);
+    the output directory is `-simdir` for Bluesim and `-vdir` otherwise."""
+    design = _accum_design(tmp_path / "d")
+    (tmp_path / "d" / "files").mkdir()
+    flow = _flow(BscSim, design, tmp_path / "run", simulator=simulator, fdir="files")
+    backend = "sim" if simulator == "bluesim" else "verilog"
+    flags = flow._path_flags(backend, tmp_path / "out", design.rtl.sources)
+    assert flags[flags.index("-fdir") + 1] == str(tmp_path / "d" / "files")
+    assert ("-vsearch" in flags) == (simulator != "bluesim")
+    assert flags[flags.index("-simdir" if backend == "sim" else "-vdir") + 1] == str(
+        tmp_path / "out"
+    )
+
+
+@pytest.mark.parametrize("simulator", ["verilator", "iverilog"])
+def test_verilog_search_paths_reach_the_verilog_link(simulator, tmp_path, capfd):
+    """An imported module found only on `verilog_search_paths`, as `<module>.v`, is linked."""
+    _require_simulator(simulator)
+    _write(tmp_path, {"vlib/add3.v": OPS_V, "Ops.bsv": OPS_PKG})
+    design = Design(
+        name="ops",
+        design_root=tmp_path,
+        rtl={"sources": []},
+        tb={"sources": ["Ops.bsv"], "top": "mkOpsTb"},
+    )
+    flow = _run(
+        BscSim, design, tmp_path / "run", simulator=simulator, verilog_search_paths=["vlib"]
+    )
+    out = capfd.readouterr().out
+    assert flow is not None and flow.succeeded, out[-2000:]
+    assert "PASS" in out
+
+
+def test_extra_flags_reach_the_verilog_search_path_xeda_reads(tmp_path):
+    """A `-vsearch` among `extra_flags` changes where bsc looks for Verilog, and so where the
+    flow collects it from."""
+    require_bsc()
+    _write(tmp_path, {"vlib/add3.v": OPS_V, "Ops.bsv": OPS_PKG})
+    design = Design(
+        name="ops", design_root=tmp_path, rtl={"sources": ["Ops.bsv"], "top": "mkOpsTb"}
+    )
+    vlib = tmp_path / "vlib"
+    flow = _run(Bsc, design, tmp_path / "run", extra_flags=["-vsearch", f"{vlib}:+"])
+    assert flow is not None and flow.succeeded
+    assert "add3" in flow.results["modules"]
+    assert any(Path(f).name == "add3.v" for f in flow.artifacts.verilog)
+
+
+def test_a_link_path_with_whitespace_is_rejected_before_compiling(tmp_path):
+    """bsc runs its link step through a shell, unquoted: a path with whitespace would fail
+    there, obscurely, after the whole compilation."""
+    design = _accum_design(tmp_path / "d")
+    run = tmp_path / "run dir"
+    flow = _flow(BscSim, design, run)
+    with WorkingDirectory(run), pytest.raises(FlowSettingsException, match="whitespace"):
+        flow.run()
+    assert not (run / "bobjs").exists() or not any((run / "bobjs").iterdir())  # nothing compiled
+
+
+def test_verilog_filters_need_an_output_directory_without_whitespace(tmp_path):
+    design = _accum_design(tmp_path / "d")
+    flow = _flow(Bsc, design, tmp_path / "run", verilog_filters=["true"])
+    with pytest.raises(FlowSettingsException, match="whitespace"):
+        flow._prepare_dirs(tmp_path / "gen rtl")
+
+
+def test_bsc_sim_simulates_one_top(tmp_path):
+    design = _accum_design(
+        tmp_path / "d", tb={"sources": ["tb/Tb.bsv"], "top": ["mkTb", "mkOther"]}
+    )
+    flow = _flow(BscSim, design, tmp_path / "run")
+    with pytest.raises(FlowSettingsException, match="one top module"):
+        flow.init()
+
+
+def test_the_define_is_prepended_to_verilog_in_any_encoding(tmp_path):
+    """A library or imported module's file need not be UTF-8."""
+    path = tmp_path / "ip.v"
+    original = b"// Copyright Andr\xe9\nmodule ip(); endmodule\n"
+    path.write_bytes(original)
+    for _ in range(2):  # once only
+        bsc_module._prepend_define(path, "BSV_POSITIVE_RESET")
+    assert path.read_bytes() == b"`define BSV_POSITIVE_RESET\n" + original
+
+
 def test_the_link_settings_reach_bsc(tmp_path):
     require_bsc()
     flow = _flow(
@@ -781,19 +913,43 @@ def test_bsc_generates_every_module_the_top_needs(tmp_path):
     )
 
 
+def _run_incrementally(flow_class: type[Flow], design: Design, run_dir: Path, **settings: Any):
+    """A run in the directory an earlier run of the same flow and settings used, as the CLI's
+    default `--incremental` has it, whatever the design's hash."""
+    runner = DefaultRunner(run_dir, display_results=False, incremental=True)
+    return runner.run_flow(flow_class, design, settings)
+
+
 def test_a_macro_change_is_compiled(tmp_path):
     """bsc's `-u` recompiles only when a source is newer than its `.bo`, so a second run in the
     same directory with another macro reused the first run's packages. `cleanup_bobjs` (on by
     default) makes the second run compile what it was given."""
     require_bsc()
     design = _accum_design(tmp_path / "d")
-    run_dir = tmp_path / "run"
+    run_paths = set()
     for step in (1, 5):
         design.rtl.defines = {"STEP": step}
-        flow = _run(Bsc, design, run_dir)
+        flow = _run_incrementally(Bsc, design, tmp_path / "run")
         assert flow is not None and flow.succeeded
+        run_paths.add(flow.run_path)
         top = next(Path(f) for f in flow.artifacts.verilog if f.endswith("mkTop.v"))
         assert f"8'd{step}" in top.read_text()
+    assert len(run_paths) == 1  # the second run met the first one's output
+
+
+def test_a_testbench_change_is_simulated(tmp_path, capfd):
+    """The same for `bsc_sim`: a second run in the same directory, with the testbench's bug
+    planted by a macro, runs what it was given -- and fails."""
+    require_bluesim()
+    design = _accum_design(tmp_path / "d")
+    flow = _run_incrementally(BscSim, design, tmp_path / "run")
+    assert flow is not None and flow.succeeded
+    assert "PASS" in capfd.readouterr().out
+    design.tb.defines = {"XEDA_INJECT_BUG": True}
+    second = _run_incrementally(BscSim, design, tmp_path / "run")
+    assert second is not None and second.run_path == flow.run_path
+    assert not second.succeeded
+    assert "FAIL" in capfd.readouterr().out
 
 
 def test_bsc_compiles_bh(tmp_path):
@@ -828,15 +984,17 @@ def _require_simulator(simulator: str) -> None:
 
 
 @pytest.mark.parametrize("simulator", SIMULATORS)
-def test_bsc_sim_passes_and_fails(simulator, tmp_path):
+def test_bsc_sim_passes_and_fails(simulator, tmp_path, capfd):
     """A passing testbench passes, and a `$fatal` fails the run, on every simulator."""
     _require_simulator(simulator)
     design = _accum_design(tmp_path / "d")
-    flow = _run(BscSim, design, tmp_path / "pass", simulator=simulator, vcd="waves.vcd")
+    # the waveform's directory is created: no simulator creates it
+    flow = _run(BscSim, design, tmp_path / "pass", simulator=simulator, vcd="waves/pass.vcd")
     assert flow is not None and flow.succeeded
+    assert "PASS" in capfd.readouterr().out
     assert flow.results["simulator"] == simulator
     assert Path(flow.artifacts.executable).is_file()
-    assert (flow.run_path / "waves.vcd").is_file()
+    assert (flow.run_path / "waves" / "pass.vcd").is_file()
     # the testbench's macros reach every package it is compiled with, the RTL's too
     design.rtl.defines = {"STEP": 2}
     design.tb.defines = {"STEP": 3}
@@ -851,8 +1009,19 @@ def test_bsc_sim_passes_and_fails(simulator, tmp_path):
     assert Path(flow.artifacts.vcd) == Path("fail.vcd") and (flow.run_path / "fail.vcd").is_file()
 
 
+def _link_command(out: str) -> list[str]:
+    """The bsc link command (`-e`) a flow printed."""
+    commands = [line for line in out.splitlines() if line.startswith("Running `bsc ")]
+    links = [c.strip("`").split()[1:] for c in commands if " -e " in c]
+    assert len(links) == 1, commands
+    return links[0]
+
+
 @pytest.mark.parametrize("simulator", ["verilator", "iverilog"])
-def test_reset_name_and_polarity_reach_the_verilog_simulation(simulator, tmp_path):
+@pytest.mark.parametrize("positive_reset", [True, False])
+def test_reset_name_and_polarity_reach_the_verilog_simulation(
+    simulator, positive_reset, tmp_path, capfd
+):
     """bsc's clock and reset driver must reset the port `reset_prefix` names, with the polarity
     `positive_reset` gives; otherwise the testbench stays in reset and never finishes."""
     _require_simulator(simulator)
@@ -869,14 +1038,20 @@ def test_reset_name_and_polarity_reach_the_verilog_simulation(simulator, tmp_pat
         tmp_path / "run",
         simulator=simulator,
         reset_prefix="RST",
-        positive_reset=True,
+        positive_reset=positive_reset,
     )
-    assert flow is not None and flow.succeeded
+    out = capfd.readouterr().out
+    assert flow is not None and flow.succeeded, out[-2000:]
     verilog = (flow.run_path / "sim_build" / "mkResetTb.v").read_text()
     assert re.search(r"^\s*input\s+RST;", verilog, re.M)
+    # the driver takes its polarity from the define the link step is given, the design from
+    # the compile's: both flip together, so the simulation alone cannot tell
+    link = _link_command(out)
+    assert ("BSV_POSITIVE_RESET" in link) == positive_reset
+    assert link[link.index("-reset-prefix") + 1] == "RST"
 
 
-def test_max_cycles_ends_a_bluesim_run(tmp_path):
+def test_max_cycles_ends_a_bluesim_run(tmp_path, capfd):
     require_bluesim()
     _write(tmp_path, {"Endless.bsv": ENDLESS_TB})
     design = Design(
@@ -884,6 +1059,7 @@ def test_max_cycles_ends_a_bluesim_run(tmp_path):
     )
     flow = _run(BscSim, design, tmp_path / "run", max_cycles=100)
     assert flow is not None and flow.succeeded
+    assert "RAN TO THE END" not in capfd.readouterr().out
 
 
 #: A testbench calling a C function through `import "BDPI"`.
@@ -913,6 +1089,7 @@ def test_an_imported_c_function_is_linked_into_the_simulation(simulator, tmp_pat
     """The design's C/C++ sources reach the link step: a testbench calling a C function
     (`import "BDPI"`) runs on every simulator -- through VPI, or the DPI for Verilator."""
     _require_simulator(simulator)
+    require_c_toolchain()
     _write(tmp_path, {"Dpi.bsv": BDPI_TB, "mac.cpp": MAC_CPP})
     design = Design(
         name="dpi",
@@ -1091,9 +1268,11 @@ def test_imported_verilog_in_a_file_named_otherwise_is_simulated(simulator, tmp_
     assert "PASS" in out
 
 
-def test_a_plain_c_function_is_linked_into_bluesim(tmp_path, capfd):
-    """bsc links `.c` sources too, which xeda gives no source type."""
-    require_bluesim()
+@pytest.mark.parametrize("simulator", SIMULATORS)
+def test_a_plain_c_function_is_linked_into_the_simulation(simulator, tmp_path, capfd):
+    """bsc links `.c` sources too, which xeda gives no source type, on every simulator."""
+    _require_simulator(simulator)
+    require_c_toolchain()
     _write(tmp_path, {"Dpi.bsv": BDPI_TB, "mac.c": MAC_CPP.replace('extern "C" ', "")})
     design = Design(
         name="dpi_c",
@@ -1101,7 +1280,9 @@ def test_a_plain_c_function_is_linked_into_bluesim(tmp_path, capfd):
         rtl={"sources": []},
         tb={"sources": ["mac.c", "Dpi.bsv"], "top": "mkDpi"},
     )
-    flow = _run(BscSim, design, tmp_path / "run")
+    flow = _run(
+        BscSim, design, tmp_path / "run", simulator=simulator, use_dpi=simulator == "verilator"
+    )
     out = capfd.readouterr().out
     assert flow is not None and flow.succeeded, out[-2000:]
     assert "PASS" in out

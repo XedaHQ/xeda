@@ -168,10 +168,10 @@ compiles a Bluespec testbench and simulates it. Both need bsc 2026.07.1 or newer
 the flow starts.
 
 Bluespec compiles packages in source order, and the package that defines the top module must come
-last: for ``bsc`` that is the last Bluespec source in ``rtl.sources`` defining ``rtl.top``; for
-``bsc_sim`` the last one in ``tb.sources`` defining ``tb.top`` (``rtl.top`` when the design has no
-testbench). A package's name is its file's stem, so a multi-package design lists each package's
-file, the top's last.
+last: for ``bsc`` the last Bluespec source in ``rtl.sources`` must define ``rtl.top``; for
+``bsc_sim`` the last one in ``tb.sources`` must define ``tb.top`` (or, for a design without a
+testbench, the last in ``rtl.sources`` ``rtl.top``). A package's name is its file's stem, so a
+multi-package design lists each package's file, the top's last.
 
 ``rtl.defines`` and ``rtl.parameters`` (and, for ``bsc_sim``, the testbench's over the RTL's) are
 passed to bsc as preprocessor macros. bsc's own preprocessor reads BSV only, so a BH (``.bs``)
@@ -182,20 +182,21 @@ about.
 ``bsc``'s ``artifacts.verilog`` is the file set a downstream synthesis or simulation flow needs:
 the generated modules, the design's own Verilog sources (listed where they are), and the bsc
 library and ``import "BVI"``-imported modules the design instantiates that are found on the
-Verilog search path, copied into ``verilog_out_dir``. A module that no Verilog file defines (a
-vendor primitive, for instance) is left out of the list, with a warning: the downstream tool must
-provide it. With ``positive_reset`` (on by default), every file ``bsc`` generated or copied begins
-with a Verilog macro definition for ``BSV_POSITIVE_RESET``, so the generated and library modules
-reset active-high. The design's own Verilog sources are left unchanged; a first file,
-``bsv_defines.v``, defines the macro ahead of them, which sets their reset polarity only where
-they read the macro themselves. Name the reset port with ``reset_prefix`` if a downstream flow
-expects one.
+Verilog search path, copied into ``verilog_out_dir``. A module the generated Verilog
+instantiates that no Verilog file defines (a vendor primitive, for instance) is left out of the
+list, with a warning: the downstream tool must provide it. With ``positive_reset`` (on by
+default), every file ``bsc`` generated or copied begins with a Verilog macro definition for
+``BSV_POSITIVE_RESET``, so the generated and library modules reset active-high. The design's own
+Verilog sources are left unchanged; a first file, ``bsv_defines.v``, defines the macro ahead of
+them, which sets their reset polarity only where they read the macro themselves. Name the reset
+port with ``reset_prefix`` if a downstream flow expects one.
 
 ``bsc_sim`` runs the testbench with Bluesim (the default), bsc's own cycle-based simulator, or,
 through bsc's ``-vsim`` link step, a Verilog simulator: Verilator, Icarus Verilog, or another one
 bsc supports. The run fails when the simulation exits with a failure status -- a testbench's
 ``$fatal`` or a failing ``dynamicAssert`` -- and passes otherwise; ``$finish(n)``'s argument is a
-verbosity level, not a status, and ``$error`` fails the run only under Verilator.
+verbosity level, not a status, and of Bluesim, Verilator and Icarus Verilog, ``$error`` fails
+the run only under Verilator.
 
 .. code-block:: bash
 

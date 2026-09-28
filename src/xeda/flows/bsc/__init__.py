@@ -243,7 +243,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             description="Additional directories searched for the Verilog files of imported "
             '(`import "BVI"`) and library modules (`-vsearch`), before bsc\'s own Verilog '
             "library. The directories of the design's Verilog sources are always searched. "
-            "Relative to the design root.",
+            "Relative to the design root. Not used by Bluesim, which reads no Verilog.",
         )
         fdir: Path | None = Field(
             None,
@@ -261,7 +261,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
         )
         cpp_flags: list[str] = Field(
             [],
-            description="Arguments passed to the C preprocessor (`-Xcpp`), one per item.",
+            description="Arguments passed to the C preprocessor (`-Xcpp`), one per item, "
+            "with `cpp`.",
         )
         # ------------------------------------------------------------------ semantics
         aggressive_conditions: bool = Field(
@@ -328,11 +329,12 @@ class BscFlow(Flow, metaclass=ABCMeta):
         )
         optimize: bool = Field(
             False,
-            description="Minimize the conditions of rules and `if`s during elaboration (`-O`, a "
-            "hidden bsc flag, the same as `-opt-bool`): exactly for a condition of up to 8 "
-            "variables, heuristically beyond. It can save a few percent of the logic after "
-            "synthesis, but can multiply bsc's run time: the core of bluespec/Piccolo, which "
-            "compiles in about 80 s without it, did not finish in 30 minutes with it.",
+            description="Simplify the conditions of rules and `if`s during elaboration (`-O`, "
+            "a hidden bsc flag, the same as `-opt-bool`): two-level minimization of a condition "
+            "of up to 8 variables, bsc's BDD-based simplifier beyond. It can save a few percent "
+            "of the logic after synthesis, but can multiply bsc's run time: the core of "
+            "bluespec/Piccolo, which compiles in about 80 s without it, did not finish in 30 "
+            "minutes with it.",
         )
         extra_optimize_flags: list[str] = Field(
             [],
@@ -343,8 +345,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
         synthesize_to_boolean: bool = Field(
             False,
             description="Synthesize all primitive operators into simple boolean operations "
-            "(`-synthesize`). Not for FPGA or ASIC synthesis: it hides arithmetic from the "
-            "synthesis tool, which then infers no carry chains or DSP blocks.",
+            "(`-synthesize`). It hides the arithmetic from a downstream synthesis tool: on the "
+            "examples, their adders and multipliers then mapped to no carry chains or DSP blocks, "
+            "for up to 2.4 times the LUTs.",
         )
         remove_false_rules: bool = Field(
             True,
@@ -503,7 +506,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
             'not behave as written: ["G0009", "G0010", "G0117"] for a conflict added to break a '
             "cycle, a rule arbitrarily made more urgent than another, and an action shadowed by "
             "a later rule. None is promoted by default: working designs raise them by design "
-            "(bluespec/Piccolo 26 G0010 and 85 G0117), and they change no generated hardware.",
+            "(bluespec/Piccolo: 26 G0010 and 85 G0117), and promoting one changes no hardware, "
+            "it only rejects those designs.",
         )
         suppress_warnings: list[str] = Field(
             [],
@@ -780,6 +784,11 @@ class BscFlow(Flow, metaclass=ABCMeta):
         with the `.v` beside it, whatever a `verilog_filters` command made of that `.v`. Other
         files stay, and the library modules copied in are copied again."""
         assert isinstance(self.settings, BscFlow.Settings)
+        if self.settings.verilog_filters and any(c.isspace() for c in str(out_dir)):
+            raise FlowSettingsException(
+                "bsc runs each `verilog_filters` command on a generated file through a shell, "
+                f"without quoting, so the output directory cannot contain whitespace: {out_dir}"
+            )
         bdir = Path(self.settings.bobj_dir)
         if self.settings.cleanup_bobjs:
             stale = [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
@@ -825,14 +834,16 @@ class Bsc(BscFlow):
     the Verilog files the top module needs: the generated modules, the design's own Verilog
     sources, and the modules of bsc's Verilog library it instantiates, which are copied into
     `verilog_out_dir` so any downstream synthesis or simulation flow can take the list as is. A
-    module no Verilog file defines (a vendor primitive, say) is left out with a warning: the
-    downstream tool must provide it. `rtl.defines` and `rtl.parameters` are passed to bsc as
-    preprocessor macros; BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
+    module the generated Verilog instantiates that no Verilog file defines (a vendor primitive,
+    say) is left out with a warning: the downstream tool must provide it. `rtl.defines` and
+    `rtl.parameters` are passed to bsc as preprocessor macros; BH (`.bs`) sources see them only
+    through the C preprocessor, with `cpp`.
     """
 
     results_description = describe_results(
-        modules="Verilog modules of the design's hierarchy, the top first: those bsc generated, "
-        "then the library and imported modules they instantiate.",
+        modules="Verilog modules of the design's hierarchy, the top first and each module "
+        "before those it instantiates: the ones bsc generated, the library modules and the "
+        "design's own Verilog modules.",
     )
 
     class Settings(BscFlow.Settings):
@@ -935,7 +946,8 @@ class Bsc(BscFlow):
         ]
         self._compile("verilog", sources, top, top_file, flags)
 
-        verilog_path = self._verilog_path(path_flags)
+        # read with the compile's own path flags: `extra_flags` may add a `-vsearch`
+        verilog_path = self._verilog_path([*path_flags, *ss.extra_flags])
         modules, files = self._collect_verilog(top, top_file, vout_dir, verilog_path)
         self.results["modules"] = modules
         self.artifacts.verilog = [str(f) for f in files]
@@ -949,9 +961,11 @@ class Bsc(BscFlow):
         `.v` are in `vout_dir`; its submodules are the lines of the `.use` file. Every other module
         is defined by one of the design's Verilog sources, or is found as `<module>.v` in bsc's
         Verilog search path (never in `vout_dir`, which may hold copies from an earlier run) and
-        copied into `vout_dir`. A module found nowhere is left to the downstream tool, such as a
-        vendor primitive, with a warning. A module both generated and defined by a design source
-        is an error: the file set would define it twice.
+        copied into `vout_dir`. A module a `.use` file names that is found nowhere is left to the
+        downstream tool, such as a vendor primitive, with a warning; in the design's or the
+        library's own Verilog, only instances of modules found are followed, since what looks
+        like one may not be. A module both generated and defined by a design source is an error:
+        the file set would define it twice.
         """
         ss = self.settings
         assert isinstance(ss, self.Settings)
@@ -974,12 +988,18 @@ class Bsc(BscFlow):
                 (d / f"{module}.v" for d in library_dirs if (d / f"{module}.v").is_file()), None
             )
 
+        def bsc_generated(module: str) -> bool:
+            return (vout_dir / f"{module}.use").is_file() and (vout_dir / f"{module}.v").is_file()
+
         def visit_instances(path: Path, module: str) -> None:
             """A library or design module's own submodules, which no `.use` file lists: bsc's
-            `MakeResetA` instantiates `SyncResetA`. Only names that resolve to a module count, so
-            a word that merely looks like an instance is never reported missing."""
+            `MakeResetA` instantiates `SyncResetA`, and a Verilog wrapper the design imports may
+            instantiate a module bsc generated. Only names that resolve to a module count, so a
+            word that merely looks like an instance is never reported missing."""
             for name in _verilog_instances(path, module):
-                if name != module and (name in defined_in or in_library(name)):
+                if name != module and (
+                    name in defined_in or bsc_generated(name) or in_library(name)
+                ):
                     visit(name)
 
         def visit(module: str) -> None:
@@ -990,7 +1010,7 @@ class Bsc(BscFlow):
                 return
             use_file = vout_dir / f"{module}.use"
             verilog = vout_dir / f"{module}.v"
-            if use_file.is_file() and verilog.is_file():
+            if bsc_generated(module):
                 if module in defined_in:
                     raise FlowSettingsException(
                         f"{module} is both generated by bsc ({verilog}) and defined by the "
@@ -1054,12 +1074,27 @@ class Bsc(BscFlow):
         return modules, unique(files)
 
 
+def _check_link_paths(args: list[str | Path]) -> None:
+    """Reject the paths bsc's link step cannot take: bsc runs the C++ compiler and the Verilog
+    simulator through a shell, unquoted, so a path with whitespace falls apart there (bsc's own
+    compilation copes)."""
+    paths = [part for arg in map(str, args) for part in arg.split(_PATH_SEPARATOR)]
+    spaced = unique([p for p in paths if not p.startswith("-") and any(c.isspace() for c in p)])
+    if spaced:
+        raise FlowSettingsException(
+            "bsc's link step runs its tools through a shell without quoting, so it cannot take a "
+            f"path with whitespace: {', '.join(spaced)}. Use a run directory (`--xeda-run-dir`) "
+            "and design location without whitespace, or set `sim_dir`/`bobj_dir` elsewhere."
+        )
+
+
 def _prepend_define(path: Path, macro: str) -> None:
-    """Define `macro` at the top of a Verilog file, once."""
-    line = f"`define {macro}\n"
-    content = path.read_text()
+    """Define `macro` at the top of a Verilog file, once. As bytes: a library or imported
+    module's file need not be UTF-8."""
+    line = f"`define {macro}\n".encode()
+    content = path.read_bytes()
     if not content.startswith(line):
-        path.write_text(line + content)
+        path.write_bytes(line + content)
 
 
 class BscSim(BscFlow, SimFlow):
@@ -1071,7 +1106,8 @@ class BscSim(BscFlow, SimFlow):
     a Verilog simulator that bsc links the generated Verilog with (`bsc -vsim`), driving clock
     and reset from its `main.v`. The run fails when the simulation exits with an error status:
     a testbench fails with `$fatal` or a failing `dynamicAssert`. `$finish(n)` does not fail it
-    (`n` is a verbosity level) and `$error` fails it only under Verilator. The design's
+    (`n` is a verbosity level), and of Bluesim, Verilator and Icarus Verilog, `$error` fails it
+    only under Verilator. The design's
     `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which
     BH (`.bs`) sources see only through the C preprocessor, with `cpp`.
     """
@@ -1103,7 +1139,8 @@ class BscSim(BscFlow, SimFlow):
             None,
             gt=0,
             description="Stop a Bluesim simulation after this many clock cycles (`-m`), even if "
-            "the testbench has not finished. Bluesim only.",
+            "the testbench has not finished. Bluesim only. A run stopped there passes, since "
+            "Bluesim exits with status 0: a testbench must report its own success.",
         )
         system_verilog_tasks: bool = Field(
             True,
@@ -1175,6 +1212,11 @@ class BscSim(BscFlow, SimFlow):
                 "bsc_sim needs the testbench module: set `tb.top` (or `rtl.top` for a design "
                 "without a testbench)"
             )
+        if len(self.design.tb.top) > 1:
+            raise FlowSettingsException(
+                "bsc_sim simulates one top module; `tb.top` names "
+                + ", ".join(self.design.tb.top)
+            )
         if ss.stop_time is not None:
             raise FlowSettingsException(
                 "bsc_sim cannot stop at a simulated time: the testbench ends the simulation "
@@ -1236,9 +1278,21 @@ class BscSim(BscFlow, SimFlow):
             *_macro_flags(macros, "design macros", cpp=ss.cpp),
             *ss.extra_flags,
         ]
+        executable = sim_dir / tb_top
+        # a Verilog link finds a module on `-vsearch` only in a file named after it, so the
+        # design's Verilog is named: a file holding another module, or several, counts too
+        link_files = [*self._foreign_sources()]
+        if not bluesim:
+            link_files += [
+                src.file
+                for src in self.design.sources_of_type(
+                    SourceType.Verilog, SourceType.SystemVerilog, rtl=True, tb=True
+                )
+            ]
+        link_flags = self._link_flags(bluesim)
+        _check_link_paths([*path_flags, *link_flags, executable, *link_files])
         self._compile(backend, sources, tb_top, top_file, flags)
 
-        executable = sim_dir / tb_top
         self.bsc.run(
             *self._runtime_flags(),
             *path_flags,
@@ -1248,26 +1302,16 @@ class BscSim(BscFlow, SimFlow):
             tb_top,
             "-o",
             executable,
-            *self._link_flags(bluesim),
+            *link_flags,
             *macro_flags,
-            *self._foreign_sources(),
-            # a Verilog link finds a module on `-vsearch` only in a file named after it, so the
-            # design's Verilog is named: a file holding another module, or several, counts too
-            *(
-                []
-                if bluesim
-                else [
-                    src.file
-                    for src in self.design.sources_of_type(
-                        SourceType.Verilog, SourceType.SystemVerilog, rtl=True, tb=True
-                    )
-                ]
-            ),
+            *link_files,
         )
         self.artifacts.executable = str(executable)
 
         sim_args = list(ss.sim_args)
         vcd = Path(ss.vcd) if ss.vcd else None
+        if vcd:
+            vcd.parent.mkdir(parents=True, exist_ok=True)  # no simulator creates it
         if bluesim:
             if ss.max_cycles is not None:
                 sim_args += ["-m", str(ss.max_cycles)]
