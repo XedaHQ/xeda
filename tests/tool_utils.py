@@ -389,6 +389,8 @@ def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
 # Opt-in layers, skipped unless their variable is set -- and then insisting on what they need:
 #   XEDA_TESTS_VIVADO=1  flows run by a real `vivado` (tests/test_vivado_real.py)
 #   XEDA_TESTS_DOCKER=1  flows run `dockerized`, in their default images (tests/test_dockerized.py)
+#   XEDA_TESTS_EXTERNAL=1  bsc flows on external repositories (tests/test_bsc_external.py), with
+#     XEDA_TESTS_EXTERNAL_SLOW=1 for its slowest test too
 # ---------------------------------------------------------------------------------------------
 
 

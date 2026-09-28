@@ -560,7 +560,8 @@ while it is open). A flow sharing
   `XEDA_TESTS_WORK_DIR`), which a container can mount where the system temp directory is not.
   `XEDA_TESTS_EXTERNAL=1` runs `bsc`/`bsc_sim` end to end on real, external Bluespec repositories
   at pinned commits (`tests/test_bsc_external.py`), cloned once per session into
-  `XEDA_TESTS_EXTERNAL_CACHE` or the checkout's `xeda_run/external/`; CI runs it on one Python
-  version only, since the repositories are fetched once per CI run regardless.
+  `XEDA_TESTS_EXTERNAL_CACHE` or the checkout's `xeda_run/external/`; CI runs it on the latest
+  Python version only. Its slowest test (Piccolo's core) also needs `XEDA_TESTS_EXTERNAL_SLOW=1`,
+  which CI does not set.
 - Formatting is inconsistent by design: `black` (line-length 100) is enforced on `src/` only; `ruff`
   (line-length 120, `target-version = "py311"`) checks the whole repo.
