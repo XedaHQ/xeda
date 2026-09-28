@@ -79,6 +79,43 @@ def test_vivado_synth_reads_every_file_by_its_own_name(work_dir) -> None:
     assert _logged(flow.run_path, "io x.xdc")
 
 
+@pytest.mark.parametrize("waive_drc", [False, True], ids=["drc_errors", "drc_waived"])
+def test_vivado_synth_fails_when_write_bitstream_does(work_dir, capfd, waive_drc) -> None:
+    """Pins without a location or I/O standard fail `write_bitstream`'s DRC (UCIO-1, NSTD-1),
+    and with it the implementation run: the flow fails, naming the run, its status and its log,
+    and registers no bitstream. With the two checks made warnings before the step, the same
+    design writes its bitstream where it is registered."""
+    root = work_dir / "design"
+    _write(root / "inv.v", INVERTER_V)
+    _write(root / "top.vhd", TOP_VHD)
+    waiver = _write(
+        root / "waive_drc.tcl", "set_property SEVERITY {Warning} [get_drc_checks {NSTD-1 UCIO-1}]\n"
+    )
+    design = Design(
+        name="bit",
+        design_root=root,
+        rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clock_port": "clk"},
+    )
+    settings = {"fpga": PART, "clock_period": 10.0, "bitstream": "outputs/top.bit"}
+    if waive_drc:
+        settings["impl"] = {"steps": {"WRITE_BITSTREAM": {"TCL": {"PRE": waiver}}}}
+    flow = DefaultRunner(work_dir / "run").run_flow(VivadoSynth, design, settings)
+    assert flow is not None and flow.succeeded == waive_drc
+    log = flow.run_path / "bit.runs" / "impl_1" / "runme.log"
+    # Vivado itself names the log when it launches the run ("Run output will be captured here")
+    output = capfd.readouterr().out.splitlines()
+    messages = [line for line in output if "ERROR:" in line and str(log) in line]
+    if waive_drc:
+        assert flow.results["status"] == "write_bitstream Complete!"
+        assert (flow.run_path / flow.artifacts["bitstream"]).is_file()
+        assert not messages
+    else:
+        assert flow.results["status"] == "write_bitstream ERROR"
+        assert "bitstream" not in flow.results.artifacts
+        assert len(messages) == 1 and '"write_bitstream ERROR"' in messages[0], messages
+        assert _logged(flow.run_path, "UCIO-1")
+
+
 def test_vivado_alt_synth_reads_the_xdc_files_it_is_given(work_dir) -> None:
     """`vivado_alt_synth` used to read its generated clock constraints only."""
     root = work_dir / "design"

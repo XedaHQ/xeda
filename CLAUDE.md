@@ -545,7 +545,12 @@ while it is open). A flow sharing
   enough, `TCL_MODEL` models a tool's own commands: ISE's `process` (a failed process shows only
   in its result and status, never as a TCL error; `XEDA_FAKE_ISE_FAILURE`) and Diamond's
   `prj_run` write the reports and bitstream the real steps write, unless
-  `XEDA_FAKE_TOOL_NO_OUTPUT` is set -- a step that succeeds without its output. To fake a new tool:
+  `XEDA_FAKE_TOOL_NO_OUTPUT` is set -- a step that succeeds without its output. Vivado's
+  `launch_runs` runs each project run's enabled steps up to its `-to_step`, sourcing the step
+  hooks `set_property` attached, in `<project>.runs/<run>`; a step named in
+  `XEDA_FAKE_TOOL_FAIL` fails, and `get_property` reports the run's `STATUS` and `PROGRESS` as
+  Vivado 2024.2 does. `tool_utils.fake_returns` (`XEDA_FAKE_TOOL_RETURNS`) makes any call
+  return what a test says, by its leading words (`get_property STATUS impl_1`). To fake a new tool:
   add a symlink, add an entry to the `fake_tools` dict (the option or argument naming its script,
   for `RunTcl`), and use `use_fake_tools`.
 - **ModelSim exits 0 unless told otherwise.** Its `exit` takes the status as `exit -code N` (a
@@ -557,6 +562,11 @@ while it is open). A flow sharing
   VHDL `failure` and SystemVerilog `$fatal` as the same TESTSTATUS (3), so `fatal` and `failure`
   have the same status threshold. The flow's default image is `chaseruskin/modelsim-intel`
   (ModelSim-Intel Starter 2020.1, amd64, no license).
+- **A Vivado project run's outcome is in its properties alone.** `wait_on_run` returns normally
+  when the run failed in Vivado 2021.1 and raises an error in 2024.2, so `vivado_synth.tcl`'s
+  `xedaWaitOnRun` waits either way, then requires `STATUS` "<step> Complete!" and `PROGRESS`
+  "100%" (a failed run reports "<step> ERROR"), records the status (the `status` result) and
+  otherwise exits 1 naming the run, its status and `<project>.runs/<run>/runme.log`.
 - **Yosys FPGA synthesis options are chosen by the installed yosys release.** The `synth_*`
   passes changed their options across releases (ABC9 became the default in 0.36, Nexus moved to
   `synth_lattice` in 0.59, 0.69 made ABC9 unconditional and dropped `-retime`), so

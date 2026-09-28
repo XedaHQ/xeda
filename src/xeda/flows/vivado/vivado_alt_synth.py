@@ -3,7 +3,19 @@ from typing import Any, Dict, List, Optional
 
 from ...dataclass import Field, field_validator
 from ...flow import FpgaSynthFlow
-from .vivado_synth import RunOptions, StepsValType, VivadoSynth, constraint_files
+from .vivado_synth import (
+    CHECKPOINT_PLACE,
+    CHECKPOINT_ROUTE,
+    CHECKPOINT_SYNTH,
+    NETLIST,
+    NETLIST_TIMING,
+    SDF,
+    XDC_EXPORTED,
+    RunOptions,
+    StepsValType,
+    VivadoSynth,
+    constraint_files,
+)
 
 log = logging.getLogger(__name__)
 
@@ -339,6 +351,11 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     utilization and timing. See `vivado_synth` for the same in project mode.
     """
 
+    # Vivado's runs, whose status `vivado_synth` reports, are project mode's
+    results_description = {
+        key: text for key, text in VivadoSynth.results_description.items() if key != "status"
+    }
+
     class Settings(VivadoSynth.Settings):
         synth: RunOptions = Field(
             RunOptions(strategy="Default"),
@@ -453,12 +470,12 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         # `VivadoAltSynth` does not override `parse_reports` (it inherits `VivadoSynth`'s, which
         # only tracks `bitstream` and the reports/log globs).
         if ss.write_checkpoint:
-            self.artifacts.checkpoint_synth = ss.checkpoints_dir / "post_synth.dcp"
-            self.artifacts.checkpoint_place = ss.checkpoints_dir / "post_place.dcp"
-            self.artifacts.checkpoint_route = ss.checkpoints_dir / "post_route.dcp"
+            self.artifacts[CHECKPOINT_SYNTH] = ss.checkpoints_dir / "post_synth.dcp"
+            self.artifacts[CHECKPOINT_PLACE] = ss.checkpoints_dir / "post_place.dcp"
+            self.artifacts[CHECKPOINT_ROUTE] = ss.checkpoints_dir / "post_route.dcp"
         if ss.write_netlist:
-            self.artifacts.netlist = ss.outputs_dir / "impl_funcsim.v"
-            self.artifacts.netlist_timing = ss.outputs_dir / "impl_timesim.v"
-            self.artifacts.sdf = ss.outputs_dir / "impl_timesim.sdf"
-            self.artifacts.xdc_exported = ss.outputs_dir / "impl.xdc"
+            self.artifacts[NETLIST] = ss.outputs_dir / "impl_funcsim.v"
+            self.artifacts[NETLIST_TIMING] = ss.outputs_dir / "impl_timesim.v"
+            self.artifacts[SDF] = ss.outputs_dir / "impl_timesim.sdf"
+            self.artifacts[XDC_EXPORTED] = ss.outputs_dir / "impl.xdc"
         self.vivado.run("-source", script_path)

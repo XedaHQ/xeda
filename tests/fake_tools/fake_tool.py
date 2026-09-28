@@ -47,9 +47,12 @@ def write_file(path, data):
 # tclsh does not know. The recording goes to `fake_<tool>.calls` in the working directory (the
 # run directory), one `CALL <n>` line per command followed by its `ARG` lines -- and `ELEM` lines
 # for the files of an argument that is a TCL list (`[list "a b.v"]`). The commands named in
-# `XEDA_FAKE_TOOL_FAIL` (a TCL list) raise a TCL error after being recorded. A tool's commands
+# `XEDA_FAKE_TOOL_FAIL` (a TCL list) raise a TCL error after being recorded, and
+# `XEDA_FAKE_TOOL_RETURNS` makes calls return what a test says (`__returns`). A tool's commands
 # that `TCL_MODEL` models also write the files the real ones write (`__output`), unless
-# `XEDA_FAKE_TOOL_NO_OUTPUT` is set: then every step succeeds and writes nothing.
+# `XEDA_FAKE_TOOL_NO_OUTPUT` is set: then every step succeeds and writes nothing. A model fails
+# the steps it runs that `XEDA_FAKE_TOOL_FAIL` names, as the tool does (ISE's processes, the
+# steps of Vivado's runs).
 TCL_RECORDER = r"""
 set __calls [open {%(calls)s} a]
 proc __record {args} {
@@ -65,15 +68,31 @@ proc __record {args} {
 }
 # `XEDA_FAKE_TOOL_FAIL`: the tool commands that fail, as a compiler does on a bad source
 set __fail [expr {[info exists ::env(XEDA_FAKE_TOOL_FAIL)] ? $::env(XEDA_FAKE_TOOL_FAIL) : {}}]
-# What a tool command returns where the recorder's 1 would be misread: Vivado's
-# `get_msg_config -count` is a number of messages, and 1 an error that never happened.
+# What a tool command returns where the recorder's 1 would be misread (Vivado's
+# `get_msg_config -count` is a number of messages, and 1 an error that never happened), or where
+# a test makes the tool report what it would in a case the fake does not reach on its own:
+# `XEDA_FAKE_TOOL_RETURNS`, a TCL dict of the same form, is merged over these. A key is the
+# leading words of a call, and the longest that matches wins: `{get_property STATUS impl_1}`
+# answers for that property of that run only.
 set __returns [dict create get_msg_config 0]
-proc __call {args} {
-    set result [__record {*}$args]
-    if {[lindex $args 0] in $::__fail} { error "[lindex $args 0] failed" }
-    if {[dict exists $::__returns [lindex $args 0]]} { return [dict get $::__returns [lindex $args 0]] }
+if {[info exists ::env(XEDA_FAKE_TOOL_RETURNS)]} {
+    set __returns [dict merge $__returns $::env(XEDA_FAKE_TOOL_RETURNS)]
+}
+proc __returned {words result} {
+    for {set n [llength $words]} {$n > 0} {incr n -1} {
+        set key [lrange $words 0 [expr {$n - 1}]]
+        if {[dict exists $::__returns $key]} { return [dict get $::__returns $key] }
+    }
     return $result
 }
+# A tool command a model answers: recorded, failed if `XEDA_FAKE_TOOL_FAIL` names it, and
+# returning `result` unless `__returns` answers for it.
+proc __model {result args} {
+    __record {*}$args
+    if {[lindex $args 0] in $::__fail} { error "[lindex $args 0] failed" }
+    __returned $args $result
+}
+proc __call {args} { __model 1 {*}$args }
 proc unknown {args} { __call {*}$args }
 set __no_output [expr {[info exists ::env(XEDA_FAKE_TOOL_NO_OUTPUT)] ? $::env(XEDA_FAKE_TOOL_NO_OUTPUT) ne "" : 0}]
 proc __output {path} {
@@ -175,6 +194,149 @@ proc prj_run {step args} {
         Export { if {[__option $args -task] eq "Bitgen"} { __output $impl.bit } }
     }
     return $result
+}
+""",
+    # Vivado's project runs. `get_runs` returns the runs it names, `set_property` keeps what it
+    # sets on each (`__vivado_property(<run>,<NAME>)`: its step hooks and arguments) and
+    # `get_property` answers from that. `launch_runs` runs each run it names in its directory,
+    # `<project>.runs/<run>`, through its enabled steps up to its `-to_step` (by default a
+    # synthesis run's is synth_design, an implementation run's route_design): each step sources
+    # its `TCL.PRE` hook, runs, and sources its `TCL.POST` hook, and `write_bitstream` writes
+    # `<top>.bit` there, with `<top>.bin` beside it for `ARGS.BIN_FILE`. A step named in
+    # `XEDA_FAKE_TOOL_FAIL`, or a hook that raises an error or exits, fails the step and ends the
+    # run. The run then reports what became of it as Vivado 2024.2 does: `STATUS`
+    # `<step> Complete!` and `PROGRESS` `100%`, or `<step> ERROR` and the share of its steps that
+    # completed, and its `DIRECTORY`. `wait_on_run` has nothing to wait for.
+    "vivado": r"""
+set __vivado_runs_dir {}
+set __vivado_top {}
+array set __vivado_property {}
+# the steps of each kind of run, in order, each with whether it is enabled by default
+set __vivado_steps(synth) {synth_design 1}
+set __vivado_steps(impl) {
+    init_design 1 opt_design 1 power_opt_design 0 place_design 1 post_place_power_opt_design 0
+    phys_opt_design 1 route_design 1 post_route_phys_opt_design 0 write_bitstream 1
+}
+proc create_project {args} {
+    set names {}
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set word [lindex $args $i]
+        if {$word eq "-part"} { incr i } elseif {![string match -* $word]} { lappend names $word }
+    }
+    lassign $names name dir
+    if {$dir eq ""} { set dir . }
+    set ::__vivado_runs_dir [file normalize [file join $dir $name.runs]]
+    __call create_project {*}$args
+}
+proc get_runs {args} { __model $args get_runs {*}$args }
+proc set_property {args} {
+    set result [__call set_property {*}$args]
+    if {"-name" in $args} {
+        set name [__option $args -name]
+        set value [__option $args -value]
+        set objects [__option $args -objects]
+    } else {
+        set words $args
+        while {[lindex $words 0] in {-quiet -verbose}} { set words [lrange $words 1 end] }
+        lassign $words name value objects
+    }
+    set name [string toupper $name]
+    if {$name eq "TOP"} { set ::__vivado_top $value }
+    foreach object $objects { set ::__vivado_property($object,$name) $value }
+    return $result
+}
+proc get_property {args} {
+    set words $args
+    while {[lindex $words 0] in {-quiet -verbose}} { set words [lrange $words 1 end] }
+    lassign $words name object
+    set name [string toupper $name]
+    set result 1
+    if {$name eq "TOP"} {
+        set result $::__vivado_top
+    } elseif {[info exists ::__vivado_property($object,$name)]} {
+        set result $::__vivado_property($object,$name)
+    }
+    __model $result get_property {*}$args
+}
+proc __vivado_run_property {run name default} {
+    if {[info exists ::__vivado_property($run,$name)]} { return $::__vivado_property($run,$name) }
+    return $default
+}
+proc launch_runs {args} {
+    set result [__call launch_runs {*}$args]
+    set runs {}
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set word [lindex $args $i]
+        if {$word in {-jobs -to_step -next_step -dir -host -remote_cmd -pre_launch_script
+                      -post_launch_script -custom_script -lsf -sge}} {
+            incr i
+        } elseif {![string match -* $word]} {
+            lappend runs $word
+        }
+    }
+    foreach run $runs { __vivado_run $run [__option $args -to_step] }
+    return $result
+}
+proc __vivado_run {run to_step} {
+    set kind [expr {[string match synth* $run] ? "synth" : "impl"}]
+    if {$to_step eq ""} { set to_step [expr {$kind eq "synth" ? "synth_design" : "route_design"}] }
+    set steps {}
+    foreach {step enabled} $::__vivado_steps($kind) {
+        set enabled [__vivado_run_property $run STEPS.[string toupper $step].IS_ENABLED $enabled]
+        if {[string is true -strict $enabled] || $step eq $to_step} { lappend steps $step }
+        if {$step eq $to_step} break
+    }
+    set dir [file join $::__vivado_runs_dir $run]
+    file mkdir $dir
+    set ::__vivado_property($run,DIRECTORY) $dir
+    set status "$to_step Complete!"
+    set completed 0
+    set here [pwd]
+    cd $dir
+    foreach step $steps {
+        if {![__vivado_step $run $step]} {
+            set status "$step ERROR"
+            break
+        }
+        incr completed
+    }
+    cd $here
+    set ::__vivado_property($run,STATUS) $status
+    set progress [expr {100.0 * $completed / [llength $steps]}]
+    if {$progress == int($progress)} {
+        set ::__vivado_property($run,PROGRESS) [expr {int($progress)}]%
+    } else {
+        set ::__vivado_property($run,PROGRESS) [format %.2f%% $progress]
+    }
+}
+proc __vivado_step {run step} {
+    set STEP [string toupper $step]
+    if {![__vivado_hook $run $STEP PRE]} { return 0 }
+    if {$step in $::__fail} {
+        puts "fake vivado: $run: $step failed"
+        return 0
+    }
+    if {$step eq "write_bitstream"} {
+        __output $::__vivado_top.bit
+        if {[string is true -strict [__vivado_run_property $run STEPS.$STEP.ARGS.BIN_FILE 0]]} {
+            __output $::__vivado_top.bin
+        }
+    }
+    __vivado_hook $run $STEP POST
+}
+# Source a step's hook, as the run's own Vivado does, where `exit` ends that Vivado, and the step
+proc __vivado_hook {run STEP when} {
+    set hook [__vivado_run_property $run STEPS.$STEP.TCL.$when {}]
+    if {$hook eq ""} { return 1 }
+    rename exit __vivado_exit
+    proc exit {{code 0}} { error "exit $code" }
+    set failed [catch {uplevel #0 [list __source $hook]} message]
+    rename exit {}
+    rename __vivado_exit exit
+    if {$failed} {
+        puts "fake vivado: $run: the [string tolower $STEP] $when hook failed: $message"
+    }
+    expr {!$failed}
 }
 """,
 }

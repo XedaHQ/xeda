@@ -131,13 +131,34 @@ unset design_name
 unset project_name
 unset fpga_part
 
+{#- What became of a run is in its properties alone: `wait_on_run` returns normally for a failed
+    run in Vivado 2021.1, and raises an error in 2024.2. So the script waits for the run either
+    way, then asks whether it completed the step it was launched to -- its STATUS is
+    "<step> Complete!" (not "<step> ERROR", "Not started", ...) and its PROGRESS 100% -- and
+    records the status for the results (`status`). A run that did not complete its step ends the
+    script with one message naming the run, its status and its log. #}
+proc xedaWaitOnRun {run step} {
+  catch {wait_on_run $run} {# <-- renamed to wait_on_runs in Vivado 2021.2 #}
+  set status [get_property STATUS [get_runs $run]]
+  set progress [get_property PROGRESS [get_runs $run]]
+  set status_file [open {{run_status_file|tcl_word}} w]
+  puts $status_file $status
+  close $status_file
+  if {$status ne "$step Complete!" || $progress ne "100%"} {
+    set log [file join [get_property DIRECTORY [get_runs $run]] runme.log]
+    puts "\n=========( ERROR: The Vivado run $run did not complete $step: its status is\
+          \"$status\", its progress $progress. See its log, $log )=========="
+    exit 1
+  }
+}
+
 puts "\n=============================( Running Synthesis )=============================="
 reset_run synth_1
 launch_runs synth_1 {% if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %}
-wait_on_run synth_1 {# <-- renamed to wait_on_runs in Vivado 2021.2 #}
+xedaWaitOnRun synth_1 synth_design
 
 puts "\n===========================( Running Implementation )==========================="
 reset_run impl_1
 launch_runs impl_1 {%-if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %} -to_step {{impl_to_step}}
-wait_on_run impl_1
+xedaWaitOnRun impl_1 {{impl_to_step}}
 puts "\n====================================( DONE )===================================="
