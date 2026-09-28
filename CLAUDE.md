@@ -299,8 +299,12 @@ Tool scripts (TCL/SDC/XDC/YS/...) are Jinja2 templates in a `templates/` directo
 module. `Flow._create_jinja_env` builds a `ChoiceLoader` over `PackageLoader`s for the flow's own module
 *and its base classes' modules*, so a subclass inherits its parent's templates. Undefined variables are
 errors (`StrictUndefined`). `self.copy_from_template("x.tcl", **ctx)` renders with `settings`, `design`,
-and `artifacts` in scope. New template file extensions must be added to
-`[tool.setuptools.package-data]` in `pyproject.toml` or they won't ship in the wheel.
+and `artifacts` in scope. The Vivado scripts share their TCL procs (`errorExit`, `showWarningsAndErrors`,
+the critical-path reports) through `util.tcl`, which every template calling one includes
+(`{% include 'util.tcl' %}`); `tests/test_vivado_script_errors.py` checks both, since the fake
+records an undefined proc as a tool command where real Vivado fails with `invalid command name`.
+New template file extensions must be added to `[tool.setuptools.package-data]` in `pyproject.toml`
+or they won't ship in the wheel.
 
 ### Tool execution
 
@@ -541,9 +545,10 @@ while it is open). A flow sharing
   fails every test using it. Vivado's then writes canned reports
   (`tests/fake_tools/resource/fake_vivado_reports`). `tool_utils.use_fake_tools(monkeypatch)` puts
   them on `PATH`; `tool_utils.fake_calls(run_dir)` reads what the scripts ran; commands named in
-  `XEDA_FAKE_TOOL_FAIL` raise a TCL error, as a failed compile does. Where recording is not
-  enough, `TCL_MODEL` models a tool's own commands: ISE's `process` (a failed process shows only
-  in its result and status, never as a TCL error; `XEDA_FAKE_ISE_FAILURE`) and Diamond's
+  `XEDA_FAKE_TOOL_FAIL` raise a TCL error, as a failed compile does (so does `exec` of a program
+  named there, such as `xvhdl`). Where recording is not enough, `TCL_MODEL` models a tool's own
+  commands: ISE's `process` (a failed process shows only in its result and status, never as a
+  TCL error; `XEDA_FAKE_ISE_FAILURE`) and Diamond's
   `prj_run` write the reports and bitstream the real steps write, unless
   `XEDA_FAKE_TOOL_NO_OUTPUT` is set -- a step that succeeds without its output. Vivado's
   `launch_runs` runs each project run's enabled steps up to its `-to_step`, sourcing the step

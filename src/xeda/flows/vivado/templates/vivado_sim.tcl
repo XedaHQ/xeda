@@ -1,10 +1,6 @@
 set_param tclapp.enableGitAccess 0
 
-proc errorExit {errorString} {
-  puts "\n===========================( *ENABLE ECHO* )==========================="
-  puts "Error: $errorString"
-  exit 1
-}
+{% include 'util.tcl' %}
 
 set design_name    {{design.name}}
 set snapshot_name  snapshot
