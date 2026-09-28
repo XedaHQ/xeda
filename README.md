@@ -129,9 +129,13 @@ route. Results, generated scripts, reports, and effective settings are kept unde
     timing-annotated netlist simulation, rather than a vectorless estimate
 - AMD-Xilinx [ISE](https://www.xilinx.com/products/design-tools/ise-design-suite.html) Design Suite
   - `ise_synth`: FPGA synthesis and implementation for older Xilinx device families
-- [Bluespec](https://github.com/B-Lang-org/bsc): compiler, simulator, and tools for the Bluespec
-  Hardware Description Language
-  - `bsc`: compiles BSV/BH sources to Verilog for any downstream synthesis or simulation flow
+- [Bluespec](https://github.com/B-Lang-org/bsc) compiler (bsc 2026.07.1 or newer), for designs in
+  Bluespec SystemVerilog (BSV) and Bluespec Classic (BH)
+  - `bsc`: compiles the design to Verilog, and collects every Verilog file its top module needs
+    (including the bsc library modules it instantiates) for any downstream synthesis or
+    simulation flow
+  - `bsc_sim`: compiles a Bluespec testbench and simulates it with Bluesim, or with Verilator,
+    Icarus Verilog or another Verilog simulator through bsc's own Verilog link step
 - [GHDL](https://github.com/ghdl/ghdl) VHDL simulator
   - `ghdl_sim` (alias: `ghdl`): VHDL simulation
   - `ghdl_synth`: VHDL elaboration through `ghdl --synth`; for general-purpose synthesis prefer

@@ -9,7 +9,6 @@ describes. Each case runs a real flow down the code paths that used to do that.
 """
 
 import json
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -18,9 +17,15 @@ import pytest
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import Bsc, GhdlSim, GhdlSynth, Verilator, Yosys
+from xeda.flows import Bsc, BscSim, GhdlSim, GhdlSynth, Verilator, Yosys
 
-from .tool_utils import require_ghdl, require_verilator, require_yosys_ghdl_plugin
+from .tool_utils import (
+    require_bluesim,
+    require_bsc,
+    require_ghdl,
+    require_verilator,
+    require_yosys_ghdl_plugin,
+)
 
 VHDL_INV = (
     "library ieee; use ieee.std_logic_1164.all;\n"
@@ -48,6 +53,16 @@ VERILOG_TB = (
     " $finish; end\n"
     "endmodule\n"
 )
+BSV_TB = (
+    "package Tb;\n"
+    "import Top::*;\n"
+    "(* synthesize *)\n"
+    "module mkTb(Empty);\n"
+    "  Top_IFC dut <- mkTop;\n"
+    "  rule done (dut.out == 3); $finish(0); endrule\n"
+    "endmodule\n"
+    "endpackage\n"
+)
 BSV_TOP = (
     "package Top;\n"
     "interface Top_IFC; method Bit#(4) out; endinterface\n"
@@ -59,14 +74,6 @@ BSV_TOP = (
     "endmodule\n"
     "endpackage\n"
 )
-
-
-def _require_bsc() -> None:
-    # bsc is not part of the tool set CI provides, so it is optional here even under
-    # XEDA_TESTS_REQUIRE_TOOLS.
-    """Skip when the Bluespec compiler is unavailable."""
-    if not shutil.which("bsc"):
-        pytest.skip("bsc is not installed")
 
 
 def _files(root: Path, files: dict[str, str]) -> None:
@@ -122,9 +129,20 @@ CASES: dict[str, Any] = {
     # `run` added BSV_POSITIVE_RESET to the design's own `rtl.parameters`
     "bsc": (
         Bsc,
-        _require_bsc,
+        require_bsc,
         {"Top.bsv": BSV_TOP},
         {"rtl": {"sources": ["Top.bsv"], "top": "mkTop", "parameters": {"DEPTH": 4}}},
+        {"positive_reset": True},
+    ),
+    # the testbench's macros join the RTL's, and a reset polarity joins both, in a copy
+    "bsc_sim": (
+        BscSim,
+        require_bluesim,
+        {"Top.bsv": BSV_TOP, "Tb.bsv": BSV_TB},
+        {
+            "rtl": {"sources": ["Top.bsv"], "top": "mkTop", "parameters": {"DEPTH": 4}},
+            "tb": {"sources": ["Tb.bsv"], "top": "mkTb", "defines": {"TB_ONLY": 1}},
+        },
         {"positive_reset": True},
     ),
 }
