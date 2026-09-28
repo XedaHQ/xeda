@@ -170,6 +170,10 @@ The simplest form is a path string; the type is inferred from the extension:
    * - ``.mem``
      - ``MemoryFile``
 
+.. note::
+   The ``bsc`` flow compiles BH (Bluespec Classic) only from ``.bs`` files; it rejects a ``.bh``
+   source with a settings error naming the file to rename.
+
 When inference is not enough, give a table instead of a string:
 
 .. code-block:: toml
