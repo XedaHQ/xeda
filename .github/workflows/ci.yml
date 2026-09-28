@@ -30,6 +30,31 @@ jobs:
       - uses: nickg/setup-nvc@v1
         with:
           version: latest
+      # Bluespec Compiler (bsc): the bsc/bsc_sim flows require bsc >= 2026.07.1, installed here
+      # from the official release tarball, checked against a pinned sha256, so the version is
+      # pinned the same way as the OSS CAD Suite above. The extracted bin/ scripts locate the
+      # rest of the install (lib/, bin/core/) relative to their own path, so the real bin/ goes
+      # on PATH as-is rather than symlinking the scripts elsewhere. bluetcl and every Bluesim
+      # executable link against libtcl8.6, which ubuntu-24.04 (this runner's image) does not
+      # install by default; a C++ compiler for Bluesim/Verilog-sim links is normally already
+      # present on the runner. OSS CAD Suite (above) puts verilator and iverilog on PATH, which
+      # is what bsc's `-vsim verilator|iverilog` link step picks up.
+      - name: Install Bluespec Compiler (bsc)
+        env:
+          BSC_VERSION: "2026.07.1"
+          BSC_SHA256: "4e69030f3a28cb819192a3780e20fd174ff7caf30cacf1cdbf2195cce913a933"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tcl8.6
+          curl -fsSL -o bsc.tar.gz \
+            "https://github.com/B-Lang-org/bsc/releases/download/${BSC_VERSION}/bsc-${BSC_VERSION}-ubuntu-24.04.tar.gz"
+          echo "${BSC_SHA256}  bsc.tar.gz" | sha256sum -c -
+          BSC_DIR="$RUNNER_TOOL_CACHE/bsc/${BSC_VERSION}"
+          mkdir -p "$BSC_DIR"
+          tar -xzf bsc.tar.gz -C "$BSC_DIR" --strip-components=1
+          rm bsc.tar.gz
+          echo "$BSC_DIR/bin" >> "$GITHUB_PATH"
+          "$BSC_DIR/bin/bsc" -v
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
@@ -40,8 +65,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --upgrade tox tox-gh-actions
       - name: "Run tox targets for ${{ matrix.python-version }}"
-        # CI installs ghdl, yosys (oss-cad-suite) and nvc, so a tool-dependent test that would
-        # skip locally must fail here instead of silently passing.
+        # CI installs ghdl, yosys (oss-cad-suite), nvc and bsc, so a tool-dependent test that
+        # would skip locally must fail here instead of silently passing.
+        # XEDA_TESTS_EXTERNAL runs tests/test_bsc_external.py, which clones external Bluespec
+        # repositories at pinned commits: fetched once per CI run, so it only needs to run on
+        # one Python version.
         env:
           XEDA_TESTS_REQUIRE_TOOLS: "1"
+          XEDA_TESTS_EXTERNAL: ${{ matrix.python-version == '3.13' && '1' || '' }}
         run: "python -m tox"

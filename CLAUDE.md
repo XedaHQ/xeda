@@ -38,11 +38,13 @@ enforced. Don't mass-fix those; keep new code clean.
 
 Most tests use `tests/fake_tools/`, but some end-to-end tests drive genuinely installed tools
 (`test_ghdl.py`, `test_nvc.py`, `test_verilator.py`, `test_yosys.py`, `test_openroad.py`'s yosys
-synthesis, the GHDL half of `test_remote_run.py`, parts of `test_cli_structured_output.py`).
+synthesis, `test_bsc.py`'s `bsc`/`bsc_sim` flows, the GHDL half of `test_remote_run.py`, parts of
+`test_cli_structured_output.py`).
 Those **skip** when the tool is missing or installed-but-broken, via the probes in
-`tests/tool_utils.py` (`require_ghdl()`, `require_yosys_ghdl_plugin()`, ...). Setting
-`XEDA_TESTS_REQUIRE_TOOLS=1` turns those skips into failures; CI sets it, so a tool vanishing
-from CI cannot look like a pass. `test_remote_run.py` and `test_dse_run.py` run
+`tests/tool_utils.py` (`require_ghdl()`, `require_yosys_ghdl_plugin()`, `require_bsc()`,
+`require_bluesim()`, ...). Setting `XEDA_TESTS_REQUIRE_TOOLS=1` turns those skips into failures;
+CI sets it, so a tool vanishing from CI cannot look like a pass -- CI installs bsc 2026.07.1 from
+its official release tarball for exactly this reason. `test_remote_run.py` and `test_dse_run.py` run
 `xeda run --remote` and `xeda dse` end to end on the fake Vivado; the remote one replaces only
 the transport (a filesystem-backed fabric `Connection`, execnet's `popen` gateway for `ssh=`),
 so no SSH server is needed. tox passes
@@ -556,5 +558,9 @@ while it is open). A flow sharing
   in their default images (`tests/test_dockerized.py`), skipping one whose image is not present
   locally -- a test never pulls. Both work under the checkout's `xeda_run/` (or
   `XEDA_TESTS_WORK_DIR`), which a container can mount where the system temp directory is not.
+  `XEDA_TESTS_EXTERNAL=1` runs `bsc`/`bsc_sim` end to end on real, external Bluespec repositories
+  at pinned commits (`tests/test_bsc_external.py`), cloned once per session into
+  `XEDA_TESTS_EXTERNAL_CACHE` or the checkout's `xeda_run/external/`; CI runs it on one Python
+  version only, since the repositories are fetched once per CI run regardless.
 - Formatting is inconsistent by design: `black` (line-length 100) is enforced on `src/` only; `ruff`
   (line-length 120, `target-version = "py311"`) checks the whole repo.
