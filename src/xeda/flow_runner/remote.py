@@ -688,8 +688,10 @@ class RemoteRunner(FlowLauncher):
         input_settings = flow_class.Settings.from_input(
             flow_settings, design_root=design.root_path, runner_cwd=Path.cwd()
         )
-        # Here, not on the remote: a missing setting is known before anything is shipped.
+        # Here, not on the remote: a missing setting, or a design the flow cannot run, is known
+        # before anything is shipped -- and a remote on an older release may not check it.
         flow_class.check_required_settings(input_settings)
+        flow_class.check_design_supported(design)
         flowrun_hash = flow_run_hash(
             flow_name,
             input_settings,
