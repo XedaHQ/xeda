@@ -13,6 +13,7 @@ separate tree, so nothing the remote run needs can be found by accident on the l
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import zipfile
@@ -23,6 +24,7 @@ import execnet
 import pytest
 
 from xeda import Design
+from xeda.flow import FlowException
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteRunner
 
@@ -415,6 +417,29 @@ def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
     assert Path(generated[0]).is_relative_to(Path(results["run_path"]) / "artifacts")
     saved = json.loads((Path(results["run_path"]) / "results.json").read_text())
     assert saved["artifacts"]["generated_verilog"] == generated
+
+
+def test_a_remote_run_rejects_a_testbench_the_simulator_cannot_run_before_connecting(
+    tmp_path, remote_host, monkeypatch
+):
+    """Here, not on the remote: a remote on a release without the check would run a cocotb
+    testbench on modelsim as an ordinary simulation, its tests silently never run."""
+    connected_to = []
+
+    class _Unreachable(_LocalConnection):
+        def __init__(self, host, user=None, port=None):
+            connected_to.append(host)
+            raise ConnectionRefusedError(f"connected to {host}")
+
+    monkeypatch.setattr(remote_module, "Connection", _Unreachable)
+    local_run_dir = tmp_path / "local" / "xeda_run"
+
+    with pytest.raises(FlowException, match=re.escape("modelsim cannot run cocotb tests")):
+        RemoteRunner(local_run_dir).run_remote(SQRT / "sqrt.toml", "modelsim", host="somewhere")
+
+    assert not connected_to
+    assert not (remote_host / ".xeda").exists(), "nothing was shipped"
+    assert not list(local_run_dir.iterdir()), "nor a run directory set up for it"
 
 
 def test_transfer_nested_artifacts_keeps_external_paths_local(tmp_path):

@@ -275,9 +275,11 @@ class Dse(FlowLauncher):
             design_root=design.root_path,
             runner_cwd=Path.cwd(),
         )
-        # Once, here: launched in each worker instead, a missing setting failed every run of
-        # the search separately and was reported only as "no successful run".
+        # Once, here: launched in each worker instead, a missing setting (or a design the flow
+        # cannot run) failed every run of the search separately and was reported only as "no
+        # successful run".
         flow_class.check_required_settings(base_settings)
+        flow_class.check_design_supported(design)
         base_settings.redirect_stdout = True
         base_settings.print_commands = False
 

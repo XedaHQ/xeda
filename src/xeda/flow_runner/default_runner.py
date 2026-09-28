@@ -418,7 +418,8 @@ class FlowLauncher:
 
         1. **input** (`_input_settings`): validate the settings in their context (design root,
            start directory) and apply the launcher's ``--debug``. The result is the run's input,
-           never modified afterwards.
+           never modified afterwards. A missing required setting, or a design the flow cannot
+           run, fails the launch here.
         2. **identity** (`_run_identity`): the design's hash (its sources' contents) and the
            settings' `flowrun_hash`, which also name the run directory.
         3. **reuse** (`_previous_results`): with ``--cached-dependencies``, a successful previous
@@ -555,9 +556,10 @@ class FlowLauncher:
                 settings.model_dump_json(exclude_unset=True, indent=2),
             )
             settings.debug = True  # the launcher's `--debug` is part of the input
-        # a setting the flow cannot run without is reported now, before anything is set up for
-        # the run
+        # a setting the flow cannot run without, or a design it cannot run, is reported now,
+        # before anything is set up for the run
         flow_class.check_required_settings(settings)
+        flow_class.check_design_supported(design)
         return settings
 
     def _run_identity(

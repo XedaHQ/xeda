@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Union
 from ..cocotb import Cocotb, CocotbSettings
 from ..dataclass import Field, field_validator
 from ..design import Design
-from .flow import Flow
+from .flow import Flow, FlowException, registered_flows
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,23 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 return f"{vcd}.vcd"
             return vcd
 
+    @classmethod
+    def check_design_supported(cls, design: Design) -> None:
+        """A cocotb testbench needs a simulator xeda drives cocotb on (`cocotb_sim_name`): run on
+        any other, the design would be simulated without it and its tests would never run."""
+        super().check_design_supported(design)
+        if design.tb.cocotb and not cls.cocotb_sim_name:
+            supported = sorted(
+                {
+                    flow_class.name
+                    for _, flow_class in registered_flows.values()
+                    if issubclass(flow_class, SimFlow) and flow_class.cocotb_sim_name
+                }
+            )
+            raise FlowException(
+                f"{cls.name} cannot run cocotb tests; use one of: {', '.join(supported)}"
+            )
+
     def __init__(
         self,
         settings: Union[Settings, Dict],
@@ -67,6 +84,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
         assert isinstance(
             self.settings, self.Settings
         ), "self.settings is not an instance of self.Settings class"
+        # launched, the flow was checked already; constructed directly, it is checked here
+        self.check_design_supported(self.design)
         self.cocotb: Optional[Cocotb] = (
             Cocotb(
                 **self.settings.cocotb.model_dump(),

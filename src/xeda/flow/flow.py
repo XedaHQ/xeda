@@ -350,6 +350,12 @@ class Flow(metaclass=ABCMeta):
         if missing:
             raise FlowSettingsException(f"{cls.name} needs " + "; and ".join(missing))
 
+    @classmethod
+    def check_design_supported(cls, design: Design) -> None:
+        """Fail a launch on a design this flow cannot run, before anything is set up for the run
+        or shipped to a remote; checked wherever `check_required_settings` is. A flow accepts
+        every design unless it overrides this."""
+
     class Settings(XedaBaseModel):
         """Settings that can affect flow's behavior"""
 
