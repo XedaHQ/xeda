@@ -32,6 +32,13 @@ All notable changes to this project will be documented in this file.
   `yosys_fpga` on their own therefore strip `src` by default, as documented; the synthesis that
   `nextpnr` and `open_xc7` run keeps it by default, since nextpnr's reports cite source
   locations, unless `netlist_src_attrs` is set explicitly.
+- `ise_synth` and `diamond_synth` produce the bitstream: ISE never ran bitgen ("Generate
+  Programming File"), and Diamond's Export step was disabled; it now runs with `-task Bitgen`.
+  The bitstream is recorded as the `bitstream` artifact there and in `open_xc7`, which kept it in
+  a private results key, along with each flow's reports or intermediate files -- each only if it
+  exists. A successful ISE or Diamond run that wrote no bitstream fails, naming the expected
+  path. A failed ISE process fails the run (`xtclsh` exited 0 after one), and `ise_synth` removes
+  its own outputs from a previous run first, so a stale bitstream cannot pass for a new one.
 - An FPGA flow launched without a device says so, once, before anything runs, naming the setting
   and how to give it (`-s fpga.part=<part>`, or a `board` for the flows that take one), as a
   `FlowSettingsException` the CLI reports in one line. Each flow used to fail
