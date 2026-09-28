@@ -20,15 +20,21 @@ tee -o ltp.out ltp
 yosys echo on
 {% endif -%}
 
-{% if artifacts.netlist_json -%}
+{#- Remove the attributes once, before any netlist is written, from every module's objects
+    and from the modules themselves; `=*` selects the library boxes too. -#}
+{% if artifacts.get("netlist_json") or artifacts.get("netlist_verilog") or settings.write_blif -%}
+{% for attr in settings.attributes_to_unset() -%}
+yosys setattr -unset {{attr}} =*
+yosys setattr -mod -unset {{attr}} =*
+{% endfor -%}
+{% endif -%}
+
+{% if artifacts.get("netlist_json") -%}
 yosys log -stdout "Writing netlist {{artifacts.netlist_json|tcl_quote}}"
 yosys write_json {{artifacts.netlist_json|path}}
 {% endif -%}
 
-{% if artifacts.netlist_verilog -%}
-{% for attr in settings.attributes_to_unset() -%}
-yosys setattr -unset {{attr}}
-{% endfor -%}
+{% if artifacts.get("netlist_verilog") -%}
 yosys log -stdout "Writing netlist {{artifacts.netlist_verilog|tcl_quote}}"
 yosys write_verilog {{settings.write_verilog_flags()|join(" ")}} {{artifacts.netlist_verilog|path}}
 {% endif -%}

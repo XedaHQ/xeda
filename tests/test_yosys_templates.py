@@ -96,6 +96,72 @@ def test_ys_template_quotes_values_plainly(flow_cls, settings, tmp_path: Path) -
     assert "chparam -set G_ITERATIVE 1'b1" in script
 
 
+NETLIST_WRITERS = ("write_json", "write_verilog", "write_blif")
+
+
+def _command_lines(script: str, command: str) -> list[int]:
+    """The line numbers of `command` in a `.ys` or `.tcl` script (`yosys `-prefixed in TCL)."""
+    pattern = re.compile(rf"^\s*(?:yosys\s+)?{re.escape(command)}(?:\s|$)")
+    return [n for n, line in enumerate(script.splitlines()) if pattern.match(line)]
+
+
+BOTH_FLOWS = pytest.mark.parametrize("flow_cls", [Yosys, YosysFpga], ids=["yosys", "yosys_fpga"])
+BOTH_FORMATS = pytest.mark.parametrize("script_format", ["ys", "tcl"])
+
+
+def _settings_for(flow_cls, **kw: Any) -> dict[str, Any]:
+    return (_fpga_settings if flow_cls is YosysFpga else _asic_settings)(**kw)
+
+
+@BOTH_FLOWS
+@BOTH_FORMATS
+def test_template_unsets_attributes_before_each_netlist(
+    flow_cls, script_format, tmp_path: Path
+) -> None:
+    """Every attribute is removed, from the objects of every module and from the modules
+    themselves -- library boxes (`=*`) included -- before *any* netlist is written."""
+    settings = _settings_for(
+        flow_cls,
+        script_format=script_format,
+        write_blif="netlist.blif",
+        netlist_unset_attributes=["keep"],
+    )
+    script = _render(flow_cls, settings, tmp_path)
+    writers = {writer: _command_lines(script, writer) for writer in NETLIST_WRITERS}
+    assert all(writers.values()), f"a netlist writer is missing: {writers}"
+    first_write = min(min(lines) for lines in writers.values())
+    for attr in ("keep", "src"):
+        for unset in (f"setattr -unset {attr} =*", f"setattr -mod -unset {attr} =*"):
+            lines = _command_lines(script, unset)
+            assert len(lines) == 1, f"{unset!r} must appear exactly once, at {lines}"
+            assert lines[0] < first_write, f"{unset!r} comes after a netlist write"
+
+
+@BOTH_FLOWS
+@BOTH_FORMATS
+def test_template_writes_json_without_verilog(flow_cls, script_format, tmp_path: Path) -> None:
+    settings = _settings_for(flow_cls, script_format=script_format, netlist_verilog=None)
+    script = _render(flow_cls, settings, tmp_path)
+    (json_write,) = _command_lines(script, "write_json")
+    for unset in ("setattr -unset src =*", "setattr -mod -unset src =*"):
+        lines = _command_lines(script, unset)
+        assert lines and lines[0] < json_write, f"{unset!r} must come before write_json"
+    assert not _command_lines(script, "write_verilog")
+
+
+@BOTH_FLOWS
+@pytest.mark.parametrize("netlist_attrs", [True, False, None])
+def test_src_is_unset_whenever_it_is_not_kept(flow_cls, netlist_attrs, tmp_path: Path) -> None:
+    """`netlist_attrs` governs only `write_verilog -noattr`; the JSON netlist carries attributes
+    either way, so `netlist_src_attrs = false` must strip `src` whatever `netlist_attrs` is."""
+    settings = _settings_for(flow_cls, netlist_attrs=netlist_attrs)
+    assert "src" in flow_cls.Settings(**settings).attributes_to_unset()
+    kept = flow_cls.Settings(**settings, netlist_src_attrs=True)
+    assert "src" not in kept.attributes_to_unset()
+    script = _render(flow_cls, settings, tmp_path)
+    assert _command_lines(script, "setattr -mod -unset src =*")
+
+
 def test_ys_leaves_plugin_and_flag_args_unquoted(tmp_path: Path) -> None:
     """Quoting rules differ per command in a `.ys` script.
 
