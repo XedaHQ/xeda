@@ -46,8 +46,9 @@ BITSTREAM = "bitstream"
 CHECKPOINT_PLACE = "checkpoint_place"
 SDF = "sdf"
 
-#: Where, in the reports directory, a project-mode script records the status of the Vivado run
-#: it waited for last (the `status` result).
+#: Where, in the run directory, a project-mode script records the status of the Vivado run it
+#: waited for last (the `status` result) -- not in the reports directory, whose files are all
+#: recorded as report artifacts.
 RUN_STATUS_FILE = "run_status.txt"
 
 
@@ -435,7 +436,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             self.settings.bitstream = Path(self.settings.bitstream).resolve()
 
         outputs = project_outputs(self, settings)
-        run_status = self.run_path / settings.reports_dir / RUN_STATUS_FILE
+        run_status = self.run_path / RUN_STATUS_FILE
         # What a run registers or reports is what it wrote: nothing an earlier run left there
         stale = [*outputs.values(), run_status]
         if BITSTREAM in outputs:
@@ -559,7 +560,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                         self.artifacts[BITSTREAM] = bitstream
                         break
 
-        run_status = self.run_path / self.settings.reports_dir / RUN_STATUS_FILE
+        run_status = self.run_path / RUN_STATUS_FILE
         if run_status.is_file():  # project mode, once a run was waited for
             self.results["status"] = run_status.read_text().strip()
 

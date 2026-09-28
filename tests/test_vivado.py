@@ -34,7 +34,7 @@ def test_vivado_synth_template() -> None:
         tcl_files=[],
         generics=vivado_synth_generics(design.rtl.parameters),
         impl_to_step="route_design",
-        run_status_file=run_dir / "reports" / "run_status.txt",
+        run_status_file=run_dir / "run_status.txt",
     )
     with open(run_dir / tcl_file) as f:
         vivado_tcl = f.read()
