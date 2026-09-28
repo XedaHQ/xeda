@@ -74,9 +74,9 @@ jobs:
         # CI installs ghdl, yosys (oss-cad-suite), nvc and bsc, so a tool-dependent test that
         # would skip locally must fail here instead of silently passing.
         # XEDA_TESTS_EXTERNAL runs tests/test_bsc_external.py, which clones external Bluespec
-        # repositories at pinned commits: fetched once per CI run, so it only needs to run on
-        # one Python version.
+        # repositories at pinned commits and takes minutes: the latest Python version runs it,
+        # without its slowest test (XEDA_TESTS_EXTERNAL_SLOW, Piccolo's core).
         env:
           XEDA_TESTS_REQUIRE_TOOLS: "1"
-          XEDA_TESTS_EXTERNAL: ${{ matrix.python-version == '3.13' && '1' || '' }}
+          XEDA_TESTS_EXTERNAL: ${{ matrix.python-version == '3.14' && '1' || '' }}
         run: "python -m tox"

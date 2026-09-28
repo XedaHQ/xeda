@@ -20,9 +20,10 @@ Even when opted in, a missing or non-functional tool still skips (or, under
 `require_verilator`/`require_iverilog` probes in `tool_utils.py` -- this layer only adds which
 designs are compiled and simulated, not another way to detect a tool.
 
-CI (`.github/workflows/ci.yml`) sets `XEDA_TESTS_EXTERNAL=1` for one Python version (3.13) only,
-since the external repositories are fetched once per CI run regardless of how many Python
-versions are tested in it.
+CI (`.github/workflows/ci.yml`) sets `XEDA_TESTS_EXTERNAL=1` for the latest Python version only:
+the flows' behaviour does not depend on the Python version, and the layer takes minutes. The
+slowest test, Piccolo's core (about a minute of bsc elaboration alone), is left out of CI too: it
+also needs `XEDA_TESTS_EXTERNAL_SLOW=1`.
 """
 
 from __future__ import annotations
@@ -371,6 +372,10 @@ _PICCOLO_DEFINES: dict[str, Any] = {
 }
 
 
+@pytest.mark.skipif(
+    not _opted_in("XEDA_TESTS_EXTERNAL_SLOW"),
+    reason="set XEDA_TESTS_EXTERNAL_SLOW=1 (with XEDA_TESTS_EXTERNAL=1) for Piccolo's core",
+)
 def test_piccolo_core_compiles_and_elaborates(piccolo_repo, tmp_path):
     """`bsc` compiles the Bluespec Piccolo RV32ACIMU core (top module `mkCore`) end to end.
 
