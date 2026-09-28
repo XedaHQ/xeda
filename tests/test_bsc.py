@@ -696,6 +696,19 @@ def test_the_path_settings_reach_bsc(tmp_path, monkeypatch):
     assert record["infoDir"] == f'Just "{tmp_path / "info"}"'
 
 
+def test_bluesim_is_handed_no_verilog_search_path(tmp_path, capfd):
+    """Bluesim reads no Verilog, and without `-vdir` bsc warns (S0073) about a `-vsearch`
+    directory its default path already holds: that of a Bluespec source with Verilog beside it."""
+    require_bluesim()
+    root = tmp_path / "d"
+    _write(root, {"rtl/extra.v": "module extra(); endmodule\n"})
+    rtl = {"sources": ["rtl/extra.v", "lib/Accum.bsv", "rtl/Top.bsv"], "top": "mkTop"}
+    design = _accum_design(root, rtl=rtl)
+    flow = _run(BscSim, design, tmp_path / "run", promote_warnings=["ALL"])
+    assert flow.succeeded, capfd.readouterr().out[-3000:]
+    assert "-vsearch" not in flow._path_flags("sim", tmp_path / "out", design.rtl.sources)
+
+
 def test_the_link_settings_reach_bsc(tmp_path):
     require_bsc()
     flow = _flow(

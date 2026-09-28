@@ -624,8 +624,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
             )
 
     def _path_flags(self, backend: str, out_dir: Path, sources: list[DesignSource]) -> list[str]:
-        """Where bsc reads and writes: `-bdir`, `-info-dir`, the output directory, `-p` and
-        `-vsearch`. Absolute, since bsc runs in the run directory."""
+        """Where bsc reads and writes: `-bdir`, `-info-dir`, the output directory, `-p` and,
+        for Verilog, `-vsearch`. Absolute, since bsc runs in the run directory."""
         ss = self.settings
         assert isinstance(ss, BscFlow.Settings)
         bdir = Path(ss.bobj_dir).absolute()
@@ -635,6 +635,11 @@ class BscFlow(Flow, metaclass=ABCMeta):
         package_dirs = [src.file.parent for src in sources]
         package_dirs += [self.normalize_path_to_design_root(p) for p in ss.search_paths]
         flags += ["-p", _bsc_path(package_dirs, "search_paths")]
+        if backend == "sim":
+            # Bluesim reads no Verilog (it rejects imported Verilog modules). And without
+            # `-vdir`, bsc warns (S0073) when a `-vsearch` directory is also on `-p`, which its
+            # default Verilog path includes: that of a Bluespec source with Verilog beside it.
+            return flags + self._fdir_flags()
         verilog_dirs: list[str | Path] = [
             self.normalize_path_to_design_root(p) for p in ss.verilog_search_paths
         ]
@@ -645,9 +650,14 @@ class BscFlow(Flow, metaclass=ABCMeta):
             )
         ]
         flags += ["-vsearch", _bsc_path(self._vendor_verilog_dirs() + verilog_dirs, "vsearch")]
-        if ss.fdir:
-            flags += ["-fdir", str(self.normalize_path_to_design_root(ss.fdir))]
-        return flags
+        return flags + self._fdir_flags()
+
+    def _fdir_flags(self) -> list[str]:
+        """`-fdir`, where relative file names in the design resolve during elaboration."""
+        assert isinstance(self.settings, BscFlow.Settings)
+        if not self.settings.fdir:
+            return []
+        return ["-fdir", str(self.normalize_path_to_design_root(self.settings.fdir))]
 
     def _vendor_verilog_dirs(self) -> list[str | Path]:
         """Directories of bsc's vendor-specific Verilog primitives, searched first."""
