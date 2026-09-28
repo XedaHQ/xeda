@@ -33,6 +33,13 @@ from ..dataclass import XedaBaseModel
 from ..design import Design, names_a_design_file
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..flow import flowrun_hash as flow_run_hash
+from ..flow.run_dir import (
+    check_inside_run_root,
+    claim_run_dir,
+    is_xedas_run_dir,
+    mark_run_dir,
+    run_dir_name,
+)
 from ..tool import NonZeroExitCode
 from ..utils import (
     WorkingDirectory,
@@ -392,8 +399,11 @@ class FlowLauncher:
         design_hash: Optional[str] = None,
         flowrun_hash: Optional[str] = None,
     ) -> Path:
-        design_subdir = design_name
-        flow_subdir = flow_name
+        """The run directory xeda chooses for `flow_name` on `design_name`: strictly inside the
+        run root, or refused (`run_dir.RunDirectoryError`) -- a design named `..` would run, and
+        its `clean` delete, in a directory of the user's."""
+        design_subdir = run_dir_name(design_name, "design")
+        flow_subdir = run_dir_name(flow_name, "flow")
         if self.settings.cached_dependencies:
             if design_hash and not self.settings.incremental:
                 design_subdir += f"_{design_hash[:DIR_NAME_HASH_LEN]}"
@@ -401,6 +411,7 @@ class FlowLauncher:
                 flow_subdir += f"_{flowrun_hash[:DIR_NAME_HASH_LEN]}"
 
         run_path: Path = self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
+        check_inside_run_root(run_path, self.xeda_run_dir)
         return run_path
 
     def launch_flow(
@@ -435,6 +446,10 @@ class FlowLauncher:
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
         flow_name = flow_class.name
+        if run_path is not None and depender is None:
+            # A directory given explicitly (`--cwd`, `run_path`), before anything is created,
+            # written or deleted: used only if xeda creates it, finds it empty, or marked it.
+            claim_run_dir(run_path)
         runner_cwd = Path.cwd()
         input_settings = self._input_settings(flow_class, flow_settings, design, runner_cwd)
         copy_resources = [
@@ -450,6 +465,9 @@ class FlowLauncher:
             flow_name, run_path, design_hash, flowrun_hash, depender
         )
         self._prepare_run_path(flow_name, run_path, previous_results, policy)
+        if not is_xedas_run_dir(run_path, self.xeda_run_dir):
+            # a dependency nested in a directory given explicitly: xeda's, like that directory
+            mark_run_dir(run_path)
 
         with WorkingDirectory(run_path):
             log.debug("Instantiating flow from %s", flow_class)
@@ -464,6 +482,7 @@ class FlowLauncher:
             )
         flow.design_hash = design_hash
         flow.flow_hash = flowrun_hash
+        flow.run_root = self.xeda_run_dir
         flow.incremental = policy.incremental
         if flow.runner_cwd is None:  # redundant, but OK
             flow.runner_cwd = runner_cwd

@@ -120,6 +120,8 @@ class VivadoSim(Vivado, SimFlow):
             assert sdf_root, "neither SDF root nor tb.uut are provided"
             ss.elab_flags.append(f"-sdf{delay_type} {sdf_root}={sdf_file}")
 
+        # `vivado_sim.tcl` deletes xsim's work directory, `xsim.dir`, before analyzing
+        self.removable_work_dir("xsim.dir", "xsim.dir")
         script_path = self.copy_from_template("vivado_sim.tcl")
         # `vivado_sim.tcl` writes these whenever the enabling setting is set; record them so
         # consumers (e.g. `vivado_power`) don't have to guess the path themselves.

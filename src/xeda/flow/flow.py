@@ -58,6 +58,7 @@ from ..utils import (
     try_convert,
     unique,
 )
+from .run_dir import RUN_DIR_MARKER, RunDirectoryError, is_xedas_run_dir
 
 log = logging.getLogger(__name__)
 
@@ -700,6 +701,9 @@ class Flow(metaclass=ABCMeta):
         if run_path is None:
             run_path = Path.cwd()
         self.run_path = run_path
+        # The run root the launcher chose `run_path` in: a directory strictly inside it is xeda's
+        # to empty (`purge_run_path`). None for a flow built without a launcher.
+        self.run_root: Optional[Path] = None
 
         if isinstance(design, dict):
             design = dict(design)
@@ -769,16 +773,44 @@ class Flow(metaclass=ABCMeta):
         pass
 
     def purge_run_path(self):
-        if self.run_path.exists():
-            logged_warning = False
-            for path in self.run_path.iterdir():
-                if not logged_warning:
-                    log.info("Deleting all files in the existing run directory: %s", self.run_path)
-                    logged_warning = True
-                if path.is_file():
-                    path.unlink()
-                else:
-                    shutil.rmtree(path, ignore_errors=True)
+        """Empty the run directory (a flow's `clean`), all but xeda's marker.
+
+        Only a directory that is xeda's (`run_dir.is_xedas_run_dir`): strictly inside the run
+        root the launcher chose it in, or marked as xeda's. Anything else -- a directory a flow
+        was built to run in without a launcher, say -- is refused, and nothing is removed.
+        """
+        if not self.run_path.exists():
+            return
+        if not is_xedas_run_dir(self.run_path, self.run_root):
+            raise RunDirectoryError(
+                f"{self.name}'s clean would delete everything in {self.run_path}, which is not a "
+                f"run directory of xeda's: it is neither inside the run root xeda chose it in nor "
+                f"marked with {RUN_DIR_MARKER}. Nothing was removed."
+            )
+        logged_warning = False
+        for path in self.run_path.iterdir():
+            if path.name == RUN_DIR_MARKER:
+                continue
+            if not logged_warning:
+                log.info("Deleting all files in the existing run directory: %s", self.run_path)
+                logged_warning = True
+            if path.is_file() or path.is_symlink():
+                path.unlink()
+            else:
+                shutil.rmtree(path, ignore_errors=True)
+
+    def removable_work_dir(self, path: Union[str, os.PathLike], setting: str) -> Path:
+        """`path`, a work directory the flow removes or empties by name (`setting` names it),
+        resolved against the run directory -- or refused unless it lies strictly inside it."""
+        run_dir = self.run_path.resolve()
+        resolved = (run_dir / path).resolve()
+        if resolved == run_dir or not resolved.is_relative_to(run_dir):
+            raise RunDirectoryError(
+                f"{setting} = {str(path)!r} resolves to {resolved}, outside the run directory "
+                f"{run_dir}: {self.name} removes files from it by name, so it must be a "
+                "directory inside the run directory (a relative path without '..')."
+            )
+        return resolved
 
     def parse_reports(self) -> bool:
         log.debug("No parse_reports action for %s", self.name)

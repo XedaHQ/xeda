@@ -702,6 +702,14 @@ class RemoteRunner(FlowLauncher):
                 tb_hash=design.tb_hash,
             )
         )
+        # the local run directory results are fetched into, known -- or refused -- before
+        # anything is shipped
+        run_path = self.get_flow_run_path(
+            design.name,
+            flow_name,
+            design_hash,
+            flowrun_hash,
+        )
 
         host_split = host.split(":")
         if port is None and len(host_split) == 2 and host_split[1].isnumeric():
@@ -762,12 +770,6 @@ class RemoteRunner(FlowLauncher):
         # Only now that the remote can read it.
         zip_file, design_file = send_design(design, conn, remote_path, all_flows_settings=sections)
 
-        run_path = self.get_flow_run_path(
-            design.name,
-            flow_name,
-            design_hash,
-            flowrun_hash,
-        )
         run_path.mkdir(parents=True, exist_ok=True)
 
         settings_json = run_path / "settings.json"

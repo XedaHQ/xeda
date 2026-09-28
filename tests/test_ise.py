@@ -8,6 +8,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FPGA, Flow, FlowFatalError
+from xeda.flow.run_dir import mark_run_dir
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import IseSynth
 from xeda.flows.ise import format_value
@@ -109,9 +110,11 @@ def test_a_failed_ise_process_fails_the_run(process, how, tmp_path, monkeypatch)
 
 def test_ise_removes_only_its_own_outputs_from_the_run_directory(tmp_path, monkeypatch) -> None:
     """Before running, ISE removes the files it records (the bitstream and the reports it parses)
-    and nothing else: under `--cwd` the run directory is the user's own, holding their files."""
+    and nothing else: a directory xeda ran in before (marked as xeda's, as `--cwd` leaves it)
+    may hold other files."""
     work = tmp_path / "work"
     work.mkdir()
+    mark_run_dir(work)
     own = [work / name for name in ("sqrt.bit", "sqrt.syr", "sqrt_par.xrpt")]
     theirs = [work / name for name in ("sqrt.vhdl", "notes.txt", "sqrt.ucf")]
     for path in own + theirs:
