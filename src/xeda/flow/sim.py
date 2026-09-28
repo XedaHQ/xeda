@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Union
 from ..cocotb import Cocotb, CocotbSettings
 from ..dataclass import Field, field_validator
 from ..design import Design
-from .flow import Flow, FlowException, registered_flows
+from .flow import Flow, FlowSettingsException, registered_flows
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
                     if issubclass(flow_class, SimFlow) and flow_class.cocotb_sim_name
                 }
             )
-            raise FlowException(
+            raise FlowSettingsException(
                 f"{cls.name} cannot run cocotb tests; use one of: {', '.join(supported)}"
             )
 
