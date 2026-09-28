@@ -1,13 +1,17 @@
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from xeda import Design
-from xeda.flow import FPGA
+from xeda.flow import FPGA, Flow, FlowFatalError
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import IseSynth
 from xeda.flows.ise import format_value
+from .tool_utils import fake_calls, use_fake_tools
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -50,6 +54,115 @@ def test_ise_synth_py() -> None:
             'project set "Optimize Instantiated Primitives" TRUE -process "Synthesize - XST"'
             in script
         )
+        calls = fake_calls(flow.run_path)
+        for process in ("Implement Design", "Generate Programming File"):
+            assert ["process", "run", process] in calls
+            assert ["process", "get", process, "status"] in calls
+        # the files the fake xtclsh writes, as ISE names them: after the top, in the project
+        top = flow.run_path / str(design.rtl.top)
+        expected = {
+            "bitstream": Path(f"{top}.bit"),
+            "place_route_report": Path(f"{top}_par.xrpt"),
+            "synthesis_report": Path(f"{top}.syr"),
+        }
+        assert flow.artifacts == expected
+        assert all(path.is_file() for path in expected.values())
+        recorded_artifacts = json.loads(results_json.read_text())["artifacts"]
+        assert recorded_artifacts == {k: str(v) for k, v in expected.items()}
+
+
+ISE_SETTINGS = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
+
+
+def _run_ise(run_dir: Path, monkeypatch, **launcher) -> Flow:
+    use_fake_tools(monkeypatch)
+    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    flow = DefaultRunner(run_dir, **launcher).run_flow(IseSynth, design, ISE_SETTINGS)
+    assert flow is not None
+    return flow
+
+
+@pytest.mark.parametrize("how", ["result", "status", "both"])
+@pytest.mark.parametrize("process", ["Implement Design", "Generate Programming File"])
+def test_a_failed_ise_process_fails_the_run(process, how, tmp_path, monkeypatch) -> None:
+    """ISE's `process run` reports a failed process only by its result and the process status,
+    never by a TCL error: xtclsh exited 0 after a failed bitgen, and the run went on to record the
+    bitstream a previous run had left in the reused directory. The script checks both and exits
+    1, and the flow removes its own previous outputs first, so no earlier bitstream survives."""
+    first = _run_ise(tmp_path, monkeypatch, incremental=True)
+    stale = first.run_path / "sqrt.bit"
+    assert stale.is_file()
+
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "{" + process + "}")
+    monkeypatch.setenv("XEDA_FAKE_ISE_FAILURE", how)
+    flow = _run_ise(tmp_path, monkeypatch, incremental=True)
+
+    assert flow.run_path == first.run_path
+    assert not flow.results.success
+    assert not stale.exists()
+    assert "bitstream" not in flow.artifacts
+    recorded = json.loads((flow.run_path / "results.json").read_text())
+    assert "bitstream" not in recorded["artifacts"]
+    ran = [call[2] for call in fake_calls(flow.run_path) if call[:2] == ["process", "run"]]
+    assert ran[-1] == process  # nothing runs after a failed process
+
+
+def test_ise_removes_only_its_own_outputs_from_the_run_directory(tmp_path, monkeypatch) -> None:
+    """Before running, ISE removes the files it records (the bitstream and the reports it parses)
+    and nothing else: under `--cwd` the run directory is the user's own, holding their files."""
+    work = tmp_path / "work"
+    work.mkdir()
+    own = [work / name for name in ("sqrt.bit", "sqrt.syr", "sqrt_par.xrpt")]
+    theirs = [work / name for name in ("sqrt.vhdl", "notes.txt", "sqrt.ucf")]
+    for path in own + theirs:
+        path.write_text("from before\n")
+    (work / "rtl").mkdir()
+    (work / "rtl" / "core.vhdl").write_text("-- a source\n")
+    use_fake_tools(monkeypatch)
+    monkeypatch.chdir(work)
+    # a run that writes none of the files: whatever is left of them is from before
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "{Implement Design}")
+    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+
+    flow = DefaultRunner(tmp_path / "xeda_run").run_flow(
+        IseSynth, design, ISE_SETTINGS, run_path=work
+    )
+
+    assert flow is not None and flow.run_path == work
+    assert not flow.results.success
+    assert [path for path in own if path.exists()] == []
+    assert all(path.read_text() == "from before\n" for path in theirs)
+    assert (work / "rtl" / "core.vhdl").is_file()
+    assert not flow.artifacts
+
+
+def test_an_ise_run_without_its_bitstream_fails_naming_it(tmp_path, monkeypatch) -> None:
+    """A run whose tool reported success but wrote no bitstream fails, naming the file it
+    expected, and records nothing that does not exist."""
+    use_fake_tools(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_TOOL_NO_OUTPUT", "1")
+    monkeypatch.chdir(tmp_path)
+    design = Design.from_toml(RESOURCES_DIR / "design0/design0.toml")
+    flow = IseSynth(IseSynth.Settings(**ISE_SETTINGS), design, tmp_path)
+    flow.init()
+
+    with pytest.raises(FlowFatalError, match=re.escape(str(tmp_path / "design0.bit"))):
+        flow.run()
+    assert ["process", "run", "Generate Programming File"] in fake_calls(tmp_path)
+    assert not flow.artifacts
+
+
+def test_ise_needs_a_top_before_any_tool_runs(tmp_path, monkeypatch) -> None:
+    """ISE names its outputs after the top, so a design without one cannot run. That was
+    asserted only after the whole ISE run, although it is known from the design."""
+    use_fake_tools(monkeypatch)
+    (tmp_path / "top.v").write_text("module top(input clk); endmodule\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "clock_port": "clk"})
+    run_dir = tmp_path / "run"
+
+    with pytest.raises(FlowFatalError, match="rtl.top"):
+        DefaultRunner(run_dir).run_flow(IseSynth, design, ISE_SETTINGS)
+    assert not list(run_dir.rglob("fake_xtclsh.calls"))
 
 
 def test_ise_project_options_are_quoted_exactly_once() -> None:

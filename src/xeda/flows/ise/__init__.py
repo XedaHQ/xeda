@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ...dataclass import Field
-from ...flow import FpgaSynthFlow, describe_results
+from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
 from ...tool import Docker, OptionalBoolOrPath, OptionalPath, Tool
 from ...utils import try_convert_to_primitives
 
@@ -81,7 +81,12 @@ def format_value(v) -> str:
 
 
 class IseSynth(FpgaSynthFlow):
-    """FPGA synthesis using Xilinx ISE"""
+    """FPGA synthesis, implementation and bitstream generation using Xilinx ISE.
+
+    Runs XST synthesis, translate, map and place & route ("Implement Design"), then bitgen
+    ("Generate Programming File") in an ISE project, and reports resource utilization and timing.
+    The bitstream, `<top>.bit`, is recorded as the `bitstream` artifact.
+    """
 
     results_description = describe_results(
         "minimum_period",
@@ -139,12 +144,29 @@ class IseSynth(FpgaSynthFlow):
             [], description="User constraint files (.ucf) with pin and timing constraints."
         )
 
-    def init(self):
-        logger.info("Deleting previous artifacts as ISE needs to run in a clean direcotry.")
-        self.clean()
+    def init(self) -> None:
+        # ISE names its outputs after the top (`<top>.bit`): a design without one cannot run.
+        if not self.design.rtl.top:
+            raise FlowFatalError(
+                f"{self.name} needs the design's top-level entity or module: set `rtl.top`."
+            )
+
+    def outputs(self) -> Dict[str, Path]:
+        """The files of the ISE project this flow records, by artifact label. ISE names them
+        after the top."""
+        top = self.design.rtl.top
+        return {
+            "place_route_report": self.run_path / f"{top}_par.xrpt",
+            "synthesis_report": self.run_path / f"{top}.syr",
+            "bitstream": self.run_path / f"{top}.bit",
+        }
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
+        # A previous run's outputs must not pass for this run's. Only they are removed: the run
+        # directory may be the user's own (`--cwd`).
+        for path in self.outputs().values():
+            path.unlink(missing_ok=True)
         if self.settings.xcf_file is None:
             self.settings.xcf_file = self.copy_from_template("constraints.xcf")
         self.settings.ucf_files.append(self.copy_from_template("constraints.ucf"))
@@ -154,19 +176,25 @@ class IseSynth(FpgaSynthFlow):
         script_path = self.copy_from_template("ise_synth.tcl")
         xtclsh = XTclSh()  # type: ignore
         xtclsh.run(script_path)
+        for label, path in self.outputs().items():
+            if path.is_file():
+                self.artifacts[label] = path
+        if "bitstream" not in self.artifacts:
+            raise FlowFatalError(
+                f"ISE's bitgen did not write the bitstream {self.outputs()['bitstream']}."
+            )
 
     def parse_reports(self) -> bool:
-        top = self.design.rtl.top
-        assert top
+        outputs = self.outputs()
         # self.parse_report_regex(self.design.name + ".twr", r'(?P<wns>\-?\d+')
         fail = not self.parse_report_regex(
-            top + "_par.xrpt",
+            outputs["place_route_report"],
             r'stringID="PAR_SLICES" value="(?P<slice>\-?\d+)"',
             r'stringID="PAR_SLICE_REGISTERS" value="(?P<ff>\-?\d+)"',
             r'stringID="PAR_SLICE_LUTS" value="(?P<lut>\-?\d+)"',
         )
         fail |= not self.parse_report_regex(
-            top + ".syr",
+            outputs["synthesis_report"],
             r"Minimum period:\s+(?P<minimum_period>\-?\d+(?:\.\d+)?)ns\s+\(Maximum Frequency: (?P<maximum_frequency>\-?\d+(?:\.\d+)?)MHz\)",
             r"Slack:\s+(?P<wns>\-?\d+(?:\.\d+)?)ns",
         )

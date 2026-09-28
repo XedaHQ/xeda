@@ -2,7 +2,7 @@ import logging
 from typing import List, Literal
 
 from ...dataclass import Field
-from ...flow import FlowSettingsException, FpgaSynthFlow, describe_results
+from ...flow import FlowFatalError, FlowSettingsException, FpgaSynthFlow, describe_results
 from ...tool import Tool
 
 log = logging.getLogger(__name__)
@@ -12,7 +12,8 @@ class DiamondSynth(FpgaSynthFlow):
     """FPGA synthesis, place & route for Lattice devices using Lattice Diamond.
 
     Runs the full Diamond implementation flow (synthesis through bitstream generation) in batch
-    mode and reports resource utilization and timing.
+    mode and reports resource utilization and timing. The bitstream,
+    `<impl_folder>/<design>_<impl_name>.bit`, is recorded as the `bitstream` artifact.
     """
 
     results_description = describe_results(
@@ -74,11 +75,25 @@ class DiamondSynth(FpgaSynthFlow):
         script_path = self.copy_from_template("synth.tcl")
         diamondc = Tool("diamondc")
         diamondc.run(script_path)
+        # Diamond names an implementation's files `<project>_<implementation>.<suffix>`
+        impl_dir = self.run_path / self.settings.impl_folder
+        prefix = f"{self.design.name}_{self.settings.impl_name}"
+        for label, suffix in (
+            ("timing_report", "twr"),
+            ("place_route_report", "par"),
+            ("map_report", "mrp"),
+        ):
+            if (impl_dir / f"{prefix}.{suffix}").is_file():
+                self.artifacts[label] = impl_dir / f"{prefix}.{suffix}"
+        bitstream = impl_dir / f"{prefix}.bit"
+        if not bitstream.is_file():
+            raise FlowFatalError(f"Diamond's Bitgen did not write the bitstream {bitstream}.")
+        self.artifacts["bitstream"] = bitstream
 
     def parse_reports(self) -> bool:
         """Read Diamond timing and utilization reports."""
         assert isinstance(self.settings, self.Settings)
-        reports_dir = self.run_path / "diamond_impl"
+        reports_dir = self.run_path / self.settings.impl_folder
         design_name = self.design.name
         impl_name = self.settings.impl_name
 

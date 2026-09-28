@@ -27,11 +27,7 @@ puts "\n==============================( Adding RTL Sources )====================
 xfile add {{src.file|tcl_word}} -copy
 {%- endfor %}
 
-{% if design.rtl.top %}
 project set top {{design.rtl.top}}
-{% else %}
-project set "Auto Implementation Top" TRUE
-{% endif %}
 
 puts "\n==============================( Adding Constraint Files )================================"
 {% for ucf_file in settings.ucf_files %}
@@ -70,9 +66,22 @@ project set "{{k}}" {{format_value(v)}} -process "Generate Post-Place & Route St
 {% endfor %}
 
 
-puts "\n==============================( Implementing Design )================================"
+# `process run` reports a failed process only by its result and the process status: it raises no
+# TCL error, so xtclsh would exit 0 after a failed run. Check both, as ISE's own generated scripts
+# do, and exit 1 on failure.
+proc run_ise_process {name} {
+    set result [process run $name]
+    set status [process get $name status]
+    if {!$result || ($status ne "up_to_date" && $status ne "warnings")} {
+        puts stderr "ISE process \"$name\" failed (status: $status)"
+        exit 1
+    }
+}
 
-process run "Implement Design"
+puts "\n==============================( Implementing Design )================================"
+run_ise_process "Implement Design"
+
+puts "\n==============================( Generating Programming File )================================"
+run_ise_process "Generate Programming File"
 
 # project close
-

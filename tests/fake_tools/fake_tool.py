@@ -47,7 +47,9 @@ def write_file(path, data):
 # tclsh does not know. The recording goes to `fake_<tool>.calls` in the working directory (the
 # run directory), one `CALL <n>` line per command followed by its `ARG` lines -- and `ELEM` lines
 # for the files of an argument that is a TCL list (`[list "a b.v"]`). The commands named in
-# `XEDA_FAKE_TOOL_FAIL` (space-separated) raise a TCL error after being recorded.
+# `XEDA_FAKE_TOOL_FAIL` (a TCL list) raise a TCL error after being recorded. A tool's commands
+# that `TCL_MODEL` models also write the files the real ones write (`__output`), unless
+# `XEDA_FAKE_TOOL_NO_OUTPUT` is set: then every step succeeds and writes nothing.
 TCL_RECORDER = r"""
 set __calls [open {%(calls)s} a]
 proc __record {args} {
@@ -66,11 +68,23 @@ set __fail [expr {[info exists ::env(XEDA_FAKE_TOOL_FAIL)] ? $::env(XEDA_FAKE_TO
 # What a tool command returns where the recorder's 1 would be misread: Vivado's
 # `get_msg_config -count` is a number of messages, and 1 an error that never happened.
 set __returns [dict create get_msg_config 0]
-proc unknown {args} {
+proc __call {args} {
     set result [__record {*}$args]
     if {[lindex $args 0] in $::__fail} { error "[lindex $args 0] failed" }
     if {[dict exists $::__returns [lindex $args 0]]} { return [dict get $::__returns [lindex $args 0]] }
     return $result
+}
+proc unknown {args} { __call {*}$args }
+set __no_output [expr {[info exists ::env(XEDA_FAKE_TOOL_NO_OUTPUT)] ? $::env(XEDA_FAKE_TOOL_NO_OUTPUT) ne "" : 0}]
+proc __output {path} {
+    if {$::__no_output} { return }
+    file mkdir [file dirname $path]
+    close [open $path w]
+}
+# the value of option `name` in `words` (`-impl x`), or ""
+proc __option {words name} {
+    set i [lsearch -exact $words $name]
+    expr {$i < 0 ? "" : [lindex $words $i+1]}
 }
 rename source __source
 proc source {args} { __record source {*}$args }
@@ -85,6 +99,7 @@ set search_path {}
 namespace eval rdi { variable mode batch }
 rename exit __exit
 %(exit_proc)s
+%(tool_model)s
 if {[catch {__source {%(script)s}} e]} {
     puts $::__calls "TCL-ERROR $e"
     puts stderr "TCL-ERROR in %(script)s: $e\n$::errorInfo"
@@ -106,6 +121,64 @@ TCL_EXIT = {
 }
 TCL_EXIT_DEFAULT = "proc exit {{code 0}} { flush $::__calls; __exit $code }"
 
+# A tool's own commands, where recording them is not enough: what they return, and the files the
+# real ones write.
+TCL_MODEL = {
+    # ISE's `process run` reports a failed process only by its result and the process status
+    # (`process get <name> status`): it raises no TCL error. A process named in
+    # `XEDA_FAKE_TOOL_FAIL` fails, as `XEDA_FAKE_ISE_FAILURE` says: `result` (it returns false),
+    # `status` (its status is `errors`), otherwise both. The project directory gets the reports
+    # of "Implement Design" and the bitstream of "Generate Programming File", named after the top.
+    "xtclsh": r"""
+set __ise_top {}
+array set __ise_status {}
+proc project {args} {
+    if {[lrange $args 0 1] eq {set top}} { set ::__ise_top [lindex $args 2] }
+    __call project {*}$args
+}
+proc process {command name args} {
+    __record process $command $name {*}$args
+    if {$command eq "get" && $args eq "status"} {
+        if {[info exists ::__ise_status($name)]} { return $::__ise_status($name) }
+        return never_run
+    }
+    if {$command ne "run"} { return 1 }
+    if {$name in $::__fail} {
+        set how [expr {[info exists ::env(XEDA_FAKE_ISE_FAILURE)] ? $::env(XEDA_FAKE_ISE_FAILURE) : ""}]
+        set ::__ise_status($name) [expr {$how eq "result" ? "up_to_date" : "errors"}]
+        return [expr {$how eq "status"}]
+    }
+    set ::__ise_status($name) up_to_date
+    switch -- $name {
+        "Implement Design" { __output $::__ise_top.syr; __output ${::__ise_top}_par.xrpt }
+        "Generate Programming File" { __output $::__ise_top.bit }
+    }
+    return 1
+}
+""",
+    # Diamond writes an implementation's files into its directory, named `<project>_<impl>`: the
+    # map report, the place & route and timing reports, and the bitstream -- only when Export is
+    # asked for its Bitgen task, as the default Export tasks are the device's.
+    "diamondc": r"""
+set __diamond_project {}
+proc prj_project {command args} {
+    if {$command eq "new"} { set ::__diamond_project $args }
+    __call prj_project $command {*}$args
+}
+proc prj_run {step args} {
+    set result [__call prj_run $step {*}$args]
+    set name [__option $::__diamond_project -name]_[__option $args -impl]
+    set impl [file join [__option $::__diamond_project -impl_dir] $name]
+    switch -- $step {
+        Map { __output $impl.mrp }
+        PAR { __output $impl.par; __output $impl.twr }
+        Export { if {[__option $args -task] eq "Bitgen"} { __output $impl.bit } }
+    }
+    return $result
+}
+""",
+}
+
 
 def run_tcl(script: Union[str, os.PathLike], tool_name: str) -> int:
     """Run `script` under tclsh the way the tool would, its commands recorded (`TCL_RECORDER`).
@@ -123,7 +196,15 @@ def run_tcl(script: Union[str, os.PathLike], tool_name: str) -> int:
     calls = Path.cwd() / f"fake_{tool_name}.calls"
     runner = Path.cwd() / f"fake_{tool_name}_runner.tcl"
     exit_proc = TCL_EXIT.get(tool_name, TCL_EXIT_DEFAULT)
-    runner.write_text(TCL_RECORDER % {"calls": calls, "script": script, "exit_proc": exit_proc})
+    runner.write_text(
+        TCL_RECORDER
+        % {
+            "calls": calls,
+            "script": script,
+            "exit_proc": exit_proc,
+            "tool_model": TCL_MODEL.get(tool_name, ""),
+        }
+    )
     return subprocess.run([tclsh, str(runner)], check=False).returncode
 
 

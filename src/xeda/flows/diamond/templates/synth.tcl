@@ -130,9 +130,8 @@ puts "\n====================( Place & Route Design )===================="
 eval prj_run PAR -impl ${implementation_name} -forceAll
 # eval prj_run PAR -impl ${implementation_name} -task IOTiming -forceOne
 
-if {false} {
-  puts "\n====================( Export Files )===================="
-  eval prj_run Export -impl ${implementation_name}
-}
+puts "\n====================( Export Files )===================="
+# the bitstream: the default Export tasks are the device's (a JEDEC file for MachXO parts)
+eval prj_run Export -impl ${implementation_name} -task Bitgen
 
 prj_project close
