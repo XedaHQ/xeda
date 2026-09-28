@@ -375,9 +375,16 @@ class Tool(XedaBaseModel):
     def _version_is_gte(
         tool_version: Tuple[str, ...], required_version: Tuple[Union[int, str], ...]
     ) -> bool:
-        """check if `tool_version` is greater than or equal to `required_version`"""
+        """check if `tool_version` is greater than or equal to `required_version`
+
+        A component the tool's version lacks counts as 0, so 2026.07 is below 2026.07.1 rather
+        than equal to it. A version that could not be read at all (empty) is not compared.
+        """
         log.debug(f"[gte] {tool_version}  ?  {required_version}")
-        for tool_part, req_part in zip(tool_version, required_version):
+        if not tool_version:
+            return True
+        missing = max(0, len(required_version) - len(tool_version))
+        for tool_part, req_part in zip((*tool_version, *("0",) * missing), required_version):
             req_part_val = try_convert(req_part, int, default=-1)
             assert req_part_val is not None
             tool_part_val = try_convert(tool_part, int)
