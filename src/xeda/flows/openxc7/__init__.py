@@ -500,8 +500,9 @@ class OpenXC7(FpgaSynthFlow):
                     log.info("Chip database already exists: %s", bin_path)
                     return bin_path
                 log.info("Forcing regeneration of chip database: %s", bin_path)
-                bin_path.unlink()
-            bba_path = output_dir / f"{part}.bba"
+                self.remove_stale_output(bin_path)  # outside the run directory, bbasm overwrites it
+            # an intermediate of xeda's own, in the run directory, removed once assembled
+            bba_path = self.run_path / f"{part}.bba"
             cmd = [
                 str(python_executable),
                 str(nextpnr_xilinx_python_dir / "bbaexport.py"),

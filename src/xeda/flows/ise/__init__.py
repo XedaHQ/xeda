@@ -163,10 +163,10 @@ class IseSynth(FpgaSynthFlow):
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
-        # A previous run's outputs must not pass for this run's. Only they are removed: the run
-        # directory may be the user's own (`--cwd`).
+        # A previous run's outputs must not pass for this run's. Only they are removed, and only
+        # inside the run directory.
         for path in self.outputs().values():
-            path.unlink(missing_ok=True)
+            self.remove_stale_output(path)
         if self.settings.xcf_file is None:
             self.settings.xcf_file = self.copy_from_template("constraints.xcf")
         self.settings.ucf_files.append(self.copy_from_template("constraints.ucf"))

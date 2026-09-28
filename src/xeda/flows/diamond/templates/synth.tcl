@@ -7,6 +7,8 @@ set strategy            {{settings.strategy|tcl_word}}
 set implementation_name "{{settings.impl_name}}"
 set impl_dir            "{{settings.impl_folder}}"
 
+# impl_dir lies inside the run directory: DiamondSynth.run refuses an impl_folder that does not
+# (Flow.removable_work_dir) before it renders this script.
 file delete -force ${impl_dir}
 # Workaround for old TCL on NFS bug
 # while {[catch {file delete -force -- ${impl_dir} }] != 0} {

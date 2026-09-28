@@ -1329,14 +1329,14 @@ class BscSim(BscFlow, SimFlow):
         if vcd:
             dump = Path("dump.vcd") if ss.simulator == "verilator" else vcd
             for old in {vcd, dump}:
-                old.unlink(missing_ok=True)
+                self.remove_stale_output(old)  # inside the run directory only
         self.results["simulator"] = ss.simulator
         simulation = self.bsc.derive(str(executable), version_flag=None, minimum_version=None)
         simulation.highlight_rules = None
         try:
             simulation.run(*sim_args)
         finally:
-            if vcd and dump and dump.is_file():
+            if vcd and dump and self.wrote_output(dump):
                 if dump != vcd:
                     shutil.move(dump, vcd)
                 self.artifacts.vcd = str(vcd)

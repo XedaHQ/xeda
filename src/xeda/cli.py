@@ -1131,7 +1131,21 @@ def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, incremental, json
     if incremental and (xeda_run_dir / design_name).exists():
         design_dirs.append(xeda_run_dir / design_name)
 
-    scrubbed = [dd for dd in design_dirs if scrub_runs(flow_class.name, dd)]
+    try:
+        scrubbed = [dd for dd in design_dirs if scrub_runs(flow_class.name, dd)]
+    except RunDirectoryError as e:  # a directory at a run directory's name that is not xeda's
+        log.critical("%s", _error_message(e))
+        if json_flag:
+            emit_structured(
+                {
+                    "success": False,
+                    "flow": flow_class.name,
+                    "design": design_name,
+                    "error": {"type": type(e).__name__, "message": _error_message(e)},
+                },
+                "json",
+            )
+        sys.exit(1)
     if json_flag:
         emit_structured(
             {

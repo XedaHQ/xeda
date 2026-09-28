@@ -5,21 +5,36 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
-- `xeda run <flow> <design> --cwd`, started in a directory holding files -- the design's own
-  directory, typically -- deleted every file there: `--cwd` makes the current directory the run
-  directory, and the `clean` of `vivado_synth`, `dc` and `vcs` (on by default) empties the run
-  directory before the flow runs. An API `DefaultRunner(run_path=...)` did the same, and a design
-  named `..` put its run directory outside `xeda_run/`, where `--clean` or `--no-incremental`
-  emptied a directory of the user's. A directory given explicitly (`--cwd`, `run_path`) is now
-  used only if it does not exist, is empty, or is one xeda ran in before, which xeda marks with a
-  `.xeda-run-dir` file; any other is refused, naming it, before anything is created, written or
-  deleted. **`--cwd` therefore needs an empty directory, or one xeda made**: from a directory
-  holding your files, run without it (the run goes to `xeda_run/<design>/<flow>`). A design or
-  flow name that does not name one directory inside the run root (`..`, `.`, a path separator)
-  is refused, and so is a run directory a link leads out of it, or `xeda scrub` given such a
-  design name. A flow's `clean` empties only a run directory inside the run root or marked as
-  xeda's. Verilator's `sim_dir`, bsc's `bobj_dir`, Diamond's `impl_folder` and Vivado's
-  `xsim.dir`, which a flow removes files from by name, must lie inside the run directory.
+- xeda could delete a user's files, in three ways. `xeda run <flow> <design> --cwd`, started in
+  a directory holding files -- the design's own directory, typically -- deleted every file there:
+  `--cwd` makes the current directory the run directory, and the `clean` of `vivado_synth`, `dc`
+  and `vcs` (on by default) empties the run directory before the flow runs; an API
+  `DefaultRunner(run_path=...)` did the same. A run directory xeda chose was emptied or removed
+  whoever's it was: with `--xeda-run-dir myrundir`, a user's `myrundir/<design>/<flow>/` lost its
+  files to that `clean`, `--clean`, `--no-incremental` or `--scrub`, and a design named `..` put
+  its run directory outside the run root. And files outside the run directory were deleted
+  before a run: an existing file at an output path named outside it (`-s bitstream=...`,
+  `vivado_sim`'s `saif`), or whatever a work-directory setting such as Verilator's
+  `sim_dir = "../x"` pointed at.
+  Now xeda marks every run directory it uses with a `.xeda-run-dir` file. A directory given with
+  `--cwd` or `run_path` is used only if it does not exist, is empty, or is marked. A run directory
+  xeda chooses must lie inside the run root -- a design or flow name such as `..` or `a/b`, or a
+  link leading out of it, is refused -- and is used only if it does not exist, is empty, is
+  marked, or holds an earlier xeda run of the same flow (its `settings.json` says so: existing
+  `xeda_run` trees keep working, and are marked on their next run); `xeda scrub` and `--scrub`
+  remove only such directories. Anything else is refused, naming the directory, before anything
+  is created, written or deleted. **`--cwd` therefore needs an empty directory, or one xeda
+  made**: from a directory holding your files, run without it (the run goes to
+  `xeda_run/<design>/<flow>`). xeda deletes nothing outside the run directory: an earlier copy of
+  an output is removed only inside it, and a work directory or file a flow removes by name
+  (Verilator's `sim_dir`; with `cleanup_bobjs`, the `bobj_dir`, `verilog_out_dir` and `sim_dir`
+  of `bsc` and `bsc_sim`; Diamond's `impl_folder`; Vivado's `xsim.dir`; cocotb's results file)
+  must lie inside it.
+  Unchanged in this release: an output path named explicitly (`-s bitstream=/elsewhere/x.bit`)
+  is written by the tool where you said, as in 0.4.2, replacing a file already there -- though a
+  run whose tool did not rewrite it no longer reports the earlier file as its own. Confirmation
+  before replacing an existing file at a named output path comes in 0.5. Files put into a run
+  directory of xeda's are removed by its next `clean`.
 - Flows record the outputs they write, so `results.json` names them: `ghdl_synth`'s Verilog in
   single-file mode (`generated_verilog`, a list in both modes), `vivado_alt_synth`'s checkpoints,
   netlists, SDF and exported XDC, `vivado_sim`'s VCD and SAIF, `dc`'s mapped netlists, `.ddc`,

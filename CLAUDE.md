@@ -80,16 +80,21 @@ layout depends on two options - hashes appear **only** with `--cached-dependenci
 first. Each run dir gets `settings.json` and `results.json`, plus `reports/`, `outputs/`,
 `checkpoints/`.
 
-xeda runs only in a directory that is its own (`flow/run_dir.py`). One it chooses must resolve
-strictly inside the run root: `get_flow_run_path` refuses a design or flow name such as `..` or
-`a/b`, and a run directory a link leads out of the root. One given explicitly (`--cwd`, the
-launcher's `run_path`) is used only if it does not exist, is empty, or carries xeda's
-`.xeda-run-dir` marker, which xeda writes into it (`claim_run_dir`, before anything else in
-`launch_flow`); otherwise the launch fails with `RunDirectoryError`. `Flow.purge_run_path` empties
-only a directory inside the run root or marked (keeping the marker), and a work directory a flow
-removes files from by name goes through `Flow.removable_work_dir`, which refuses one outside the
-run directory. `tests/test_explicit_run_dir.py` holds the oracle listing every deletion site in
-`src/xeda`: a new one fails it until reviewed.
+xeda runs only in a directory that is its own (`flow/run_dir.py`), and marks every run
+directory it uses with `.xeda-run-dir` (`claim_run_dir`, in `launch_flow` before anything is
+written or deleted; `_prepare_run_path` marks one it re-creates). One given explicitly (`--cwd`,
+the launcher's `run_path`) is used only if it does not exist, is empty, or is marked. One xeda
+chooses (a dependency's nested in its depender's) must resolve strictly inside the run root --
+`get_flow_run_path` refuses a design or flow name such as `..` or `a/b`, and a link leading out
+-- and is used only if it does not exist, is empty, is marked, or holds an earlier xeda run of
+the same flow (`is_earlier_run_of`: its `settings.json`), which is then marked. Otherwise the
+launch fails with `RunDirectoryError`; `scrub_runs` refuses the same way. `Flow.purge_run_path`
+empties only a marked directory (keeping the marker, as `--post-cleanup` does). Nothing outside
+the run directory is deleted: `Flow.remove_stale_output` removes an earlier copy of an output only
+inside it (one named outside is left for the tool to overwrite, and `Flow.wrote_output` tells it
+from one the run wrote), and a work directory removed by name goes through
+`Flow.removable_work_dir`, which refuses one outside. `tests/test_explicit_run_dir.py` holds the
+oracle listing every deletion site in `src/xeda`: a new one fails it until reviewed.
 
 ### Machine-readable CLI (for agents and scripts)
 
@@ -289,7 +294,8 @@ Artifact labels map to paths or nested mappings, lists and tuples of paths; rela
 are rooted at the flow's run directory. Use `artifacts.iter_artifact_paths` to visit their
 path leaves and `artifacts.map_artifact_paths` to rewrite paths without losing the grouping.
 The remote runner rewrites every fetched path to its local copy; `--post-cleanup` keeps
-the artifacts in `results.json`, their parent directories, and the two JSON documents.
+the artifacts in `results.json`, their parent directories, the two JSON documents and the
+run-directory marker.
 
 Flows document the keys they write to `results.json` via a class-level `results_description`, built
 with `describe_results(*shared_keys, **flow_specific)` from `xeda.flow`. Shared keys come from

@@ -34,9 +34,12 @@ from ..design import Design, names_a_design_file
 from ..flow import Flow, FlowDependencyFailure, registered_flows
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.run_dir import (
+    RUN_DIR_MARKER,
+    RunDirectoryError,
     check_inside_run_root,
     claim_run_dir,
-    is_xedas_run_dir,
+    is_earlier_run_of,
+    is_marked_run_dir,
     mark_run_dir,
     run_dir_name,
 )
@@ -243,6 +246,10 @@ def scrub_runs(flow_name: str, dir: Path, exclude: List[Path] = []) -> bool:
     run creates; the hashed form only appears with `--cached-dependencies`). Matched against
     `dir`'s children rather than a `f"{flow_name}_*"` glob, so the unhashed directory -- which
     that glob can never match -- is included too.
+
+    Only xeda's own are removed: if any of them is neither marked (`run_dir.RUN_DIR_MARKER`) nor
+    an earlier run of the flow (`run_dir.is_earlier_run_of`), the scrub is refused, naming it,
+    before anything is asked or removed.
     """
     regex = re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?$")
     xr = dir.resolve()
@@ -258,6 +265,17 @@ def scrub_runs(flow_name: str, dir: Path, exclude: List[Path] = []) -> bool:
             and xr in p.resolve().parents
         ]
     )
+    not_xedas = [
+        p for p in dirs_to_rm if not is_marked_run_dir(p) and not is_earlier_run_of(p, flow_name)
+    ]
+    if not_xedas:
+        raise RunDirectoryError(
+            f"Scrubbing {flow_name}'s run directories would delete "
+            f"{', '.join(str(p) for p in not_xedas)}, which xeda did not make: "
+            f"{'it carries' if len(not_xedas) == 1 else 'they carry'} no {RUN_DIR_MARKER} and "
+            f"{'holds' if len(not_xedas) == 1 else 'hold'} no earlier run of {flow_name}. Nothing "
+            "was removed. Move your files out of it, or remove it yourself."
+        )
     if dirs_to_rm:
         console.print(
             f"[red]This will action will remove all of the following {len(dirs_to_rm)} subfolders:[/red]"
@@ -335,7 +353,7 @@ def _drop_unwritten_artifacts(flow: Flow) -> None:
     flow.results.artifacts = Box(
         drop_unwritten_artifacts(
             flow.results.artifacts,
-            lambda path: os.path.exists(flow.run_path / path),  # an absolute path stays itself
+            flow.wrote_output,  # not an earlier file left at a named path outside the run dir
             flow.name,
         )
     )
@@ -446,6 +464,7 @@ class FlowLauncher:
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
         flow_name = flow_class.name
+        explicit = run_path is not None and depender is None
         if run_path is not None and depender is None:
             # A directory given explicitly (`--cwd`, `run_path`), before anything is created,
             # written or deleted: used only if xeda creates it, finds it empty, or marked it.
@@ -459,15 +478,16 @@ class FlowLauncher:
         design_hash, flowrun_hash, run_path = self._run_identity(
             flow_name, design, input_settings, run_path
         )
+        if not explicit:
+            # A directory xeda chose (a dependency's is nested in its depender's), before it is
+            # scrubbed, emptied or removed: used only if it is xeda's.
+            claim_run_dir(run_path, flow_name)
         settings_json = run_path / "settings.json"
         results_json = run_path / "results.json"
         previous_results = self._previous_results(
             flow_name, run_path, design_hash, flowrun_hash, depender
         )
         self._prepare_run_path(flow_name, run_path, previous_results, policy)
-        if not is_xedas_run_dir(run_path, self.xeda_run_dir):
-            # a dependency nested in a directory given explicitly: xeda's, like that directory
-            mark_run_dir(run_path)
 
         with WorkingDirectory(run_path):
             log.debug("Instantiating flow from %s", flow_class)
@@ -482,7 +502,6 @@ class FlowLauncher:
             )
         flow.design_hash = design_hash
         flow.flow_hash = flowrun_hash
-        flow.run_root = self.xeda_run_dir
         flow.incremental = policy.incremental
         if flow.runner_cwd is None:  # redundant, but OK
             flow.runner_cwd = runner_cwd
@@ -682,6 +701,7 @@ class FlowLauncher:
                     rmtree(run_path)
         if not run_path.exists():
             run_path.mkdir(parents=True)
+        mark_run_dir(run_path)
 
     def _run_dependencies(
         self,
@@ -818,7 +838,7 @@ class FlowLauncher:
                 log.warning("Cleaning up %s", flow.run_path)
                 named_run_path = Path(os.path.abspath(flow.run_path))
                 run_path = flow.run_path.resolve()
-                kept: set[Path] = set()
+                kept: set[Path] = {run_path / RUN_DIR_MARKER}  # it stays xeda's
                 for raw_path in (
                     settings_json,
                     results_json,

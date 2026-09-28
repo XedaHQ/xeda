@@ -90,8 +90,9 @@ def test_post_cleanup_applies_to_a_flow_with_a_dependency(tmp_path, toy_flows, d
     flow = launcher.launch_flow(top, design, {})
     assert flow.succeeded
     kept = sorted(p.name for p in flow.run_path.iterdir())
-    # the depender's scratch file and its dependency's nested run directory are cleaned up
-    assert kept == ["results.json", "settings.json"], kept
+    # the depender's scratch file and its dependency's nested run directory are cleaned up; the
+    # marker stays, so that the directory is still xeda's
+    assert kept == [".xeda-run-dir", "results.json", "settings.json"], kept
 
 
 def test_post_cleanup_purge_applies_to_a_flow_with_a_dependency(tmp_path, toy_flows, design):
@@ -150,6 +151,7 @@ def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path,
         assert flow.succeeded
         assert external.read_text() == "outside the run directory"
         assert sorted(str(p.relative_to(flow.run_path)) for p in flow.run_path.rglob("*")) == [
+            ".xeda-run-dir",
             "bundle",
             "bundle/netlist.v",
             "bundle/other.txt",

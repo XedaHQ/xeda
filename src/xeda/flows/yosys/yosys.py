@@ -2,7 +2,6 @@ import contextlib
 import gzip
 import hashlib
 import logging
-import os
 import re
 import tempfile
 from pathlib import Path
@@ -251,10 +250,8 @@ class Yosys(YosysBase, SynthFlow):
 
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
-        if os.path.exists(self.artifacts.utilization_report):
-            os.remove(self.artifacts.utilization_report)
-        if os.path.exists(self.artifacts.timing_report):
-            os.remove(self.artifacts.timing_report)
+        self.remove_stale_output(self.artifacts.utilization_report)
+        self.remove_stale_output(self.artifacts.timing_report)
         if ss.gates:
             append_flag(ss.abc_flags, f"-g {','.join(ss.gates)}")
         elif ss.lut:

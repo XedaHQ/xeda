@@ -2,22 +2,29 @@
 
 A run replaces and deletes files in its run directory: a flow's `clean` empties it, tool scripts
 remove work directories by name, and projects are recreated with `-force`. So xeda runs only in
-a directory that is its own:
+a directory that is its own, and knows it by the marker (`RUN_DIR_MARKER`) it writes into every
+run directory it uses (`claim_run_dir`):
 
-- one it chooses, `<run root>/<design>/<flow>`, which must lie strictly inside the run root
-  (`run_dir_name`, `check_inside_run_root`);
-- one it is given (`--cwd`, the launcher's `run_path`) only if the directory does not exist,
-  is empty, or carries xeda's marker (`claim_run_dir`), which xeda writes into every such
-  directory it runs in.
+- one given explicitly (`--cwd`, the launcher's `run_path`) is used only if it does not exist,
+  is empty, or is marked;
+- one xeda chooses, `<run root>/<design>/<flow>` (a dependency's nested in its depender's), must
+  lie strictly inside the run root (`run_dir_name`, `check_inside_run_root`), and is used only
+  if it does not exist, is empty, is marked, or holds an earlier xeda run of the same flow
+  (`is_earlier_run_of`: an existing `xeda_run` tree keeps working).
 
-A flow empties a run directory only if it is one of these (`is_xedas_run_dir`), and removes a
-work directory by name only if it lies inside the run directory (`Flow.removable_work_dir`).
+Anything else is refused before anything is created, written or deleted. A flow empties only a
+marked run directory (`Flow.purge_run_path`), removes a work directory by name only inside the
+run directory (`Flow.removable_work_dir`), and removes an earlier copy of an output only there
+(`Flow.remove_stale_output`): xeda deletes nothing outside the run directory.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from pathlib import Path
+from typing import Optional, Union
 
 from pathvalidate import sanitize_filename
 
@@ -28,15 +35,16 @@ __all__ = [
     "RunDirectoryError",
     "check_inside_run_root",
     "claim_run_dir",
+    "is_earlier_run_of",
     "is_marked_run_dir",
-    "is_xedas_run_dir",
     "mark_run_dir",
+    "resolved_inside",
     "run_dir_name",
 ]
 
 log = logging.getLogger(__name__)
 
-#: The file that marks a directory given explicitly (`--cwd`, `run_path`) as xeda's.
+#: The file that marks a directory as a run directory of xeda's.
 RUN_DIR_MARKER = ".xeda-run-dir"
 #: The version of the marker's format.
 RUN_DIR_MARKER_FORMAT = 1
@@ -46,7 +54,6 @@ _MARKER_TEXT = (
     "# Keep nothing of yours in it.\n"
     f"format = {RUN_DIR_MARKER_FORMAT}\n"
 )
-
 
 _ONLY_ITS_OWN = (
     "xeda runs only in an empty directory or one it created, since a run replaces and deletes "
@@ -69,45 +76,74 @@ def is_marked_run_dir(directory: Path) -> bool:
 
 
 def mark_run_dir(directory: Path) -> None:
-    """Mark `directory`, which xeda created or found empty, as xeda's."""
+    """Mark `directory`, which xeda created, found empty or adopted, as xeda's."""
     if not is_marked_run_dir(directory):
         (directory / RUN_DIR_MARKER).write_text(_MARKER_TEXT)
 
 
-def claim_run_dir(directory: Path) -> None:
-    """Make `directory`, given explicitly (`--cwd`, `run_path`), a run directory of xeda's.
+def is_earlier_run_of(directory: Path, flow_name: str) -> bool:
+    """Whether `directory` holds an earlier xeda run of `flow_name`: its `settings.json` is xeda's
+    run record of that flow, as every xeda since 0.2 writes it."""
+    try:
+        record = json.loads((directory / "settings.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(record, dict)
+        and record.get("flow_name") == flow_name
+        and "flow_settings" in record
+        and "xeda_version" in record
+    )
 
-    A marked directory is used as it is. One that does not exist is created, and an empty one
-    adopted, and either is marked. Anything else is refused before anything is created, written
-    or deleted.
+
+def claim_run_dir(directory: Path, flow_name: Optional[str] = None) -> None:
+    """Make `directory` a run directory of xeda's, marked, or refuse it.
+
+    Without `flow_name`, `directory` was given explicitly (`--cwd`, `run_path`); with it, xeda
+    chose it for a run of that flow. A marked directory is used as it is. One that does not exist
+    is created, and an empty one adopted; a chosen one holding an earlier xeda run of the same
+    flow is adopted too. Each is marked. Anything else is refused before anything is created,
+    written or deleted.
     """
     if is_marked_run_dir(directory):
         return
     if directory.exists() or directory.is_symlink():
         if not directory.is_dir():
             raise RunDirectoryError(f"{directory} is not a directory; {_ONLY_ITS_OWN} {_INSTEAD}")
-        if any(directory.iterdir()):
+        if flow_name is not None and is_earlier_run_of(directory, flow_name):
+            log.info(
+                "Adopting %s, an earlier run of %s, as xeda's run directory", directory, flow_name
+            )
+        elif any(directory.iterdir()):
+            if flow_name is None:
+                raise RunDirectoryError(
+                    f"{directory} holds files xeda did not put there; {_ONLY_ITS_OWN} {_INSTEAD}"
+                )
             raise RunDirectoryError(
-                f"{directory} holds files xeda did not put there; {_ONLY_ITS_OWN} {_INSTEAD}"
+                f"{directory}, the run directory of {flow_name}, holds files xeda did not put "
+                f"there: it carries no {RUN_DIR_MARKER} and holds no earlier run of {flow_name} "
+                "(a settings.json of xeda's), and a run replaces and deletes files in its run "
+                "directory. Move your files out of it, or give another --xeda-run-dir."
             )
     else:
         directory.mkdir(parents=True)
     mark_run_dir(directory)
-    log.info(
-        "xeda now uses %s as a run directory: a run replaces and deletes files there, so keep "
-        "nothing of yours in it",
-        directory,
-    )
+    if flow_name is None:
+        log.info(
+            "xeda now uses %s as a run directory: a run replaces and deletes files there, so keep "
+            "nothing of yours in it",
+            directory,
+        )
 
 
-def is_xedas_run_dir(directory: Path, run_root: Path | None) -> bool:
-    """Whether `directory` is xeda's to empty: strictly inside the run root (resolved), or
-    marked."""
-    if run_root is not None:
-        resolved, root = directory.resolve(), run_root.resolve()
-        if resolved != root and resolved.is_relative_to(root):
-            return True
-    return is_marked_run_dir(directory)
+def resolved_inside(path: Union[str, os.PathLike], directory: Path) -> Optional[Path]:
+    """`path`, relative to `directory` unless absolute, resolved -- if that lies strictly inside
+    `directory` (resolved too), else None."""
+    root = directory.resolve()
+    resolved = (root / path).resolve()
+    if resolved != root and resolved.is_relative_to(root):
+        return resolved
+    return None
 
 
 def run_dir_name(name: str, what: str) -> str:
@@ -129,10 +165,9 @@ def run_dir_name(name: str, what: str) -> str:
 
 def check_inside_run_root(run_path: Path, run_root: Path) -> None:
     """Refuse a run directory xeda chose that does not resolve strictly inside the run root."""
-    resolved, root = run_path.resolve(), run_root.resolve()
-    if resolved == root or not resolved.is_relative_to(root):
+    if resolved_inside(run_path, run_root) is None:
         raise RunDirectoryError(
-            f"The run directory {run_path} resolves to {resolved}, outside the run root {root}: "
-            "xeda runs, and deletes files, only inside its run root. Remove the link that leads "
-            "out of it."
+            f"The run directory {run_path} resolves to {run_path.resolve()}, outside the run root "
+            f"{run_root.resolve()}: xeda runs, and deletes files, only inside its run root. "
+            "Remove the link that leads out of it."
         )

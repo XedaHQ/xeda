@@ -587,10 +587,7 @@ class GhdlSim(Ghdl, SimFlow):
                 ss.write_wave_opt = "wave.opt"
 
         if ss.write_wave_opt:
-            p = Path(ss.write_wave_opt)
-            if p.exists():
-                log.warning("Deleting existing wave option file: %s", p)
-                p.unlink()
+            self.remove_stale_output(ss.write_wave_opt)
         run_flags += setting_flag(ss.write_wave_opt, name="write_wave_opt")
         if ss.read_wave_opt:
             if not Path(ss.read_wave_opt).exists():  # TODO move to validation
