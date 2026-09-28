@@ -777,12 +777,14 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 os.environ["BSC_OPTIONS"],
             )
 
-    def _prepare_dirs(self, out_dir: Path) -> None:
+    def _prepare_dirs(self, out_dir: Path, out_setting: str) -> None:
         """Create the directories bsc writes to and, with `cleanup_bobjs`, remove what an
         earlier run left in them: its packages, and the Verilog modules it generated. bsc writes
         a module's `.use` file (`-show-module-use`) right after its `.v`, so each `.use` goes
         with the `.v` beside it, whatever a `verilog_filters` command made of that `.v`. Other
-        files stay, and the library modules copied in are copied again."""
+        files stay, and the library modules copied in are copied again. Both directories must
+        lie inside the run directory (`Flow.removable_work_dir`, naming `bobj_dir` or
+        `out_setting`): xeda removes nothing outside it."""
         assert isinstance(self.settings, BscFlow.Settings)
         if self.settings.verilog_filters and any(c.isspace() for c in str(out_dir)):
             raise FlowSettingsException(
@@ -791,6 +793,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
             )
         bdir = Path(self.settings.bobj_dir)
         if self.settings.cleanup_bobjs:
+            bdir = self.removable_work_dir(bdir, "bobj_dir")
+            out_dir = self.removable_work_dir(out_dir, out_setting)
             stale = [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
             for use_file in out_dir.glob("*.use"):
                 stale += [use_file, use_file.with_suffix(".v")]
@@ -932,7 +936,7 @@ class Bsc(BscFlow):
         top_file = self._top_file(sources, "RTL")
         vout_dir = Path(ss.verilog_out_dir).absolute()
         log.info("Verilog output directory: %s", vout_dir)
-        self._prepare_dirs(vout_dir)
+        self._prepare_dirs(vout_dir, "verilog_out_dir")
 
         path_flags = self._path_flags("verilog", vout_dir, sources)
         macros = self._macros(tb=False)
@@ -1263,7 +1267,7 @@ class BscSim(BscFlow, SimFlow):
         sim_dir = Path(ss.sim_dir).absolute()
         # bsc's Verilog link searches `sim_dir` first, so a module generated there by an earlier
         # run must not outlive it
-        self._prepare_dirs(sim_dir)
+        self._prepare_dirs(sim_dir, "sim_dir")
 
         path_flags = self._path_flags(backend, sim_dir, sources)
         macros = self._macros(tb=True)

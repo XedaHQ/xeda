@@ -9,7 +9,10 @@ Where it goes
 =============
 
 The parent is ``./xeda_run`` by default; change it with ``--xeda-run-dir`` or the
-``XEDA_RUN_DIR`` environment variable. ``--cwd`` runs directly in the current directory instead.
+``XEDA_RUN_DIR`` environment variable. ``--cwd`` runs directly in the current directory instead,
+which must be empty or one xeda ran in before (xeda marks it with a ``.xeda-run-dir`` file): a run
+replaces and deletes files in its run directory, so xeda refuses a directory holding files it did
+not put there. Run without ``--cwd`` from a directory holding your own files.
 
 Within the parent, the layout depends on two options:
 

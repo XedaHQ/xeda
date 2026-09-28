@@ -1,7 +1,6 @@
 import logging
 import os
 import shutil
-from glob import glob
 from pathlib import Path
 from random import randint
 from typing import Any, List, Optional, Union
@@ -364,17 +363,16 @@ class Verilator(SimFlow):
     def rm_dep_files(self):
         assert isinstance(self.settings, self.Settings)
         log.info("Removing dependency files to trigger verilator")
-        if self.settings.sim_dir and os.path.exists(self.settings.sim_dir):
-            for p in glob(f"{self.settings.sim_dir}{os.sep}*.d"):
-                if os.path.exists(p):
+        sim_dir = self.removable_work_dir(self.settings.sim_dir, "sim_dir")
+        if sim_dir.is_dir():
+            for p in sim_dir.glob("*.d"):
+                if p.is_file():
                     log.debug("Deleting %s", p)
-                    os.unlink(p)
+                    p.unlink()
 
     def clean(self):
         assert isinstance(self.settings, self.Settings)
-        if (
-            self.settings.clean_before_run
-            and self.settings.sim_dir
-            and os.path.exists(self.settings.sim_dir)
-        ):
-            shutil.rmtree(self.settings.sim_dir)
+        if self.settings.clean_before_run:
+            sim_dir = self.removable_work_dir(self.settings.sim_dir, "sim_dir")
+            if sim_dir.exists():
+                shutil.rmtree(sim_dir)

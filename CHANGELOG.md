@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- `xeda run <flow> <design> --cwd`, started in a directory holding files -- the design's own
+  directory, typically -- deleted every file there: `--cwd` makes the current directory the run
+  directory, and the `clean` of `vivado_synth`, `dc` and `vcs` (on by default) empties the run
+  directory before the flow runs. An API `DefaultRunner(run_path=...)` did the same, and a design
+  named `..` put its run directory outside `xeda_run/`, where `--clean` or `--no-incremental`
+  emptied a directory of the user's. A directory given explicitly (`--cwd`, `run_path`) is now
+  used only if it does not exist, is empty, or is one xeda ran in before, which xeda marks with a
+  `.xeda-run-dir` file; any other is refused, naming it, before anything is created, written or
+  deleted. **`--cwd` therefore needs an empty directory, or one xeda made**: from a directory
+  holding your files, run without it (the run goes to `xeda_run/<design>/<flow>`). A design or
+  flow name that does not name one directory inside the run root (`..`, `.`, a path separator)
+  is refused, and so is a run directory a link leads out of it, or `xeda scrub` given such a
+  design name. A flow's `clean` empties only a run directory inside the run root or marked as
+  xeda's. Verilator's `sim_dir`, bsc's `bobj_dir`, Diamond's `impl_folder` and Vivado's
+  `xsim.dir`, which a flow removes files from by name, must lie inside the run directory.
 - Flows record the outputs they write, so `results.json` names them: `ghdl_synth`'s Verilog in
   single-file mode (`generated_verilog`, a list in both modes), `vivado_alt_synth`'s checkpoints,
   netlists, SDF and exported XDC, `vivado_sim`'s VCD and SAIF, `dc`'s mapped netlists, `.ddc`,

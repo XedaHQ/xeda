@@ -68,6 +68,8 @@ class DiamondSynth(FpgaSynthFlow):
             raise FlowSettingsException(
                 "diamond_synth needs a clock: set `clock.period` (or `clocks`) in the flow settings"
             )
+        # `synth.tcl` deletes the implementation directory before creating the project
+        self.removable_work_dir(self.settings.impl_folder, "impl_folder")
         constraint_exts = ["ldc"] if self.settings.synthesis_engine == "lse" else ["sdc", "fdc"]
         constraints = [f"constraints.{ext}" for ext in constraint_exts]
         for constraint in constraints:

@@ -13,7 +13,7 @@ from typing import ClassVar
 import pytest
 
 from xeda import Design
-from xeda.flow import Flow, registered_flows
+from xeda.flow import Flow, RunDirectoryError, registered_flows
 from xeda.flow_runner import DefaultRunner
 
 EXAMPLE = "examples/vhdl/sqrt/sqrt.toml"
@@ -201,7 +201,8 @@ def test_post_cleanup_keeps_a_run_directory_artifact(tmp_path, design):
 def test_post_cleanup_through_run_path_alias(
     tmp_path, design, target_inside_run_root, absolute_artifact
 ):
-    """Preserve internal targets, and never clean a run directory outside the run root."""
+    """Preserve internal targets; a run directory that a link leads out of the run root is
+    refused before anything runs there, so it is never cleaned either."""
 
     class LinkedFlow(Flow):
         """Report an internal symlink as an artifact."""
@@ -230,10 +231,15 @@ def test_post_cleanup_through_run_path_alias(
         actual.mkdir()
         alias.parent.mkdir()
         alias.symlink_to(actual, target_is_directory=True)
+        if not target_inside_run_root:
+            with pytest.raises(RunDirectoryError, match="outside the run root"):
+                launcher.launch_flow(LinkedFlow, design, {})
+            assert list(actual.iterdir()) == []
+            return
         flow = launcher.launch_flow(LinkedFlow, design, {})
         assert flow.succeeded
         assert (flow.run_path / "link.txt").read_text() == "keep"
-        assert (flow.run_path / "scratch.txt").exists() is not target_inside_run_root
+        assert not (flow.run_path / "scratch.txt").exists()
     finally:
         for name in (LinkedFlow.name, LinkedFlow.__name__):
             registered_flows.pop(name, None)

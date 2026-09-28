@@ -80,6 +80,17 @@ layout depends on two options - hashes appear **only** with `--cached-dependenci
 first. Each run dir gets `settings.json` and `results.json`, plus `reports/`, `outputs/`,
 `checkpoints/`.
 
+xeda runs only in a directory that is its own (`flow/run_dir.py`). One it chooses must resolve
+strictly inside the run root: `get_flow_run_path` refuses a design or flow name such as `..` or
+`a/b`, and a run directory a link leads out of the root. One given explicitly (`--cwd`, the
+launcher's `run_path`) is used only if it does not exist, is empty, or carries xeda's
+`.xeda-run-dir` marker, which xeda writes into it (`claim_run_dir`, before anything else in
+`launch_flow`); otherwise the launch fails with `RunDirectoryError`. `Flow.purge_run_path` empties
+only a directory inside the run root or marked (keeping the marker), and a work directory a flow
+removes files from by name goes through `Flow.removable_work_dir`, which refuses one outside the
+run directory. `tests/test_explicit_run_dir.py` holds the oracle listing every deletion site in
+`src/xeda`: a new one fails it until reviewed.
+
 ### Machine-readable CLI (for agents and scripts)
 
 `--json` always means "a parseable result on stdout". Query commands (`list-flows`,

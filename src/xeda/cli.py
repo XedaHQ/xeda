@@ -37,6 +37,7 @@ from .cli_utils import (
 )
 from .console import console
 from .flow import Flow, FlowFatalError, registered_flows
+from .flow.run_dir import RunDirectoryError, run_dir_name
 from .flow_runner import (
     DIR_NAME_HASH_LEN,
     DefaultRunner,
@@ -438,7 +439,9 @@ def _run_document(
 @click.option(
     "--cwd",
     is_flag=True,
-    help="Run incremental execution in the current working directory.",
+    help="Run in the current directory instead of under --xeda-run-dir. The directory must be "
+    "empty, or one xeda ran in before (it holds xeda's .xeda-run-dir marker): a run replaces and "
+    "deletes files in its run directory.",
 )
 @click.option(
     "--clean",
@@ -1116,6 +1119,10 @@ def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, incremental, json
     xeda_run_dir = Path(xeda_run_dir).resolve()
     # just to make sure flow exists and name is canonical
     flow_class = get_flow_class(flow)
+    try:  # a name such as `..` would scrub outside the run directory
+        run_dir_name(design_name, "design")
+    except RunDirectoryError as e:
+        raise click.BadParameter(str(e), param_hint="DESIGN_NAME") from e
 
     regex = re.compile(f"^{re.escape(design_name)}_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r"$")
     design_dirs = [
