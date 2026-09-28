@@ -69,6 +69,9 @@ def test_a_run_whose_vivado_runs_complete_their_steps_succeeds(
     assert _checked_runs(flow) == ["synth_1", "impl_1"]
     step = "write_bitstream" if bitstream else "route_design"
     assert flow.results["status"] == f"{step} Complete!"
+    # where the script records the status for the result: not a report artifact
+    assert (flow.run_path / vs.RUN_STATUS_FILE).is_file()
+    assert not [label for label in flow.artifacts if vs.RUN_STATUS_FILE in str(label)]
     if bitstream:
         # Vivado's `write_bitstream` step wrote it, the step's hook put it where it is registered
         assert flow.artifacts[vs.BITSTREAM] == Path(bitstream)
