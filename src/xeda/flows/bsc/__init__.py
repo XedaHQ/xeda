@@ -1214,8 +1214,7 @@ class BscSim(BscFlow, SimFlow):
             )
         if len(self.design.tb.top) > 1:
             raise FlowSettingsException(
-                "bsc_sim simulates one top module; `tb.top` names "
-                + ", ".join(self.design.tb.top)
+                "bsc_sim simulates one top module; `tb.top` names " + ", ".join(self.design.tb.top)
             )
         if ss.stop_time is not None:
             raise FlowSettingsException(
