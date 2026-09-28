@@ -77,6 +77,10 @@ All notable changes to this project will be documented in this file.
   last run the script waited for, on success and failure alike (`vivado_alt_synth`, which has
   no runs, no longer lists it). A run that reports success although the requested bitstream is
   missing fails, naming the expected path.
+- A Vivado synthesis script that failed to read a source ended with Vivado's `invalid command
+  name "errorExit"` instead of the error itself: `vivado_synth` and `vivado_alt_synth` called
+  `errorExit`, which only `vivado_sim`'s script defined. It is now one of the procs the Vivado
+  scripts share (`util.tcl`), which every script calling one includes.
 - An FPGA flow launched without a device says so, once, before anything runs, naming the setting
   and how to give it (`-s fpga.part=<part>`, or a `board` for the flows that take one), as a
   `FlowSettingsException` the CLI reports in one line. Each flow used to fail
