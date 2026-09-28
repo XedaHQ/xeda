@@ -205,6 +205,9 @@ _AXI4_VERILATOR_XFAIL = pytest.mark.xfail(
         "with bare `bsc -vsim verilator` / `verilator --lint-only` on the generated Verilog."
     ),
     strict=True,
+    # only the testbench's own failure is expected: a tool gone missing under
+    # XEDA_TESTS_REQUIRE_TOOLS, or any other error, still fails
+    raises=AssertionError,
 )
 
 
