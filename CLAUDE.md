@@ -541,7 +541,11 @@ while it is open). A flow sharing
   fails every test using it. Vivado's then writes canned reports
   (`tests/fake_tools/resource/fake_vivado_reports`). `tool_utils.use_fake_tools(monkeypatch)` puts
   them on `PATH`; `tool_utils.fake_calls(run_dir)` reads what the scripts ran; commands named in
-  `XEDA_FAKE_TOOL_FAIL` raise a TCL error, as a failed compile does. To fake a new tool:
+  `XEDA_FAKE_TOOL_FAIL` raise a TCL error, as a failed compile does. Where recording is not
+  enough, `TCL_MODEL` models a tool's own commands: ISE's `process` (a failed process shows only
+  in its result and status, never as a TCL error; `XEDA_FAKE_ISE_FAILURE`) and Diamond's
+  `prj_run` write the reports and bitstream the real steps write, unless
+  `XEDA_FAKE_TOOL_NO_OUTPUT` is set -- a step that succeeds without its output. To fake a new tool:
   add a symlink, add an entry to the `fake_tools` dict (the option or argument naming its script,
   for `RunTcl`), and use `use_fake_tools`.
 - **ModelSim exits 0 unless told otherwise.** Its `exit` takes the status as `exit -code N` (a

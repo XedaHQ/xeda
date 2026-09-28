@@ -109,7 +109,7 @@ Reports no results beyond the keys every flow reports.
 
 ### `diamond_synth`
 
-FPGA synthesis, place & route for Lattice devices using Lattice Diamond. Runs the full Diamond implementation flow (synthesis through bitstream generation) in batch mode and reports resource utilization and timing.
+FPGA synthesis, place & route for Lattice devices using Lattice Diamond. Runs the full Diamond implementation flow (synthesis through bitstream generation) in batch mode and reports resource utilization and timing. The bitstream, `<impl_folder>/<design>_<impl_name>.bit`, is recorded as the `bitstream` artifact.
 
 11 flow-specific settings (plus the common ones): `xeda list-settings diamond_synth --json`
 
@@ -117,7 +117,7 @@ Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `
 
 ### `ise_synth`
 
-FPGA synthesis using Xilinx ISE
+FPGA synthesis, implementation and bitstream generation using Xilinx ISE. Runs XST synthesis, translate, map and place & route ("Implement Design"), then bitgen ("Generate Programming File") in an ISE project, and reports resource utilization and timing. The bitstream, `<top>.bit`, is recorded as the `bitstream` artifact.
 
 11 flow-specific settings (plus the common ones): `xeda list-settings ise_synth --json`
 

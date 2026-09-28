@@ -212,6 +212,7 @@ class OpenXC7(FpgaSynthFlow):
         log.info("Running: %s", " ".join(map(str, cmd)))
         run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
         assert frames_path.exists(), f"Frames file {frames_path} not found!"
+        self.artifacts["frames"] = frames_path.resolve()
         bitstream_path = Path(ss.bitstream or fasm_path.with_suffix(".bit"))
         ss.bitstream = bitstream_path.resolve()
         part_yaml = prjxraydb_dir / family / ss.fpga.part / "part.yaml"
@@ -229,6 +230,8 @@ class OpenXC7(FpgaSynthFlow):
         ]
         log.info("Running: %s", " ".join(cmd))
         run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
+        if bitstream_path.is_file():
+            self.artifacts["bitstream"] = bitstream_path.resolve()
         return bitstream_path
 
     def use_existing_results(self) -> bool:
@@ -307,7 +310,7 @@ class OpenXC7(FpgaSynthFlow):
         ss = self.settings
         log.debug("design_hash=%s flow_hash=%s", self.design_hash, self.flow_hash)
         if self.use_existing_results():
-            bitstream_path = self.results.get("_bitstream_path")
+            bitstream_path = self.artifacts.get("bitstream")
             if bitstream_path:
                 bitstream_path = Path(bitstream_path)
                 if bitstream_path.exists():
@@ -418,15 +421,18 @@ class OpenXC7(FpgaSynthFlow):
         if ss.extra_args:
             args += ss.extra_args
         self.next_pnr.run(*args)
+        for label, output in (("json_netlist", ss.json_output), ("nextpnr_log", ss.log)):
+            if output and Path(output).is_file():
+                self.artifacts[label] = Path(output).resolve()
 
         if ss.fasm_output:
             fasm_path = Path(ss.fasm_output)
             assert fasm_path.exists(), f"FASM file {ss.fasm_output} not found!"
             log.info("FASM file written to %s", fasm_path.resolve())
+            self.artifacts["fasm"] = fasm_path.resolve()
             bitstream_path = self.generate_bitstream(fasm_path)
             if bitstream_path and bitstream_path.exists():
                 log.info("Bitstream file written to %s", bitstream_path.resolve())
-                self.results["_bitstream_path"] = bitstream_path.resolve()
             else:
                 log.warning("Bitstream generation failed!")
         self.program_fpga(bitstream_path)
