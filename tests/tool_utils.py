@@ -12,6 +12,7 @@ fails on the first real invocation.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -23,8 +24,11 @@ import pytest
 
 __all__ = [
     "fake_calls",
+    "require_bluesim",
+    "require_bsc",
     "require_c_toolchain",
     "require_ghdl",
+    "require_iverilog",
     "require_nextpnr_ecp5",
     "require_nvc",
     "require_verilator",
@@ -46,14 +50,35 @@ _TRIVIAL_VERILOG = (
     "  always @(posedge clk) o <= ~o;\n"
     "endmodule\n"
 )
+_TRIVIAL_VERILOG_TB = "module xeda_probe;\n  initial begin\n    $finish;\n  end\nendmodule\n"
+_TRIVIAL_BSV = (
+    "package XedaProbe;\n"
+    "(* synthesize *)\n"
+    "module mkXedaProbe(Empty);\n"
+    "endmodule\n"
+    "endpackage\n"
+)
+_TRIVIAL_BSV_SIM = (
+    "package XedaProbe;\n"
+    "(* synthesize *)\n"
+    "module mkXedaProbe(Empty);\n"
+    "  rule done;\n"
+    "    $finish(0);\n"
+    "  endrule\n"
+    "endmodule\n"
+    "endpackage\n"
+)
 
 
-def _command_succeeds(command: Sequence[str], cwd: Optional[str] = None) -> bool:
+def _command_succeeds(
+    command: Sequence[str], cwd: Optional[str] = None, timeout: int = 120
+) -> bool:
     if not shutil.which(command[0]):
         return False
     try:
         return (
-            subprocess.run(list(command), capture_output=True, timeout=120, cwd=cwd).returncode == 0
+            subprocess.run(list(command), capture_output=True, timeout=timeout, cwd=cwd).returncode
+            == 0
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -212,6 +237,120 @@ def require_yosys_ghdl_plugin() -> None:
         _probe_yosys_ghdl_plugin(),
         "reading a trivial VHDL entity through `yosys -p 'plugin -i ghdl; ghdl ...'`",
     )
+
+
+# bsc/bsc_sim need features only present from this release; an older bsc runs happily but is not
+# functional for xeda's purposes.
+_MIN_BSC_VERSION = (2026, 7, 1)
+
+
+def _parse_bsc_version(text: str) -> Optional[tuple[int, int, int]]:
+    """The release in bsc's banner, "Bluespec Compiler, version 2026.07.1 (build 63665af1)".
+
+    Most releases have two components (2026.07); a bug-fix release adds a third (2026.07.1).
+    """
+    match = re.search(r"version\s+(\d+)\.(\d+)(?:\.(\d+))?", text)
+    if not match:
+        return None
+    year, month, patch = match.groups()
+    return (int(year), int(month), int(patch or 0))
+
+
+@lru_cache(maxsize=None)
+def _probe_bsc() -> bool:
+    """Check the version, then actually compile a trivial BSV package to Verilog.
+
+    `bsc -v` succeeds regardless of version, so an installed-but-too-old bsc would otherwise look
+    fine; xeda's bsc/bsc_sim flows are not functional below `_MIN_BSC_VERSION`.
+    """
+    if not shutil.which("bsc"):
+        return False
+    try:
+        proc = subprocess.run(["bsc", "-v"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if proc.returncode != 0:
+        return False
+    version = _parse_bsc_version(proc.stdout) or _parse_bsc_version(proc.stderr)
+    if version is None or version < _MIN_BSC_VERSION:
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "XedaProbe.bsv"
+        src.write_text(_TRIVIAL_BSV)
+        return _command_succeeds(
+            ["bsc", "-verilog", "-g", "mkXedaProbe", "-bdir", ".", "-vdir", ".", "XedaProbe.bsv"],
+            cwd=tmp,
+        )
+
+
+def require_bsc() -> None:
+    """bsc on PATH, at least `_MIN_BSC_VERSION`, and able to compile BSV to Verilog.
+
+    A bsc older than 2026.07.1 is not functional for xeda's bsc/bsc_sim flows even though it
+    runs, so that is called out explicitly rather than left to look like a plain "missing tool".
+    """
+    version = ".".join(str(v) for v in _MIN_BSC_VERSION)
+    _require(
+        "bsc",
+        _probe_bsc(),
+        f"bsc -v (>= {version}; an older bsc is not functional for xeda) + compiling a "
+        "trivial BSV module to Verilog",
+    )
+
+
+@lru_cache(maxsize=None)
+def _probe_bluesim() -> bool:
+    """Compile, link *and run* a trivial Bluesim testbench, as `BscSim` does.
+
+    Compiling and linking succeed even when `libtcl8.6.so` -- which every Bluesim executable
+    (and `bluetcl`) needs -- is missing; only actually running the linked binary fails.
+    """
+    if not (_probe_bsc() and _probe_c_toolchain()):
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "XedaProbe.bsv"
+        src.write_text(_TRIVIAL_BSV_SIM)
+        if not _command_succeeds(
+            ["bsc", "-sim", "-g", "mkXedaProbe", "-bdir", ".", "-simdir", ".", "XedaProbe.bsv"],
+            cwd=tmp,
+        ):
+            return False
+        # The Bluesim link step can be slow; give it more than the default timeout.
+        if not _command_succeeds(
+            ["bsc", "-sim", "-e", "mkXedaProbe", "-bdir", ".", "-simdir", ".", "-o", "probe"],
+            cwd=tmp,
+            timeout=300,
+        ):
+            return False
+        return _command_succeeds([str(Path(tmp) / "probe")], cwd=tmp)
+
+
+def require_bluesim() -> None:
+    """`require_bsc` and a C toolchain, plus actually running a linked Bluesim binary."""
+    require_bsc()
+    require_c_toolchain()
+    _require(
+        "Bluesim",
+        _probe_bluesim(),
+        "compiling, linking (`bsc -sim -e ...`) and running a trivial Bluesim testbench",
+    )
+
+
+@lru_cache(maxsize=None)
+def _probe_iverilog() -> bool:
+    """Compile *and run* a trivial module, as bsc's `-vsim iverilog` link step does."""
+    if not (shutil.which("iverilog") and shutil.which("vvp")):
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "xeda_probe.v"
+        src.write_text(_TRIVIAL_VERILOG_TB)
+        if not _command_succeeds(["iverilog", "-o", "probe.vvp", "xeda_probe.v"], cwd=tmp):
+            return False
+        return _command_succeeds(["vvp", "probe.vvp"], cwd=tmp)
+
+
+def require_iverilog() -> None:
+    _require("iverilog", _probe_iverilog(), "`iverilog` + `vvp` of a trivial module")
 
 
 # ---------------------------------------------------------------------------------------------

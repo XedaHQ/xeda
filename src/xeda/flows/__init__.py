@@ -7,7 +7,7 @@ from inspect import isabstract, isclass
 from typing import List, Type
 
 from ..flow import Flow
-from .bsc import Bsc
+from .bsc import Bsc, BscSim
 from .dc import Dc
 from .diamond import DiamondSynth
 from .ghdl import GhdlSim, GhdlSynth
@@ -33,6 +33,7 @@ __builtin_flows__: List[Type[Flow]] = []
 
 __all__ = [
     "Bsc",
+    "BscSim",
     "Dc",
     "DiamondSynth",
     "GhdlSim",

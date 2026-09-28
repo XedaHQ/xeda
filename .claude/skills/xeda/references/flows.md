@@ -11,6 +11,14 @@ xeda list-results <flow> --json      # every result key, with its meaning
 
 ## Simulation
 
+### `bsc_sim`
+
+Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulator. Compiles the design's Bluespec sources, RTL then testbench, in order -- the package defining `tb.top` last -- and simulates `tb.top`, a module with an `Empty` interface (`rtl.top` when the design has no testbench). `simulator` picks Bluesim, bsc's own cycle-based simulator, or a Verilog simulator that bsc links the generated Verilog with (`bsc -vsim`), driving clock and reset from its `main.v`. The run fails when the simulation exits with an error status: a testbench fails with `$fatal` or a failing `dynamicAssert`. `$finish(n)` does not fail it (`n` is a verbosity level) and `$error` fails it only under Verilator. The design's `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which BH (`.bs`) sources see only through the C preprocessor, with `cpp`.
+
+74 flow-specific settings (plus the common ones): `xeda list-settings bsc_sim --json`
+
+Reports: `simulator`
+
 ### `ghdl_sim`
 
 *aliases: `ghdl` | supports cocotb testbenches*
@@ -231,8 +239,8 @@ Reports: `area`, `cells`
 
 ### `bsc`
 
-Compile Bluespec (BSV or BH) sources to Verilog with the Bluespec compiler (bsc). The generated Verilog is written to `verilog_out_dir` and can be fed to any downstream synthesis or simulation flow. Design sources of type `Bluespec` are compiled; existing Verilog/SystemVerilog sources are passed through.
+Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc. Compiles `rtl.sources` in order -- the package defining `rtl.top` last -- and generates Verilog for `rtl.top` and for every `synthesize`d module on the way. `artifacts.verilog` lists every Verilog file the top module needs: the generated modules, the design's own Verilog sources, and the modules of bsc's Verilog library it instantiates, which are copied into `verilog_out_dir` so any downstream synthesis or simulation flow can take the list as is. `rtl.defines` and `rtl.parameters` are passed to bsc as preprocessor macros; BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
 
-20 flow-specific settings (plus the common ones): `xeda list-settings bsc --json`
+60 flow-specific settings (plus the common ones): `xeda list-settings bsc --json`
 
-Reports no results beyond the keys every flow reports.
+Reports: `modules`
