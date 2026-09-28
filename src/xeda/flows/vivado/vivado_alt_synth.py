@@ -448,4 +448,17 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             "vivado_alt_synth.tcl",
             xdc_files=constraint_files(self, ss),
         )
+        # These are written unconditionally by `vivado_alt_synth.tcl` whenever the setting that
+        # enables them is on (`write_checkpoint`/`write_netlist`); record them here, since
+        # `VivadoAltSynth` does not override `parse_reports` (it inherits `VivadoSynth`'s, which
+        # only tracks `bitstream` and the reports/log globs).
+        if ss.write_checkpoint:
+            self.artifacts.checkpoint_synth = ss.checkpoints_dir / "post_synth.dcp"
+            self.artifacts.checkpoint_place = ss.checkpoints_dir / "post_place.dcp"
+            self.artifacts.checkpoint_route = ss.checkpoints_dir / "post_route.dcp"
+        if ss.write_netlist:
+            self.artifacts.netlist = ss.outputs_dir / "impl_funcsim.v"
+            self.artifacts.netlist_timing = ss.outputs_dir / "impl_timesim.v"
+            self.artifacts.sdf = ss.outputs_dir / "impl_timesim.sdf"
+            self.artifacts.xdc_exported = ss.outputs_dir / "impl.xdc"
         self.vivado.run("-source", script_path)

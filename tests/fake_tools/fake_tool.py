@@ -63,9 +63,13 @@ proc __record {args} {
 }
 # `XEDA_FAKE_TOOL_FAIL`: the tool commands that fail, as a compiler does on a bad source
 set __fail [expr {[info exists ::env(XEDA_FAKE_TOOL_FAIL)] ? $::env(XEDA_FAKE_TOOL_FAIL) : {}}]
+# What a tool command returns where the recorder's 1 would be misread: Vivado's
+# `get_msg_config -count` is a number of messages, and 1 an error that never happened.
+set __returns [dict create get_msg_config 0]
 proc unknown {args} {
     set result [__record {*}$args]
     if {[lindex $args 0] in $::__fail} { error "[lindex $args 0] failed" }
+    if {[dict exists $::__returns [lindex $args 0]]} { return [dict get $::__returns [lindex $args 0]] }
     return $result
 }
 rename source __source

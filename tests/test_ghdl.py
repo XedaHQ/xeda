@@ -141,6 +141,8 @@ def test_ghdl_synth_single_output_needs_no_make(tmp_path, ghdl_commands):
     modules = _modules(flow.run_path / "stem.v")
     assert len(modules) == 3 and "top" in modules
     assert "make" not in ghdl_commands
+    # a list in either output mode, so a consumer need not know which one ran
+    assert flow.artifacts.generated_verilog == [Path("stem.v")]
 
 
 def test_ghdl_synth_output_name_collision_is_reported_before_synthesis(

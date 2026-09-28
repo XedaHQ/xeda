@@ -338,7 +338,7 @@ puts "==========================( Writing Generated Netlist )===================
 write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
 write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
 
-write_sdf -version {{settings.sdf_version}} {%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name}} {%endif-%} $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
+write_sdf {% if settings.sdf_version %}-version {{ settings.sdf_version }} {% endif %}{%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name}} {%endif-%} $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
 
 set_app_var write_sdc_output_lumped_net_capacitance false
 set_app_var write_sdc_output_net_resistance false

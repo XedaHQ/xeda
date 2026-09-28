@@ -250,6 +250,9 @@ class Quartus(FpgaSynthFlow):
     def run(self) -> None:
         self.create_project()
         script_path = self.copy_from_template("compile.tcl")
+        # `execute_flow -compile` always runs `quartus_asm`, which writes `<design_name>.sof`
+        # into the project directory (the run directory); never declared as an artifact before.
+        self.artifacts.bitstream = f"{self.design.name}.sof"
         self.quartus_sh.run("-t", script_path)
 
     def parse_reports(self) -> bool:
