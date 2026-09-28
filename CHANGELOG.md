@@ -39,6 +39,19 @@ All notable changes to this project will be documented in this file.
   exists. A successful ISE or Diamond run that wrote no bitstream fails, naming the expected
   path. A failed ISE process fails the run (`xtclsh` exited 0 after one), and `ise_synth` removes
   its own outputs from a previous run first, so a stale bitstream cannot pass for a new one.
+- `vivado_synth` writes the outputs it registers, at the paths it registers them: in project
+  mode `write_checkpoint` wrote no checkpoint, the netlists, SDF and exported XDC were registered
+  at paths nothing wrote, and the two SDF corners were swapped. Checkpoints go in
+  `outputs/synth_design/` and `outputs/route_design/`, and the netlists, SDF and XDC in
+  `outputs/route_design/`. They are recorded as `checkpoint_synth`, `checkpoint_route`,
+  `netlist`, `netlist_timing`, `sdf_min`, `sdf_max` and `xdc_exported`, the labels
+  `vivado_alt_synth` uses. The functional netlist is now Verilog. A requested bitstream comes
+  from Vivado's own `write_bitstream` step, so `impl.steps.WRITE_BITSTREAM` settings apply to it,
+  and a `.bin` from `ARGS.BIN_FILE` is copied beside it. A negative slack stops the run only
+  with `fail_timing`. `vivado_postsynth_sim` and `vivado_power` run again: neither initialized
+  Vivado. They now read what their dependencies recorded instead of guessing paths. The
+  functional simulation uses the functional netlist, and power uses the routed checkpoint and the
+  SAIF the simulation recorded.
 - An FPGA flow launched without a device says so, once, before anything runs, naming the setting
   and how to give it (`-s fpga.part=<part>`, or a `board` for the flows that take one), as a
   `FlowSettingsException` the CLI reports in one line. Each flow used to fail
