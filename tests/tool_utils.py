@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from functools import lru_cache
 from pathlib import Path
@@ -27,6 +28,7 @@ __all__ = [
     "require_bluesim",
     "require_bsc",
     "require_c_toolchain",
+    "require_cocotb",
     "require_ghdl",
     "require_iverilog",
     "require_nextpnr_ecp5",
@@ -161,6 +163,12 @@ def _probe_c_toolchain() -> bool:
 def require_c_toolchain() -> None:
     """A working C compiler, needed by cocotb's C reference models and Verilator's models."""
     _require("a C toolchain", _probe_c_toolchain(), "compiling a trivial C file")
+
+
+def require_cocotb() -> None:
+    """The cocotb Python package and configuration executable used by simulator flows."""
+    _require_command("cocotb", [sys.executable, "-c", "import cocotb"])
+    _require_command("cocotb-config", ["cocotb-config", "--version"])
 
 
 def require_ghdl() -> None:

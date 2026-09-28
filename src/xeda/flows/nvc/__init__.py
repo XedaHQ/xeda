@@ -356,11 +356,3 @@ class Nvc(SimFlow):
             self.analyze()
             self.elaborate()
         self.execute(one_shot=ss.one_shot)
-
-    def parse_reports(self) -> bool:
-        success = True
-        ss = self.settings
-        assert isinstance(ss, self.Settings)
-        if self.cocotb and self.design.tb and self.design.tb.cocotb:
-            success &= self.cocotb.add_results(self.results)
-        return success

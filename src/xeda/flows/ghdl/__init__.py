@@ -657,12 +657,3 @@ class GhdlSim(Ghdl, SimFlow):
             *run_flags,
             env=self.cocotb.env(design) if self.cocotb else {},
         )
-
-    def parse_reports(self) -> bool:
-        success = True
-        assert isinstance(self.settings, self.Settings)
-
-        # TODO move
-        if self.cocotb and self.design.tb and self.design.tb.cocotb:
-            success &= self.cocotb.add_results(self.results)
-        return success

@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 from dataclasses import dataclass
 from functools import cached_property
@@ -55,7 +56,9 @@ class CocotbSettings(XedaBaseModel):
     )
     testcase: List[str] = Field(
         [],
-        description="List of test-cases to run. Can also be specified as a comma-separated string. Currently used for cocotb testbenches only.",
+        description="Names of the cocotb tests to run; all of them if empty. A name selects exactly "
+        "the test of that name (`check` never selects `foo_check`); on cocotb 2.x it may be "
+        "qualified by its module (`tb.check`). Can also be given as a comma-separated string.",
     )
     random_seed: Optional[int] = Field(
         None,
@@ -316,9 +319,48 @@ class Cocotb(CocotbSettings, Tool):
         )
         return ";".join(user for user in (libpython, entry_point) if user)
 
+    def discard_results(self) -> None:
+        """Remove the results file an earlier simulation left, before a new one starts.
+
+        cocotb writes no results file when it runs no test at all (a test module that fails to
+        import), and the simulators still exit 0. A file left by an earlier run in a reused run
+        directory would then be read as this run's results.
+        """
+        Path(self.results_xml).unlink(missing_ok=True)
+        self.__dict__.pop("results", None)  # the cached `results` of that file
+
+    def test_selection(self, testcases: List[str]) -> Dict[str, str]:
+        """The environment that makes the installed cocotb run exactly the tests named
+        `testcases`, or none at all to run every test.
+
+        cocotb 1.x reads their comma-separated names from `TESTCASE` and runs the tests of exactly
+        those names. From 2.0 cocotb ignores `TESTCASE` and reads a regular expression from
+        `COCOTB_TEST_FILTER` (or names from `COCOTB_TESTCASE`, deprecated in the same release),
+        which it searches in each test's `<module>.<name>`. The expression built here matches a
+        whole name, optionally qualified by its module (`check` or `tb.check`, never
+        `foo_check`) -- unlike `cocotb_tools.runner`'s, which also matches every test whose name
+        ends with it. The installed cocotb's version, as `cocotb-config` reports it, tells the two
+        apart: `--help-vars` cannot, since cocotb 2.0.0 reads `COCOTB_TEST_FILTER` without listing
+        it. An unreadable version counts as the newest.
+        """
+        names = [name.strip() for name in testcases if name.strip()]
+        if not names:
+            return {}
+        if not self.version_gte(2):
+            return {"TESTCASE": ",".join(names)}
+        alternatives = "|".join(re.escape(name) for name in names)
+        return {"COCOTB_TEST_FILTER": rf"(?:^|\.)(?:{alternatives})$"}
+
     def env(self, design: Design) -> Dict[str, Any]:
+        """The environment a simulator needs to run the design's cocotb testbench.
+
+        Every cocotb flow asks for it right before it simulates, which makes this the one place
+        all of them go through: it also discards the results of an earlier run
+        (`discard_results`), so that `add_results` reads only what this simulation wrote.
+        """
         environ: Dict[str, Any] = dict()
         if design.tb.cocotb:
+            self.discard_results()
             if design.tb is None or not design.tb.sources:
                 raise ValueError("'design.tb.cocotb' is set, but 'design.tb.sources' is empty.")
             if not design.tb.top:
@@ -376,9 +418,7 @@ class Cocotb(CocotbSettings, Tool):
             }
             if self.coverage:
                 environ["COVERAGE"] = 1
-            testcases = self.testcase or design.tb.cocotb.testcase
-            if testcases:
-                environ["TESTCASE"] = ",".join(testcases)
+            environ.update(self.test_selection(self.testcase or design.tb.cocotb.testcase))
             if self.random_seed is not None:
                 environ["COCOTB_RANDOM_SEED"] = self.random_seed
             if self.gpi_extra:
@@ -398,8 +438,12 @@ class Cocotb(CocotbSettings, Tool):
 
     def add_results(self, flow_results: Dict[str, Any], prefix: str = "cocotb.") -> bool:
         """adds cocotb results to parent flow's results. returns success status"""
-        results = self.results
         flow_results["success"] = False
+        try:
+            results = self.results
+        except (OSError, ElementTree.ParseError, UnicodeError, ValueError) as exc:
+            log.error("Could not read cocotb test results from %s: %s", self.results_xml, exc)
+            return False
         if results is not None:
             flow_results[prefix + "tests"] = results.tests
             flow_results[prefix + "errors"] = results.errors
@@ -412,6 +456,9 @@ class Cocotb(CocotbSettings, Tool):
                 return False
             if results.failures:
                 log.critical("Cocotb: %d failure(s)", results.failures)
+                return False
+            if not results.tests:
+                log.error("Cocotb ran no test (does `testcase` name one?).")
                 return False
             flow_results["success"] = True
             return True

@@ -78,3 +78,9 @@ class SimFlow(Flow, metaclass=ABCMeta):
             if self.cocotb_sim_name and self.design.tb.cocotb
             else None
         )
+
+    def check_results(self) -> bool:
+        """Include the cocotb verdict for every simulator that ran a cocotb testbench."""
+        if self.cocotb:
+            return self.cocotb.add_results(self.results)
+        return True

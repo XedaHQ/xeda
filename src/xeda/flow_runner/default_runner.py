@@ -427,7 +427,7 @@ class FlowLauncher:
            which may do setup work and registers the flow's dependencies; record `settings.json`.
         5. **dependencies** (`_run_dependencies`): launch each through this same procedure, with
            settings composed by `dependency_settings`.
-        6. **run** (`_execute`): `run()`, `parse_reports()`, results.
+        6. **run** (`_execute`): `run()`, `parse_reports()`, `check_results()`, results.
         7. **report** (`_report`): artifacts, `results.json`, clean-up.
         """
         self.debug |= self.settings.debug
@@ -731,8 +731,9 @@ class FlowLauncher:
                 flow.results.runtime = time.monotonic() - flow.init_time
             try:
                 success &= flow.parse_reports()
+                success &= flow.check_results()
             except Exception as e:  # pylint: disable=broad-except
-                log.critical("parse_reports threw an exception: %s", e)
+                log.critical("parse_reports or check_results threw an exception: %s", e)
                 if success:  # if so far so good this is a bug!
                     raise e
             flow.add_canonical_result_aliases()
