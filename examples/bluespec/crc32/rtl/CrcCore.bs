@@ -1,0 +1,55 @@
+package CrcCore(Crc, crcUpdateByte, CrcEngine(..), mkCrcEngine) where
+
+-- CrcCore (BH): the CRC-32 (IEEE 802.3, as used by Ethernet, zip and PNG) datapath.
+--
+-- The reflected CRC-32 processes each byte least significant bit first, one polynomial
+-- division step per bit. `mkCrcEngine` folds up to four bytes of a 32-bit word into the
+-- running CRC every cycle; it is synthesized as its own Verilog module and instantiated by
+-- the BSV package CrcUnit.
+
+import Vector
+
+type Crc = Bit 32
+
+-- The generator polynomial x^32 + x^26 + ... + 1, bit-reversed.
+polynomial :: Crc
+polynomial = 0xEDB88320
+
+crcInit :: Crc
+crcInit = 0xFFFFFFFF
+
+-- One step of the polynomial division.
+crcShift :: Crc -> Crc
+crcShift c = if c[0:0] == 1 then (c >> 1) ^ polynomial else c >> 1
+
+-- Fold one byte into a running (non-inverted) CRC.
+crcUpdateByte :: Crc -> Bit 8 -> Crc
+crcUpdateByte c b =
+    let shifts :: Integer -> Crc -> Crc
+        shifts 0 x = x
+        shifts k x = shifts (k - 1) (crcShift x)
+    in shifts 8 (c ^ zeroExtend b)
+
+interface CrcEngine =
+    -- Fold the first `nbytes` (1 to 4) bytes of `word`, least significant byte first, into the
+    -- CRC; `first` starts a new message.
+    update :: Bit 32 -> UInt 3 -> Bool -> Action
+    -- The CRC-32 of the message so far.
+    crc :: Crc
+
+{-# verilog mkCrcEngine #-}
+mkCrcEngine :: Module CrcEngine
+mkCrcEngine = module
+    state :: Reg Crc <- mkReg crcInit
+
+    let lane :: Bit 32 -> Integer -> Bit 8
+        lane w i = w[8 * i + 7 : 8 * i]
+
+        updateWord :: Crc -> Bit 32 -> UInt 3 -> Crc
+        updateWord c w n =
+            foldl (\ acc i -> if fromInteger i < n then crcUpdateByte acc (lane w i) else acc)
+                  c (genVector :: Vector 4 Integer)
+
+    interface
+      update word nbytes first = state := updateWord (if first then crcInit else state) word nbytes
+      crc = invert state

@@ -1,0 +1,23 @@
+name = "verilog_import"
+description = """\
+BSV wrapper around existing Verilog imported with `import "BVI"`: a two-stage pipelined \
+multiplier without flow control, made latency-insensitive with credits. Verilog simulation \
+only: Bluesim cannot simulate imported Verilog modules."""
+
+[rtl]
+# The imported Verilog module is a design source; the Bluespec package defining `top` comes
+# last among the Bluespec sources.
+sources = ["rtl/pipe_mul.v", "rtl/MulUnit.bsv"]
+top = "mkMulUnit"
+clock = { port = "CLK" }
+
+[tb]
+sources = ["tb/TbMulUnit.bsv"]
+top = "mkTbMulUnit"
+# Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design, which the
+# testbench must catch (non-zero exit):
+# defines = { XEDA_INJECT_BUG = true }
+
+# Bluesim, bsc_sim's default simulator, cannot simulate imported Verilog.
+[flows.bsc_sim]
+simulator = "verilator"

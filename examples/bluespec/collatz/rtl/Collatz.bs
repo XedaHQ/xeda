@@ -1,0 +1,70 @@
+package Collatz(Value, CollatzResult(..), Collatz, mkCollatz) where
+
+-- Collatz: for a start value n, counts the steps of the Collatz ("3n + 1") sequence until it
+-- reaches 1 (n even: n / 2, n odd: 3n + 1), and tracks the largest value along the way.
+--
+-- Written in Bluespec Classic (BH). One iteration per cycle; an odd n takes the shortcut
+-- n -> (3n + 1) / 2, two steps of the sequence at once (3n + 1 is always even).
+
+import FIFO
+import GetPut
+import ClientServer
+
+type Value = UInt 32
+
+struct CollatzResult =
+    steps    :: UInt 16  -- steps until the sequence reaches 1 (0 for n = 0 and n = 1)
+    peak     :: Value    -- largest value of the sequence
+    overflow :: Bool     -- the sequence left the 32-bit range; steps and peak are partial
+  deriving (Bits, Eq)
+
+type Collatz = Server Value CollatzResult
+
+{-# verilog mkCollatz #-}
+mkCollatz :: Module Collatz
+mkCollatz = module
+    inQ   :: FIFO Value         <- mkFIFO
+    outQ  :: FIFO CollatzResult <- mkFIFO
+    n     :: Reg Value          <- mkRegU
+    steps :: Reg (UInt 16)      <- mkRegU
+    peak  :: Reg Value          <- mkRegU
+    ovf   :: Reg Bool           <- mkRegU
+    busy  :: Reg Bool           <- mkReg False
+
+    let finished :: Bool
+        finished = n <= 1 || ovf
+
+        isOdd :: Bool
+        isOdd = (pack n)[0:0] == 1
+
+        -- 3n + 1, two bits wider than n, so that leaving the 32-bit range shows
+        up :: UInt 34
+        up = 3 * zeroExtend n + 1
+
+    rules
+      "load": when not busy ==> do
+          inQ.deq
+          n := inQ.first
+          peak := inQ.first
+          steps := 0
+          ovf := False
+          busy := True
+
+      "step": when busy, not finished ==>
+          if not isOdd then do
+              n := n >> 1
+              steps := steps + 1
+          else if up > zeroExtend (maxBound :: Value) then
+              ovf := True
+          else do
+              n := truncate (up >> 1)
+              steps := steps + 2
+              peak := max peak (truncate up)
+
+      "done": when busy, finished ==> do
+          outQ.enq (CollatzResult { steps = steps; peak = peak; overflow = ovf; })
+          busy := False
+
+    interface
+      request = toPut inQ
+      response = toGet outQ

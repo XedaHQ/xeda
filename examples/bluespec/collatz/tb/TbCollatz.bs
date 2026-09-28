@@ -1,0 +1,80 @@
+package TbCollatz(mkTbCollatz) where
+
+-- Self-checking testbench for mkCollatz, in BH.
+--
+-- The expected results come from a golden model that the compiler evaluates during static
+-- elaboration: the plain definition of the sequence, one step at a time, on unbounded
+-- Integers. Only the resulting constants end up in the testbench.
+
+import Vector
+import GetPut
+import ClientServer
+import Collatz
+import TbCollatzOptions  -- injectBug (BH has no preprocessor, see TbCollatzOptions.bsv)
+
+collatzRef :: Integer -> CollatzResult
+collatzRef n0 =
+    let result :: Integer -> Integer -> Bool -> CollatzResult
+        result s p o = CollatzResult { steps = fromInteger s; peak = fromInteger p; overflow = o; }
+
+        go :: Integer -> Integer -> Integer -> CollatzResult
+        go n s p =
+            if n <= 1 then result s p False
+            else if n `mod` 2 == 0 then go (n `div` 2) (s + 1) p
+            else if 3 * n + 1 >= 4294967296 then result s p True
+            else go (3 * n + 1) (s + 1) (max p (3 * n + 1))
+    in go n0 0 n0
+
+-- 0 .. 63, some long sequences, and two that leave the 32-bit range.
+type NumTests = 72
+
+testInputs :: Vector NumTests Integer
+testInputs = (genVector :: Vector 64 Integer) `append`
+             (27 :> 97 :> 871 :> 6171 :> 77031 :> 837799 :> 159487 :> 4294967295 :> nil)
+
+maxCycles :: UInt 32
+maxCycles = 10000
+
+{-# verilog mkTbCollatz #-}
+mkTbCollatz :: Module Empty
+mkTbCollatz = module
+    dut     :: Collatz       <- mkCollatz
+    sent    :: Reg (UInt 8)  <- mkReg 0
+    checked :: Reg (UInt 8)  <- mkReg 0
+    cycles  :: Reg (UInt 32) <- mkReg 0
+
+    let numTests :: UInt 8
+        numTests = fromInteger (valueOf NumTests)
+
+        inputs :: Vector NumTests Value
+        inputs = map fromInteger testInputs
+
+        expected :: Vector NumTests CollatzResult
+        expected = map collatzRef testInputs
+
+    rules
+      "watchdog": when True ==> do
+          cycles := cycles + 1
+          if cycles == maxCycles
+            then $fatal 1 "FAIL: timeout after %0d cycles" cycles
+            else noAction
+
+      "send": when sent < numTests ==> do
+          dut.request.put (select inputs sent)
+          sent := sent + 1
+
+      "check": when True ==> do
+          r <- dut.response.get
+          let e0 = select expected checked
+              e  = if injectBug && checked == 27 then e0 { steps = e0.steps + 1; } else e0
+          if r /= e
+            then $fatal 1 "FAIL: collatz(%0d): expected steps=%0d peak=%0d overflow=%0d, got steps=%0d peak=%0d overflow=%0d"
+                        (select inputs checked) e.steps e.peak (pack e.overflow)
+                        r.steps r.peak (pack r.overflow)
+            else noAction
+          checked := checked + 1
+          if checked + 1 == numTests
+            then do
+              $display "PASS: %0d Collatz sequences checked in %0d cycles" numTests cycles
+              $finish 0
+            else noAction
