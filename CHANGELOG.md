@@ -52,6 +52,16 @@ All notable changes to this project will be documented in this file.
   Vivado. They now read what their dependencies recorded instead of guessing paths. The
   functional simulation uses the functional netlist, and power uses the routed checkpoint and the
   SAIF the simulation recorded.
+- `vivado_synth` fails when a Vivado run it launched does not complete the step it was launched
+  to. `wait_on_run` returns normally for a failed run in Vivado 2021.1, so a failed synthesis,
+  implementation step or `write_bitstream` (a design without pin constraints fails its DRC) was
+  reported as a successful run, without the bitstream asked for; Vivado 2024.2 raises an error
+  there, which stopped the script without saying which run failed. The script now checks each
+  run's `STATUS` and `PROGRESS` and stops with one message naming the run, its status and its
+  `runme.log`. The `status` result, documented but never set, records Vivado's status of the
+  last run the script waited for, on success and failure alike (`vivado_alt_synth`, which has
+  no runs, no longer lists it). A run that reports success although the requested bitstream is
+  missing fails, naming the expected path.
 - An FPGA flow launched without a device says so, once, before anything runs, naming the setting
   and how to give it (`-s fpga.part=<part>`, or a `board` for the flows that take one), as a
   `FlowSettingsException` the CLI reports in one line. Each flow used to fail
