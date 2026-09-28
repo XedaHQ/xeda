@@ -69,7 +69,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 *runs first: `vivado_synth`*
 
-Synthesizes & implements the design, then runs post-synthesis/post-implementation simulation on the generated netlist. The netlist can be optionally annotated with generated timing information (SDF). Depends on VivadoSynth
+Simulate the testbench on the routed netlist `vivado_synth` writes. Runs `vivado_synth` with `write_netlist`, then simulates its functional netlist (`netlist`), or with `timing_sim` its timing netlist (`netlist_timing`) annotated with its slow-corner SDF (`sdf_max`).
 
 Required settings: `synth`
 
@@ -179,7 +179,7 @@ Reports no results beyond the keys every flow reports.
 
 ### `vivado_synth`
 
-FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado.
+FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing; with a `bitstream` requested it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs asked for are registered as artifacts (label in parentheses). `write_checkpoint`: `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in `outputs/route_design/`: the functional and timing Verilog netlists `funcsim.v` (`netlist`) and `timesim.v` (`netlist_timing`), the fast- and slow-corner SDF `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`), and the constraints `impl.xdc` (`xdc_exported`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`).
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 

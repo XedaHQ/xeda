@@ -6,7 +6,7 @@ from xml.etree import ElementTree
 from ...dataclass import Field
 from .vivado_postsynthsim import VivadoPostsynthSim
 from .vivado_sim import VivadoSim
-from .vivado_synth import VivadoSynth
+from .vivado_synth import CHECKPOINT_ROUTE, VivadoSynth, artifact_path
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,8 @@ class VivadoPower(VivadoSim):
         )
         postsynthsim: VivadoPostsynthSim.Settings = Field(
             description="Settings for the `vivado_postsynth_sim` dependency that produces the "
-            "switching activity."
+            "switching activity. Its `synth.write_checkpoint` is forced on: power is reported "
+            "against the routed checkpoint."
         )
         dependency_settings = {"postsynthsim": ("timing_sim", "elab_debug", "saif")}
         power_report_xml: str = Field(
@@ -56,10 +57,13 @@ class VivadoPower(VivadoSim):
         )
 
     def init(self) -> None:
+        super().init()
         assert self.design.tb, "A testbench is required for power estimation"
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        self.add_dependency(VivadoPostsynthSim, ss.resolve_dependency("postsynthsim"))
+        postsynthsim = ss.resolve_dependency("postsynthsim")
+        postsynthsim.synth.write_checkpoint = True
+        self.add_dependency(VivadoPostsynthSim, postsynthsim)
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -67,13 +71,8 @@ class VivadoPower(VivadoSim):
         postsynth_sim_flow = self.pop_dependency(VivadoPostsynthSim)
         synth_flow = postsynth_sim_flow.pop_dependency(VivadoSynth)
 
-        checkpoint = str(
-            synth_flow.run_path
-            / f"{self.design.name}.runs"
-            / "impl_1"
-            / f"{self.design.rtl.top}_routed.dcp"
-        )
-        saif_file = str(postsynth_sim_flow.run_path / self.settings.saif)
+        checkpoint = artifact_path(synth_flow, CHECKPOINT_ROUTE)
+        saif_file = artifact_path(postsynth_sim_flow, "saif")
 
         # assert isinstance(dep_synth_flow.settings, VivadoSynth.Settings)
         script_path = self.copy_from_template(

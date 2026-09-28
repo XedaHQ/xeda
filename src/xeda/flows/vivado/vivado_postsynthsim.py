@@ -5,16 +5,17 @@ from ...design import DesignSource, RtlSettings
 from ...flow import FlowFatalError
 from ...utils import SDF
 from .vivado_sim import VivadoSim
-from .vivado_synth import VivadoSynth
+from .vivado_synth import NETLIST, NETLIST_TIMING, SDF_MAX, VivadoSynth, artifact_path
 
 log = logging.getLogger(__name__)
 
 
 class VivadoPostsynthSim(VivadoSim):
-    """
-    Synthesizes & implements the design, then runs post-synthesis/post-implementation simulation on the generated netlist.
-    The netlist can be optionally annotated with generated timing information (SDF).
-    Depends on VivadoSynth
+    """Simulate the testbench on the routed netlist `vivado_synth` writes.
+
+    Runs `vivado_synth` with `write_netlist`, then simulates its functional netlist (`netlist`),
+    or with `timing_sim` its timing netlist (`netlist_timing`) annotated with its slow-corner SDF
+    (`sdf_max`).
     """
 
     class Settings(VivadoSim.Settings):
@@ -25,11 +26,12 @@ class VivadoPostsynthSim(VivadoSim):
         dependency_settings = {"synth": ()}  # nothing to propagate; `init` forces `write_netlist`
         timing_sim: bool = Field(
             False,
-            description="Simulate the post-implementation netlist with SDF timing annotation "
-            "instead of the functional post-synthesis netlist.",
+            description="Simulate the routed timing netlist annotated with its slow-corner SDF, "
+            "instead of the routed functional netlist.",
         )
 
     def init(self) -> None:
+        super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
@@ -43,8 +45,7 @@ class VivadoPostsynthSim(VivadoSim):
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
-        artifacts_path = synth_flow.run_path / synth_flow.settings.outputs_dir / "route_design"
-        synth_netlist_path = artifacts_path / "timesim.v"
+        synth_netlist_path = artifact_path(synth_flow, NETLIST_TIMING if ss.timing_sim else NETLIST)
         if not synth_netlist_path.exists():
             raise FlowFatalError(f"Netlist {synth_netlist_path} does not exist!")
         postsynth_sources = [DesignSource(synth_netlist_path)]
@@ -56,12 +57,14 @@ class VivadoPostsynthSim(VivadoSim):
         assert self.design.tb and self.design.tb.top
         self.design.tb.top = (self.design.tb.top[0], "glbl")
 
-        if "simprims_ver" not in ss.lib_paths:
-            ss.lib_paths.append(("simprims_ver", None))
+        # the functional netlist instantiates UNISIM primitives, the timing netlist SIMPRIM ones
+        libraries = ["simprims_ver"] if ss.timing_sim else ["unisims_ver", "simprims_ver"]
+        given = {name for name, _ in ss.lib_paths}
+        ss.lib_paths.extend((library, None) for library in libraries if library not in given)
 
         if ss.timing_sim:
             if not ss.sdf.delay_items():
-                ss.sdf = SDF(max=str(artifacts_path / "timesim.max.sdf"))
+                ss.sdf = SDF(max=str(artifact_path(synth_flow, SDF_MAX)))
             if not ss.sdf.root:
                 ss.sdf.root = self.design.tb.uut
             log.info("Timing simulation using SDF %s", ss.sdf)

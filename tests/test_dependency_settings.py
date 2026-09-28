@@ -21,6 +21,7 @@ import pytest
 
 from xeda.design import Design
 from xeda.flow import Flow, is_unset
+from xeda.flows.vivado.vivado_power import VivadoPower
 from xeda.flows.yosys.common import YosysBase
 
 from .settings_samples import flow_classes, minimal_settings
@@ -141,6 +142,9 @@ def test_init_launches_the_dependency_with_the_resolved_settings(cls, field, tmp
     )
     flow = cls(_settings(cls, field, **minimal_settings(cls)), design, run_path=tmp_path)
     expected = flow.settings.resolve_dependency(field)
+    if cls is VivadoPower:
+        # Power needs a routed checkpoint from the nested synthesis dependency.
+        expected.synth.write_checkpoint = True
 
     flow.init()
 

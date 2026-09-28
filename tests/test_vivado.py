@@ -33,6 +33,7 @@ def test_vivado_synth_template() -> None:
         xdc_files=[],
         tcl_files=[],
         generics=vivado_synth_generics(design.rtl.parameters),
+        impl_to_step="route_design",
     )
     with open(run_dir / tcl_file) as f:
         vivado_tcl = f.read()
@@ -214,12 +215,13 @@ def test_num_critical_paths_setting_reaches_the_templates() -> None:
         )
         flow = VivadoSynth(settings, design, tmp_dir)  # type: ignore
         hook = tmp_dir / flow.copy_from_template(
-            "post_step_hook.tcl", run_dir=tmp_dir, user_hooks=[]
+            "post_step_hook.tcl", run_dir=tmp_dir, user_hooks=[], step="route_design", outputs={}
         )
         hook_tcl = hook.read_text()
-        assert "reportCriticalPaths [file join ${reports_dir} critical_paths.csv] 7" in hook_tcl
+        reports = "${xeda_reports_dir}"
+        assert f"reportCriticalPaths [file join {reports} critical_paths.csv] 7" in hook_tcl
         assert (
-            "reportCriticalPathsByDelay [file join ${reports_dir} critical_paths_by_delay.csv] 7"
+            f"reportCriticalPathsByDelay [file join {reports} critical_paths_by_delay.csv] 7"
             in hook_tcl
         )
 
