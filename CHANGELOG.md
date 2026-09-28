@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Flows record the outputs they write, so `results.json` names them: `ghdl_synth`'s Verilog in
+  single-file mode (`generated_verilog`, a list in both modes), `vivado_alt_synth`'s checkpoints,
+  netlists, SDF and exported XDC, `vivado_sim`'s VCD and SAIF, `dc`'s mapped netlists, `.ddc`,
+  SDF and SDC, and `quartus`'s `.sof` (`bitstream`) -- each only when the setting that writes it
+  is on. A failed run no longer lists outputs it never wrote: they are dropped from its results
+  with a warning naming them, where a failed `--remote` run used to crash fetching them instead
+  of reporting its failure. `dc` no longer renders `write_sdf -version None` when `sdf_version`
+  is unset.
+- A cocotb simulation fails when its tests fail, on every simulator: `verilator` never read
+  cocotb's results, so a failing test gave a successful run. A missing or unreadable results
+  file, or one in which no test ran, is a failure too, and an earlier run's results file is
+  removed before simulating -- when a test module failed to import, the stale file in a reused
+  run directory passed the run on `ghdl_sim` and `nvc` as well. `cocotb.testcase` works on
+  cocotb 2.x, which ignored it and ran every test; on every release a name selects exactly the
+  test of that name (`check`, never `foo_check`).
+- A simulator without cocotb support (`modelsim`, `vcs`, `vivado_sim`, `yosys_sim`, ...) given a
+  cocotb testbench fails at launch, naming the simulators that can run it, rather than
+  simulating without cocotb and reporting success although no test ran. It is checked before a
+  run directory is touched, before a `--remote` run connects, and before a `dse` search starts.
+- `netlist_src_attrs` and `netlist_unset_attributes` apply to every netlist yosys writes, the
+  JSON one included: the attributes were removed only after the JSON netlist was written, and
+  only when a Verilog netlist was written too (a JSON-only configuration failed to render its
+  script). They are now removed from the modules themselves and from library boxes as well, and
+  `src` whenever `netlist_src_attrs` is false, whatever `netlist_attrs` is. `yosys` and
+  `yosys_fpga` on their own therefore strip `src` by default, as documented; the synthesis that
+  `nextpnr` and `open_xc7` run keeps it by default, since nextpnr's reports cite source
+  locations, unless `netlist_src_attrs` is set explicitly.
 - An FPGA flow launched without a device says so, once, before anything runs, naming the setting
   and how to give it (`-s fpga.part=<part>`, or a `board` for the flows that take one), as a
   `FlowSettingsException` the CLI reports in one line. Each flow used to fail
