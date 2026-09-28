@@ -176,17 +176,20 @@ file, the top's last.
 ``rtl.defines`` and ``rtl.parameters`` (and, for ``bsc_sim``, the testbench's over the RTL's) are
 passed to bsc as preprocessor macros. bsc's own preprocessor reads BSV only, so a BH (``.bs``)
 source sees them only through the C preprocessor: set ``cpp = true``, which also feeds the macros
-to it; without it, a design whose macros are meant to reach BH code is warned about.
+to it; without it, a design that defines macros but whose Bluespec sources are all BH is warned
+about.
 
-``bsc``'s ``artifacts.verilog`` is a complete file set for a downstream synthesis or simulation
-flow: the generated modules, the design's own Verilog sources (listed where they are), and the
-bsc library and ``import "BVI"``-imported modules the design instantiates that are found on the
-Verilog search path, copied into ``verilog_out_dir``. With
-``positive_reset`` (on by default), every file ``bsc`` generated or copied begins with a Verilog
-macro definition for ``BSV_POSITIVE_RESET``, so every module in the set resets active-high; the
-design's own Verilog sources are left unchanged, and a first file, ``bsv_defines.v``, defines the
-macro ahead of them. Name the reset port with ``reset_prefix`` if a
-downstream flow expects one.
+``bsc``'s ``artifacts.verilog`` is the file set a downstream synthesis or simulation flow needs:
+the generated modules, the design's own Verilog sources (listed where they are), and the bsc
+library and ``import "BVI"``-imported modules the design instantiates that are found on the
+Verilog search path, copied into ``verilog_out_dir``. A module that no Verilog file defines (a
+vendor primitive, for instance) is left out of the list, with a warning: the downstream tool must
+provide it. With ``positive_reset`` (on by default), every file ``bsc`` generated or copied begins
+with a Verilog macro definition for ``BSV_POSITIVE_RESET``, so the generated and library modules
+reset active-high. The design's own Verilog sources are left unchanged; a first file,
+``bsv_defines.v``, defines the macro ahead of them, which sets their reset polarity only where
+they read the macro themselves. Name the reset port with ``reset_prefix`` if a downstream flow
+expects one.
 
 ``bsc_sim`` runs the testbench with Bluesim (the default), bsc's own cycle-based simulator, or,
 through bsc's ``-vsim`` link step, a Verilog simulator: Verilator, Icarus Verilog, or another one

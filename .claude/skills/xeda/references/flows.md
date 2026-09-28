@@ -239,7 +239,7 @@ Reports: `area`, `cells`
 
 ### `bsc`
 
-Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc. Compiles `rtl.sources` in order -- the package defining `rtl.top` last -- and generates Verilog for `rtl.top` and for every `synthesize`d module on the way. `artifacts.verilog` lists every Verilog file the top module needs: the generated modules, the design's own Verilog sources, and the modules of bsc's Verilog library it instantiates, which are copied into `verilog_out_dir` so any downstream synthesis or simulation flow can take the list as is. `rtl.defines` and `rtl.parameters` are passed to bsc as preprocessor macros; BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
+Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc. Compiles `rtl.sources` in order -- the package defining `rtl.top` last -- and generates Verilog for `rtl.top` and for every `synthesize`d module on the way. `artifacts.verilog` lists the Verilog files the top module needs: the generated modules, the design's own Verilog sources, and the modules of bsc's Verilog library it instantiates, which are copied into `verilog_out_dir` so any downstream synthesis or simulation flow can take the list as is. A module no Verilog file defines (a vendor primitive, say) is left out with a warning: the downstream tool must provide it. `rtl.defines` and `rtl.parameters` are passed to bsc as preprocessor macros; BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
 
 60 flow-specific settings (plus the common ones): `xeda list-settings bsc --json`
 

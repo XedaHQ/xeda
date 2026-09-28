@@ -1,6 +1,6 @@
 ---
 name: xeda
-description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec compilation (bsc), FPGA synthesis (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, OpenXC7), or ASIC synthesis (OpenROAD, Design Compiler) - and when writing or fixing a Xeda design file (`*.toml`/`*.yaml` with `[rtl]`/`[tb]` sections, or `xedaproject.toml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, or diagnosing `FlowSettingsError`, `FlowNotFoundError`, or `ExecutableNotFound`.
+description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec compilation (bsc), FPGA synthesis (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, OpenXC7), or ASIC synthesis (OpenROAD, Design Compiler) - and when writing or fixing a Xeda design file (`*.toml`/`*.yaml`/`*.json` with `[rtl]`/`[tb]` sections, or `xedaproject.toml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, or diagnosing `FlowSettingsError`, `FlowNotFoundError`, or `ExecutableNotFound`.
 ---
 
 # Driving Xeda
