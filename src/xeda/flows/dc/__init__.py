@@ -276,6 +276,14 @@ class Dc(AsicSynthFlow):
         #   any PhysicalClock settings (clock.freq, etc) in the flow settings
         ss.sdc_files.insert(0, self.copy_from_template("constraints.sdc"))
         script_path = self.copy_from_template("dc_script.tcl")
+        # what `dc_script.tcl` writes on every run (it stops before synthesis without a top)
+        top = self.design.rtl.top
+        if top:
+            self.artifacts.netlist = ss.outputs_dir / f"{top}.mapped.v"
+            self.artifacts.netlist_vhdl = ss.outputs_dir / f"{top}.mapped.vhd"
+            self.artifacts.checkpoint = ss.outputs_dir / f"{top}.mapped.ddc"
+            self.artifacts.sdf = ss.outputs_dir / f"{top}.mapped.sdf"
+            self.artifacts.sdc = ss.outputs_dir / f"{top}.mapped.sdc"
         cmd = [
             "-64bit",
         ]

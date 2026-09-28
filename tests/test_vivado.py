@@ -12,8 +12,10 @@ import pytest
 from xeda import Design
 from xeda.flow import FPGA
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoSynth
+from xeda.flows import VivadoAltSynth, VivadoSim, VivadoSynth
 from xeda.flows.vivado.vivado_synth import parse_hier_util, vivado_synth_generics
+
+from .tool_utils import fake_calls, use_fake_tools
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -246,6 +248,134 @@ def test_report_critical_paths_by_delay_tolerates_unconstrained_paths() -> None:
     assert rows[-1]["TotalDelay"] == "", "a path with no delay ranks last"
     delays = [float(r["TotalDelay"]) for r in rows if r["TotalDelay"]]
     assert delays == sorted(delays, reverse=True), f"not in descending delay order: {delays}"
+
+
+ALT_SYNTH_OUTPUTS = (
+    "checkpoint_synth",
+    "checkpoint_place",
+    "checkpoint_route",
+    "netlist",
+    "netlist_timing",
+    "sdf",
+    "xdc_exported",
+)
+
+
+@needs_tclsh
+@pytest.mark.parametrize("enabled", [True, False], ids=["written", "not_written"])
+def test_vivado_alt_synth_records_the_checkpoints_and_netlists_it_writes(
+    enabled, tmp_path, monkeypatch
+) -> None:
+    """`vivado_alt_synth.tcl` writes three checkpoints under `write_checkpoint`, and the
+    functional and timing netlists, SDF and XDC under `write_netlist`; `VivadoAltSynth` declared
+    none of them. Each is recorded exactly when the script writes it."""
+    use_fake_tools(monkeypatch)
+    design = Design.from_toml(RESOURCES_DIR / "design0/design0.toml")
+    settings = {
+        "fpga": "xc7a12tcsg325-1",
+        "clock": {"period": 5.5},
+        "write_checkpoint": enabled,
+        "write_netlist": enabled,
+    }
+    flow = DefaultRunner(tmp_path / "run").run_flow(VivadoAltSynth, design, settings)
+    assert flow is not None and flow.succeeded
+    ss = flow.settings
+    assert isinstance(ss, VivadoAltSynth.Settings)
+    checkpoints, outputs = ss.checkpoints_dir, ss.outputs_dir
+    written = {
+        # Vivado's `write_checkpoint` adds the `.dcp` suffix the script leaves off
+        f"checkpoint_{step}": (
+            checkpoints / f"post_{step}.dcp",
+            ["write_checkpoint", "-force", f"{checkpoints}/post_{step}"],
+        )
+        for step in ("synth", "place", "route")
+    } | {
+        "netlist": (
+            outputs / "impl_funcsim.v",
+            ["write_verilog", "-mode", "funcsim", "-force", f"{outputs}/impl_funcsim.v"],
+        ),
+        "netlist_timing": (
+            outputs / "impl_timesim.v",
+            ["write_verilog", "-mode", "timesim", "-sdf_anno", "false", "-force", "-file"]
+            + [f"{outputs}/impl_timesim.v"],
+        ),
+        "sdf": (
+            outputs / "impl_timesim.sdf",
+            ["write_sdf", "-mode", "timesim", "-process_corner", "slow", "-force", "-file"]
+            + [f"{outputs}/impl_timesim.sdf"],
+        ),
+        "xdc_exported": (
+            outputs / "impl.xdc",
+            ["write_xdc", "-no_fixed_only", "-force", f"{outputs}/impl.xdc"],
+        ),
+    }
+    assert set(written) == set(ALT_SYNTH_OUTPUTS)
+    calls = fake_calls(flow.run_path)
+    for _, call in written.values():
+        assert (call in calls) == enabled, call
+    recorded = {
+        label: flow.artifacts[label] for label in ALT_SYNTH_OUTPUTS if label in flow.artifacts
+    }
+    assert recorded == ({label: path for label, (path, _) in written.items()} if enabled else {})
+
+
+def _vivado_sim_design(root: Path) -> Design:
+    """A minimal VHDL design with a plain (non-cocotb) testbench, for `vivado_sim`."""
+    (root / "rtl").mkdir(parents=True)
+    (root / "tb").mkdir(parents=True)
+    (root / "rtl" / "top.vhd").write_text(
+        "library ieee; use ieee.std_logic_1164.all;\n"
+        "entity top is port(a: in std_logic; y: out std_logic); end;\n"
+        "architecture rtl of top is begin y <= not a; end;\n"
+    )
+    (root / "tb" / "tb_top.vhd").write_text(
+        "library ieee; use ieee.std_logic_1164.all;\n"
+        "entity tb_top is end;\n"
+        "architecture sim of tb_top is\n"
+        "  signal a, y: std_logic := '0';\n"
+        "begin\n"
+        "  uut: entity work.top port map(a, y);\n"
+        "end;\n"
+    )
+    return Design(
+        name="simdesign",
+        design_root=root,
+        rtl={"sources": ["rtl/top.vhd"], "top": "top"},
+        tb={"sources": ["tb/tb_top.vhd"], "top": "tb_top", "uut": "uut"},
+    )
+
+
+@needs_tclsh
+def test_vivado_sim_records_vcd_and_saif_as_artifacts(tmp_path, monkeypatch) -> None:
+    """`vivado_sim.tcl` writes VCD/SAIF outputs whenever `vcd`/`saif` is set, but
+    `VivadoSim.run()` declared neither -- the direct cause of `vivado_power` having to guess the
+    SAIF path (`postsynth_sim_flow.run_path / settings.saif`) instead of reading a declared
+    output."""
+    use_fake_tools(monkeypatch)
+    design = _vivado_sim_design(tmp_path / "design")
+    settings = {"vcd": True, "saif": "switching.saif"}
+    run_dir = tmp_path / "run"
+    flow = DefaultRunner(run_dir).run_flow(VivadoSim, design, settings)
+    assert flow is not None and flow.succeeded
+    assert flow.artifacts.vcd == "dump.vcd"
+    assert flow.artifacts.saif == "switching.saif"
+
+    calls = fake_calls(flow.run_path)
+    assert ["open_vcd", "dump.vcd"] in calls
+    assert ["open_saif", "switching.saif"] in calls
+
+
+@needs_tclsh
+def test_vivado_sim_does_not_record_vcd_or_saif_when_disabled(tmp_path, monkeypatch) -> None:
+    """Neither artifact is declared when `vcd`/`saif` are unset, matching what the template
+    actually writes."""
+    use_fake_tools(monkeypatch)
+    design = _vivado_sim_design(tmp_path / "design")
+    run_dir = tmp_path / "run"
+    flow = DefaultRunner(run_dir).run_flow(VivadoSim, design, {})
+    assert flow is not None and flow.succeeded
+    assert "vcd" not in flow.artifacts
+    assert "saif" not in flow.artifacts
 
 
 def test_parse_hier_util() -> None:

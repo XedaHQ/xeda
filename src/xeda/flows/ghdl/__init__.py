@@ -426,6 +426,7 @@ class GhdlSynth(Ghdl, SynthFlow):
             ss.verilog_output.parent.mkdir(parents=True, exist_ok=True)
             log.info("Generating verilog: %s", ss.verilog_output)
             self.ghdl.run("synth", *flags, *top, stdout=ss.verilog_output)
+            self.artifacts.generated_verilog = [ss.verilog_output]
 
     def _per_source_outputs(self, output_dir: Path) -> dict[Path, DesignSource]:
         """The Verilog file each VHDL source is converted to, in source order.

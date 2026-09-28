@@ -11,6 +11,8 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import Quartus
 from xeda.flows.quartus import parse_csv, try_num
 
+from .tool_utils import fake_calls, use_fake_tools
+
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
@@ -115,6 +117,23 @@ def prepend_to_path(path):
     current_path = os.environ.get("PATH", "").split(os.pathsep)
     current_path.insert(0, str(path))
     os.environ["PATH"] = os.pathsep.join(current_path)
+
+
+def test_quartus_records_bitstream_as_artifact(tmp_path, monkeypatch) -> None:
+    """`execute_flow -compile` runs the assembler, which writes `<project>.sof` into the project
+    directory; `Quartus` never declared it. The project is `<design name>`, created in the run
+    directory with no output directory of its own."""
+    use_fake_tools(monkeypatch)
+    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period=6.0))
+    flow = DefaultRunner(tmp_path / "run").run_flow(Quartus, design, settings)
+    assert flow is not None and flow.succeeded
+    calls = fake_calls(flow.run_path)
+    assert ["project_new", design.name, "-overwrite"] in calls
+    assert ["execute_flow", "-compile"] in calls
+    assert not any("PROJECT_OUTPUT_DIRECTORY" in arg for call in calls for arg in call)
+    assert (flow.run_path / "fake_quartus_sh.calls").exists(), "the project is in the run directory"
+    assert flow.artifacts.bitstream == f"{design.name}.sof"
 
 
 def test_quartus_synth_py() -> None:

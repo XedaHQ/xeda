@@ -16,7 +16,12 @@ import execnet
 from fabric import Connection
 from fabric.transfer import Transfer
 
-from ..artifacts import ArtifactPath, iter_artifact_paths, map_artifact_paths
+from ..artifacts import (
+    ArtifactPath,
+    drop_unwritten_artifacts,
+    iter_artifact_paths,
+    map_artifact_paths,
+)
 from ..design import Design, DesignSource, DVSettings, FileResource, names_a_design_file
 from ..flow import flowrun_hash as flow_run_hash
 from ..proc_utils import tool_output_stream
@@ -36,10 +41,38 @@ log = logging.getLogger(__name__)
 
 
 def _transfer_artifacts(
-    conn: Connection, artifacts: Any, remote_run_path: str, local_dir: Path
+    conn: Connection,
+    artifacts: Any,
+    remote_run_path: str,
+    local_dir: Path,
+    succeeded: bool = True,
+    flow_name: str = "the remote flow",
 ) -> Any:
-    """Fetch path leaves and return the same artifact tree with local path strings."""
+    """Fetch path leaves and return the same artifact tree with local path strings.
+
+    A missing artifact of a successful run is an error. One of a failed run is dropped, as the
+    launcher does (`drop_unwritten_artifacts`): the remote may run an older xeda, which lists
+    every artifact its flow recorded whether or not the run wrote it."""
     remote_root = os.path.normpath(remote_run_path)
+
+    def remote_path_of(artifact: ArtifactPath) -> str:
+        named_path = os.fspath(artifact)
+        return os.path.normpath(
+            named_path if os.path.isabs(named_path) else os.path.join(remote_root, named_path)
+        )
+
+    if not succeeded:
+        sftp = conn.sftp()
+
+        def written(artifact: ArtifactPath) -> bool:
+            try:
+                sftp.stat(remote_path_of(artifact))
+            except FileNotFoundError:
+                return False
+            return True
+
+        artifacts = drop_unwritten_artifacts(artifacts, written, flow_name)
+
     local_dir.mkdir(exist_ok=True, parents=True)
     local_root = local_dir.resolve()
     remote_to_local: dict[str, str] = {}
@@ -47,9 +80,7 @@ def _transfer_artifacts(
 
     for artifact in iter_artifact_paths(artifacts):
         named_path = os.fspath(artifact)
-        remote_path = os.path.normpath(
-            named_path if os.path.isabs(named_path) else os.path.join(remote_root, named_path)
-        )
+        remote_path = remote_path_of(artifact)
         if remote_path in remote_to_local:
             continue
         relative = Path(os.path.relpath(remote_path, remote_root))
@@ -73,11 +104,7 @@ def _transfer_artifacts(
         log.info("Transferred %d artifact(s) to %s", len(remote_to_local), local_dir)
 
     def rewrite_path(artifact: ArtifactPath) -> str:
-        named_path = os.fspath(artifact)
-        remote_path = os.path.normpath(
-            named_path if os.path.isabs(named_path) else os.path.join(remote_root, named_path)
-        )
-        return remote_to_local[remote_path]
+        return remote_to_local[remote_path_of(artifact)]
 
     return map_artifact_paths(artifacts, rewrite_path)
 
@@ -834,7 +861,12 @@ class RemoteRunner(FlowLauncher):
             if remote_run_path and artifacts:
                 assert isinstance(remote_run_path, str)
                 results["artifacts"] = _transfer_artifacts(
-                    conn, artifacts, remote_run_path, local_artifacts_dir
+                    conn,
+                    artifacts,
+                    remote_run_path,
+                    local_artifacts_dir,
+                    succeeded=bool(results.get("success")),
+                    flow_name=flow_name,
                 )
 
             # the remote run_path no longer exists locally; report the local copy's path instead

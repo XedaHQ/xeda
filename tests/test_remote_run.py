@@ -11,6 +11,7 @@ separate tree, so nothing the remote run needs can be found by accident on the l
 """
 
 import json
+import logging
 import os
 import shutil
 import sys
@@ -40,6 +41,9 @@ class _LocalSftp:
 
     def open(self, path, mode="r"):
         return open(path, mode)
+
+    def stat(self, path):
+        return os.stat(path)  # paramiko's raises FileNotFoundError too
 
 
 class _LocalConnection:
@@ -261,6 +265,84 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
             assert Path(path).is_relative_to(local_run / "artifacts"), path
             assert Path(path).exists(), path
     assert json.loads((local_run / "results.json").read_text())["run_path"] == str(local_run)
+
+
+def _run_vivado_alt_synth_with_netlist(tmp_path: Path) -> dict | None:
+    """`vivado_alt_synth`, which records its netlist before Vivado runs, run remotely on the fake
+    Vivado, which writes no netlist."""
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.toml").write_text(
+        'name = "sqrt"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\nclock.port = "clk"\n'
+    )
+    return RemoteRunner(tmp_path / "local" / "xeda_run").run_remote(
+        design_root / "sqrt.toml",
+        "vivado_alt_synth",
+        host="somewhere",
+        flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0", "write_netlist=true"],
+    )
+
+
+NETLIST_ARTIFACTS = {
+    "netlist": "outputs/impl_funcsim.v",
+    "netlist_timing": "outputs/impl_timesim.v",
+    "sdf": "outputs/impl_timesim.sdf",
+    "xdc_exported": "outputs/impl.xdc",
+}
+
+
+def test_a_failed_remote_run_reports_its_failure(tmp_path, remote_host, monkeypatch):
+    """When the run failed, its results still listed the netlist, and fetching that missing file
+    raised `FileNotFoundError`: a failed remote run crashed instead of reporting its failure."""
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "route_design")  # inherited by the "remote"
+
+    results = _run_vivado_alt_synth_with_netlist(tmp_path)
+
+    assert results is not None and results["success"] is False, results
+    for label in NETLIST_ARTIFACTS:
+        assert label not in results["artifacts"], label
+    saved = json.loads((Path(results["run_path"]) / "results.json").read_text())
+    assert saved["success"] is False
+
+
+def _xeda_0_4_remote_runner(channel, **kwargs):
+    """`remote_runner` on a remote whose launcher still lists the artifacts a failed run did not
+    write, as xeda 0.4's does. execnet ships this function's source alone, so it imports what it
+    patches."""
+    from xeda.flow_runner import default_runner
+    from xeda.flow_runner.remote import remote_runner
+
+    default_runner._drop_unwritten_artifacts = id  # a no-op of one argument
+    remote_runner(channel, **kwargs)
+
+
+@pytest.mark.parametrize("fails", [True, False], ids=["failed", "succeeded"])
+def test_an_older_remote_lists_artifacts_its_run_did_not_write(
+    fails, tmp_path, remote_host, monkeypatch, caplog
+):
+    """A remote may run xeda 0.4, whose launcher reports every artifact a flow recorded. When the
+    run failed, this side drops what the remote did not write, as the launcher does, rather than
+    fail to fetch it; when the run succeeded, a missing artifact is still an error."""
+    monkeypatch.setattr(remote_module, "remote_runner", _xeda_0_4_remote_runner)
+    if not fails:
+        with pytest.raises(FileNotFoundError, match=r"impl_funcsim\.v"):
+            _run_vivado_alt_synth_with_netlist(tmp_path)
+        return
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "route_design")
+
+    with caplog.at_level(logging.WARNING):
+        results = _run_vivado_alt_synth_with_netlist(tmp_path)
+
+    assert results is not None and results["success"] is False, results
+    for label in NETLIST_ARTIFACTS:
+        assert label not in results["artifacts"], label
+    saved = json.loads((Path(results["run_path"]) / "results.json").read_text())
+    assert saved["success"] is False and saved["artifacts"] == results["artifacts"]
+    (warning,) = [r.getMessage() for r in caplog.records if "did not write" in r.getMessage()]
+    assert warning.startswith("vivado_alt_synth failed")
+    for label, path in NETLIST_ARTIFACTS.items():
+        assert f"{label}: {path}" in warning
 
 
 def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remote_host):

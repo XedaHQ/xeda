@@ -121,4 +121,10 @@ class VivadoSim(Vivado, SimFlow):
             ss.elab_flags.append(f"-sdf{delay_type} {sdf_root}={sdf_file}")
 
         script_path = self.copy_from_template("vivado_sim.tcl")
+        # `vivado_sim.tcl` writes these whenever the enabling setting is set; record them so
+        # consumers (e.g. `vivado_power`) don't have to guess the path themselves.
+        if ss.vcd:
+            self.artifacts.vcd = ss.vcd
+        if ss.saif:
+            self.artifacts.saif = ss.saif
         self.vivado.run("-source", script_path)

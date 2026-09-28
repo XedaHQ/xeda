@@ -27,7 +27,7 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
-from ..artifacts import iter_artifact_paths
+from ..artifacts import drop_unwritten_artifacts, iter_artifact_paths
 from ..console import console
 from ..dataclass import XedaBaseModel
 from ..design import Design, names_a_design_file
@@ -321,6 +321,17 @@ def _artifact_rows(artifacts: Mapping[str, Any]) -> list[tuple[str, str, bool]]:
         for i, path in enumerate(paths):
             rows.append((label if i == 0 else "", path, i == len(paths) - 1))
     return rows
+
+
+def _drop_unwritten_artifacts(flow: Flow) -> None:
+    """Report only the artifacts a failed run actually wrote (`drop_unwritten_artifacts`)."""
+    flow.results.artifacts = Box(
+        drop_unwritten_artifacts(
+            flow.results.artifacts,
+            lambda path: os.path.exists(flow.run_path / path),  # an absolute path stays itself
+            flow.name,
+        )
+    )
 
 
 class FlowLauncher:
@@ -742,6 +753,8 @@ class FlowLauncher:
         for k, v in flow.artifacts.items():
             if not flow.results.artifacts.get(k):
                 flow.results.artifacts[k] = v
+        if not flow.succeeded:
+            _drop_unwritten_artifacts(flow)
 
         if self.settings.display_results and flow.artifacts and flow.succeeded:
             table = Table(
