@@ -39,7 +39,7 @@ enforced. Don't mass-fix those; keep new code clean.
 Most tests use `tests/fake_tools/`, but some end-to-end tests drive genuinely installed tools
 (`test_ghdl.py`, `test_nvc.py`, `test_verilator.py`, `test_yosys.py`, `test_openroad.py`'s yosys
 synthesis, `test_bsc.py`'s `bsc`/`bsc_sim` flows, the GHDL half of `test_remote_run.py`, parts of
-`test_cli_structured_output.py`).
+`test_cli_structured_output.py`, and `test_cocotb.py`'s runs of every cocotb simulator).
 Those **skip** when the tool is missing or installed-but-broken, via the probes in
 `tests/tool_utils.py` (`require_ghdl()`, `require_yosys_ghdl_plugin()`, `require_bsc()`,
 `require_bluesim()`, ...). Setting `XEDA_TESTS_REQUIRE_TOOLS=1` turns those skips into failures;
@@ -152,7 +152,7 @@ through, in named stages (each a method; the docstring lists them): **input** (`
 validate in context, apply `--debug`) -> **identity** (`_run_identity`: design hash + `flowrun_hash`,
 run dir) -> **reuse** (`_previous_results`) -> **prepare** (construct the flow with its own *copy* of
 the input, `init()`, write `settings.json`) -> **dependencies** (`_run_dependencies`, recursing) ->
-**run** (`_execute`: `run()`, `parse_reports()`) -> **report** (`_report`).
+**run** (`_execute`: `run()`, `parse_reports()`, `check_results()`) -> **report** (`_report`).
 
 - **The input settings are never modified.** The launcher keeps them (they are what the run is
   hashed by and recorded as `settings.json`'s `flow_settings`); the flow gets a deep copy as
@@ -181,7 +181,14 @@ the input, `init()`, write `settings.json`) -> **dependencies** (`_run_dependenc
   Example: `VivadoPostsynthSim` depends on `VivadoSynth`; `Nextpnr` depends on `YosysFpga`.
 - `run()` generates scripts and invokes tools. `parse_reports()` populates `self.results`;
   `self.results.success` decides pass/fail. Helpers: `parse_report_regex()`, `parse_regex()`,
-  `parse_xml()` (`utils.py`).
+  `parse_xml()` (`utils.py`). The runner then calls `check_results()`, the checks a whole family
+  of flows shares, which must pass too: `SimFlow`'s reads cocotb's results for every simulator
+  that ran a cocotb testbench (`Cocotb.add_results`; a missing or unreadable results file, or one
+  in which no test ran, is a failure). No cocotb simulator overrides it (`tests/test_cocotb.py`
+  sweeps them, on real tools).
+- `Cocotb.env()` is what every cocotb simulator run goes through, right before it simulates; it
+  also removes an earlier run's results file, since cocotb writes none when its test module
+  fails to import and the simulators still exit 0.
 
 ### Flow registration
 
@@ -279,9 +286,10 @@ with `describe_results(*shared_keys, **flow_specific)` from `xeda.flow`. Shared 
 is in neither, so it cannot silently invent a description. A flow that reports nothing beyond the
 common keys declares `results_description = {}` explicitly. `xeda list-results <flow>` renders it.
 
-After `parse_reports`, the runner calls `flow.add_canonical_result_aliases()`, which **additively**
-copies flow-specific keys to canonical names per `Flow.results_canonical_aliases`
-(`Fmax` <- `f_max`/`maximum_frequency`, `lut` <- `LUT`, `ff` <- `FF`). Nothing is renamed or removed.
+After `parse_reports` and `check_results`, the runner calls
+`flow.add_canonical_result_aliases()`, which **additively** copies flow-specific keys to canonical
+names per `Flow.results_canonical_aliases` (`Fmax` <- `f_max`/`maximum_frequency`, `lut` <- `LUT`,
+`ff` <- `FF`). Nothing is renamed or removed.
 Note `clock_frequency` is deliberately *not* aliased to `Fmax` - it is the constrained frequency,
 not the achieved one.
 
@@ -373,8 +381,14 @@ while it is open). A flow sharing
   in `Cocotb.env()`. From cocotb 2.1 the GPI library no longer finds its Python entry point on its
   own and aborts with "No GPI_USERS specified"; `Cocotb.gpi_users()` supplies libpython plus the
   entry point from `cocotb-config --pygpi-entry-point`. That flag does not exist before 2.1, so it
-  is probed rather than assumed, which is what keeps cocotb 2.0 working. When a cocotb upgrade
-  breaks every simulation at once, compare `Cocotb.env()` against `cocotb_tools/runner.py` first.
+  is probed rather than assumed, which is what keeps cocotb 2.0 working. Test selection moved
+  too: cocotb 2.x ignores 1.x's `TESTCASE` and reads `COCOTB_TEST_FILTER`, so
+  `Cocotb.test_selection` picks the variable by the version `cocotb-config` reports (2.0.0 reads
+  the filter without listing it in `--help-vars`). Its filter matches each `testcase` name
+  exactly, as 1.x does (`check`, or `tb.check`, never `foo_check`) -- stricter than the runner's,
+  which matches every test name ending with it. When a cocotb upgrade breaks every simulation at
+  once, or a setting silently stops working, compare `Cocotb.env()` against
+  `cocotb_tools/runner.py` first.
 - **pydantic 2 is pinned** (`>=2.13.5,<3`). Import `field_validator` / `model_validator` from
   `xeda.dataclass` (which re-exports and adds `XedaBaseModel`), not directly from `pydantic`.
   Every validator needs an explicit `@classmethod` under its decorator.

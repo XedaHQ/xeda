@@ -778,6 +778,10 @@ class Flow(metaclass=ABCMeta):
         log.debug("No parse_reports action for %s", self.name)
         return True
 
+    def check_results(self) -> bool:
+        """Check results shared by a family of flows after tool-specific report parsing."""
+        return True
+
     def add_canonical_result_aliases(self) -> None:
         """Copy flow-specific result keys to their canonical names, additively.
 
