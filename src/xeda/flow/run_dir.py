@@ -76,9 +76,23 @@ def is_marked_run_dir(directory: Path) -> bool:
 
 
 def mark_run_dir(directory: Path) -> None:
-    """Mark `directory`, which xeda created, found empty or adopted, as xeda's."""
-    if not is_marked_run_dir(directory):
-        (directory / RUN_DIR_MARKER).write_text(_MARKER_TEXT)
+    """Mark `directory`, which xeda created, found empty or adopted, as xeda's.
+
+    The marker is created, never written through: anything else already at its name -- a link,
+    say -- is refused, naming it."""
+    if is_marked_run_dir(directory):
+        return
+    marker = directory / RUN_DIR_MARKER
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(marker, flags, 0o666)
+    except FileExistsError:
+        raise RunDirectoryError(
+            f"{marker} is not xeda's marker but a link or another kind of entry, which xeda does "
+            f"not write through. Remove it if {directory} is xeda's."
+        ) from None
+    with os.fdopen(fd, "w") as f:
+        f.write(_MARKER_TEXT)
 
 
 def is_earlier_run_of(directory: Path, flow_name: str) -> bool:

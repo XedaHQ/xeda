@@ -24,7 +24,7 @@ import execnet
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowException
+from xeda.flow import FlowException, RunDirectoryError
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteRunner
 
@@ -440,6 +440,57 @@ def test_a_remote_run_rejects_a_testbench_the_simulator_cannot_run_before_connec
     assert not connected_to
     assert not (remote_host / ".xeda").exists(), "nothing was shipped"
     assert not list(local_run_dir.iterdir()), "nor a run directory set up for it"
+
+
+def test_a_remote_run_refuses_a_users_local_results_directory_before_connecting(
+    tmp_path, remote_host, monkeypatch
+):
+    """The local directory a remote run's results are fetched into is a run directory xeda
+    chooses, under the run root: a directory of the user's there (`--xeda-run-dir myrundir`, with
+    `myrundir/sqrt/vivado_synth/my_data.txt`) is refused, naming it, before connecting -- its
+    `settings.json`, `results.json` and fetched artifacts would overwrite the user's files."""
+    connected_to = []
+
+    class _Unreachable(_LocalConnection):
+        def __init__(self, host, user=None, port=None):
+            connected_to.append(host)
+            raise ConnectionRefusedError(f"connected to {host}")
+
+    monkeypatch.setattr(remote_module, "Connection", _Unreachable)
+    local_run_dir = tmp_path / "myrundir"
+    canary = local_run_dir / "sqrt" / "vivado_synth" / "settings.json"
+    canary.parent.mkdir(parents=True)
+    canary.write_text("the user's own file\n")
+
+    with pytest.raises(RunDirectoryError, match=re.escape(str(canary.parent))):
+        RemoteRunner(local_run_dir, cached_dependencies=False).run_remote(
+            SQRT / "sqrt.toml",
+            "vivado_synth",
+            host="somewhere",
+            flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
+        )
+
+    assert not connected_to
+    assert not (remote_host / ".xeda").exists(), "nothing was shipped"
+    assert canary.read_text() == "the user's own file\n"
+    assert sorted(p.name for p in canary.parent.iterdir()) == ["settings.json"]
+
+
+def test_a_remote_run_marks_its_local_results_directory_and_reuses_it(tmp_path, remote_host):
+    """A remote run's local results directory is marked as xeda's, so the next remote run (or a
+    local one) of the flow reuses it."""
+    local_run_dir = tmp_path / "local" / "xeda_run"
+    for attempt in (1, 2):
+        results = RemoteRunner(local_run_dir, cached_dependencies=False).run_remote(
+            SQRT / "sqrt.toml",
+            "vivado_synth",
+            host="somewhere",
+            flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
+        )
+        assert results and results["success"], f"run {attempt}: {results}"
+        local_run = Path(results["run_path"])
+        assert local_run == local_run_dir / "sqrt" / "vivado_synth"
+        assert (local_run / ".xeda-run-dir").is_file(), f"run {attempt}"
 
 
 def test_transfer_nested_artifacts_keeps_external_paths_local(tmp_path):

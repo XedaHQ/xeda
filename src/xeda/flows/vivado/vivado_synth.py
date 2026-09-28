@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from ...dataclass import Field, XedaBaseModel, field_validator
 from ...design import SourceType
 from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
-from ...utils import HierDict, parse_xml, try_convert
+from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
 #: A Vivado run property value: text, a number or a boolean (`MAX_BRAM 0`, `... IS_ENABLED true`).
 PropertyValue = Union[str, int, float, bool]
@@ -571,7 +571,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         failed = not self.parse_timing_report(reports_dir)
         hier_util = parse_hier_util(reports_dir / "hierarchical_utilization.xml")
         if hier_util:
-            with open(reports_dir / "hierarchical_utilization.json", "w") as f:
+            with replacing_file(reports_dir / "hierarchical_utilization.json") as f:
                 json.dump(hier_util, f)
             self.results["_hierarchical_utilization"] = hier_util
         elif not failed:

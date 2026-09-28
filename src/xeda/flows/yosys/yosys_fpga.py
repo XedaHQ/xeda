@@ -6,6 +6,7 @@ from typing import Any, List, Literal, Optional
 from ...dataclass import Field, field_validator, input_names
 from ...flow import FlowSettingsException, FpgaSynthFlow, describe_results
 from ...flows.ghdl import GhdlSynth
+from ...utils import replacing_file
 from .common import MINIMUM_YOSYS, YosysBase, YosysRelease, process_parameters, yosys_release
 
 log = logging.getLogger(__name__)
@@ -372,7 +373,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         abc_constr_file = None
         if ss.abc_constr:
             abc_constr_file = "abc.constr"
-            with open(abc_constr_file, "w") as f:
+            with replacing_file(abc_constr_file) as f:
                 f.write("\n".join(ss.abc_constr) + "\n")
 
         script_path = self.copy_from_template(

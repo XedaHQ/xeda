@@ -50,6 +50,7 @@ from ..utils import (
     backup_existing,
     dump_json,
     json_encodable,
+    replacing_copy,
     semantic_hash,
     settings_to_dict,
     snakecase_to_camelcase,
@@ -544,7 +545,7 @@ class FlowLauncher:
                 copied_res_dir.mkdir(parents=True, exist_ok=True)
             for res in copy_resources:
                 log.info("Copying %s to %s", str(res), str(copied_res_dir))
-                shutil.copy(res, copied_res_dir)
+                replacing_copy(res, copied_res_dir)
             self._run_dependencies(flow, design, run_path, all_flows_settings)
             self._execute(flow, run_path, input_settings)
             if self.settings.dump_settings_json:

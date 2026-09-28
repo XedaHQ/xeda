@@ -10,7 +10,7 @@ from typing import List, Literal, Optional, Tuple, Union
 from ...dataclass import Field, XedaBaseModel, field_validator
 from ...flow import SynthFlow, describe_results
 from ...platforms import AsicsPlatform
-from ...utils import unique
+from ...utils import replacing_file, unique
 from ..ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
 
@@ -22,7 +22,7 @@ EXCLAIM_PATTERN = re.compile(r":\s+(!.*)\s+;")
 
 
 def merge_files(in_files, out_file, add_newline=False):
-    with open(out_file, "w") as out_f:
+    with replacing_file(out_file) as out_f:
         for in_file in in_files:
             with open(in_file) as in_f:
                 out_f.write(in_f.read())
@@ -70,7 +70,7 @@ def merge_libs(in_files, out_file, new_lib_name=None):
     all_cell_names = set()
     skip_this_cell = False
 
-    with open(out_file, "w") as out:
+    with replacing_file(out_file) as out:
         with open(in_files[0]) as hf:
             for line in hf.readlines():
                 match_library = _LIBRARY_PATTERN.match(line)
@@ -145,7 +145,7 @@ def preproc_libs(
                 digest = hashlib.sha256(str(in_file.absolute()).encode()).hexdigest()[:8]
                 out_file = temp_path / f"{in_file.stem}-{digest}-mod{suffix}"
             log.info("Writing pre-processed file: %s", out_file)
-            with open(out_file, "w") as f:
+            with replacing_file(out_file) as f:
                 f.write(preproc_lib_content(content, dont_use_cells))
             proc_files.append(out_file)
         merge_libs(proc_files, merged_file, new_lib_name)
@@ -280,7 +280,7 @@ class Yosys(YosysBase, SynthFlow):
         abc_constr_file = None
         if ss.abc_constr:
             abc_constr_file = "abc.constr"
-            with open(abc_constr_file, "w") as f:
+            with replacing_file(abc_constr_file) as f:
                 f.write("\n".join(ss.abc_constr) + "\n")
 
         script_path = self.copy_from_template(

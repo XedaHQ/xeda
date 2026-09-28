@@ -51,6 +51,7 @@ from ..utils import (
     parse_patterns_in_file,
     rebuild_like,
     regex_match,
+    replacing_file,
     semantic_hash,
     tcl_list,
     tcl_quote,
@@ -886,7 +887,7 @@ class Flow(metaclass=ABCMeta):
             artifacts=self.artifacts,
             **kwargs,
         )
-        with open(script_path, "w") as f:
+        with replacing_file(script_path) as f:  # a link at its name is replaced, not followed
             f.write(rendered_content)
         return script_path.resolve().relative_to(self.run_path)
 

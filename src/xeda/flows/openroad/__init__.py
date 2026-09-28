@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Annotated, List, Literal, Optional, Union
@@ -15,7 +14,7 @@ from ...flows.yosys import HiLoMap, Yosys, preproc_libs
 from ...platforms import AsicsPlatform
 from ...tool import ExecutableNotFound, Tool
 from ...units import convert_unit
-from ...utils import try_convert, unique
+from ...utils import replacing_copy, replacing_file, try_convert, unique
 
 log = logging.getLogger(__name__)
 
@@ -429,7 +428,7 @@ class Openroad(AsicSynthFlow):
                     dst = Path(file)
                     if not dst.parent.exists():
                         dst.parent.mkdir(parents=True)
-                    shutil.copy(src, dst)
+                    replacing_copy(src, dst)
 
         my_lib_dir = Path("lib")
         my_lib_dir.mkdir(exist_ok=True)
@@ -441,7 +440,7 @@ class Openroad(AsicSynthFlow):
         if corner.dff_lib_file:
             src = ss.platform.root_dir / corner.dff_lib_file
             dst = my_lib_dir / src.name
-            shutil.copy(src, dst)
+            replacing_copy(src, dst)
             copy_resources.append(str(dst))
         assert ss.platform.default_corner_settings
         dff_lib_file = ss.platform.default_corner_settings.dff_lib_file
@@ -449,7 +448,7 @@ class Openroad(AsicSynthFlow):
         for lib in orig_libs:
             src = ss.platform.root_dir / lib
             dst = my_lib_dir / src.name
-            shutil.copy(src, dst)
+            replacing_copy(src, dst)
         ss.dont_use_cells = unique(ss.platform.dont_use_cells + ss.dont_use_cells)
         preproc_libs(
             orig_libs,
@@ -495,7 +494,7 @@ class Openroad(AsicSynthFlow):
         if not os.path.isabs(netlist):
             netlist = os.path.join(yosys_dep.run_path, netlist)
         synth_netlist = ss.results_dir / "1_synth.v"
-        shutil.copy(netlist, synth_netlist)
+        replacing_copy(netlist, synth_netlist)
 
         # yosys doesn't support SDC so we generate it here
         clocks_sdc = self.copy_from_template("clocks.sdc")
@@ -623,7 +622,7 @@ class Openroad(AsicSynthFlow):
                 properties_file.text = str(lyp)
 
             lyt = platform_lyt.name
-            with open(lyt, "wb") as f:
+            with replacing_file(lyt, "wb") as f:
                 f.write(ET.tostring(xml_tree))
             out_file = ss.results_dir / "final.gds"
             res = files(__package__).joinpath("openroad_scripts", "utils", "def2stream.py")
