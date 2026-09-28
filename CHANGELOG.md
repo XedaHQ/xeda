@@ -434,6 +434,47 @@ All notable changes to this project will be documented in this file.
 - `xeda run --remote` no longer crashes after fetching the run's artifacts when the local run
   directory is not under the directory xeda was started in (`--xeda-run-dir`, `XEDA_RUN_DIR`):
   a log message computed its path relative to the start directory.
+- `bsc` generated no Verilog for a `(* synthesize *)` module defined in another package: every
+  source but the top file was compiled without a backend, so only the top's own package got
+  Verilog, and the missing submodule was silently left out of `artifacts.verilog` -- downstream
+  synthesis then failed on an undefined module. Every Bluespec source is now compiled with
+  `-verilog`, and the files are collected by following bsc's `.use` files from the top.
+- The Verilog files of library and imported modules were looked for by a recursive glob through
+  the run directory and bsc's own library trees, along a search path read from a bsc run without
+  the flow's own `-vsearch`, so the design's Verilog directories were never searched. `bsc` now
+  reads its own Verilog search path for the run's actual flags and searches it directory by
+  directory, as bsc does; a module the design's Verilog sources define is taken from there, and
+  one found nowhere (a vendor primitive) is reported as a warning instead of being silently
+  dropped. The library modules' own submodules are collected too: a design using
+  `Clocks::mkReset`, `mkSyncRegister` or `mkSyncFIFOLevel` got `MakeResetA.v` or `SyncRegister.v`
+  without the `SyncResetA.v` or `SyncHandshake.v` they instantiate.
+- In a debug run the flow passed `-cross-info`, which bsc 2026.07 removed, so `--debug` runs
+  failed outright; and `debug` changed the generated hardware (it enabled `-keep-fires` and
+  `-keep-inlined-boundaries`, and dropped `-remove-unused-modules`). Debug no longer changes
+  bsc's flags; those are settings of their own now.
+- `sched_conditions` and `haskell_runtime_flags` were accepted but never passed to bsc, and
+  `incremental` never took effect. `sched_conditions` now maps to `-sched-conditions`,
+  `haskell_runtime_flags` to `+RTS ... -RTS` (default now empty; the old default was never
+  applied), and `incremental` is removed (see Removed).
+- `bsc` compiled the testbench's Bluespec sources too, and took the *last* Bluespec source
+  overall as the file defining `rtl.top` -- the testbench's file when the testbench is written in
+  Bluespec. It now compiles `rtl.sources` only.
+- `rtl.defines` never reached bsc as preprocessor macros (only `rtl.parameters` became `-D`
+  definitions); both do now, and in `bsc_sim` the testbench's take precedence over the RTL's.
+- `unspecified_to` was silently dropped unless `optimize` and `opt_undetermined_vals` were both
+  set; it is now always passed to bsc, and the combinations bsc itself rejects ("X"/"Z" without
+  `opt_undetermined_vals`; "X"/"Z" with Bluesim) are settings errors reported before anything
+  runs.
+- The recorded bsc version was "Compiler," -- xeda's generic version parsing did not understand
+  bsc's own banner format. It now records the release, e.g. `2026.07.1`.
+- A `.bh` source (which xeda classifies as `Bluespec`) failed deep inside bsc, which compiles BH
+  only from `.bs` files; it is now rejected up front, naming the file to rename.
+- `bobj_dir` was plain text, so a `$DESIGN_ROOT` written into it was never expanded; it is a
+  `Path` setting now.
+- `Tool`'s minimum-version check compared a version with fewer components as equal to a longer
+  minimum version, since the missing component was silently skipped: bsc 2026.07 satisfied a
+  2026.07.1 minimum. A missing component now counts as 0; a version that could not be read at all
+  is still not compared.
 
 ### Changed
 - Design- and project-file suffixes are case-sensitive, and read by one table: `.TOML` is rejected
@@ -530,6 +571,31 @@ All notable changes to this project will be documented in this file.
   when the design loads, so the two spellings of one path are the same design. A parameter file's
   content is not hashed. **Existing run directories and cached results will not be reused after
   upgrading**, because these changes give every design a new `design_hash`.
+- **The `bsc` flows require bsc 2026.07.1 or newer**, checked when the flow starts. bsc 2026.07
+  turned `-aggressive-conditions` and `-sched-conditions` on by default, stopped generalizing
+  untyped `let`s, removed `-cross-info`, and made Bluesim exit with a failure status on `$fatal`.
+- **`bsc` defaults now follow bsc's own** where the old flow deviated without cause: `optimize`
+  is false (`-O`, bsc's BDD optimizer, turned seconds into many minutes on large designs such as
+  Piccolo's PLIC), `extra_optimize_flags` is empty and applies whether or not `optimize` is set,
+  `promote_warnings` is empty (it promoted G0009, G0010, G0005 and G0117, which failed designs
+  such as Piccolo; `promote_warnings = ["G0009", "G0010", "G0117"]` restores it -- G0005 is an
+  error already), `aggressive_conditions` is true (the old flow turned it off). Synthesis-oriented
+  defaults stay: `unspecified_to = "X"` with `opt_undetermined_vals`, `remove_unused_modules`,
+  `remove_starved_rules`, `remove_dollar`, `positive_reset`.
+- **`warn_flags` is replaced** by the booleans `warn_method_urgency`, `warn_action_shadowing` and
+  `warn_undetermined_predicate` (all on).
+- The directories `search_paths`, `verilog_search_paths`, `fdir`, `include_dirs`, `library_dirs`
+  resolve relative to the design root; outputs (`bobj_dir`, `info_dir`, `verilog_out_dir`,
+  `sim_dir`) relative to the run directory. `cleanup_bobjs` removes `.ba` files as well as `.bo`,
+  and the Verilog modules an earlier run generated in the output directory: runs of a design
+  share it, so a module the design has since replaced by Verilog of its own was found again.
+  A module both generated by bsc and defined by a design source is now an error.
+- `artifacts.verilog` lists the library modules first, then the design's Verilog sources, then
+  the generated modules with the top last; `results.modules` lists the hierarchy, top first.
+  Library modules are copied into `verilog_out_dir`; with `positive_reset`, a
+  `` `define BSV_POSITIVE_RESET `` is added to the generated and copied files, and a first file,
+  `bsv_defines.v`, defines it ahead of the design's own Verilog sources, which are passed on
+  unchanged.
 
 ### Removed
 - `dc/templates/run_old.tcl`, which no flow rendered.
@@ -537,6 +603,9 @@ All notable changes to this project will be documented in this file.
 - `Design.relative_path` (use `Design.source_path_as_named`), and `units.normalize_quantity`,
   `units.UNIT_ALIASES` and `units.unit_maybe_scale`; `units.check_unit_case` now takes
   `(unit, text)`.
+- **`bsc`'s `gtkwave_package` setting** and the Bluetcl script behind it (GTKWave translation
+  filters for enums). Design files that set it (e.g. bluelight's `xedaproject.toml`,
+  `[flow.bsc] gtkwave_package = ...`) must drop it. Also removed: `warn_flags`, `incremental`.
 
 ### Added
 - Tests: the fake tools (`tests/fake_tools/`: `vivado`, `quartus_sh`, `xtclsh`, `dc_shell`, and now
@@ -593,6 +662,35 @@ All notable changes to this project will be documented in this file.
   - change LED chaser speed with buttons `5` and `6`!
 - Examples: improved version of `blinky` for the ULX3S board in VHDL
   - change LED chaser speed with buttons `5` and `6`!
+- `bsc_sim`: simulates a Bluespec testbench (`tb.top`) with Bluesim or, through bsc's Verilog
+  link step, Verilator, Icarus Verilog or another `-vsim` simulator (settings `simulator`,
+  `sim_args`, `max_cycles` (Bluesim), `vcd`, C/C++ and link options; the design's C/C++ sources
+  are linked in (`.c`, `.cc`, `.cpp`, `.cxx`, `.o`, `.a`), so imported C functions -- `import
+  "BDPI"` -- work on every simulator, `elab` being on by default for the `.ba` files a Verilog
+  link needs, and Verilator without `use_dpi` rejected up front; the design's Verilog sources are
+  handed to a Verilog link as files, whatever their names). The run fails when the
+  simulation exits with an error status: `$fatal` or a failing `dynamicAssert`
+  (`system_verilog_tasks` is on by default so that `$fatal` survives into the Verilog).
+  `$finish(n)`'s argument is a verbosity level, not a status; `$error` fails only under Verilator.
+- A `bsc` setting for every bsc 2026.07.1 compiler option that affects the output:
+  scheduling/semantics incl. `let_gen`, `resource_scheduling`, `sat_solver`; code generation
+  incl. `v95`, `use_dpi`, `system_verilog_tasks`, `verilog_filters`, `keep_*`, `remove_*`;
+  diagnostics `show_schedule`, `sched_dot`, `show_rule_rel`, ...; messages
+  `promote_warnings`/`suppress_warnings`/`demote_errors`; paths `search_paths`,
+  `verilog_search_paths`, `fdir`, `info_dir`; `cpp`/`cpp_flags`; `extra_flags` for the rest. And
+  `verilog_primitives` ("vivado"/"quartus" pick bsc's vendor-tuned Verilog library modules).
+- With `cpp`, the design's macros are also given to the C preprocessor, the only one BH (`.bs`)
+  sources go through; a design whose macros cannot reach its BH sources is warned about.
+- `examples/bluespec/`: gcd (BSV, multi-package), fir (BSV, sized by macros), collatz (BH), crc32
+  (BSV top with a BH package), verilog_import (`import "BVI"`), all self-checking with an
+  `XEDA_INJECT_BUG` hook.
+- Tests: `tests/test_bsc.py` (every setting checked against the flag record the installed bsc
+  builds from it), `tests/test_bsc_examples.py` (every example: its Verilog elaborates, lints
+  and synthesizes; its testbench passes on every simulator it supports and catches its injected
+  bug), `tests/test_bsc_external.py` (opt-in `XEDA_TESTS_EXTERNAL=1`: bsc-contrib's
+  AXI4/SequenceRules/COBS testbenches against their golden output, bluelight's Ascon core,
+  Piccolo's core, at pinned commits), `tests/test_tool_version.py`. CI installs bsc 2026.07.1 and
+  runs the bsc tests (the external ones on one Python version).
 
 ## [v0.1.0-alpha.11] - 2022-04-16
 

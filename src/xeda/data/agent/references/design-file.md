@@ -111,6 +111,9 @@ A path string is enough; the type comes from the extension:
 | `.tcl` | `Tcl` |
 | `.mem` | `MemoryFile` |
 
+The `bsc` flow compiles BH (Bluespec Classic) only from `.bs` files; it rejects a `.bh` source
+with a settings error naming the file to rename.
+
 A source containing `*` is a pattern (`"src/*.vhd"`); its matches are inserted in sorted order,
 and a pattern matching no file is an error. `*` is the only pattern character: `?`, `[` and `]` are
 part of a file name, so `"rtl/fifo[1].v"` names exactly that file (never `fifo1.v`), and

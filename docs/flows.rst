@@ -159,6 +159,50 @@ Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
 the selected installed tool must support those switches. Placement and programming are
 different operations: ``openfpgaloader`` is the only flow here that writes hardware.
 
+Bluespec
+========
+
+``bsc`` and ``bsc_sim`` compile Bluespec (BSV, ``.bsv``, and BH -- Bluespec Classic, ``.bs``)
+with the Bluespec compiler, ``bsc``. ``bsc`` generates Verilog for ``rtl.top``; ``bsc_sim``
+compiles a Bluespec testbench and simulates it. Both need bsc 2026.07.1 or newer, checked when
+the flow starts.
+
+Bluespec compiles packages in source order, and the package that defines the top module must come
+last: for ``bsc`` that is the last Bluespec source in ``rtl.sources`` defining ``rtl.top``; for
+``bsc_sim`` the last one in ``tb.sources`` defining ``tb.top`` (``rtl.top`` when the design has no
+testbench). A package's name is its file's stem, so a multi-package design lists each package's
+file, the top's last.
+
+``rtl.defines`` and ``rtl.parameters`` (and, for ``bsc_sim``, the testbench's over the RTL's) are
+passed to bsc as preprocessor macros. bsc's own preprocessor reads BSV only, so a BH (``.bs``)
+source sees them only through the C preprocessor: set ``cpp = true``, which also feeds the macros
+to it; without it, a design whose macros are meant to reach BH code is warned about.
+
+``bsc``'s ``artifacts.verilog`` is a complete file set for a downstream synthesis or simulation
+flow: the generated modules, the design's own Verilog sources (listed where they are), and the
+bsc library and ``import "BVI"``-imported modules the design instantiates that are found on the
+Verilog search path, copied into ``verilog_out_dir``. With
+``positive_reset`` (on by default), every file ``bsc`` generated or copied begins with a Verilog
+macro definition for ``BSV_POSITIVE_RESET``, so every module in the set resets active-high; the
+design's own Verilog sources are left unchanged, and a first file, ``bsv_defines.v``, defines the
+macro ahead of them. Name the reset port with ``reset_prefix`` if a
+downstream flow expects one.
+
+``bsc_sim`` runs the testbench with Bluesim (the default), bsc's own cycle-based simulator, or,
+through bsc's ``-vsim`` link step, a Verilog simulator: Verilator, Icarus Verilog, or another one
+bsc supports. The run fails when the simulation exits with a failure status -- a testbench's
+``$fatal`` or a failing ``dynamicAssert`` -- and passes otherwise; ``$finish(n)``'s argument is a
+verbosity level, not a status, and ``$error`` fails the run only under Verilator.
+
+.. code-block:: bash
+
+    xeda run bsc examples/bluespec/gcd/gcd.toml
+    xeda run bsc_sim examples/bluespec/gcd/gcd.toml -s simulator=verilator
+
+See ``examples/bluespec/`` for self-checking designs in both BSV and BH, including a
+multi-package design, one sized by macros, one importing Verilog with ``import "BVI"``, and one
+mixing BSV and BH.
+
 Results
 =======
 
