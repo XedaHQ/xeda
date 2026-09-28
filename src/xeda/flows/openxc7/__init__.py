@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from ...board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
-from ...dataclass import Field
+from ...dataclass import Field, field_validator
 from ...design import SourceType
 from ...flow import (
     FPGA,
@@ -18,6 +18,7 @@ from ...proc_utils import run_process
 from ...tool import Tool
 from ...utils import setting_flag
 from ..yosys import YosysFpga
+from ..yosys.yosys_fpga import NEXTPNR_KEEPS_SRC, keeping_src_by_default, yosys_fpga_keeping_src
 
 __all__ = ["OpenXC7"]
 
@@ -137,9 +138,9 @@ class OpenXC7(FpgaSynthFlow):
             None, description="Xilinx: Bitstream file to write"
         )
         yosys: YosysFpga.Settings = Field(
-            default_factory=YosysFpga.Settings,
+            default_factory=yosys_fpga_keeping_src,
             description="Settings for the `yosys_fpga` dependency that synthesizes the design. "
-            "`fpga` and `clocks` are propagated automatically.",
+            "`fpga` and `clocks` are propagated automatically. " + NEXTPNR_KEEPS_SRC,
         )
         program: Union[str, bool, Dict, None] = Field(
             None,
@@ -147,6 +148,12 @@ class OpenXC7(FpgaSynthFlow):
         )
 
         dependency_settings = {"yosys": ("fpga", "clocks")}
+
+        @field_validator("yosys", mode="before")
+        @classmethod
+        def _yosys_keeps_src_by_default(cls, value):
+            """nextpnr places the netlist: keep `src` unless told otherwise."""
+            return keeping_src_by_default(value)
 
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)

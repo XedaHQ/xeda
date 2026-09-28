@@ -20,6 +20,7 @@ from ..flow import (
 from ..tool import Tool
 from ..utils import setting_flag
 from .yosys import YosysFpga
+from .yosys.yosys_fpga import NEXTPNR_KEEPS_SRC, keeping_src_by_default, yosys_fpga_keeping_src
 
 __all__ = ["Nextpnr"]
 
@@ -367,12 +368,18 @@ class Nextpnr(FpgaSynthFlow):
             "and only available in some nextpnr builds.",
         )
         yosys: YosysFpga.Settings = Field(
-            default_factory=YosysFpga.Settings,
+            default_factory=yosys_fpga_keeping_src,
             description="Settings for the `yosys_fpga` dependency that synthesizes the design. "
-            "`fpga` and `clocks` are propagated automatically.",
+            "`fpga` and `clocks` are propagated automatically. " + NEXTPNR_KEEPS_SRC,
         )
 
         dependency_settings = {"yosys": ("fpga", "clocks")}
+
+        @field_validator("yosys", mode="before")
+        @classmethod
+        def _yosys_keeps_src_by_default(cls, value):
+            """nextpnr places the netlist: keep `src` unless told otherwise."""
+            return keeping_src_by_default(value)
 
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)

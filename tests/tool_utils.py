@@ -11,12 +11,14 @@ backend (e.g. a ghdl whose LLVM shared library is missing) reports a version hap
 fails on the first real invocation.
 """
 
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional, Sequence
@@ -38,6 +40,7 @@ __all__ = [
     "require_yosys",
     "require_yosys_ghdl_plugin",
     "use_fake_tools",
+    "yosys_json_attribute_holders",
     "checkout_work_dir",
     "require_docker",
     "require_docker_image",
@@ -445,3 +448,18 @@ def checkout_work_dir(prefix: str) -> Path:
     base = Path(os.environ.get("XEDA_TESTS_WORK_DIR") or Path(__file__).parent.parent / "xeda_run")
     base.mkdir(parents=True, exist_ok=True)
     return Path(tempfile.mkdtemp(prefix=prefix, dir=base))
+
+
+def yosys_json_attribute_holders(netlist: Path, attribute: str) -> list[str]:
+    """Everything in the yosys JSON netlist `netlist` that carries `attribute`: modules (library
+    boxes included), cells, memories and wires, each as a `/`-separated path into the JSON."""
+
+    def holders(node: object, path: str) -> Iterator[str]:
+        if isinstance(node, dict):
+            attributes = node.get("attributes")
+            if isinstance(attributes, dict) and attribute in attributes:
+                yield path
+            for key, value in node.items():
+                yield from holders(value, f"{path}/{key}" if path else str(key))
+
+    return list(holders(json.loads(netlist.read_text()), ""))

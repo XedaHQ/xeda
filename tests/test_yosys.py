@@ -14,7 +14,13 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import Yosys, YosysFpga
 from xeda.flows.yosys.yosys import preproc_libs
 
-from .tool_utils import _command_succeeds, _require, require_yosys, require_yosys_ghdl_plugin
+from .tool_utils import (
+    _command_succeeds,
+    _require,
+    require_yosys,
+    require_yosys_ghdl_plugin,
+    yosys_json_attribute_holders,
+)
 
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
@@ -157,6 +163,93 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
     for output in SPACED_OUTPUTS.values():
         assert (flow.run_path / output).is_file(), output
     assert "DFF_X" in (flow.run_path / SPACED_OUTPUTS["netlist_verilog"]).read_text()
+
+
+SRC_ATTRIBUTE_DESIGN = """\
+module pipe(input clk, input [3:0] d, output reg [3:0] q);
+  reg [3:0] mem [0:3];
+  reg [1:0] addr = 0;
+  always @(posedge clk) begin
+    mem[addr] <= d;
+    addr <= addr + 1;
+    q <= mem[addr] ^ d;
+  end
+endmodule
+module top(input clk, input [3:0] a, output [3:0] y);
+  pipe u_pipe(.clk(clk), .d(a), .q(y));
+endmodule
+"""
+
+
+def _synthesize_src_design(flow_cls, script_format, tmp_path, **settings):
+    """Synthesize a small design -- a submodule, registers, a memory -- with real yosys."""
+    require_yosys()
+    if script_format == "tcl" and not _yosys_has_tcl():
+        pytest.skip("this yosys has no TCL support")
+    root = tmp_path / "src-attributes"
+    _write(root / "top.v", SRC_ATTRIBUTE_DESIGN)
+    design = Design(
+        name="src-attributes", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
+    )
+    flow = DefaultRunner(tmp_path / "run").run_flow(
+        flow_cls, design, {"script_format": script_format, **settings}
+    )
+    assert flow is not None and flow.succeeded
+    return flow
+
+
+#: Settings under which `src` must reach no netlist: the default, which writes the JSON *and* the
+#: Verilog netlist; JSON alone; and `netlist_attrs = false`, which only drops the Verilog
+#: netlist's attributes.
+STRIPPING = {
+    "default": {},
+    "json-only": {"netlist_verilog": None},
+    "verilog-noattr": {"netlist_attrs": False},
+}
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize("settings", list(STRIPPING.values()), ids=list(STRIPPING))
+def test_yosys_writes_no_src_attribute_into_any_netlist(settings, script_format, tmp_path):
+    """The JSON netlist is what nextpnr reads: `netlist_src_attrs = false` (the default) has to
+    strip `src` before it is written, from every module, cell, memory and wire -- not only
+    ahead of the Verilog netlist, and whatever `netlist_attrs` says."""
+    flow = _synthesize_src_design(Yosys, script_format, tmp_path, **settings)
+    assert yosys_json_attribute_holders(flow.run_path / "netlist.json", "src") == []
+    if flow.settings.netlist_verilog:
+        assert "src =" not in (flow.run_path / flow.settings.netlist_verilog).read_text()
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_yosys_keeps_src_attributes_when_asked(script_format, tmp_path):
+    flow = _synthesize_src_design(Yosys, script_format, tmp_path, netlist_src_attrs=True)
+    holders = yosys_json_attribute_holders(flow.run_path / "netlist.json", "src")
+    assert "modules/top" in holders and "modules/pipe" in holders
+    assert "src =" in (flow.run_path / "netlist.v").read_text()
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize("keep_src", [False, True], ids=["strip-src", "keep-src"])
+def test_yosys_fpga_json_netlist_follows_netlist_src_attrs(keep_src, script_format, tmp_path):
+    """FPGA synthesis writes the target's library cells into the JSON netlist as boxes, each
+    with the `src` of its yosys simulation model; a selection skips boxes unless it starts with
+    `=`. Every one of them has to lose `src` as well."""
+    flow = _synthesize_src_design(
+        YosysFpga,
+        script_format,
+        tmp_path,
+        fpga="iCE40HX1K-TQ144",
+        flatten=False,
+        netlist_src_attrs=keep_src,
+    )
+    netlist = flow.run_path / "netlist.json"
+    boxes = yosys_json_attribute_holders(netlist, "blackbox")
+    assert any(box.startswith("modules/SB_") for box in boxes), "no library box was written"
+    holders = yosys_json_attribute_holders(netlist, "src")
+    if keep_src:
+        assert "modules/top" in holders
+    else:
+        assert holders == []
 
 
 @pytest.mark.parametrize("script_format", ["ys", "tcl"])

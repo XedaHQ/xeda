@@ -17,8 +17,11 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FPGA, FlowSettingsException
+from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr, YosysFpga
 from xeda.flows.nextpnr import ECP5_RESOURCES, EcpPLL, NextpnrTool
+
+from .settings_samples import flow_classes
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources" / "nextpnr"
@@ -589,3 +592,173 @@ def test_nextpnr_runs_with_its_device_given_only_for_yosys_fpga(tmp_path, monkey
     )
     assert flow is not None and flow.succeeded
     assert flow.settings.fpga is not None and flow.settings.fpga.part == "LFE5U-25F-6BG381C"
+
+
+# --------------------------------------------------------------------------- the netlist's `src`
+
+BLINK = "module blink(input clk, output reg q); always @(posedge clk) q <= ~q; endmodule\n"
+
+
+def _blink(tmp_path: Path, flows: dict[str, Any]) -> Design:
+    (tmp_path / "blink.v").write_text(BLINK)
+    return Design(
+        name="blink",
+        design_root=tmp_path,
+        rtl={"sources": ["blink.v"], "top": "blink", "clock": {"port": "clk"}},
+        flow=flows,
+    )
+
+
+class _YosysLaunched(Exception):
+    """Stops a launch at the yosys_fpga dependency's `init`, carrying its settings."""
+
+
+def _yosys_launch_settings(tmp_path, monkeypatch, flow_cls, flows=None, cli=(), part=None):
+    """The settings `yosys_fpga` is launched with -- composed by the launcher exactly as for
+    `xeda run <flow_cls> -s fpga=... <cli>` on a design with `flows` sections. The launch stops
+    there, so no tool runs."""
+
+    def stop(self):
+        raise _YosysLaunched(self.settings)
+
+    monkeypatch.setattr(YosysFpga, "init", stop)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(_YosysLaunched) as launched:
+        DefaultRunner(tmp_path / "xeda_run").run(
+            flow_cls,
+            _blink(tmp_path, flows or {}),
+            flow_settings=[f"fpga={part or ICE40_PART}", *cli],
+        )
+    settings = launched.value.args[0]
+    assert isinstance(settings, YosysFpga.Settings)
+    return settings
+
+
+ICE40_PART = "iCE40HX1K-TQ144"
+
+#: Every flow that launches `yosys_fpga` -- found from its declared dependencies -- places the
+#: JSON netlist it writes with nextpnr, whose reports cite the netlist's `src` attributes. Each
+#: one keeps them by default. The part each is launched for here:
+PLACERS = {
+    cls: {"nextpnr": ICE40_PART, "open_xc7": "xc7a35tcpg236-1"}[cls.name]
+    for cls, _ in flow_classes()
+    if any(
+        cls.Settings._dependency_settings_class(field) is YosysFpga.Settings
+        for field in cls.Settings.dependency_settings
+    )
+}
+BY_PLACER = pytest.mark.parametrize("flow_cls", list(PLACERS), ids=[c.name for c in PLACERS])
+
+
+def test_every_flow_placing_a_yosys_netlist_is_covered():
+    assert {cls.name for cls in PLACERS} == {"nextpnr", "open_xc7"}
+
+
+@BY_PLACER
+@pytest.mark.parametrize(
+    "flows, cli, keeps_src",
+    [
+        ({}, (), True),
+        ({"yosys_fpga": {"flatten": True}}, (), True),
+        ({"yosys_fpga": {"netlist_src_attrs": False}}, (), False),
+        ({"<flow>": {"yosys": {"netlist_src_attrs": False}}}, (), False),
+        ({}, ("yosys.netlist_src_attrs=false",), False),
+        ({"yosys_fpga": {"netlist_src_attrs": False}}, ("yosys.netlist_src_attrs=true",), True),
+    ],
+    ids=[
+        "default",
+        "yosys_fpga-section-silent-on-src",
+        "yosys_fpga-section",
+        "own-section",
+        "cli",
+        "cli-over-yosys_fpga-section",
+    ],
+)
+def test_the_synthesis_nextpnr_places_keeps_src_unless_told_otherwise(
+    tmp_path, monkeypatch, flow_cls, flows, cli, keeps_src
+):
+    """nextpnr cites the netlist's `src` attributes in its reports, so the synthesis a placing
+    flow launches keeps them by default -- also when `[flows.yosys_fpga]` sets other things --
+    while a `netlist_src_attrs` the user gives, in either flow's section or with `-s`, wins."""
+    flows = {flow_cls.name if name == "<flow>" else name: v for name, v in flows.items()}
+    settings = _yosys_launch_settings(
+        tmp_path, monkeypatch, flow_cls, flows, cli, part=PLACERS[flow_cls]
+    )
+    assert settings.netlist_src_attrs is keeps_src
+
+
+@pytest.mark.parametrize(
+    "flows, keeps_src",
+    [({}, True), ({"yosys_fpga": {"netlist_src_attrs": False}}, False)],
+    ids=["default", "yosys_fpga-section"],
+)
+def test_openfpgaloader_synthesis_keeps_src_like_nextpnr(tmp_path, monkeypatch, flows, keeps_src):
+    from xeda.flows.openfpgaloader import Openfpgaloader
+
+    settings = _yosys_launch_settings(tmp_path, monkeypatch, Openfpgaloader, flows)
+    assert settings.netlist_src_attrs is keeps_src
+
+
+def test_yosys_fpga_on_its_own_strips_src_by_default(tmp_path, monkeypatch):
+    assert _yosys_launch_settings(tmp_path, monkeypatch, YosysFpga).netlist_src_attrs is False
+
+
+@BY_PLACER
+def test_a_placing_flow_keeps_src_by_default_however_its_yosys_settings_are_given(flow_cls):
+    given = YosysFpga.Settings(flatten=True)
+    for settings in (
+        flow_cls.Settings(),
+        flow_cls.Settings(yosys={"flatten": True}),
+        flow_cls.Settings(yosys=given),
+    ):
+        assert settings.yosys.netlist_src_attrs is True
+    assigned = flow_cls.Settings()
+    assigned.yosys = {"flatten": True}
+    assert assigned.yosys.netlist_src_attrs is True
+    assigned.yosys = given
+    assert assigned.yosys.netlist_src_attrs is True
+    assert given.netlist_src_attrs is False, "the caller's settings must be left alone"
+    assert flow_cls.Settings(yosys={"netlist_src_attrs": False}).yosys.netlist_src_attrs is False
+    assert YosysFpga.Settings().netlist_src_attrs is False
+
+
+@BY_PLACER
+def test_a_placing_flow_advertises_the_src_default_its_yosys_runs_with(flow_cls):
+    """`xeda list-settings <flow>` shows the default the flow actually applies, and says why."""
+    from xeda.introspect import settings_info
+
+    (yosys,) = [f for f in settings_info(flow_cls)["fields"] if f["name"] == "yosys"]
+    assert yosys["default"]["netlist_src_attrs"] is True
+    assert "nextpnr's reports cite them as source locations" in yosys["description"]
+
+
+@pytest.mark.parametrize(
+    "flows, keeps_src",
+    [({}, True), ({"yosys_fpga": {"netlist_src_attrs": False}}, False)],
+    ids=["default", "yosys_fpga-section"],
+)
+def test_nextpnr_ice40_places_a_netlist_with_src_unless_told_otherwise(
+    tmp_path, monkeypatch, flows, keeps_src
+):
+    """End to end, with the real tools: the JSON netlist nextpnr reads."""
+    from .tool_utils import require_nextpnr_ice40, yosys_json_attribute_holders
+
+    require_nextpnr_ice40()
+    monkeypatch.chdir(tmp_path)
+    flow = DefaultRunner(tmp_path / "xeda_run").run(
+        Nextpnr,
+        _blink(tmp_path, flows),
+        flow_settings=[
+            "fpga=iCE40HX1K-TQ144",
+            "clock.period=20.0",
+            "pcf_allow_unconstrained=true",
+        ],
+    )
+    assert flow is not None and flow.succeeded
+    (yosys,) = flow.completed_dependencies
+    assert isinstance(yosys.settings, YosysFpga.Settings) and yosys.settings.netlist_json
+    holders = yosys_json_attribute_holders(yosys.run_path / yosys.settings.netlist_json, "src")
+    if keeps_src:
+        assert "modules/blink" in holders
+    else:
+        assert holders == []

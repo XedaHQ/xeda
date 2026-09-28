@@ -295,10 +295,11 @@ class YosysBase(Flow):
         )
         netlist_src_attrs: bool = Field(
             False,
-            description="Keep `src` attributes (source file and line) in the written netlist.",
+            description="Keep `src` attributes (source file and line) in the written netlists "
+            "(JSON, Verilog and BLIF).",
         )
         netlist_unset_attributes: List[str] = Field(
-            [], description="Attributes to strip from the design before writing the netlist."
+            [], description="Attributes to strip from the design before writing any netlist."
         )
         netlist_json: Optional[Path] = Field(
             Path("netlist.json"),
@@ -347,9 +348,13 @@ class YosysBase(Flow):
             return unique(flags)
 
         def attributes_to_unset(self) -> List[str]:
-            """`netlist_unset_attributes`, plus `src` when attributes are written without it."""
+            """`netlist_unset_attributes`, plus `src` unless `netlist_src_attrs` keeps it.
+
+            Removed before every netlist is written. `netlist_attrs` does not enter into it: it
+            drops attributes from the Verilog netlist only, while the JSON netlist always carries
+            them."""
             attributes = list(self.netlist_unset_attributes)
-            if self.netlist_attrs is True and self.netlist_src_attrs is False:
+            if not self.netlist_src_attrs:
                 attributes.append("src")
             return unique(attributes)
 
