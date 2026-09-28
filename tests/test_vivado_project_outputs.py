@@ -295,9 +295,9 @@ def test_the_write_bitstream_step_keeps_its_own_settings(tmp_path, monkeypatch) 
 def test_a_bitstream_outside_the_run_directory_is_registered_where_it_is(
     tmp_path, monkeypatch
 ) -> None:
-    """A path outside the run directory has no relative form. An earlier bitstream there is
-    removed before the run, so a run whose `write_bitstream` step fails cannot leave the old one
-    registered as its own."""
+    """A path outside the run directory has no relative form. An earlier bitstream there is left
+    for Vivado to overwrite -- xeda deletes nothing outside the run directory -- but a run whose
+    `write_bitstream` step fails does not report it as its own."""
     bitstream = tmp_path / "bits" / "sqrt.bit"
     bitstream.parent.mkdir()
     flow = _synth(tmp_path, monkeypatch, bitstream=str(bitstream))
@@ -313,7 +313,8 @@ def test_a_bitstream_outside_the_run_directory_is_registered_where_it_is(
         {"fpga": PART, "clock_period": 5.5, "bitstream": str(bitstream)},
     )
     assert failed is not None and not failed.succeeded
-    assert not bitstream.exists()
+    assert bitstream.read_text() == "bit", "the earlier bitstream is where it was"
+    assert vs.BITSTREAM not in failed.results.artifacts
 
 
 def test_hooks_render_only_their_own_steps_writes_and_leave_active_step_to_vivado(

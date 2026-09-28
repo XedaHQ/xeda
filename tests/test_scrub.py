@@ -42,6 +42,7 @@ def _make_flow_dirs(base: Path) -> dict:
         d = base / name
         d.mkdir(parents=True)
         (d / "results.json").write_text("{}")
+        (d / ".xeda-run-dir").write_text("format = 1\n")  # a run directory xeda made
         dirs[name] = d
     # A plain file whose name looks like a hashed run dir must never be mistaken for one.
     (base / "vivado_synth_abcdefabcdefabcd").write_text("not a directory")

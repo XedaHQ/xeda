@@ -10,6 +10,7 @@ from xml.etree import ElementTree
 
 from .dataclass import Field, XedaBaseModel, field_validator
 from .design import Design, SourceType
+from .flow.run_dir import RunDirectoryError, resolved_inside
 from .tool import Tool
 
 log = logging.getLogger(__name__)
@@ -326,7 +327,16 @@ class Cocotb(CocotbSettings, Tool):
         import), and the simulators still exit 0. A file left by an earlier run in a reused run
         directory would then be read as this run's results.
         """
-        Path(self.results_xml).unlink(missing_ok=True)
+        run_dir = Path.cwd()  # every simulator runs, and writes its results, in its run directory
+        results_xml = resolved_inside(self.results_xml, run_dir)
+        if results_xml is None:
+            raise RunDirectoryError(
+                f"cocotb's results_xml = {self.results_xml!r} lies outside the run directory "
+                f"{run_dir}: xeda removes an earlier results file before simulating, so that it "
+                "cannot pass for this run's, and deletes nothing outside the run directory. Name "
+                "a file inside the run directory."
+            )
+        results_xml.unlink(missing_ok=True)
         self.__dict__.pop("results", None)  # the cached `results` of that file
 
     def test_selection(self, testcases: List[str]) -> Dict[str, str]:

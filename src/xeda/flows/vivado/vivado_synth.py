@@ -438,11 +438,12 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         outputs = project_outputs(self, settings)
         run_status = self.run_path / RUN_STATUS_FILE
         # What a run registers or reports is what it wrote: nothing an earlier run left there
+        # (inside the run directory; one named outside it is left for Vivado to overwrite)
         stale = [*outputs.values(), run_status]
         if BITSTREAM in outputs:
             stale.append(bitstream_bin_file(outputs[BITSTREAM]))
         for path in stale:
-            (self.run_path / path).unlink(missing_ok=True)
+            self.remove_stale_output(path)
         self.artifacts.update(outputs)
 
         tcl_files += post_step_hooks(self, settings)
@@ -461,10 +462,12 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )
         self.vivado.run("-source", script_path)
         # The script has checked that each run completed its step (`vivado_synth.tcl`)
-        if BITSTREAM in outputs and not (self.run_path / outputs[BITSTREAM]).is_file():
+        if BITSTREAM in outputs and not self.wrote_output(outputs[BITSTREAM]):
+            bitstream = self.run_path / outputs[BITSTREAM]
             raise FlowFatalError(
-                "Vivado's implementation run completed write_bitstream, but no bitstream is at "
-                f"{self.run_path / outputs[BITSTREAM]}."
+                "Vivado's implementation run completed write_bitstream, but it wrote no "
+                f"bitstream at {bitstream}"
+                + (": the file there is from before the run." if bitstream.exists() else ".")
             )
 
     def parse_timing_report(self, reports_dir) -> bool:

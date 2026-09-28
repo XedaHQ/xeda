@@ -122,6 +122,8 @@ class VivadoSim(Vivado, SimFlow):
 
         # `vivado_sim.tcl` deletes xsim's work directory, `xsim.dir`, before analyzing
         self.removable_work_dir("xsim.dir", "xsim.dir")
+        if ss.saif:  # an earlier SAIF file in the run directory; one outside it Vivado overwrites
+            self.remove_stale_output(ss.saif)
         script_path = self.copy_from_template("vivado_sim.tcl")
         # `vivado_sim.tcl` writes these whenever the enabling setting is set; record them so
         # consumers (e.g. `vivado_power`) don't have to guess the path themselves.

@@ -26,17 +26,21 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, ClassVar, Iterator
 
 import pytest
 
 from xeda import Design
+from xeda.cocotb import Cocotb
+from xeda.console import console
+from xeda.flow import Flow, FlowFatalError, registered_flows
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.default_runner import scrub_runs
 from xeda.flows import Bsc, BscSim, DiamondSynth, Verilator, VivadoSim, VivadoSynth
 from xeda.utils import XedaException
 
 from .settings_samples import flow_classes, minimal_settings
-from .tool_utils import FAKE_TOOLS_DIR, fake_calls, use_fake_tools
+from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
 
 MARKER = ".xeda-run-dir"
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
@@ -409,23 +413,25 @@ def test_purge_run_path_empties_a_marked_directory_but_keeps_its_marker(tmp_path
     assert sorted(p.name for p in run_dir.iterdir()) == [MARKER]
 
 
-def test_clean_empties_a_run_directory_xeda_chose(tmp_path, monkeypatch):
-    """A directory under the run root is xeda's without a marker: `--clean` empties it, as
-    before, and the run goes ahead."""
+def test_clean_empties_a_run_directory_xeda_made(tmp_path, monkeypatch):
+    """A run directory xeda made carries its marker: the next run's `--clean` empties it, all but
+    the marker, and the run goes ahead."""
     use_fake_tools(monkeypatch)
-    launcher = _launcher(tmp_path, cleanup_before_run=True)
-    run_dir = launcher.get_flow_run_path("sqrt", "vivado_synth")
-    run_dir.mkdir(parents=True)
+    design = Design.from_file(SQRT / "sqrt.toml")
+    first = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=XILINX_SETTINGS)
+    assert first is not None and first.succeeded
+    run_dir = first.run_path
+    assert (run_dir / MARKER).is_file(), "xeda marks every run directory it makes"
     (run_dir / "stale.txt").write_text("an earlier run's\n")
 
-    flow = launcher.run(
-        "vivado_synth", design=Design.from_file(SQRT / "sqrt.toml"), flow_settings=XILINX_SETTINGS
+    flow = _launcher(tmp_path, cleanup_before_run=True).run(
+        "vivado_synth", design=design, flow_settings=XILINX_SETTINGS
     )
 
     assert flow is not None and flow.succeeded
     assert flow.run_path == run_dir
     assert not (run_dir / "stale.txt").exists()
-    assert not (run_dir / MARKER).exists(), "a directory xeda chose needs no marker"
+    assert (run_dir / MARKER).is_file()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -528,6 +534,7 @@ def test_a_vivado_xsim_dir_linked_out_of_the_run_directory_is_refused(tmp_path, 
     before = _tree(outside)
     run_dir = launcher.get_flow_run_path("sqrt", "vivado_sim")
     run_dir.mkdir(parents=True)
+    (run_dir / MARKER).write_text("format = 1\n")  # xeda's, where a link has appeared
     (run_dir / "xsim.dir").symlink_to(outside, target_is_directory=True)
     source = tmp_path / "tb.v"
     source.write_text("module tb; endmodule\n")
@@ -545,6 +552,323 @@ def test_a_vivado_xsim_dir_linked_out_of_the_run_directory_is_refused(tmp_path, 
     assert "xsim.dir" in str(refused.value)
     assert _tree(outside) == before
     assert not fake_calls(run_dir)
+
+
+# ---------------------------------------------------------------------------------------------
+# A run directory xeda chooses is used only if it is xeda's
+# ---------------------------------------------------------------------------------------------
+
+
+def _users_run_root(tmp_path: Path, subdir: str = "vivado_synth") -> tuple[Path, Path]:
+    """The sqrt design, and a directory of the user's, `myrundir`, that holds a file of theirs at
+    the run directory xeda derives there: `myrundir/sqrt/<subdir>/my_data.txt`."""
+    design_dir = tmp_path / "sqrt"
+    shutil.copytree(SQRT, design_dir, ignore=shutil.ignore_patterns("__pycache__"))
+    canary = tmp_path / "myrundir" / "sqrt" / subdir / "my_data.txt"
+    canary.parent.mkdir(parents=True)
+    canary.write_text("the user's own data\n")
+    return design_dir, canary
+
+
+@pytest.mark.parametrize("option", [[], ["--no-incremental"], ["--clean"], ["--scrub"]])
+def test_a_users_directory_at_the_derived_run_path_is_refused(tmp_path, option):
+    """`--xeda-run-dir myrundir`, where the user keeps `myrundir/sqrt/vivado_synth/my_data.txt`:
+    vivado_synth's default `clean`, `--clean` and `--no-incremental` deleted it. A run directory
+    xeda chooses is used only if xeda made it, marked it, or it holds an earlier xeda run of the
+    same flow; this one is refused, naming it, before anything runs."""
+    design_dir, canary = _users_run_root(tmp_path)
+    before = _tree(tmp_path / "myrundir")
+
+    run = _xeda(
+        "run",
+        "vivado_synth",
+        str(design_dir / "sqrt.toml"),
+        "--xeda-run-dir",
+        "myrundir",
+        "--json",
+        *option,
+        *XILINX,
+        cwd=tmp_path,
+    )
+
+    assert _tree(tmp_path / "myrundir") == before, run.stdout + run.stderr
+    error = _error(run)
+    assert error["type"] == "RunDirectoryError", error
+    assert str(canary.parent) in error["message"], error
+    assert "--xeda-run-dir" in error["message"], error
+
+
+def test_scrub_refuses_a_users_directory_it_would_remove(tmp_path, monkeypatch):
+    """`scrub` removes a flow's earlier run directories: one that is not xeda's is refused,
+    naming it, before anything is removed or confirmed; xeda's own go as before."""
+    base = tmp_path / "myrundir" / "sqrt"
+    users = base / "vivado_synth_0123456789abcdef"
+    users.mkdir(parents=True)
+    (users / "my_data.txt").write_text("the user's own data\n")
+    ours = base / "vivado_synth"
+    ours.mkdir()
+    (ours / MARKER).write_text("format = 1\n")
+    asked = []
+    monkeypatch.setattr(console, "input", lambda *a, **kw: asked.append(a) or "yes")
+
+    with pytest.raises(XedaException) as refused:
+        scrub_runs("vivado_synth", base)
+
+    assert type(refused.value).__name__ == "RunDirectoryError"
+    assert str(users) in str(refused.value)
+    assert (users / "my_data.txt").is_file() and ours.is_dir()
+    assert not asked, "refused before asking"
+
+    shutil.rmtree(users)
+    assert scrub_runs("vivado_synth", base)
+    assert not ours.exists()
+
+
+def test_xeda_scrub_refuses_a_users_directory(tmp_path):
+    """`xeda scrub vivado_synth sqrt --xeda-run-dir myrundir` refuses the user's directory at the
+    derived run path, naming it, with a JSON failure document."""
+    _, canary = _users_run_root(tmp_path)
+
+    run = _xeda(
+        "scrub", "vivado_synth", "sqrt", "--xeda-run-dir", "myrundir", "--json", cwd=tmp_path
+    )
+
+    assert canary.is_file()
+    error = _error(run)
+    assert error["type"] == "RunDirectoryError", error
+    assert str(canary.parent) in error["message"], error
+
+
+def _earlier_run(tmp_path: Path, monkeypatch) -> Path:
+    """The run directory of an earlier `vivado_synth` run as a 0.4.2 xeda left it: no marker,
+    its `settings.json` naming the flow, and a file of the run's own."""
+    use_fake_tools(monkeypatch)
+    design = Design.from_file(SQRT / "sqrt.toml")
+    flow = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=XILINX_SETTINGS)
+    assert flow is not None and flow.succeeded
+    (flow.run_path / MARKER).unlink()
+    (flow.run_path / "stale.txt").write_text("an earlier run's\n")
+    return flow.run_path
+
+
+@pytest.mark.parametrize("option", [{}, {"incremental": False}], ids=["default", "no-incremental"])
+def test_an_earlier_xeda_runs_directory_is_adopted(tmp_path, monkeypatch, option):
+    """An existing `xeda_run` tree keeps working: a directory holding an earlier xeda run of the
+    same flow (its `settings.json` says so) is adopted, marked, and cleaned as before."""
+    run_dir = _earlier_run(tmp_path, monkeypatch)
+
+    flow = _launcher(tmp_path, **option).run(
+        "vivado_synth", design=Design.from_file(SQRT / "sqrt.toml"), flow_settings=XILINX_SETTINGS
+    )
+
+    assert flow is not None and flow.succeeded and flow.run_path == run_dir
+    assert (run_dir / MARKER).is_file()
+    assert not (run_dir / "stale.txt").exists(), "vivado_synth's clean emptied it"
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"flow_name": "yosys_fpga", "flow_settings": {}, "xeda_version": "0.4.2"},
+        {"flow_name": "vivado_synth"},
+        ["vivado_synth"],
+        "not JSON",
+    ],
+    ids=["another flow's", "no run record", "a list", "not JSON"],
+)
+def test_a_directory_with_no_earlier_run_of_the_flow_is_refused(tmp_path, monkeypatch, record):
+    """A `settings.json` that is not xeda's run record of this flow does not make a directory
+    xeda's."""
+    use_fake_tools(monkeypatch)
+    launcher = _launcher(tmp_path)
+    run_dir = launcher.get_flow_run_path("sqrt", "vivado_synth")
+    run_dir.mkdir(parents=True)
+    text = record if isinstance(record, str) else json.dumps(record)
+    (run_dir / "settings.json").write_text(text)
+    before = _tree(run_dir)
+
+    with pytest.raises(XedaException) as refused:
+        launcher.run(
+            "vivado_synth",
+            design=Design.from_file(SQRT / "sqrt.toml"),
+            flow_settings=XILINX_SETTINGS,
+        )
+
+    assert type(refused.value).__name__ == "RunDirectoryError"
+    assert str(run_dir) in str(refused.value)
+    assert _tree(run_dir) == before
+    assert not fake_calls(run_dir)
+
+
+@pytest.fixture
+def toy_flows():
+    """A flow with one dependency, each writing a file into its run directory. Registered while
+    the test runs only, so the sweeps over every flow never see them."""
+
+    class ToyDep(Flow):
+        """A dependency that writes one file."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        def run(self) -> None:
+            (self.run_path / "dep.txt").write_text("dep\n")
+
+    class ToyTop(Flow):
+        """A flow with one dependency."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        def init(self) -> None:
+            self.add_dependency(ToyDep, ToyDep.Settings())
+
+        def run(self) -> None:
+            (self.run_path / "top.txt").write_text("top\n")
+
+    yield ToyDep, ToyTop
+    for cls in (ToyDep, ToyTop):
+        for name in (cls.name, cls.__name__):
+            registered_flows.pop(name, None)
+
+
+def test_every_run_directory_xeda_makes_is_marked(tmp_path, toy_flows):
+    """A flow's run directory and its dependency's (nested in it) are each marked when xeda makes
+    them -- or finds them empty -- so the next run knows them for xeda's."""
+    _, top = toy_flows
+    design = Design.from_file(SQRT / "sqrt.toml")
+    launcher = _launcher(tmp_path)
+    empty = launcher.get_flow_run_path("sqrt", top.name)
+    empty.mkdir(parents=True)  # empty: nothing of anyone's to lose
+
+    flow = launcher.launch_flow(top, design, {})
+
+    assert flow.succeeded
+    assert flow.run_path == empty and (empty / MARKER).is_file()
+    (dep,) = flow.completed_dependencies
+    assert dep.run_path.parent == empty and (dep.run_path / MARKER).is_file()
+
+    again = _launcher(tmp_path, incremental=False).launch_flow(top, design, {})
+    assert again.succeeded and (again.run_path / MARKER).is_file()
+
+
+# ---------------------------------------------------------------------------------------------
+# Nothing outside the run directory is deleted
+# ---------------------------------------------------------------------------------------------
+
+PRECIOUS = "the user's own file, at the path they named\n"
+
+
+def test_a_named_bitstream_outside_the_run_directory_survives_the_pre_run_stage(
+    tmp_path, monkeypatch
+):
+    """An earlier file at an output path named outside the run directory is left for the tool to
+    overwrite (as 0.4.2 did), never deleted by xeda: here Vivado's `write_bitstream` fails, and
+    the file is exactly as it was -- and is not reported as the failed run's bitstream."""
+    use_fake_tools(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "write_bitstream")
+    canary = tmp_path / "external" / "my.bit"
+    canary.parent.mkdir()
+    canary.write_text(PRECIOUS)
+
+    flow = _launcher(tmp_path).run(
+        "vivado_synth",
+        design=Design.from_file(SQRT / "sqrt.toml"),
+        flow_settings={**XILINX_SETTINGS, "bitstream": str(canary)},
+    )
+
+    assert canary.read_text() == PRECIOUS
+    assert flow is not None and not flow.succeeded
+    assert "bitstream" not in flow.results.artifacts
+
+
+def test_a_bitstream_outside_the_run_directory_from_before_the_run_is_not_this_runs(
+    tmp_path, monkeypatch
+):
+    """A run that reports `write_bitstream` complete, although it wrote no bitstream, fails
+    naming the path -- also when a file from before the run is there, which is kept."""
+    use_fake_tools(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "write_bitstream")
+    fake_returns(
+        monkeypatch,
+        {
+            ("get_property", "STATUS", "impl_1"): "write_bitstream Complete!",
+            ("get_property", "PROGRESS", "impl_1"): "100%",
+        },
+    )
+    canary = tmp_path / "external" / "my.bit"
+    canary.parent.mkdir()
+    canary.write_text(PRECIOUS)
+
+    with pytest.raises(FlowFatalError, match="from before the run") as raised:
+        _launcher(tmp_path).run(
+            "vivado_synth",
+            design=Design.from_file(SQRT / "sqrt.toml"),
+            flow_settings={**XILINX_SETTINGS, "bitstream": str(canary)},
+        )
+
+    assert str(canary) in str(raised.value)
+    assert canary.read_text() == PRECIOUS
+
+
+def test_a_named_saif_outside_the_run_directory_survives(tmp_path, monkeypatch):
+    """The Vivado simulation script deleted an existing SAIF file before `open_saif`: one named
+    outside the run directory is now left for Vivado to overwrite."""
+    use_fake_tools(monkeypatch)
+    canary = tmp_path / "external" / "my.saif"
+    canary.parent.mkdir()
+    canary.write_text(PRECIOUS)
+    source = tmp_path / "tb.v"
+    source.write_text("module tb; endmodule\n")
+    design = Design(
+        name="sqrt",
+        rtl={"sources": [str(source)], "top": "tb"},
+        tb={"top": "tb"},
+        design_root=tmp_path,
+    )
+
+    flow = _launcher(tmp_path).launch_flow(VivadoSim, design, {"saif": str(canary)})
+
+    assert canary.read_text() == PRECIOUS
+    assert ["open_saif", str(canary)] in fake_calls(flow.run_path)
+
+
+def test_a_cocotb_results_file_outside_the_run_directory_is_refused(tmp_path, monkeypatch):
+    """cocotb's results file is removed before each simulation, so that an earlier one cannot
+    pass for this run's: one named outside the run directory is refused, not deleted."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    canary = tmp_path / "results.xml"
+    canary.write_text(PRECIOUS)
+    monkeypatch.chdir(run_dir)  # a simulator runs in its run directory
+
+    with pytest.raises(XedaException) as refused:
+        Cocotb(sim_name="verilator", results_xml="../results.xml").discard_results()
+
+    assert type(refused.value).__name__ == "RunDirectoryError"
+    assert "results_xml" in str(refused.value)
+    assert canary.read_text() == PRECIOUS
+
+
+def test_a_stale_output_is_removed_only_inside_the_run_directory(tmp_path):
+    """`Flow.remove_stale_output`: an earlier copy inside the run directory is removed; one
+    outside it is kept, and until the run writes it anew it is not the run's own."""
+    run_dir = tmp_path / "run"
+    (run_dir / "outputs").mkdir(parents=True)
+    (run_dir / MARKER).write_text("format = 1\n")
+    inside = run_dir / "outputs" / "x.bit"
+    inside.write_text("an earlier run's\n")
+    outside = tmp_path / "x.bit"
+    outside.write_text(PRECIOUS)
+    flow = _vivado_synth(run_dir)
+
+    flow.remove_stale_output("outputs/x.bit")
+    flow.remove_stale_output(outside)
+    flow.remove_stale_output("../x.bit")
+
+    assert not inside.exists()
+    assert outside.read_text() == PRECIOUS
+    assert not flow.wrote_output("outputs/x.bit") and not flow.wrote_output(outside)
+    os.utime(outside, ns=(1, 1))  # rewritten, as the tool would
+    assert flow.wrote_output(outside)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -633,16 +957,30 @@ def deletion_sites() -> Counter:
     return found
 
 
-_PURGE = "empties the run directory through `Flow.purge_run_path`, which refuses one not xeda's"
+_PURGE = "empties the run directory through `Flow.purge_run_path`, which refuses one not marked"
 _RMTREE = "the launcher's `rmtree` helper; its callers are the `rmtree(...)` sites"
-_CHOSEN = "a run directory xeda chose, strictly inside the run root (`get_flow_run_path`)"
-_OUTPUT = "a stale output of the run's own, by the name its setting gives; the run writes it again"
+_CHOSEN = (
+    "a run directory xeda chose strictly inside the run root (`get_flow_run_path`) and claimed "
+    "(`claim_run_dir`: made, empty, marked or an earlier run of the flow) before anything runs"
+)
+_INSIDE = "`Flow.removable_work_dir` keeps it inside the run directory, else refuses"
 
 #: Every deletion site, why it deletes nothing of the user's: `(file, line, reason)`.
 REVIEWED_SITES = [
-    ("cocotb.py", "Path(self.results_xml).unlink(missing_ok=True)", _OUTPUT),
+    (
+        "cocotb.py",
+        "results_xml.unlink(missing_ok=True)",
+        "an earlier cocotb results file, inside the run directory (`resolved_inside`; refused "
+        "outside it)",
+    ),
     ("flow/flow.py", "path.unlink()", _PURGE),
     ("flow/flow.py", "shutil.rmtree(path, ignore_errors=True)", _PURGE),
+    (
+        "flow/flow.py",
+        "inside.unlink(missing_ok=True)",
+        "`Flow.remove_stale_output`: an earlier copy of an output, only inside the run directory "
+        "(one named outside it is left for the tool to overwrite)",
+    ),
     ("flow_runner/default_runner.py", "os.remove(path)", _RMTREE),
     ("flow_runner/default_runner.py", "shutil.rmtree(path, onexc=on_rm_error)", _RMTREE),
     ("flow_runner/default_runner.py", "shutil.rmtree(path, onerror=on_rm_error)", _RMTREE),
@@ -650,7 +988,8 @@ REVIEWED_SITES = [
         "flow_runner/default_runner.py",
         "rmtree(p)",
         "`scrub_runs`: a flow's run directories inside a design's directory under the run root "
-        "(the design name checked by `run_dir_name`), each resolving inside it, once confirmed",
+        "(the design name checked by `run_dir_name`), each marked or an earlier run of the flow "
+        "(else refused), once confirmed",
     ),
     ("flow_runner/default_runner.py", "rmtree(run_path)", f"`--no-incremental`: {_CHOSEN}"),
     (
@@ -667,78 +1006,48 @@ REVIEWED_SITES = [
     (
         "flow_runner/dse/dse_runner.py",
         "shutil.rmtree(p, ignore_errors=True)",
-        f"a candidate's run directory that did not improve: {_CHOSEN} of the exploration",
+        f"a candidate's run directory that did not improve: {_CHOSEN}",
     ),
     (
         "flows/bsc/__init__.py",
         "path.unlink()",
         "an earlier run's packages (`.bo`/`.ba`) in `bobj_dir` and generated modules (a `.use` "
-        "and its `.v`) in the output directory, both of which `Flow.removable_work_dir` keeps "
-        "inside the run directory",
+        f"and its `.v`) in the output directory: {_INSIDE}",
     ),
-    ("flows/bsc/__init__.py", "old.unlink(missing_ok=True)", f"`bsc_sim`'s `vcd`: {_OUTPUT}"),
     ("flows/dc/__init__.py", "self.purge_run_path()", _PURGE),
     ("flows/vcs.py", "super().purge_run_path()", _PURGE),
     ("flows/vivado/__init__.py", "super().purge_run_path()", _PURGE),
     (
         "flows/diamond/templates/synth.tcl",
         "file delete -force ${impl_dir}",
-        "`impl_folder`, which `DiamondSynth.run` keeps inside the run directory "
-        "(`Flow.removable_work_dir`) before the script runs",
+        f"`impl_folder`, checked by `DiamondSynth.run` before the script is rendered: {_INSIDE}",
     ),
-    ("flows/ghdl/__init__.py", "p.unlink()", f"`write_wave_opt`: {_OUTPUT}"),
     (
         "flows/ghdl/__init__.py",
         'self.ghdl.run("remove", *ss.get_flags(vhdl, "remove", backend=backend))',
-        "`ghdl remove`: GHDL's own library files, which only GHDL writes",
+        "`ghdl remove`: GHDL's own library files, in the run directory (no `--workdir`)",
     ),
-    ("flows/ise/__init__.py", "path.unlink(missing_ok=True)", "ISE's own outputs: `outputs()`"),
     (
         "flows/openroad/templates/finalize.tcl",
         "file delete {{design.rtl.top}}.totCap",
         "a fixed name in the run directory, which OpenROAD wrote just before",
     ),
-    ("flows/openxc7/__init__.py", "bin_path.unlink()", "a chip database it regenerates, forced"),
-    ("flows/openxc7/__init__.py", "bba_path.unlink()", "the intermediate it wrote just before"),
     (
-        "flows/verilator/__init__.py",
-        "p.unlink()",
-        "`*.d` in `sim_dir`, which `Flow.removable_work_dir` keeps inside the run directory",
+        "flows/openxc7/__init__.py",
+        "bba_path.unlink()",
+        "the chip database's intermediate, which it wrote into the run directory just before",
     ),
-    (
-        "flows/verilator/__init__.py",
-        "shutil.rmtree(sim_dir)",
-        "`sim_dir`, which `Flow.removable_work_dir` keeps inside the run directory",
-    ),
-    (
-        "flows/vivado/templates/vivado_sim.tcl",
-        "file delete -force -- {{settings.saif}}",
-        f"`saif`: {_OUTPUT}",
-    ),
+    ("flows/verilator/__init__.py", "p.unlink()", f"`*.d` in `sim_dir`: {_INSIDE}"),
+    ("flows/verilator/__init__.py", "shutil.rmtree(sim_dir)", f"`sim_dir`: {_INSIDE}"),
     (
         "flows/vivado/templates/vivado_sim.tcl",
         "if { [catch {file delete -force xsim.dir} error]} {",
-        "`xsim.dir`, which `VivadoSim.run` keeps inside the run directory before the script runs",
-    ),
-    (
-        "flows/vivado/vivado_synth.py",
-        "(self.run_path / path).unlink(missing_ok=True)",
-        f"the outputs the run registers: {_OUTPUT}",
+        f"`xsim.dir`, checked by `VivadoSim.run` before the script is rendered: {_INSIDE}",
     ),
     (
         "flows/yosys/common.py",
         "alias.unlink()",
         "a link of xeda's own under `path_aliases/` in the run directory",
-    ),
-    (
-        "flows/yosys/yosys.py",
-        "os.remove(self.artifacts.timing_report)",
-        "a report of the run's own",
-    ),
-    (
-        "flows/yosys/yosys.py",
-        "os.remove(self.artifacts.utilization_report)",
-        "a report of the run's own",
     ),
     ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lef", "PDK script: its own"),
     ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lib", "PDK script: its own"),

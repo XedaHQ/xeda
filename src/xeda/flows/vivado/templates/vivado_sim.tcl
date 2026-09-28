@@ -45,10 +45,8 @@ if { [catch {eval xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} } error
 
 {%- if settings.saif %}
 puts "\n===========================( Setting up SAIF )==========================="
-if {[file exists {{settings.saif}}]} {
-    puts "deleting existing SAIF file {{settings.saif}}"
-    file delete -force -- {{settings.saif}}
-}
+{#- An earlier SAIF file in the run directory was removed before the script (`VivadoSim.run`,
+    `Flow.remove_stale_output`); one named outside it is left for `open_saif` to overwrite. #}
 open_saif {{settings.saif}}
 {%- endif %}
 

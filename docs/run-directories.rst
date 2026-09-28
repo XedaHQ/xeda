@@ -9,10 +9,22 @@ Where it goes
 =============
 
 The parent is ``./xeda_run`` by default; change it with ``--xeda-run-dir`` or the
-``XEDA_RUN_DIR`` environment variable. ``--cwd`` runs directly in the current directory instead,
-which must be empty or one xeda ran in before (xeda marks it with a ``.xeda-run-dir`` file): a run
-replaces and deletes files in its run directory, so xeda refuses a directory holding files it did
-not put there. Run without ``--cwd`` from a directory holding your own files.
+``XEDA_RUN_DIR`` environment variable. ``--cwd`` runs directly in the current directory instead.
+
+A run replaces and deletes files in its run directory, so xeda runs only in a directory of its
+own, and marks every run directory it uses with a ``.xeda-run-dir`` file:
+
+- ``--cwd`` (or the API's ``run_path``) needs a directory that is empty, or one xeda ran in
+  before. Run without ``--cwd`` from a directory holding your own files.
+- An existing directory where xeda would put a run (``--xeda-run-dir`` pointed at a directory of
+  yours, say) is used only if it is marked, is empty, or holds an earlier xeda run of the same
+  flow (its ``settings.json`` says so: runs of older releases are adopted and marked). Otherwise
+  the run is refused, naming the directory, before anything is written or deleted. ``xeda scrub``
+  removes only such directories too.
+- xeda deletes nothing outside the run directory. An output path you name outside it
+  (``-s bitstream=/elsewhere/x.bit``) is written by the tool where you said, as it always was,
+  replacing a file already there; confirmation before replacing one comes in 0.5.
+- Files you put into a run directory of xeda's are removed by the next run's ``clean``.
 
 Within the parent, the layout depends on two options:
 

@@ -58,7 +58,7 @@ from ..utils import (
     try_convert,
     unique,
 )
-from .run_dir import RUN_DIR_MARKER, RunDirectoryError, is_xedas_run_dir
+from .run_dir import RUN_DIR_MARKER, RunDirectoryError, is_marked_run_dir, resolved_inside
 
 log = logging.getLogger(__name__)
 
@@ -701,9 +701,9 @@ class Flow(metaclass=ABCMeta):
         if run_path is None:
             run_path = Path.cwd()
         self.run_path = run_path
-        # The run root the launcher chose `run_path` in: a directory strictly inside it is xeda's
-        # to empty (`purge_run_path`). None for a flow built without a launcher.
-        self.run_root: Optional[Path] = None
+        # The outputs named outside the run directory that `remove_stale_output` left in place,
+        # each with the state its file had before the run (None: there was none)
+        self._outputs_before_run: Dict[Path, Optional[Tuple[int, int, int]]] = {}
 
         if isinstance(design, dict):
             design = dict(design)
@@ -775,17 +775,16 @@ class Flow(metaclass=ABCMeta):
     def purge_run_path(self):
         """Empty the run directory (a flow's `clean`), all but xeda's marker.
 
-        Only a directory that is xeda's (`run_dir.is_xedas_run_dir`): strictly inside the run
-        root the launcher chose it in, or marked as xeda's. Anything else -- a directory a flow
-        was built to run in without a launcher, say -- is refused, and nothing is removed.
+        Only a run directory of xeda's, which carries the marker the launcher writes into every
+        run directory it uses (`run_dir.claim_run_dir`). Anything else -- a directory a flow was
+        built to run in without a launcher, say -- is refused, and nothing is removed.
         """
         if not self.run_path.exists():
             return
-        if not is_xedas_run_dir(self.run_path, self.run_root):
+        if not is_marked_run_dir(self.run_path):
             raise RunDirectoryError(
                 f"{self.name}'s clean would delete everything in {self.run_path}, which is not a "
-                f"run directory of xeda's: it is neither inside the run root xeda chose it in nor "
-                f"marked with {RUN_DIR_MARKER}. Nothing was removed."
+                f"run directory of xeda's: it carries no {RUN_DIR_MARKER}. Nothing was removed."
             )
         logged_warning = False
         for path in self.run_path.iterdir():
@@ -800,17 +799,52 @@ class Flow(metaclass=ABCMeta):
                 shutil.rmtree(path, ignore_errors=True)
 
     def removable_work_dir(self, path: Union[str, os.PathLike], setting: str) -> Path:
-        """`path`, a work directory the flow removes or empties by name (`setting` names it),
-        resolved against the run directory -- or refused unless it lies strictly inside it."""
-        run_dir = self.run_path.resolve()
-        resolved = (run_dir / path).resolve()
-        if resolved == run_dir or not resolved.is_relative_to(run_dir):
+        """`path`, a work directory or file the flow removes or empties by name (`setting` names
+        it), resolved against the run directory -- or refused unless it lies strictly inside."""
+        resolved = resolved_inside(path, self.run_path)
+        if resolved is None:
             raise RunDirectoryError(
-                f"{setting} = {str(path)!r} resolves to {resolved}, outside the run directory "
-                f"{run_dir}: {self.name} removes files from it by name, so it must be a "
-                "directory inside the run directory (a relative path without '..')."
+                f"{setting} = {str(path)!r} resolves to {(self.run_path / path).resolve()}, "
+                f"outside the run directory {self.run_path.resolve()}: {self.name} removes files "
+                "from it by name, so it must lie inside the run directory (a relative path "
+                "without '..')."
             )
         return resolved
+
+    @staticmethod
+    def _file_state(path: Path) -> Optional[Tuple[int, int, int]]:
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        return (st.st_size, st.st_mtime_ns, st.st_ino)
+
+    def remove_stale_output(self, path: Union[str, os.PathLike]) -> None:
+        """Remove an earlier copy of an output the run writes (`path`, relative to the run
+        directory unless absolute), so that it cannot pass for this run's -- inside the run
+        directory only. An output named outside it (`-s bitstream=/elsewhere/x.bit`) is left for
+        the tool to overwrite, as it always was; xeda deletes nothing outside the run directory.
+        Its state is noted instead, so that `wrote_output` can tell the earlier file from one this
+        run wrote."""
+        inside = resolved_inside(path, self.run_path)
+        if inside is not None:
+            inside.unlink(missing_ok=True)
+            return
+        outside = Path(os.path.abspath(self.run_path / path))
+        state = self._file_state(outside)
+        self._outputs_before_run[outside] = state
+        if state is not None:
+            log.debug("Leaving %s, outside the run directory, for the tool to overwrite", outside)
+
+    def wrote_output(self, path: Union[str, os.PathLike]) -> bool:
+        """Whether the output at `path` (relative to the run directory unless absolute) is there,
+        and is not an earlier file `remove_stale_output` left in place unchanged."""
+        target = Path(os.path.abspath(self.run_path / path))
+        if not target.exists():
+            return False
+        if target in self._outputs_before_run:
+            return self._file_state(target) != self._outputs_before_run[target]
+        return True
 
     def parse_reports(self) -> bool:
         log.debug("No parse_reports action for %s", self.name)
