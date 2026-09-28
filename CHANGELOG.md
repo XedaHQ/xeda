@@ -447,8 +447,9 @@ All notable changes to this project will be documented in this file.
   one found nowhere (a vendor primitive) is reported as a warning instead of being silently
   dropped. The library modules' own submodules are collected too: a design using
   `Clocks::mkReset`, `mkSyncRegister` or `mkSyncFIFOLevel` got `MakeResetA.v` or `SyncRegister.v`
-  without the `SyncResetA.v` or `SyncHandshake.v` they instantiate. So are the modules a design's
-  own Verilog instantiates, library or bsc-generated, and a `-vsearch` in `extra_flags` counts.
+  without the `SyncResetA.v` or `SyncHandshake.v` they instantiate. The modules the design's own
+  Verilog instantiates are collected as well, whether library or bsc-generated, and a `-vsearch`
+  given in `extra_flags` is part of the search path the flow collects from.
 - In a debug run the flow passed `-cross-info`, which bsc 2026.07 removed, so `--debug` runs
   failed outright; and `debug` changed the generated hardware (it enabled `-keep-fires` and
   `-keep-inlined-boundaries`, and dropped `-remove-unused-modules`). Debug no longer changes
