@@ -1,5 +1,7 @@
 set_param tclapp.enableGitAccess 0
 
+{% include 'util.tcl' %}
+
 set design_name {{design.name}}
 set project_name ${design_name}
 set fpga_part {{settings.fpga.part}}

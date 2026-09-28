@@ -1,3 +1,10 @@
+{#- The procs the Vivado scripts share. A script that calls one includes this file. #}
+# End the script as failed, with the error that failed it (a command's own message).
+proc errorExit {message} {
+  puts "ERROR: $message"
+  exit 1
+}
+
 # CSV column name -> timing path property. Single source of truth for the header
 # and the rows, and shared by every report below so they cannot drift apart.
 proc timingPathColumns {} {
@@ -88,7 +95,7 @@ proc showWarningsAndErrors {} {
   }
   if {$num_crit_warns > 0} {
     puts "** Number of Critical Warnings:  $num_crit_warns"
-    {%- if settings.fail_critical_warning %}
+    {%- if settings.fail_critical_warning is defined and settings.fail_critical_warning %}
     puts "Exiting due to $num_crit_warns critical warning(s)!"
     exit 1
     {%- endif %}

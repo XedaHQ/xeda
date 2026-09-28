@@ -107,7 +107,12 @@ proc __option {words name} {
 }
 rename source __source
 proc source {args} { __record source {*}$args }
-proc exec {args} { __record exec {*}$args; return "" }
+# a program named in `XEDA_FAKE_TOOL_FAIL` fails, as `exec` of a failing program does
+proc exec {args} {
+    __record exec {*}$args
+    if {[lindex $args 0] in $::__fail} { error "[lindex $args 0] failed" }
+    return ""
+}
 rename package __package
 proc package {sub args} {
     if {$sub eq "require"} { __record package require {*}$args; return 1 }
