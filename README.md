@@ -131,7 +131,7 @@ route. Results, generated scripts, reports, and effective settings are kept unde
   - `ise_synth`: FPGA synthesis and implementation for older Xilinx device families
 - [Bluespec](https://github.com/B-Lang-org/bsc) compiler (bsc 2026.07.1 or newer), for designs in
   Bluespec SystemVerilog (BSV) and Bluespec Classic (BH)
-  - `bsc`: compiles the design to Verilog, and collects every Verilog file its top module needs
+  - `bsc`: compiles the design to Verilog, and collects the Verilog files its top module needs
     (including the bsc library modules it instantiates) for any downstream synthesis or
     simulation flow
   - `bsc_sim`: compiles a Bluespec testbench and simulates it with Bluesim, or with Verilator,

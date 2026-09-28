@@ -6,6 +6,10 @@ on:
     branches: ["main", "dev"]
   workflow_dispatch:
 
+# The job only reads: the checkout, and a release lookup the token authenticates.
+permissions:
+  contents: read
+
 jobs:
   tox:
     strategy:
@@ -13,7 +17,9 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
 
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: the bsc release tarball installed below is built for
+    # ubuntu-24.04, and so is the tcl8.6 package it needs.
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v5
@@ -35,7 +41,7 @@ jobs:
       # pinned the same way as the OSS CAD Suite above. The extracted bin/ scripts locate the
       # rest of the install (lib/, bin/core/) relative to their own path, so the real bin/ goes
       # on PATH as-is rather than symlinking the scripts elsewhere. bluetcl and every Bluesim
-      # executable link against libtcl8.6, which ubuntu-24.04 (this runner's image) does not
+      # executable link against libtcl8.6, which ubuntu-24.04 does not
       # install by default; a C++ compiler for Bluesim/Verilog-sim links is normally already
       # present on the runner. OSS CAD Suite (above) puts verilator and iverilog on PATH, which
       # is what bsc's `-vsim verilator|iverilog` link step picks up.
