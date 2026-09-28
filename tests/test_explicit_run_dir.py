@@ -36,6 +36,7 @@ from xeda.console import console
 from xeda.flow import Flow, FlowFatalError, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import scrub_runs
+from xeda.flow.run_dir import claim_run_dir
 from xeda.flows import Bsc, BscSim, DiamondSynth, Verilator, VivadoSim, VivadoSynth
 from xeda.utils import XedaException
 
@@ -872,6 +873,101 @@ def test_a_stale_output_is_removed_only_inside_the_run_directory(tmp_path):
 
 
 # ---------------------------------------------------------------------------------------------
+# xeda never writes through a link
+# ---------------------------------------------------------------------------------------------
+
+
+def _linked_canary(tmp_path: Path, link: Path, name: str) -> Path:
+    """A file of the user's outside the run directory, and a symbolic link to it at `link`."""
+    canary = tmp_path / "users" / name
+    canary.parent.mkdir(exist_ok=True)
+    canary.write_text(PRECIOUS)
+    link.symlink_to(canary)
+    return canary
+
+
+def test_the_marker_is_never_written_through_a_link(tmp_path):
+    """Adopting an earlier run whose `.xeda-run-dir` is a link to a file of the user's refuses,
+    naming it, rather than writing the marker through the link."""
+    run_dir = tmp_path / "xeda_run" / "sqrt" / "vivado_synth"
+    run_dir.mkdir(parents=True)
+    (run_dir / "settings.json").write_text(
+        json.dumps({"flow_name": "vivado_synth", "flow_settings": {}, "xeda_version": "0.4.2"})
+    )
+    canary = _linked_canary(tmp_path, run_dir / MARKER, "notes.txt")
+
+    with pytest.raises(XedaException) as refused:
+        claim_run_dir(run_dir, "vivado_synth")
+
+    assert type(refused.value).__name__ == "RunDirectoryError"
+    assert str(run_dir / MARKER) in str(refused.value)
+    assert canary.read_text() == PRECIOUS
+    assert (run_dir / MARKER).is_symlink()
+
+
+#: The files xeda itself generates in `vivado_synth`'s run directory (the rest are the tool's).
+GENERATED = [
+    "vivado_synth.tcl",
+    "clock.xdc",
+    "post_synth_design_hook.tcl",
+    "post_route_design_hook.tcl",
+    "settings.json",
+    "results.json",
+]
+
+
+def test_generated_files_replace_a_link_rather_than_write_through_it(tmp_path, monkeypatch):
+    """A link at the name of a file xeda generates in its run directory -- a script, constraints,
+    `settings.json`, `results.json` -- is replaced by the new file; the file it pointed to, the
+    user's, is untouched."""
+    use_fake_tools(monkeypatch)
+    design = Design.from_file(SQRT / "sqrt.toml")
+    settings = {**XILINX_SETTINGS, "clean": False}  # the links must survive to the next run
+    first = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=settings)
+    assert first is not None and first.succeeded
+    canaries = {}
+    for name in GENERATED:
+        assert (first.run_path / name).is_file(), name
+        (first.run_path / name).unlink()
+        canaries[name] = _linked_canary(tmp_path, first.run_path / name, name)
+
+    again = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=settings)
+
+    assert again is not None and again.succeeded
+    for name, canary in canaries.items():
+        assert canary.read_text() == PRECIOUS, name
+        generated = again.run_path / name
+        assert generated.is_file() and not generated.is_symlink(), name
+
+
+def test_replacing_file_and_copy_replace_a_link(tmp_path):
+    """`utils.replacing_file` and `utils.replacing_copy` write like `open(path, "w")` and
+    `shutil.copy`, but replace a link at the destination instead of writing through it; the new
+    file gets the permissions `open` would give it."""
+    from xeda.utils import replacing_copy, replacing_file
+
+    work = tmp_path / "run"
+    work.mkdir()
+    written = _linked_canary(tmp_path, work / "script.tcl", "a.txt")
+    copied = _linked_canary(tmp_path, work / "copy.v", "b.txt")
+    source = tmp_path / "source.v"
+    source.write_text("module m; endmodule\n")
+
+    with replacing_file(work / "script.tcl") as f:
+        f.write("puts hello\n")
+    replacing_copy(source, work / "copy.v")
+
+    assert written.read_text() == PRECIOUS and copied.read_text() == PRECIOUS
+    assert (work / "script.tcl").read_text() == "puts hello\n"
+    assert (work / "copy.v").read_text() == source.read_text()
+    assert not (work / "script.tcl").is_symlink() and not (work / "copy.v").is_symlink()
+    umask = os.umask(0)
+    os.umask(umask)
+    assert (work / "script.tcl").stat().st_mode & 0o777 == 0o666 & ~umask
+    assert sorted(p.name for p in work.iterdir()) == ["copy.v", "script.tcl"], "no temporary left"
+
+
+# ---------------------------------------------------------------------------------------------
 # The oracle: every place xeda deletes by name
 # ---------------------------------------------------------------------------------------------
 
@@ -1049,6 +1145,11 @@ REVIEWED_SITES = [
         "alias.unlink()",
         "a link of xeda's own under `path_aliases/` in the run directory",
     ),
+    (
+        "utils.py",
+        "Path(temporary).unlink(missing_ok=True)  # the temporary file it just created",
+        "`replacing_file`: the temporary file it created, when it cannot be renamed into place",
+    ),
     ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lef", "PDK script: its own"),
     ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lib", "PDK script: its own"),
 ]
@@ -1064,6 +1165,169 @@ def test_every_deletion_by_name_is_reviewed():
     reviewed = Counter((file, line) for file, line, _ in REVIEWED_SITES)
     assert sorted((found - reviewed).elements()) == [], "not reviewed"
     assert sorted((reviewed - found).elements()) == [], "reviewed, but no longer there"
+
+
+#: Module functions and methods that write, create, copy onto or rename onto a path.
+MODULE_WRITES = {("shutil", f) for f in ("copy", "copy2", "copyfile", "copytree", "move")}
+MODULE_WRITES |= {("os", f) for f in ("rename", "renames", "replace", "open", "symlink", "link")}
+WRITING_METHODS = {"write_text", "write_bytes", "symlink_to", "hardlink_to", "touch", "rename"}
+#: Modules whose `open(path, mode)` takes the mode second (`Path.open` takes it first).
+OPENING_MODULES = {"gzip", "bz2", "lzma", "io", "codecs", "os"}
+
+
+def _is_mode(node: ast.expr) -> bool:
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and bool(node.value)
+        and set(node.value) <= set("rwaxbt+")
+    )
+
+
+def _write_mode(node: ast.Call, position: int) -> bool:
+    """Whether the mode of an `open` call writes -- or is not a constant, and so may. The mode
+    is its `mode=`, else the argument at `position`, else any other argument that spells a mode
+    (`sftp.open(path, "r")`)."""
+    mode = next((k.value for k in node.keywords if k.arg == "mode"), None)
+    if mode is None and len(node.args) > position:
+        mode = node.args[position]
+    if mode is not None and not _is_mode(mode):
+        mode = next((arg for arg in node.args if _is_mode(arg)), mode)
+    if mode is None:
+        return False
+    choices = [mode.body, mode.orelse] if isinstance(mode, ast.IfExp) else [mode]
+    return any(
+        not _is_mode(choice) or bool(set(choice.value) & set("wax+"))  # type: ignore[attr-defined]
+        for choice in choices
+    )
+
+
+def write_sites(text: str) -> Iterator[str]:
+    """The stripped source line of each place Python `text` writes a file by name with a raw
+    primitive -- `open` for writing, `write_text`, a copy, a rename, a link -- rather than
+    through `utils.replacing_file`/`replacing_copy`, which never write through a link."""
+    tree = ast.parse(text)
+    lines = text.splitlines()
+    modules, names = _imports(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        writes = False
+        if isinstance(func, ast.Name):
+            module, name = names.get(func.id, ("", func.id))
+            writes = (module, name) in MODULE_WRITES or (name == "open" and _write_mode(node, 1))
+        elif isinstance(func, ast.Attribute):
+            receiver = func.value.id if isinstance(func.value, ast.Name) else ""
+            module = modules.get(receiver, receiver)
+            if (module, func.attr) in MODULE_WRITES or func.attr in WRITING_METHODS:
+                writes = True
+            elif func.attr in ("open", "fdopen"):
+                writes = _write_mode(node, 1 if module in OPENING_MODULES else 0)
+            elif func.attr == "replace":  # `Path.replace(target)`, never `str.replace(a, b)`
+                writes = (len(node.args) == 1 and not node.keywords) or any(
+                    k.arg == "target" for k in node.keywords
+                )
+        if writes:
+            yield lines[node.lineno - 1].strip()
+
+
+_OUTSIDE_RUNS = "not a run directory's"
+
+#: Every raw write by name, why it cannot write through a link into a file of the user's:
+#: `(file, line, reason)`. Everything else xeda writes goes through `replacing_file`.
+REVIEWED_WRITES = [
+    ("utils.py", "os.replace(temporary, target)", "`replacing_file`: renames its temporary over"),
+    (
+        "utils.py",
+        'with os.fdopen(fd, mode, encoding=None if "b" in mode else encoding) as f:',
+        "`replacing_file`: the temporary file `mkstemp` just created",
+    ),
+    ("utils.py", "return path.rename(backup_path)", "`backup_existing`: a rename, not a write"),
+    (
+        "flow/run_dir.py",
+        "fd = os.open(marker, flags, 0o666)",
+        "the marker, created with O_CREAT | O_EXCL | O_NOFOLLOW: an existing entry is refused",
+    ),
+    ("flow/run_dir.py", 'with os.fdopen(fd, "w") as f:', "the marker it just created"),
+    (
+        "flow_runner/remote.py",
+        'with open(design_file, "w") as f:',
+        f"`send_design`: the archive's design file, in a `TemporaryDirectory` it made: {_OUTSIDE_RUNS}",
+    ),
+    (
+        "flows/openfpgaloader.py",
+        "packed.replace(bitstream)",
+        "a rename of its own packed file onto the bitstream: replaces a link, never follows it",
+    ),
+    (
+        "flows/yosys/common.py",
+        "alias.symlink_to(target, target_is_directory=target.is_dir())",
+        "creates a link of its own under `path_aliases/`, where no entry is left at the name",
+    ),
+    (
+        "agent_skill.py",
+        'flows_md.write_text(generate_flows_reference(), encoding="utf-8")',
+        f"`xeda skill install` into the directory the user names: {_OUTSIDE_RUNS}",
+    ),
+    (
+        "agent_skill.py",
+        'shutil.copyfile(reference, target / "references" / reference.name)',
+        f"`xeda skill install`: {_OUTSIDE_RUNS}",
+    ),
+    (
+        "agent_skill.py",
+        'shutil.copyfile(source / "SKILL.md", target / "SKILL.md")',
+        f"`xeda skill install`: {_OUTSIDE_RUNS}",
+    ),
+    (
+        "platforms/asap7/openroad/post_mergeLib.py",
+        'fo = open(mergedFile, "w")',
+        "a PDK script the tool runs, not xeda",
+    ),
+    (
+        "platforms/mk_to_toml.py",
+        'with open(Path(args.config_mk).parent / "config.toml", "w") as f:',
+        f"a developer's script converting a PDK's config: {_OUTSIDE_RUNS}",
+    ),
+]
+
+
+def test_every_raw_write_by_name_is_reviewed():
+    """A mechanical oracle: every place in `src/xeda` that writes a file by name with a raw
+    primitive, rather than through `replacing_file`/`replacing_copy` (which replace a link at the
+    name instead of writing through it), is one reviewed in `REVIEWED_WRITES`, as many times as it
+    occurs."""
+    found: Counter = Counter()
+    for path in sorted(SRC_DIR.rglob("*.py")):
+        if "__pycache__" not in path.parts:
+            for line in write_sites(path.read_text()):
+                found[(path.relative_to(SRC_DIR).as_posix(), line)] += 1
+    reviewed = Counter((file, line) for file, line, _ in REVIEWED_WRITES)
+    assert sorted((found - reviewed).elements()) == [], "not reviewed"
+    assert sorted((reviewed - found).elements()) == [], "reviewed, but no longer there"
+
+
+WRITE_MUTATIONS = [
+    'def f(p):\n    open(p, "w")\n',
+    'def f(p):\n    open(p, mode="a")\n',
+    "def f(p, m):\n    open(p, m)\n",
+    'def f(p):\n    p.open("w")\n',
+    'def f(p):\n    p.write_text("x")\n',
+    "import shutil\n\ndef f(a, b):\n    shutil.copy(a, b)\n",
+    "from shutil import copyfile as c\n\ndef f(a, b):\n    c(a, b)\n",
+    "import os as o\n\ndef f(a, b):\n    o.replace(a, b)\n",
+    "def f(p, t):\n    p.replace(t)\n",
+]
+
+
+@pytest.mark.parametrize("added", WRITE_MUTATIONS)
+def test_the_write_oracle_notices_every_spelling_of_a_write(added):
+    """Each raw write appended to a scratch copy of a flow's text is a site the oracle notices;
+    a read and `str.replace` are not."""
+    text = (SRC_DIR / "flows" / "ghdl" / "__init__.py").read_text()
+    assert Counter(write_sites(text + "\n" + added)) - Counter(write_sites(text)), added
+    assert not list(write_sites('open("a")\nopen("a", "rb")\n"x".replace("x", "y")\n'))
 
 
 #: Deletions the oracle must notice, however they are spelled: `(file, the text appended)`.

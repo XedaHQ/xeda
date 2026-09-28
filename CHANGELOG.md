@@ -22,14 +22,17 @@ All notable changes to this project will be documented in this file.
   link leading out of it, is refused -- and is used only if it does not exist, is empty, is
   marked, or holds an earlier xeda run of the same flow (its `settings.json` says so: existing
   `xeda_run` trees keep working, and are marked on their next run); `xeda scrub` and `--scrub`
-  remove only such directories. Anything else is refused, naming the directory, before anything
+  remove only such directories, and `--remote` fetches its results only into such a directory,
+  refusing any other before it connects. Anything else is refused, naming the directory, before anything
   is created, written or deleted. **`--cwd` therefore needs an empty directory, or one xeda
   made**: from a directory holding your files, run without it (the run goes to
   `xeda_run/<design>/<flow>`). xeda deletes nothing outside the run directory: an earlier copy of
   an output is removed only inside it, and a work directory or file a flow removes by name
   (Verilator's `sim_dir`; with `cleanup_bobjs`, the `bobj_dir`, `verilog_out_dir` and `sim_dir`
   of `bsc` and `bsc_sim`; Diamond's `impl_folder`; Vivado's `xsim.dir`; cocotb's results file)
-  must lie inside it.
+  must lie inside it. Nor does xeda write through a symbolic link: a file it generates -- a
+  script, constraints, `settings.json`, `results.json`, a copied resource, the marker -- replaces
+  a link at its name rather than writing to the file the link points to.
   Unchanged in this release: an output path named explicitly (`-s bitstream=/elsewhere/x.bit`)
   is written by the tool where you said, as in 0.4.2, replacing a file already there -- though a
   run whose tool did not rewrite it no longer reports the earlier file as its own. Confirmation

@@ -8,13 +8,15 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
+import tempfile
 import time
 import tomllib
 import unittest
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterable, Mapping
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
 from enum import Enum
@@ -22,9 +24,11 @@ from functools import cached_property, reduce
 from pathlib import Path, PurePath
 from types import TracebackType
 from typing import (
+    IO,
     Any,
     Callable,
     Dict,
+    Iterator,
     List,
     Optional,
     Tuple,
@@ -150,6 +154,49 @@ def toml_load(path: Union[str, os.PathLike]) -> Dict[str, Any]:
 
 def toml_loads(s: str) -> Dict[str, Any]:
     return tomllib.loads(s)
+
+
+#: The permissions `open(path, "w")` gives a file it creates.
+_UMASK = os.umask(0o022)
+os.umask(_UMASK)
+_CREATE_MODE = 0o666 & ~_UMASK
+
+
+@contextmanager
+def replacing_file(
+    path: Union[str, os.PathLike], mode: str = "w", encoding: Optional[str] = None
+) -> Iterator[IO[Any]]:
+    """`open(path, mode)` for writing, except that whatever is at `path` -- a symbolic link
+    included -- is replaced, never written through: the content goes to a temporary file beside
+    `path`, which is renamed over it (`os.replace`) when the file is closed, also after an error,
+    as `open` would have left a partly written file."""
+    if mode not in ("w", "wt", "wb"):
+        raise ValueError(f"replacing_file writes a file anew; mode {mode!r} is not one of w, wb")
+    target = Path(path)
+    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        os.chmod(temporary, _CREATE_MODE)
+        with os.fdopen(fd, mode, encoding=None if "b" in mode else encoding) as f:
+            yield f
+    finally:
+        try:
+            os.replace(temporary, target)
+        except OSError:
+            Path(temporary).unlink(missing_ok=True)  # the temporary file it just created
+            raise
+
+
+def replacing_copy(src: Union[str, os.PathLike], dst: Union[str, os.PathLike]) -> Path:
+    """`shutil.copy(src, dst)` -- the content and the permission bits, into `dst` if it is a
+    directory -- except that a file or link at the destination is replaced, never written
+    through (`replacing_file`). The destination is returned."""
+    target = Path(dst)
+    if target.is_dir() and not target.is_symlink():
+        target = target / Path(src).name
+    with open(src, "rb") as source, replacing_file(target, "wb") as f:
+        shutil.copyfileobj(source, f)
+    shutil.copymode(src, target)
+    return target
 
 
 def backup_existing(path: Path) -> Optional[Path]:
@@ -306,7 +353,7 @@ def dump_json(data: object, path: Path, backup: bool = True, indent: int = 4) ->
         backup_existing(path)
         assert not path.exists(), "Old file still exists!"
 
-    with open(path, "w") as outfile:
+    with replacing_file(path) as outfile:
         json.dump(with_json_keys(data), outfile, default=json_encodable, indent=indent)
 
 

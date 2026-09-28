@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import shutil
 from abc import ABCMeta
 from collections.abc import Iterable, Sequence
 from functools import cached_property
@@ -23,7 +22,7 @@ from ...dataclass import Field, field_validator
 from ...design import DesignSource, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...tool import Docker, Tool
-from ...utils import unique
+from ...utils import replacing_copy, replacing_file, unique
 
 log = logging.getLogger(__name__)
 
@@ -1043,7 +1042,7 @@ class Bsc(BscFlow):
             modules.append(module)
             copy = vout_dir / f"{module}.v"
             log.debug("copying %s to %s", found, copy)
-            shutil.copyfile(found, copy)
+            replacing_copy(found, copy)  # a link at the name is replaced, not followed
             visit_instances(copy, module)
             library.append(copy)
 
@@ -1069,10 +1068,11 @@ class Bsc(BscFlow):
             # the design's own Verilog sources are left as they are: a first file defines the
             # macro for them too, wherever they come in a compilation unit
             defines_file = vout_dir / BSV_DEFINES_FILE
-            defines_file.write_text(
-                "`define BSV_POSITIVE_RESET\n"
-                "// Written by xeda's bsc flow, to define it before the design's own Verilog.\n"
-            )
+            with replacing_file(defines_file) as f:
+                f.write(
+                    "`define BSV_POSITIVE_RESET\n"
+                    "// Written by xeda's bsc flow, to define it before the design's own Verilog.\n"
+                )
             defines.append(defines_file)
         files = defines + library + [src.file for src in design_verilog] + generated
         return modules, unique(files)
@@ -1098,7 +1098,8 @@ def _prepend_define(path: Path, macro: str) -> None:
     line = f"`define {macro}\n".encode()
     content = path.read_bytes()
     if not content.startswith(line):
-        path.write_bytes(line + content)
+        with replacing_file(path, "wb") as f:  # a link at the name is replaced, not followed
+            f.write(line + content)
 
 
 class BscSim(BscFlow, SimFlow):
@@ -1338,7 +1339,9 @@ class BscSim(BscFlow, SimFlow):
         finally:
             if vcd and dump and self.wrote_output(dump):
                 if dump != vcd:
-                    shutil.move(dump, vcd)
+                    # copied, not moved: a link at `vcd` is replaced, never written through
+                    replacing_copy(dump, vcd)
+                    self.remove_stale_output(dump)
                 self.artifacts.vcd = str(vcd)
 
     def _link_flags(self, bluesim: bool) -> list[str]:

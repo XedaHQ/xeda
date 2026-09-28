@@ -20,11 +20,15 @@ own, and marks every run directory it uses with a ``.xeda-run-dir`` file:
   yours, say) is used only if it is marked, is empty, or holds an earlier xeda run of the same
   flow (its ``settings.json`` says so: runs of older releases are adopted and marked). Otherwise
   the run is refused, naming the directory, before anything is written or deleted. ``xeda scrub``
-  removes only such directories too.
+  removes only such directories too, and ``--remote`` fetches a run's results only into such a
+  directory, refusing any other before it connects.
 - xeda deletes nothing outside the run directory. An output path you name outside it
   (``-s bitstream=/elsewhere/x.bit``) is written by the tool where you said, as it always was,
   replacing a file already there; confirmation before replacing one comes in 0.5.
 - Files you put into a run directory of xeda's are removed by the next run's ``clean``.
+- xeda never writes through a symbolic link: a file it generates (a script, constraints,
+  ``settings.json``, ``results.json``, a copied resource, the marker) replaces a link at its name
+  instead of writing to what the link points to.
 
 Within the parent, the layout depends on two options:
 
@@ -143,7 +147,8 @@ Cleaning up
    * - ``--clean``
      - Empty the run directory before running.
    * - ``--post-cleanup``
-     - After a run, keep only ``settings.json``, ``results.json`` and the artifacts.
+     - After a run, keep only ``settings.json``, ``results.json``, the artifacts and xeda's
+       ``.xeda-run-dir`` marker.
    * - ``--post-cleanup-purge``
      - After a run, remove the run directory entirely.
    * - ``--scrub``

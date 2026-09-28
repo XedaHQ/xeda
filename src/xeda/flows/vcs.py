@@ -10,6 +10,7 @@ from ..dataclass import Field
 from ..design import SourceType
 from ..flow import FlowSettingsException, SimFlow
 from ..tool import Tool
+from ..utils import replacing_file
 
 log = logging.getLogger(__name__)
 
@@ -229,7 +230,7 @@ class Vcs(SimFlow):
 
         if ss.fsdb or ss.vpd or ss.evcd:
             assert ss.ucli_script
-            with open(ss.ucli_script, "w", encoding="utf-8") as f:
+            with replacing_file(ss.ucli_script, encoding="utf-8") as f:
                 if ss.fsdb:
                     f.write(f"dump -file {ss.fsdb} -type FSDB\n")
                     f.write("dump -add . -add / -aggregates -fid FSDB0\n")
@@ -351,7 +352,7 @@ class Vcs(SimFlow):
 
         if self.design.tb.parameters:
             gfile = f"{top}.params"
-            with open(gfile, "w", encoding="utf-8") as f:
+            with replacing_file(gfile, encoding="utf-8") as f:
                 for k, v in self.design.tb.parameters.items():
                     # kv = f"/{top}/{k}={v}"
                     if v is None:

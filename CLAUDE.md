@@ -93,8 +93,12 @@ empties only a marked directory (keeping the marker, as `--post-cleanup` does). 
 the run directory is deleted: `Flow.remove_stale_output` removes an earlier copy of an output only
 inside it (one named outside is left for the tool to overwrite, and `Flow.wrote_output` tells it
 from one the run wrote), and a work directory removed by name goes through
-`Flow.removable_work_dir`, which refuses one outside. `tests/test_explicit_run_dir.py` holds the
-oracle listing every deletion site in `src/xeda`: a new one fails it until reviewed.
+`Flow.removable_work_dir`, which refuses one outside. `RemoteRunner.run_remote` claims its local
+results directory the same way before connecting. xeda never writes through a link: generated
+files go through `utils.replacing_file` / `replacing_copy` (a temporary beside the target,
+`os.replace`d over it), and the marker is created with `O_EXCL | O_NOFOLLOW`.
+`tests/test_explicit_run_dir.py` holds two oracles, every deletion site and every raw write
+primitive in `src/xeda`: a new one fails them until reviewed.
 
 ### Machine-readable CLI (for agents and scripts)
 

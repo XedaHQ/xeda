@@ -24,6 +24,7 @@ from ..artifacts import (
 )
 from ..design import Design, DesignSource, DVSettings, FileResource, names_a_design_file
 from ..flow import flowrun_hash as flow_run_hash
+from ..flow.run_dir import claim_run_dir
 from ..proc_utils import tool_output_stream
 from ..utils import (
     XedaException,
@@ -702,14 +703,16 @@ class RemoteRunner(FlowLauncher):
                 tb_hash=design.tb_hash,
             )
         )
-        # the local run directory results are fetched into, known -- or refused -- before
-        # anything is shipped
+        # The local run directory results are fetched into -- a run directory xeda chooses, which
+        # its settings, results and artifacts overwrite -- is claimed, or refused, before
+        # connecting: made, empty, marked, or an earlier run of the flow.
         run_path = self.get_flow_run_path(
             design.name,
             flow_name,
             design_hash,
             flowrun_hash,
         )
+        claim_run_dir(run_path, flow_name)
 
         host_split = host.split(":")
         if port is None and len(host_split) == 2 and host_split[1].isnumeric():

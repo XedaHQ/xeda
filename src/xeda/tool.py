@@ -12,7 +12,14 @@ from .console import console
 from .dataclass import Field, XedaBaseModel, field_validator
 from .flow import Flow
 from .proc_utils import run_process, tool_output_stream
-from .utils import ExecutableNotFound, NonZeroExitCode, ToolException, cached_property, try_convert
+from .utils import (
+    ExecutableNotFound,
+    NonZeroExitCode,
+    ToolException,
+    cached_property,
+    replacing_file,
+    try_convert,
+)
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +98,7 @@ class Docker(XedaBaseModel):
         """Run the tool from a docker container"""
         if self.fix_cpuinfo and self.cpuinfo:
             cpuinfo_file = Path(".cpuinfo").resolve()
-            with open(cpuinfo_file, "w") as f:
+            with replacing_file(cpuinfo_file) as f:
                 for proc in self.cpuinfo:
                     for line in proc:
                         assert isinstance(line, str)
@@ -123,7 +130,7 @@ class Docker(XedaBaseModel):
         env = {**self.default_env, **(env or {})}
         if env:
             env_file = cwd / f".{self.name}_docker.env"
-            with open(env_file, "w") as f:
+            with replacing_file(env_file) as f:
                 f.write("\n".join(f"{k}={v}" for k, v in env.items()))
             docker_args.extend(["--env-file", str(env_file)])
         image = self.image
@@ -154,7 +161,7 @@ class Docker(XedaBaseModel):
 
 
 def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
-    with open(file, "w") as f:
+    with replacing_file(file) as f:
         for i in range(ncores):
             cpuinfo: Dict[str, Any] = {
                 "processor": i,
@@ -432,7 +439,7 @@ class Tool(XedaBaseModel):
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
             env_file = "env.sh"
-            with open(env_file, "w") as f:
+            with replacing_file(env_file) as f:
                 f.write("\n".join(f'export {k}="{v}"' for k, v in env.items()))
         return self.execute(
             self.executable,

@@ -9,7 +9,7 @@ from ...dataclass import Field
 from ...design import SourceType
 from ...flow import SimFlow
 from ...tool import Tool
-from ...utils import unique
+from ...utils import replacing_copy, unique
 
 log = logging.getLogger(__name__)
 
@@ -344,7 +344,7 @@ class Verilator(SimFlow):
                     sim_dir = Path(ss.sim_dir)
                     sim_dir.mkdir(parents=True, exist_ok=True)
                     cocotb_cpp = Path(
-                        shutil.copy(cocotb_cpp_path, sim_dir / "cocotb_verilator.cpp")
+                        replacing_copy(cocotb_cpp_path, sim_dir / "cocotb_verilator.cpp")
                     )
                     assert cocotb_cpp.exists()
             if cocotb_cpp is None:

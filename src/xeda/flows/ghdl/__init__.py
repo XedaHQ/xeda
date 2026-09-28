@@ -13,7 +13,7 @@ from ...dataclass import Field, field_validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
 from ...flow import Flow, FlowException, FlowSettingsError, SimFlow, SynthFlow
 from ...tool import Docker, Tool
-from ...utils import SDF, common_root, setting_flag
+from ...utils import SDF, common_root, replacing_file, setting_flag
 
 log = logging.getLogger(__name__)
 
@@ -417,7 +417,7 @@ class GhdlSynth(Ghdl, SynthFlow):
                     log.warning("File %s will be overwritten!", out_file)
                 else:
                     log.info("Generating verilog: %s", out_file)
-                with open(out_file, "w") as f:
+                with replacing_file(out_file) as f:
                     f.write(verilog)
             self.artifacts.generated_verilog = list(outputs)
         else:

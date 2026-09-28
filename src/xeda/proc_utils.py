@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, TextIO, Union
 
 import colorama
 
-from .utils import ExecutableNotFound, NonZeroExitCode
+from .utils import ExecutableNotFound, NonZeroExitCode, replacing_file
 
 log = logging.getLogger(__name__)
 
@@ -167,7 +167,8 @@ def run_process(
 
         def cm_call():
             assert stdout
-            return open(stdout, "w")
+            # a link at the name is replaced by the file, not written through
+            return replacing_file(stdout, encoding="utf-8")
 
         cm = cm_call
     else:

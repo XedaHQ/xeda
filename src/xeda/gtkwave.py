@@ -5,6 +5,8 @@ from typing import Union
 
 from vcd import gtkw
 
+from .utils import replacing_file
+
 log = logging.getLogger(__name__)
 
 
@@ -29,7 +31,7 @@ def gen_gtkw(dump_file: Union[str, os.PathLike], signals, root_group):
     root_group = root_group or []
     save_file = Path(dump_file).with_suffix(".gtkw")
     log.info("generated gtkwave save file: %s", save_file.absolute())
-    with open(save_file, "w") as f:
+    with replacing_file(save_file) as f:
         g = gtkw.GTKWSave(f)
         g.dumpfile(str(dump_file), abspath=not os.path.isabs(dump_file))
         _add_sig(g, root_group, signals)
