@@ -1,7 +1,6 @@
 import itertools
 import json
 import logging
-import os
 import re
 from collections import OrderedDict
 from pathlib import Path
@@ -9,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, field_validator
 from ...design import SourceType
-from ...flow import FpgaSynthFlow, describe_results
+from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
 from ...utils import HierDict, parse_xml, try_convert
 
 #: A Vivado run property value: text, a number or a boolean (`MAX_BRAM 0`, `... IS_ENABLED true`).
@@ -31,6 +30,18 @@ log = logging.getLogger(__name__)
 
 
 StepsValType = Union[None, List[str], Dict[str, Any]]
+
+# The artifact labels of the outputs a project-mode run writes on request (`project_outputs`).
+# `vivado_synth` registers them, and its consumers (`vivado_postsynth_sim`, `vivado_power`) look
+# them up by these names (`artifact_path`).
+CHECKPOINT_SYNTH = "checkpoint_synth"
+CHECKPOINT_ROUTE = "checkpoint_route"
+NETLIST = "netlist"
+NETLIST_TIMING = "netlist_timing"
+SDF_MIN = "sdf_min"
+SDF_MAX = "sdf_max"
+XDC_EXPORTED = "xdc_exported"
+BITSTREAM = "bitstream"
 
 
 def vivado_synth_generics(parameters: dict) -> List[str]:
@@ -72,14 +83,23 @@ def normalize_run_steps(settings: Any) -> None:
 
 
 def post_step_hooks(flow: Any, settings: Any) -> List[Path]:
-    """A generated `TCL.POST` hook for each major step of a project-mode run: it sources the
-    user's own `TCL.POST` for the step, if any, then writes the step's reports. Returns the
-    hooks, which the project's `utils_1` fileset has to hold. Needs `normalize_run_steps`."""
+    """A generated `TCL.POST` hook for each step of a project-mode run that xeda follows, which
+    Vivado's run sources after the step, in the run's own directory. Each sources the user's own
+    `TCL.POST` for the step, if any, then writes the step's reports under `reports/<step>/` and
+    the requested outputs the step completes (`project_outputs`): the synthesis checkpoint after
+    `synth_design`; the routed checkpoint, the netlists, the SDF corners and the exported
+    constraints after `route_design`; with a bitstream requested, the `write_bitstream` step's
+    hook copies the bitstream Vivado wrote to its path. Returns the hooks, which the project's
+    `utils_1` fileset has to hold. Needs `normalize_run_steps`."""
     hooks: List[Path] = []
-    for run_settings, steps in (
-        (settings.synth, ["SYNTH_DESIGN"]),
-        (settings.impl, ["PLACE_DESIGN", "PHYS_OPT_DESIGN", "ROUTE_DESIGN"]),
-    ):
+    # absolute, since the runs source the hooks in their own directories
+    outputs = {
+        label: flow.run_path / path for label, path in project_outputs(flow, settings).items()
+    }
+    impl_steps = ["PLACE_DESIGN", "PHYS_OPT_DESIGN", "ROUTE_DESIGN"]
+    if BITSTREAM in outputs:
+        impl_steps.append("WRITE_BITSTREAM")
+    for run_settings, steps in ((settings.synth, ["SYNTH_DESIGN"]), (settings.impl, impl_steps)):
         for step in steps:
             step_settings = run_settings.steps.get(step)
             assert isinstance(step_settings, dict)
@@ -90,14 +110,65 @@ def post_step_hooks(flow: Any, settings: Any) -> List[Path]:
             if current_hook:
                 user_hooks.append(current_hook)
             post_step_hook = flow.copy_from_template(
-                "post_step_hook.tcl",
+                "write_bitstream_hook.tcl" if step == "WRITE_BITSTREAM" else "post_step_hook.tcl",
                 script_filename=f"post_{step.lower()}_hook.tcl",
                 run_dir=flow.run_path,
                 user_hooks=user_hooks,
+                step=step.lower(),
+                outputs=outputs,
+                bin_file=bitstream_bin_file(outputs[BITSTREAM]) if BITSTREAM in outputs else None,
             ).resolve()
             tcl_settings["POST"] = post_step_hook
             hooks.append(post_step_hook)
     return hooks
+
+
+def project_outputs(flow: Any, settings: Any) -> Dict[str, Path]:
+    """The outputs a project-mode run is asked for (listed in `VivadoSynth`'s docstring), by
+    artifact label, each at the path the run writes it to (`post_step_hooks`) and registers it
+    at: relative to the run directory if under it."""
+    synth = Path(settings.outputs_dir) / "synth_design"
+    route = Path(settings.outputs_dir) / "route_design"
+    paths: Dict[str, Path] = {}
+    if settings.write_checkpoint:
+        paths[CHECKPOINT_SYNTH] = synth / "post_synth.dcp"
+        paths[CHECKPOINT_ROUTE] = route / "post_route.dcp"
+    if settings.write_netlist:
+        paths[NETLIST] = route / "funcsim.v"
+        paths[NETLIST_TIMING] = route / "timesim.v"
+        paths[SDF_MIN] = route / "timesim.min.sdf"
+        paths[SDF_MAX] = route / "timesim.max.sdf"
+        paths[XDC_EXPORTED] = route / "impl.xdc"
+    if settings.bitstream is not None:
+        paths[BITSTREAM] = Path(settings.bitstream)
+    return {label: _run_relative(flow.run_path, path) for label, path in paths.items()}
+
+
+def bitstream_bin_file(bitstream: Path) -> Path:
+    """Where the .bin Vivado writes beside the bitstream (`WRITE_BITSTREAM.ARGS.BIN_FILE`) goes."""
+    return bitstream.with_suffix(".bin")
+
+
+def _run_relative(run_path: Path, path: Path) -> Path:
+    """`path` as an artifact records it: relative to the run directory if it lies under it."""
+    if path.is_absolute():
+        for base, full in ((run_path, path), (run_path.resolve(), path.resolve())):
+            if full.is_relative_to(base):
+                return full.relative_to(base)
+    return path
+
+
+def artifact_path(flow: Any, label: str) -> Path:
+    """The file `flow`, a completed dependency, registered under `label`, resolved against its
+    run directory."""
+    path = flow.artifacts.get(label)
+    if not path:
+        raise FlowFatalError(
+            f"The {flow.name} dependency (run directory {flow.run_path}) registered no `{label}` "
+            "output: it was not asked for it, or its results come from a run that did not write it"
+        )
+    path = Path(path)
+    return path if path.is_absolute() else flow.run_path / path
 
 
 def constraint_files(flow: Any, settings: Any) -> List[Path]:
@@ -124,6 +195,17 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     Creates a Vivado project in the run directory, runs its synthesis and implementation, and
     reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in
     non-project mode, and `vivado_project` to create a project to work on in Vivado.
+
+    The implementation run stops after routing; with a `bitstream` requested it goes on through
+    Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs
+    asked for are registered as artifacts (label in parentheses). `write_checkpoint`:
+    `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and
+    `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in
+    `outputs/route_design/`: the functional and timing Verilog netlists `funcsim.v` (`netlist`)
+    and `timesim.v` (`netlist_timing`), the fast- and slow-corner SDF `timesim.min.sdf`
+    (`sdf_min`) and `timesim.max.sdf` (`sdf_max`), and the constraints `impl.xdc`
+    (`xdc_exported`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name
+    beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`).
     """
 
     results_description = describe_results(
@@ -167,17 +249,22 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )  # pyright: ignore
         write_checkpoint: bool = Field(
             False,
-            description="Write Vivado design checkpoints (.dcp) after synthesis and implementation. "
-            "Required by the `vivado_power` flow.",
+            description="Write Vivado design checkpoints (.dcp) after synthesis and after routing, "
+            "in `outputs/synth_design/` and `outputs/route_design/`. Required by the "
+            "`vivado_power` flow.",
         )
         write_netlist: bool = Field(
             False,
-            description="Write the post-synthesis and post-implementation Verilog/VHDL netlists "
-            "and their SDF timing. Required by `vivado_postsynth_sim`.",
+            description="Write the routed design's functional and timing Verilog netlists, its "
+            "fast- and slow-corner SDF timing and its constraints (XDC), in "
+            "`outputs/route_design/`. Required by `vivado_postsynth_sim`.",
         )
         bitstream: Optional[Path] = Field(
             None,
-            description="Write the FPGA bitstream to this file. No bitstream is written if unset.",
+            description="Write the FPGA bitstream to this file, relative to the run directory, "
+            "through Vivado's `write_bitstream` step, which the implementation run then goes on "
+            "to. A .bin that step writes (`impl.steps.WRITE_BITSTREAM.ARGS.BIN_FILE`) is put "
+            "beside it. No bitstream is written if unset.",
         )
         extra_reports: bool = Field(
             False,
@@ -295,16 +382,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         """Run Vivado synthesis and collect requested artifacts."""
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
-        if settings.write_netlist:
-            for o in [
-                "timesim.min.sdf",
-                "timesim.max.sdf",
-                "timesim.v",
-                "funcsim.vhdl",
-                "xdc",
-            ]:
-                self.artifacts[o] = os.path.join(settings.outputs_dir, o)
-
         normalize_run_steps(settings)
 
         if not self.design.rtl.clocks:
@@ -344,6 +421,15 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 self.settings.bitstream = self.runner_cwd / bs_str[5:]
             self.settings.bitstream = Path(self.settings.bitstream).resolve()
 
+        outputs = project_outputs(self, settings)
+        # What a run registers is what it wrote: nothing an earlier run left at these paths
+        stale = list(outputs.values())
+        if BITSTREAM in outputs:
+            stale.append(bitstream_bin_file(outputs[BITSTREAM]))
+        for path in stale:
+            (self.run_path / path).unlink(missing_ok=True)
+        self.artifacts.update(outputs)
+
         tcl_files += post_step_hooks(self, settings)
         xdc_files = constraint_files(self, settings)
 
@@ -355,6 +441,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             xdc_files=xdc_files,
             tcl_files=tcl_files,
             generics=vivado_synth_generics(self.design.rtl.parameters),
+            impl_to_step="write_bitstream" if BITSTREAM in outputs else "route_design",
         )
         self.vivado.run("-source", script_path)
 
@@ -442,13 +529,13 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 log_file = log_file.relative_to(self.run_path)
                 self.artifacts[str(log_file)] = log_file
 
-        if self.settings.bitstream is not None:
+        if self.settings.bitstream is not None and not self.artifacts.get(BITSTREAM):
             if self.settings.bitstream.exists():
-                self.artifacts["bitstream"] = self.settings.bitstream
+                self.artifacts[BITSTREAM] = self.settings.bitstream
             else:
                 for bitstream in self.run_path.glob("**/*.bit"):
                     if bitstream.is_file():
-                        self.artifacts["bitstream"] = bitstream
+                        self.artifacts[BITSTREAM] = bitstream
                         break
 
         reports_dir = self.settings.reports_dir / "route_design"

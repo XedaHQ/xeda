@@ -138,6 +138,6 @@ wait_on_run synth_1 {# <-- renamed to wait_on_runs in Vivado 2021.2 #}
 
 puts "\n===========================( Running Implementation )==========================="
 reset_run impl_1
-launch_runs impl_1 {%-if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %} {% if settings.bitstream is none %} -to_step route_design {%- endif %}
+launch_runs impl_1 {%-if settings.nthreads %} -jobs {{settings.nthreads}} {%- endif %} -to_step {{impl_to_step}}
 wait_on_run impl_1
 puts "\n====================================( DONE )===================================="
