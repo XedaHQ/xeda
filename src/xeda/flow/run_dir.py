@@ -12,9 +12,11 @@ run directory it uses (`claim_run_dir`):
   if it does not exist, is empty, is marked, or holds an earlier xeda run of the same flow
   (`is_earlier_run_of`: an existing `xeda_run` tree keeps working).
 
-Anything else is refused before anything is created, written or deleted. A flow empties only a
-marked run directory (`Flow.purge_run_path`), removes a work directory by name only inside the
-run directory (`Flow.removable_work_dir`), and removes an earlier copy of an output only there
+Either is a directory itself, never a link to one (`refuse_linked_run_dir`): through a link, a
+run would clean and write in whatever the link leads to. Anything else is refused before
+anything is created, written or deleted. A flow empties only a marked run directory
+(`Flow.purge_run_path`), removes a work directory by name only inside the run directory
+(`Flow.removable_work_dir`), and removes an earlier copy of an output only there
 (`Flow.remove_stale_output`): xeda deletes nothing outside the run directory.
 """
 
@@ -41,6 +43,7 @@ __all__ = [
     "is_marked_run_dir",
     "mark_run_dir",
     "record_output_state",
+    "refuse_linked_run_dir",
     "resolved_inside",
     "run_dir_name",
 ]
@@ -72,17 +75,33 @@ class RunDirectoryError(XedaException):
     """A run directory xeda must not use, or a path inside one it must not remove."""
 
 
+def refuse_linked_run_dir(directory: Path) -> None:
+    """Refuse `directory` as a run directory if it is itself a symbolic link, naming it.
+
+    A run cleans, deletes and writes in its run directory; through a link, it would do all that
+    in whatever directory the link leads to -- one marked as xeda's included, since its marker
+    is read through the link too. So a run directory is a directory, given or derived."""
+    if directory.is_symlink():
+        raise RunDirectoryError(
+            f"{directory} is a symbolic link (to {os.readlink(directory)}), not a directory: a "
+            "run cleans, deletes and writes files in its run directory, and xeda does none of that "
+            "through a link. Give the directory it leads to instead, or remove the link."
+        )
+
+
 def is_marked_run_dir(directory: Path) -> bool:
-    """Whether `directory` carries xeda's marker: a regular file, not a link to one."""
+    """Whether `directory` carries xeda's marker: a regular file, not a link to one, in a
+    directory that is not a link either (`refuse_linked_run_dir`)."""
     marker = directory / RUN_DIR_MARKER
-    return marker.is_file() and not marker.is_symlink()
+    return not directory.is_symlink() and marker.is_file() and not marker.is_symlink()
 
 
 def mark_run_dir(directory: Path) -> None:
     """Mark `directory`, which xeda created, found empty or adopted, as xeda's.
 
     The marker is created, never written through: anything else already at its name -- a link,
-    say -- is refused, naming it."""
+    say -- is refused, naming it, as is a directory that is itself a link."""
+    refuse_linked_run_dir(directory)
     if is_marked_run_dir(directory):
         return
     marker = directory / RUN_DIR_MARKER
@@ -119,9 +138,10 @@ def claim_run_dir(directory: Path, flow_name: Optional[str] = None) -> None:
     Without `flow_name`, `directory` was given explicitly (`--cwd`, `run_path`); with it, xeda
     chose it for a run of that flow. A marked directory is used as it is. One that does not exist
     is created, and an empty one adopted; a chosen one holding an earlier xeda run of the same
-    flow is adopted too. Each is marked. Anything else is refused before anything is created,
-    written or deleted.
+    flow is adopted too. Each is marked. Anything else, a link to a directory included
+    (`refuse_linked_run_dir`), is refused before anything is created, written or deleted.
     """
+    refuse_linked_run_dir(directory)
     if is_marked_run_dir(directory):
         return
     if directory.exists() or directory.is_symlink():

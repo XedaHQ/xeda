@@ -811,6 +811,97 @@ def test_a_dependency_directory_linked_out_of_its_depender_is_refused(tmp_path, 
 
 
 # ---------------------------------------------------------------------------------------------
+# A run directory is a directory, never a link to one
+# ---------------------------------------------------------------------------------------------
+
+
+def _marked_elsewhere(directory: Path) -> Path:
+    """A directory marked as xeda's -- whatever it was, the marker says it is xeda's -- holding a
+    file of the user's."""
+    directory.mkdir(parents=True)
+    (directory / MARKER).write_text("format = 1\n")
+    (directory / "keep.txt").write_text(PRECIOUS)
+    return directory
+
+
+def test_a_given_run_path_that_is_a_link_is_refused(tmp_path, toy_flows):
+    """A run directory given explicitly (`--cwd`, the launcher's `run_path`) that is itself a
+    link is refused, naming it, before it is claimed or cleaned -- even one leading to a
+    directory marked as xeda's: its marker was read through the link, and the run cleaned and
+    wrote there, in whatever directory the link leads to."""
+    dep, _ = toy_flows
+    elsewhere = _marked_elsewhere(tmp_path / "elsewhere")
+    link = tmp_path / "run"
+    link.symlink_to(elsewhere, target_is_directory=True)
+    before = _tree(elsewhere)
+
+    with pytest.raises(XedaException) as refused:
+        _launcher(tmp_path, cleanup_before_run=True).launch_flow(
+            dep, Design.from_file(SQRT / "sqrt.toml"), {}, run_path=link
+        )
+
+    assert type(refused.value).__name__ == "RunDirectoryError"
+    assert f"{link} is a symbolic link" in str(refused.value)
+    assert _tree(elsewhere) == before
+    assert link.is_symlink()
+
+
+def test_a_derived_run_directory_that_is_a_link_is_refused(tmp_path, toy_flows):
+    """The same for a run directory xeda derives, `<run root>/<design>/<flow>`: a link there is
+    refused, naming it, even when it leads to another directory inside the run root marked as
+    xeda's -- it is not the flow's run directory, whatever it is."""
+    dep, _ = toy_flows
+    launcher = _launcher(tmp_path, cleanup_before_run=True)
+    run_dir = launcher.get_flow_run_path("sqrt", dep.name)
+    other = _marked_elsewhere(run_dir.parent / "other")
+    run_dir.symlink_to(other, target_is_directory=True)
+    before = _tree(other)
+
+    with pytest.raises(XedaException) as refused:
+        launcher.launch_flow(dep, Design.from_file(SQRT / "sqrt.toml"), {})
+
+    assert type(refused.value).__name__ == "RunDirectoryError"
+    assert f"{run_dir} is a symbolic link" in str(refused.value)
+    assert _tree(other) == before
+
+
+def test_purge_run_path_refuses_a_link(tmp_path):
+    """A flow's `clean` does not empty its run directory through a link, even one to a marked
+    directory -- whoever built the flow."""
+    elsewhere = _marked_elsewhere(tmp_path / "elsewhere")
+    link = tmp_path / "run"
+    link.symlink_to(elsewhere, target_is_directory=True)
+    before = _tree(elsewhere)
+
+    with pytest.raises(XedaException) as refused:
+        _vivado_synth(link).purge_run_path()
+
+    assert type(refused.value).__name__ == "RunDirectoryError"
+    assert f"{link} is a symbolic link" in str(refused.value)
+    assert _tree(elsewhere) == before
+
+
+def test_scrub_refuses_a_link_among_a_flows_run_directories(tmp_path, monkeypatch):
+    """Scrubbing a flow's run directories refuses one that is a link, naming it, before anything
+    is asked or removed: it would remove, through the link, whatever it leads to."""
+    design_dir = tmp_path / "xeda_run" / "sqrt"
+    other = _marked_elsewhere(design_dir / "other")
+    link = design_dir / "vivado_synth"
+    link.symlink_to(other, target_is_directory=True)
+    before = _tree(other)
+    asked = []
+    monkeypatch.setattr(console, "input", lambda prompt: asked.append(prompt) or "yes")
+
+    with pytest.raises(XedaException) as refused:
+        scrub_runs("vivado_synth", design_dir)
+
+    assert type(refused.value).__name__ == "RunDirectoryError"
+    assert str(link) in str(refused.value) and "symbolic link" in str(refused.value)
+    assert not asked
+    assert _tree(other) == before and link.is_symlink()
+
+
+# ---------------------------------------------------------------------------------------------
 # Nothing outside the run directory is deleted
 # ---------------------------------------------------------------------------------------------
 

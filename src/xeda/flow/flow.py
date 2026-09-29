@@ -68,6 +68,7 @@ from .run_dir import (
     RunDirectoryError,
     is_marked_run_dir,
     record_output_state,
+    refuse_linked_run_dir,
     resolved_inside,
 )
 
@@ -860,8 +861,10 @@ class Flow(metaclass=ABCMeta):
 
         Only a run directory of xeda's, which carries the marker the launcher writes into every
         run directory it uses (`run_dir.claim_run_dir`). Anything else -- a directory a flow was
-        built to run in without a launcher, say -- is refused, and nothing is removed.
+        built to run in without a launcher, say, or a link to a directory -- is refused, and
+        nothing is removed.
         """
+        refuse_linked_run_dir(self.run_path)
         if not self.run_path.exists():
             return
         if not is_marked_run_dir(self.run_path):

@@ -266,6 +266,14 @@ def scrub_runs(flow_name: str, dir: Path, exclude: List[Path] = []) -> bool:
             and xr in p.resolve().parents
         ]
     )
+    linked = [p for p in dirs_to_rm if p.is_symlink()]
+    if linked:
+        raise RunDirectoryError(
+            f"Scrubbing {flow_name}'s run directories would remove "
+            f"{', '.join(f'{p} (a symbolic link to {os.readlink(p)})' for p in linked)}: xeda "
+            "removes a run directory only as the directory itself, never through a link, which "
+            "would remove whatever it leads to. Nothing was removed. Remove the link yourself."
+        )
     not_xedas = [
         p for p in dirs_to_rm if not is_marked_run_dir(p) and not is_earlier_run_of(p, flow_name)
     ]
