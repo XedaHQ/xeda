@@ -203,8 +203,11 @@ def test_post_cleanup_keeps_a_run_directory_artifact(tmp_path, design):
 def test_post_cleanup_through_run_path_alias(
     tmp_path, design, target_inside_run_root, absolute_artifact
 ):
-    """Preserve internal targets; a run directory that a link leads out of the run root is
-    refused before anything runs there, so it is never cleaned either."""
+    """Post-cleanup of a run directory reached through a link -- its design's directory under
+    the run root, here -- preserves an artifact's internal target; a run directory that a link
+    leads out of the run root is refused before anything runs there, so it is never cleaned
+    either. (A run directory that is itself a link is refused wherever it leads:
+    `test_explicit_run_dir.py`.)"""
 
     class LinkedFlow(Flow):
         """Report an internal symlink as an artifact."""
@@ -228,10 +231,9 @@ def test_post_cleanup_through_run_path_alias(
             incremental=True,
             post_cleanup=True,
         )
-        alias = launcher.get_flow_run_path(design.name, LinkedFlow.name)
-        actual = (launcher.xeda_run_dir if target_inside_run_root else tmp_path) / "actual_flow"
+        alias = launcher.get_flow_run_path(design.name, LinkedFlow.name).parent
+        actual = (launcher.xeda_run_dir if target_inside_run_root else tmp_path) / "actual_design"
         actual.mkdir()
-        alias.parent.mkdir()
         alias.symlink_to(actual, target_is_directory=True)
         if not target_inside_run_root:
             with pytest.raises(RunDirectoryError, match="outside the run root"):
