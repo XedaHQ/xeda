@@ -175,7 +175,9 @@ def replacing_file(
     included -- is replaced, never written through, and only by a complete file: the content goes
     to a temporary file beside `path`, which is renamed over it (`os.replace`) once the body has
     completed. If the body raises, the temporary file is removed and `path` is left as it was --
-    unless `keep_on_error`, for a failed tool's redirected output, which is its diagnostic.
+    unless `keep_on_error`, for a failed tool's redirected output, which is its diagnostic; that
+    save is best-effort (an `OSError` while saving it is logged and the original exception
+    propagates).
     `copy_mode_from`, when given, sets the temporary file's permission bits to that path's
     (`shutil.copymode`) before it is committed: a failure to read those bits then leaves `path`
     untouched too, rather than already replaced with the wrong mode."""

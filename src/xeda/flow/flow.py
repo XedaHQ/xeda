@@ -886,7 +886,20 @@ class Flow(metaclass=ABCMeta):
 
     def removable_work_dir(self, path: Union[str, os.PathLike], setting: str) -> Path:
         """`path`, a work directory or file the flow removes or empties by name (`setting` names
-        it), resolved against the run directory -- or refused unless it lies strictly inside."""
+        it), resolved against the run directory -- or refused unless it lies strictly inside.
+
+        A tool may itself have made the work directory's own name a symbolic link (to anywhere);
+        that is allowed. The link is removed as a link -- never what it points to -- and the
+        path, now free, is returned. A path whose earlier component is a link leading out, or
+        that is named outside the run directory, is still refused."""
+        root = self.run_path.resolve()
+        named = root / path
+        if named.name not in ("", ".", "..") and named.is_symlink():
+            parent = named.parent.resolve()
+            if parent == root or parent.is_relative_to(root):
+                log.info("Removing %s, a link a tool left where %s is removed", named, setting)
+                named.unlink()
+                return parent / named.name
         resolved = resolved_inside(path, self.run_path)
         if resolved is None:
             raise RunDirectoryError(
