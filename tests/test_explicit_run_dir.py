@@ -1117,6 +1117,34 @@ def test_replacing_file_and_copy_replace_a_link(tmp_path):
     assert sorted(p.name for p in work.iterdir()) == ["copy.v", "script.tcl"], "no temporary left"
 
 
+def test_replacing_copy_leaves_the_destination_untouched_if_copymode_fails(tmp_path, monkeypatch):
+    """If `shutil.copymode` fails, the destination must not already have been replaced by the
+    new content with the wrong permission bits: `replacing_copy` sets the temporary file's mode
+    before it is committed, so a failed `copymode` leaves the original destination -- content and
+    mode -- exactly as it was, and no temporary file behind."""
+    from xeda import utils
+
+    source = tmp_path / "source.v"
+    source.write_text("module m; endmodule\n")
+    os.chmod(source, 0o600)
+
+    target = tmp_path / "dest.v"
+    target.write_text(PRECIOUS)
+    os.chmod(target, 0o644)
+
+    def _failing_copymode(_src: Any, _dst: Any, *, follow_symlinks: bool = True) -> None:
+        raise OSError("copymode failed")
+
+    monkeypatch.setattr(utils.shutil, "copymode", _failing_copymode)
+
+    with pytest.raises(OSError):
+        utils.replacing_copy(source, target)
+
+    assert target.read_text() == PRECIOUS
+    assert target.stat().st_mode & 0o777 == 0o644
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["dest.v", "source.v"], "no temporary left"
+
+
 def test_replacing_file_never_commits_a_partly_written_file(tmp_path):
     """A body that writes part of the new content and fails leaves the file it would have
     replaced as it was, and no temporary file behind."""
