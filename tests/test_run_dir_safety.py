@@ -956,3 +956,28 @@ def test_a_failed_tool_keeps_its_redirected_output(tmp_path):
 
     assert log.read_text() == "why it failed\n"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["tool.log"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permissions and symbolic links")
+def test_removing_a_read_only_directory_never_changes_a_linked_file(tmp_path):
+    """The retry that makes a read-only entry writable acts on the entry, never through a
+    tool-made link to a user's file."""
+    from xeda.run_dir import rmtree
+
+    outside = tmp_path / "user.txt"
+    outside.write_text("mine")
+    outside.chmod(0o640)
+    before = outside.stat().st_mode
+    run = tmp_path / "run"
+    locked = run / "locked"
+    locked.mkdir(parents=True)
+    (locked / "link").symlink_to(outside)
+    locked.chmod(0o555)
+    try:
+        rmtree(run)
+    finally:
+        if locked.exists():
+            locked.chmod(0o755)
+    assert not run.exists()
+    assert outside.read_text() == "mine"
+    assert outside.stat().st_mode == before
