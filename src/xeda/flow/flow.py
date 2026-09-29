@@ -63,11 +63,12 @@ from ..utils import (
 )
 from .run_dir import (
     RUN_DIR_MARKER,
+    OutputSnapshot,
+    OutputState,
     RunDirectoryError,
     is_marked_run_dir,
     record_output_state,
     resolved_inside,
-    snapshot_output_states,
 )
 
 log = logging.getLogger(__name__)
@@ -761,15 +762,16 @@ class Flow(metaclass=ABCMeta):
         # present but differently-keyed -- snapshot would be read as "absent when snapshotted").
         run_path = Path(os.path.abspath(run_path))
         self.run_path = run_path
-        # Every existing file's state under the run directory, recorded now: before `init()`,
-        # dependencies or `run()` can write to it, however this flow was constructed -- by the
-        # launcher, or directly, as some tests do -- since construction is the one thing that
-        # must happen before any of those can run. `wrote_output` tells this run's own output
-        # from one an earlier run left by comparing against this, never a clock: sound across
-        # file systems and coarse timestamps alike.
-        self._prior_output_state: Dict[Path, Optional[Tuple[int, int, int, int]]] = dict(
-            snapshot_output_states(run_path)
-        )
+        # Every existing file's and directory's state under the run directory, by identity,
+        # recorded now: before `init()`, dependencies or `run()` can write to it, however this
+        # flow was constructed -- by the launcher, or directly, as some tests do -- since
+        # construction is the one thing that must happen before any of those can run.
+        # `wrote_output` tells this run's own output from one an earlier run left by comparing
+        # against this, never a clock: sound across file systems and coarse timestamps alike.
+        self._output_snapshot = OutputSnapshot(run_path)
+        # The state of each output named outside the run directory, when the run first learned
+        # of it (`_record_output_state`), by its path as named.
+        self._outside_output_states: Dict[Path, Optional[OutputState]] = {}
 
         if isinstance(design, dict):
             design = dict(design)
@@ -882,18 +884,18 @@ class Flow(metaclass=ABCMeta):
     def _record_output_state(self, path: Union[str, os.PathLike]) -> None:
         """Record `path`'s state now -- `record_output_state`, `None` if it is not there -- the
         first time this run learns of it, for a path outside the run directory only. One inside
-        it is already covered, exhaustively, by the directory-wide snapshot `__init__` took
-        before anything could write to it: recording it again here, later, would capture
-        whatever it is *now* -- possibly what this very run just wrote -- as if that had been its
-        state before the run, which is exactly the bug this mechanism exists to avoid. Later
-        calls for the same outside path do nothing either: what `wrote_output` must compare
-        against is the state as of when the run first knew of this output (before its tool could
-        have written it), not whatever the path is by the time something asks."""
+        it is already covered by the snapshot `__init__` took before anything could write to it,
+        by identity whatever it is named: recording it again here, later, would capture whatever
+        it is *now* -- possibly what this very run just wrote -- as if that had been its state
+        before the run, which is exactly the bug this mechanism exists to avoid. Later calls for
+        the same outside path do nothing either: what `wrote_output` must compare against is the
+        state as of when the run first knew of this output, not whatever the path is by the time
+        something asks."""
         target = Path(os.path.abspath(self.run_path / path))
         if resolved_inside(target, self.run_path) is not None:
             return
-        if target not in self._prior_output_state:
-            self._prior_output_state[target] = record_output_state(target)
+        if target not in self._outside_output_states:
+            self._outside_output_states[target] = record_output_state(target)
 
     def remove_stale_output(self, path: Union[str, os.PathLike]) -> None:
         """Remove an earlier copy of an output the run writes (`path`, relative to the run
@@ -912,31 +914,31 @@ class Flow(metaclass=ABCMeta):
 
     def wrote_output(self, path: Union[str, os.PathLike]) -> bool:
         """Whether this run wrote the output at `path` (relative to the run directory unless
-        absolute): it is there now, and its state -- inode, size, mtime or ctime -- differs from
-        what was recorded for it before this run's tool could have written it (created, an
-        earlier copy the tool truly overwrote, or one merely touched). Never a clock: an output
-        on a file system whose clock is behind, or read within a coarse tick, is told apart by
-        its own recorded identity and metadata, not by comparing either clock's reading of it to
-        a run-start timestamp.
+        absolute), a file or a directory: it is there now, and its state -- identity, size,
+        mtime or ctime -- differs from what was recorded for it before this run's tool could
+        have written it (created, an earlier copy the tool truly overwrote, or one merely
+        touched). Never a clock: an output on a file system whose clock is behind, or read
+        within a coarse tick, is told apart by its own recorded identity and metadata.
 
-        A path inside the run directory that was never recorded was absent when this run's
-        directory-wide snapshot was taken at construction (`Flow.__init__`), which is exhaustive
-        -- so its absence here is itself the recorded prior state. A path outside the run
-        directory that was never recorded (never passed to `remove_stale_output`, nor assigned as
-        an artifact) is genuinely unknown, and an unknown prior state is never proof this run
-        wrote it: a failed run's results omit such an artifact rather than risk relisting one an
-        earlier run left."""
+        An output that resolves inside the run directory is looked up in the snapshot
+        `Flow.__init__` took by its identity, so every name of an earlier run's file finds that
+        file's state; one whose identity the snapshot did not record was created (or moved
+        there) since -- unless it lies in a directory the snapshot could not read, which proves
+        nothing. An output outside the run directory is compared with the state recorded when
+        the run first learned of it (`remove_stale_output`, or assigning it as an artifact).
+        Where nothing tells, the prior state is unknown, and an unknown prior state is never
+        proof this run wrote it: a failed run's results omit such an artifact rather than risk
+        relisting one an earlier run left."""
         target = Path(os.path.abspath(self.run_path / path))
         current = record_output_state(target)
         if current is None:
             return False  # not there now: this run cannot have written it
-        if target in self._prior_output_state:
-            prior = self._prior_output_state[target]
-        elif resolved_inside(target, self.run_path) is not None:
-            prior = None  # the run-directory snapshot found nothing there
-        else:
+        if target in self._outside_output_states:
+            return self._outside_output_states[target] != current
+        inside = resolved_inside(target, self.run_path)
+        if inside is None:
             return False  # outside the run directory, and never recorded: unknown, not proven
-        return prior != current
+        return self._output_snapshot.changed(inside, current) is True
 
     def parse_reports(self) -> bool:
         log.debug("No parse_reports action for %s", self.name)
