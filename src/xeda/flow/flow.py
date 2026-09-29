@@ -93,32 +93,42 @@ DictStrPath = Dict[str, Union[str, os.PathLike]]
 class _ArtifactsBox(Box):
     """The `Box` behind `Flow.artifacts`: records each path leaf of whatever is stored here
     (`iter_artifact_paths` walks mappings, lists and tuples the same way everywhere else
-    artifacts are walked) through `record`, before delegating to `Box`'s own storage -- for the
-    many flows that declare an output's path before running the tool that writes it, this is
-    enough on its own to give `Flow.wrote_output` that output's state from before the tool could
-    have touched it. It is a second layer: `Flow.remove_stale_output` and the run-directory
-    snapshot `Flow.__init__` takes cover every flow, including the few that learn an output's
-    path only after invoking their tool.
+    artifacts are walked) through `record` -- `Flow._record_output_state`, which records the
+    state of an output named outside the run directory -- before delegating to `Box`'s own
+    storage.
 
-    `Box` reconstructs a nested `dict`/`list`/`tuple` value into fresh containers of its own
-    classes when storing it, which cannot be given `record` -- harmless here, since the outer
-    call already walked the whole value with `iter_artifact_paths` first, so nothing nested is
-    missed.
+    What it records is the output's state *when it is assigned*. For a flow that declares an
+    output before running the tool that writes it (most do), that is its state before the run;
+    for one that assigns it only after its tool ran (nextpnr's outputs, openfpgaloader's and
+    openxc7's bitstream, bsc's executable, vivado_synth's reports), it is the state the tool left,
+    so `Flow.wrote_output` finds it unchanged: the safe direction -- a failed run omits it -- but
+    no proof the run wrote it. A flow that must know it wrote an output records it first
+    (`Flow.remove_stale_output`). Outputs inside the run directory need none of this: the
+    snapshot `Flow.__init__` takes covers them whenever they are named.
+
+    Nested containers are plain `Box`es (`box_class`), which record nothing -- the outer call
+    already walked the whole value -- and the recorder belongs to the live flow: pickled (a DSE
+    worker returning a run's results), an `_ArtifactsBox` is a plain `Box` of its content.
     """
 
     def __init__(
         self,
         *args: Any,
-        record: Callable[[Union[str, os.PathLike]], None] = lambda path: None,
+        record: Optional[Callable[[Union[str, os.PathLike]], None]] = None,
         **kwargs: Any,
     ) -> None:
         object.__setattr__(self, "_record", record)
+        kwargs.setdefault("box_class", Box)
         super().__init__(*args, **kwargs)
 
     def __setitem__(self, key: Any, value: Any) -> None:
-        record = object.__getattribute__(self, "_record")
-        for path in iter_artifact_paths(value):
-            record(path)
+        try:
+            record = object.__getattribute__(self, "_record")
+        except AttributeError:
+            record = None
+        if record is not None:
+            for path in iter_artifact_paths(value):
+                record(path)
         super().__setitem__(key, value)
 
     def update(self, *args: Any, **kwargs: Any) -> None:
@@ -130,6 +140,9 @@ class _ArtifactsBox(Box):
                 self[key] = value
         for key, value in kwargs.items():
             self[key] = value
+
+    def __reduce_ex__(self, protocol: Any) -> Tuple[Any, ...]:
+        return (Box, (dict(self),))
 
 
 def _is_path_annotation(annotation: Any) -> bool:
