@@ -169,12 +169,16 @@ def replacing_file(
     encoding: Optional[str] = None,
     *,
     keep_on_error: bool = False,
+    copy_mode_from: Optional[Union[str, os.PathLike]] = None,
 ) -> Iterator[IO[Any]]:
     """`open(path, mode)` for writing, except that whatever is at `path` -- a symbolic link
     included -- is replaced, never written through, and only by a complete file: the content goes
     to a temporary file beside `path`, which is renamed over it (`os.replace`) once the body has
     completed. If the body raises, the temporary file is removed and `path` is left as it was --
-    unless `keep_on_error`, for a failed tool's redirected output, which is its diagnostic."""
+    unless `keep_on_error`, for a failed tool's redirected output, which is its diagnostic.
+    `copy_mode_from`, when given, sets the temporary file's permission bits to that path's
+    (`shutil.copymode`) before it is committed: a failure to read those bits then leaves `path`
+    untouched too, rather than already replaced with the wrong mode."""
     if mode not in ("w", "wt", "wb"):
         raise ValueError(f"replacing_file writes a file anew; mode {mode!r} is not one of w, wb")
     target = Path(path)
@@ -187,9 +191,13 @@ def replacing_file(
                 yield f
         except BaseException:
             if keep_on_error:
+                if copy_mode_from is not None:
+                    shutil.copymode(copy_mode_from, temporary)
                 os.replace(temporary, target)
                 committed = True
             raise
+        if copy_mode_from is not None:
+            shutil.copymode(copy_mode_from, temporary)
         os.replace(temporary, target)
         committed = True
     finally:
@@ -204,9 +212,8 @@ def replacing_copy(src: Union[str, os.PathLike], dst: Union[str, os.PathLike]) -
     target = Path(dst)
     if target.is_dir() and not target.is_symlink():
         target = target / Path(src).name
-    with open(src, "rb") as source, replacing_file(target, "wb") as f:
+    with open(src, "rb") as source, replacing_file(target, "wb", copy_mode_from=src) as f:
         shutil.copyfileobj(source, f)
-    shutil.copymode(src, target)
     return target
 
 
