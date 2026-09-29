@@ -6,7 +6,7 @@ from typing import List, Literal, Optional, Union
 from colorama import Fore as fg
 from colorama import Style as style
 
-from ..dataclass import Field
+from ..dataclass import WORKING, Field, deliverable
 from ..design import SourceType
 from ..flow import FlowSettingsException, SimFlow
 from ..tool import Tool
@@ -58,8 +58,10 @@ class Vcs(SimFlow):
             description="Extra arguments passed to the compiled simulator executable (simv). "
             "Ignored when `one_shot_run` is set.",
         )
-        work_dir: Optional[str] = Field(
-            "work", description="Directory holding the analyzed design library (vlogan/vhdlan)."
+        work_dir: Optional[Path] = Field(
+            Path("work"),
+            description="Directory holding the analyzed design library (vlogan/vhdlan).",
+            json_schema_extra=WORKING,
         )
         sim_no_save: bool = Field(
             True,
@@ -157,12 +159,15 @@ class Vcs(SimFlow):
             description="Flags passed through to the C compiler that builds the simulation "
             "executable. The defaults target the build machine, so the binary is not portable.",
         )
-        vcs_log_file: Optional[str] = Field(
-            "vcs.log", description="File VCS writes its elaboration log to."
+        vcs_log_file: Optional[Path] = Field(
+            Path("vcs.log"),
+            description="File VCS writes its elaboration log to.",
+            json_schema_extra=WORKING,
         )
         fsdb: Optional[Path] = Field(
             None,
             description="Enable FSDB (Fast Signal DataBase) for waveform generation",
+            json_schema_extra=deliverable("outputs/{design}.fsdb"),
         )
         fsdb_size_limit: Optional[int] = Field(
             256,
@@ -175,10 +180,12 @@ class Vcs(SimFlow):
         vpd: Optional[Path] = Field(
             None,
             description="Enable VPD waveform generation and specify the file path.",
+            json_schema_extra=deliverable("outputs/{design}.vpd"),
         )
         evcd: Optional[Path] = Field(
             None,
             description="Enable EVCD waveform generation and specify the file path.",
+            json_schema_extra=deliverable("outputs/{design}.evcd"),
         )
         vpd_size_limit: Optional[int] = Field(
             None,
@@ -197,16 +204,14 @@ class Vcs(SimFlow):
         if ss.ucli_script:
             ss.ucli = True
             ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.design_root)
+        # a waveform named by a relative name is written in the run directory, where simv runs
         elif ss.fsdb:
-            ss.fsdb = self.process_path(ss.fsdb, resolve_to=self.design.design_root)
             ss.ucli = True
             ss.ucli_script = Path("dump_fsdb.do")
         elif ss.vpd:
-            ss.vpd = self.process_path(ss.vpd, resolve_to=self.design.design_root)
             ss.ucli = True
             ss.ucli_script = Path("dump_vpd.do")
         elif ss.evcd:
-            ss.evcd = self.process_path(ss.evcd, resolve_to=self.design.design_root)
             ss.ucli = True
             ss.ucli_script = Path("dump_evcd.do")
 
@@ -226,7 +231,7 @@ class Vcs(SimFlow):
 
         if ss.fsdb or ss.vpd or ss.evcd:
             assert ss.ucli_script
-            with replacing_file(ss.ucli_script, encoding="utf-8") as f:
+            with replacing_file(self.run_directory.writable(ss.ucli_script), encoding="utf-8") as f:
                 if ss.fsdb:
                     f.write(f"dump -file {ss.fsdb} -type FSDB\n")
                     f.write("dump -add . -add / -aggregates -fid FSDB0\n")
@@ -348,7 +353,7 @@ class Vcs(SimFlow):
 
         if self.design.tb.parameters:
             gfile = f"{top}.params"
-            with replacing_file(gfile, encoding="utf-8") as f:
+            with replacing_file(self.run_directory.writable(gfile), encoding="utf-8") as f:
                 for k, v in self.design.tb.parameters.items():
                     # kv = f"/{top}/{k}={v}"
                     if v is None:
@@ -362,7 +367,7 @@ class Vcs(SimFlow):
         if ss.nthreads is not None:
             vcs_args.append(f"-j{ss.nthreads}")
         if ss.vcs_log_file:
-            vcs_args += ["-l", ss.vcs_log_file]
+            vcs_args += ["-l", str(ss.vcs_log_file)]
         # if ss.time_unit:
         #     vcs_args.append(f"-unit_timescale={ss.time_unit}")
 

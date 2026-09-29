@@ -18,7 +18,7 @@ from typing import Any, ClassVar, Literal
 
 import colorama
 
-from ...dataclass import Field, field_validator
+from ...dataclass import WORKING, Field, field_validator
 from ...design import DesignSource, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...tool import Docker, Tool
@@ -218,11 +218,14 @@ class BscFlow(Flow, metaclass=ABCMeta):
             Path("bobjs"),
             description="Directory for the packages bsc compiles (`.bo`/`.ba` files, `-bdir`), "
             "relative to the run directory.",
+            json_schema_extra=WORKING,
         )
         info_dir: Path | None = Field(
             None,
             description="Directory for bsc's informational files (`-info-dir`), such as the "
-            "schedules of `show_schedule` and the graphs of `sched_dot`. Defaults to `bobj_dir`.",
+            "schedules of `show_schedule` and the graphs of `sched_dot`, relative to the run "
+            "directory. Defaults to `bobj_dir`.",
+            json_schema_extra=WORKING,
         )
         cleanup_bobjs: bool = Field(
             True,
@@ -784,9 +787,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         earlier run left in them: its packages, and the Verilog modules it generated. bsc writes
         a module's `.use` file (`-show-module-use`) right after its `.v`, so each `.use` goes
         with the `.v` beside it, whatever a `verilog_filters` command made of that `.v`. Other
-        files stay, and the library modules copied in are copied again. Both directories must
-        lie inside the run directory (`Flow.removable_work_dir`, naming `bobj_dir` or
-        `output_dir_setting`): xeda removes nothing outside it."""
+        files stay, and the library modules copied in are copied again."""
         assert isinstance(self.settings, BscFlow.Settings)
         if self.settings.verilog_filters and any(c.isspace() for c in str(out_dir)):
             raise FlowSettingsException(
@@ -795,14 +796,11 @@ class BscFlow(Flow, metaclass=ABCMeta):
             )
         bdir = Path(self.settings.bobj_dir)
         if self.settings.cleanup_bobjs:
-            bdir = self.removable_work_dir(bdir, "bobj_dir")
-            out_dir = self.removable_work_dir(out_dir, self.output_dir_setting)
             stale = [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
             for use_file in out_dir.glob("*.use"):
                 stale += [use_file, use_file.with_suffix(".v")]
-            for path in stale:
-                if path.is_file():
-                    path.unlink()
+            # an earlier run's packages and generated modules, all in the run directory
+            self.run_directory.remove(*(path for path in stale if path.is_file()))
         bdir.mkdir(parents=True, exist_ok=True)
         out_dir.mkdir(parents=True, exist_ok=True)
         if self.settings.info_dir:
@@ -861,6 +859,7 @@ class Bsc(BscFlow):
             "relative to the run directory. It is the flow's: bsc overwrites the modules it "
             "generates, the library modules are copied over, and `cleanup_bobjs` removes an "
             "earlier run's generated modules.",
+            json_schema_extra=WORKING,
         )
         verilog_primitives: Literal["generic", "vivado", "quartus"] = Field(
             "generic",
@@ -1045,7 +1044,7 @@ class Bsc(BscFlow):
                 unresolved.append(module)
                 return
             modules.append(module)
-            copy = vout_dir / f"{module}.v"
+            copy = self.run_directory.writable(vout_dir / f"{module}.v")
             log.debug("copying %s to %s", found, copy)
             replacing_copy(found, copy)  # a link at the name is replaced, not followed
             visit_instances(copy, module)
@@ -1072,7 +1071,7 @@ class Bsc(BscFlow):
                 _prepend_define(path, "BSV_POSITIVE_RESET")
             # the design's own Verilog sources are left as they are: a first file defines the
             # macro for them too, wherever they come in a compilation unit
-            defines_file = vout_dir / BSV_DEFINES_FILE
+            defines_file = self.run_directory.writable(vout_dir / BSV_DEFINES_FILE)
             with replacing_file(defines_file) as f:
                 f.write(
                     "`define BSV_POSITIVE_RESET\n"
@@ -1092,8 +1091,8 @@ def _check_link_paths(args: list[str | Path]) -> None:
     if spaced:
         raise FlowSettingsException(
             "bsc's link step runs its tools through a shell without quoting, so it cannot take a "
-            f"path with whitespace: {', '.join(spaced)}. Use a run directory (`--xeda-run-dir`) "
-            "and design location without whitespace, or set `sim_dir`/`bobj_dir` elsewhere."
+            f"path with whitespace: {', '.join(spaced)}. Use a run root (`--run-root`) "
+            "and design location without whitespace."
         )
 
 
@@ -1141,6 +1140,7 @@ class BscSim(BscFlow, SimFlow):
             description="Directory for the generated simulation code (Bluesim's C++ or the "
             "Verilog) and the simulation executable, relative to the run directory. It is the "
             "flow's: `cleanup_bobjs` removes an earlier run's generated modules.",
+            json_schema_extra=WORKING,
         )
         sim_args: list[str] = Field(
             [],
@@ -1336,8 +1336,9 @@ class BscSim(BscFlow, SimFlow):
         dump: Path | None = None
         if vcd:
             dump = Path("dump.vcd") if ss.simulator == "verilator" else vcd
-            for old in {vcd, dump}:
-                self.remove_stale_output(old)  # inside the run directory only
+            # The waveform is made anew: an earlier run's goes first, and so does what bsc's
+            # Verilator driver left, both names in the run directory
+            self.run_directory.remove(*unique([vcd, dump]))
         self.results["simulator"] = ss.simulator
         simulation = self.bsc.derive(str(executable), version_flag=None, minimum_version=None)
         simulation.highlight_rules = None
@@ -1346,9 +1347,10 @@ class BscSim(BscFlow, SimFlow):
         finally:
             if vcd and dump and self.wrote_output(dump):
                 if dump != vcd:
-                    # copied, not moved: a link at `vcd` is replaced, never written through
-                    replacing_copy(dump, vcd)
-                    self.remove_stale_output(dump)
+                    # copied whole, then the dump removed; a link at `vcd` is replaced, never
+                    # written through
+                    replacing_copy(dump, self.run_directory.writable(vcd))
+                    self.run_directory.remove(dump)
                 self.artifacts.vcd = str(vcd)
 
     def _link_flags(self, bluesim: bool) -> list[str]:

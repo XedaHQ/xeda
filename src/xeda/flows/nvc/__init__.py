@@ -5,7 +5,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
-from ...dataclass import Field
+from ...dataclass import Field, deliverable
 from ...design import DesignSource, SourceType, VhdlSettings
 from ...flow import SimFlow
 from ...tool import Tool
@@ -111,6 +111,7 @@ class Nvc(SimFlow):
         wave: Union[bool, str, Path, None] = Field(
             None,
             description="Write waveform data to a file. The default is to not write waveform data.",
+            json_schema_extra=deliverable("outputs/{design}.fst"),
         )
         wave_format: Optional[Literal["vcd", "fst"]] = Field(
             None,

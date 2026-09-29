@@ -1,11 +1,12 @@
 import logging
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from ...board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
-from ...dataclass import Field, field_validator
+from ...dataclass import WORKING, Field, deliverable, field_validator
 from ...design import SourceType
 from ...flow import (
     FPGA,
@@ -91,9 +92,12 @@ class OpenXC7(FpgaSynthFlow):
             None,
             description="Write post-routing timing to this SDF file, for timing-annotated "
             "netlist simulation.",
+            json_schema_extra=deliverable("outputs/{design}.sdf"),
         )
         log: Union[str, Path] = Field(
-            "nextpnr.log", description="File nextpnr-xilinx writes its log to."
+            "nextpnr.log",
+            description="File nextpnr-xilinx writes its log to.",
+            json_schema_extra=WORKING,
         )
         chipdb: Union[Path, str, None] = Field(
             None,
@@ -129,13 +133,19 @@ class OpenXC7(FpgaSynthFlow):
             [], description="Xilinx: List of XDC constraint files."
         )
         fasm_output: Union[Path, str, None] = Field(
-            None, description="Xilinx: FASM output file to write"
+            None,
+            description="Xilinx: FASM output file to write",
+            json_schema_extra=deliverable("outputs/{design}.fasm"),
         )
         json_output: Union[Path, str, None] = Field(
-            None, description="Xilinx: JSON output file to write"
+            None,
+            description="Xilinx: JSON output file to write",
+            json_schema_extra=deliverable("outputs/{design}_routed.json"),
         )
         bitstream: Union[Path, str, None] = Field(
-            None, description="Xilinx: Bitstream file to write"
+            None,
+            description="Xilinx: Bitstream file to write",
+            json_schema_extra=deliverable("outputs/{design}.bit"),
         )
         yosys: YosysFpga.Settings = Field(
             default_factory=yosys_fpga_keeping_src,
@@ -412,7 +422,7 @@ class OpenXC7(FpgaSynthFlow):
         assert isinstance(ss, self.Settings)
         if ss.log:
             log_path = Path(ss.log).resolve()
-            if log_path.exists():
+            if self.report_file(log_path) is not None:  # this run's log only
                 log.info("Nextpnr log was found in %s", log_path)
                 parsed_data = parse_nextpnr_logfile(log_path)
                 if parsed_data:
@@ -467,10 +477,12 @@ class OpenXC7(FpgaSynthFlow):
                 if not force:
                     log.info("Chip database already exists: %s", bin_path)
                     return bin_path
+                # bbasm writes it anew: nothing is deleted in a directory that may be the user's
                 log.info("Forcing regeneration of chip database: %s", bin_path)
-                self.remove_stale_output(bin_path)  # outside the run directory, bbasm overwrites it
-            # an intermediate of xeda's own, in the run directory, removed once assembled
-            bba_path = self.run_path / f"{part}.bba"
+            # The intermediate database goes to a temporary directory of its own, removed with
+            # it: never a file deleted by name where the database is kept.
+            scratch = tempfile.TemporaryDirectory(prefix="xeda-chipdb-")
+            bba_path = Path(scratch.name) / f"{part}.bba"
             cmd = [
                 str(python_executable),
                 str(nextpnr_xilinx_python_dir / "bbaexport.py"),
@@ -489,7 +501,7 @@ class OpenXC7(FpgaSynthFlow):
             assert (
                 bin_path.exists() and bin_path.is_file()
             ), f"Failed to generate chipdb: {bin_path} not found!"
-            bba_path.unlink()
+            scratch.cleanup()
             log.info("Chip database generated: %s", bin_path)
             return bin_path
         return None

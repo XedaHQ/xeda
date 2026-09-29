@@ -266,7 +266,7 @@ def launched(monkeypatch):
     """What `DefaultRunner.run` would launch, without launching it."""
     calls = {}
 
-    def run_flow(self, flow_class, design, flow_settings, run_path=None, all_flows_settings=None):
+    def run_flow(self, flow_class, design, flow_settings, all_flows_settings=None):
         calls.update(flow=flow_class.name, settings=flow_settings, all_flows=all_flows_settings)
         raise _Launched
 
@@ -452,13 +452,13 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, m
     )
     composed = {}
 
-    def capture(flow_name, settings):
+    def capture(flow_name, settings, design_name=None):
         composed.update(settings=settings)
         raise _Launched
 
     monkeypatch.setattr(remote, "flow_run_hash", capture)
     with pytest.raises(_Launched):
-        remote.RemoteRunner().run_remote(
+        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             design, "nextpnr", "host", flow_settings=["yosys.flatten=true"]
         )
 
@@ -480,13 +480,15 @@ def test_a_remote_run_canonicalizes_the_flow_name_and_does_not_mutate_the_design
     before = deepcopy(design.flow)
     captured = {}
 
-    def capture(flow_name, settings):
+    def capture(flow_name, settings, design_name=None):
         captured.update(flow_name=flow_name, settings=settings)
         raise _Launched
 
     monkeypatch.setattr(remote, "flow_run_hash", capture)
     with pytest.raises(_Launched):
-        remote.RemoteRunner().run_remote(design, "ghdl", "host", flow_settings=["warn_error=false"])
+        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
+            design, "ghdl", "host", flow_settings=["warn_error=false"]
+        )
 
     assert captured["flow_name"] == "ghdl_sim"
     assert captured["settings"].werror is False
@@ -518,13 +520,13 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
     )
     captured = {}
 
-    def capture(flow_name, settings):
+    def capture(flow_name, settings, design_name=None):
         captured.update(flow_name=flow_name, settings=settings)
         raise _Launched
 
     monkeypatch.setattr(remote, "flow_run_hash", capture)
     with pytest.raises(_Launched):
-        remote.RemoteRunner().run_remote(
+        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             "d",
             "nextpnr",
             "host",
@@ -779,11 +781,11 @@ def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypa
     )
     composed = {}
 
-    def capture(flow_name, settings):
+    def capture(flow_name, settings, design_name=None):
         composed.update(settings=settings)
         raise _Launched
 
     monkeypatch.setattr(remote, "flow_run_hash", capture)
     with pytest.raises(_Launched):
-        remote.RemoteRunner().run_remote(design, "nextpnr", "host")
+        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(design, "nextpnr", "host")
     assert composed["settings"].yosys.fpga.part == "LFE5U-25F-6BG381C"

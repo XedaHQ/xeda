@@ -8,9 +8,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 from xml.etree import ElementTree
 
-from .dataclass import Field, XedaBaseModel, field_validator
+from .dataclass import Field, XedaBaseModel, deliverable, field_validator
 from .design import Design, SourceType
-from .flow.run_dir import RunDirectoryError, resolved_inside
 from .tool import Tool
 
 log = logging.getLogger(__name__)
@@ -46,10 +45,10 @@ class CocotbSettings(XedaBaseModel):
         False, description="Collect coverage data if supported by simulation tool."
     )
     reduced_log_fmt: bool = Field(True, description="Display shorter log lines in the terminal.")
-    results_xml: str = Field(
-        "results.xml",
+    results_xml: Path = Field(
+        Path("results.xml"),
         description="xUnit-compatible cocotb result file.",
-        json_schema_extra={"hidden_from_schema": True},
+        json_schema_extra={"hidden_from_schema": True, **deliverable()},
     )
     resolve_x: Literal["VALUE_ERROR", "ZEROS", "ONES", "RANDOM"] = Field(
         "VALUE_ERROR",
@@ -339,16 +338,11 @@ class Cocotb(CocotbSettings, Tool):
         import), and the simulators still exit 0. A file left by an earlier run in a reused run
         directory would then be read as this run's results.
         """
-        run_dir = Path.cwd()  # every simulator runs, and writes its results, in its run directory
-        results_xml = resolved_inside(self.results_xml, run_dir)
-        if results_xml is None:
-            raise RunDirectoryError(
-                f"cocotb's results_xml = {self.results_xml!r} lies outside the run directory "
-                f"{run_dir}: xeda removes an earlier results file before simulating, so that it "
-                "cannot pass for this run's, and deletes nothing outside the run directory. Name "
-                "a file inside the run directory."
-            )
-        results_xml.unlink(missing_ok=True)
+        if self._run_directory is not None:
+            # in the run directory of the flow that simulates, whatever the current directory:
+            # only inside it (`RunDirectory.remove` names a path that leads out), and nothing in
+            # one no launcher chose
+            self._run_directory.remove(self.results_xml)
         self.__dict__.pop("results", None)  # the cached `results` of that file
 
     def test_selection(self, testcases: List[str]) -> Dict[str, str]:
@@ -430,7 +424,7 @@ class Cocotb(CocotbSettings, Tool):
                     "COCOTB_REDUCED_LOG_FMT", "1" if self.reduced_log_fmt else "0"
                 ),
                 "PYTHONPATH": os.pathsep.join(py_path),
-                "COCOTB_RESULTS_FILE": self.results_xml,
+                "COCOTB_RESULTS_FILE": str(self.results_xml),
                 "COCOTB_RESOLVE_X": self.resolve_x,
                 "PYGPI_PYTHON_BIN": os.environ.get(
                     # Use the current Python executable if not set in the environment
@@ -458,13 +452,28 @@ class Cocotb(CocotbSettings, Tool):
             return None
         return TestResults.parse_results(results_xml)
 
-    def add_results(self, flow_results: Dict[str, Any], prefix: str = "cocotb.") -> bool:
-        """adds cocotb results to parent flow's results. returns success status"""
+    def add_results(
+        self,
+        flow_results: Dict[str, Any],
+        prefix: str = "cocotb.",
+        results_file: Union[Path, None, Literal["current directory"]] = "current directory",
+    ) -> bool:
+        """adds cocotb results to parent flow's results. returns success status
+
+        `results_file` is the results file to read -- a flow passes the one its run wrote
+        (`Flow.report_file`), None if there is none; by default, `results_xml` in the current
+        directory, whoever wrote it."""
         flow_results["success"] = False
         try:
-            results = self.results
+            if results_file == "current directory":
+                results = self.results
+            elif results_file is None:
+                results = None
+            else:
+                results = TestResults.parse_results(results_file)
         except (OSError, ElementTree.ParseError, UnicodeError, ValueError) as exc:
-            log.error("Could not read cocotb test results from %s: %s", self.results_xml, exc)
+            where = self.results_xml if results_file == "current directory" else results_file
+            log.error("Could not read cocotb test results from %s: %s", where, exc)
             return False
         if results is not None:
             flow_results[prefix + "tests"] = results.tests

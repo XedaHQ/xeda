@@ -9,7 +9,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
-from ...dataclass import Field, field_validator
+from ...dataclass import Field, deliverable, field_validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
 from ...flow import Flow, FlowException, FlowSettingsError, SimFlow, SynthFlow
 from ...tool import Docker, Tool
@@ -123,7 +123,8 @@ class Ghdl(Flow, metaclass=ABCMeta):
         )
         clean_before_analyze: bool = Field(
             True,
-            description="Run `ghdl remove` before analysis. This will remove all generated files.",
+            description="Run `ghdl remove` before analysis, which removes the work library and "
+            "every file GHDL generated from it in the run directory.",
         )
         diagnostics: bool = Field(
             True, description="Enable both color and source line carret diagnostics."
@@ -259,6 +260,15 @@ class Ghdl(Flow, metaclass=ABCMeta):
                     tops = (entities[-1],)
         return tops
 
+    def _work_library(self, vhdl: VhdlSettings) -> str:
+        """The file of the work library GHDL analyzes into, in its working directory:
+        `<work>-obj<standard>.cf` (GHDL's default standard, 93c, is `obj93`)."""
+        assert isinstance(self.settings, self.Settings)
+        standard = vhdl.standard or "93"
+        if len(standard) == 4 and standard[:2] in ("20", "19"):
+            standard = standard[2:]
+        return f"{self.settings.work or 'work'}-obj{standard[:2]}.cf"
+
     def analyze(
         self,
         sources: List[DesignSource],
@@ -278,7 +288,10 @@ class Ghdl(Flow, metaclass=ABCMeta):
         if isinstance(top, str):
             top = (top,)
         backend = self.ghdl.info.get("backend", None)
-        if ss.clean_before_analyze:
+        # `ghdl remove` deletes the work library in the working directory, the run directory,
+        # and what GHDL built from it.
+        library = self._work_library(vhdl)
+        if ss.clean_before_analyze and (self.run_path / library).exists():
             self.ghdl.run("remove", *ss.get_flags(vhdl, "remove", backend=backend))
         analysis_flags = ss.get_flags(vhdl, "analyze", backend=backend)
         self.ghdl.run("analyze", *analysis_flags, *(str(s) for s in sources))
@@ -378,6 +391,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         verilog_output: Optional[Path] = Field(
             None,
             description="Output file for the generated Verilog. Required. If a directory is provided, each VHDL source file is converted to a Verilog file in that directory.",
+            json_schema_extra=deliverable("outputs/{design}.v"),
         )
 
     def init(self) -> None:
@@ -420,6 +434,7 @@ class GhdlSynth(Ghdl, SynthFlow):
                 if not verilog:
                     raise FlowException(f"ghdl synthesis of {src.path} failed!")
                 verilog = verilog.replace(");", f");\n{fixed_params}", 1)
+                self.run_directory.writable(out_file)
                 if out_file.exists():
                     log.warning("File %s will be overwritten!", out_file)
                 else:
@@ -431,6 +446,7 @@ class GhdlSynth(Ghdl, SynthFlow):
             if not top:
                 raise FlowException("Unable to determine the top unit")
             ss.verilog_output.parent.mkdir(parents=True, exist_ok=True)
+            self.run_directory.writable(ss.verilog_output)
             log.info("Generating verilog: %s", ss.verilog_output)
             self.ghdl.run("synth", *flags, *top, stdout=ss.verilog_output)
             self.artifacts.generated_verilog = [ss.verilog_output]
@@ -508,6 +524,7 @@ class GhdlSim(Ghdl, SimFlow):
         wave: Optional[Union[str, Path]] = Field(
             None,
             description="Write the waveforms. The file name can be an absolute path or a name. If the name is used, the file will be created in flow's run_dir.",
+            json_schema_extra=deliverable("outputs/{design}.ghw"),
         )
         read_wave_opt: Optional[Path] = Field(
             None,
@@ -516,10 +533,12 @@ class GhdlSim(Ghdl, SimFlow):
         write_wave_opt: Optional[Path] = Field(
             None,
             description="Creates a wave option file with all the signals of the design. Overwrites the file if it already exists.",
+            json_schema_extra=deliverable("wave.opt"),
         )
         fst: Optional[Union[str, Path]] = Field(
             None,
             description="Write the waveforms into an _fst_ file.",
+            json_schema_extra=deliverable("outputs/{design}.fst"),
         )
         stop_delta: Optional[str] = Field(
             None,
@@ -594,7 +613,10 @@ class GhdlSim(Ghdl, SimFlow):
                 ss.write_wave_opt = Path("wave.opt")
 
         if ss.write_wave_opt:
-            self.remove_stale_output(ss.write_wave_opt)
+            # GHDL does not replace a wave option file: the previous one goes first
+            wave_opt = self.run_directory.writable(ss.write_wave_opt)
+            for removed in self.run_directory.remove(wave_opt):
+                log.warning("Deleted the existing wave option file %s", removed)
         run_flags += setting_flag(ss.write_wave_opt, name="write_wave_opt")
         if ss.read_wave_opt:
             if not Path(ss.read_wave_opt).exists():  # TODO move to validation

@@ -373,7 +373,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         abc_constr_file = None
         if ss.abc_constr:
             abc_constr_file = "abc.constr"
-            with replacing_file(abc_constr_file) as f:
+            with replacing_file(self.run_directory.writable(abc_constr_file)) as f:
                 f.write("\n".join(ss.abc_constr) + "\n")
 
         script_path = self.copy_from_template(

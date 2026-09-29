@@ -34,8 +34,9 @@ def _trace(**overrides) -> Trace:
         flow_code="c" * 32,
         programs={"yosys": ProgramRecord(path="/opt/bin/yosys", size=1, mtime_ns=2)},
         inputs_recorded_ns=OLD + 10**12,
-        inputs={"/d/a.v": FileRecord(size=1, mtime_ns=2, sha="s" * 32)},
-        outputs={"/r/out.json": FileRecord(size=3, mtime_ns=4, sha="t" * 32)},
+        outputs_recorded_ns=OLD + 10**12,
+        inputs={"/d/a.v": FileRecord(size=1, mtime_ns=2, ctime_ns=2, inode=5, sha="s" * 32)},
+        outputs={"/r/out.json": FileRecord(size=3, mtime_ns=4, ctime_ns=4, inode=6, sha="t" * 32)},
     )
     return Trace(**{**fields, **overrides})
 
@@ -85,20 +86,21 @@ def _file(path: Path, text: str) -> Path:
 
 @pytest.fixture
 def recorded(tmp_path):
-    """A run directory whose trace records one input and one output, both unchanged since."""
+    """A run directory whose trace records one input and its files as outputs, all unchanged
+    since."""
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     source = _file(tmp_path / "a.v", "module a; endmodule\n")
     output = _file(run_dir / "out.json", "{}\n")
+    settings = _file(run_dir / "settings.json", json.dumps({"flow_settings": {"seed": 1}}))
     write_trace(
         run_dir,
         _trace(
             programs={},
             inputs={str(source): record_file(source)},
-            outputs={str(output): record_file(output)},
+            outputs={str(path): record_file(path) for path in (output, settings)},
         ),
     )
-    (run_dir / "settings.json").write_text(json.dumps({"flow_settings": {"seed": 1}}))
     expected = Expectation(
         flow="toy",
         flowrun_hash="f" * 32,
@@ -108,6 +110,7 @@ def recorded(tmp_path):
         flow_code="c" * 32,
         inputs=(source,),
         settings={"seed": 1},
+        setting_locations={},
         dependency_runs={},
         dependency_flows={},
     )
@@ -115,7 +118,8 @@ def recorded(tmp_path):
 
 
 def _check(run_dir, expected, **changes):
-    return check_trace(run_dir, Expectation(**{**expected.__dict__, **changes}), lambda name: None)
+    expectation = Expectation(**{**expected.__dict__, **changes})
+    return check_trace(run_dir, expectation, lambda name: None)
 
 
 def test_an_unchanged_run_is_fresh(recorded):
@@ -244,12 +248,49 @@ def test_a_deleted_or_edited_output_is_stale(recorded):
     assert _check(run_dir, expected).reason == f"output missing: {output}"
 
 
+def test_a_symbolic_link_output_is_checked_by_its_target_and_its_content(recorded, tmp_path):
+    """An output link is recorded by its target and, for a file, by that file's content: an edit
+    of the file it points to, another target with the same content, and a file whose content is
+    the link's target text are each a change."""
+    run_dir, _, _, expected = recorded
+    target = _file(tmp_path / "lib.v", "module lib; endmodule\n")
+    link = run_dir / "lib.v"
+    link.symlink_to(target)
+    trace = json.loads((run_dir / "trace.json").read_text())
+    record = record_file(link, follow_symlinks=False)
+    assert record.sha.startswith("symlink:") and record != record_file(link)
+    trace["outputs"][str(link)] = record.model_dump()
+    (run_dir / "trace.json").write_text(json.dumps(trace))
+    assert _check(run_dir, expected).fresh
+    target.write_text("module lib2; endmodule\n")
+    assert _check(run_dir, expected).reason == f"output changed: {link}"
+    target.write_text("module lib; endmodule\n")
+    assert _check(run_dir, expected).fresh
+    same = _file(tmp_path / "same.v", target.read_text())
+    link.unlink()
+    link.symlink_to(same)
+    assert _check(run_dir, expected).reason == f"output changed: {link}"
+    link.unlink()
+    link.write_text(str(target))
+    assert _check(run_dir, expected).reason == f"output changed: {link}"
+
+
+def test_a_file_that_appeared_in_a_managed_run_directory_is_a_change(recorded):
+    """The directory is xeda's: a file there that the run did not leave is a change."""
+    run_dir, _, _, expected = recorded
+    (run_dir / "sub").mkdir()
+    (run_dir / "sub" / "later.txt").write_text("mine\n")
+    reason = _check(run_dir, expected).reason
+    assert reason == f"new file in the run directory: {(run_dir / 'sub' / 'later.txt').resolve()}"
+
+
 def test_a_changed_program_is_named(recorded):
     run_dir, _, _, expected = recorded
     trace = json.loads((run_dir / "trace.json").read_text())
     trace["programs"] = {"yosys": {"path": "/old/yosys", "size": 1, "mtime_ns": 2}}
     (run_dir / "trace.json").write_text(json.dumps(trace))
-    reason = check_trace(run_dir, expected, lambda name: ProgramRecord(path="/new/yosys")).reason
+    new = ProgramRecord(path="/new/yosys")
+    reason = check_trace(run_dir, expected, lambda name: new).reason
     assert reason == "yosys changed"
 
 

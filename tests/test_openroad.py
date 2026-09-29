@@ -193,3 +193,40 @@ def test_real_yosys_maps_with_the_selected_script(optimize, tmp_path):
     assert proc.returncode == 0, proc.stderr[-2000:]
     netlist = (tmp_path / "netlist.v").read_text()
     assert "_X1 " in netlist or "_X2 " in netlist, "no Nangate45 cells in the mapped netlist"
+
+
+@pytest.mark.parametrize("copy_platform_files", [False, True])
+def test_a_second_launch_of_openroad_is_fresh(tmp_path, copy_platform_files):
+    """`Openroad.init` writes into its run directory -- the platform's liberty files, copied,
+    their merge, and with `copy_platform_files` the platform's files too -- before the launcher
+    checks the last run. Every file there is an output of that run, so what `init()` writes must
+    come out byte-identical at every launch, or no launch would ever be fresh (ruling R45).
+    OpenROAD itself is not needed: only its synthesis dependency runs."""
+    require_yosys()
+
+    class OpenroadSynthesisOnly(Openroad):
+        """OpenROAD's flow up to synthesis: no place and route."""
+
+        def run(self) -> None:
+            self.pop_dependency(Yosys)
+
+        def parse_reports(self) -> bool:
+            return True
+
+    settings = {
+        "platform": "nangate45",
+        "clock": {"period": 2.0},
+        "copy_platform_files": copy_platform_files,
+    }
+    try:
+        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+        first = runner.launch_flow(OpenroadSynthesisOnly, _mac_design(tmp_path), settings)
+        assert first.succeeded and not first.reused
+        again = runner.launch_flow(OpenroadSynthesisOnly, _mac_design(tmp_path), settings)
+        assert again.reused, again.stale_reason
+        assert again.completed_dependencies[0].reused
+    finally:
+        from xeda.flow import registered_flows
+
+        for name in (OpenroadSynthesisOnly.name, OpenroadSynthesisOnly.__name__):
+            registered_flows.pop(name, None)

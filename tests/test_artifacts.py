@@ -15,7 +15,6 @@ from box import Box
 from xeda import Design
 from xeda.artifacts import filter_artifact_paths, iter_artifact_paths, map_artifact_paths
 from xeda.flow import Flow, registered_flows
-from xeda.flow.run_dir import RUN_DIR_MARKER
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import _artifact_rows
 
@@ -292,7 +291,6 @@ def test_an_untouched_artifact_at_the_run_starts_own_tick_is_not_written(tmp_pat
     clock at all, so the coincidence cannot matter."""
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    (run_dir / RUN_DIR_MARKER).write_text("format = 1\n")  # so the launcher may reuse it as is
     old = run_dir / "old.bit"
     old.write_text("old\n")
     now = time.time()
@@ -428,7 +426,6 @@ def _earlier_run_dir(tmp_path: Path) -> Path:
     `old.bit` and `real/old.bit` from that run."""
     run_dir = tmp_path / "run"
     (run_dir / "real").mkdir(parents=True)
-    (run_dir / RUN_DIR_MARKER).write_text("format = 1\n")
     for old in (run_dir / "old.bit", run_dir / "real" / "old.bit"):
         old.write_text("an earlier run's\n")
         os.utime(old, ns=(EARLIER_NS, EARLIER_NS))

@@ -1,17 +1,30 @@
 """Content digests of files, and records that let a later check avoid reading them.
 
-A record is `(size, mtime_ns, sha)`. A later check trusts a record by its metadata alone only
-when the file was last modified well before the record was taken (`trusted_before_ns`): a file
-written within the same timestamp tick could have changed after it was hashed without its
-metadata showing it. This is git's "racy git" rule.
+A record is `(size, mtime_ns, ctime_ns, inode, sha)`. A later check trusts a record by its
+metadata alone only when all four match and the file last changed -- its mtime or its inode
+change time -- well before the record was taken (`trusted_before_ns`): a file written within
+the same timestamp tick could have changed after it was hashed without its metadata showing it.
+This is git's "racy git" rule. The inode change time is what no one can set: an edit given back
+its old mtime (`os.utime`, `touch -r`) still changes it, as a change of permissions or a move
+does; a copy that keeps the mtime (`cp -p`) is another inode. Each of these costs a hash, never a
+wrong reuse.
 
 A record whose `sha` is `MODIFIED_DURING_RUN` stands for a file that changed while a run was
 using it, so what the run read is unknown: it never matches.
+
+A symbolic link can be recorded as itself (`record_file(..., follow_symlinks=False)`, how a run
+directory's outputs are recorded): by its target and, when that is a regular file, by the
+file's content as well (trusted by the file's metadata like any file's); a link to a directory,
+or to nothing, by its target alone.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
+import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +39,14 @@ _CHUNK = 1 << 20
 #: The digest of a file that was written while the run that read it was going on: what the run
 #: read is unknown, so this record never matches the file (`FileRecord.unknown`).
 MODIFIED_DURING_RUN = "unknown: modified during the run"
+
+#: How the digest of a symbolic link recorded as itself begins; a digest of its target text
+#: follows, then, for a link to a regular file, ":" and that file's content digest. A content
+#: digest never begins so: a link and a file are never mistaken for each other.
+SYMLINK_DIGEST = "symlink:"
+
+#: The name prefix of the marker `filesystem_time_ns` creates, and removes, to read a clock.
+TIME_MARKER_PREFIX = ".xeda-time-"
 
 
 def content_digest(path: Path) -> str:
@@ -42,7 +63,36 @@ class FileRecord(XedaBaseModel):
 
     size: int
     mtime_ns: int
+    #: the inode change time (`st_ctime_ns` on POSIX): set by every write, `utime`, `chmod`, ...
+    ctime_ns: int
+    #: the inode number (`st_ino`)
+    inode: int
     sha: str
+
+    @classmethod
+    def of(cls, st: os.stat_result, sha: str) -> FileRecord:
+        """The record of a file whose status is `st` and whose digest is `sha`."""
+        return cls(
+            size=st.st_size,
+            mtime_ns=st.st_mtime_ns,
+            ctime_ns=st.st_ctime_ns,
+            inode=st.st_ino,
+            sha=sha,
+        )
+
+    def settled_before(self, time_ns: int) -> bool:
+        """Whether the file last changed -- its mtime or its inode change time -- well before
+        `time_ns`, outside the racy window: then, recorded at `time_ns`, it can be trusted by
+        this metadata later."""
+        return max(self.mtime_ns, self.ctime_ns) + RACY_NS < time_ns
+
+    def trusted(self, st: os.stat_result, trusted_before_ns: int) -> bool:
+        """Whether a file whose status is `st` is, without reading it, the file this record was
+        taken of: the same size, mtime, inode change time and inode, and last changed well before
+        `trusted_before_ns`, the time the record was taken (`settled_before`)."""
+        now = (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino)
+        recorded = (self.size, self.mtime_ns, self.ctime_ns, self.inode)
+        return now == recorded and self.settled_before(trusted_before_ns)
 
     @property
     def unknown(self) -> bool:
@@ -67,24 +117,75 @@ def unknown_record(path: Path) -> FileRecord:
     try:
         st = path.stat()
     except OSError:
-        return FileRecord(size=-1, mtime_ns=-1, sha=MODIFIED_DURING_RUN)
-    return FileRecord(size=st.st_size, mtime_ns=st.st_mtime_ns, sha=MODIFIED_DURING_RUN)
+        return FileRecord(size=-1, mtime_ns=-1, ctime_ns=-1, inode=-1, sha=MODIFIED_DURING_RUN)
+    return FileRecord.of(st, MODIFIED_DURING_RUN)
+
+
+def filesystem_time_ns(directory: Path) -> int:
+    """Read this filesystem's clock by touching a temporary marker, created and removed in
+    `directory` (a run directory)."""
+    fd, name = tempfile.mkstemp(prefix=TIME_MARKER_PREFIX, dir=directory)
+    os.close(fd)
+    marker = Path(name)
+    try:
+        os.utime(marker, None)
+        return marker.stat().st_mtime_ns
+    finally:
+        marker.unlink(missing_ok=True)
 
 
 def record_file(
     path: Path,
     previous: Optional[FileRecord] = None,
     trusted_before_ns: Optional[int] = None,
+    follow_symlinks: bool = True,
+    before_reading: Callable[[], None] | None = None,
 ) -> FileRecord:
-    """The record of `path` now. Reuses `previous`'s hash without reading the file when size
-    and mtime are unchanged and the file is not racy; otherwise hashes the content."""
-    st = path.stat()
+    """The record of `path` now. Reuses `previous`'s hash without reading the file when
+    `previous.trusted` says its metadata is conclusive; otherwise hashes the content, calling
+    `before_reading` first (a check reads its clock then, see `trace.check_trace`).
+
+    Without `follow_symlinks`, a symbolic link is recorded as itself (`_record_link`)."""
+    st = path.stat() if follow_symlinks else path.lstat()
+    if stat.S_ISLNK(st.st_mode):
+        return _record_link(path, st, previous, trusted_before_ns, before_reading)
     if (
         previous is not None
         and trusted_before_ns is not None
-        and st.st_size == previous.size
-        and st.st_mtime_ns == previous.mtime_ns
-        and st.st_mtime_ns + RACY_NS < trusted_before_ns
+        and previous.trusted(st, trusted_before_ns)
     ):
         return previous
-    return FileRecord(size=st.st_size, mtime_ns=st.st_mtime_ns, sha=content_digest(path))
+    if before_reading is not None:
+        before_reading()
+    return FileRecord.of(st, content_digest(path))
+
+
+def _record_link(
+    path: Path,
+    link_st: os.stat_result,
+    previous: FileRecord | None,
+    trusted_before_ns: int | None,
+    before_reading: Callable[[], None] | None,
+) -> FileRecord:
+    """The record of the symbolic link `path` (whose own status is `link_st`) as itself: by its
+    target, read afresh every time (it is short), and -- when it points to a regular file -- by
+    that file's content, with the file's metadata, so that the content is read only when that
+    metadata cannot vouch for it (`FileRecord.trusted`). A link to a directory, or to nothing,
+    is recorded by its target alone, with its own metadata: nothing is read."""
+    link = SYMLINK_DIGEST + hashlib.sha3_256(os.fsencode(os.readlink(path))).hexdigest()[:32]
+    try:
+        st = path.stat()
+    except OSError:
+        return FileRecord.of(link_st, link)  # to nothing
+    if not stat.S_ISREG(st.st_mode):
+        return FileRecord.of(link_st, link)
+    if (
+        previous is not None
+        and trusted_before_ns is not None
+        and previous.sha.startswith(link + ":")
+        and previous.trusted(st, trusted_before_ns)
+    ):
+        return previous
+    if before_reading is not None:
+        before_reading()
+    return FileRecord.of(st, f"{link}:{content_digest(path)}")

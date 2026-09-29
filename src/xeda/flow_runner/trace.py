@@ -5,7 +5,10 @@ deleted before a run starts executing. Its presence means "the last run in this 
 completed and succeeded"; its content says with which settings, programs, inputs and outputs.
 
 Its inputs are recorded as the run found them when it started (`trace_inputs.snapshot_inputs`),
-not as it left them: a file edited while the run was going on then no longer matches.
+not as it left them: a file edited while the run was going on then no longer matches. Its outputs
+are every file of the run directory (`run_directory_files`), which is xeda's (D21); a file that
+appears there later is a change. The times a file's times are compared with are read from the
+run directory's file-system clock (`digest.filesystem_time_ns`), not the process clock.
 """
 
 from __future__ import annotations
@@ -14,7 +17,6 @@ import json
 import os
 import shutil
 import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, Tuple
@@ -22,14 +24,28 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, 
 from pydantic import ValidationError
 
 from ..dataclass import XedaBaseModel
-from ..digest import FileRecord, record_file
+from ..digest import TIME_MARKER_PREFIX, FileRecord, filesystem_time_ns, record_file
 from ..proc_utils import DOCKER_IMAGE_PREFIX
 from ..utils import json_encodable, with_json_keys
 
 TRACE_FILE = "trace.json"
 #: Raised whenever the meaning of a field changes; a trace of another format is never trusted.
 #: 2: inputs recorded before the run (`inputs_recorded_ns`); `xeda_code` covers the package.
-TRACE_FORMAT = 2
+#: 3: the outputs of a run directory xeda manages are every file in it; a link is itself.
+#: 4: file records carry the inode change time and the inode (`FileRecord.trusted`).
+#: 5: outputs are trusted from when they were recorded (`outputs_recorded_ns`).
+#: 6: an output link to a file is recorded by the file's content too.
+#: 7: where each setting that names no file points (`setting_locations`).
+#: 8: inputs include every file under a directory a setting names, each recorded as itself.
+#: 9: in a directory xeda does not manage, every file of what the run claimed is an output.
+#: 10: written paths are neither inputs nor bound by a location.
+#: 11: every run directory is xeda's (D21): its outputs are every file in it, and only the
+#: trace's own names are reserved.
+TRACE_FORMAT = 11
+
+#: The names xeda reserves at the top of a run directory, never outputs: the trace and the trace
+#: being written -- and the clock markers, named `digest.TIME_MARKER_PREFIX` + a random suffix.
+RESERVED_FILES = (TRACE_FILE, TRACE_FILE + ".tmp")
 
 #: The `mtime_ns` of a program that was replaced while the run went on: it never matches.
 UNKNOWN_PROGRAM_MTIME = -1
@@ -62,31 +78,102 @@ class Trace(XedaBaseModel):
     #: the `run_id` of each dependency's run this run consumed, by the dependency's run
     #: directory relative to the run root (`xeda_run`), in POSIX form
     dependency_runs: Dict[str, str] = {}
+    #: where each path-typed setting pointed, by its key path: what binds a setting that names
+    #: a directory, or nothing yet (`trace_inputs.setting_locations`)
+    setting_locations: Dict[str, List[str]] = {}
     #: when `inputs` were recorded, just before the run started: the racy-timestamp threshold
-    #: for `inputs` and `implicit_inputs` (`outputs` use the trace file's own mtime)
+    #: for `inputs` and `implicit_inputs`, read from the run directory's file-system clock
     inputs_recorded_ns: int
+    #: when `outputs` were recorded, just after the run: their racy-timestamp threshold
+    outputs_recorded_ns: int
     #: the expected inputs, as they were when the run started
     inputs: Dict[str, FileRecord] = {}
-    #: files the run read that were known only after it (depfiles, `Flow.implicit_inputs`)
+    #: files the run read that were known only after it (depfiles, and what `run()` registered
+    #: in `Flow.implicit_inputs`; what `init()` registered is among `inputs`)
     implicit_inputs: Dict[str, FileRecord] = {}
-    #: the run's own files: its artifacts, `results.json`, and every file it wrote that a setting
-    #: or a depfile names
+    #: the run's own files: every regular file and symbolic link under its run directory (a link
+    #: by its target, and a file it points to by content) and the artifacts outside it
+    #: (`trace_inputs.output_files`)
     outputs: Dict[str, FileRecord] = {}
 
 
-def own_files(trace: Trace) -> Set[str]:
+#: What version control keeps in a working copy, which no tool reads: left out of a listing of a
+#: directory a setting names (`directory_files(..., skip=VCS_METADATA)`), so a commit or a fetch
+#: there is no change to a run.
+VCS_METADATA = frozenset({".git", ".hg", ".svn"})
+
+
+def directory_files(
+    directory: Path, prune: Iterable[Path] = (), skip: frozenset[str] = frozenset()
+) -> list[Path]:
+    """Every regular file and symbolic link under `directory`, recursively, in the resolved
+    directory, sorted: a link is an entry of its own, never followed (not even to a directory,
+    so a loop is no trouble), and anything else that is no directory (a FIFO, a socket) is left
+    out, since reading it could block. A directory in `prune` (resolved) is not entered, nor is
+    an entry named in `skip`, at any depth. A directory that cannot be listed is listed itself:
+    it cannot be recorded, so its record is unknown (or missing) and the next launch runs
+    again."""
+    return _listing(
+        directory.resolve(),
+        lambda _name: False,
+        {Path(p).resolve() for p in prune},
+        skip,
+    )
+
+
+def run_directory_files(run_path: Path) -> list[Path]:
+    """Every file of the run directory `run_path` (`directory_files`), but the names xeda
+    reserves at its top (`RESERVED_FILES`, clock markers)."""
+    return _listing(
+        run_path.resolve(),
+        lambda name: name in RESERVED_FILES or name.startswith(TIME_MARKER_PREFIX),
+        set(),
+    )
+
+
+def _listing(
+    top: Path, reserved: Callable[[str], bool], prune: Set[Path], skip: frozenset[str] = frozenset()
+) -> list[Path]:
+    found: list[Path] = []
+
+    def walk(directory: Path) -> None:
+        try:
+            with os.scandir(directory) as scan:
+                entries = sorted(scan, key=lambda entry: entry.name)
+        except OSError:
+            found.append(directory)
+            return
+        for entry in entries:
+            path = directory / entry.name
+            if (directory == top and reserved(entry.name)) or entry.name in skip:
+                continue
+            if entry.is_symlink() or entry.is_file(follow_symlinks=False):
+                found.append(path)
+            elif entry.is_dir(follow_symlinks=False) and path not in prune:
+                walk(path)
+
+    walk(top)
+    return found
+
+
+def own_files(trace: Trace, run_dir: Path) -> Set[str]:
     """The files `trace` records as the run's own and nothing else: its outputs that it does not
-    also record as inputs. A launch does not expect them as inputs (they are checked as
-    outputs), which is what keeps a file the run wrote from looking like a new input next time.
-    A file the run wrote that it may also have read (one it cannot tell apart from a user's edit
-    during the run) is recorded as both, and so stays an expected input."""
-    return set(trace.outputs) - set(trace.inputs) - set(trace.implicit_inputs)
+    also record as inputs, and which lie in the run directory. Location outside it never
+    establishes ownership, including evidence from a previous trace."""
+    root = run_dir.resolve()
+    return {
+        path
+        for path in set(trace.outputs) - set(trace.inputs) - set(trace.implicit_inputs)
+        if Path(path).is_relative_to(root)
+    }
 
 
-def expected_inputs(candidates: Iterable[Path], previous: Optional[Trace]) -> List[Path]:
+def expected_inputs(
+    candidates: Iterable[Path], previous: Optional[Trace], run_dir: Path
+) -> List[Path]:
     """The `candidates` (every existing file the run would consume) a launch expects as inputs:
-    all but those the `previous` trace of the directory records as its run's own."""
-    own = own_files(previous) if previous is not None else set()
+    all but those the `previous` trace records as its own inside the run directory."""
+    own = own_files(previous, run_dir) if previous is not None else set()
     return sorted(p for p in candidates if str(p) not in own)
 
 
@@ -125,10 +212,14 @@ def previous_trace(run_dir: Path, flow: str) -> Optional[Trace]:
 
 
 def write_trace(run_dir: Path, trace: Trace) -> None:
-    """Write `trace` under a temporary name and rename it into place."""
+    """Write `trace` under a temporary name -- created anew: a link or leftover at that reserved
+    name is removed as itself first -- and rename it into place."""
     path = run_dir / TRACE_FILE
     temporary = run_dir / (TRACE_FILE + ".tmp")
-    temporary.write_text(json.dumps(as_recorded(trace.model_dump(mode="json")), indent=2))
+    temporary.unlink(missing_ok=True)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(as_recorded(trace.model_dump(mode="json")), indent=2))
     os.replace(temporary, path)
 
 
@@ -179,6 +270,8 @@ class Expectation:
     #: previous trace records as its run's own are then not expected (`expected_inputs`)
     inputs: Tuple[Path, ...]
     settings: Any  # the input settings `as_recorded`, to name what changed
+    #: where each path-typed setting points now (as `Trace.setting_locations`)
+    setting_locations: Mapping[str, List[str]]
     #: the `run_id` of each dependency's run, by its run directory (as `Trace.dependency_runs`)
     dependency_runs: Mapping[str, str]
     #: the flow of each dependency, by the same run directory, to name it in a reason
@@ -223,20 +316,33 @@ def _changed_settings(run_dir: Path, current: Any) -> str:
     return settings_difference(previous, current)
 
 
+def _location(names: Optional[List[str]]) -> str:
+    """How a reason names where a setting points (`Trace.setting_locations`)."""
+    return ", ".join(names) if names else "nothing that exists"
+
+
 def check_trace(
     run_dir: Path,
     expected: Expectation,
     probe: Callable[[str], Optional[ProgramRecord]],
 ) -> Freshness:
     """Re-verify the trace in `run_dir` against `expected`; the first failing check is the
-    reason. Files count as unchanged by size and mtime unless racy, otherwise by content."""
+    reason. Files count as unchanged by their metadata when `FileRecord.trusted` says it is
+    conclusive, otherwise by content.
+
+    A file read by content is recorded afresh, and the trace is refreshed with those records
+    (`Freshness.refreshed`), trusted from the time the check read its first file on: that time
+    is read from the file-system clock of `run_dir`, by writing a marker, just before. If no
+    marker can be written there (a read-only run directory), the check goes on and refreshes
+    nothing: a refresh only spares later checks a hash, and without one they read the file
+    again."""
     found = read_trace(run_dir)
     if found is None:
         recorded = _recorded_format(run_dir)
         if recorded is not None and recorded != TRACE_FORMAT:
             return Freshness(False, "recorded by another xeda")
         return Freshness(False, "no successful previous run")
-    trace, written_ns = found
+    trace, _written_ns = found
     if trace.format != TRACE_FORMAT:
         return Freshness(False, "recorded by another xeda")
     if trace.flow != expected.flow:
@@ -265,34 +371,79 @@ def check_trace(
             if consumed is None:
                 return Freshness(False, f"new dependency: {dependency} ({run})")
             return Freshness(False, f"{dependency} ({run}) ran again")
-    now = {str(p) for p in expected_inputs(expected.inputs, trace)}
+    # The identity is location-free: a setting naming a directory, or nothing yet, is bound by
+    # where it points -- the cause to name before any file of a directory it now names (a file
+    # it names, or one under a directory, is bound by its record, checked below).
+    for key in sorted(trace.setting_locations.keys() | expected.setting_locations.keys()):
+        was, now_names = trace.setting_locations.get(key), expected.setting_locations.get(key)
+        if was != now_names:
+            return Freshness(
+                False, f"{key} now names {_location(now_names)} (was {_location(was)})"
+            )
+    now = {str(p) for p in expected_inputs(expected.inputs, trace, run_dir)}
     added = sorted(now - trace.inputs.keys())
     if added:
         return Freshness(False, f"new input: {added[0]}")
     dropped = sorted(trace.inputs.keys() - now)
     if dropped:
         return Freshness(False, f"input no longer used: {dropped[0]}")
-    checked_ns = time.time_ns()
+    # The directory is xeda's alone: a file the run did not leave there is a change, which a
+    # depender reading the directory may see.
+    left = trace.outputs.keys()
+    for entry in run_directory_files(run_dir):
+        if str(entry) not in left:
+            return Freshness(False, f"new file in the run directory: {entry}")
+    #: when the check began to read files: from then on, the records it takes vouch for them;
+    #: None if the clock could not be read, and then nothing is refreshed
+    clock: list[int | None] = []
+    #: how many files' content the check has read
+    reads = [0]
+
+    def before_reading() -> None:
+        reads[0] += 1
+        if not clock:
+            try:
+                clock.append(filesystem_time_ns(run_dir))
+            except OSError:
+                clock.append(None)
+
     refreshed = trace.model_copy(deep=True)
+    #: the records taken by reading a file's content
+    read: list[FileRecord] = []
+    # Every file is checked as the entry it was recorded as: a symbolic link by its target, and
+    # the content of the file it points to (a directory's listing holds links, `directory_files`;
+    # any other input is recorded by its resolved path, which is no link).
     for records, what, trusted_before_ns in (
         (refreshed.inputs, "input", trace.inputs_recorded_ns),
         (refreshed.implicit_inputs, "input", trace.inputs_recorded_ns),
-        (refreshed.outputs, "output", written_ns),
+        (refreshed.outputs, "output", trace.outputs_recorded_ns),
     ):
         for path, record in records.items():
             if record.unknown:
                 return Freshness(False, f"{what} modified during the last run: {path}")
+            reads_before = reads[0]
             try:
-                current = record_file(Path(path), record, trusted_before_ns)
+                current = record_file(Path(path), record, trusted_before_ns, False, before_reading)
             except OSError:
                 return Freshness(False, f"{what} missing: {path}")
             if current.sha != record.sha:
                 return Freshness(False, f"{what} changed: {path}")
+            if reads[0] > reads_before:
+                read.append(current)
             records[path] = current
     if trace.design_hash != expected.design_hash:
         return Freshness(False, "design changed (top, parameters, defines or other metadata)")
-    if refreshed == trace:
+    checked_ns = clock[0] if clock else None
+    # Refreshed, a record read now is trusted by its metadata from `checked_ns` on: worth
+    # writing when it changed, or when the file has settled since -- a record that was racy
+    # when the run took it, and would be read at every check otherwise. Nothing was read (a
+    # record that changed unread is that of a symbolic link to no file, whose target is read
+    # afresh every time anyway), or the clock could not be read: nothing to refresh.
+    if checked_ns is None or (
+        refreshed == trace and not any(record.settled_before(checked_ns) for record in read)
+    ):
         return Freshness(True, "", None, trace.run_id)
-    # Every input record now reflects the file as it was at `checked_ns` or later.
+    # Every record now reflects the file as it was at `checked_ns` or later.
     refreshed.inputs_recorded_ns = checked_ns
+    refreshed.outputs_recorded_ns = checked_ns
     return Freshness(True, "", refreshed, trace.run_id)

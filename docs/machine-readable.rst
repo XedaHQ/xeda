@@ -173,8 +173,8 @@ depends on ``yosys_fpga``, whose recorded run was still valid:
 dependency's -- once each, in completion order. Each entry's ``state`` is ``"fresh"`` (the
 recorded run was still valid and was reused, without re-running), ``"ran"`` or ``"failed"``;
 ``reason`` is why it ran (empty for a fresh node), the same text logged as
-``Running <flow>: <reason>``. Runs are make-like by default (``--rebuild stale``): a fully fresh
-run is ``"success": true`` with every node ``"fresh"``. See :doc:`run-directories` for what makes
+``Running <flow>: <reason>``. Runs are make-like by default (without ``--rebuild-all``): a fully
+fresh run is ``"success": true`` with every node ``"fresh"``. See :doc:`run-directories` for what makes
 a node stale. A flow that always runs (``openfpgaloader``, ``open_xc7`` when it programs a
 device, a flow asked for a fresh random seed) is never ``"fresh"``; its ``reason`` says why.
 
@@ -252,4 +252,4 @@ Notes for coding agents
 * A flow's ``dependencies`` run automatically; run the flow you want, not the chain leading to it.
   Reach a dependency's settings through a nested key, e.g. ``-s nextpnr.yosys.flatten=true``.
 * ``xeda run`` is make-like by default: re-running with nothing changed re-runs nothing, and
-  ``nodes`` says so per flow. Force everything to run with ``--rebuild all``.
+  ``nodes`` says so per flow. Force everything to run with ``--rebuild-all``.

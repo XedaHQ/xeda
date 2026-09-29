@@ -12,36 +12,29 @@ from typing import Dict, Iterator
 if sys.platform != "win32":
     import fcntl
 
-__all__ = ["CWD_LOCK", "lock_file", "run_dir_lock"]
-
-#: the lock file inside a run directory that is not xeda's (the one `--cwd` names)
-CWD_LOCK = ".xeda.lock"
+__all__ = ["lock_file", "run_dir_lock"]
 
 #: the lock files this process holds, with how many nested launches hold each
 _held: Dict[Path, int] = {}
 
 
-def lock_file(run_path: Path, inside: bool = False) -> Path:
-    """`<run_path>.lock`, beside the directory: emptying or removing it never deletes the lock.
-    With `inside`, `<run_path>/.xeda.lock`: for the directory `--cwd` names, which xeda never
-    empties, and whose parent is none of xeda's business."""
-    if inside:
-        return run_path / CWD_LOCK
+def lock_file(run_path: Path) -> Path:
+    """`<run_path>.lock`, beside the directory: emptying or removing it never deletes the lock."""
     return run_path.parent / f"{run_path.name}.lock"
 
 
 @contextlib.contextmanager
-def run_dir_lock(run_path: Path, inside: bool = False) -> Iterator[None]:
+def run_dir_lock(run_path: Path) -> Iterator[None]:
     """Hold an exclusive lock on `run_path`, waiting for any other process holding it.
 
-    POSIX `flock` on `lock_file(run_path, inside)`, which is released when this process exits
+    POSIX `flock` on `lock_file(run_path)`, which is released when this process exits
     however it exits. Reentrant within a process: a launch nested in another one for the same
     directory does not wait for itself. Where `fcntl` is unavailable (Windows), there is no lock.
     """
     if sys.platform == "win32":
         yield
         return
-    path = lock_file(run_path, inside)
+    path = lock_file(run_path)
     key = Path(os.path.abspath(path))
     if key in _held:
         _held[key] += 1

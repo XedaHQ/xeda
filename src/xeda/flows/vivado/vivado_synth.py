@@ -6,7 +6,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from ...dataclass import Field, XedaBaseModel, field_validator
+from ...dataclass import Field, XedaBaseModel, deliverable, field_validator
 from ...design import SourceType
 from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
@@ -270,10 +270,12 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )
         bitstream: Optional[Path] = Field(
             None,
-            description="Write the FPGA bitstream to this file, relative to the run directory, "
-            "through Vivado's `write_bitstream` step, which the implementation run then goes on "
-            "to. A .bin that step writes (`impl.steps.WRITE_BITSTREAM.ARGS.BIN_FILE`) is put "
-            "beside it. No bitstream is written if unset.",
+            description="Write the FPGA bitstream to this file, through Vivado's `write_bitstream` "
+            "step, which the implementation run then goes on to; a location is delivered there "
+            "once the run succeeded. A .bin that step writes "
+            "(`impl.steps.WRITE_BITSTREAM.ARGS.BIN_FILE`) is put beside it. No bitstream is "
+            "written if unset.",
+            json_schema_extra=deliverable("outputs/{design}.bit"),
         )
         extra_reports: bool = Field(
             False,
@@ -433,12 +435,10 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         outputs = project_outputs(self, settings)
         run_status = self.run_path / RUN_STATUS_FILE
         # What a run registers or reports is what it wrote: nothing an earlier run left there
-        # (inside the run directory; one named outside it is left for Vivado to overwrite)
         stale = [*outputs.values(), run_status]
         if BITSTREAM in outputs:
             stale.append(bitstream_bin_file(outputs[BITSTREAM]))
-        for path in stale:
-            self.remove_stale_output(path)
+        self.run_directory.remove(*stale)
         self.artifacts.update(outputs)
 
         tcl_files += post_step_hooks(self, settings)
@@ -542,33 +542,39 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
 
+        # this run's reports, logs and bitstream only: a previous run's, left in the run directory,
+        # are not this run's artifacts (`written_by_this_run`)
         for report_file in self.settings.reports_dir.glob("**/*"):
-            if report_file.is_file():
+            if report_file.is_file() and self.written_by_this_run(report_file):
                 self.artifacts[str(report_file)] = report_file
 
         for log_file in self.run_path.glob("**/*.log"):
-            if log_file.is_file():
+            if log_file.is_file() and self.written_by_this_run(log_file):
                 log_file = log_file.relative_to(self.run_path)
                 self.artifacts[str(log_file)] = log_file
 
         if self.settings.bitstream is not None and not self.artifacts.get(BITSTREAM):
             if self.settings.bitstream.exists():
-                self.artifacts[BITSTREAM] = self.settings.bitstream
+                if self.report_file(self.settings.bitstream) is not None:
+                    self.artifacts[BITSTREAM] = self.settings.bitstream
             else:
                 for bitstream in self.run_path.glob("**/*.bit"):
-                    if bitstream.is_file():
+                    if bitstream.is_file() and self.written_by_this_run(bitstream):
                         self.artifacts[BITSTREAM] = bitstream
                         break
 
         run_status = self.run_path / RUN_STATUS_FILE
-        if run_status.is_file():  # project mode, once a run was waited for
+        # project mode, once a run was waited for -- by this run, never a previous one
+        if run_status.is_file() and self.written_by_this_run(run_status):
             self.results["status"] = run_status.read_text().strip()
 
         reports_dir = self.settings.reports_dir / "route_design"
         failed = not self.parse_timing_report(reports_dir)
-        hier_util = parse_hier_util(reports_dir / "hierarchical_utilization.xml")
+        hier_util_xml = self.report_file(reports_dir / "hierarchical_utilization.xml")
+        hier_util = parse_hier_util(hier_util_xml) if hier_util_xml is not None else None
         if hier_util:
-            with replacing_file(reports_dir / "hierarchical_utilization.json") as f:
+            hier_json = self.run_directory.writable(reports_dir / "hierarchical_utilization.json")
+            with replacing_file(hier_json) as f:
                 json.dump(hier_util, f)
             self.results["_hierarchical_utilization"] = hier_util
         elif not failed:

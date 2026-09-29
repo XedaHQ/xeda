@@ -80,10 +80,18 @@ SPACED_INPUTS = (
     "other_maps",
     "abc_script",
 )
-# Path settings the sweep does not set: the reports land in the run directory, whose path has a
-# space; yosys reads no `lib_paths` of its own -- the ghdl plugin's are `ghdl.lib_paths`, which
+# Path settings the sweep does not set: the reports and the flow's other working locations
+# (its log, the merged liberty) are names in the run directory, whose path has a space; yosys
+# reads no `lib_paths` of its own -- the ghdl plugin's are `ghdl.lib_paths`, which
 # `test_yosys_reads_vhdl_from_a_path_with_spaces` sets.
-NOT_SWEPT = {"reports_dir", "outputs_dir", "checkpoints_dir", "lib_paths"}
+NOT_SWEPT = {
+    "reports_dir",
+    "outputs_dir",
+    "checkpoints_dir",
+    "log_file",
+    "merge_libs_to",
+    "lib_paths",
+}
 
 
 def _write(path: Path, text: str) -> Path:

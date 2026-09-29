@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -35,31 +36,86 @@ def test_a_second_run_reuses_by_default_and_says_so(sqrt):
     assert [node["state"] for node in document["nodes"]] == ["fresh"]
 
 
-def test_rebuild_all_runs_again(sqrt):
+@pytest.mark.parametrize("option", ["--rebuild-all", "--clean"])
+def test_rebuild_all_and_clean_run_a_fresh_flow_again(sqrt, option):
+    """`--clean` implies `--rebuild-all`."""
     settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
     _run(str(sqrt), *settings, "--json")
-    _, document = _run(str(sqrt), *settings, "--rebuild", "all", "--json")
+    _, document = _run(str(sqrt), *settings, option, "--json")
     assert [node["state"] for node in document["nodes"]] == ["ran"]
+
+
+def test_hashed_run_dirs_give_each_settings_variant_its_own_directory(sqrt, tmp_path):
+    settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
+    _, stable = _run(str(sqrt), *settings, "--json")
+    _, hashed = _run(str(sqrt), *settings, "--hashed-run-dirs", "--json")
+    _, other = _run(str(sqrt), *settings, "clock.period=7", "--hashed-run-dirs", "--json")
+    design_dir = (tmp_path / "xeda_run" / "sqrt").resolve()
+    assert Path(stable["run_path"]) == design_dir / "vivado_synth"
+    for document in (hashed, other):
+        assert document["success"] and Path(document["run_path"]).parent == design_dir
+        assert re.fullmatch("vivado_synth_[a-z0-9]{16}", Path(document["run_path"]).name)
+    assert hashed["run_path"] != other["run_path"]
+    assert [node["state"] for node in hashed["nodes"]] == ["ran"]  # not the stable directory's
+
+
+def test_the_environment_sets_no_option(sqrt, monkeypatch):
+    """No automatic `XEDA_<OPTION>` variables: a leftover `XEDA_CLEAN=1` would empty every run
+    directory on every run, with nothing on the command line to turn it off."""
+    settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
+    _run(str(sqrt), *settings, "--json")
+    for name in ("CLEAN", "REBUILD_ALL", "HASHED_RUN_DIRS", "POST_CLEANUP_PURGE"):
+        monkeypatch.setenv(f"XEDA_{name}", "1")
+        monkeypatch.setenv(f"XEDA_RUN_{name}", "1")  # the prefix a subcommand would derive
+    result, document = _run(str(sqrt), *settings, "--json")
+    assert result.exit_code == 0
+    assert [node["state"] for node in document["nodes"]] == ["fresh"]
+    assert Path(document["run_path"]).name == "vivado_synth"
+    assert Path(document["run_path"]).is_dir()
 
 
 @pytest.mark.parametrize(
     "option, replacement",
     [
-        ("--cached-dependencies", "--rebuild stale"),
-        ("--no-cached-dependencies", "--rebuild all"),
-        ("--incremental", "run directories are always reused"),
-        ("--no-incremental", "--clean"),
+        (
+            "--cached-dependencies",
+            "the default, which reuses unchanged runs, and --hashed-run-dirs to keep settings "
+            "variants side by side",
+        ),
+        ("--no-cached-dependencies", "--rebuild-all to run every flow"),
+        (
+            "--incremental",
+            "the default behavior: run directories are always reused, and --clean empties them "
+            "first",
+        ),
+        ("--no-incremental", "--clean to empty run directories before running"),
     ],
 )
 def test_removed_options_name_their_replacement(sqrt, option, replacement):
     result, document = _run(str(sqrt), option, "--json")
+    assert result.exit_code != 0 and document["success"] is False
+    assert document["error"]["message"] == f"`{option}` was removed: use {replacement}"
+
+
+CWD_REMOVED = (
+    "`--cwd` was removed: use --outputs-to . to receive the outputs here; the run itself goes "
+    "under the run root (./xeda_run)"
+)
+
+
+def test_cwd_was_removed_and_names_its_replacement(sqrt, tmp_path):
+    result, document = _run(str(sqrt), "--cwd", "--json")
     assert result.exit_code != 0
-    assert document["success"] is False and replacement in document["error"]["message"]
+    assert document == {
+        "success": False,
+        "error": {"type": "UsageError", "message": CWD_REMOVED},
+    }
+    assert not (tmp_path / "xeda_run").exists(), "nothing ran"
 
 
-def test_clean_with_cwd_is_refused(sqrt):
-    result, document = _run(str(sqrt), "--cwd", "--clean", "--json")
-    assert result.exit_code != 0 and "--cwd" in document["error"]["message"]
+def test_cwd_was_removed_without_json_too(sqrt):
+    result = CliRunner().invoke(cli, ["run", "vivado_synth", str(sqrt), "--cwd"])
+    assert result.exit_code == 2 and CWD_REMOVED in result.output
 
 
 def test_scrub_removed_incremental_names_its_replacement(sqrt):
@@ -81,30 +137,34 @@ class _RecordingRemoteRunner:
 
     settings_seen: list = []
 
-    def __init__(self, xeda_run_dir, **settings):
+    def __init__(self, run_root, **settings):
         self.settings_seen.append(settings)
 
     def run_remote(self, *args, **kwargs):
         return {"success": True, "run_path": "/remote/run"}
 
 
-@pytest.mark.parametrize("given, expected", [([], "stable"), (["--run-dirs", "hashed"], "hashed")])
-def test_remote_mirrors_into_the_chosen_run_directories(sqrt, monkeypatch, given, expected):
+def test_remote_mirrors_into_hashed_run_directories(sqrt, monkeypatch):
+    """A remote run's results are mirrored in `<flow>_<flowrun_hash>`, the remote runner's own
+    layout: the command line hands it none -- only where its outputs are delivered (D21)."""
     _RecordingRemoteRunner.settings_seen = []
     monkeypatch.setattr(remote, "RemoteRunner", _RecordingRemoteRunner)
-    result, document = _run(str(sqrt), "--remote", "host", *given, "--json")
+    result, document = _run(str(sqrt), "--remote", "host", "--json")
     assert result.exit_code == 0 and document["success"]
-    assert _RecordingRemoteRunner.settings_seen == [{"run_dirs": expected}]
+    assert _RecordingRemoteRunner.settings_seen == [
+        {"outputs_to": None, "overwrite_outputs": False}
+    ]
 
 
-@pytest.mark.parametrize("option", [["--rebuild", "all"], ["--rebuild", "stale"], ["--clean"]])
-def test_remote_refuses_rebuild_options(sqrt, monkeypatch, option):
-    """A remote run always runs fresh: an explicit --rebuild or --clean would be ignored."""
+@pytest.mark.parametrize("option", ["--rebuild-all", "--clean", "--hashed-run-dirs"])
+def test_remote_refuses_the_rebuild_and_layout_flags(sqrt, monkeypatch, option):
+    """Each would be ignored: a remote run always runs fresh, mirrored in hashed directories."""
     _RecordingRemoteRunner.settings_seen = []
     monkeypatch.setattr(remote, "RemoteRunner", _RecordingRemoteRunner)
-    result, document = _run(str(sqrt), "--remote", "host", *option, "--json")
+    result, document = _run(str(sqrt), "--remote", "host", option, "--json")
     assert result.exit_code != 0 and document["success"] is False
     assert document["error"]["message"] == (
-        f"`{option[0]}` is not supported with --remote: remote runs always run fresh"
+        f"`{option}` is not supported with --remote: remote runs always run fresh, mirrored in "
+        "hashed run directories"
     )
     assert _RecordingRemoteRunner.settings_seen == []

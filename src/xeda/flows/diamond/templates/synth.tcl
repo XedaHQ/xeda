@@ -5,18 +5,12 @@
 set strategy            {{settings.strategy|tcl_word}}
 
 set implementation_name {{settings.impl_name|tcl_word}}
-{#- `impl_dir` is exactly the path `DiamondSynth.run` checked (`Flow.removable_work_dir`), as one
-    literal word: inside double quotes Tcl substituted `$...` and `[...]` in `impl_folder`, and
-    deleted another directory than the one checked. #}
+{#- `impl_dir` is exactly the path `DiamondSynth.run` located inside the run directory
+    (`RunDirectory.inside`), and removed, as one literal word: inside double quotes Tcl
+    substituted `$...` and `[...]` in `impl_folder`, and named another directory. #}
 set impl_dir            {{impl_dir|tcl_word}}
 
-# impl_dir lies inside the run directory: DiamondSynth.run refuses an impl_folder that does not
-# (Flow.removable_work_dir) before it renders this script.
-file delete -force -- $impl_dir
-# Workaround for old TCL on NFS bug
-# while {[catch {file delete -force -- ${impl_dir} }] != 0} {
-#   after 2000 puts "delete failed. retrying..."
-# }
+# the flow removed the previous implementation (`impl_dir`) before running this script
 
 prj_project new -name {{design.name|tcl_word}} -dev {{settings.fpga.part|tcl_word}} -impl $implementation_name -impl_dir $impl_dir
 

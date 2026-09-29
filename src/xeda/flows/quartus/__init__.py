@@ -269,10 +269,14 @@ class Quartus(FpgaSynthFlow):
             / "Timing_Analyzer"
             / "Multicorner_Timing_Analysis_Summary.csv",
         }
-        resources = parse_csv(reports["summary"], id_field=None)
+        # only the reports this run wrote (`report_file`): a previous run's are not this one's
+        summary = self.report_file(reports["summary"])
+        utilization_report = self.report_file(reports["utilization"])
+        mc_report = self.report_file(reports["timing.multicorner_summary"])
+        if summary is None or utilization_report is None or mc_report is None:
+            return False
+        resources = parse_csv(summary, id_field=None)
         self.results.update(resources)
-        utilization_report = Path(reports["utilization"])
-        assert utilization_report.exists()
         resources = parse_csv(
             utilization_report,
             id_field="Compilation Hierarchy Node",
@@ -312,8 +316,6 @@ class Quartus(FpgaSynthFlow):
 
         # TODO reference for why this timing report is chosen
 
-        mc_report = reports["timing.multicorner_summary"]
-
         slacks = parse_csv(
             mc_report,
             id_field="Clock",
@@ -341,7 +343,10 @@ class Quartus(FpgaSynthFlow):
 
         timing_reports_folder = Path(reports["timing_dir"])
         max_fmax = 0.0
-        for fmax_report in timing_reports_folder.glob("Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"):
+        for found in timing_reports_folder.glob("Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"):
+            fmax_report = self.report_file(found)
+            if fmax_report is None:
+                continue
             log.info("Parsing timing report: %s", fmax_report)
             fmax = parse_csv(
                 fmax_report,

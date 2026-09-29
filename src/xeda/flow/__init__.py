@@ -14,7 +14,7 @@ from .flow import (
 
 # from .decorators import define_flow, sim_flow, synth_flow
 from .fpga import FPGA
-from .run_dir import RunDirectoryError
+from ..run_dir import RunDirectoryError
 from .sim import SimFlow
 from .synth import AsicSynthFlow, FpgaSynthFlow, PhysicalClock, SynthFlow
 

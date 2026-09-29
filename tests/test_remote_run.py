@@ -23,11 +23,15 @@ from types import SimpleNamespace
 import execnet
 import pytest
 
+from pydantic import ValidationError
+
 from xeda import Design
-from xeda.flow import FlowException, RunDirectoryError
-from xeda.flow.run_dir import mark_run_dir
+from xeda.deliver import DeliveryError
+from xeda.flow import FlowException
+from xeda.flow_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteRunner
+from xeda.run_root import RunRootError, ensure_run_root, is_run_root
 
 from .tool_utils import require_ghdl
 
@@ -109,7 +113,7 @@ def remote_host(tmp_path, monkeypatch):
 
 def _remote_run_dir(home: Path, flow_name: str) -> Path:
     """Locate the run directory created on the remote host."""
-    (settings,) = home.glob(f".xeda/remote_run/*/*/{flow_name}*/settings.json")
+    (settings,) = home.glob(f".xeda/remote_run/*/xeda_run/*/{flow_name}*/settings.json")
     return settings.parent
 
 
@@ -228,30 +232,37 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
         "[rtl.parameters]\n"
         'G_IN_WIDTH = 32\nROM = { file = "rom.mem" }\nTRACE = { path = "out/trace.txt" }\n'
     )
-    local_run_dir = tmp_path / "local" / "xeda_run"  # deliberately not under the start directory
-    # a local run's trace, which must not vouch for the remote run's results
+    # deliberately not under the start directory
+    local_run_dir = ensure_run_root(tmp_path / "local" / "xeda_run")
+    assert local_run_dir is not None
+    # a local run in the default (stable) layout, whose directory the mirror must not touch
     local_trace = local_run_dir / "sqrt" / "vivado_synth" / "trace.json"
     local_trace.parent.mkdir(parents=True)
-    mark_run_dir(local_trace.parent)  # a local run's directory, xeda's
     local_trace.write_text("{}")
 
-    results = RemoteRunner(local_run_dir).run_remote(
-        design_root / "sqrt.toml",
-        "vivado_synth",
-        host="somewhere",
-        flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
-    )
+    def run_remote():
+        return RemoteRunner(local_run_dir).run_remote(
+            design_root / "sqrt.toml",
+            "vivado_synth",
+            host="somewhere",
+            flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
+        )
+
+    results = run_remote()
 
     assert results and results["success"], results
     remote_run = _remote_run_dir(remote_host, "vivado_synth")
     local_run = Path(results["run_path"])
     assert local_run.is_relative_to(local_run_dir), "the run is reported where it now is"
-    assert local_run == local_trace.parent and not local_trace.exists()
+    assert local_trace.read_text() == "{}", "a local run's directory is not the mirror"
 
     # One run, one identity: the remote hashes exactly what this side hashed -- although it
     # unpacked everything under another root, with the sources in a flat archive.
     local_settings = json.loads((local_run / "settings.json").read_text())
     remote_settings = json.loads((remote_run / "settings.json").read_text())
+    # the mirror is hashed, whatever layout local runs use: `<flow>_<flowrun_hash>`
+    flowrun_hash = local_settings["flowrun_hash"]
+    assert local_run == local_run_dir / "sqrt" / f"vivado_synth_{flowrun_hash[:DIR_NAME_HASH_LEN]}"
     for key in ("design_hash", "flowrun_hash", "rtl_hash"):
         assert local_settings[key] == remote_settings[key], key
 
@@ -274,6 +285,20 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
             assert Path(path).is_relative_to(local_run / "artifacts"), path
             assert Path(path).exists(), path
     assert json.loads((local_run / "results.json").read_text())["run_path"] == str(local_run)
+
+    # A local `--hashed-run-dirs` run of the same settings shares the mirror's directory: its
+    # trace must not vouch for the remote run's results.
+    (local_run / "trace.json").write_text("{}")
+    again = run_remote()
+    assert again and again["success"] and Path(again["run_path"]) == local_run
+    assert not (local_run / "trace.json").exists()
+
+
+def test_a_remote_run_is_always_mirrored_in_hashed_run_directories(tmp_path):
+    """Remote runs of different settings never share a local directory, nor a local run's."""
+    assert RemoteRunner(tmp_path / "xeda_run").settings.hashed_run_dirs is True
+    with pytest.raises(ValidationError, match="hashed_run_dirs"):
+        RemoteRunner(tmp_path / "xeda_run", hashed_run_dirs=False)
 
 
 def _run_vivado_alt_synth_with_netlist(tmp_path: Path) -> dict | None:
@@ -377,17 +402,15 @@ REMOTES = {
 def test_a_failed_remote_run_does_not_fetch_an_earlier_runs_output(
     remote, tmp_path, remote_host, monkeypatch
 ):
-    """An output an earlier run left on the remote -- here the bitstream, named on the remote
-    outside its run directory -- is there when the next run fails before rewriting it. That run
-    neither fetches it nor lists it: the remote judges what its failed run wrote on its own file
-    system, and this side keeps only what it vouched for, never a file merely because it exists.
-    (A remote's run directory itself is fresh each run, under a new time-stamped directory.)"""
+    """A failed remote run's outputs it never wrote are neither fetched nor listed: the remote
+    judges what its failed run wrote on its own file system, and this side keeps only what it
+    vouched for, never a file merely because the results name it. (An output named on the remote
+    outside its run directory, which an earlier run could have left there, is refused before
+    anything is shipped: `--remote` takes no deliverable location. The remote's run directory
+    itself is fresh each run, under a new time-stamped directory.)"""
     if REMOTES[remote] is not None:
         monkeypatch.setattr(remote_module, "remote_runner", REMOTES[remote])
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "launch_runs")  # inherited by the "remote"
-    bitstream = remote_host / "bits" / "top.bit"
-    bitstream.parent.mkdir()
-    bitstream.write_text("an earlier run's\n")
     design_root = tmp_path / "design"
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
@@ -402,17 +425,16 @@ def test_a_failed_remote_run_does_not_fetch_an_earlier_runs_output(
         flow_settings=[
             "fpga.part=xc7a12tcsg325-1",
             "clock.period=5.0",
-            f"bitstream={bitstream}",
+            "bitstream=top.bit",
         ],
     )
 
     assert results is not None and results["success"] is False, results
     assert "bitstream" not in results["artifacts"], results["artifacts"]
     local_run = Path(results["run_path"])
-    assert not list(local_run.rglob("top.bit")), "the earlier run's bitstream was fetched"
+    assert not list(local_run.rglob("top.bit")), "a bitstream the run never wrote was fetched"
     saved = json.loads((local_run / "results.json").read_text())
     assert "bitstream" not in saved["artifacts"]
-    assert bitstream.read_text() == "an earlier run's\n"
 
 
 class _Channel:
@@ -605,16 +627,17 @@ def test_a_remote_run_rejects_a_testbench_the_simulator_cannot_run_before_connec
 
     assert not connected_to
     assert not (remote_host / ".xeda").exists(), "nothing was shipped"
-    assert not list(local_run_dir.iterdir()), "nor a run directory set up for it"
+    assert not local_run_dir.exists(), "nor a run root set up for it"
 
 
 def test_a_remote_run_refuses_a_users_local_results_directory_before_connecting(
     tmp_path, remote_host, monkeypatch
 ):
     """The local directory a remote run's results are fetched into is a run directory xeda
-    chooses, under the run root: a directory of the user's there (`--xeda-run-dir myrundir`, with
-    `myrundir/sqrt/vivado_synth/my_data.txt`) is refused, naming it, before connecting -- its
-    `settings.json`, `results.json` and fetched artifacts would overwrite the user's files."""
+    chooses, under the run root: a directory of the user's named as the run root (`--run-root
+    myrundir`, with `myrundir/sqrt/vivado_synth/settings.json`) is refused, naming it, before
+    connecting -- its `settings.json`, `results.json` and fetched artifacts would overwrite the
+    user's files."""
     connected_to = []
 
     class _Unreachable(_LocalConnection):
@@ -628,7 +651,7 @@ def test_a_remote_run_refuses_a_users_local_results_directory_before_connecting(
     canary.parent.mkdir(parents=True)
     canary.write_text("the user's own file\n")
 
-    with pytest.raises(RunDirectoryError, match=re.escape(str(canary.parent))):
+    with pytest.raises(RunRootError, match=re.escape(str(local_run_dir))):
         RemoteRunner(local_run_dir).run_remote(
             SQRT / "sqrt.toml",
             "vivado_synth",
@@ -643,9 +666,10 @@ def test_a_remote_run_refuses_a_users_local_results_directory_before_connecting(
 
 
 def test_a_remote_run_marks_its_local_results_directory_and_reuses_it(tmp_path, remote_host):
-    """A remote run's local results directory is marked as xeda's, so the next remote run (or a
-    local one) of the flow reuses it."""
+    """A remote run's local results directory lies in a run root it marks as xeda's, so the next
+    remote run of the flow reuses it."""
     local_run_dir = tmp_path / "local" / "xeda_run"
+    mirrors = []
     for attempt in (1, 2):
         results = RemoteRunner(local_run_dir).run_remote(
             SQRT / "sqrt.toml",
@@ -655,8 +679,11 @@ def test_a_remote_run_marks_its_local_results_directory_and_reuses_it(tmp_path, 
         )
         assert results and results["success"], f"run {attempt}: {results}"
         local_run = Path(results["run_path"])
-        assert local_run == local_run_dir / "sqrt" / "vivado_synth"
-        assert (local_run / ".xeda-run-dir").is_file(), f"run {attempt}"
+        assert local_run.parent == local_run_dir / "sqrt"
+        assert local_run.name.startswith("vivado_synth_")
+        assert is_run_root(local_run_dir), f"run {attempt}"
+        mirrors.append(local_run)
+    assert mirrors[0] == mirrors[1]
 
 
 def test_transfer_nested_artifacts_keeps_external_paths_local(tmp_path):
@@ -720,7 +747,8 @@ def test_transfer_rejects_artifact_destination_symlink(tmp_path):
 
 def _run_remote_runner(tmp_path, monkeypatch, results, settings_fields):
     """Run `remote_runner` against a stand-in for the remote's `DefaultRunner`, whose `Settings`
-    declares `settings_fields`. What it sent back, and the launcher settings it was given."""
+    declares `settings_fields`. What it sent back, the launcher settings it was given, and the
+    run root."""
     import xeda.flow_runner
 
     class Results(dict):
@@ -728,12 +756,14 @@ def _run_remote_runner(tmp_path, monkeypatch, results, settings_fields):
             return dict(self)
 
     given: dict = {}
+    roots: list = []
 
     class Launcher:
         class Settings:
             model_fields = dict.fromkeys(settings_fields)
 
         def __init__(self, *args, **kwargs):
+            roots.extend(args[:1])
             given.update(kwargs)
 
         def run(self, *args, **kwargs):
@@ -758,7 +788,7 @@ def _run_remote_runner(tmp_path, monkeypatch, results, settings_fields):
     channel = Channel()
     remote_module.remote_runner(channel, str(tmp_path), "d.zip", "flow", "d.xeda.json", {})
     sent, written = channel.sent  # the results, then which artifacts a failed run wrote
-    return sent, written, given
+    return sent, written, given, roots
 
 
 def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch):
@@ -766,7 +796,7 @@ def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch
     cannot write (a tuple, a `Path`), which lost a remote run's results entirely; the function
     runs against the remote's xeda, so it applies the key rule itself, in plain Python."""
     results = dict(success=True, timing={("clk", "rise"): 1.5, Path("/x.v"): 2})
-    sent, written, _ = _run_remote_runner(tmp_path, monkeypatch, results, ["rebuild"])
+    sent, written, _, _ = _run_remote_runner(tmp_path, monkeypatch, results, ["hashed_run_dirs"])
     assert json.loads(sent)["timing"] == {"('clk', 'rise')": 1.5, "/x.v": 2}
     assert json.loads(written) is None  # the run succeeded
 
@@ -774,8 +804,8 @@ def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch
 @pytest.mark.parametrize(
     "settings_fields, expected",
     [
-        (["rebuild", "run_dirs", "clean"], dict(rebuild="all", run_dirs="hashed", clean=True)),
-        # xeda 0.4.x, from before `rebuild`: the same behavior, in its own settings
+        (["rebuild_all", "hashed_run_dirs", "clean"], dict(hashed_run_dirs=True, clean=True)),
+        # xeda 0.4.x, from before `hashed_run_dirs`: the same behavior, in its own settings
         (
             ["cached_dependencies", "cleanup_before_run", "incremental"],
             dict(cached_dependencies=True, cleanup_before_run=True, incremental=False),
@@ -788,5 +818,51 @@ def test_the_remote_runs_every_flow_clean_with_the_settings_its_xeda_has(
 ):
     """The remote's xeda may be older than this one: `remote_runner` asks its launcher which
     settings it has, and runs every flow from a clean directory named by its settings."""
-    _, _, given = _run_remote_runner(tmp_path, monkeypatch, dict(success=True), settings_fields)
+    _, _, given, _ = _run_remote_runner(tmp_path, monkeypatch, dict(success=True), settings_fields)
     assert given == dict(backups=False, post_cleanup=False, display_results=False, **expected)
+
+
+def test_the_remote_runs_in_a_run_root_of_its_own(tmp_path, monkeypatch):
+    """Not in the directory the design archive is unpacked into, which holds files the remote's
+    xeda did not create and would refuse as a run root."""
+    _, _, _, roots = _run_remote_runner(
+        tmp_path, monkeypatch, dict(success=True), ["hashed_run_dirs"]
+    )
+    assert roots == [str(tmp_path / "xeda_run")]
+
+
+SQRT_SETTINGS = ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]
+
+
+def _sqrt_design(root: Path) -> Path:
+    root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", root)
+    (root / "sqrt.toml").write_text(
+        'name = "sqrt"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\nclock.port = "clk"\n'
+    )
+    return root / "sqrt.toml"
+
+
+def test_a_remote_run_delivers_outputs_to_but_never_onto_a_read_input(tmp_path, remote_host):
+    """`--outputs-to` from the fetched artifacts, recorded beside the hashed mirror; a file a read
+    setting names is never a destination, even with --overwrite-outputs -- found at delivery,
+    the first time the artifact's name is known."""
+    design = _sqrt_design(tmp_path / "design")
+    got, root = tmp_path / "got", tmp_path / "local" / "xeda_run"
+    first = RemoteRunner(root, outputs_to=got).run_remote(
+        design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
+    )
+    assert first["success"] and first["deliveries"]
+    assert re.fullmatch(r"vivado_synth_[0-9a-f]{16}", Path(first["run_path"]).name), "hashed"
+    delivered = Path(first["deliveries"][0]["to"])
+    assert delivered.is_relative_to(got) and delivered.is_file()
+    kept = delivered.read_bytes()
+    again = RemoteRunner(root, outputs_to=got, overwrite_outputs=True)
+    with pytest.raises(DeliveryError, match="an input of the run"):
+        again.run_remote(
+            design,
+            "vivado_synth",
+            host="somewhere",
+            flow_settings=[*SQRT_SETTINGS, f"xdc_files={delivered}"],
+        )
+    assert delivered.read_bytes() == kept

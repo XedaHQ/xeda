@@ -7,6 +7,7 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowFatalError, FlowSettingsException
 from xeda.flows import Nextpnr, Openfpgaloader
+from xeda.run_dir import RunDirectory
 from xeda.tool import Tool
 
 
@@ -109,7 +110,9 @@ def test_missing_packer_output_never_programs(tmp_path, monkeypatch):
 def test_stale_bitstream_is_not_programmed(tmp_path, monkeypatch):
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
     settings = Openfpgaloader.Settings(fpga={"family": "ecp5", "capacity": "25k"})
-    flow = Openfpgaloader(settings, design, tmp_path / "loader")
+    # a run directory xeda chose, whose previous bitstream is its own
+    run_directory = RunDirectory.claimed(tmp_path / "loader", tmp_path)
+    flow = Openfpgaloader(settings, design, tmp_path / "loader", run_directory=run_directory)
     flow.init()
     pnr = Nextpnr(
         settings.nextpnr.model_copy(update={"fpga": settings.fpga}), design, tmp_path / "pnr"

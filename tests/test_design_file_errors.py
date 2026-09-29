@@ -193,7 +193,7 @@ def test_xeda_dse_reports_an_invalid_design_file_once(tmp_path, json_flag):
     """`dse` prefixed every message with its exception's type, and `DesignValidationError`
     already starts its message with it: "DesignValidationError: DesignValidationError: ..."."""
     path = write(tmp_path / "badval.toml", CLI_CASES["badval.toml"][0])
-    args = ["dse", "vivado_synth", "--design", str(path), "--xeda-run-dir", str(tmp_path / "r")]
+    args = ["dse", "vivado_synth", "--design", str(path), "--run-root", str(tmp_path / "r")]
     args += ["--init-freq-low", "100", "--init-freq-high", "200"]
     proc = run_xeda(*args, *(["--json"] if json_flag else []), cwd=tmp_path)
     if json_flag:

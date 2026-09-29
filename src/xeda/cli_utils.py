@@ -19,6 +19,8 @@ from typing import (
 
 import click
 import yaml
+from click_extra import Command as ColorizedCommand
+from click_extra import Context as ColorizedContext
 from click_extra import Group as ColorizedGroup
 from click_extra import HelpFormatter, HelpTheme
 from click_extra import Style as HelpStyle
@@ -43,6 +45,7 @@ __all__ = [
     "XEDA_HELP_THEME",
     "ClickMutex",
     "ConsoleLogo",
+    "DeclaredEnvvarsCommand",
     "FlowChoice",
     "OptionEatAll",
     "XedaHelpGroup",
@@ -242,6 +245,35 @@ def _restoring_output_streams() -> Iterator[None]:
     finally:
         restore_console(console_previous)
         proc_utils.set_tool_output(tool_previous)
+
+
+class _DeclaredEnvvarsContext(ColorizedContext):
+    """A context with no automatic environment variables: click would otherwise derive a prefix
+    from the parent's (`XEDA_RUN_<OPTION>`) even when the command asks for none."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.auto_envvar_prefix = None
+
+
+class DeclaredEnvvarsCommand(ColorizedCommand):
+    """A command whose options read only the environment variables they declare (`envvar=`).
+
+    With the group's `auto_envvar_prefix`, every option has a hidden second name: a leftover
+    `export XEDA_CLEAN=1` would empty every run directory on every run, with nothing on the
+    command line to turn it off. click-extra also registers the automatic names on the options
+    themselves (to show them in the help), so both the command's settings and its context drop
+    the prefix.
+    """
+
+    context_class = _DeclaredEnvvarsContext
+
+    def __init__(self, *args, **kwargs) -> None:
+        kwargs["context_settings"] = {
+            **(kwargs.get("context_settings") or {}),
+            "auto_envvar_prefix": None,
+        }
+        super().__init__(*args, **kwargs)
 
 
 class XedaHelpGroup(ColorizedGroup):

@@ -7,7 +7,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union
 import colorama
 from box import Box
 
-from ...dataclass import Field, field_validator
+from ...dataclass import WORKING, Field, field_validator
 from ...flow import AsicSynthFlow, describe_results
 from ...platforms import AsicsPlatform
 from ...tool import Tool
@@ -85,6 +85,7 @@ class Dc(AsicSynthFlow):
         log_file: Optional[Path] = Field(
             Path("dc.log"),
             description="Path to the log file. If not set, the log will only be printed to stdout.",
+            json_schema_extra=WORKING,
         )
         dc_shell_name: str = Field(
             "dc_shell",
@@ -174,8 +175,9 @@ class Dc(AsicSynthFlow):
         )
         alib_dir: Optional[Path] = Field(
             None,
-            description="Directory for DC's cached alib library analysis. Sharing one across runs "
-            "avoids re-analyzing the cell library every time.",
+            description="Directory for DC's cached alib library analysis, a name inside the run "
+            "directory.",
+            json_schema_extra=WORKING,
         )
         additional_search_path: Optional[Path] = Field(
             None, description="Extra directory appended to DC's `search_path`."
@@ -329,8 +331,9 @@ class Dc(AsicSynthFlow):
             r"^\s*clock\s*(?P<clock_name>\w+)\s+\(\w+ edge\)\s+(?P<clock_time>\d+\.\d+)\s+(?P<clock_period>\d+\.\d+)\s*$"
         )
         max_report_path = self.settings.reports_dir / "mapped.timing.max.rpt"
-        if max_report_path.exists():
-            with open(max_report_path) as f:
+        max_report = self.report_file(max_report_path)  # only one this run wrote
+        if max_report is not None:
+            with open(max_report) as f:
                 for line in f.readlines():
                     if "clock_period" not in self.results:
                         matches = clock_pattern.search(line)
@@ -363,8 +366,9 @@ class Dc(AsicSynthFlow):
                 max_report_path,
             )
         min_report_path = self.settings.reports_dir / "mapped.timing.min.rpt"
-        if min_report_path.exists():
-            with open(min_report_path) as f:
+        min_report = self.report_file(min_report_path)  # only one this run wrote
+        if min_report is not None:
+            with open(min_report) as f:
                 for line in f.readlines():
                     matches = slack_pattern.search(line)
                     if matches:
@@ -449,7 +453,10 @@ class Dc(AsicSynthFlow):
         # placeholder for ordering
         self.results["path_groups"] = None
 
-        with open(reportfile_path) as rpt_file:
+        qor_report = self.report_file(reportfile_path)  # only one this run wrote
+        if qor_report is None:
+            return False
+        with open(qor_report) as rpt_file:
             content = rpt_file.read()
             sections = re.split(r"\n\s*\n", content)
 

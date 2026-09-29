@@ -1,10 +1,12 @@
 import logging
 import os
+from glob import escape as glob_escape
+from glob import glob
 from pathlib import Path
 from random import randint
 from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Union
 
-from ...dataclass import Field
+from ...dataclass import WORKING, Field, deliverable
 from ...design import SourceType
 from ...flow import Flow, SimFlow
 from ...tool import Tool
@@ -24,10 +26,11 @@ class Verilator(SimFlow):
     cocotb_sim_name = "verilator"
 
     class Settings(SimFlow.Settings):
-        sim_dir: str = Field(
-            "sim_build",
+        sim_dir: Path = Field(
+            Path("sim_build"),
             description="Directory, relative to the run directory, where Verilator writes the "
             "generated C++ and the built model.",
+            json_schema_extra=WORKING,
         )
         compile_args: List[str] = Field(
             [], description="Extra arguments passed to the `verilator` command itself."
@@ -44,8 +47,10 @@ class Verilator(SimFlow):
             False,
             description="Treat Verilator warnings as errors (`-Werror`), failing the flow.",
         )
-        include_dirs: List[str] = Field(
-            [], description="Directories searched for `include` files and missing modules (-I)."
+        include_dirs: List[Path] = Field(
+            [],
+            description="Directories searched for `include` files and missing modules (-I). "
+            "Every file under them is an input of the run.",
         )
         optimize: Union[bool, str, int] = Field(
             True,
@@ -120,10 +125,12 @@ class Verilator(SimFlow):
             None,
             description="Write an FST waveform to this file. FST is far more compact than VCD "
             "for long simulations. See also `vcd`/`waveform`.",
+            json_schema_extra=deliverable("outputs/{design}.fst"),
         )
         saif: Union[None, str, Path] = Field(
             None,
             description="Write switching activity to this SAIF file, for power estimation.",
+            json_schema_extra=deliverable("outputs/{design}.saif"),
         )
         threads: int = Field(
             0,
@@ -325,7 +332,9 @@ class Verilator(SimFlow):
         env = None
 
         # every header's directory, the testbench's included: Verilator compiles both
-        include_dirs = unique(ss.include_dirs + [str(d) for d in self.design.header_dirs(tb=True)])
+        include_dirs = unique(
+            [str(d) for d in ss.include_dirs] + [str(d) for d in self.design.header_dirs(tb=True)]
+        )
 
         args += compile_args
         args += [f"-D{k}" if v is None else f"-D{k}={v}" for k, v in defines.items()]
@@ -355,9 +364,8 @@ class Verilator(SimFlow):
                     log.debug("Using cocotb verilator.cpp from %s", cocotb_cpp_path)
                     sim_dir = Path(ss.sim_dir)
                     sim_dir.mkdir(parents=True, exist_ok=True)
-                    cocotb_cpp = Path(
-                        replacing_copy(cocotb_cpp_path, sim_dir / "cocotb_verilator.cpp")
-                    )
+                    target = self.run_directory.writable(sim_dir / "cocotb_verilator.cpp")
+                    cocotb_cpp = replacing_copy(cocotb_cpp_path, target)
                     assert cocotb_cpp.exists()
             if cocotb_cpp is None:
                 cocotb_cpp = self.copy_from_template("cocotb_verilator.cpp", top=top or "top")
@@ -372,11 +380,12 @@ class Verilator(SimFlow):
         model.run(*ss.model_args, env=env)
 
     def rm_dep_files(self):
+        """Remove the make dependency files in `sim_dir`, to trigger verilator (through the run
+        directory, in which `sim_dir` is a name)."""
         assert isinstance(self.settings, self.Settings)
-        log.info("Removing dependency files to trigger verilator")
-        sim_dir = self.removable_work_dir(self.settings.sim_dir, "sim_dir")
-        if sim_dir.is_dir():
-            for p in sim_dir.glob("*.d"):
-                if p.is_file():
-                    log.debug("Deleting %s", p)
-                    p.unlink()
+        sim_dir = self.settings.sim_dir
+        if not sim_dir:
+            return
+        if os.path.exists(sim_dir):
+            log.info("Removing dependency files to trigger verilator")
+            self.run_directory.remove(*glob(f"{glob_escape(str(sim_dir))}{os.sep}*.d"))

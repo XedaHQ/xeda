@@ -1,10 +1,10 @@
 import logging
-from pathlib import Path
+from pathlib import Path, PurePath
 from tempfile import TemporaryDirectory
 from typing import List, Literal, Optional
 
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
-from ..dataclass import Field
+from ..dataclass import Field, deliverable
 from ..flow import FlowFatalError, FlowSettingsException, FpgaSynthFlow
 from ..tool import Tool
 from .nextpnr import Nextpnr
@@ -47,6 +47,7 @@ class Openfpgaloader(FpgaSynthFlow):
             None,
             description="Packed bitstream output path, relative to the run directory. Defaults "
             "to a file named after the board.",
+            json_schema_extra=deliverable("outputs/{design}.bit"),
         )
         write_flash: bool = Field(False, description="Program nonvolatile flash (`--write-flash`).")
         verify: bool = Field(False, description="Verify SPI flash after programming.")
@@ -78,6 +79,17 @@ class Openfpgaloader(FpgaSynthFlow):
         )
 
         dependency_settings = {"nextpnr": ("fpga", "board", "custom_boards_file", "clocks")}
+
+        def conventional_output(self, field: str, design: str) -> Optional[PurePath]:
+            """The packed bitstream is named for its packer's format, which the family decides:
+            `ecppack` writes `.bit` (ECP5), `icepack` `.bin` (iCE40), and openFPGALoader reads a
+            file by its extension. The family is nextpnr's when this flow's `fpga` is unset:
+            deliveries are split before `resolve_dependency` adopts an `fpga` given only there."""
+            if field == "bitstream_file":
+                fpga = self.fpga if self.fpga is not None else self.nextpnr.fpga
+                family = (fpga.family or "").lower() if fpga is not None else ""
+                return PurePath("outputs", design + (".bit" if family == "ecp5" else ".bin"))
+            return super().conventional_output(field, design)
 
     def always_runs(self) -> Optional[str]:
         return "it programs a device"
@@ -134,6 +146,8 @@ class Openfpgaloader(FpgaSynthFlow):
             raise FlowFatalError("The packed bitstream cannot overwrite the nextpnr configuration.")
         # A successful packer invocation may produce no file (for example, --help). Pack to a
         # fresh path, then publish it only after this invocation has written an output.
+        # never through a link at that name (`RunDirectory.writable`)
+        self.run_directory.writable(bitstream)
         with TemporaryDirectory(prefix=".xeda-pack-", dir=bitstream.parent) as temporary_dir:
             packed = Path(temporary_dir) / bitstream.name
             self.packer.run(config, packed, *ss.packer_args)

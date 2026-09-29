@@ -1,13 +1,12 @@
 import logging
 import multiprocessing
-import shutil
 import traceback
 from concurrent.futures import CancelledError, TimeoutError
 from copy import deepcopy
 from datetime import datetime
 from inspect import isclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import psutil
 from attrs import define
@@ -16,8 +15,10 @@ from pebble.pool.process import ProcessPool
 from pydantic import ValidationError
 
 from ...dataclass import Field, XedaBaseModel, validation_errors
+from ...deliver import deliverable_locations
 from ...design import Design
 from ...flow import Flow, FlowFatalError, FlowSettingsError
+from ...run_dir import RunDirectory
 from ...tool import NonZeroExitCode
 from ...utils import (
     Timer,
@@ -161,19 +162,20 @@ class Dse(FlowLauncher):
         )
         timeout: int = 90 * 60  # in seconds
         variations: Optional[Dict[str, List[Any]]] = None
+        #: always: each variant keeps its own directory. Variants (and dependencies) with
+        #: identical settings share one, locked while a launch uses it, so the second reuses what
+        #: the first ran.
+        hashed_run_dirs: Literal[True] = True
 
     def __init__(
         self,
         optimizer_class: Union[str, Type[Optimizer]],
         optimizer_settings: Union[Dict[str, Any], Optimizer.Settings] = {},
-        xeda_run_dir: Union[str, Path] = "xeda_run_dse",
+        run_root: Union[str, Path, None] = None,
         **kwargs,
     ) -> None:
-        """Configure the optimizer and run directory for a DSE runner."""
-        super().__init__(
-            xeda_run_dir,
-            **kwargs,
-        )
+        """Configure the optimizer and run root (default `./xeda_run`) for a DSE runner."""
+        super().__init__(run_root, **kwargs)
         assert isinstance(self.settings, self.Settings)
 
         # update settings
@@ -181,9 +183,6 @@ class Dse(FlowLauncher):
             self.settings.post_cleanup = False
             self.settings.post_cleanup_purge = False
         self.settings.display_results = False
-        # Each variant keeps its own directory. Variants (and dependencies) with identical settings
-        # share one, locked while a launch uses it, so the second reuses what the first ran.
-        self.settings.run_dirs = "hashed"
 
         if isinstance(optimizer_class, str):
             cls = load_class(optimizer_class, __package__)
@@ -210,7 +209,6 @@ class Dse(FlowLauncher):
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
         depender: Optional[Flow] = None,
         copy_resources: List[str] = [],
-        run_path: Optional[Path] = None,
         all_flows_settings: Optional[Dict[str, Any]] = None,
     ):
         """Explore flow setting variations and return the best run."""
@@ -282,6 +280,30 @@ class Dse(FlowLauncher):
         # successful run".
         flow_class.check_required_settings(base_settings)
         flow_class.check_design_supported(design)
+        # D21: many variants would deliver to one path, so an exploration delivers nothing
+        located = deliverable_locations(base_settings)
+        if located or self.settings.outputs_to is not None:
+            reason = "an exploration runs many variants, so nothing is delivered"
+            raise FlowSettingsError(
+                [
+                    (
+                        key,
+                        f"`{key}` names a location ({path}): {reason}; give a name",
+                        None,
+                        "value_error",
+                    )
+                    for key, path in located
+                ]
+                or [
+                    (
+                        "outputs_to",
+                        f"{reason}: the best run directory is in its result",
+                        None,
+                        "value_error",
+                    )
+                ],
+                flow_class.Settings,
+            )
         base_settings.redirect_stdout = True
         base_settings.print_commands = False
 
@@ -429,7 +451,10 @@ class Dse(FlowLauncher):
                                             "Deleting non-improved run directory: %s",
                                             p,
                                         )
-                                        shutil.rmtree(p, ignore_errors=True)
+                                        try:
+                                            RunDirectory.claimed(p, self.run_root).delete()
+                                        except (OSError, ValueError) as e:
+                                            log.warning("Could not delete %s: %s", p, e)
                                         outcome.run_path = None
                             except StopIteration:
                                 break  # next(iterator) finished

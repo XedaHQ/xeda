@@ -5,17 +5,19 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .console import console
-from .dataclass import Field, XedaBaseModel, field_validator
+from .dataclass import Field, PrivateAttr, XedaBaseModel, field_validator
 from .flow import Flow
 from .proc_utils import DOCKER_IMAGE_PREFIX, note_program, run_process, tool_output_stream
 from .utils import (
     ExecutableNotFound,
     NonZeroExitCode,
     ToolException,
+    WorkingDirectory,
     cached_property,
     replacing_file,
     try_convert,
@@ -97,6 +99,10 @@ class Docker(XedaBaseModel):
     ) -> Union[str, None]:
         """Run the tool from a docker container"""
         note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
+        # This run's mounts: `mounts`, and the directories this run needs. Kept out of `mounts`:
+        # a later run elsewhere would mount them again -- a version probe's temporary directory
+        # (`Tool.probe_stdout`) is gone by then, and Docker would create it anew.
+        mounts = dict(self.mounts)
         if self.fix_cpuinfo and self.cpuinfo:
             cpuinfo_file = Path(".cpuinfo").resolve()
             with replacing_file(cpuinfo_file) as f:
@@ -107,7 +113,7 @@ class Docker(XedaBaseModel):
                             line += " sse sse2"
                         f.write(line + "\n")
                     f.write("\n")
-            self.mounts[str(cpuinfo_file)] = "/proc/cpuinfo"
+            mounts[str(cpuinfo_file)] = "/proc/cpuinfo"
 
         cwd = Path.cwd()
         docker_args = [
@@ -117,16 +123,16 @@ class Docker(XedaBaseModel):
 
         if self.privileged:
             docker_args.append("--privileged")
-        self.mounts[str(cwd)] = str(cwd)
+        mounts[str(cwd)] = str(cwd)
         if root_dir:
-            self.mounts[str(root_dir)] = str(root_dir)
+            mounts[str(root_dir)] = str(root_dir)
         if not stdout and tool_output_stream().isatty():
             docker_args += ["--tty", "--interactive"]
         if self.platform:
             docker_args += ["--platform", self.platform]
         selinux_perm = True
         cap = ":z" if selinux_perm else ""
-        for k, v in self.mounts.items():
+        for k, v in mounts.items():
             docker_args.append(f"--volume={k}:{v}{cap}")
         env = {**self.default_env, **(env or {})}
         if env:
@@ -208,6 +214,9 @@ class Tool(XedaBaseModel):
     source_dirs_: List[Path] = Field(
         default_factory=list, json_schema_extra={"hidden_from_schema": True}
     )
+    #: the run directory of the flow the tool runs for (`Flow.run_directory`), through which
+    #: the files xeda writes for the tool (`env.sh`) go; None outside a flow
+    _run_directory: Any = PrivateAttr(default=None)
 
     @field_validator("version_flag", mode="before")
     @classmethod
@@ -238,6 +247,7 @@ class Tool(XedaBaseModel):
         )
 
         if flow is not None:
+            self._run_directory = flow.run_directory
             self.design_root_ = flow.design_root
             design = flow.design
             source_dirs_ = {src.path.parent for src in design.rtl.sources}
@@ -311,7 +321,7 @@ class Tool(XedaBaseModel):
         if not version_flags:
             version_flags = tuple(self.version_flag)
         try:
-            out = self.run_get_stdout(*version_flags)
+            out = self.probe_stdout(*version_flags)
         except Exception:  # noqa: BLE001 - an unavailable version is represented by None
             return None
         if out and out.strip():
@@ -319,7 +329,7 @@ class Tool(XedaBaseModel):
         # Some tools (nextpnr, among others) print their version banner to stderr, so stdout
         # comes back empty. Retry with stderr folded in rather than reporting no version.
         try:
-            return self.run_get_stdout(*version_flags, merge_stderr=True)
+            return self.probe_stdout(*version_flags, merge_stderr=True)
         except Exception:  # noqa: BLE001 - retain the first attempt's output when probing fails
             return out
 
@@ -440,6 +450,8 @@ class Tool(XedaBaseModel):
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
             env_file = "env.sh"
+            if self._run_directory is not None:
+                self._run_directory.writable(env_file)  # inside the flow's run directory
             with replacing_file(env_file) as f:
                 f.write("\n".join(f'export {k}="{v}"' for k, v in env.items()))
         return self.execute(
@@ -517,6 +529,28 @@ class Tool(XedaBaseModel):
             assert isinstance(out, str)
         return out
 
+    def probe_stdout(
+        self,
+        *args: Any,
+        env: dict[str, Any] | None = None,
+        raise_on_error: bool = True,
+        merge_stderr: bool = False,
+    ) -> str | None:
+        """`run_get_stdout` for a query about the tool itself (its version), in a temporary
+        working directory, so that it leaves nothing behind where the flow runs.
+
+        A flow creates its tools -- which probes their version -- in `init()` too, in its run
+        directory and before the launcher checks whether the last run is still fresh; every
+        file of a run directory is an output of that run, and some tools write into
+        their working directory even for a version (`vivado -version` starts vivado.jou and
+        vivado.log). An executable named by a relative path would be looked up from the
+        temporary directory: tools are named by name or by absolute path."""
+        with tempfile.TemporaryDirectory(prefix="xeda-probe-") as scratch:
+            with WorkingDirectory(scratch):
+                return self.run_get_stdout(
+                    *args, env=env, raise_on_error=raise_on_error, merge_stderr=merge_stderr
+                )
+
     def run_stdout_to_file(
         self,
         *args: Any,
@@ -529,6 +563,7 @@ class Tool(XedaBaseModel):
         # A derived tool changes its Docker command and may later add mounts/environment entries.
         # It must not share those containers with the source tool.
         new_tool = self.model_copy(deep=True, update=kwargs)
+        new_tool._run_directory = self._run_directory  # the flow's own, never a copy of it
         new_tool.invalidate_cached_properties()
         if "default_args" not in kwargs:
             new_tool.default_args = []
