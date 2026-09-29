@@ -178,10 +178,11 @@ What makes a flow stale
   fields -- not merely where files live).
 
 A run directory is reused from run to run, so a report the previous run left is still there when
-a flow runs again. A flow reads only the reports its own run wrote: one last written before the
-run started (by the clock of the run directory's file system) counts as missing -- "not written
-by this run" -- so a tool that fails before it writes its reports never passes on the previous
-run's.
+a flow runs again. A flow reads only the reports its own run wrote: right before the run, Xeda
+notes what the run directory holds -- each file's device, inode, size and times -- and a report
+found unchanged since then (or under a directory it could not read) counts as missing -- "not
+written by this run", decided by the file itself, never by a clock -- so a tool that fails before
+it writes its reports never passes on the previous run's.
 
 Dependencies are always brought up to date before the flow that depends on them is judged, so a
 stale dependency reruns first. Within one launch, a run directory is entered at most once: two
