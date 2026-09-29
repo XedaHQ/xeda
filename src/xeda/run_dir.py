@@ -124,27 +124,30 @@ def resolved_inside(path: Union[str, os.PathLike], directory: Path) -> Optional[
 
 
 def _make_writable(path: str) -> None:
-    """Add the owner's read, write and search permission to `path`, unless it is a symbolic
-    link: `chmod` follows links, and xeda never acts through a tool-made one."""
+    """Add the owner's read, write and search permission to `path`, keeping its other bits,
+    unless it is a symbolic link: `chmod` follows links, and xeda never acts through a tool-made
+    one."""
     if not os.path.islink(path):
-        os.chmod(path, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
-
-
-def _on_rm_error(func: Any, path: str, _exc: Any) -> None:
-    """Make what blocked a removal writable and try again (a tool may leave a read-only file, or
-    a read-only directory that cannot lose its entries). Only entries that are not links change."""
-    _make_writable(os.path.dirname(path) or os.curdir)
-    _make_writable(path)
-    func(path)
+        os.chmod(path, stat.S_IMODE(os.lstat(path).st_mode) | stat.S_IRWXU)
 
 
 def rmtree(path: Path) -> None:
     """`shutil.rmtree`, making read-only entries writable. Only `RunDirectory` calls it, on a
-    path it checked."""
+    path it checked. A removal a read-only entry blocks is retried after making the entry and
+    its directory writable; the directory holding `path` itself is never touched."""
+    root = os.path.abspath(path)
+
+    def on_error(func: Any, entry: str, _exc: Any) -> None:
+        entry = os.path.abspath(entry)
+        if entry != root:
+            _make_writable(os.path.dirname(entry))
+        _make_writable(entry)
+        func(entry)
+
     if sys.version_info >= (3, 12):
-        shutil.rmtree(path, onexc=_on_rm_error)
+        shutil.rmtree(path, onexc=on_error)
     else:
-        shutil.rmtree(path, onerror=_on_rm_error)
+        shutil.rmtree(path, onerror=on_error)
 
 
 @dataclass(frozen=True)
