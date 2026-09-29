@@ -264,9 +264,7 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
     from another directory, which used to change the settings' hash."""
     design = Design.from_toml(SQRT / "sqrt.toml")
     settings = {"fpga": "xc7a12tcsg325-1", "clock_period": 5.5}
-    runner = DefaultRunner(
-        tmp_path / "xeda_run", cached_dependencies=True, skip_if_previous_run_exists=True
-    )
+    runner = DefaultRunner(tmp_path / "xeda_run", rebuild="stale")
 
     monkeypatch.chdir(_design_copy(tmp_path / "start_one"))
     first = runner.run_flow(VivadoSynth, design, dict(settings))

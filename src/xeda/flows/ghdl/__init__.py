@@ -7,7 +7,7 @@ import re
 from abc import ABCMeta
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, field_validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
@@ -121,9 +121,9 @@ class Ghdl(Flow, metaclass=ABCMeta):
             True,
             description="Slightly relax some rules to be compatible with various other simulators or synthesizers.",
         )
-        clean: bool = Field(
+        clean_before_analyze: bool = Field(
             True,
-            description="Run 'clean' before analysis. This will remove all generated files.",
+            description="Run `ghdl remove` before analysis. This will remove all generated files.",
         )
         diagnostics: bool = Field(
             True, description="Enable both color and source line carret diagnostics."
@@ -152,6 +152,12 @@ class Ghdl(Flow, metaclass=ABCMeta):
         psl_in_comments: bool = Field(
             False, description="Parse PSL assertions within comments (for VHDL-2002 and earlier)"
         )
+
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **Flow.Settings.removed_settings,
+            "clean": "clean_before_analyze (whether `ghdl remove` runs before analysis) or the "
+            "--clean option (to empty the run directory)",
+        }
 
         def common_flags(self, vhdl: VhdlSettings) -> List[str]:
             """Build GHDL flags shared by analysis and execution."""
@@ -260,7 +266,8 @@ class Ghdl(Flow, metaclass=ABCMeta):
         vhdl: VhdlSettings,
         find_top: bool = True,
     ) -> Tuple012:
-        """Analyze the VHDL `sources` into the work library (after `ghdl remove`, if `clean`).
+        """Analyze the VHDL `sources` into the work library (after `ghdl remove`, if
+        `clean_before_analyze`).
 
         Returns the top unit(s): `top` as given or, when it is empty and `find_top` is set, as
         discovered with `ghdl find-top`. Empty if neither yields one.
@@ -271,7 +278,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
         if isinstance(top, str):
             top = (top,)
         backend = self.ghdl.info.get("backend", None)
-        if ss.clean:
+        if ss.clean_before_analyze:
             self.ghdl.run("remove", *ss.get_flags(vhdl, "remove", backend=backend))
         analysis_flags = ss.get_flags(vhdl, "analyze", backend=backend)
         self.ghdl.run("analyze", *analysis_flags, *(str(s) for s in sources))
@@ -502,11 +509,11 @@ class GhdlSim(Ghdl, SimFlow):
             None,
             description="Write the waveforms. The file name can be an absolute path or a name. If the name is used, the file will be created in flow's run_dir.",
         )
-        read_wave_opt: Optional[str] = Field(
+        read_wave_opt: Optional[Path] = Field(
             None,
             description="Filter signals to be dumped to the wave file according to the wave option file provided.",
         )
-        write_wave_opt: Optional[str] = Field(
+        write_wave_opt: Optional[Path] = Field(
             None,
             description="Creates a wave option file with all the signals of the design. Overwrites the file if it already exists.",
         )
@@ -584,7 +591,7 @@ class GhdlSim(Ghdl, SimFlow):
 
         if ss.wave or ss.vcd or ss.fst:
             if not ss.read_wave_opt and not ss.write_wave_opt:
-                ss.write_wave_opt = "wave.opt"
+                ss.write_wave_opt = Path("wave.opt")
 
         if ss.write_wave_opt:
             self.remove_stale_output(ss.write_wave_opt)

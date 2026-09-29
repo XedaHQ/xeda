@@ -90,13 +90,13 @@ def test_a_failed_ise_process_fails_the_run(process, how, tmp_path, monkeypatch)
     never by a TCL error: xtclsh exited 0 after a failed bitgen, and the run went on to record the
     bitstream a previous run had left in the reused directory. The script checks both and exits
     1, and the flow removes its own previous outputs first, so no earlier bitstream survives."""
-    first = _run_ise(tmp_path, monkeypatch, incremental=True)
+    first = _run_ise(tmp_path, monkeypatch)
     stale = first.run_path / "sqrt.bit"
     assert stale.is_file()
 
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "{" + process + "}")
     monkeypatch.setenv("XEDA_FAKE_ISE_FAILURE", how)
-    flow = _run_ise(tmp_path, monkeypatch, incremental=True)
+    flow = _run_ise(tmp_path, monkeypatch)
 
     assert flow.run_path == first.run_path
     assert not flow.results.success

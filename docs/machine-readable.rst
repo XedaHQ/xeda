@@ -148,22 +148,40 @@ at that rather than assuming a draft.
 Running a flow
 ==============
 
-``xeda run <flow> <design> --json`` writes a single JSON object to stdout:
+``xeda run <flow> <design> --json`` writes a single JSON object to stdout. Here ``nextpnr``
+depends on ``yosys_fpga``, whose recorded run was still valid:
 
 .. code-block:: json
 
     {
-      "flow": "vivado_synth",
-      "design": "sqrt",
+      "flow": "nextpnr",
+      "design": "blinky",
       "success": true,
-      "results": {"success": true, "Fmax": 459.55, "lut": 4123, "...": "..."},
-      "run_path": "/path/to/xeda_run/sqrt/vivado_synth",
-      "results_json": "/path/to/xeda_run/sqrt/vivado_synth/results.json",
-      "settings_json": "/path/to/xeda_run/sqrt/vivado_synth/settings.json"
+      "results": {"success": true, "Fmax": 212.4, "lut": 45, "...": "..."},
+      "run_path": "/path/to/xeda_run/blinky/nextpnr",
+      "results_json": "/path/to/xeda_run/blinky/nextpnr/results.json",
+      "settings_json": "/path/to/xeda_run/blinky/nextpnr/settings.json",
+      "nodes": [
+        {"flow": "yosys_fpga", "run_path": "/path/to/xeda_run/blinky/yosys_fpga",
+         "state": "fresh", "reason": ""},
+        {"flow": "nextpnr", "run_path": "/path/to/xeda_run/blinky/nextpnr",
+         "state": "ran", "reason": "settings changed: seed"}
+      ]
     }
 
+``nodes`` lists every run directory the run touched -- the requested flow's and each
+dependency's -- once each, in completion order. Each entry's ``state`` is ``"fresh"`` (the
+recorded run was still valid and was reused, without re-running), ``"ran"`` or ``"failed"``;
+``reason`` is why it ran (empty for a fresh node), the same text logged as
+``Running <flow>: <reason>``. Runs are make-like by default (``--rebuild stale``): a fully fresh
+run is ``"success": true`` with every node ``"fresh"``. See :doc:`run-directories` for what makes
+a node stale. A flow that always runs (``openfpgaloader``, ``open_xc7`` when it programs a
+device, a flow asked for a fresh random seed) is never ``"fresh"``; its ``reason`` says why.
+
 On failure the document carries an ``error`` object alongside any available results, and the exit
-status is non-zero:
+status is non-zero. ``nodes`` still lists every node that ran before the failure, and the one that
+failed; it is ``[]`` when the error happened before any flow could run (a bad design file, an
+unknown flow or setting):
 
 .. code-block:: json
 
@@ -175,7 +193,8 @@ status is non-zero:
       "error": {
         "type": "FlowSettingsError",
         "message": "FlowSettingsError: 1 error validating VivadoSynth.Settings\n   Extra inputs are not permitted: no_such_setting (extra_forbidden)"
-      }
+      },
+      "nodes": []
     }
 
 ``error.type`` names the exception class, which is stable enough to branch on:
@@ -232,3 +251,5 @@ Notes for coding agents
   no need to guess where output landed.
 * A flow's ``dependencies`` run automatically; run the flow you want, not the chain leading to it.
   Reach a dependency's settings through a nested key, e.g. ``-s nextpnr.yosys.flatten=true``.
+* ``xeda run`` is make-like by default: re-running with nothing changed re-runs nothing, and
+  ``nodes`` says so per flow. Force everything to run with ``--rebuild all``.

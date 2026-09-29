@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .console import console
 from .dataclass import Field, XedaBaseModel, field_validator
 from .flow import Flow
-from .proc_utils import run_process, tool_output_stream
+from .proc_utils import DOCKER_IMAGE_PREFIX, note_program, run_process, tool_output_stream
 from .utils import (
     ExecutableNotFound,
     NonZeroExitCode,
@@ -96,6 +96,7 @@ class Docker(XedaBaseModel):
         merge_stderr: bool = False,
     ) -> Union[str, None]:
         """Run the tool from a docker container"""
+        note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
         if self.fix_cpuinfo and self.cpuinfo:
             cpuinfo_file = Path(".cpuinfo").resolve()
             with replacing_file(cpuinfo_file) as f:

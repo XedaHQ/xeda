@@ -1,11 +1,12 @@
 """What a launch does to its run directory is decided per launch.
 
-A dependency runs in its depender's run directory, so it is always incremental, never scrubs
-old runs and never cleans up after itself. That used to be done by writing those values onto
-the launcher's *shared* settings whenever a run path was given -- that is, on every dependency
-launch. So launching any flow with a dependency switched off the depender's own
-`--post-cleanup`/`--post-cleanup-purge` (its `_report` runs after its dependencies), and left a
-reused launcher incremental and non-scrubbing for every later launch.
+Every flow, dependencies included, runs in its own directory under `<xeda_run>/<design>/` and
+gets the launcher's policy (`clean`, `post_cleanup`, scrubbing); only the directory `--cwd` names
+is never cleaned or scrubbed. Post-run clean-ups wait until the requested flow has completed,
+since a depender may read any file its dependency wrote. The policy used to be applied by
+writing values onto the launcher's *shared* settings whenever a run path was given -- that is,
+on every dependency launch -- which switched off the depender's own `--post-cleanup` /
+`--post-cleanup-purge` and left a reused launcher changed for every later launch.
 """
 
 from typing import ClassVar
@@ -66,7 +67,7 @@ def design(request):
 LAUNCHER_OPTIONS = [
     dict(post_cleanup=True),
     dict(post_cleanup=True, post_cleanup_purge=True),
-    dict(incremental=False),
+    dict(clean=True),
     dict(scrub_old_runs=True),
 ]
 
@@ -89,10 +90,13 @@ def test_post_cleanup_applies_to_a_flow_with_a_dependency(tmp_path, toy_flows, d
     launcher = DefaultRunner(tmp_path / "run", display_results=False, post_cleanup=True)
     flow = launcher.launch_flow(top, design, {})
     assert flow.succeeded
-    kept = sorted(p.name for p in flow.run_path.iterdir())
-    # the depender's scratch file and its dependency's nested run directory are cleaned up; the
-    # marker stays, so that the directory is still xeda's
-    assert kept == [".xeda-run-dir", "results.json", "settings.json"], kept
+    (dep,) = flow.completed_dependencies
+    # each flow's scratch file is cleaned up, in its own run directory -- and its trace: a pruned
+    # directory may lack a file a depender reads, so it is never reused. The marker stays, so
+    # that the directory is still xeda's.
+    for run_path in (flow.run_path, dep.run_path):
+        kept = sorted(p.name for p in run_path.iterdir())
+        assert kept == [".xeda-run-dir", "results.json", "settings.json"], kept
 
 
 def test_post_cleanup_purge_applies_to_a_flow_with_a_dependency(tmp_path, toy_flows, design):
@@ -103,7 +107,8 @@ def test_post_cleanup_purge_applies_to_a_flow_with_a_dependency(tmp_path, toy_fl
     )
     flow = launcher.launch_flow(top, design, {})
     assert flow.succeeded
-    assert not flow.run_path.exists()
+    (dep,) = flow.completed_dependencies
+    assert not flow.run_path.exists() and not dep.run_path.exists()
 
 
 def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path, design):
@@ -224,13 +229,7 @@ def test_post_cleanup_through_run_path_alias(
             return True
 
     try:
-        launcher = DefaultRunner(
-            tmp_path / "run",
-            display_results=False,
-            cached_dependencies=False,
-            incremental=True,
-            post_cleanup=True,
-        )
+        launcher = DefaultRunner(tmp_path / "run", display_results=False, post_cleanup=True)
         alias = launcher.get_flow_run_path(design.name, LinkedFlow.name).parent
         actual = (launcher.xeda_run_dir if target_inside_run_root else tmp_path) / "actual_design"
         actual.mkdir()
@@ -249,28 +248,26 @@ def test_post_cleanup_through_run_path_alias(
             registered_flows.pop(name, None)
 
 
-def test_a_reused_launcher_stays_non_incremental(tmp_path, toy_flows, design):
-    """`incremental=False` starts every launch from an empty run directory -- including the
-    ones after a launch that happened to have dependencies."""
+def test_a_reused_launcher_keeps_cleaning(tmp_path, toy_flows, design):
+    """`clean=True` starts every launch from an empty run directory -- including the ones after
+    a launch that happened to have dependencies."""
     _, top = toy_flows
-    launcher = DefaultRunner(tmp_path / "run", display_results=False, incremental=False)
+    launcher = DefaultRunner(tmp_path / "run", display_results=False, clean=True)
     first = launcher.launch_flow(top, design, {})
     stale = first.run_path / "stale.txt"
     stale.write_text("from the previous run\n")
     second = launcher.launch_flow(top, design, {})
     assert second.run_path == first.run_path
     assert not stale.exists()
-    assert second.incremental is False
 
 
-def test_a_dependency_is_incremental_in_its_depender_run_directory(tmp_path, toy_flows, design):
-    """The per-launch rule itself: a dependency runs incrementally inside its depender's run
-    directory and does not clean up after itself (its depender decides what is kept)."""
+def test_a_dependency_runs_in_a_sibling_directory(tmp_path, toy_flows, design):
+    """The per-launch rule itself: a dependency runs in its own run directory, beside its
+    depender's rather than inside it."""
     dep, top = toy_flows
-    launcher = DefaultRunner(tmp_path / "run", display_results=False, incremental=False)
+    launcher = DefaultRunner(tmp_path / "run", display_results=False)
     flow = launcher.launch_flow(top, design, {})
     (completed,) = flow.completed_dependencies
     assert isinstance(completed, dep)
-    assert completed.incremental is True
-    assert completed.run_path == flow.run_path / dep.name
+    assert completed.run_path == flow.run_path.parent / dep.name
     assert (completed.run_path / "dep_scratch.txt").exists()

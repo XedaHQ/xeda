@@ -78,6 +78,7 @@ SPACED_INPUTS = (
     "adder_map",
     "clockgate_map",
     "other_maps",
+    "abc_script",
 )
 # Path settings the sweep does not set: the reports land in the run directory, whose path has a
 # space; yosys reads no `lib_paths` of its own -- the ghdl plugin's are `ghdl.lib_paths`, which
@@ -149,6 +150,9 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
         "adder_map": str(_write(maps / "adder map.v", "module _unused_fa(); endmodule\n")),
         "clockgate_map": str(_write(maps / "clock gate.v", "module cg(); endmodule\n")),
         "other_maps": [str(_write(maps / "other map.v", "module _unused(); endmodule\n"))],
+        # ABC runs the script with its own `source`, which splits a path at spaces whatever the
+        # quoting: the one input that must live at a path without one
+        "abc_script": str(_write(tmp_path / "abc" / "map.abc", "strash\nmap\n")),
         **SPACED_OUTPUTS,
         "script_format": script_format,
     }
@@ -280,6 +284,7 @@ def test_yosys_reads_every_input_by_its_own_name(script_format, tmp_path):
         "adder_map": str(with_decoy(root / "map" / "fa[1].v", "module _unused_fa(); endmodule\n")),
         "clockgate_map": str(with_decoy(root / "map" / "cg[1].v", "module cg(); endmodule\n")),
         "other_maps": [str(with_decoy(root / "map" / "o[1].v", "module _unused(); endmodule\n"))],
+        "abc_script": str(with_decoy(root / "map" / "abc[1].abc", "strash\nmap\n")),
         "netlist_verilog": "net[1].v",
         "script_format": script_format,
     }

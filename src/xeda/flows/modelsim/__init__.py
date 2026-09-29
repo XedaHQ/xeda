@@ -1,6 +1,7 @@
 # © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
 
 import re
+from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field
@@ -48,7 +49,7 @@ class Modelsim(SimFlow):
             description="SDF timing-annotation files to back-annotate onto the netlist, per delay "
             "corner (min/typ/max) and optional instance root.",
         )
-        modelsimini: Optional[str] = Field(
+        modelsimini: Optional[Path] = Field(
             None,
             description="Path to a `modelsim.ini` to use instead of the tool default, e.g. one "
             "with pre-compiled vendor libraries mapped.",
@@ -107,6 +108,6 @@ class Modelsim(SimFlow):
 
         modelsim_opts = ["-batch", "-do", f"do {script_path}"]
         if ss.modelsimini:
-            modelsim_opts.extend(["-modelsimini", ss.modelsimini])
+            modelsim_opts.extend(["-modelsimini", str(ss.modelsimini)])
         vsim = ModelsimTool()
         vsim.run(*modelsim_opts)

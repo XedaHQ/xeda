@@ -63,6 +63,25 @@ def test_query_command_json_is_parseable(command: List[str]):
     json.loads(proc.stdout)
 
 
+def test_cwd_remote_conflict_emits_json_failure():
+    proc = run_xeda(
+        "run",
+        "yosys",
+        str(SQRT_DESIGN),
+        "--cwd",
+        "--remote",
+        "example.invalid",
+        "--json",
+        cwd=SQRT_DESIGN.parent,
+    )
+    assert proc.returncode != 0
+    document = json.loads(proc.stdout)
+    assert document["success"] is False
+    assert document["error"]["type"] == "UsageError"
+    assert document["error"]["message"] == "--cwd and --remote are mutually exclusive!"
+    assert document["nodes"] == []
+
+
 @pytest.mark.parametrize("command", QUERY_COMMANDS, ids=lambda c: "-".join(c))
 def test_json_flag_is_shorthand_for_format_json(command: List[str]):
     assert run_xeda(*command, "--json").stdout == run_xeda(*command, "--format", "json").stdout
@@ -245,22 +264,16 @@ def test_help_does_not_require_a_terminal():
         assert "Usage:" in proc.stdout
 
 
-def test_no_incremental_help_says_what_happens_to_the_previous_run(tmp_path):
-    """`--no-incremental` deletes the previous run directory: the CLI never asks the launcher
-    for backups. Its help used to say it "backs up or removes" it -- on a destructive option,
-    the one word that matters."""
-    import click
-
-    help_text = " ".join(click.unstyle(run_xeda("run", "--help", check=True).stdout).split())
-    assert "backs up" not in help_text
-    assert "--no-incremental deletes" in help_text
-
+def test_clean_empties_the_run_directory_before_running(tmp_path):
+    """`--clean` empties the run directory before running: the CLI never asks the launcher for
+    backups -- the previous run's own files are simply gone."""
     args = ("run", "vivado_synth", str(SQRT_DESIGN), "-s", "clock.period=5.5", "--json")
     first = json.loads(run_xeda(*args, cwd=tmp_path, fake_tools=True).stdout)
     run_path = Path(first["run_path"])
     (run_path / "MARKER").write_text("from the previous run\n")
-    second = json.loads(run_xeda(*args, "--no-incremental", cwd=tmp_path, fake_tools=True).stdout)
+    second = json.loads(run_xeda(*args, "--clean", cwd=tmp_path, fake_tools=True).stdout)
     assert second["success"] is True
     assert Path(second["run_path"]) == run_path
     assert not (run_path / "MARKER").exists()
-    assert sorted(p.name for p in run_path.parent.iterdir()) == [run_path.name]  # no backup
+    # no backup directory (the run directory's lock file lives beside it)
+    assert sorted(p.name for p in run_path.parent.iterdir() if p.is_dir()) == [run_path.name]

@@ -5,7 +5,7 @@ import sys
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 from xml.etree import ElementTree
 
 from .dataclass import Field, XedaBaseModel, field_validator
@@ -61,14 +61,26 @@ class CocotbSettings(XedaBaseModel):
         "the test of that name (`check` never selects `foo_check`); on cocotb 2.x it may be "
         "qualified by its module (`tb.check`). Can also be given as a comma-separated string.",
     )
-    random_seed: Optional[int] = Field(
-        None,
-        description="Seed the Python random module to recreate a previous test stimulus.",
+    random_seed: Union[int, Literal["random"]] = Field(
+        1,
+        description="Seed of the Python random module (`COCOTB_RANDOM_SEED`): the same seed "
+        'recreates the same test stimulus. "random" lets cocotb draw a new seed on every run, '
+        "so the flow then always runs and is never reused.",
     )
     gpi_extra: List[str] = Field(
         [],
         description="A comma-separated list of extra libraries that are dynamically loaded at runtime.",
     )
+
+    @field_validator("random_seed", mode="before")
+    @classmethod
+    def reject_null_random_seed(cls, value):
+        if value is None:
+            raise ValueError(
+                '`random_seed: null` was removed: use "random" for a new seed on every run, '
+                "or an integer"
+            )
+        return value
 
     @field_validator("testcase", "gpi_extra", mode="before")
     @classmethod
@@ -429,8 +441,8 @@ class Cocotb(CocotbSettings, Tool):
             if self.coverage:
                 environ["COVERAGE"] = 1
             environ.update(self.test_selection(self.testcase or design.tb.cocotb.testcase))
-            if self.random_seed is not None:
-                environ["COCOTB_RANDOM_SEED"] = self.random_seed
+            if self.random_seed != "random":
+                environ["COCOTB_RANDOM_SEED"] = str(self.random_seed)
             if self.gpi_extra:
                 environ["GPI_EXTRA"] = ",".join(self.gpi_extra)
             gpi_users = self.gpi_users()

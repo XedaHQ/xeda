@@ -125,9 +125,9 @@ class SDF(XedaBaseModel):
     """
 
     root: Optional[str] = None
-    min: Optional[str] = None
-    max: Optional[str] = None
-    typ: Optional[str] = None
+    min: Optional[Path] = None
+    max: Optional[Path] = None
+    typ: Optional[Path] = None
 
     # def __init__(self, *args: str, **data: str) -> None:
     #     if args:
@@ -138,7 +138,7 @@ class SDF(XedaBaseModel):
     def __attrs_post_init__(self):
         pass
 
-    def delay_items(self) -> Iterable[Tuple[str, Union[str, None]]]:
+    def delay_items(self) -> Iterable[Tuple[str, Union[Path, None]]]:
         """returns an iterable of (delay_type, sdf_file)"""
         return tuple(
             (delay_type, getattr(self, delay_type))

@@ -2,7 +2,6 @@
 (`fasm2frames`, `xc7frames2bit`) write the files they are asked for, or leave some out. These tests
 check what the flow records from the files it finds, not what the real toolchain produces."""
 
-import json
 from pathlib import Path
 
 import pytest
@@ -142,35 +141,3 @@ def test_openxc7_records_no_bitstream_the_packer_did_not_write(tmp_path: Path, m
 
     assert "frames" in flow.artifacts
     assert "bitstream" not in flow.artifacts
-
-
-def test_openxc7_reuses_the_bitstream_its_previous_run_recorded(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """A previous successful run of the same design and settings names its bitstream as the
-    `bitstream` artifact of its `results.json` (it was a private `_bitstream_path` result): the
-    run programs that bitstream and builds nothing."""
-    nextpnr = FakeNextpnr()
-    monkeypatch.setattr(OpenXC7, "next_pnr", nextpnr)
-    packers = _stub_packers(monkeypatch)
-    flow = _openxc7(tmp_path, monkeypatch)
-    flow.design_hash, flow.flow_hash = "d" * 64, "f" * 64
-    bitstream = flow.run_path / "design0.bit"
-    bitstream.write_bytes(b"bitstream")
-    previous = {
-        "success": True,
-        "design": flow.design.name,
-        "design_hash": flow.design_hash,
-        "flow": flow.name,
-        "flow_hash": flow.flow_hash,
-        "artifacts": {"bitstream": str(bitstream)},
-    }
-    (flow.run_path / "results.json").write_text(json.dumps(previous))
-    programmed: list = []
-    monkeypatch.setattr(flow, "program_fpga", programmed.append)
-
-    flow.run()
-
-    assert programmed == [bitstream]
-    assert not nextpnr.runs and not packers
-    assert flow.skip_parse_reports

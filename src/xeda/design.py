@@ -45,6 +45,7 @@ from .dataclass import (
     model_with_allow_extra,
     validation_errors,
 )
+from .digest import content_digest
 from .proc_utils import tool_output_redirect
 from .utils import (
     NonZeroExitCode,
@@ -428,9 +429,7 @@ class FileResource:
         time a run is identified, whatever was going to write the file has had its chance.
         """
         try:
-            with open(self.file, "rb") as f:
-                # the first 128 bits is more than enough
-                return hashlib.sha3_256(f.read()).hexdigest()[:32]
+            return content_digest(self.file)
         except IsADirectoryError as e:
             raise IsADirectoryError(
                 errno.EISDIR, "a directory where the design names a file", str(self.file)

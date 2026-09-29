@@ -245,7 +245,8 @@ class YosysBase(Flow):
         )
         abc_script: Optional[str] = Field(
             None,
-            description="Custom abc script, replacing the default mapping script. Advanced: a "
+            description="Custom abc script, replacing the default mapping script: a script file, "
+            'or the script itself written inline after a "+" ("+strash;map"). Advanced: a '
             "wrong script silently produces a poor or invalid netlist.",
         )
         top_is_vhdl: Optional[bool] = Field(
@@ -361,8 +362,11 @@ class YosysBase(Flow):
         @field_validator("abc_script", mode="before")
         @classmethod
         def validate_abc_script(cls, value):
+            """An inline script ("+...") is text; anything else names a script file."""
             if isinstance(value, str) and value.startswith("+"):
                 return value.replace(" ", ",")
+            if isinstance(value, str) and value:
+                return value
             return value
 
         @field_validator("verilog_lib", mode="before")
@@ -475,7 +479,11 @@ class YosysBase(Flow):
         ss = self.settings
         self.add_template_helpers()
         if ss.abc_script and not ss.abc_script.startswith("+"):
-            ss.abc_script = str(self.normalize_path_to_design_root(ss.abc_script))
+            path = self.process_path(
+                ss.abc_script, subs_vars=True, resolve_to=self.design.design_root
+            )
+            ss.abc_script = str(path)
+            self.implicit_inputs.append(path)
         for name in ("adder_map", "clockgate_map"):
             value = getattr(ss, name, None)
             if value:

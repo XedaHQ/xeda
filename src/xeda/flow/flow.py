@@ -215,6 +215,50 @@ def _is_comma_separated_list(annotation: Any) -> bool:
     return str not in accepted and any((get_origin(a) or a) is list for a in accepted)
 
 
+def map_path_leaves(value: Any, annotation: Any, fn: Callable[[Any], Any]) -> Any:
+    """Apply `fn` at every path-typed leaf of `value`, walked according to its *annotation*
+    rather than by value alone.
+
+    A container must be traversed according to its annotation rather than by value alone: in
+    ``lib_paths``, for example, the first tuple member is a library name while only the second is
+    a path. Treating every string as a path would corrupt names containing ``$`` (path expansion)
+    or match a library name against a same-named file (a trace's inputs).
+    """
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin is Annotated:
+        return map_path_leaves(value, args[0], fn)
+    if _is_path_annotation(annotation):
+        return fn(value)
+    if origin in (Union, UnionType):
+        # Follow the first branch that holds a path and fits the value. A raw string fits both
+        # branches of `str | Path`; the presence of the Path branch is what makes it a path.
+        for choice in args:
+            if _annotation_contains_path(choice) and _annotation_matches_value(choice, value):
+                return map_path_leaves(value, choice, fn)
+        return value
+    if origin in (list, set, frozenset) and isinstance(value, (list, set, frozenset)):
+        item_annotation = args[0] if args else Any
+        mapped = [map_path_leaves(item, item_annotation, fn) for item in value]
+        return rebuild_like(value, mapped)
+    if origin is tuple and isinstance(value, (list, tuple)):
+        if len(args) == 2 and args[1] is Ellipsis:
+            mapped = [map_path_leaves(item, args[0], fn) for item in value]
+        else:
+            mapped = [
+                map_path_leaves(item, args[index] if index < len(args) else Any, fn)
+                for index, item in enumerate(value)
+            ]
+        return rebuild_like(value, mapped)
+    if origin is dict and isinstance(value, dict):
+        key_annotation, value_annotation = args if len(args) == 2 else (Any, Any)
+        return {
+            map_path_leaves(key, key_annotation, fn): map_path_leaves(item, value_annotation, fn)
+            for key, item in value.items()
+        }
+    return value
+
+
 def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) -> Any:
     """Expand variables only at path-typed leaves, including nested containers.
 
@@ -222,43 +266,13 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
     ``lib_paths``, for example, the first tuple member is a library name while only the second is
     a path. Treating every string as a path would corrupt names containing ``$``.
     """
-    origin = get_origin(annotation)
-    args = get_args(annotation)
-    if origin is Annotated:
-        return _expand_path_values(value, args[0], overrides)
-    if _is_path_annotation(annotation):
-        if isinstance(value, (str, os.PathLike)) and "$" in str(value):
-            return expand_env_vars(Path(value), overrides)
-        return value
-    if origin in (Union, UnionType):
-        # Follow the first branch that holds a path and fits the value. A raw string fits both
-        # branches of `str | Path`; the presence of the Path branch is what makes it a path.
-        for choice in args:
-            if _annotation_contains_path(choice) and _annotation_matches_value(choice, value):
-                return _expand_path_values(value, choice, overrides)
-        return value
-    if origin in (list, set, frozenset) and isinstance(value, (list, set, frozenset)):
-        item_annotation = args[0] if args else Any
-        mapped = [_expand_path_values(item, item_annotation, overrides) for item in value]
-        return rebuild_like(value, mapped)
-    if origin is tuple and isinstance(value, (list, tuple)):
-        if len(args) == 2 and args[1] is Ellipsis:
-            mapped = [_expand_path_values(item, args[0], overrides) for item in value]
-        else:
-            mapped = [
-                _expand_path_values(item, args[index] if index < len(args) else Any, overrides)
-                for index, item in enumerate(value)
-            ]
-        return rebuild_like(value, mapped)
-    if origin is dict and isinstance(value, dict):
-        key_annotation, value_annotation = args if len(args) == 2 else (Any, Any)
-        return {
-            _expand_path_values(key, key_annotation, overrides): _expand_path_values(
-                item, value_annotation, overrides
-            )
-            for key, item in value.items()
-        }
-    return value
+
+    def expand(leaf: Any) -> Any:
+        if isinstance(leaf, (str, os.PathLike)) and "$" in str(leaf):
+            return expand_env_vars(Path(leaf), overrides)
+        return leaf
+
+    return map_path_leaves(value, annotation, expand)
 
 
 def flowrun_hash(flow_name: str, settings: Flow.Settings) -> str:
@@ -375,7 +389,6 @@ class Flow(metaclass=ABCMeta):
 
     name: str  # set automatically
     aliases: List[str] = []  # list of alternative names for the flow
-    incremental: bool = False
     copied_resources_dir: str = "copied_resources"
 
     #: Documentation for the flow-specific keys this flow writes to `results` (and therefore to
@@ -455,9 +468,6 @@ class Flow(metaclass=ABCMeta):
             Path("checkpoints"), json_schema_extra={"hidden_from_schema": True}
         )
         outputs_dir: Path = Field(Path("outputs"), json_schema_extra={"hidden_from_schema": True})
-        clean: bool = Field(
-            False, description="Remove the contents of the run directory before running the flow."
-        )
         lib_paths: List[
             Union[
                 Tuple[
@@ -483,6 +493,12 @@ class Flow(metaclass=ABCMeta):
         #: holds that dependency's settings: `nextpnr` declares `{"yosys": ("fpga", "clocks")}`.
         #: `resolve_dependency` applies it when the flow launches the dependency.
         dependency_settings: ClassVar[Dict[str, Tuple[str, ...]]] = {}
+
+        #: Settings that no longer exist, with what replaced them. Giving one is an error that
+        #: says so, instead of pydantic's "extra inputs are not permitted".
+        removed_settings: ClassVar[Dict[str, str]] = {
+            "clean": "the --clean option (clean=True on the launcher)"
+        }
 
         # Every flow setting shares three input conveniences, applied by `_normalize_flow_setting`
         # before *any* field validator runs, so a flow's own validators always receive the
@@ -601,6 +617,10 @@ class Flow(metaclass=ABCMeta):
         @classmethod
         def _normalize_flow_settings(cls, values, info):
             """Normalize each supplied flow setting before model validation."""
+            if isinstance(values, dict):
+                for name, replacement in cls.removed_settings.items():
+                    if name in values:
+                        raise ValueError(f"`{name}` was removed: use {replacement}")
             if info.field_name is not None and info.data is None:
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)
@@ -840,6 +860,30 @@ class Flow(metaclass=ABCMeta):
         self.dependencies: List[Tuple[Union[Type[Flow], str], Flow.Settings, List[str]]] = []
         self.completed_dependencies: List[Flow] = []
 
+        #: Makefile-style dependency files the flow's tools wrote (`yosys -E`); read after
+        #: `run()` into the trace's implicit inputs.
+        self.depfiles: List[Path] = []
+        #: Files the flow reads on its own, that no setting or design field names (a board's pin
+        #: constraints from its boards file): recorded after `run()` like a depfile's.
+        self.implicit_inputs: List[Path] = []
+        #: Set by the launcher: the previous run was still fresh and its results are reused.
+        self.reused: bool = False
+        #: Set by the launcher when the flow ran although a previous run existed: why.
+        self.stale_reason: Optional[str] = None
+        #: Set by the launcher on every flow it completes: the run whose results the flow holds
+        #: (its trace's `run_id`, or a new one for a run no trace records).
+        self.run_id: Optional[str] = None
+
+    def always_runs(self) -> Optional[str]:
+        """Why this run can never be reused, or None for a run its trace can vouch for.
+
+        A flow that changes the world outside its run directory (programs a device), whose
+        settings ask for a fresh random seed, or that reads something no trace can verify, says
+        so here: the launcher then runs it every time, keeps no trace of it, and reports the
+        reason. Its dependencies are checked for freshness as usual. Asked once the flow's
+        `init()` and its dependencies have run."""
+        return None
+
     def pop_dependency(self, typ: Type[Flow]) -> Flow:
         assert inspect.isclass(typ) and issubclass(typ, Flow), f"{typ} is not a subclass of Flow"
         for i in range(len(self.completed_dependencies) - 1, -1, -1):
@@ -852,9 +896,6 @@ class Flow(metaclass=ABCMeta):
     @abstractmethod
     def run(self) -> None:
         """return False on failure"""
-
-    def clean(self):
-        pass
 
     def purge_run_path(self):
         """Empty the run directory (a flow's `clean`), all but xeda's marker.

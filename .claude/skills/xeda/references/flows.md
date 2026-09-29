@@ -25,7 +25,7 @@ Reports: `simulator`
 
 Simulate a VHDL design using GHDL
 
-31 flow-specific settings (plus the common ones): `xeda list-settings ghdl_sim --json`
+32 flow-specific settings (plus the common ones): `xeda list-settings ghdl_sim --json`
 
 Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`
 
@@ -223,7 +223,7 @@ Reports: `Fmax`, `wns`, `tns`, `worst_slack`, `setup_violations`, `hold_violatio
 
 Convert a VHDL design using 'ghdl --synth' (Please take a look at 'Yosys' flow (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis targeting FPGAs or ASICs)
 
-25 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
+26 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
 
 Reports no results beyond the keys every flow reports.
 

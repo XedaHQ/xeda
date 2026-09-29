@@ -214,9 +214,8 @@ def test_a_failed_run_never_reports_an_earlier_runs_artifact(flow_name, tmp_path
     (tmp_path / "cells.db").write_text("")
     monkeypatch.chdir(tmp_path)
     settings, failing = FAKE_TOOL_FLOWS[flow_name]
-    settings = settings | {"clean": False}
     runner = DefaultRunner(  # as `xeda run` makes it: one run directory, reused
-        tmp_path / "run", display_results=False, cached_dependencies=False, incremental=True
+        tmp_path / "run", display_results=False
     )
     use_fake_tools(monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", failing)
@@ -341,7 +340,7 @@ def test_a_successful_vivado_synth_writes_an_external_bitstream_with_an_early_mt
     bitstream = external / "top.bit"
     bitstream.write_text("an earlier run's, on a lagging clock\n")
     os.utime(bitstream, ns=(EARLIER_NS, EARLIER_NS))
-    runner = DefaultRunner(tmp_path / "run", display_results=False, cached_dependencies=False)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     flow = runner.launch_flow(
         "vivado_synth",
@@ -557,18 +556,16 @@ def test_a_failed_vivado_sim_does_not_list_an_earlier_vcd_named_through_a_link(
     monkeypatch.chdir(tmp_path)
     use_fake_tools(monkeypatch)
     runner = DefaultRunner(  # as `xeda run` makes it: one run directory, reused
-        tmp_path / "xeda_run", display_results=False, cached_dependencies=False, incremental=True
+        tmp_path / "xeda_run", display_results=False
     )
-    run_dir = runner.launch_flow("vivado_sim", design, {"vcd": "wave.vcd", "clean": False}).run_path
+    run_dir = runner.launch_flow("vivado_sim", design, {"vcd": "wave.vcd"}).run_path
     vcd = run_dir / "wave.vcd"
     vcd.write_text("an earlier run's\n")
     os.utime(vcd, ns=(EARLIER_NS, EARLIER_NS))
     (tmp_path / "latest").symlink_to(run_dir, target_is_directory=True)
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "xvhdl")
 
-    again = runner.launch_flow(
-        "vivado_sim", design, {"vcd": str(tmp_path / "latest" / "wave.vcd"), "clean": False}
-    )
+    again = runner.launch_flow("vivado_sim", design, {"vcd": str(tmp_path / "latest" / "wave.vcd")})
 
     assert again.run_path == run_dir and not again.succeeded
     assert vcd.stat().st_mtime_ns == EARLIER_NS  # the earlier run's, untouched
@@ -621,7 +618,7 @@ def test_a_successful_vivado_synth_accepts_its_bitstream_on_a_file_system_whose_
         return _lagging(st) if inside else st
 
     monkeypatch.setattr(os, "stat", stat)
-    runner = DefaultRunner(tmp_path / "run", display_results=False, cached_dependencies=False)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     flow = runner.launch_flow(
         "vivado_synth",

@@ -913,23 +913,16 @@ def test_bsc_generates_every_module_the_top_needs(tmp_path):
     )
 
 
-def _run_incrementally(flow_class: type[Flow], design: Design, run_dir: Path, **settings: Any):
-    """A run in the directory an earlier run of the same flow and settings used, as the CLI's
-    default `--incremental` has it, whatever the design's hash."""
-    runner = DefaultRunner(run_dir, display_results=False, incremental=True)
-    return runner.run_flow(flow_class, design, settings)
-
-
 def test_a_macro_change_is_compiled(tmp_path):
     """bsc's `-u` recompiles only when a source is newer than its `.bo`, so a second run in the
     same directory with another macro reused the first run's packages. `cleanup_bobjs` (on by
     default) makes the second run compile what it was given."""
     require_bsc()
     design = _accum_design(tmp_path / "d")
-    run_paths = set()
+    run_paths = set()  # xeda reuses a flow's run directory, whatever the design's hash
     for step in (1, 5):
         design.rtl.defines = {"STEP": step}
-        flow = _run_incrementally(Bsc, design, tmp_path / "run")
+        flow = _run(Bsc, design, tmp_path / "run")
         assert flow is not None and flow.succeeded
         run_paths.add(flow.run_path)
         top = next(Path(f) for f in flow.artifacts.verilog if f.endswith("mkTop.v"))
@@ -942,11 +935,11 @@ def test_a_testbench_change_is_simulated(tmp_path, capfd):
     planted by a macro, runs what it was given -- and fails."""
     require_bluesim()
     design = _accum_design(tmp_path / "d")
-    flow = _run_incrementally(BscSim, design, tmp_path / "run")
+    flow = _run(BscSim, design, tmp_path / "run")
     assert flow is not None and flow.succeeded
     assert "PASS" in capfd.readouterr().out
     design.tb.defines = {"XEDA_INJECT_BUG": True}
-    second = _run_incrementally(BscSim, design, tmp_path / "run")
+    second = _run(BscSim, design, tmp_path / "run")
     assert second is not None and second.run_path == flow.run_path
     assert not second.succeeded
     assert "FAIL" in capfd.readouterr().out

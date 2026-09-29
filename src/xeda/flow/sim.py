@@ -103,3 +103,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
         if self.cocotb:
             return self.cocotb.add_results(self.results)
         return True
+
+    def always_runs(self) -> Optional[str]:
+        if self.cocotb is not None and self.cocotb.random_seed == "random":
+            return "it draws a new random seed"
+        return super().always_runs()

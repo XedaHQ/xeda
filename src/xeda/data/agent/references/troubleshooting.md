@@ -112,13 +112,20 @@ testbench source is present in `[tb].sources` and that `tb.top` is set for non-c
 
 ## Re-running cleanly
 
+`xeda run` is make-like **by default**: a flow only re-runs when something it consumed or produced
+changed since its last successful run (`--rebuild stale`, the default). A flow that runs logs why
+(`Running <flow>: <reason>`); one left alone logs that it is up to date and shows its recorded
+results. `--cached-dependencies` and `--incremental`/`--no-incremental` no longer exist - they
+fail naming their replacement below.
+
 | Situation | Option |
 | --- | --- |
-| Stale tool state is suspected | `--clean` |
-| Want each run isolated | `--no-incremental` |
-| Want dependencies reused across runs | `--cached-dependencies` |
+| Stale tool state is suspected, or you want every flow to re-run from nothing | `--clean` |
+| Force every flow to run even though nothing changed | `--rebuild all` |
+| Keep each settings variant of a flow in its own directory | `--run-dirs hashed` |
 | Want previous runs of this flow removed first | `--scrub` |
 
 By default a flow reuses one directory per design (`xeda_run/<design>/<flow>/`), which keeps
 incremental tool state between runs - good while iterating, occasionally the cause of a confusing
-result.
+result; `--clean` empties it first and reruns everything ("make clean, then make"). A dependency
+gets its own directory, a sibling of the flow that launched it, never nested under it.
