@@ -739,9 +739,12 @@ def toy_flows():
     the test runs only, so the sweeps over every flow never see them."""
 
     class ToyDep(Flow):
-        """A dependency that writes one file."""
+        """A dependency that writes one file, and whose `clean` empties its run directory."""
 
         results_description: ClassVar[dict[str, str]] = {}
+
+        def clean(self) -> None:
+            self.purge_run_path()
 
         def run(self) -> None:
             (self.run_path / "dep.txt").write_text("dep\n")
@@ -781,6 +784,30 @@ def test_every_run_directory_xeda_makes_is_marked(tmp_path, toy_flows):
 
     again = _launcher(tmp_path, incremental=False).launch_flow(top, design, {})
     assert again.succeeded and (again.run_path / MARKER).is_file()
+
+
+def test_a_dependency_directory_linked_out_of_its_depender_is_refused(tmp_path, toy_flows):
+    """A dependency runs in `<depender's run directory>/<its name>`: a link there to a directory
+    elsewhere -- marked as xeda's, even -- is refused before it is claimed or cleaned, like any run
+    directory xeda derives that does not resolve inside the directory it derives it in."""
+    dep, top = toy_flows
+    design = Design.from_file(SQRT / "sqrt.toml")
+    first = _launcher(tmp_path).launch_flow(top, design, {})
+    dep_dir = first.run_path / dep.name
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / MARKER).write_text("format = 1\n")
+    (outside / "keep.txt").write_text(PRECIOUS)
+    shutil.rmtree(dep_dir)
+    dep_dir.symlink_to(outside, target_is_directory=True)
+    before = _tree(outside)
+
+    with pytest.raises(XedaException) as refused:
+        _launcher(tmp_path, cleanup_before_run=True).launch_flow(top, design, {})
+
+    assert type(refused.value).__name__ == "RunDirectoryError"
+    assert str(dep_dir) in str(refused.value)
+    assert _tree(outside) == before
 
 
 # ---------------------------------------------------------------------------------------------

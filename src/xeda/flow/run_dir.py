@@ -177,11 +177,13 @@ def run_dir_name(name: str, what: str) -> str:
     return sanitized
 
 
-def check_inside_run_root(run_path: Path, run_root: Path) -> None:
-    """Refuse a run directory xeda chose that does not resolve strictly inside the run root."""
+def check_inside_run_root(run_path: Path, run_root: Path, what: str = "the run root") -> None:
+    """Refuse a run directory xeda derives that does not resolve strictly inside the directory
+    it derives it in: the run root for a flow's, its depender's run directory for a
+    dependency's (`what` names which)."""
     if resolved_inside(run_path, run_root) is None:
         raise RunDirectoryError(
-            f"The run directory {run_path} resolves to {run_path.resolve()}, outside the run root "
-            f"{run_root.resolve()}: xeda runs, and deletes files, only inside its run root. "
-            "Remove the link that leads out of it."
+            f"The run directory {run_path} resolves to {run_path.resolve()}, outside {what} "
+            f"{run_root.resolve()}: xeda runs, and deletes files, only in directories it derives "
+            "there. Remove the link that leads out of it."
         )

@@ -480,8 +480,14 @@ class FlowLauncher:
             flow_name, design, input_settings, run_path
         )
         if not explicit:
-            # A directory xeda chose (a dependency's is nested in its depender's), before it is
-            # scrubbed, emptied or removed: used only if it is xeda's.
+            # A directory xeda derived, before it is scrubbed, emptied or removed: it must
+            # resolve strictly inside the directory it was derived in -- the run root, or for a
+            # dependency its depender's run directory, where a link could lead anywhere -- and
+            # be xeda's.
+            if depender is not None:
+                check_inside_run_root(run_path, depender.run_path, "its depender's run directory")
+            else:
+                check_inside_run_root(run_path, self.xeda_run_dir)
             claim_run_dir(run_path, flow_name)
         settings_json = run_path / "settings.json"
         results_json = run_path / "results.json"
