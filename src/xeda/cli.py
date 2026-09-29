@@ -7,13 +7,12 @@ import sys
 from collections import OrderedDict
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import click
 import coloredlogs
 from click.core import ParameterSource
 from click.shell_completion import get_completion_class
-from click_extra import Command as ColorizedCommand
 from click_extra import HelpKeywords
 from rich import box
 from rich.markup import escape
@@ -25,6 +24,7 @@ from .cli_utils import (
     DOCUMENT_FORMATS,
     HELP_FORMATTER_SETTINGS,
     ClickMutex,
+    DeclaredEnvvarsCommand,
     FlowChoice,
     OptionEatAll,
     XedaHelpGroup,
@@ -36,8 +36,9 @@ from .cli_utils import (
     select_design_in_project,
 )
 from .console import console
+from .deliver import Conflict
+from .design import DESIGN_NAME
 from .flow import Flow, FlowFatalError, registered_flows
-from .flow.run_dir import RunDirectoryError, run_dir_name
 from .flow_runner import (
     DefaultRunner,
     XedaOptions,
@@ -56,6 +57,8 @@ from .introspect import (
     platforms_info,
     results_info,
 )
+from .run_dir import RunDirectoryError
+from .run_root import RunRootError, ensure_run_root
 from .tool import ExecutableNotFound, NonZeroExitCode
 from .utils import XedaException, removeprefix, settings_to_dict
 
@@ -364,6 +367,45 @@ def _removed_option(replacement: str, false_replacement: Optional[str] = None):
     return callback
 
 
+def _removed_run_root_option(ctx: click.Context, param: click.Parameter, value: Any) -> None:
+    """`--xeda-run-dir` and `XEDA_RUN_DIR`, released names of the run root: whichever was given
+    is named. Explicit, because click would suggest `--hashed-run-dirs` for the option and
+    silently ignore the variable."""
+    if value is not None:
+        if ctx.get_parameter_source(param.name or "") is ParameterSource.ENVIRONMENT:
+            raise click.UsageError("`XEDA_RUN_DIR` was removed: use XEDA_RUN_ROOT", ctx=ctx)
+        raise click.UsageError("`--xeda-run-dir` was removed: use --run-root", ctx=ctx)
+
+
+def _run_root_options(func):
+    """`--run-root` (`XEDA_RUN_ROOT`), and the hidden option refusing its removed names."""
+    func = click.option(
+        "--xeda-run-dir",
+        envvar="XEDA_RUN_DIR",
+        hidden=True,
+        expose_value=False,
+        callback=_removed_run_root_option,
+    )(func)
+    return click.option(
+        "--run-root",
+        type=click.Path(
+            file_okay=False,
+            dir_okay=True,
+            writable=True,
+            readable=True,
+            resolve_path=True,
+            allow_dash=True,
+            path_type=Path,
+        ),
+        envvar="XEDA_RUN_ROOT",
+        help="Directory holding every run directory. Xeda creates and marks it; keep nothing of "
+        "yours there.",
+        default="xeda_run",
+        show_default=True,
+        show_envvar=True,
+    )(func)
+
+
 def _node_states(flows: Iterable[Flow]) -> List[Dict[str, Any]]:
     """One `nodes` entry per run directory the launcher entered, in completion order: what
     `run --json` reports about each node of the run, whether it was reused, ran, or failed. A
@@ -383,9 +425,29 @@ def _node_states(flows: Iterable[Flow]) -> List[Dict[str, Any]]:
                 "run_path": str(f.run_path),
                 "state": "fresh" if f.reused else ("ran" if f.succeeded else "failed"),
                 "reason": f.stale_reason or "",
+                "deliveries": [d.as_json_value() for d in getattr(f, "deliveries", [])],
             }
         )
     return nodes
+
+
+def _interactive(json_flag: bool) -> bool:
+    """Whether a question may be asked: a terminal on both ends, no machine-readable output."""
+    return not json_flag and sys.stdin.isatty() and sys.stderr.isatty()
+
+
+def _prompt_overwrite(conflicts: Sequence[Conflict]) -> bool:
+    """Ask, on the terminal, whether to replace the files in the way of named outputs; no by
+    default, and no when the question cannot be answered."""
+    click.echo(
+        f"xeda would replace {len(conflicts)} file(s) at the output paths you named:", err=True
+    )
+    for conflict in conflicts:
+        click.echo(f"  {conflict.destination}   {conflict.why}", err=True)
+    try:
+        return click.confirm("Replace them?", default=False, err=True)
+    except click.Abort:
+        return False
 
 
 def _run_document(
@@ -423,9 +485,9 @@ def _run_document(
 
 
 @cli.command(
-    # The class `XedaHelpGroup` would pick anyway; naming it is what lets cloup's `command()`
-    # overloads accept the `excluded_keywords` keyword below.
-    cls=ColorizedCommand,
+    # Naming the class is also what lets cloup's `command()` overloads accept the
+    # `excluded_keywords` keyword below.
+    cls=DeclaredEnvvarsCommand,
     context_settings=CONTEXT_SETTINGS,
     short_help="Run a flow.",
     help="Run the flow identified by FLOW_NAME. A snake_case styled FLOW_NAME (e.g. ghdl_sim) is converted to a CamelCase class name (e.g. GhdlSim).",
@@ -453,38 +515,21 @@ def _run_document(
     default=None,
     required=False,
 )
+@_run_root_options
 @click.option(
-    "--xeda-run-dir",
-    type=click.Path(
-        file_okay=False,
-        dir_okay=True,
-        writable=True,
-        readable=True,
-        resolve_path=True,
-        allow_dash=True,
-        path_type=Path,
-    ),
-    envvar="XEDA_RUN_DIR",
-    help="Parent folder for execution of xeda commands.",
-    default="xeda_run",
-    show_default=True,
-    show_envvar=True,
+    "--rebuild-all",
+    is_flag=True,
+    default=False,
+    help="Run every flow, dependencies included, even one that is up to date. Without it, a flow "
+    "runs only when its sources, settings, tools or outputs changed since its last successful "
+    "run.",
 )
 @click.option(
-    "--rebuild",
-    type=click.Choice(["stale", "all"]),
-    default="stale",
-    show_default=True,
-    help="Run only the flows whose sources, settings, tools or outputs changed since their last "
-    "successful run (make-like, the default), or every flow.",
-)
-@click.option(
-    "--run-dirs",
-    type=click.Choice(["stable", "hashed"]),
-    default="stable",
-    show_default=True,
-    help="One run directory per flow (<design>/<flow>), or one per settings variant "
-    "(<design>/<flow>_<hash>).",
+    "--hashed-run-dirs",
+    is_flag=True,
+    default=False,
+    help="Give each settings variant of a flow its own run directory, "
+    "<design>/<flow>_<settings hash>, instead of one per flow, <design>/<flow>.",
 )
 @click.option(
     "--cached-dependencies/--no-cached-dependencies",
@@ -492,9 +537,9 @@ def _run_document(
     hidden=True,
     expose_value=False,
     callback=_removed_option(
-        "--rebuild stale (the default) to reuse unchanged runs, and --run-dirs hashed to keep "
-        "settings variants side by side",
-        "--rebuild all to run every flow",
+        "the default, which reuses unchanged runs, and --hashed-run-dirs to keep settings "
+        "variants side by side",
+        "--rebuild-all to run every flow",
     ),
 )
 @click.option(
@@ -510,15 +555,20 @@ def _run_document(
 @click.option(
     "--cwd",
     is_flag=True,
-    help="Run the requested flow in the current directory; its dependencies go in the usual "
-    "layout under --xeda-run-dir. The directory must be empty, or one xeda ran in before (it "
-    "holds xeda's .xeda-run-dir marker): a run replaces and deletes files in its run directory.",
+    default=None,
+    hidden=True,
+    expose_value=False,
+    callback=_removed_option(
+        "--outputs-to . to receive the outputs here; the run itself goes under the run root "
+        "(./xeda_run)"
+    ),
 )
 @click.option(
     "--clean",
     is_flag=True,
     default=False,
-    help="Empty each flow's run directory before running it, and run every flow.",
+    help="Empty each flow's run directory before it runs, and run every flow (implies "
+    "--rebuild-all).",
 )
 @click.option(
     "--xedaproject",
@@ -591,26 +641,34 @@ def _run_document(
     # - xeda vivado_sim --flow-settings stop_time=100us
     # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock.period=2.345
 )
-@click.option("--detailed-logs/--no-detailed-logs", show_envvar=True, default=False)
-@click.option("--log-level", show_envvar=True, type=int, default=None)
+@click.option(
+    "--detailed-logs/--no-detailed-logs",
+    envvar="XEDA_DETAILED_LOGS",
+    show_envvar=True,
+    default=False,
+)
+@click.option("--log-level", envvar="XEDA_LOG_LEVEL", show_envvar=True, type=int, default=None)
 @click.option(
     "--post-cleanup",
     is_flag=True,
-    help="Remove flow files except settings.json, results.json, and artifacts _after_ running the flow.",
+    help="After the run, keep only settings.json, results.json and the artifacts in each run "
+    "directory.",
 )
 @click.option(
     "--post-cleanup-purge",
     is_flag=True,
-    help="Remove flow run_dir and all of its content _after_ running the flow.",
+    help="After the run, remove each run directory.",
 )
 @click.option(
     "--scrub",
     is_flag=True,
-    help="Remove all previous flow directories of the same flow withing the current 'xeda_run_dir' _before_ running the flow. Requires user confirmation.",
+    help="Before running, remove the flow's other run directories for this design; asks for "
+    "confirmation.",
 )
 @click.option(
     "--remote",
     type=str,
+    envvar="XEDA_REMOTE",
     show_envvar=True,
     help="Run on a remote machine with SSH access. Xeda needs to be installed on the remote machine and PATH env variable should be set correctly.",
 )
@@ -619,6 +677,8 @@ def _run_document(
     "-d",
     is_flag=True,
     default=False,
+    envvar="XEDA_DEBUG",
+    show_envvar=True,
     help="Run in debug mode.",
 )
 @click.option(
@@ -627,6 +687,23 @@ def _run_document(
     is_flag=True,
     default=False,
     help="List flow settings. This option is an alias for `xeda list-settings <flow>`.",
+)
+@click.option(
+    "--outputs-to",
+    "outputs_to",
+    type=click.Path(file_okay=False, dir_okay=True, resolve_path=True, path_type=Path),
+    default=None,
+    help="Copy the requested flow's outputs (its artifacts, each at its path in the run "
+    "directory) into DIR once it succeeded. An existing file there is replaced only if it is "
+    "xeda's own earlier copy, unchanged (see --overwrite-outputs).",
+)
+@click.option(
+    "--overwrite-outputs",
+    is_flag=True,
+    default=False,
+    help="Replace existing files at the output paths named for this run (by settings or "
+    "--outputs-to), even ones xeda did not write or that changed since it did. Never a design "
+    "source or input, never a directory, never anything else.",
 )
 @click.option(
     "--json",
@@ -644,11 +721,11 @@ def run(
     flow: str,
     design_file: Optional[str] = None,
     design_file_opt: Optional[str] = None,
-    rebuild: str = "stale",
-    run_dirs: str = "stable",
+    rebuild_all: bool = False,
+    hashed_run_dirs: bool = False,
     flow_settings: Union[None, str, Iterable[str]] = None,
     clean: bool = False,
-    xeda_run_dir: Optional[Path] = None,
+    run_root: Optional[Path] = None,
     xedaproject: Optional[str] = None,
     # design: Optional[str] = None,
     design_name: Optional[str] = None,
@@ -660,9 +737,10 @@ def run(
     post_cleanup_purge: bool = False,
     scrub: bool = False,
     remote: Optional[str] = None,
-    cwd: bool = False,
     debug: bool = False,
     help_settings: bool = False,
+    outputs_to: Optional[Path] = None,
+    overwrite_outputs: bool = False,
     json_flag: bool = False,
 ):
     """`run` command"""
@@ -675,26 +753,8 @@ def run(
         print_flow_settings(flow, options=options, output_format="json" if json_flag else "table")
         sys.exit(0)
     debug |= options.debug
-    if cwd and remote:
-        message = "--cwd and --remote are mutually exclusive!"
-        log.critical(message)
-        if json_flag:
-            emit_structured(
-                {
-                    "flow": flow,
-                    "design": design_file or design_file_opt or design_name,
-                    "success": False,
-                    "results": {},
-                    "error": {"type": "UsageError", "message": message},
-                    "nodes": [],
-                },
-                "json",
-            )
-        sys.exit(1)
-    if cwd and clean:
-        raise click.UsageError("--clean with --cwd would empty the current directory", ctx=ctx)
-    if xeda_run_dir is None:
-        xeda_run_dir = Path.cwd() / "xeda_run"
+    if run_root is None:
+        run_root = Path.cwd() / "xeda_run"
 
     if log_level is None:
         log_level = logging.DEBUG if debug else logging.WARNING if options.quiet else logging.INFO
@@ -730,13 +790,23 @@ def run(
     if remote:
         from .flow_runner import remote as remote_runner
 
-        for name in ("rebuild", "clean"):
-            if ctx.get_parameter_source(name) not in (None, ParameterSource.DEFAULT):
+        # each would be ignored: a remote run always runs fresh, in hashed run directories
+        for name, given in (
+            ("--rebuild-all", rebuild_all),
+            ("--clean", clean),
+            ("--hashed-run-dirs", hashed_run_dirs),
+        ):
+            if given:
                 raise click.UsageError(
-                    f"`--{name}` is not supported with --remote: remote runs always run fresh",
+                    f"`{name}` is not supported with --remote: remote runs always run fresh, "
+                    "mirrored in hashed run directories",
                     ctx=ctx,
                 )
-        rl = remote_runner.RemoteRunner(xeda_run_dir, run_dirs=run_dirs)
+        rl = remote_runner.RemoteRunner(
+            run_root, outputs_to=outputs_to, overwrite_outputs=overwrite_outputs
+        )
+        if _interactive(json_flag):
+            rl.confirm_overwrite = _prompt_overwrite
         assert design
         try:
             remote_results = rl.run_remote(
@@ -796,15 +866,19 @@ def run(
         sys.exit(1)
 
     try:
-        launcher = DefaultRunner(xeda_run_dir, rebuild=rebuild, run_dirs=run_dirs, clean=clean)
-        if cwd:
-            launcher.settings.run_path = Path.cwd()
-            launcher.settings.dump_settings_json = False
-            launcher.settings.dump_results_json = True
-        else:
-            launcher.settings.post_cleanup = post_cleanup
-            launcher.settings.post_cleanup_purge = post_cleanup_purge
-            launcher.settings.scrub_old_runs = scrub
+        launcher = DefaultRunner(
+            run_root,
+            rebuild_all=rebuild_all,
+            hashed_run_dirs=hashed_run_dirs,
+            clean=clean,
+            outputs_to=outputs_to,
+            overwrite_outputs=overwrite_outputs,
+        )
+        if _interactive(json_flag):
+            launcher.confirm_overwrite = _prompt_overwrite
+        launcher.settings.post_cleanup = post_cleanup
+        launcher.settings.post_cleanup_purge = post_cleanup_purge
+        launcher.settings.scrub_old_runs = scrub
         launcher.settings.debug = debug
         f = launcher.run(
             flow,
@@ -882,6 +956,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
 
 
 @cli.command(
+    cls=DeclaredEnvvarsCommand,
     context_settings=CONTEXT_SETTINGS,
     short_help="Execute multiple runs in parallel",
     help="Runs multiple instances of a flow in parallel to find optimum value(s) of a settings key with respect to a specified objective function.",
@@ -904,25 +979,11 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     Example: --settings clock.period=2.345 impl.strategy=Debug
     """,
 )
-@click.option(
-    "--xeda-run-dir",
-    type=click.Path(
-        file_okay=False,
-        dir_okay=True,
-        writable=True,
-        readable=True,
-        resolve_path=True,
-        allow_dash=True,
-        path_type=Path,
-    ),
-    envvar="XEDA_RUN_DIR",
-    help="Parent folder for execution of xeda commands.",
-    default="xeda_run",
-    show_default=True,
-    show_envvar=True,
-)
+@_run_root_options
 @click.option(
     "--xedaproject",
+    envvar="XEDA_XEDAPROJECT",
+    show_envvar=True,
     type=click.Path(
         exists=True,
         file_okay=True,
@@ -933,7 +994,6 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
         allow_dash=False,
         path_type=Path,
     ),
-    show_envvar=True,
     help="Path to Xeda project file.",
 )
 @click.option(
@@ -966,37 +1026,46 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     default=True,  # by default allow for dse
     help="""Allow extra properties (fields) in design description.""",
 )
-@click.option("--detailed-logs/--no-detailed-logs", show_envvar=True, default=True)
-@click.option("--log-level", show_envvar=True, type=int, default=None)
+@click.option(
+    "--detailed-logs/--no-detailed-logs",
+    envvar="XEDA_DETAILED_LOGS",
+    show_envvar=True,
+    default=True,
+)
+@click.option("--log-level", envvar="XEDA_LOG_LEVEL", show_envvar=True, type=int, default=None)
 @click.option(
     "--optimizer",
+    envvar="XEDA_OPTIMIZER",
+    show_envvar=True,
     type=str,
     default="fmax_optimizer",
-    show_envvar=True,
     show_default=True,
 )
 @click.option(
     "--dse-settings",
+    envvar="XEDA_DSE_SETTINGS",
+    show_envvar=True,
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    show_envvar=True,
 )
 @click.option(
     "--optimizer-settings",
+    envvar="XEDA_OPTIMIZER_SETTINGS",
+    show_envvar=True,
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    show_envvar=True,
 )
 @click.option(
     "--max-workers",
+    envvar="XEDA_MAX_WORKERS",
+    show_envvar=True,
     type=int,
     default=None,
     help="Maximum number of concurrent flow executions.",
-    show_envvar=True,
 )
 @click.option(
     "--init_freq_low",
@@ -1013,6 +1082,8 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     "-d",
     is_flag=True,
     default=False,
+    envvar="XEDA_DEBUG",
+    show_envvar=True,
     help="Run in debug mode.",
 )
 @click.option(
@@ -1036,7 +1107,7 @@ def dse(
     max_workers: Optional[int],
     init_freq_low: float,
     init_freq_high: float,
-    xeda_run_dir: Optional[Path],
+    run_root: Path,
     xedaproject: Optional[str] = None,
     design: Optional[str] = None,
     design_name: Optional[str] = None,
@@ -1052,36 +1123,6 @@ def dse(
     if json_flag:
         # stdout belongs to the JSON document from here on
         machine_readable_mode()
-
-    if not xeda_run_dir:
-        xeda_run_dir = Path.cwd() / ("xeda_run_" + optimizer)
-
-    if log_level is None:
-        log_level = (
-            logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
-        )
-    if options.debug:
-        detailed_logs = True
-    setup_logger(log_level, detailed_logs, xeda_run_dir / "Logs")
-
-    opt_settings = settings_to_dict(optimizer_settings, hierarchical_keys=True)
-    dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
-    if max_workers:
-        dse_settings_dict["max_workers"] = max_workers  # overrides
-
-    # will deprecate options and only use optimizer_settings
-    opt_settings = {
-        # Only what was given: an omitted option is no value, and passing `None` for one made
-        # the optimizer report `input_value=None` instead of the setting it lacks.
-        **{
-            name: value
-            for name, value in dict(
-                init_freq_low=init_freq_low, init_freq_high=init_freq_high
-            ).items()
-            if value is not None
-        },
-        **opt_settings,  # optimizer_settings overrides other options
-    }
 
     def dse_failure(error_type: str, message: str, exc: Optional[BaseException] = None) -> None:
         log.critical("%s", message)
@@ -1111,11 +1152,45 @@ def dse(
             f"{', '.join(sorted(known_optimizers))}. See `xeda list-optimizers`.",
         )
 
+    # before the logger writes <root>/Logs into it
+    try:
+        root = ensure_run_root(run_root)
+    except RunRootError as e:
+        dse_failure("RunRootError", str(e), e)
+    assert root is not None  # created when absent
+
+    if log_level is None:
+        log_level = (
+            logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
+        )
+    if options.debug:
+        detailed_logs = True
+    setup_logger(log_level, detailed_logs, root / "Logs")
+
+    opt_settings = settings_to_dict(optimizer_settings, hierarchical_keys=True)
+    dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
+    if max_workers:
+        dse_settings_dict["max_workers"] = max_workers  # overrides
+
+    # will deprecate options and only use optimizer_settings
+    opt_settings = {
+        # Only what was given: an omitted option is no value, and passing `None` for one made
+        # the optimizer report `input_value=None` instead of the setting it lacks.
+        **{
+            name: value
+            for name, value in dict(
+                init_freq_low=init_freq_low, init_freq_high=init_freq_high
+            ).items()
+            if value is not None
+        },
+        **opt_settings,  # optimizer_settings overrides other options
+    }
+
     try:
         dse = Dse(
             optimizer_class=optimizer,
             optimizer_settings=opt_settings,
-            xeda_run_dir=xeda_run_dir,
+            run_root=root,
             debug=options.debug,
             **dse_settings_dict,
         )
@@ -1151,8 +1226,9 @@ def dse(
 
 
 @cli.command(
+    cls=DeclaredEnvvarsCommand,
     context_settings=CONTEXT_SETTINGS,
-    short_help="Remove all flow runs in the specified xeda_run_dir",
+    short_help="Remove a flow's run directories for a design.",
 )
 @click.argument(
     "flow",
@@ -1165,23 +1241,7 @@ def dse(
     metavar="DESIGN_NAME",
     required=True,
 )
-@click.option(
-    "--xeda-run-dir",
-    type=click.Path(
-        file_okay=False,
-        dir_okay=True,
-        writable=True,
-        readable=True,
-        resolve_path=True,
-        allow_dash=True,
-        path_type=Path,
-    ),
-    envvar="XEDA_RUN_DIR",
-    help="Parent folder for execution of xeda commands.",
-    default="xeda_run",
-    show_default=True,
-    show_envvar=True,
-)
+@_run_root_options
 @click.option(
     "--incremental/--no-incremental",
     default=None,
@@ -1202,24 +1262,39 @@ def dse(
     ),
 )
 @click.pass_context
-def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, json_flag):
-    """Remove FLOW_NAME's previous run directories for DESIGN_NAME, under <xeda-run-dir>/<design_name>."""
+def scrub(ctx: click.Context, flow, design_name, run_root, json_flag):
+    """Remove FLOW_NAME's previous run directories for DESIGN_NAME, under <run-root>/<design_name>."""
     if json_flag:
         machine_readable_mode()
-    xeda_run_dir = Path(xeda_run_dir).resolve()
     # just to make sure flow exists and name is canonical
     flow_class = get_flow_class(flow)
-    try:  # a name such as `..` would scrub outside the run directory
-        run_dir_name(design_name, "design")
-    except RunDirectoryError as e:
-        raise click.BadParameter(str(e), param_hint="DESIGN_NAME") from e
-
-    design_dir = xeda_run_dir / design_name
+    if not DESIGN_NAME.fullmatch(design_name):
+        message = f"{design_name!r} is not a design name"
+        if json_flag:
+            emit_structured(
+                {"success": False, "error": {"type": "RunDirectoryError", "message": message}},
+                "json",
+            )
+        else:
+            log.critical("%s", message)
+        sys.exit(1)
+    try:
+        root = ensure_run_root(run_root, create=False)
+    except RunRootError as e:
+        if json_flag:
+            emit_structured(
+                {"success": False, "error": {"type": "RunRootError", "message": str(e)}}, "json"
+            )
+        else:
+            log.critical("%s", e)
+        sys.exit(1)
+    run_root = root if root is not None else Path(run_root).resolve()
+    design_dir = run_root / design_name
     design_dirs = [design_dir] if design_dir.exists() else []
 
     try:
-        scrubbed = [dd for dd in design_dirs if scrub_runs(flow_class.name, dd)]
-    except RunDirectoryError as e:  # a directory at a run directory's name that is not xeda's
+        scrubbed = [dd for dd in design_dirs if scrub_runs(flow_class.name, dd, run_root=run_root)]
+    except RunDirectoryError as e:  # a run directory xeda cannot remove
         log.critical("%s", _error_message(e))
         if json_flag:
             emit_structured(
@@ -1238,7 +1313,7 @@ def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, json_flag):
                 "success": True,
                 "flow": flow_class.name,
                 "design": design_name,
-                "xeda_run_dir": str(xeda_run_dir),
+                "run_root": str(run_root),
                 "scanned": [str(d) for d in design_dirs],
                 "scrubbed": [str(d) for d in scrubbed],
             },

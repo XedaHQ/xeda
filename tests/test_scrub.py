@@ -19,6 +19,7 @@ from click.testing import CliRunner
 from xeda.cli import cli
 from xeda.console import console
 from xeda.flow_runner.default_runner import scrub_runs
+from xeda.run_root import ensure_run_root
 
 TESTS_DIR = Path(__file__).parent.absolute()
 
@@ -129,8 +130,9 @@ def _run_xeda(*args: str, cwd=None, input_text: str = "yes\n") -> subprocess.Com
 
 def test_cli_scrub_removes_unhashed_and_hashed_dirs_only(tmp_path):
     """Cli scrub removes unhashed and hashed dirs only."""
-    xeda_run_dir = tmp_path / "xeda_run"
-    base = xeda_run_dir / "foo"
+    run_root = ensure_run_root(tmp_path / "xeda_run")
+    assert run_root is not None
+    base = run_root / "foo"
     base.mkdir(parents=True)
     dirs = _make_flow_dirs(base)
 
@@ -138,8 +140,8 @@ def test_cli_scrub_removes_unhashed_and_hashed_dirs_only(tmp_path):
         "scrub",
         "vivado_synth",
         "foo",
-        "--xeda-run-dir",
-        str(xeda_run_dir),
+        "--run-root",
+        str(run_root),
         "--json",
     )
 
@@ -168,9 +170,9 @@ def test_run_help_does_not_mention_flow_settings_hash():
     assert result.exit_code == 0
     text = " ".join(_output(result).split())
     assert "flow_settings_hash" not in text
-    # ... and documents the make-like rebuild/run-dirs options instead
-    assert "make-like, the default" in text
-    assert "One run directory per flow (<design>/<flow>)" in text
+    # ... and documents the rebuild and layout flags instead
+    assert "Without it, a flow runs only when its sources, settings, tools or outputs" in text
+    assert "instead of one per flow, <design>/<flow>." in text
     # the removed options are gone from --help, not merely reworded
     assert "--cached-dependencies" not in text
     assert "--incremental" not in text
@@ -185,3 +187,16 @@ def test_scrub_help_does_not_mention_flow_settings_hash():
     assert "flow_settings_hash" not in text
     assert "--incremental" not in text
     assert "under" in text and "<design_name>" in text
+
+
+def test_scrub_refuses_a_design_name_that_leads_out_of_the_run_root(tmp_path, monkeypatch):
+    """`xeda scrub verilator ..` scrubbed `<run root>/../verilator`."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "verilator").mkdir()
+    (tmp_path / "verilator" / "keep.txt").write_text("mine\n")
+    monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
+    result = CliRunner().invoke(
+        cli, ["scrub", "verilator", "..", "--run-root", str(tmp_path / "xeda_run"), "--json"]
+    )
+    assert json.loads(result.stdout)["success"] is False
+    assert (tmp_path / "verilator" / "keep.txt").read_text() == "mine\n"

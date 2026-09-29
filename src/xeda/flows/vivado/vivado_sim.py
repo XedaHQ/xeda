@@ -1,7 +1,8 @@
 import logging
+from pathlib import Path
 from typing import List, Optional
 
-from ...dataclass import Field
+from ...dataclass import WORKING, Field, deliverable
 from ...design import DesignValidationError
 from ...flow import SimFlow
 from ...utils import SDF
@@ -24,10 +25,11 @@ class VivadoSim(Vivado, SimFlow):
     # Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
 
     class Settings(Vivado.Settings, SimFlow.Settings):
-        saif: Optional[str] = Field(
+        saif: Optional[Path] = Field(
             None,
             description="Write switching activity to this SAIF file, for downstream power "
             "estimation. Implies `elab_debug`.",
+            json_schema_extra=deliverable("outputs/{design}.saif"),
         )
         elab_flags: List[str] = Field(
             ["-relax"], description="Extra flags passed to `xelab` during elaboration."
@@ -59,8 +61,10 @@ class VivadoSim(Vivado, SimFlow):
         )
         work_lib: str = Field("work", description="Name of the HDL working library.")
         initialize_zeros: bool = Field(False, description="Initialize all signals with zero")
-        xelab_log: Optional[str] = Field(
-            "xeda_xelab.log", description="File the elaboration (`xelab`) log is written to."
+        xelab_log: Optional[Path] = Field(
+            Path("xeda_xelab.log"),
+            description="File the elaboration (`xelab`) log is written to.",
+            json_schema_extra=WORKING,
         )
         vcd_scope: str = Field(
             "",
@@ -120,10 +124,11 @@ class VivadoSim(Vivado, SimFlow):
             assert sdf_root, "neither SDF root nor tb.uut are provided"
             ss.elab_flags.append(f"-sdf{delay_type} {sdf_root}={sdf_file}")
 
-        # `vivado_sim.tcl` deletes xsim's work directory, `xsim.dir`, before analyzing
-        self.removable_work_dir("xsim.dir", "xsim.dir")
-        if ss.saif:  # an earlier SAIF file in the run directory; one outside it Vivado overwrites
-            self.remove_stale_output(ss.saif)
+        # The simulator's work library is made anew, the previous one removed through the run
+        # directory. So is the SAIF, which `open_saif` does not replace.
+        self.run_directory.remove("xsim.dir")
+        if ss.saif:
+            self.run_directory.remove(self.run_directory.writable(ss.saif))
         script_path = self.copy_from_template("vivado_sim.tcl")
         # `vivado_sim.tcl` writes these whenever the enabling setting is set; record them so
         # consumers (e.g. `vivado_power`) don't have to guess the path themselves.

@@ -7,9 +7,10 @@ import tempfile
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, XedaBaseModel, field_validator
+from ...dataclass import WORKING, Field, XedaBaseModel, field_validator
 from ...flow import SynthFlow, describe_results
 from ...platforms import AsicsPlatform
+from ...run_dir import RunDirectory
 from ...utils import replacing_file, unique
 from ..ghdl import GhdlSynth
 from .common import YosysBase, append_flag, process_parameters
@@ -108,9 +109,17 @@ def merge_libs(in_files, out_file, new_lib_name=None):
 
 
 def preproc_libs(
-    in_files, merged_file, dont_use_cells: List[str], new_lib_name=None, use_temp_folder=True
+    in_files,
+    merged_file,
+    dont_use_cells: List[str],
+    new_lib_name=None,
+    use_temp_folder=True,
+    run_directory: Optional[RunDirectory] = None,
 ):
-    """Mark selected Liberty cells as `dont_use`, then merge the inputs."""
+    """Mark selected Liberty cells as `dont_use`, then merge the inputs. A file it writes where
+    a flow runs goes through the flow's `run_directory` (`RunDirectory.writable`)."""
+    if run_directory is not None:
+        run_directory.writable(merged_file)
     in_files = unique(in_files)
     proc_files: list[Path] = []
     if len(in_files) > 1:
@@ -145,6 +154,8 @@ def preproc_libs(
                 digest = hashlib.sha256(str(in_file.absolute()).encode()).hexdigest()[:8]
                 out_file = temp_path / f"{in_file.stem}-{digest}-mod{suffix}"
             log.info("Writing pre-processed file: %s", out_file)
+            if run_directory is not None and not use_temp_folder:
+                run_directory.writable(out_file)
             with replacing_file(out_file) as f:
                 f.write(preproc_lib_content(content, dont_use_cells))
             proc_files.append(out_file)
@@ -222,10 +233,11 @@ class Yosys(YosysBase, SynthFlow):
             description="Buffer cell inserted on otherwise undriven or directly-connected wires, "
             "as (cell_name, input_port, output_port).",
         )
-        merge_libs_to: Optional[str] = Field(
+        merge_libs_to: Optional[Path] = Field(
             None,
             description="Merge all liberty libraries into this single file before synthesis, "
             "which some yosys versions require when several corners are given.",
+            json_schema_extra=WORKING,
         )
 
         @field_validator("platform", mode="before")
@@ -250,8 +262,8 @@ class Yosys(YosysBase, SynthFlow):
 
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
-        self.remove_stale_output(self.artifacts.utilization_report)
-        self.remove_stale_output(self.artifacts.timing_report)
+        # a previous run's reports must not pass for this run's
+        self.run_directory.remove(self.artifacts.utilization_report, self.artifacts.timing_report)
         if ss.gates:
             append_flag(ss.abc_flags, f"-g {','.join(ss.gates)}")
         elif ss.lut:
@@ -266,13 +278,14 @@ class Yosys(YosysBase, SynthFlow):
                 raise FileNotFoundError(f"Specified liberty: {lib} does not exist!")
 
         if ss.liberty and (ss.dont_use_cells or ss.merge_libs_to):
-            merge_libs_to = ss.merge_libs_to or "merged_lib"
+            merge_libs_to = ss.merge_libs_to or Path("merged_lib")
             merged_lib_file = Path(f"{merge_libs_to}.lib")
             preproc_libs(
                 ss.liberty,
                 merged_lib_file,
                 ss.dont_use_cells,
                 ss.merge_libs_to,
+                run_directory=self.run_directory,
             )
             ss.merge_libs_to = merge_libs_to
             ss.liberty = [merged_lib_file]
@@ -280,7 +293,7 @@ class Yosys(YosysBase, SynthFlow):
         abc_constr_file = None
         if ss.abc_constr:
             abc_constr_file = "abc.constr"
-            with replacing_file(abc_constr_file) as f:
+            with replacing_file(self.run_directory.writable(abc_constr_file)) as f:
                 f.write("\n".join(ss.abc_constr) + "\n")
 
         script_path = self.copy_from_template(

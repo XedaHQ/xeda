@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from time import sleep
 from typing import (
@@ -124,6 +125,7 @@ namespace eval rdi { variable mode batch }
 rename exit __exit
 %(exit_proc)s
 %(tool_model)s
+%(tool_procs)s
 if {[catch {__source {%(script)s}} e]} {
     puts $::__calls "TCL-ERROR $e"
     puts stderr "TCL-ERROR in %(script)s: $e\n$::errorInfo"
@@ -146,7 +148,8 @@ TCL_EXIT = {
 TCL_EXIT_DEFAULT = "proc exit {{code 0}} { flush $::__calls; __exit $code }"
 
 # A tool's own commands, where recording them is not enough: what they return, and the files the
-# real ones write.
+# real ones write -- the project a tool creates by name among them, as the real one does. (Their
+# other effects on a project's files are `TCL_TOOL_PROCS`.)
 TCL_MODEL = {
     # ISE's `process run` reports a failed process only by its result and the process status
     # (`process get <name> status`): it raises no TCL error. A process named in
@@ -156,9 +159,16 @@ TCL_MODEL = {
     "xtclsh": r"""
 set __ise_top {}
 array set __ise_status {}
-proc project {args} {
-    if {[lrange $args 0 1] eq {set top}} { set ::__ise_top [lindex $args 2] }
-    __call project {*}$args
+# `project new` fails on an existing project (the script then opens it)
+proc project {sub args} {
+    if {$sub eq "set" && [lindex $args 0] eq "top"} { set ::__ise_top [lindex $args 1] }
+    set result [__call project $sub {*}$args]
+    if {$sub eq "new"} {
+        set name [lindex $args 0]
+        if {[file exists $name.xise]} { error "project $name already exists" }
+        set f [open $name.xise w]; puts $f "<project name=\"$name\"/>"; close $f
+    }
+    return $result
 }
 proc process {command name args} {
     __record process $command $name {*}$args
@@ -222,6 +232,8 @@ set __vivado_steps(impl) {
     init_design 1 opt_design 1 power_opt_design 0 place_design 1 post_place_power_opt_design 0
     phys_opt_design 1 route_design 1 post_route_phys_opt_design 0 write_bitstream 1
 }
+# `create_project -force <name>` removes the project's directories whole (as measured on 2024.2)
+# and refuses an existing project without `-force`
 proc create_project {args} {
     set names {}
     for {set i 0} {$i < [llength $args]} {incr i} {
@@ -230,8 +242,21 @@ proc create_project {args} {
     }
     lassign $names name dir
     if {$dir eq ""} { set dir . }
-    set ::__vivado_runs_dir [file normalize [file join $dir $name.runs]]
-    __call create_project {*}$args
+    set result [__call create_project {*}$args]
+    set project [file join $dir $name]
+    set parts {cache data gen hw ioplanning ip_user_files runs sim srcs}
+    set existing [file exists $project.xpr]
+    foreach part $parts { if {[file exists $project.$part]} { set existing 1 } }
+    if {$existing && "-force" ni $args} {
+        error "Project '$name' already exists on disk, please use '-force' option to overwrite"
+    }
+    foreach part $parts { file delete -force $project.$part }
+    file mkdir $dir
+    set f [open $project.xpr w]; puts $f "<Project Name=\"$name\"/>"; close $f
+    foreach part {cache hw runs srcs sim ip_user_files gen} { file mkdir $project.$part }
+    set f [open $project.runs/runme.log w]; puts $f "a run of $name"; close $f
+    set ::__vivado_runs_dir [file normalize $project.runs]
+    return $result
 }
 proc get_runs {args} { __model $args get_runs {*}$args }
 proc set_property {args} {
@@ -346,6 +371,49 @@ proc __vivado_hook {run STEP when} {
 """,
 }
 
+# What a tool does to the files of a project, beyond creating it (`TCL_MODEL`), as the real one
+# does: recorded, then carried out in the working directory. Quartus's `project_new` refuses an
+# existing project without `-overwrite`; DC's `write_icc2_files` refuses an existing output
+# directory without `-force`, and replaces it with it. xsim's compilers write their library under
+# `xsim.dir`, and `open_saif` refuses an existing file.
+TCL_TOOL_PROCS = {
+    "vivado": r"""proc exec {args} {
+    __record exec {*}$args
+    if {[lindex $args 0] in $::__fail} { error "[lindex $args 0] failed" }
+    if {[lindex $args 0] in {xvhdl xvlog xelab}} {
+        file mkdir xsim.dir/work
+        set f [open xsim.dir/work/[lindex $args 0].log a]; puts $f $args; close $f
+    }
+    return ""
+}
+proc open_saif {path} {
+    __record open_saif $path
+    if {[file exists $path]} { error "open_saif: $path already exists" }
+    set f [open $path w]; puts $f "(SAIFILE)"; close $f
+    return 1
+}""",
+    "quartus_sh": r"""proc project_new {args} {
+    __record project_new {*}$args
+    set name [lindex $args 0]
+    if {([file exists $name.qpf] || [file exists $name.qsf]) && "-overwrite" ni $args} {
+        error "Project $name already exists"
+    }
+    foreach ext {qpf qsf} { set f [open $name.$ext w]; puts $f "# $name"; close $f }
+    return 1
+}""",
+    "dc_shell": r"""proc write_icc2_files {args} {
+    __record write_icc2_files {*}$args
+    set dir [lindex $args [expr {[lsearch -exact $args -output] + 1}]]
+    if {[file exists $dir]} {
+        if {"-force" ni $args} { error "$dir already exists" }
+        file delete -force $dir
+    }
+    file mkdir $dir
+    set f [open $dir/design.tcl w]; puts $f "# icc2"; close $f
+    return 1
+}""",
+}
+
 
 def run_tcl(script: Union[str, os.PathLike], tool_name: str) -> int:
     """Run `script` under tclsh the way the tool would, its commands recorded (`TCL_RECORDER`).
@@ -370,6 +438,7 @@ def run_tcl(script: Union[str, os.PathLike], tool_name: str) -> int:
             "script": script,
             "exit_proc": exit_proc,
             "tool_model": TCL_MODEL.get(tool_name, ""),
+            "tool_procs": TCL_TOOL_PROCS.get(tool_name, ""),
         }
     )
     return subprocess.run([tclsh, str(runner)], check=False).returncode
@@ -437,6 +506,8 @@ class FakeTool(XedaBaseModel):
     vendor: Optional[str] = None
     help_options: list = ["--help"]
     version_options: list = ["--version"]
+    #: files a version probe leaves in the working directory, different every time (a journal)
+    version_writes: list = []
     options: dict = {}  # param_decls -> attrs
     arguments: dict = {}  # Dict[str, Optional[Dict[str, Any]]] = {}
     # arguments click cannot parse, rewritten first: an option may not start with a digit
@@ -463,6 +534,8 @@ class FakeVivado(FakeTool):
     """
     help_options: list = ["-help"]
     version_options: list = ["-version"]
+    # as Vivado does: `vivado -version` starts a journal and a log where it runs
+    version_writes: list = ["vivado.jou", "vivado.log"]
     options: dict = {
         "-mode": ["gui", "tcl", "batch"],
         "-init": dict(type=click.Path(exists=True)),
@@ -564,10 +637,22 @@ def fake_tool_options(fake_tool: Optional[FakeTool]) -> FC:
                 invoke_without_command=True,
                 context_settings=dict(help_option_names=fake_tool.help_options),
             )(f)
-            f = click.version_option(
-                fake_tool.version,
+
+            def print_version(ctx: click.Context, _param, value) -> None:
+                if not value or ctx.resilient_parsing:
+                    return
+                for name in fake_tool.version_writes:
+                    Path(name).write_text(f"{ctx.info_name} probed at {time.time_ns()}\n")
+                click.echo(fake_tool.version_banner)
+                ctx.exit()
+
+            f = click.option(
                 *fake_tool.version_options,
-                message=fake_tool.version_banner,
+                is_flag=True,
+                expose_value=False,
+                is_eager=True,
+                callback=print_version,
+                help="Show the version and exit.",
             )(f)
             for arg, attrs in fake_tool.arguments.items():
                 if attrs is None:

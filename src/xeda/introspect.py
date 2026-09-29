@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Type, Union, get_args
 from importlib_resources import as_file, files
 from pydantic import BaseModel
 
-from .dataclass import PydanticUndefined, input_names
+from .dataclass import PydanticUndefined, input_names, written_role
 from .design import Design
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
 from .flow_runner import get_flow_class
@@ -302,6 +302,8 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "enum": _enum_of(prop, definitions),
                 "common": name in base_field_names,
                 "declared_by": declared_by,
+                # "working" or "deliverable": a path the flow writes (D21); None: it is read
+                "writes": written_role(cls.Settings, name),
                 "json_schema": json_safe(prop),
             }
         )
@@ -319,6 +321,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "enum": _enum_of(prop, definitions),
                 "common": False,
                 "declared_by": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
+                "writes": None,
                 "json_schema": json_safe(prop),
             }
         )

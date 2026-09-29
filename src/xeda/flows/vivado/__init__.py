@@ -3,7 +3,6 @@ import re
 from abc import ABCMeta
 from functools import cached_property, reduce
 from html import unescape
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree
 
@@ -101,9 +100,8 @@ class VivadoTool(Tool):
 
     @cached_property
     def version(self) -> Tuple[str, ...]:
-        out = self.run_get_stdout(
-            "-version",
-        )
+        # in a temporary directory: `vivado -version` writes vivado.jou and vivado.log
+        out = self.probe_stdout("-version")
         assert isinstance(out, str)
         so = re.split(r"\s+", out)
         version_string = so[1] if len(so) > 1 else so[0] if len(so) > 0 else ""
@@ -148,7 +146,7 @@ class Vivado(Flow, metaclass=ABCMeta):
             design_root_=self.design_root,
         )  # pyright: ignore
         if self.settings.redirect_stdout:
-            self.vivado.redirect_stdout = Path(f"{self.name}_stdout.log")
+            self.vivado.redirect_stdout = self.run_directory.writable(f"{self.name}_stdout.log")
         self.add_template_filter(
             "vivado_generics", vivado_generics(not isinstance(self, SynthFlow))
         )
@@ -157,10 +155,13 @@ class Vivado(Flow, metaclass=ABCMeta):
             "vivado_defines", vivado_defines(not isinstance(self, SynthFlow))
         )
 
-    @staticmethod
-    def parse_xml_report(report_xml) -> Optional[Dict[str, Any]]:
+    def parse_xml_report(self, report_xml) -> Optional[Dict[str, Any]]:
+        """The tables of a Vivado XML report this run wrote (`Flow.report_file`)."""
+        report = self.report_file(report_xml)
+        if report is None:
+            return None
         try:
-            tree = ElementTree.parse(report_xml)
+            tree = ElementTree.parse(report)
         except FileNotFoundError:
             log.critical("File %s not found.", report_xml)
             return None

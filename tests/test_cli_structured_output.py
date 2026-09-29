@@ -63,23 +63,20 @@ def test_query_command_json_is_parseable(command: List[str]):
     json.loads(proc.stdout)
 
 
-def test_cwd_remote_conflict_emits_json_failure():
+def test_cwd_with_remote_is_a_removed_option_under_json():
     proc = run_xeda(
         "run",
-        "yosys",
-        str(SQRT_DESIGN),
+        "vivado_synth",
+        "sqrt.toml",
         "--cwd",
         "--remote",
-        "example.invalid",
+        "nohost",
         "--json",
         cwd=SQRT_DESIGN.parent,
     )
-    assert proc.returncode != 0
     document = json.loads(proc.stdout)
-    assert document["success"] is False
-    assert document["error"]["type"] == "UsageError"
-    assert document["error"]["message"] == "--cwd and --remote are mutually exclusive!"
-    assert document["nodes"] == []
+    assert proc.returncode != 0 and document["success"] is False
+    assert document["error"]["message"].startswith("`--cwd` was removed: use --outputs-to .")
 
 
 @pytest.mark.parametrize("command", QUERY_COMMANDS, ids=lambda c: "-".join(c))

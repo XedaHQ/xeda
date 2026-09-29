@@ -141,6 +141,24 @@ EXPECTED_COLUMNS = [
 
 
 @needs_tclsh
+def test_vivado_s_version_probe_does_not_make_vivado_synth_stale(tmp_path, monkeypatch) -> None:
+    """`vivado -version` writes vivado.jou and vivado.log where it runs (the fake does too). The
+    flow probes it in `init()`, before the check: run in the run directory, whose every file is
+    an output, that would make every launch stale."""
+    from .tool_utils import use_fake_tools
+
+    use_fake_tools(monkeypatch)
+    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock=dict(period=5.5))
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    first = runner.launch_flow(VivadoSynth, design, settings)
+    assert first.succeeded
+    assert not (first.run_path / "vivado.jou").exists()
+    assert not (first.run_path / "vivado.log").exists()
+    again = runner.launch_flow(VivadoSynth, design, settings)
+    assert again.reused, again.stale_reason
+
+
 def test_report_critical_paths_keeps_vivado_slack_order() -> None:
     """`reportCriticalPaths` writes the paths exactly as Vivado returns them:
     worst (lowest) slack first, with no re-ordering of its own."""

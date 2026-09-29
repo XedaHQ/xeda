@@ -1,4 +1,4 @@
-"""`rebuild="stale"`: a flow re-runs only when something it consumed or produced changed.
+"""Make-like launches, the default: a flow re-runs only when what it consumed or produced changed.
 
 Two pure-Python flows stand in for tools: `toy_producer` copies the design's source (plus a
 suffix setting) to an output; `toy_consumer` depends on it and copies that output onward. Each
@@ -19,7 +19,6 @@ from pydantic import Field
 from xeda import Design
 from xeda.console import console
 from xeda.flow import Flow, FlowFatalError, FlowSettingsError, registered_flows
-from xeda.flow.run_dir import mark_run_dir
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import scrub_runs
 from xeda.flow_runner.run_lock import lock_file, run_dir_lock
@@ -79,7 +78,6 @@ def design(tmp_path):
 
 def _run(tmp_path, cls, design, sections=None, settings=None, **launcher):
     RUNS.clear()
-    launcher.setdefault("rebuild", "stale")
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **launcher)
     flow = runner.launch_flow(cls, design, settings or {}, all_flows_settings=sections)
     assert flow.succeeded
@@ -145,7 +143,7 @@ def test_a_dependency_that_ran_again_since_is_a_change(tmp_path, toys, design):
     the consumer, finding the producer fresh, still sees a producer run it did not consume."""
     producer, consumer = toys
     _run(tmp_path, consumer, design)
-    _, ran = _run(tmp_path, producer, design, rebuild="all")  # byte-identical output
+    _, ran = _run(tmp_path, producer, design, rebuild_all=True)  # byte-identical output
     assert ran == ["toy_producer"]
     flow, ran = _run(tmp_path, consumer, design)
     assert flow.completed_dependencies[0].reused
@@ -179,7 +177,7 @@ def test_a_deleted_output_is_stale(tmp_path, toys, design):
 def test_rebuild_all_always_runs(tmp_path, toys, design):
     producer, _ = toys
     _run(tmp_path, producer, design)
-    _, ran = _run(tmp_path, producer, design, rebuild="all")
+    _, ran = _run(tmp_path, producer, design, rebuild_all=True)
     assert ran == ["toy_producer"]
 
 
@@ -223,11 +221,7 @@ def test_post_cleanup_waits_for_the_requested_flow(tmp_path, design):
         (scratcher,) = flow.completed_dependencies
         assert ran == ["toy_scratcher", "toy_scratch_reader"]
         for run_path in (scratcher.run_path, flow.run_path):  # both cleaned up afterwards
-            assert sorted(p.name for p in run_path.iterdir()) == [
-                ".xeda-run-dir",  # it stays xeda's
-                "results.json",
-                "settings.json",
-            ]
+            assert sorted(p.name for p in run_path.iterdir()) == ["results.json", "settings.json"]
         # Pruning removed the traces: a pruned directory may lack a file a depender reads (here
         # `undeclared.txt`), so it is never reused -- both run again.
         flow, ran = _run(tmp_path, ToyScratchReader, design, post_cleanup=True)
@@ -263,7 +257,6 @@ def test_a_failed_launch_still_cleans_up_what_ran(tmp_path, toys, design):
             runner.launch_flow(ToyFailingUser, design, {})
         done, failed = runner.launched
         assert sorted(p.name for p in done.run_path.iterdir()) == [
-            ".xeda-run-dir",
             "outputs",
             "results.json",
             "settings.json",
@@ -317,7 +310,7 @@ def test_a_flow_reporting_its_whole_run_directory_can_be_fresh(tmp_path, design)
 
     try:
         _run(tmp_path, ToyWhole, design)
-        _run(tmp_path, ToyWhole, design, rebuild="all")  # over the previous run's results.json
+        _run(tmp_path, ToyWhole, design, rebuild_all=True)  # over the previous run's results.json
         flow, ran = _run(tmp_path, ToyWhole, design)
         assert ran == [] and flow.reused
     finally:
@@ -356,18 +349,33 @@ def test_an_action_runs_every_time_after_fresh_dependencies(tmp_path, toys, desi
         _unregister(ToyAction)
 
 
-def test_a_given_run_directory_is_never_emptied(tmp_path, toys, design):
-    """`clean` never empties the directory given as `run_path` (`--cwd`): it is not xeda's."""
+RUN_PATH_REMOVED = (
+    "`run_path` was removed: use run_root to choose where runs go (a flow always runs in a "
+    "directory xeda creates under it), and outputs_to to receive its outputs elsewhere"
+)
+
+
+def test_run_path_was_removed_and_names_run_root(tmp_path):
+    with pytest.raises(ValueError, match=re.escape(RUN_PATH_REMOVED)):
+        DefaultRunner(tmp_path / "xeda_run", run_path=tmp_path / "mine")
+    runner = DefaultRunner(tmp_path / "xeda_run")
+    with pytest.raises(ValueError, match=re.escape(RUN_PATH_REMOVED)):
+        runner.settings.run_path = tmp_path / "mine"
+
+
+def test_a_launch_takes_no_run_path():
+    import inspect
+
+    from xeda.flow_runner.dse.dse_runner import Dse
+
+    for method in (DefaultRunner.launch_flow, DefaultRunner.run_flow, Dse.run_flow):
+        assert "run_path" not in inspect.signature(method).parameters, method
+
+
+def test_a_flow_built_directly_names_its_run_directory(tmp_path, toys, design):
     producer, _ = toys
-    given = tmp_path / "mine"
-    given.mkdir()
-    mark_run_dir(given)  # a directory xeda ran in before
-    (given / "keep.txt").write_text("mine")
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, clean=True)
-    RUNS.clear()
-    flow = runner.launch_flow(producer, design, {}, run_path=given)
-    assert flow.succeeded and flow.run_path == given and RUNS == ["toy_producer"]
-    assert (given / "keep.txt").read_text() == "mine"
+    with pytest.raises(TypeError):
+        producer({}, design)  # type: ignore[call-arg]
 
 
 def test_launched_lists_every_flow_in_completion_order(tmp_path, toys, design):
@@ -472,7 +480,7 @@ def test_a_dependency_cannot_take_over_the_requested_flow_s_directory(tmp_path, 
         _unregister(ToyNested)
 
 
-@pytest.mark.parametrize("launcher", [{}, {"rebuild": "all"}, {"clean": True}], ids=str)
+@pytest.mark.parametrize("launcher", [{}, {"rebuild_all": True}, {"clean": True}], ids=str)
 def test_the_same_configuration_twice_in_a_launch_runs_once(tmp_path, toys, design, launcher):
     """Two dependencies with the same settings share one run, however the launch rebuilds."""
     producer, _ = toys
@@ -493,14 +501,14 @@ def test_two_dependencies_of_one_flow_are_told_apart(tmp_path, toys, design):
     producer, _ = toys
     two = _two_producers(producer, {}, {"suffix": "!"})
     try:
-        flow, ran = _run(tmp_path, two, design, run_dirs="hashed")
+        flow, ran = _run(tmp_path, two, design, hashed_run_dirs=True)
         first, second = flow.completed_dependencies
         assert first.run_path != second.run_path
         runner = DefaultRunner(
-            tmp_path / "xeda_run", display_results=False, run_dirs="hashed", rebuild="all"
+            tmp_path / "xeda_run", display_results=False, hashed_run_dirs=True, rebuild_all=True
         )
         runner.launch_flow(producer, design, {})  # the first, again
-        flow, ran = _run(tmp_path, two, design, run_dirs="hashed")
+        flow, ran = _run(tmp_path, two, design, hashed_run_dirs=True)
         assert ran == ["toy_two_producers"]
         assert flow.stale_reason == f"toy_producer (toy/{first.run_path.name}) ran again"
     finally:
@@ -527,7 +535,6 @@ def test_a_failed_clean_up_does_not_stop_the_others(tmp_path, toys, design, monk
     assert "Cleaning up" in caplog.text and "cannot clean up" in caplog.text
     assert (producer_run.run_path / "trace.json").exists()  # not cleaned up
     assert sorted(p.name for p in consumer_run.run_path.iterdir()) == [
-        ".xeda-run-dir",
         "outputs",
         "results.json",
         "settings.json",
@@ -546,7 +553,7 @@ def test_a_failed_clean_up_does_not_stop_the_others(tmp_path, toys, design, monk
 
     try:
         runner = DefaultRunner(
-            tmp_path / "xeda_run", display_results=False, post_cleanup=True, rebuild="all"
+            tmp_path / "xeda_run", display_results=False, post_cleanup=True, rebuild_all=True
         )
         with pytest.raises(FlowFatalError, match="the launch's own error"):
             runner.launch_flow(ToyFailingConsumer, design, {})
@@ -557,13 +564,13 @@ def test_a_failed_clean_up_does_not_stop_the_others(tmp_path, toys, design, monk
 def test_scrubbing_a_run_directory_removes_its_lock(tmp_path, toys, design, monkeypatch):
     """A lock file sits beside its run directory; scrubbing the directory removes both."""
     producer, _ = toys
-    old, _ = _run(tmp_path, producer, design, run_dirs="hashed")
+    old, _ = _run(tmp_path, producer, design, hashed_run_dirs=True)
     lock = lock_file(old.run_path)
     assert lock.is_file()
     monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
     assert scrub_runs(producer.name, old.run_path.parent)
     assert not old.run_path.exists() and not lock.exists()
-    kept, _ = _run(tmp_path, producer, design, run_dirs="hashed")
+    kept, _ = _run(tmp_path, producer, design, hashed_run_dirs=True)
     monkeypatch.setattr(console, "input", lambda *a, **kw: "no")  # declined: nothing removed
     assert not scrub_runs(producer.name, kept.run_path.parent)
     assert kept.run_path.exists() and lock_file(kept.run_path).is_file()
@@ -571,7 +578,7 @@ def test_scrubbing_a_run_directory_removes_its_lock(tmp_path, toys, design, monk
 
 def test_hashed_directories_are_named_by_settings(tmp_path, toys, design):
     producer, _ = toys
-    flow, _ = _run(tmp_path, producer, design, run_dirs="hashed")
+    flow, _ = _run(tmp_path, producer, design, hashed_run_dirs=True)
     assert flow.run_path.name == f"{producer.name}_{flow.flow_hash[:16]}"
     assert flow.run_path.parent.name == "toy"  # no design-hash layer
 
@@ -581,10 +588,10 @@ def test_hashed_directories_are_named_by_settings(tmp_path, toys, design):
     [
         (
             "cached_dependencies",
-            "rebuild='stale' (the default) to reuse unchanged runs, and run_dirs='hashed' to "
-            "keep settings variants side by side",
+            "the default, which reuses unchanged runs, and hashed_run_dirs=True to keep settings "
+            "variants side by side",
         ),
-        ("skip_if_previous_run_exists", "rebuild='stale' (the default)"),
+        ("skip_if_previous_run_exists", "the default, which reuses unchanged runs"),
         (
             "incremental",
             "clean=True to empty run directories before running (they are otherwise always "
@@ -647,7 +654,7 @@ def test_an_edited_include_reruns_yosys(tmp_path):
         "assign y = ~a; endmodule\n"
     )
     design = Design(name="inc", rtl={"sources": ["top.v"], "top": "top"}, design_root=tmp_path)
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, rebuild="stale")
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     settings = {"fpga": {"part": "LFE5U-25F-6BG256C"}}
     first = runner.launch_flow("yosys_fpga", design, settings)
     assert first.succeeded
@@ -662,7 +669,7 @@ def test_an_edited_include_reruns_yosys(tmp_path):
 def test_pruning_removes_the_trace_before_anything_else(tmp_path, design, monkeypatch):
     """A prune that stops halfway must not leave a trace vouching for a directory it has
     already partly emptied: the trace is the first thing it deletes."""
-    from xeda.flow_runner import default_runner
+    from xeda import run_dir
 
     class ToyScratchFiles(Flow):
         """Leaves undeclared files behind, named on both sides of `trace.json`."""
@@ -675,7 +682,7 @@ def test_pruning_removes_the_trace_before_anything_else(tmp_path, design, monkey
             (self.run_path / "scratch").mkdir(exist_ok=True)
 
     deleted: list[str] = []
-    unlink, rmtree, clean_up = Path.unlink, default_runner.rmtree, DefaultRunner._clean_up
+    unlink, rmtree, clean_up = Path.unlink, run_dir.rmtree, DefaultRunner._clean_up
     iterdir = Path.iterdir
 
     def trace_last(self):  # the worst order for a prune that deletes as it iterates
@@ -694,7 +701,7 @@ def test_pruning_removes_the_trace_before_anything_else(tmp_path, design, monkey
         return clean_up(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "unlink", recording_unlink)
-    monkeypatch.setattr(default_runner, "rmtree", recording_rmtree)
+    monkeypatch.setattr(run_dir, "rmtree", recording_rmtree)
     monkeypatch.setattr(DefaultRunner, "_clean_up", recording_clean_up)
     monkeypatch.setattr(Path, "iterdir", trace_last)
     try:

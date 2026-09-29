@@ -237,6 +237,27 @@ def test_merge_stderr_is_forwarded_through_the_docker_path(monkeypatch, tmp_path
     assert not list(Path.cwd().parent.glob("*_docker.env"))
 
 
+def test_a_docker_run_mounts_the_directory_it_runs_in_not_an_earlier_one(monkeypatch, tmp_path):
+    """A tool's version is probed in a temporary directory (`Tool.probe_stdout`), gone by the
+    time the flow runs the tool: were that directory still mounted, Docker would create it
+    again, outside the run directory. Each run mounts the directory it runs in, and only that."""
+    commands = []
+
+    def fake_run_process(executable, args=None, **kwargs):
+        commands.append([str(arg) for arg in args or []])
+        return "out"
+
+    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    first, second = tmp_path / "first", tmp_path / "second"
+    tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
+    for cwd in (first, second):
+        cwd.mkdir()
+        monkeypatch.chdir(cwd)
+        tool.run("arg", stdout=True)
+    assert any(str(second) in arg for arg in commands[1])
+    assert not any(str(first) in arg for arg in commands[1]), commands[1]
+
+
 def _docker_run_overrides():
     """Every `Docker` subclass that overrides `run`, however deeply nested.
 

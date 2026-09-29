@@ -15,4 +15,4 @@ tb:
 flows:
   verilator:
     timing: true
-    vcd: $PWD/fifo.vcd
+    vcd: fifo.vcd

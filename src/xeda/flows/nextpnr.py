@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
-from ..dataclass import Field, XedaBaseModel, field_validator
+from ..dataclass import WORKING, Field, XedaBaseModel, deliverable, field_validator
 from ..flow import (
     FlowFatalError,
     FlowSettingsException,
@@ -246,12 +246,17 @@ class Nextpnr(FpgaSynthFlow):
             Path("config.txt"),
             description="ECP5 routed design written as a Trellis textual configuration file, "
             "which the bitstream packer (and the `openfpgaloader` flow) consumes.",
+            json_schema_extra=deliverable(),
         )
         asc: Optional[Path] = Field(
-            Path("config.asc"), description="iCE40 ASCII configuration written with `--asc`."
+            Path("config.asc"),
+            description="iCE40 ASCII configuration written with `--asc`.",
+            json_schema_extra=deliverable(),
         )
         fasm: Optional[Path] = Field(
-            Path("config.fasm"), description="Nexus FASM configuration written with `--fasm`."
+            Path("config.fasm"),
+            description="Nexus FASM configuration written with `--fasm`.",
+            json_schema_extra=deliverable(),
         )
         out_of_context: bool = Field(
             False,
@@ -336,20 +341,26 @@ class Nextpnr(FpgaSynthFlow):
             "analysis. Requires a nextpnr built with Python support.",
         )
         write: Optional[Path] = Field(
-            None, description="Write the post-routing design to this JSON file."
+            None,
+            description="Write the post-routing design to this JSON file.",
+            json_schema_extra=deliverable("outputs/{design}_routed.json"),
         )
         sdf: Optional[Path] = Field(
             None,
             description="Write post-routing timing to this SDF file, for timing-annotated "
             "netlist simulation.",
+            json_schema_extra=deliverable("outputs/{design}.sdf"),
         )
         log: Optional[Path] = Field(
-            Path("nextpnr.log"), description="File nextpnr writes its log to."
+            Path("nextpnr.log"),
+            description="File nextpnr writes its log to.",
+            json_schema_extra=WORKING,
         )
         report: Optional[Path] = Field(
             Path("report.json"),
             description="File nextpnr writes its JSON utilization/timing report to. This is what "
             "the flow parses its results from.",
+            json_schema_extra=deliverable(),
         )
         detailed_timing_report: bool = Field(
             False,
@@ -357,10 +368,14 @@ class Nextpnr(FpgaSynthFlow):
             "and may crash nextpnr.",
         )
         placed_svg: Optional[Path] = Field(
-            None, description="Render the placed design to this SVG file."
+            None,
+            description="Render the placed design to this SVG file.",
+            json_schema_extra=deliverable("outputs/{design}_placed.svg"),
         )
         routed_svg: Optional[Path] = Field(
-            None, description="Render the routed design to this SVG file."
+            None,
+            description="Render the routed design to this SVG file.",
+            json_schema_extra=deliverable("outputs/{design}_routed.svg"),
         )
         parallel_refine: bool = Field(
             False,
@@ -614,8 +629,8 @@ class Nextpnr(FpgaSynthFlow):
         report_path = Path(ss.report)
         if not report_path.is_absolute():
             report_path = self.run_path / report_path
-        if not report_path.exists():
-            log.error("nextpnr report file %s does not exist!", report_path)
+        if self.report_file(report_path) is None:  # none, or a previous run's
+            log.error("nextpnr wrote no report %s", report_path)
             return False
         try:
             report = json.loads(report_path.read_text())

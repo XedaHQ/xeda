@@ -1,5 +1,5 @@
-"""A setting that names a file is typed as a path, so the trace sees it and `$DESIGN_ROOT`
-expands in it.
+"""A setting that names a file, or a directory a tool reads, is typed as a path, so the trace
+sees it (a directory by every file under it) and `$DESIGN_ROOT` expands in it.
 
 A trace records the files a run's settings name by walking their *declared* path types
 (`trace_inputs.setting_files`); a file named by a `str` setting is invisible to it -- editing it
@@ -13,24 +13,18 @@ from typing import Annotated, Any, Iterator, List, Tuple, get_args, get_origin
 
 from pydantic import BaseModel
 
+from xeda.dataclass import written_role
 from xeda.flow import Flow, registered_flows
 from xeda.flow.flow import _annotation_contains_path
 
 #: names that say a setting names a file (matched against the dotted name, nested models too)
-FILE_NAMES = re.compile(r"(_file|_files|_script|_dir|ini|_libs?)$|path|sdf|wave_opt")
+FILE_NAMES = re.compile(r"(_file|_files|_script|_dirs?|_folder|ini|_libs?)$|path|sdf|wave_opt")
 
 #: `str` settings whose names match but that are not files a run reads, and why
 NOT_INPUTS = {
     "yosys.abc_script": "inline scripts are text; file scripts are registered as implicit inputs",
     "yosys_fpga.abc_script": "inline scripts are text; file scripts are registered as implicit inputs",
     "yosys_sim.abc_script": "inline scripts are text; file scripts are registered as implicit inputs",
-    "bsc.bobj_dir": "the directory bsc writes its object files into",
-    "verilator.sim_dir": "the build directory Verilator writes the model into",
-    "vcs.work_dir": "the directory VCS compiles into",
-    "vcs.vcs_log_file": "the log VCS writes",
-    "yosys.log_file": "the log yosys writes",
-    "yosys_fpga.log_file": "the log yosys writes",
-    "yosys_sim.log_file": "the log yosys writes",
     "dc.sdf_inst_name": "an instance name in the design hierarchy",
     "dc.sdf_version": "the SDF format version to write",
     "vcs.sdf_instance": "an instance name in the design hierarchy",
@@ -117,3 +111,34 @@ def test_an_inline_abc_script_is_text_and_a_script_file_a_path(tmp_path):
         {"abc_script": "$DESIGN_ROOT/map.abc"}, design_root=tmp_path
     )
     assert script.abc_script == "$DESIGN_ROOT/map.abc"
+
+
+#: Path-typed settings that name a directory a run reads (an input: every file under it is
+#: recorded), by flow; every other directory setting must be one the flow writes (a role:
+#: `xeda.dataclass.WORKING`, `deliverable(...)`), which is never an input.
+INPUT_DIRECTORIES = {
+    "lib_paths": "compiled libraries a tool reads",
+    "include_dirs": "include directories Verilator searches",
+    "additional_search_path": "a directory DC searches for libraries",
+    "prjxray_db_dir": "the Project X-Ray database open_xc7 reads",
+    "search_paths": "directories bsc searches for imported Bluespec packages",
+    "verilog_search_paths": "directories bsc searches for the Verilog of imported modules",
+    "library_dirs": "directories of the C/C++ libraries bsc_sim links",
+}
+
+DIRECTORY_NAMES = re.compile(r"(_dir|_dirs|_folder|_paths)$")
+
+
+def test_every_directory_setting_is_an_input_or_a_declared_output():
+    """A directory a setting names is either read by the run -- listed as its input -- or
+    written by it (a role: `xeda.dataclass.WORKING`, `deliverable(...)`): undeclared, a flow's
+    own output directory would be taken for an input it rewrites every run."""
+    unclassified = []
+    for _, (_, cls) in sorted(registered_flows.items()):
+        declared = {name for name in cls.Settings.model_fields if written_role(cls.Settings, name)}
+        for name, field in cls.Settings.model_fields.items():
+            if not DIRECTORY_NAMES.search(name) or not _annotation_contains_path(field.annotation):
+                continue
+            if (name in INPUT_DIRECTORIES) == (name in declared):
+                unclassified.append(f"{cls.name}.{name}")
+    assert sorted(set(unclassified)) == []

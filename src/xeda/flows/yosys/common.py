@@ -8,7 +8,7 @@ from glob import escape as glob_escape
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from ...dataclass import Field, field_validator
+from ...dataclass import WORKING, Field, deliverable, field_validator
 from ...design import SourceType
 from ...flow import Flow, FlowException, FlowSettingsException
 from ...flows.ghdl import GhdlSynth
@@ -114,10 +114,11 @@ class YosysBase(Flow):
     minimum_yosys: Optional[YosysRelease] = (0, 21)
 
     class Settings(Flow.Settings):
-        log_file: Optional[str] = Field(
-            "yosys.log",
+        log_file: Optional[Path] = Field(
+            Path("yosys.log"),
             description="File yosys writes its full log to, relative to the run directory. "
             "Set to null to log only to the console.",
+            json_schema_extra=WORKING,
         )
         script_format: Literal["ys", "tcl"] = Field(
             "ys",
@@ -152,12 +153,17 @@ class YosysBase(Flow):
             None,
             description="Write the elaborated (pre-synthesis) design to this Verilog file. "
             "Useful for inspecting what yosys read.",
+            json_schema_extra=deliverable("outputs/{design}_rtl.v"),
         )
         rtl_json: Optional[Path] = Field(
-            None, description="Write the elaborated (pre-synthesis) design to this JSON file."
+            None,
+            description="Write the elaborated (pre-synthesis) design to this JSON file.",
+            json_schema_extra=deliverable("outputs/{design}_rtl.json"),
         )
         rtl_graph: Optional[Path] = Field(
-            None, description="Render a `show` graph of the elaborated design to this file."
+            None,
+            description="Render a `show` graph of the elaborated design to this file.",
+            json_schema_extra=deliverable("outputs/{design}_rtl.dot"),
         )
         rtl_graph_flags: List[str] = Field(
             [
@@ -261,6 +267,7 @@ class YosysBase(Flow):
             alias="netlist",
             description="Write the synthesized gate-level netlist to this Verilog file. Set to "
             "null to skip.",
+            json_schema_extra=deliverable(),
         )
         netlist_attrs: Optional[bool] = Field(
             True, description="Include cell and wire attributes in the written Verilog netlist."
@@ -307,16 +314,21 @@ class YosysBase(Flow):
             alias="json_netlist",
             description="Write the synthesized netlist to this JSON file. Required by downstream "
             "flows such as `nextpnr`.",
+            json_schema_extra=deliverable(),
         )
         netlist_graph: Optional[Path] = Field(
-            None, description="Render a `show` graph of the synthesized netlist to this file."
+            None,
+            description="Render a `show` graph of the synthesized netlist to this file.",
+            json_schema_extra=deliverable("outputs/{design}_netlist.dot"),
         )
         netlist_graph_flags: List[str] = Field(
             ["-stretch", "-enum", "-width", "-href", "-color maroon3 t:*dff"],
             description="Flags passed to yosys' `show` when rendering `netlist_graph`.",
         )
         write_blif: Optional[Path] = Field(
-            None, description="Write the synthesized netlist to this BLIF file."
+            None,
+            description="Write the synthesized netlist to this BLIF file.",
+            json_schema_extra=deliverable("outputs/{design}.blif"),
         )
         retime: bool = Field(False, description="Enable flip-flop retiming")
         sta: bool = Field(
@@ -561,8 +573,7 @@ class YosysBase(Flow):
         target.parent.mkdir(parents=True, exist_ok=True)
         return f"{self._path_alias(target.parent)}/{target.name}"
 
-    @staticmethod
-    def _path_alias(target: Path) -> str:
+    def _path_alias(self, target: Path) -> str:
         """The name, relative to the run directory, of a whitespace-free symbolic link there to
         the absolute path `target`: `path_aliases/<digest of that path>/<its name>`, so one target
         always gets the same alias, two never share one, and the name keeps its extension (the
@@ -573,7 +584,7 @@ class YosysBase(Flow):
         if alias.is_symlink():
             if os.readlink(alias) == str(target):
                 return alias.as_posix()
-            alias.unlink()
+            self.run_directory.remove(alias)
         try:
             alias.symlink_to(target, target_is_directory=target.is_dir())
         except OSError as e:
@@ -612,8 +623,9 @@ class YosysBase(Flow):
         )
 
     def get_utilization(self) -> Optional[dict]:
-        report = Path(self.artifacts.utilization_report)
-        if not report.exists():
+        """The utilization report this run wrote (`Flow.report_file`), if any."""
+        report = self.report_file(self.artifacts.utilization_report)
+        if report is None:
             return None
         try:
             with open(report) as f:

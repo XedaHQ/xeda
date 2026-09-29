@@ -162,14 +162,12 @@ class IseSynth(FpgaSynthFlow):
         }
 
     def run(self) -> None:
-        # here, not in `init()`, which also runs for a fresh flow whose outputs are reused
+        # here, not in `init()`, which also runs for a fresh flow whose outputs are reused;
+        # a project left in the directory is reopened with its previous sources and outputs, and
+        # a previous run's outputs must not pass for this run's
         logger.info("Deleting previous artifacts as ISE needs to run in a clean directory.")
         self.purge_run_path()
         assert isinstance(self.settings, self.Settings)
-        # A previous run's outputs must not pass for this run's. Only they are removed, and only
-        # inside the run directory.
-        for path in self.outputs().values():
-            self.remove_stale_output(path)
         if self.settings.xcf_file is None:
             self.settings.xcf_file = self.copy_from_template("constraints.xcf")
         self.settings.ucf_files.append(self.copy_from_template("constraints.ucf"))
@@ -180,7 +178,7 @@ class IseSynth(FpgaSynthFlow):
         xtclsh = XTclSh()  # type: ignore
         xtclsh.run(script_path)
         for label, path in self.outputs().items():
-            if path.is_file():
+            if path.is_file() and self.written_by_this_run(path):
                 self.artifacts[label] = path
         if "bitstream" not in self.artifacts:
             raise FlowFatalError(

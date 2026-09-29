@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
-from ..dataclass import Field, field_validator
+from ..dataclass import Field, deliverable, field_validator
 from ..design import Design
 from .flow import Flow, FlowSettingsException, registered_flows
 
@@ -30,6 +30,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             alias="waveform",
             description="Write a waveform to this file. `true` writes `dump.vcd`; a name without "
             "an extension gets `.vcd`; `false` or an empty name writes none.",
+            json_schema_extra=deliverable("outputs/{design}.vcd"),
         )
         stop_time: Union[str, int, float, None] = Field(
             None,
@@ -77,7 +78,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
         self,
         settings: Union[Settings, Dict],
         design: Union[Design, Dict],
-        run_path: Optional[Path] = None,
+        run_path: Path,
         **kwargs,
     ):
         super().__init__(settings, design, run_path, **kwargs)
@@ -99,9 +100,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
         )
 
     def check_results(self) -> bool:
-        """Include the cocotb verdict for every simulator that ran a cocotb testbench."""
+        """Include the cocotb verdict for every simulator that ran a cocotb testbench, from the
+        results file this run wrote (`Flow.report_file`: a previous run's is never read)."""
         if self.cocotb:
-            return self.cocotb.add_results(self.results)
+            return self.cocotb.add_results(
+                self.results, results_file=self.report_file(self.cocotb.results_xml)
+            )
         return True
 
     def always_runs(self) -> Optional[str]:

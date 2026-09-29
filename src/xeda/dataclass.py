@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 from copy import deepcopy
 from functools import cache, cached_property, wraps
 from inspect import signature
+from pathlib import PurePath
 from types import UnionType
 from typing import (
     Annotated,
@@ -44,6 +46,9 @@ __all__ = [
     "AliasChoices",
     "Code",
     "ConfigDict",
+    "DELIVERABLE_ROLE",
+    "WORKING",
+    "WORKING_ROLE",
     "ErrorDetails",
     "Field",
     "FieldInfo",
@@ -56,10 +61,13 @@ __all__ = [
     "accepts_non_mapping",
     "annotation_args",
     "asdict",
+    "conventional_output",
+    "deliverable",
     "field_validator",
     "input_names",
     "model_validator",
     "validation_errors",
+    "written_role",
 ]
 
 log = logging.getLogger(__name__)
@@ -250,6 +258,51 @@ def input_names(model: Type[BaseModel]) -> Dict[str, str]:
                 names.setdefault(spelling, name)
     names.update((name, name) for name in model.model_fields)
     return names
+
+
+#: The role of a setting whose paths a flow writes (D21), as a `json_schema_extra` marker: a
+#: *working* location (its build or report directory, its log) is a name inside the run
+#: directory; a *deliverable* is a name there, or a location it is delivered to after the run
+#: (`xeda.deliver`). A path field without a role is read.
+WORKING_ROLE = "working"
+DELIVERABLE_ROLE = "deliverable"
+WORKING: Dict[str, Any] = {"x-xeda-writes": WORKING_ROLE}
+
+
+def deliverable(conventional: Optional[str] = None) -> Dict[str, Any]:
+    """The marker of a setting whose path is an output the user may want delivered, with its
+    `conventional` name: what the run writes it as when the setting is given a location
+    (`{design}` stands for the design's name; plan 2's `outputs/<design>.<ext>`); None: the
+    setting's own default name."""
+    marker: Dict[str, Any] = {"x-xeda-writes": DELIVERABLE_ROLE}
+    if conventional is not None:
+        marker["x-xeda-output"] = conventional
+    return marker
+
+
+def written_role(model: type[BaseModel], field: str) -> Optional[str]:
+    """The role of `model`'s `field` (`WORKING_ROLE`, `DELIVERABLE_ROLE`), None if it is read."""
+    info = model.model_fields.get(field)
+    extra = info.json_schema_extra if info is not None else None
+    role = extra.get("x-xeda-writes") if isinstance(extra, dict) else None
+    return role if isinstance(role, str) else None
+
+
+def conventional_output(model: type[BaseModel], field: str, design: str) -> Optional[PurePath]:
+    """The name `model`'s deliverable `field` is written under, in the run directory, when the
+    setting is given a location: its marker's conventional name for the design `design`, or else
+    the field's default name; None if it is no deliverable or has neither."""
+    if written_role(model, field) != DELIVERABLE_ROLE:
+        return None
+    info = model.model_fields[field]
+    extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
+    template = extra.get("x-xeda-output")
+    if isinstance(template, str):
+        return PurePath(template.format(design=design))
+    default = info.default
+    if isinstance(default, (str, os.PathLike)) and os.fspath(default):
+        return PurePath(default)
+    return None
 
 
 def field(

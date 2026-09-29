@@ -1,7 +1,8 @@
 import logging
+from pathlib import Path
 from typing import List, Literal
 
-from ...dataclass import Field
+from ...dataclass import WORKING, Field
 from ...flow import FlowFatalError, FlowSettingsException, FpgaSynthFlow, describe_results
 from ...tool import Tool
 
@@ -30,8 +31,10 @@ class DiamondSynth(FpgaSynthFlow):
     )
 
     class Settings(FpgaSynthFlow.Settings):
-        impl_folder: str = Field(
-            "diamond_impl", description="Directory Diamond writes the implementation into."
+        impl_folder: Path = Field(
+            Path("diamond_impl"),
+            description="Directory Diamond writes the implementation into.",
+            json_schema_extra=WORKING,
         )
         impl_name: str = Field(
             "Implementation0", description="Name of the Diamond implementation to create and run."
@@ -68,13 +71,17 @@ class DiamondSynth(FpgaSynthFlow):
             raise FlowSettingsException(
                 "diamond_synth needs a clock: set `clock.period` (or `clocks`) in the flow settings"
             )
-        # `synth.tcl` deletes the implementation directory before creating the project: it is
-        # handed exactly the path checked here, as one literal Tcl word
-        impl_dir = self.removable_work_dir(self.settings.impl_folder, "impl_folder")
+        # the implementation directory, inside the run directory (`RunDirectory.inside`), handed
+        # to `synth.tcl` as one literal Tcl word
+        impl_dir = self.run_directory.inside(self.settings.impl_folder)
         constraint_exts = ["ldc"] if self.settings.synthesis_engine == "lse" else ["sdc", "fdc"]
         constraints = [f"constraints.{ext}" for ext in constraint_exts]
         for constraint in constraints:
             self.copy_from_template(constraint)
+        # `prj_project new` makes the project `<design>.ldf` and its implementation directory
+        # anew: the previous implementation is removed through the run directory -- never a
+        # directory by its name in a tool script.
+        self.run_directory.remove(impl_dir)
         script_path = self.copy_from_template("synth.tcl", impl_dir=impl_dir)
         diamondc = Tool("diamondc")
         diamondc.run(script_path)

@@ -311,7 +311,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         self,
         settings: Union[Settings, Dict],
         design: Union[Design, Dict],
-        run_path: Optional[Path] = None,
+        run_path: Path,
         **kwargs,
     ):
         super().__init__(settings, design, run_path, **kwargs)

@@ -1,0 +1,586 @@
+"""Outputs delivered where the user named them (D21).
+
+A flow's tools write only in its run directory. An output the user names by a location -- a
+deliverable setting (`xeda.dataclass.deliverable`) whose value is absolute once `$PWD` and
+`$DESIGN_ROOT` are expanded, or `--outputs-to DIR` for the requested flow's artifacts -- is
+**delivered**: copied there, under the name the user chose, once the launch has finished, for a
+flow that succeeded or was found up to date. The setting itself then names the file in the run directory by its fixed conventional
+name (`split_deliveries`: plan 2's `outputs/<design>.<ext>`, or the setting's default name), and
+the run's identity sees only that name (`flow.identity_settings`): where an output goes, and what
+it is called there, never changes what the tools do or what the run is.
+
+A delivery never goes onto an input -- any file a flow of the launch reads (`ReadInputs`, by file
+identity and resolved path) -- into a run root, or over a directory; it
+never deletes anything and never writes through a symbolic link (a temporary file in the
+destination's directory, renamed into place). An existing file is replaced only when it is xeda's
+own earlier delivery, unchanged, as its record says (`delivery_record`: beside the run directory,
+in the run root); anything else needs the user's confirmation -- `overwrite_outputs`, or a yes
+from the launcher's `confirm_overwrite` (the command line's prompt) -- asked before any tool of
+the flow runs (`Deliveries.check`). What a flow delivers is noted with each file's digest when it
+completes (`Deliveries.collect`) and copied when the launch has finished (`Deliveries.deliver`),
+when every flow of it has read its inputs; a destination that changed after it was checked, or
+an output that changed after its run, is never delivered.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import stat
+import tempfile
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from pathlib import Path, PurePath
+from typing import Any, Dict, Optional
+
+from .artifacts import iter_artifact_paths
+from .dataclass import DELIVERABLE_ROLE
+from .digest import FileRecord, content_digest, record_file
+from .flow import Flow, FlowSettingsError
+from .flow.flow import WrittenLeaf, map_written_leaves, output_name
+from .run_root import is_run_root
+from .utils import XedaException, json_encodable, with_json_keys
+
+log = logging.getLogger(__name__)
+
+__all__ = [
+    "DELIVERY_FORMAT",
+    "DELIVERY_RECORD_SUFFIX",
+    "OUTPUTS_TO",
+    "RESERVED_NAMES",
+    "Conflict",
+    "Deliveries",
+    "Delivered",
+    "Delivery",
+    "DeliveryError",
+    "OutputExistsError",
+    "ReadInputs",
+    "deliverable_locations",
+    "delivery_record",
+    "outputs_to_deliveries",
+    "recorded_artifacts",
+    "split_deliveries",
+]
+
+DELIVERY_RECORD_SUFFIX = ".delivered.json"
+DELIVERY_FORMAT = 1
+#: the key a delivery `--outputs-to` asked for is reported under
+OUTPUTS_TO = "--outputs-to"
+#: names xeda keeps for itself in a run directory: an output never takes one
+RESERVED_NAMES = frozenset({"settings.json", "results.json", "trace.json", "trace.json.tmp"})
+
+_State = Optional[tuple[int, int, int, int]]
+
+
+class DeliveryError(XedaException):
+    """An output cannot be delivered where it was named."""
+
+
+class OutputExistsError(DeliveryError):
+    """A named output path holds a file that is not xeda's own earlier copy, unchanged, and
+    replacing it was not confirmed."""
+
+
+@dataclass(frozen=True)
+class Delivery:
+    """An output of a run, `name` in its run directory, to be copied to `destination`, as the
+    setting (or option) `key` asked."""
+
+    key: str
+    name: PurePath
+    destination: Path
+
+
+@dataclass(frozen=True)
+class Conflict:
+    """A file in a delivery's way: `destination`, located, and why replacing it needs a yes."""
+
+    delivery: Delivery
+    destination: Path
+    why: str
+
+
+@dataclass(frozen=True)
+class Delivered:
+    """A delivery made: "delivered" (written), or "unchanged" (it held the output already)."""
+
+    key: str
+    source: Path
+    destination: Path
+    state: str
+
+    def as_json_value(self) -> Dict[str, str]:
+        return {
+            "setting": self.key,
+            "from": str(self.source),
+            "to": str(self.destination),
+            "state": self.state,
+        }
+
+
+def delivery_record(run_path: Path) -> Path:
+    """`<run dir>.delivered.json`, beside the run directory, in the run root: what xeda
+    delivered from it, and where. `--clean` and scrubbing leave it."""
+    return run_path.parent / f"{run_path.name}{DELIVERY_RECORD_SUFFIX}"
+
+
+def split_deliveries(settings: Flow.Settings, design: str) -> list[Delivery]:
+    """In place: each of the flow's own deliverable settings given as a location becomes its
+    conventional name for the design `design` (`flow.output_name`), which the run writes in its
+    run directory whatever the location says, and a `Delivery` of that file to the location. A
+    dependency's settings are its own launch's. A `FlowSettingsError` when two outputs would be
+    written under one name, or one under a name xeda keeps for itself."""
+    deliveries: list[Delivery] = []
+    names: dict[PurePath, str] = {}
+    problems: list[tuple[str, str]] = []
+
+    def split(written: WrittenLeaf) -> Any:
+        key, leaf = written.key, written.value
+        if written.role != DELIVERABLE_ROLE or not isinstance(leaf, (str, os.PathLike)):
+            return leaf
+        if not os.fspath(leaf):
+            return leaf
+        path = Path(leaf)
+        if path.is_absolute():
+            conventional = output_name(written, design)
+            assert conventional is not None, key  # every deliverable has one (Task 3's oracle)
+            name = conventional
+        else:
+            name = PurePath(path)
+        if str(name) in RESERVED_NAMES:
+            problems.append(
+                (
+                    key,
+                    f"`{key}` would write {name}, a name xeda keeps for itself in the run "
+                    "directory: name the output otherwise",
+                )
+            )
+        first = names.setdefault(name, key)
+        if first != key:
+            problems.append(
+                (
+                    key,
+                    f"`{key}` and `{first}` would both be written as {name} in the run "
+                    "directory: name them apart",
+                )
+            )
+        if not path.is_absolute():
+            return leaf
+        if path.suffix != name.suffix:
+            log.warning(
+                "`%s`: the run writes %s, which is copied to %s as it is: a location chooses "
+                "where the output goes, not what it is",
+                key,
+                name,
+                path,
+            )
+        deliveries.append(Delivery(key, name, path))
+        return Path(name)
+
+    map_written_leaves(settings, split)
+    if problems:
+        raise FlowSettingsError(
+            [(key, message, None, "value_error") for key, message in problems], type(settings)
+        )
+    return deliveries
+
+
+def deliverable_locations(settings: Flow.Settings) -> list[tuple[str, Path]]:
+    """Every deliverable of `settings` given as a location, a dependency's settings included, by
+    key path; nothing is changed."""
+    found: list[tuple[str, Path]] = []
+
+    def note(written: WrittenLeaf) -> Any:
+        leaf = written.value
+        if written.role == DELIVERABLE_ROLE and isinstance(leaf, (str, os.PathLike)):
+            if os.fspath(leaf) and Path(leaf).is_absolute():
+                found.append((written.key, Path(leaf)))
+        return leaf
+
+    map_written_leaves(settings, note, dependencies=True)
+    return found
+
+
+def outputs_to_deliveries(
+    artifacts: Any, run_path: Path, directory: Optional[Path]
+) -> list[Delivery]:
+    """What `--outputs-to directory` delivers: each artifact inside the run directory `run_path`
+    (named, or through its resolved path), at its path relative to it; one elsewhere is not
+    copied, and says so."""
+    if directory is None or not artifacts:
+        return []
+    bases = [Path(os.path.abspath(run_path)), Path(os.path.realpath(run_path))]
+    found: dict[PurePath, Delivery] = {}
+    for leaf in iter_artifact_paths(artifacts):
+        path = Path(os.path.abspath(Path(leaf) if Path(leaf).is_absolute() else bases[0] / leaf))
+        base = next((b for b in bases if path != b and path.is_relative_to(b)), None)
+        if base is None:
+            log.info(
+                "%s lies outside the run directory %s: not copied to %s", path, run_path, directory
+            )
+            continue
+        relative = PurePath(path.relative_to(base))
+        found.setdefault(relative, Delivery(OUTPUTS_TO, relative, Path(directory) / relative))
+    return list(found.values())
+
+
+def recorded_artifacts(results_json: Path) -> Any:
+    """The artifacts the last run recorded in `results_json` (nothing, if none)."""
+    try:
+        return json.loads(results_json.read_text()).get("artifacts") or {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _identity(path: Path, follow: bool = True) -> Optional[tuple[int, int]]:
+    try:
+        st = os.stat(path, follow_symlinks=follow)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino)
+
+
+class ReadInputs:
+    """Every file the flows of a launch read (gpt-6-sol's final (c)): the design's files, the design
+    and project file the launch was given, and the file each read setting of any of its flows
+    names -- a dependency's settings nested in its depender's included -- by file identity
+    (`st_dev`, `st_ino`) and by resolved path. No delivery ever replaces one, `--overwrite-outputs`
+    or not. One is shared by a launch's `Deliveries` and completed as each flow is launched, so a
+    delivery -- made when the launch has finished -- is checked against all of them."""
+
+    def __init__(self, paths: Iterable[Path] = ()) -> None:
+        self._by_identity: dict[tuple[int, int], Path] = {}
+        self._by_path: dict[Path, Path] = {}
+        self.add(paths)
+
+    def add(self, paths: Iterable[Path]) -> None:
+        for given in paths:
+            path = Path(given)
+            identity = _identity(path)
+            if identity is not None:
+                self._by_identity.setdefault(identity, path)
+            self._by_path.setdefault(Path(os.path.realpath(path)), path)
+
+    def find(self, destination: Path) -> Optional[Path]:
+        """The input `destination` is -- followed, as itself, or by its resolved path (an input
+        replaced by a new file since it was registered) -- if any."""
+        for identity in (_identity(destination), _identity(destination, follow=False)):
+            if identity is not None and identity in self._by_identity:
+                return self._by_identity[identity]
+        return self._by_path.get(Path(os.path.realpath(destination)))
+
+
+def _state(path: Path) -> _State:
+    """What is at `path`, as itself: size, mtime, inode change time, inode; None if nothing."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    return (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino)
+
+
+def _located(path: Path) -> Path:
+    """`path` with its parent resolved and its last component as named: never followed."""
+    return Path(os.path.realpath(path.parent)) / path.name
+
+
+def _files_under(directory: Path) -> list[Path]:
+    """The regular files under `directory`: what a directory output delivers."""
+    return sorted(
+        Path(root) / name
+        for root, _dirs, files in os.walk(directory, followlinks=False)
+        for name in files
+        if not (Path(root) / name).is_symlink()
+    )
+
+
+def _read_record(path: Path) -> dict[str, Any]:
+    empty: dict[str, Any] = {"format": DELIVERY_FORMAT, "files": {}, "directories": []}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return empty
+    if not isinstance(data, dict) or data.get("format") != DELIVERY_FORMAT:
+        return empty
+    if not isinstance(data.get("files"), dict) or not isinstance(data.get("directories"), list):
+        return empty
+    return data
+
+
+def _refused(conflicts: Sequence[Conflict]) -> str:
+    listed = "; ".join(f"{c.destination} ({c.why}), named by `{c.delivery.key}`" for c in conflicts)
+    return (
+        f"xeda would replace {listed}: it replaces a file of yours only when you say so. Rerun "
+        "with --overwrite-outputs to replace it, or name another path"
+    )
+
+
+class Deliveries:
+    """One node's deliveries: checked before any of its tools runs (`check`), noted file by file
+    once it succeeded or was found up to date (`collect`), and made when the launch has finished
+    (`deliver`)."""
+
+    def __init__(
+        self,
+        run_path: Path,
+        run_root: Path,
+        named: Sequence[Delivery] = (),
+        *,
+        inputs: ReadInputs,
+        overwrite: bool = False,
+        confirm: Optional[Callable[[Sequence[Conflict]], bool]] = None,
+    ) -> None:
+        self.run_path = Path(run_path)
+        self.run_root = Path(os.path.realpath(run_root))
+        self.named = list(named)
+        #: every file the launch's flows read: shared, and completed as they are launched
+        self.inputs = inputs
+        self.overwrite = overwrite
+        self.confirm = confirm
+        self.record_path = delivery_record(self.run_path)
+        self.record = _read_record(self.record_path)
+        #: every destination checked before the run, as it was then
+        self.checked: dict[Path, _State] = {}
+        #: what the node delivers, noted when it completed (`collect`): each file, where it goes,
+        #: and its content digest as the run left it
+        self.pending: list[tuple[Delivery, Path, Path, str]] = []
+
+    def _refusal(self, destination: Path, delivery: Delivery) -> Optional[str]:
+        """Why nothing may ever be delivered to `destination` (located), whatever the options."""
+        if (
+            destination == self.run_root
+            or destination.is_relative_to(self.run_root)
+            or any(is_run_root(d) for d in (destination, *destination.parents))
+        ):
+            return (
+                "inside a run root of xeda's, where only xeda's runs live: a bare name puts an "
+                "output in its run directory"
+            )
+        found = self.inputs.find(destination)
+        if found is not None:
+            return (
+                f"which is {found}, an input of the run: an output never replaces an input; "
+                "name another path"
+            )
+        if (
+            destination.is_dir()
+            and not destination.is_symlink()
+            and str(destination) not in self.record["directories"]
+            and delivery in self.named
+        ):
+            return "a directory: name the file the output is copied to"
+        return None
+
+    def _why_not_ours(self, destination: Path) -> Optional[str]:
+        """Why replacing what is at `destination` needs a yes; None if nothing is there, it is a
+        directory (a directory output's: its files are checked one by one), or it is xeda's own
+        earlier delivery from this run directory, unchanged: its `FileRecord` under the R38 rule
+        (`record_file`), the same inode and the same content. The inode and the content decide,
+        not the timestamps (gpt-6-sol's final (b), not taken): a file of that inode holding
+        exactly the bytes xeda delivered is xeda's copy whatever touched it -- rewritten with the
+        same bytes, or `touch`ed -- and replacing it cannot lose anything of the user's; the
+        timestamps only decide whether the content must be read. Another inode (a file put in its
+        place) or other bytes is not xeda's: fail closed."""
+        if not os.path.lexists(destination):
+            return None
+        if destination.is_symlink():
+            return "a symbolic link xeda did not make"
+        if destination.is_dir():
+            return None
+        entry = self.record["files"].get(str(destination))
+        if not isinstance(entry, dict):
+            # the record is this run directory's: another settings variant's delivery (a hashed
+            # run directory, a remote mirror) is not in it
+            return f"not recorded as delivered from {self.run_path.name}: yours, or another run's"
+        try:
+            record = FileRecord.model_validate(entry["record"])
+            now = record_file(destination, record, int(entry["recorded_ns"]), follow_symlinks=False)
+        except (KeyError, TypeError, ValueError, OSError):
+            return "not known to be xeda's (its record is unreadable)"
+        if now.inode != record.inode or now.sha != record.sha:
+            return "changed since xeda wrote it"
+        return None
+
+    def _confirmed(self, conflicts: Sequence[Conflict]) -> bool:
+        return self.overwrite or (self.confirm is not None and bool(self.confirm(conflicts)))
+
+    def check(self, predicted: Sequence[Delivery] = ()) -> None:
+        """Before any tool of the node runs: refuse a destination that is an input, lies in a run
+        root, or is a directory where a file goes (`DeliveryError`); unless confirmed, refuse to
+        replace a file that is not xeda's own unchanged earlier delivery (`OutputExistsError`).
+        `predicted`: what `--outputs-to` expects to deliver, from the last run's artifacts."""
+        refusals: list[str] = []
+        conflicts: list[Conflict] = []
+        destinations: list[Path] = []
+        for delivery in [*self.named, *predicted]:
+            destination = _located(delivery.destination)
+            refusal = self._refusal(destination, delivery)
+            if refusal is not None:
+                refusals.append(f"`{delivery.key}` names {destination}, {refusal}")
+                continue
+            why = self._why_not_ours(destination)
+            if why is not None:
+                conflicts.append(Conflict(delivery, destination, why))
+            destinations.append(destination)
+        if refusals:
+            raise DeliveryError("; ".join(refusals))
+        if conflicts and not self._confirmed(conflicts):
+            raise OutputExistsError(_refused(conflicts))
+        self.checked = {destination: _state(destination) for destination in destinations}
+
+    def collect(self, source_root: Path, extra: Sequence[Delivery] = ()) -> None:
+        """When the node's run is over, under its run directory's lock: note each file it
+        delivers -- from `source_root` (the run directory), the named deliveries and the `extra`
+        ones known only now (`--outputs-to`'s) -- with its content digest as the run left it, for
+        `deliver` to copy once the launch has finished. A `DeliveryError` if the run wrote no
+        file a delivery names."""
+        self.pending = []
+        for delivery in [*self.named, *extra]:
+            source = Path(source_root) / delivery.name
+            if not os.path.lexists(source):
+                raise DeliveryError(
+                    f"`{delivery.key}` names {delivery.destination}, but the run wrote no "
+                    f"{delivery.name} in {source_root}"
+                )
+            if source.is_dir():
+                pairs = [
+                    (file, delivery.destination / file.relative_to(source))
+                    for file in _files_under(source)
+                ]
+                directory = str(_located(delivery.destination))
+                if directory not in self.record["directories"]:
+                    self.record["directories"].append(directory)
+            else:
+                pairs = [(source, delivery.destination)]
+            self.pending += [(delivery, src, dest, content_digest(src)) for src, dest in pairs]
+
+    def merge(self, other: Deliveries) -> None:
+        """Take on what `other` noted for the same run directory -- entered again in the launch,
+        the same configuration asked for twice, maybe for other destinations (a location is no
+        part of a configuration): one delivery, to every destination either names, under one
+        record."""
+        known = {dest for _delivery, _src, dest, _sha in self.pending}
+        self.pending += [item for item in other.pending if item[2] not in known]
+        for destination, state in other.checked.items():
+            self.checked.setdefault(destination, state)
+
+    def deliver(self) -> list[Delivered]:
+        """Copy each file `collect` noted to where it was named. A destination that is an input
+        -- of any flow of the launch, all known by now -- is refused; one checked before the run
+        that changed since is not replaced (`DeliveryError`, once the others are made); a file
+        found in the way only now needs the yes `check` would have asked for."""
+        delivered: list[Delivered] = []
+        changed: list[str] = []
+        late: list[tuple[Conflict, Path, _State, str]] = []
+        for delivery, src, dest, sha in self.pending:
+            destination = _located(dest)
+            refusal = self._refusal(destination, delivery)
+            if refusal is None and destination.is_dir() and not destination.is_symlink():
+                refusal = "a directory"
+            if refusal is not None:
+                self._write_record()
+                raise DeliveryError(f"`{delivery.key}` names {destination}, {refusal}")
+            if destination in self.checked:
+                expected = self.checked[destination]
+                if _state(destination) != expected:
+                    changed.append(str(destination))
+                    continue
+            else:
+                expected = _state(destination)
+                why = self._why_not_ours(destination)
+                if why is not None:
+                    late.append((Conflict(delivery, destination, why), src, expected, sha))
+                    continue
+            made = self._copy(delivery, src, destination, expected, sha)
+            if made is None:
+                changed.append(str(destination))
+            else:
+                delivered.append(made)
+        if late and self._confirmed([conflict for conflict, *_rest in late]):
+            for conflict, src, expected, sha in late:
+                made = self._copy(conflict.delivery, src, conflict.destination, expected, sha)
+                if made is None:
+                    changed.append(str(conflict.destination))
+                else:
+                    delivered.append(made)
+            late = []
+        self._write_record()
+        self.pending = []
+        if late:
+            raise OutputExistsError(_refused([conflict for conflict, *_rest in late]))
+        if changed:
+            raise DeliveryError(
+                f"not delivered: {', '.join(changed)} changed while the run went on, after it "
+                f"was checked; the outputs are in {self.run_path}"
+            )
+        return delivered
+
+    def _copy(
+        self, delivery: Delivery, source: Path, destination: Path, expected: _State, sha: str
+    ) -> Optional[Delivered]:
+        """Copy `source` to `destination` (located), accepted as it was then (`expected`): into a
+        new temporary file in its directory, renamed into place -- checked again right before the
+        rename: the same place (no parent swapped for a link since it was located), still no
+        input, what is there still `expected` (else None, and nothing replaced), and the copy
+        what the run left (`sha`, noted by `collect`; else a `DeliveryError`: another launch ran
+        in its run directory meanwhile). The place is re-checked first: the temporary file is
+        read back by its path, which must still be where it was made."""
+        if destination.is_file() and not destination.is_symlink():
+            try:
+                if content_digest(destination) == sha and _state(destination) == expected:
+                    self._remember(delivery, source, destination, sha)
+                    return Delivered(delivery.key, source, destination, "unchanged")
+            except OSError:
+                pass
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fd, name = tempfile.mkstemp(prefix=".xeda-delivery-", dir=destination.parent)
+        temporary = Path(name)
+        try:
+            with os.fdopen(fd, "wb") as out, open(source, "rb") as data:
+                shutil.copyfileobj(data, out)
+                if hasattr(os, "fchmod"):  # by the descriptor: its name may lead elsewhere now
+                    os.fchmod(out.fileno(), stat.S_IMODE(os.fstat(data.fileno()).st_mode))
+            if (
+                _located(destination) != destination
+                or self._refusal(destination, delivery) is not None
+                or _state(destination) != expected
+            ):
+                temporary.unlink(missing_ok=True)  # its own temporary file, never anything else
+                return None
+            if content_digest(temporary) != sha:
+                raise DeliveryError(
+                    f"{source} changed after its run -- did another launch run in "
+                    f"{self.run_path} meanwhile? -- so it is not delivered to {destination}"
+                )
+            os.replace(temporary, destination)
+        except BaseException:
+            temporary.unlink(missing_ok=True)  # its own temporary file, never anything else
+            raise
+        self._remember(delivery, source, destination, sha)
+        log.info("Delivered %s to %s", source, destination)
+        return Delivered(delivery.key, source, destination, "delivered")
+
+    def _remember(self, delivery: Delivery, source: Path, destination: Path, sha: str) -> None:
+        """Record the file just delivered as xeda's: a `digest.FileRecord` (size, mtime, inode
+        change time, inode, digest) with `recorded_ns`, the file's own change time. xeda reads no
+        clock where it delivers, so the record never vouches by metadata alone (R38: it is
+        never settled before its own change time): a later check reads the content, and a file
+        of another inode is another file -- failing closed."""
+        record = FileRecord.of(os.lstat(destination), sha)
+        self.record["files"][str(destination)] = {
+            "record": record.model_dump(mode="json"),
+            "recorded_ns": max(record.mtime_ns, record.ctime_ns),
+            "setting": delivery.key,
+            "source": str(source),
+        }
+
+    def _write_record(self) -> None:
+        """Atomically, beside the run directory (the run directory's lock serializes it)."""
+        self.record_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.record_path.with_name(self.record_path.name + ".tmp")
+        temporary.write_text(
+            json.dumps(with_json_keys(self.record), default=json_encodable, indent=2)
+        )
+        os.replace(temporary, self.record_path)

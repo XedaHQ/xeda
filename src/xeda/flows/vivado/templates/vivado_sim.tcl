@@ -7,10 +7,6 @@ set snapshot_name  snapshot
 
 load_feature simulator
 
-if { [catch {file delete -force xsim.dir} error]} {
-    puts "Failed to delete previously existing xsim.dir: $error"
-}
-
 set analyze_flags "-work {{settings.work_lib|tcl_quote}} {%- if settings.debug %} -verbose 2 {%- endif %} {{settings.analyze_flags|join(' ')}}"
 
 puts "\n===========================( Analyzing HDL Sources )==========================="
@@ -46,7 +42,7 @@ if { [catch {xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} } error] } {
 {%- if settings.saif %}
 puts "\n===========================( Setting up SAIF )==========================="
 {#- An earlier SAIF file in the run directory was removed before the script (`VivadoSim.run`,
-    `Flow.remove_stale_output`); one named outside it is left for `open_saif` to overwrite. #}
+    `RunDirectory.remove`): `open_saif` does not replace one. #}
 open_saif {{settings.saif|tcl_word}}
 {%- endif %}
 

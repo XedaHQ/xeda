@@ -49,9 +49,11 @@ def test_a_flow_that_always_runs_says_why_and_keeps_no_trace(tmp_path, design):
             RUNS.append(self.name)
 
     try:
-        for rebuild in ("stale", "all"):
+        for rebuild_all in (False, True):
             RUNS.clear()
-            runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, rebuild=rebuild)
+            runner = DefaultRunner(
+                tmp_path / "xeda_run", display_results=False, rebuild_all=rebuild_all
+            )
             flow = runner.launch_flow(ToyProgrammer, design, {})
             assert RUNS == ["toy_programmer"] and not flow.reused
             assert flow.stale_reason == "it programs a device"
@@ -95,7 +97,7 @@ def test_open_xc7_always_runs_only_when_it_programs_or_draws_a_seed(
 
 
 def test_open_xc7_keeps_no_results_of_its_own_and_pins_its_seed_by_default():
-    """Its own reuse of `results.json` bypassed the trace, even under --rebuild all."""
+    """Its own reuse of `results.json` bypassed the trace, even under --rebuild-all."""
     assert not hasattr(OpenXC7, "use_existing_results")
     assert OpenXC7.Settings().randomize_seed is False
 

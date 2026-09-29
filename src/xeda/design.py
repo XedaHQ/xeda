@@ -64,6 +64,10 @@ from .utils import (
 
 log = logging.getLogger(__name__)
 
+#: What a design's name may be: it names the design's run directories (`<run root>/<name>/`), so
+#: it is one path component that no file system reads as anything else.
+DESIGN_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+
 __all__ = [
     "AnyDesignValidationException",
     "Clock",
@@ -1463,6 +1467,17 @@ class Design(XedaBaseModel):
     license: Union[str, List[str], None] = None
     version: Optional[str] = None
     url: Optional[str] = None
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def _name_is_a_directory_name(cls, value: str) -> str:
+        if not DESIGN_NAME.fullmatch(value):
+            raise ValueError(
+                f"{value!r} is not a design name: it names the design's run directories, so it "
+                "starts with a letter and holds only letters, digits, `_` and `-` (set `name` in "
+                "the design file)"
+            )
+        return value
 
     @field_validator("flow", mode="before")
     @classmethod

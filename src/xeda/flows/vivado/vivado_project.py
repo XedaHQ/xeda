@@ -101,8 +101,9 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         self.vivado.run("-source", script_path)
 
     def parse_reports(self) -> bool:
-        """Check that the Vivado project file was created."""
-        return (self.run_path / f"{self.design.name}.xpr").is_file()
+        """Check that this run created the Vivado project file (`Flow.report_file`: the one a
+        previous run left does not count)."""
+        return self.report_file(self.run_path / f"{self.design.name}.xpr") is not None
 
 
 def parse_hier_util(

@@ -1,9 +1,10 @@
 import html
 import logging
+from pathlib import Path
 from typing import Any, Dict
 from xml.etree import ElementTree
 
-from ...dataclass import Field
+from ...dataclass import Field, deliverable
 from .vivado_postsynthsim import VivadoPostsynthSim
 from .vivado_sim import VivadoSim
 from .vivado_synth import CHECKPOINT_ROUTE, VivadoSynth, artifact_path
@@ -43,8 +44,9 @@ class VivadoPower(VivadoSim):
         elab_debug: str = Field(
             "typical", description="Debug level passed to `xelab -debug` for the activity run."
         )
-        saif: str = Field(
-            "activity.saif", description="SAIF file the netlist simulation writes activity to."
+        saif: Path = Field(
+            Path("activity.saif"),
+            description="SAIF file the netlist simulation writes activity to.",
         )
         postsynthsim: VivadoPostsynthSim.Settings = Field(
             description="Settings for the `vivado_postsynth_sim` dependency that produces the "
@@ -52,8 +54,10 @@ class VivadoPower(VivadoSim):
             "against the routed checkpoint."
         )
         dependency_settings = {"postsynthsim": ("timing_sim", "elab_debug", "saif")}
-        power_report_xml: str = Field(
-            "power_impl_timing.xml", description="File the XML power report is written to."
+        power_report_xml: Path = Field(
+            Path("power_impl_timing.xml"),
+            description="File the XML power report is written to.",
+            json_schema_extra=deliverable(),
         )
 
     def init(self) -> None:
@@ -72,6 +76,8 @@ class VivadoPower(VivadoSim):
         synth_flow = postsynth_sim_flow.pop_dependency(VivadoSynth)
 
         checkpoint = artifact_path(synth_flow, CHECKPOINT_ROUTE)
+        # the dependency's recorded artifact, under the name its run wrote it: a location given
+        # for it is delivered, and the run writes its conventional name (D21)
         saif_file = artifact_path(postsynth_sim_flow, "saif")
 
         # assert isinstance(dep_synth_flow.settings, VivadoSynth.Settings)
@@ -105,7 +111,9 @@ class VivadoPower(VivadoSim):
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
-        report_xml = self.run_path / self.settings.power_report_xml
+        report_xml = self.report_file(self.run_path / self.settings.power_report_xml)
+        if report_xml is None:  # none, or a previous run's
+            return False
         results = self.parse_power_report(report_xml)
         self.results.update(**results)
         return True

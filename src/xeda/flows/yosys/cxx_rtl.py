@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Any, List, Literal, Optional
 
-from ...dataclass import Field, XedaBaseModel
+from ...dataclass import Field, XedaBaseModel, deliverable
 from ...design import SourceType
 from ...flow import FlowFatalError, SimFlow
 from ...flows.ghdl import GhdlSynth
@@ -12,7 +12,12 @@ log = logging.getLogger(__name__)
 
 
 class CxxRtl(XedaBaseModel):
-    filename: Optional[str] = None
+    filename: Optional[Path] = Field(
+        None,
+        description="The C++ file CXXRTL writes the simulation model to; by default "
+        "`<top>.cpp`, in the run directory.",
+        json_schema_extra=deliverable("outputs/{design}.cpp"),
+    )
     header: bool = True
     flatten: bool = True
     hierarchy: bool = True
@@ -42,10 +47,16 @@ class YosysSim(YosysBase, SimFlow):
         # CXXRTL simulation writes no netlist: the synthesis flows' defaults are cleared, under
         # the same names (and aliases) as theirs.
         netlist_verilog: Optional[Path] = Field(
-            None, alias="netlist", description="Unused by CXXRTL simulation."
+            None,
+            alias="netlist",
+            description="Unused by CXXRTL simulation.",
+            json_schema_extra=deliverable("outputs/{design}_netlist.v"),
         )
         netlist_json: Optional[Path] = Field(
-            None, alias="json_netlist", description="Unused by CXXRTL simulation."
+            None,
+            alias="json_netlist",
+            description="Unused by CXXRTL simulation.",
+            json_schema_extra=deliverable("outputs/{design}_netlist.json"),
         )
         cxxrtl: CxxRtl = Field(
             CxxRtl(), description="Options for the generated CXXRTL C++ simulation model."

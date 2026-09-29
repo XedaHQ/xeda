@@ -107,8 +107,8 @@ flows -- are resolved when the dependency is launched: the flow's own value is u
 if the flow leaves a shared setting unset, the value given in the dependency's nested settings is
 used instead.
 
-Runs are make-like by default (``--rebuild stale``): a dependency whose trace still matches what
-it would consume now is skipped and its recorded results reused. See :doc:`run-directories`.
+Runs are make-like by default: a dependency whose trace still matches what it would consume now
+is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.
 
 Open-source FPGA flow targets and tuning
 ========================================

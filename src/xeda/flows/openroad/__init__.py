@@ -7,7 +7,7 @@ from typing import Annotated, List, Literal, Optional, Union
 
 from importlib_resources import as_file, files
 
-from ...dataclass import Field, field_validator, model_validator
+from ...dataclass import WORKING, Field, deliverable, field_validator, model_validator
 from ...design import SourceType
 from ...flow import AsicSynthFlow, describe_results
 from ...flows.yosys import HiLoMap, Yosys, preproc_libs
@@ -134,6 +134,7 @@ class Openroad(AsicSynthFlow):
             Path("results"),
             description="Directory, relative to the run directory, where OpenROAD writes its "
             "output files.",
+            json_schema_extra=WORKING,
         )
         optimize: Optional[Literal["speed", "area"]] = Field(
             "area",
@@ -151,7 +152,9 @@ class Openroad(AsicSynthFlow):
             description="Cell ABC assumes drives the primary inputs. Overrides the platform value.",
         )
         write_metrics: Optional[Path] = Field(
-            Path("metrics.json"), description="write metrics in file in JSON format"
+            Path("metrics.json"),
+            description="write metrics in file in JSON format",
+            json_schema_extra=deliverable(),
         )
         exit: bool = Field(True, description="exit after completion")
         gui: bool = Field(False, description="start in GUI mode")
@@ -428,7 +431,7 @@ class Openroad(AsicSynthFlow):
                     dst = Path(file)
                     if not dst.parent.exists():
                         dst.parent.mkdir(parents=True)
-                    replacing_copy(src, dst)
+                    replacing_copy(src, self.run_directory.writable(dst))
 
         my_lib_dir = Path("lib")
         my_lib_dir.mkdir(exist_ok=True)
@@ -440,7 +443,7 @@ class Openroad(AsicSynthFlow):
         if corner.dff_lib_file:
             src = ss.platform.root_dir / corner.dff_lib_file
             dst = my_lib_dir / src.name
-            replacing_copy(src, dst)
+            replacing_copy(src, self.run_directory.writable(dst))
             copy_resources.append(str(dst))
         assert ss.platform.default_corner_settings
         dff_lib_file = ss.platform.default_corner_settings.dff_lib_file
@@ -448,7 +451,7 @@ class Openroad(AsicSynthFlow):
         for lib in orig_libs:
             src = ss.platform.root_dir / lib
             dst = my_lib_dir / src.name
-            replacing_copy(src, dst)
+            replacing_copy(src, self.run_directory.writable(dst))
         ss.dont_use_cells = unique(ss.platform.dont_use_cells + ss.dont_use_cells)
         preproc_libs(
             orig_libs,
@@ -456,6 +459,7 @@ class Openroad(AsicSynthFlow):
             ss.dont_use_cells,
             f"{ss.platform.name}_merged",
             use_temp_folder=not ss.debug,
+            run_directory=self.run_directory,
         )
         yosys_libs = [self.merged_lib_file]
         if dff_lib_file:
@@ -494,7 +498,7 @@ class Openroad(AsicSynthFlow):
         if not os.path.isabs(netlist):
             netlist = os.path.join(yosys_dep.run_path, netlist)
         synth_netlist = ss.results_dir / "1_synth.v"
-        replacing_copy(netlist, synth_netlist)
+        replacing_copy(netlist, self.run_directory.writable(synth_netlist))
 
         # yosys doesn't support SDC so we generate it here
         clocks_sdc = self.copy_from_template("clocks.sdc")
@@ -602,6 +606,8 @@ class Openroad(AsicSynthFlow):
 
         run_steps(0, len(flow_steps) - 1)
         run_steps(len(flow_steps) - 1, len(flow_steps))
+        # what `extract_parasitics` leaves beside the SPEF it writes
+        self.run_directory.remove(f"{self.design.rtl.top}.totCap")
 
         if ss.generate_gds:
             klayout = openroad.derive("klayout")  # TODO ?
@@ -622,7 +628,7 @@ class Openroad(AsicSynthFlow):
                 properties_file.text = str(lyp)
 
             lyt = platform_lyt.name
-            with replacing_file(lyt, "wb") as f:
+            with replacing_file(self.run_directory.writable(lyt), "wb") as f:
                 f.write(ET.tostring(xml_tree))
             out_file = ss.results_dir / "final.gds"
             res = files(__package__).joinpath("openroad_scripts", "utils", "def2stream.py")
@@ -676,11 +682,12 @@ class Openroad(AsicSynthFlow):
             if u is not None:
                 results["utilization"] = u / 100
         else:
-            if not ss.write_metrics or not ss.write_metrics.exists():
+            if not ss.write_metrics or self.report_file(ss.write_metrics) is None:
                 log.error("No results found!")
                 return False
             results = dict()
-        if ss.write_metrics:
+        # only metrics this run wrote (`report_file`): a previous run's are not its own
+        if ss.write_metrics and self.report_file(ss.write_metrics) is not None:
             # metrics JSON should contain more accurate and more reliable values, therefore overwrite results from parsing the log
             with open(ss.write_metrics) as mf:
                 metrics = dict(json.load(mf))

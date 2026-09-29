@@ -5,12 +5,13 @@ from __future__ import annotations
 import inspect
 import logging
 import os
-import shutil
+import re
 from abc import ABCMeta, abstractmethod
 from copy import deepcopy
-from pathlib import Path
+from pathlib import Path, PurePath
 from types import UnionType
 from typing import (
+    TYPE_CHECKING,
     Annotated,
     Any,
     Callable,
@@ -18,6 +19,7 @@ from typing import (
     Dict,
     List,
     Mapping,
+    NamedTuple,
     Optional,
     Tuple,
     Type,
@@ -31,20 +33,26 @@ import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
 
-from ..artifacts import iter_artifact_paths
 from ..dataclass import (
+    DELIVERABLE_ROLE,
+    WORKING,
+    WORKING_ROLE,
+    BaseModel,
     Field,
     PrivateAttr,
     ValidationError,
     XedaBaseModel,
     annotation_args,
+    conventional_output,
     field_annotation,
     field_validator,
     input_names,
     model_validator,
     validation_errors,
+    written_role,
 )
 from ..design import Design
+from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..utils import (
     XedaException,
     camelcase_to_snakecase,
@@ -61,16 +69,9 @@ from ..utils import (
     try_convert,
     unique,
 )
-from .run_dir import (
-    RUN_DIR_MARKER,
-    OutputSnapshot,
-    OutputState,
-    RunDirectoryError,
-    is_marked_run_dir,
-    record_output_state,
-    refuse_linked_run_dir,
-    resolved_inside,
-)
+
+if TYPE_CHECKING:
+    from ..deliver import Delivered
 
 log = logging.getLogger(__name__)
 
@@ -81,69 +82,19 @@ __all__ = [
     "FlowFatalError",
     "FlowSettingsError",
     "FlowSettingsException",
+    "WrittenLeaf",
     "describe_results",
     "flowrun_hash",
+    "identity_settings",
     "is_unset",
+    "map_written_leaves",
+    "output_name",
+    "written_path_problems",
 ]
 
 registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
-
-
-class _ArtifactsBox(Box):
-    """The `Box` behind `Flow.artifacts`: records each path leaf of whatever is stored here
-    (`iter_artifact_paths` walks mappings, lists and tuples the same way everywhere else
-    artifacts are walked) through `record` -- `Flow._record_output_state`, which records the
-    state of an output named outside the run directory -- before delegating to `Box`'s own
-    storage.
-
-    What it records is the output's state *when it is assigned*. For a flow that declares an
-    output before running the tool that writes it (most do), that is its state before the run;
-    for one that assigns it only after its tool ran (nextpnr's outputs, openfpgaloader's and
-    openxc7's bitstream, bsc's executable, vivado_synth's reports), it is the state the tool left,
-    so `Flow.wrote_output` finds it unchanged: the safe direction -- a failed run omits it -- but
-    no proof the run wrote it. A flow that must know it wrote an output records it first
-    (`Flow.remove_stale_output`). Outputs inside the run directory need none of this: the
-    snapshot `Flow.__init__` takes covers them whenever they are named.
-
-    Nested containers are plain `Box`es (`box_class`), which record nothing -- the outer call
-    already walked the whole value -- and the recorder belongs to the live flow: pickled (a DSE
-    worker returning a run's results), an `_ArtifactsBox` is a plain `Box` of its content.
-    """
-
-    def __init__(
-        self,
-        *args: Any,
-        record: Optional[Callable[[Union[str, os.PathLike]], None]] = None,
-        **kwargs: Any,
-    ) -> None:
-        object.__setattr__(self, "_record", record)
-        kwargs.setdefault("box_class", Box)
-        super().__init__(*args, **kwargs)
-
-    def __setitem__(self, key: Any, value: Any) -> None:
-        try:
-            record = object.__getattribute__(self, "_record")
-        except AttributeError:
-            record = None
-        if record is not None:
-            for path in iter_artifact_paths(value):
-                record(path)
-        super().__setitem__(key, value)
-
-    def update(self, *args: Any, **kwargs: Any) -> None:
-        # `Box.update` does not route through `__setitem__`; recurse through it ourselves so
-        # `self.artifacts.update(...)` (vivado_synth's outputs) is recorded too.
-        for arg in args:
-            items = arg.items() if hasattr(arg, "items") else arg
-            for key, value in items:
-                self[key] = value
-        for key, value in kwargs.items():
-            self[key] = value
-
-    def __reduce_ex__(self, protocol: Any) -> Tuple[Any, ...]:
-        return (Box, (dict(self),))
 
 
 def _is_path_annotation(annotation: Any) -> bool:
@@ -224,43 +175,231 @@ def map_path_leaves(value: Any, annotation: Any, fn: Callable[[Any], Any]) -> An
     a path. Treating every string as a path would corrupt names containing ``$`` (path expansion)
     or match a library name against a same-named file (a trace's inputs).
     """
+    return map_keyed_path_leaves(value, annotation, lambda _key, leaf: fn(leaf))
+
+
+def map_keyed_path_leaves(
+    value: Any, annotation: Any, fn: Callable[[str, Any], Any], key: str = ""
+) -> Any:
+    """`map_path_leaves`, the one traversal, with `fn` also given each leaf's key path below
+    `key`: `[i]` for an item of a list or tuple, `[k]` for the value under a dict's key `k`
+    (`lib_paths[0][1]`: the path half of the first library)."""
     origin = get_origin(annotation)
     args = get_args(annotation)
     if origin is Annotated:
-        return map_path_leaves(value, args[0], fn)
+        return map_keyed_path_leaves(value, args[0], fn, key)
     if _is_path_annotation(annotation):
-        return fn(value)
+        return fn(key, value)
     if origin in (Union, UnionType):
         # Follow the first branch that holds a path and fits the value. A raw string fits both
         # branches of `str | Path`; the presence of the Path branch is what makes it a path.
         for choice in args:
             if _annotation_contains_path(choice) and _annotation_matches_value(choice, value):
-                return map_path_leaves(value, choice, fn)
+                return map_keyed_path_leaves(value, choice, fn, key)
         return value
     if origin in (list, set, frozenset) and isinstance(value, (list, set, frozenset)):
         item_annotation = args[0] if args else Any
-        mapped = [map_path_leaves(item, item_annotation, fn) for item in value]
+        mapped = [
+            map_keyed_path_leaves(item, item_annotation, fn, f"{key}[{index}]")
+            for index, item in enumerate(value)
+        ]
         return rebuild_like(value, mapped)
     if origin is tuple and isinstance(value, (list, tuple)):
         if len(args) == 2 and args[1] is Ellipsis:
-            mapped = [map_path_leaves(item, args[0], fn) for item in value]
+            item_annotations = [args[0]] * len(value)
         else:
-            mapped = [
-                map_path_leaves(item, args[index] if index < len(args) else Any, fn)
-                for index, item in enumerate(value)
-            ]
+            item_annotations = [args[i] if i < len(args) else Any for i in range(len(value))]
+        mapped = [
+            map_keyed_path_leaves(item, item_annotation, fn, f"{key}[{index}]")
+            for index, (item, item_annotation) in enumerate(zip(value, item_annotations))
+        ]
         return rebuild_like(value, mapped)
     if origin is dict and isinstance(value, dict):
         key_annotation, value_annotation = args if len(args) == 2 else (Any, Any)
         return {
-            map_path_leaves(key, key_annotation, fn): map_path_leaves(item, value_annotation, fn)
-            for key, item in value.items()
+            map_keyed_path_leaves(k, key_annotation, fn, f"{key}[{k}](key)"): (
+                map_keyed_path_leaves(item, value_annotation, fn, f"{key}[{k}]")
+            )
+            for k, item in value.items()
         }
     return value
 
 
+def _nested_models(value: Any, key: str) -> list[tuple[str, BaseModel]]:
+    """The models inside `value` (itself, a mapping's values, a list's items), by key path."""
+    if isinstance(value, BaseModel):
+        return [(key, value)]
+    if isinstance(value, Mapping):
+        return [m for name, item in value.items() for m in _nested_models(item, f"{key}[{name}]")]
+    if isinstance(value, (list, tuple)):
+        return [m for i, item in enumerate(value) for m in _nested_models(item, f"{key}[{i}]")]
+    return []
+
+
+class WrittenLeaf(NamedTuple):
+    """A path leaf of a setting the flow writes: its key path (`cocotb.results_xml`), its role,
+    its value, and the model and field it belongs to."""
+
+    key: str
+    role: str
+    value: Any
+    owner: BaseModel
+    field: str
+
+
+def map_written_leaves(
+    model: BaseModel,
+    fn: Callable[[WrittenLeaf], Any],
+    *,
+    dependencies: bool = False,
+    prefix: str = "",
+) -> None:
+    """Call `fn` at every path leaf of every field whose paths the flow writes (`written_role`),
+    in `model` and the models nested in it -- a dependency's settings too with `dependencies` --
+    walked by declared shape (`map_keyed_path_leaves`); assign each field back whose leaves `fn`
+    changed."""
+    skipped = model.dependency_settings if isinstance(model, Flow.Settings) else {}
+    for name, info in type(model).model_fields.items():
+        if name in skipped and not dependencies:
+            continue
+        value = getattr(model, name)
+        role = written_role(type(model), name)
+        if role is not None:
+            if value is not None:
+                changed = map_keyed_path_leaves(
+                    value,
+                    info.annotation,
+                    lambda key, leaf: fn(WrittenLeaf(key, role, leaf, model, name)),
+                    prefix + name,
+                )
+                if changed != value:
+                    setattr(model, name, changed)
+            continue
+        for key, nested in _nested_models(value, prefix + name):
+            map_written_leaves(nested, fn, dependencies=dependencies, prefix=key + ".")
+
+
+def output_name(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
+    """The conventional name of the deliverable `leaf` belongs to, for the design `design`:
+    what its flow's settings say (`Flow.Settings.conventional_output`), or its marker."""
+    if isinstance(leaf.owner, Flow.Settings):
+        return leaf.owner.conventional_output(leaf.field, design)
+    return conventional_output(type(leaf.owner), leaf.field, design)
+
+
+def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
+    """What is wrong with the paths `settings` says the flow writes (D21, rule R4), as
+    `(key path, message)`: a working location that is not a name inside the run directory, a
+    deliverable name that leaves it, and a variable that is not expanded (`$CWD`: the start
+    directory is `$PWD`). A dependency's settings are checked by its own launch."""
+    problems: list[tuple[str, str]] = []
+
+    def check(written: WrittenLeaf) -> Any:
+        key, role, leaf = written.key, written.role, written.value
+        if not isinstance(leaf, (str, os.PathLike)) or not os.fspath(leaf):
+            return leaf
+        text, path = os.fspath(leaf), Path(leaf)
+        if "$" in text:
+            variable = re.search(r"\$\{?(\w+)", text)
+            name = variable.group(1) if variable else "$"
+            if name in ("PWD", "DESIGN_ROOT", "DESIGN_DIR"):
+                message = (
+                    f"`{key}` = {text}: ${name} was not expanded here -- a value assigned to a "
+                    "nested model after the settings were made: give an absolute path, or give "
+                    "it with the settings (-s, the design file, the API's flow settings)"
+                )
+            else:
+                hint = (
+                    "use $PWD, the directory xeda was started from"
+                    if name == "CWD"
+                    else "the variables are $PWD and $DESIGN_ROOT"
+                )
+                message = f"`{key}` = {text}: ${name} is not a variable xeda knows: {hint}"
+            problems.append((key, message))
+        elif role == WORKING_ROLE and (
+            path.is_absolute() or ".." in path.parts or text.startswith("~")
+        ):
+            problems.append(
+                (
+                    key,
+                    f"`{key}` = {text}: it is where the flow works, inside its run directory: "
+                    "give a name, not a location (to put runs elsewhere, use --run-root)",
+                )
+            )
+        elif text.startswith("~"):
+            problems.append(
+                (
+                    key,
+                    f"`{key}` = {text}: `~` is not expanded: give a name in the run directory, "
+                    "or a location ($PWD/..., $DESIGN_ROOT/..., an absolute path)",
+                )
+            )
+        elif not path.is_absolute() and ".." in path.parts:
+            problems.append(
+                (
+                    key,
+                    f"`{key}` = {text} leaves the run directory: give a name inside it; to put "
+                    "it elsewhere, name a location ($PWD/..., $DESIGN_ROOT/...) or use "
+                    "--outputs-to",
+                )
+            )
+        return leaf
+
+    map_written_leaves(settings, check)
+    return problems
+
+
+def _plain_model(annotation: Any) -> Optional[type[BaseModel]]:
+    """The plain model -- not a flow's settings, which normalize their own input -- that
+    `annotation` names, directly or as `Optional[...]`: `CocotbSettings`, `CxxRtl`."""
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        return _plain_model(get_args(annotation)[0])
+    for choice in get_args(annotation) if origin in (Union, UnionType) else (annotation,):
+        if get_origin(choice) is Annotated:
+            choice = get_args(choice)[0]
+        if (
+            isinstance(choice, type)
+            and issubclass(choice, BaseModel)
+            and not issubclass(choice, Flow.Settings)
+        ):
+            return choice
+    return None
+
+
+def _expand_model_paths(value: Any, model: type[BaseModel], overrides: Dict[str, Any]) -> Any:
+    """The path variables of a plain nested model expanded: in a mapping, by each key's field
+    (`input_names`); in an instance, in a deep copy of it (the caller's stays as it is), made
+    only when a field changes."""
+    if isinstance(value, Mapping):
+        names = input_names(model)
+        return {
+            key: (
+                _expand_path_values(item, model.model_fields[names[key]].annotation, overrides)
+                if key in names
+                else item
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, model):
+        changed = {}
+        for name, info in type(value).model_fields.items():
+            current = getattr(value, name)
+            expanded = _expand_path_values(current, info.annotation, overrides)
+            if expanded is not current and expanded != current:
+                changed[name] = expanded
+        if not changed:
+            return value
+        copy = value.model_copy(deep=True)
+        for name, expanded in changed.items():
+            setattr(copy, name, expanded)
+        return copy
+    return value
+
+
 def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) -> Any:
-    """Expand variables only at path-typed leaves, including nested containers.
+    """Expand variables only at path-typed leaves, including nested containers and the path
+    fields of a plain model nested in a setting (`_plain_model`: `cocotb.results_xml`).
 
     A container must be traversed according to its annotation rather than by value alone: in
     ``lib_paths``, for example, the first tuple member is a library name while only the second is
@@ -272,10 +411,38 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
             return expand_env_vars(Path(leaf), overrides)
         return leaf
 
-    return map_path_leaves(value, annotation, expand)
+    expanded = map_path_leaves(value, annotation, expand)
+    model = _plain_model(annotation)
+    if model is None or expanded is None:
+        return expanded
+    return _expand_model_paths(expanded, model, overrides)
 
 
-def flowrun_hash(flow_name: str, settings: Flow.Settings) -> str:
+def identity_settings(
+    settings: "Flow.Settings", design_name: Optional[str] = None
+) -> "Flow.Settings":
+    """`settings` as a run's identity sees them (D21): a copy in which every deliverable given as
+    a location -- the flow's own, and one in a dependency's settings nested in them -- is its
+    conventional name (`output_name`), the name the run writes the output under whatever the
+    location. Where an output is delivered, and what it is called there, is never part of what
+    the run is. Without `design_name`, `{design}` stays as written."""
+    copy = settings.model_copy(deep=True)
+    design = design_name if design_name is not None else "{design}"
+
+    def conventional(written: WrittenLeaf) -> Any:
+        leaf = written.value
+        if written.role == DELIVERABLE_ROLE and isinstance(leaf, (str, os.PathLike)):
+            if os.fspath(leaf) and Path(leaf).is_absolute():
+                name = output_name(written, design)
+                if name is not None:
+                    return Path(name)
+        return leaf
+
+    map_written_leaves(copy, conventional, dependencies=True)
+    return copy
+
+
+def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[str] = None) -> str:
     """What identifies a run of `flow_name` with `settings`: the key `--cached-dependencies`
     reuses a previous run by, and part of a hashed run directory's name.
 
@@ -283,7 +450,9 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings) -> str:
     or under the directory xeda was started from counts relative to it (`$DESIGN_ROOT/c.xdc`),
     so moving a design, or starting xeda elsewhere, keeps the hash. Paths count as their text:
     only a design's source files are hashed by content (`Design.rtl_hash`), and no directory's
-    content is ever read.
+    content is ever read. Where an output is delivered is no part of it (`identity_settings`,
+    for the design `design_name`): a deliverable given as a location counts as its conventional
+    name.
     """
     roots = [
         (var, Path(root).absolute())
@@ -294,8 +463,9 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings) -> str:
         if root is not None
     ]
     roots.sort(key=lambda var_root: len(var_root[1].parts), reverse=True)  # most specific first
+    identity = identity_settings(settings, design_name)
     return semantic_hash(
-        dict(flow_name=flow_name, flow_settings=location_free(settings.model_dump(), roots))
+        dict(flow_name=flow_name, flow_settings=location_free(identity.model_dump(), roots))
     )
 
 
@@ -463,11 +633,15 @@ class Flow(metaclass=ABCMeta):
             description="Max number of threads",
         )
         no_console: bool = Field(False, json_schema_extra={"hidden_from_schema": True})
-        reports_dir: Path = Field(Path("reports"), json_schema_extra={"hidden_from_schema": True})
-        checkpoints_dir: Path = Field(
-            Path("checkpoints"), json_schema_extra={"hidden_from_schema": True}
+        reports_dir: Path = Field(
+            Path("reports"), json_schema_extra={"hidden_from_schema": True, **WORKING}
         )
-        outputs_dir: Path = Field(Path("outputs"), json_schema_extra={"hidden_from_schema": True})
+        checkpoints_dir: Path = Field(
+            Path("checkpoints"), json_schema_extra={"hidden_from_schema": True, **WORKING}
+        )
+        outputs_dir: Path = Field(
+            Path("outputs"), json_schema_extra={"hidden_from_schema": True, **WORKING}
+        )
         lib_paths: List[
             Union[
                 Tuple[
@@ -518,7 +692,9 @@ class Flow(metaclass=ABCMeta):
                setting that also accepts plain text keeps the text whole. Likewise an optional
                path given as `""` is unset (`-s textcfg=`): as a `Path` it would name the
                current directory.
-            3. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`.
+            3. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`,
+               the path fields of a plain model nested in the setting included
+               (`cocotb.results_xml`).
             """
             annotation = field_annotation(cls, name)
             if annotation is None:
@@ -533,7 +709,9 @@ class Flow(metaclass=ABCMeta):
                 value = [item.strip() for item in value.split(",") if item.strip()]
             if value == "" and _is_optional_path(annotation):
                 return None
-            if value is None or not _annotation_contains_path(annotation):
+            if value is None or not (
+                _annotation_contains_path(annotation) or _plain_model(annotation) is not None
+            ):
                 return value
             return _expand_path_values(value, annotation, roots)
 
@@ -642,6 +820,12 @@ class Flow(metaclass=ABCMeta):
                     if isinstance(value, Flow.Settings):
                         value._attach_context(self.context)
             super().__setattr__(name, value)
+
+        def conventional_output(self, field: str, design: str) -> Optional[PurePath]:
+            """The name the deliverable `field` is written under, in the run directory, when it
+            is given a location (`xeda.dataclass.conventional_output`); a flow whose outputs are
+            named by its other settings says so here."""
+            return conventional_output(type(self), field, design)
 
         @property
         def is_quiet(self) -> bool:
@@ -775,37 +959,46 @@ class Flow(metaclass=ABCMeta):
     def design_root(self):
         return self.design.design_root
 
+    @property
+    def run_directory(self) -> RunDirectory:
+        """The run directory, and the one way anything in it is deleted (`RunDirectory.remove`,
+        `clear`) or written by xeda (`writable`). Decided once, when the flow is constructed: it
+        cannot be replaced."""
+        return self._run_directory
+
     def __init__(
         self,
         settings: Union[Settings, Dict],
         design: Union[Design, Dict],
-        run_path: Optional[Path] = None,
+        run_path: Path,
         runner_cwd: Optional[Path] = None,
+        run_directory: Optional[RunDirectory] = None,
     ):
         """Flow constructor
         should avoid overriding in subclasses unless absolutely needed.
+
+        `run_directory` is `run_path` as the launcher chose it (`RunDirectory.claimed`), handed
+        over here, once. A flow constructed without one holds an `unlaunched` directory, in which
+        xeda deletes nothing.
         """
-        if run_path is None:
-            run_path = Path.cwd()
-        # Normalized once, here, to absolute: every later join (`self.run_path / path`) and the
-        # snapshot below must key off the *same* form, or a relative `run_path` given directly
-        # (bypassing the launcher, which always hands one down already absolute) would snapshot
-        # under relative keys while every lookup -- `_record_output_state`, `wrote_output` --
-        # looks up an absolute one, missing every entry and reporting an untouched file as
-        # written (it would resolve inside the run directory, so its absence from the -- actually
-        # present but differently-keyed -- snapshot would be read as "absent when snapshotted").
+        # Normalized once, here, to absolute: a relative `run_path` given directly (bypassing the
+        # launcher, which always hands one down already absolute) must join, and look up the
+        # snapshot below, the same way wherever the current directory later is.
         run_path = Path(os.path.abspath(run_path))
         self.run_path = run_path
-        # Every existing file's and directory's state under the run directory, by identity,
-        # recorded now: before `init()`, dependencies or `run()` can write to it, however this
-        # flow was constructed -- by the launcher, or directly, as some tests do -- since
-        # construction is the one thing that must happen before any of those can run.
-        # `wrote_output` tells this run's own output from one an earlier run left by comparing
-        # against this, never a clock: sound across file systems and coarse timestamps alike.
-        self._output_snapshot = OutputSnapshot(run_path)
-        # The state of each output named outside the run directory, when the run first learned
-        # of it (`_record_output_state`), by its path as named.
-        self._outside_output_states: Dict[Path, Optional[OutputState]] = {}
+        if run_directory is None:
+            run_directory = RunDirectory.unlaunched(run_path)
+        elif run_directory.path != Path(os.path.realpath(run_path)):
+            raise ValueError(f"{run_directory.path} is not the run directory {run_path}")
+        self._run_directory = run_directory
+        # Every existing file's and directory's state under the run directory, by identity:
+        # what `wrote_output` tells this run's own output from one an earlier run left by, never
+        # a clock -- sound across file systems and coarse timestamps alike. A launcher takes it
+        # right before the run (`start_run`), once its own records are written; a flow built
+        # directly takes it now, before anything it runs can write to the directory.
+        self._output_snapshot: Optional[OutputSnapshot] = (
+            OutputSnapshot(run_path) if run_directory.run_root is None else None
+        )
 
         if isinstance(design, dict):
             design = dict(design)
@@ -818,6 +1011,9 @@ class Flow(metaclass=ABCMeta):
         # the path from which the runner was invoked, e.g., where xeda CLI was invoked
         self.runner_cwd: Optional[Path] = runner_cwd
         self.init_time: Optional[float] = None
+        #: Set by the launcher right before `run()` (`start_run`): from then on, a file in the run
+        #: directory that the run did not write is a previous run's (`report_file`)
+        self.run_started: bool = False
         self.timestamp: Optional[str] = None
         self.flow_hash: Optional[str] = None
         self.design_hash: Optional[str] = None
@@ -850,9 +1046,7 @@ class Flow(metaclass=ABCMeta):
 
         # Artifact labels map to paths or nested mappings/lists/tuples of paths. Relative
         # paths are rooted at run_path; runners walk path leaves through xeda.artifacts.
-        # `_ArtifactsBox` records each path's prior state as it is stored -- a second layer
-        # alongside `remove_stale_output` and the run-directory snapshot above.
-        self.artifacts = _ArtifactsBox(record=self._record_output_state)
+        self.artifacts = Box()
         self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
         self.add_template_filter("quote", lambda x: f'"{x}"')
@@ -873,6 +1067,9 @@ class Flow(metaclass=ABCMeta):
         #: Set by the launcher on every flow it completes: the run whose results the flow holds
         #: (its trace's `run_id`, or a new one for a run no trace records).
         self.run_id: Optional[str] = None
+        #: Set by the launcher once the launch has finished: the outputs delivered where the user
+        #: named them (`xeda.deliver`).
+        self.deliveries: List["Delivered"] = []
 
     def always_runs(self) -> Optional[str]:
         """Why this run can never be reused, or None for a run its trace can vouch for.
@@ -897,117 +1094,42 @@ class Flow(metaclass=ABCMeta):
     def run(self) -> None:
         """return False on failure"""
 
-    def purge_run_path(self):
-        """Empty the run directory (a flow's `clean`), all but xeda's marker.
+    def purge_run_path(self) -> None:
+        """Empty the run directory (`RunDirectory.clear`; nothing, for a flow built without a
+        launcher)."""
+        self.run_directory.clear()
 
-        Only a run directory of xeda's, which carries the marker the launcher writes into every
-        run directory it uses (`run_dir.claim_run_dir`). Anything else -- a directory a flow was
-        built to run in without a launcher, say, or a link to a directory -- is refused, and
-        nothing is removed.
-        """
-        refuse_linked_run_dir(self.run_path)
-        if not self.run_path.exists():
-            return
-        if not is_marked_run_dir(self.run_path):
-            raise RunDirectoryError(
-                f"{self.name}'s clean would delete everything in {self.run_path}, which is not a "
-                f"run directory of xeda's: it carries no {RUN_DIR_MARKER}. Nothing was removed."
-            )
-        logged_warning = False
-        for path in self.run_path.iterdir():
-            if path.name == RUN_DIR_MARKER:
-                continue
-            if not logged_warning:
-                log.info("Deleting all files in the existing run directory: %s", self.run_path)
-                logged_warning = True
-            if path.is_file() or path.is_symlink():
-                path.unlink()
-            else:
-                shutil.rmtree(path, ignore_errors=True)
-
-    def removable_work_dir(self, path: Union[str, os.PathLike], setting: str) -> Path:
-        """`path`, a work directory or file the flow removes or empties by name (`setting` names
-        it), resolved against the run directory -- or refused unless it lies strictly inside.
-
-        A tool may itself have made the work directory's own name a symbolic link (to anywhere);
-        that is allowed. The link is removed as a link -- never what it points to -- and the
-        path, now free, is returned. A path whose earlier component is a link leading out, or
-        that is named outside the run directory, is still refused."""
-        root = self.run_path.resolve()
-        named = root / path
-        if named.name not in ("", ".", "..") and named.is_symlink():
-            parent = named.parent.resolve()
-            if parent == root or parent.is_relative_to(root):
-                log.info("Removing %s, a link a tool left where %s is removed", named, setting)
-                named.unlink()
-                return parent / named.name
-        resolved = resolved_inside(path, self.run_path)
-        if resolved is None:
-            raise RunDirectoryError(
-                f"{setting} = {str(path)!r} resolves to {(self.run_path / path).resolve()}, "
-                f"outside the run directory {self.run_path.resolve()}: {self.name} removes files "
-                "from it by name, so it must lie inside the run directory (a relative path "
-                "without '..')."
-            )
-        return resolved
-
-    def _record_output_state(self, path: Union[str, os.PathLike]) -> None:
-        """Record `path`'s state now -- `record_output_state`, `None` if it is not there -- the
-        first time this run learns of it, for a path outside the run directory only. One inside
-        it is already covered by the snapshot `__init__` took before anything could write to it,
-        by identity whatever it is named: recording it again here, later, would capture whatever
-        it is *now* -- possibly what this very run just wrote -- as if that had been its state
-        before the run, which is exactly the bug this mechanism exists to avoid. Later calls for
-        the same outside path do nothing either: what `wrote_output` must compare against is the
-        state as of when the run first knew of this output, not whatever the path is by the time
-        something asks."""
-        target = Path(os.path.abspath(self.run_path / path))
-        if resolved_inside(target, self.run_path) is not None:
-            return
-        if target not in self._outside_output_states:
-            self._outside_output_states[target] = record_output_state(target)
-
-    def remove_stale_output(self, path: Union[str, os.PathLike]) -> None:
-        """Remove an earlier copy of an output the run writes (`path`, relative to the run
-        directory unless absolute) -- inside the run directory only. An output named outside it
-        (`-s bitstream=/elsewhere/x.bit`) is left for the tool to overwrite, as it always was:
-        xeda deletes nothing outside the run directory. Either way, its state is recorded first
-        (`_record_output_state`, a no-op for one inside the run directory, already covered by the
-        directory-wide snapshot), so `wrote_output` can tell an earlier file from one this run
-        wrote even when it is left for the tool to overwrite in place."""
-        self._record_output_state(path)
-        inside = resolved_inside(path, self.run_path)
-        if inside is not None:
-            inside.unlink(missing_ok=True)
-        else:
-            log.debug("Leaving %s, outside the run directory, for the tool to overwrite", path)
+    def start_run(self) -> None:
+        """Called by the launcher right before `run()`, once it has written its own records into
+        the run directory: from now on, what is written there is this run's (`wrote_output`),
+        and a report that is not is a previous run's (`report_file`)."""
+        self._output_snapshot = OutputSnapshot(self.run_path)
+        self.run_started = True
 
     def wrote_output(self, path: Union[str, os.PathLike]) -> bool:
         """Whether this run wrote the output at `path` (relative to the run directory unless
         absolute), a file or a directory: it is there now, and its state -- identity, size,
-        mtime or ctime -- differs from what was recorded for it before this run's tool could
-        have written it (created, an earlier copy the tool truly overwrote, or one merely
+        mtime or ctime -- differs from what the snapshot of the run directory recorded for it
+        before the run (created, an earlier copy the tool truly overwrote, or one merely
         touched). Never a clock: an output on a file system whose clock is behind, or read
         within a coarse tick, is told apart by its own recorded identity and metadata.
 
-        An output that resolves inside the run directory is looked up in the snapshot
-        `Flow.__init__` took by its identity, so every name of an earlier run's file finds that
-        file's state; one whose identity the snapshot did not record was created (or moved
-        there) since -- unless it lies in a directory the snapshot could not read, which proves
-        nothing. An output outside the run directory is compared with the state recorded when
-        the run first learned of it (`remove_stale_output`, or assigning it as an artifact).
-        Where nothing tells, the prior state is unknown, and an unknown prior state is never
-        proof this run wrote it: a failed run's results omit such an artifact rather than risk
-        relisting one an earlier run left."""
+        The snapshot (`run_dir.OutputSnapshot`) is looked up by identity, so every name of an
+        earlier run's file finds that file's state; one whose identity it did not record was
+        created (or moved there) since -- unless it lies in a directory the snapshot could not
+        read, which proves nothing. An output outside the run directory, or one asked about
+        before any snapshot was taken, has no known prior state, and an unknown prior state is
+        never proof this run wrote it: a failed run's results omit such an artifact rather than
+        risk relisting one an earlier run left."""
+        if self._output_snapshot is None:
+            return False
         target = Path(os.path.abspath(self.run_path / path))
         current = record_output_state(target)
         if current is None:
             return False  # not there now: this run cannot have written it
-        if target in self._outside_output_states:
-            return self._outside_output_states[target] != current
         inside = resolved_inside(target, self.run_path)
         if inside is None:
-            return False  # outside the run directory, and never recorded: unknown, not proven
+            return False  # outside the run directory: unknown, not proven
         return self._output_snapshot.changed(inside, current) is True
 
     def parse_reports(self) -> bool:
@@ -1050,7 +1172,9 @@ class Flow(metaclass=ABCMeta):
             artifacts=self.artifacts,
             **kwargs,
         )
-        with replacing_file(script_path) as f:  # a link at its name is replaced, not followed
+        # inside the run directory (`RunDirectory.writable`), and only as a complete file, which
+        # replaces a link at its name rather than writing through it (`replacing_file`)
+        with replacing_file(self.run_directory.writable(script_path)) as f:
             f.write(rendered_content)
         return script_path.resolve().relative_to(self.run_path)
 
@@ -1099,6 +1223,38 @@ class Flow(metaclass=ABCMeta):
         self.results.update(**res)
         return self.results.success
 
+    def written_by_this_run(self, path: Union[str, os.PathLike]) -> bool:
+        """Whether the file `path` exists and is this run's: written by it (`wrote_output`, by
+        the file's identity and state, never a clock) -- or, for a flow no launcher started
+        (`run_started` is false), whatever is there."""
+        if not os.path.lexists(path):
+            return False
+        return not self.run_started or self.wrote_output(path)
+
+    def report_file(self, path: Union[str, os.PathLike]) -> Optional[Path]:
+        """`path`, a report (or any file) the flow's tools write, if this run wrote it; None --
+        with a warning -- if it does not exist, or is not this run's (`written_by_this_run`: its
+        identity and state are what they were before the run): a previous run's report, left in
+        a run directory that is reused, is never taken for this run's. Every report a flow reads
+        goes through here (`parse_regex` does)."""
+        path = Path(path)
+        if not path.exists():
+            log.warning(
+                "File %s does not exist! Please check the console output and the log files in %s",
+                path.absolute(),
+                self.run_path,
+            )
+            return None
+        if not self.written_by_this_run(path):
+            log.warning(
+                "File %s was not written by this run: it is a previous run's, and is not read. "
+                "Please check the console output and the log files in %s",
+                path.absolute(),
+                self.run_path,
+            )
+            return None
+        return path
+
     def parse_regex(
         self,
         reportfile_path: Union[str, os.PathLike],
@@ -1108,15 +1264,10 @@ class Flow(metaclass=ABCMeta):
         required: bool = False,
         sequential: bool = False,
     ) -> Optional[dict]:
-        if not isinstance(reportfile_path, Path):
-            reportfile_path = Path(reportfile_path)
-        if not reportfile_path.exists():
-            log.warning(
-                "File %s does not exist! Please check the console output and the log files in %s",
-                reportfile_path.absolute(),
-                self.run_path,
-            )
+        report = self.report_file(reportfile_path)
+        if report is None:
             return None
+        reportfile_path = report
         return parse_patterns_in_file(
             reportfile_path,
             re_pattern,
