@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import ClassVar
@@ -13,6 +14,7 @@ from box import Box
 from xeda import Design
 from xeda.artifacts import filter_artifact_paths, iter_artifact_paths, map_artifact_paths
 from xeda.flow import Flow, registered_flows
+from xeda.flow.run_dir import RUN_DIR_MARKER
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import _artifact_rows
 
@@ -240,3 +242,146 @@ def test_a_failed_run_never_reports_an_earlier_runs_artifact(flow_name, tmp_path
 
 #: The modification time an earlier run's files are given: 1970, long before any run starts.
 EARLIER_NS = 1_000_000_000
+
+
+# ---------------------------------------------------------------------------------------------
+# Freshness from each output's own prior state, never a clock (E17 part 2)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_new_output_with_an_early_mtime_still_counts_as_written(tmp_path):
+    """(a) A file this run creates counts as written even when its mtime is set earlier than the
+    run started -- simulating a copy or a tool that preserves an old timestamp, or a file system
+    whose clock is behind. The run-directory snapshot `Flow.__init__` takes before `run()` found
+    nothing at this path, so its prior state is "absent": whatever timestamp the file ends up
+    with, existing at all is a change from that, never mind what either clock reads."""
+
+    class NewOutputEarlyMtime(Flow):
+        """Write one output, then set its mtime long before this run could have started."""
+
+        results_description: ClassVar[dict] = {}
+
+        def run(self) -> None:
+            path = self.run_path / "fresh.bit"
+            path.write_text("fresh\n")
+            os.utime(path, ns=(EARLIER_NS, EARLIER_NS))
+            self.artifacts.bitstream = "fresh.bit"
+
+        def parse_reports(self) -> bool:
+            return False  # force `_drop_unwritten_artifacts`, which consults `wrote_output`
+
+    design = Design.from_file(EXAMPLE)
+    try:
+        flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
+            NewOutputEarlyMtime, design, {}
+        )
+    finally:
+        for name in (NewOutputEarlyMtime.name, NewOutputEarlyMtime.__name__):
+            registered_flows.pop(name, None)
+
+    assert not flow.succeeded
+    saved = json.loads((flow.run_path / "results.json").read_text())
+    assert saved["artifacts"] == {"bitstream": "fresh.bit"}
+
+
+def test_an_untouched_artifact_at_the_run_starts_own_tick_is_not_written(tmp_path):
+    """(b) An earlier run's artifact, never touched by this one, is not counted as written even
+    when its mtime happens to fall in the exact tick this run started in -- the coarse-clock case
+    (FAT's 2s) a `mtime >= run_start` comparison could get wrong. Comparison is by the file's own
+    recorded state (its snapshot, taken at construction, unchanged since), never by reading any
+    clock at all, so the coincidence cannot matter."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / RUN_DIR_MARKER).write_text("format = 1\n")  # so the launcher may reuse it as is
+    old = run_dir / "old.bit"
+    old.write_text("old\n")
+    now = time.time()
+    os.utime(old, (now, now))  # the same tick a coarse clock would call "run start"
+
+    class SeesEarlierArtifact(Flow):
+        """Declare an artifact an earlier run left, without ever touching the file."""
+
+        results_description: ClassVar[dict] = {}
+
+        def run(self) -> None:
+            self.artifacts.bitstream = "old.bit"
+
+        def parse_reports(self) -> bool:
+            return False
+
+    design = Design.from_file(EXAMPLE)
+    try:
+        flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
+            SeesEarlierArtifact, design, {}, run_path=run_dir
+        )
+    finally:
+        for name in (SeesEarlierArtifact.name, SeesEarlierArtifact.__name__):
+            registered_flows.pop(name, None)
+
+    assert not flow.succeeded
+    saved = json.loads((flow.run_path / "results.json").read_text())
+    assert saved.get("artifacts", {}) == {}
+
+
+def test_a_successful_vivado_synth_writes_an_external_bitstream_with_an_early_mtime(
+    tmp_path, monkeypatch
+):
+    """(c) sol/luna's scenario: an external bitstream (outside the run directory, so possibly on
+    another file system) already exists with an old timestamp -- as if that file system's clock
+    were behind, or an earlier run left it there. `VivadoSynth.run` records its prior state
+    (`remove_stale_output`) before Vivado can touch it; once Vivado's `write_bitstream` step
+    genuinely overwrites it, the check at the end of `run()` compares identity and metadata, never
+    a clock, so a successful build never raises `FlowFatalError` for a bitstream it plainly
+    wrote."""
+    use_fake_tools(monkeypatch)
+    design = Design.from_file(EXAMPLE)
+    external = tmp_path / "external"
+    external.mkdir()
+    bitstream = external / "top.bit"
+    bitstream.write_text("an earlier run's, on a lagging clock\n")
+    os.utime(bitstream, ns=(EARLIER_NS, EARLIER_NS))
+    runner = DefaultRunner(tmp_path / "run", display_results=False, cached_dependencies=False)
+
+    flow = runner.launch_flow(
+        "vivado_synth",
+        design,
+        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": str(bitstream)},
+    )
+
+    assert flow.succeeded
+    assert bitstream.read_text() != "an earlier run's, on a lagging clock\n"
+    assert bitstream.stat().st_mtime_ns != EARLIER_NS
+
+
+def test_a_directly_constructed_flow_does_not_reintroduce_the_stale_artifact_bug(tmp_path):
+    """The invariant behind this whole mechanism: whichever way a flow reaches `run()` -- through
+    the launcher, or constructed directly, as a flow built for another purpose might do -- its run
+    directory's prior state is already known by the time anything can write to it, because
+    `Flow.__init__` takes the snapshot itself, and construction is the one thing that must happen
+    before `run()` can be called at all. So a directly-constructed flow, never touched by the
+    launcher's own bookkeeping, still tells an earlier run's untouched artifact from a fresh one:
+    an unrecorded path never silently falls back to "unknown -- not written" just because nothing
+    launched it."""
+
+    class DirectlyConstructed(Flow):
+        results_description: ClassVar[dict] = {}
+
+        def run(self) -> None:
+            pass
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    old = run_dir / "old.bit"
+    old.write_text("old\n")  # here before the flow is even constructed
+
+    try:
+        flow = DirectlyConstructed({}, Design.from_file(EXAMPLE), run_dir)
+        # created only after construction: absent from the snapshot taken at that point
+        fresh = run_dir / "fresh.bit"
+        fresh.write_text("fresh\n")
+
+        assert flow.wrote_output("old.bit") is False
+        assert flow.wrote_output("fresh.bit") is True
+    finally:
+        for name in (DirectlyConstructed.name, DirectlyConstructed.__name__):
+            registered_flows.pop(name, None)
