@@ -1026,6 +1026,57 @@ def test_replacing_file_and_copy_replace_a_link(tmp_path):
     assert sorted(p.name for p in work.iterdir()) == ["copy.v", "script.tcl"], "no temporary left"
 
 
+def test_replacing_file_never_commits_a_partly_written_file(tmp_path):
+    """A body that writes part of the new content and fails leaves the file it would have
+    replaced as it was, and no temporary file behind."""
+    from xeda.utils import replacing_file
+
+    target = tmp_path / "settings.json"
+    target.write_text(PRECIOUS)
+
+    with pytest.raises(RuntimeError):
+        with replacing_file(target) as f:
+            f.write("{ a prefix of the new")
+            raise RuntimeError("failed half-way")
+
+    assert target.read_text() == PRECIOUS
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["settings.json"]
+
+
+def test_dump_json_never_commits_a_partly_serialized_document(tmp_path):
+    """`settings.json` is written a second time, without a backup, after a run: a value that
+    fails to serialize half-way leaves the first document whole."""
+    from xeda.utils import dump_json
+
+    target = tmp_path / "settings.json"
+    dump_json({"first": 1}, target, backup=False)
+    first = target.read_text()
+
+    class Unserializable:
+        def as_json_value(self):
+            raise TypeError("cannot be written")
+
+    with pytest.raises(TypeError):
+        dump_json({"a": list(range(100)), "b": Unserializable()}, target, backup=False)
+
+    assert target.read_text() == first
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["settings.json"]
+
+
+def test_a_failed_tool_keeps_its_redirected_output(tmp_path):
+    """A tool whose output a flow redirects to a file, and which fails, still leaves that
+    output: it is the diagnostic of the failure."""
+    from xeda.proc_utils import run_process
+    from xeda.utils import NonZeroExitCode
+
+    log = tmp_path / "tool.log"
+    with pytest.raises(NonZeroExitCode):
+        run_process("/bin/sh", ["-c", "echo why it failed; exit 3"], stdout=log)
+
+    assert log.read_text() == "why it failed\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["tool.log"]
+
+
 # ---------------------------------------------------------------------------------------------
 # The oracle: every place xeda deletes by name
 # ---------------------------------------------------------------------------------------------
@@ -1207,8 +1258,8 @@ REVIEWED_SITES = [
     ),
     (
         "utils.py",
-        "Path(temporary).unlink(missing_ok=True)  # the temporary file it just created",
-        "`replacing_file`: the temporary file it created, when it cannot be renamed into place",
+        "Path(temporary).unlink(missing_ok=True)  # the temporary file, never committed",
+        "`replacing_file`: the temporary file it created, when the body failed or the rename did",
     ),
     (
         "flow/run_dir.py",
@@ -1302,7 +1353,12 @@ _OUTSIDE_RUNS = "not a run directory's"
 #: Every raw write by name, why it cannot write through a link into a file of the user's:
 #: `(file, line, reason)`. Everything else xeda writes goes through `replacing_file`.
 REVIEWED_WRITES = [
-    ("utils.py", "os.replace(temporary, target)", "`replacing_file`: renames its temporary over"),
+    ("utils.py", "os.replace(temporary, target)", "`replacing_file`: its complete temporary"),
+    (
+        "utils.py",
+        "os.replace(temporary, target)",
+        "`replacing_file(keep_on_error=True)`: a failed tool's redirected output, kept",
+    ),
     (
         "utils.py",
         'with os.fdopen(fd, mode, encoding=None if "b" in mode else encoding) as f:',

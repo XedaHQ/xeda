@@ -32,9 +32,11 @@ All notable changes to this project will be documented in this file.
   of `bsc` and `bsc_sim`; Diamond's `impl_folder`; Vivado's `xsim.dir`; cocotb's results file)
   must lie inside it -- and the tool is handed exactly the path checked: Diamond's script, which
   deletes its `impl_folder`, received it inside double quotes, where Tcl substituted a `$...` or
-  `[...]` in it into another directory. Nor does xeda write through a symbolic link: a file it generates -- a
-  script, constraints, `settings.json`, `results.json`, a copied resource, the marker -- replaces
-  a link at its name rather than writing to the file the link points to.
+  `[...]` in it into another directory. Nor does xeda write through a symbolic link: a file it
+  generates -- a script, constraints, `settings.json`, `results.json`, a copied resource, the
+  marker -- replaces a link at its name rather than writing to the file the link points to, and
+  replaces what is there only with a complete file: one whose writing failed half-way leaves the
+  earlier one.
   Unchanged in this release: an output path named explicitly (`-s bitstream=/elsewhere/x.bit`)
   is written by the tool where you said, as in 0.4.2, replacing a file already there -- though a
   run whose tool did not rewrite it no longer reports the earlier file as its own. Confirmation

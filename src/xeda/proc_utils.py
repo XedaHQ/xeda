@@ -167,8 +167,9 @@ def run_process(
 
         def cm_call():
             assert stdout
-            # a link at the name is replaced by the file, not written through
-            return replacing_file(stdout, encoding="utf-8")
+            # a link at the name is replaced by the file, not written through; a failed tool's
+            # output is kept, since it says why it failed
+            return replacing_file(stdout, encoding="utf-8", keep_on_error=True)
 
         cm = cm_call
     else:
