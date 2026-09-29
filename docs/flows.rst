@@ -68,9 +68,6 @@ Beyond the flow-specific ones, every flow accepts:
 ``dockerized`` / ``docker``
     Run the flow's tools from a container image instead of the local installation.
 
-``clean``
-    Remove the run directory's contents before running.
-
 ``quiet`` / ``verbose`` / ``debug``
     How much the flow and its tools say.
 
