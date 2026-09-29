@@ -1,5 +1,3 @@
-# © 2020 [Kamyar Mohajerani](mailto:kamyar@ieee.org)
-
 import re
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union

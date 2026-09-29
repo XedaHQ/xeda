@@ -1,4 +1,3 @@
-# © 2022-2025 [Kamyar Mohajerani](mailto:kammoh@gmail.com)
 """Installable agent skill: instructions plus a reference generated from the installed version.
 
 The prose lives in `xeda/data/agent/` and ships with the package. The flow catalog is generated

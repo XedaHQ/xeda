@@ -1,4 +1,3 @@
-# © 2022-2025 [Kamyar Mohajerani](mailto:kammoh@gmail.com)
 """Machine-readable introspection of xeda's flows, settings, results, and design schema.
 
 This is the single source of truth behind the CLI's ``--json``/``--format`` output, the
