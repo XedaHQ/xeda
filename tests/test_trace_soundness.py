@@ -386,7 +386,7 @@ def test_a_program_replaced_during_the_run_is_stale(probes, root, tmp_path):
     EDIT["program"] = (program, "#!/bin/sh\necho new\n", True)
     _launch(root, cls, settings)
     flow, _ = _launch(root, cls, settings)
-    assert not flow.reused and flow.stale_reason == f"{program} changed"
+    assert not flow.reused and flow.stale_reason == f"{program} changed during the last run"
     flow, _ = _launch(root, cls, settings)
     assert flow.reused
 
@@ -505,12 +505,15 @@ def test_a_hand_changed_undeclared_file_of_a_dependency_reruns_it_and_its_depend
 
 
 def test_a_managed_run_directory_s_outputs_are_every_file_in_it(probes, root):
-    """Every regular file under the directory, recursively -- not only the artifacts -- but
-    neither the trace itself nor xeda's temporary files."""
+    """Every entry under the directory, recursively -- not only the artifacts, and its
+    subdirectories too (R50 h) -- but neither the trace itself nor xeda's temporary files."""
     first, _ = _launch(root, probes["ProbeScratchReader"])
     run_dir = first.completed_dependencies[0].run_path.resolve()
     trace = json.loads((run_dir / "trace.json").read_text())
-    names = ("scratch.txt", "sub/deep.txt", "outputs/out.txt", "settings.json", "results.json")
+    names = (
+        *("scratch.txt", "sub", "sub/deep.txt", "outputs", "outputs/out.txt"),
+        *("reports", "settings.json", "results.json"),  # `reports_dir`, made for every run
+    )
     assert sorted(trace["outputs"]) == sorted(str(run_dir / name) for name in names)
 
 
@@ -551,7 +554,7 @@ def test_pruning_still_drops_the_trace(probes, root):
 def test_a_symbolic_link_in_a_run_directory_is_recorded_as_itself(root, tmp_path):
     """A symbolic link is an entry of its own, recorded by its target and, when that is a file,
     by the file's content (ruling R44) -- a directory it points to is not walked; a FIFO or
-    socket is not a regular file and is not recorded at all (reading one would block)."""
+    socket is an entry recorded by its metadata alone, never read (reading one would block)."""
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "lib.v").write_text("lib\n")
@@ -578,7 +581,7 @@ def test_a_symbolic_link_in_a_run_directory_is_recorded_as_itself(root, tmp_path
         for name in ("lib.v", "libdir", "gone"):
             assert outputs[str(run_dir / name)]["sha"].startswith("symlink:")
         assert not [path for path in outputs if run_dir / "libdir" in Path(path).parents]
-        assert str(run_dir / "pipe") not in outputs
+        assert outputs[str(run_dir / "pipe")]["sha"] == "special:fifo"
         assert _launch(root, ProbeLinks)[0].reused
         # an edit of the file it points to, outside the directory
         (outside / "lib.v").write_text("lib edited\n")

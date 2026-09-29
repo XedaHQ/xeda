@@ -31,7 +31,14 @@ from ..deliver import (
     recorded_artifacts,
     split_deliveries,
 )
-from ..design import Design, DesignSource, DVSettings, FileResource, names_a_design_file
+from ..design import (
+    Design,
+    DesignSource,
+    DVSettings,
+    FileResource,
+    cloning_dependencies_into,
+    names_a_design_file,
+)
 from ..flow import Flow, FlowSettingsError
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import written_path_problems
@@ -767,49 +774,52 @@ class RemoteRunner(FlowLauncher):
         elif not isinstance(design_overrides, Mapping):
             design_overrides = settings_to_dict(list(design_overrides))
 
-        if isinstance(design, (str, Path)):
-            design_path = Path(design)
-            # The local runner's rule: a design-file suffix means a file, which then loads or
-            # is reported as it is, never a design name to look up in a project.
-            standalone = names_a_design_file(design_path)
-            project_path = Path(xedaproject or "xedaproject.toml")
-            project = None
-            if project_path.exists():
-                project = XedaProject.from_file(
-                    project_path,
-                    skip_designs=standalone,
-                    design_overrides=dict(design_overrides),
-                    design_allow_extra=design_allow_extra,
-                )
-                project_flow_settings = project.flows
-            elif xedaproject is not None:
-                raise FileNotFoundError(f"Cannot open xeda-project file: {project_path}")
-
-            if standalone:
-                design = Design.from_file(
-                    design_path,
-                    overrides=dict(design_overrides),
-                    allow_extra=design_allow_extra,
-                )
-            elif project is not None:
-                selected = project.get_design(str(design))
-                if selected is None:
-                    raise ValueError(
-                        f"Design {str(design)!r} not found in {project_path}. Available designs: "
-                        f"{', '.join(project.design_names)}"
+        # As a local launch does: a git dependency without a directory of its own is cloned
+        # into the run root, which is asked for only then.
+        with cloning_dependencies_into(lambda: self.run_root / ".dependencies"):
+            if isinstance(design, (str, Path)):
+                design_path = Path(design)
+                # The local runner's rule: a design-file suffix means a file, which then loads or
+                # is reported as it is, never a design name to look up in a project.
+                standalone = names_a_design_file(design_path)
+                project_path = Path(xedaproject or "xedaproject.toml")
+                project = None
+                if project_path.exists():
+                    project = XedaProject.from_file(
+                        project_path,
+                        skip_designs=standalone,
+                        design_overrides=dict(design_overrides),
+                        design_allow_extra=design_allow_extra,
                     )
-                design = selected
+                    project_flow_settings = project.flows
+                elif xedaproject is not None:
+                    raise FileNotFoundError(f"Cannot open xeda-project file: {project_path}")
+
+                if standalone:
+                    design = Design.from_file(
+                        design_path,
+                        overrides=dict(design_overrides),
+                        allow_extra=design_allow_extra,
+                    )
+                elif project is not None:
+                    selected = project.get_design(str(design))
+                    if selected is None:
+                        raise ValueError(
+                            f"Design {str(design)!r} not found in {project_path}. Available designs: "
+                            f"{', '.join(project.design_names)}"
+                        )
+                    design = selected
+                else:
+                    raise FileNotFoundError(
+                        f"Design file {design_path} does not exist and no xedaproject was found"
+                    )
             else:
-                raise FileNotFoundError(
-                    f"Design file {design_path} does not exist and no xedaproject was found"
-                )
-        else:
-            project_path = Path(xedaproject or "xedaproject.toml")
-            if project_path.exists():
-                project = XedaProject.from_file(project_path, skip_designs=True)
-                project_flow_settings = project.flows
-            elif xedaproject is not None:
-                raise FileNotFoundError(f"Cannot open xeda-project file: {project_path}")
+                project_path = Path(xedaproject or "xedaproject.toml")
+                if project_path.exists():
+                    project = XedaProject.from_file(project_path, skip_designs=True)
+                    project_flow_settings = project.flows
+                elif xedaproject is not None:
+                    raise FileNotFoundError(f"Cannot open xeda-project file: {project_path}")
         flow_class = get_flow_class(flow_name)
         flow_name = flow_class.name
 

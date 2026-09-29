@@ -6,9 +6,10 @@ completed and succeeded"; its content says with which settings, programs, inputs
 
 Its inputs are recorded as the run found them when it started (`trace_inputs.snapshot_inputs`),
 not as it left them: a file edited while the run was going on then no longer matches. Its outputs
-are every file of the run directory (`run_directory_files`), which is xeda's (D21); a file that
-appears there later is a change. The times a file's times are compared with are read from the
-run directory's file-system clock (`digest.filesystem_time_ns`), not the process clock.
+are every entry of the run directory (`run_directory_files`: files, links, directories), which
+is xeda's (D21); an entry that appears there later -- an empty directory too -- is a change. The
+times a file's times are compared with are read from the run directory's file-system clock
+(`digest.filesystem_time_ns`), not the process clock.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from pydantic import ValidationError
 
 from ..dataclass import XedaBaseModel
 from ..digest import TIME_MARKER_PREFIX, FileRecord, filesystem_time_ns, record_file
+from ..listing import directory_files
 from ..proc_utils import DOCKER_IMAGE_PREFIX
 from ..utils import json_encodable, with_json_keys
 
@@ -41,23 +43,24 @@ TRACE_FILE = "trace.json"
 #: 10: written paths are neither inputs nor bound by a location.
 #: 11: every run directory is xeda's (D21): its outputs are every file in it, and only the
 #: trace's own names are reserved.
-TRACE_FORMAT = 11
+#: 12: programs are file records; listings hold directory entries and follow directory links;
+#: the reports a run read are recorded.
+TRACE_FORMAT = 12
 
 #: The names xeda reserves at the top of a run directory, never outputs: the trace and the trace
 #: being written -- and the clock markers, named `digest.TIME_MARKER_PREFIX` + a random suffix.
 RESERVED_FILES = (TRACE_FILE, TRACE_FILE + ".tmp")
 
-#: The `mtime_ns` of a program that was replaced while the run went on: it never matches.
-UNKNOWN_PROGRAM_MTIME = -1
-
 
 class ProgramRecord(XedaBaseModel):
-    """An executable a run started, as `PATH` resolved it. For a container image, `path` is the
-    image ID and the size and mtime are 0."""
+    """An executable a run started: where `PATH` found it, resolved, and the file there
+    (`record_file`, taken after the run: checked under the R38 trust rule, so an edit given back
+    its size and mtime is noticed, and a `touch` costs a hash, not a re-run); a container image
+    by its ID, with no file. A program written while the run went on has an unknown file
+    record, which never matches."""
 
     path: str
-    size: int = 0
-    mtime_ns: int = 0
+    file: Optional[FileRecord] = None
 
 
 class Trace(XedaBaseModel):
@@ -91,69 +94,22 @@ class Trace(XedaBaseModel):
     #: files the run read that were known only after it (depfiles, and what `run()` registered
     #: in `Flow.implicit_inputs`; what `init()` registered is among `inputs`)
     implicit_inputs: Dict[str, FileRecord] = {}
-    #: the run's own files: every regular file and symbolic link under its run directory (a link
-    #: by its target, and a file it points to by content) and the artifacts outside it
-    #: (`trace_inputs.output_files`)
+    #: the run's own files: every entry under its run directory (a link by its target, and a
+    #: file it points to by content; a directory or a special file by its metadata) and the
+    #: artifacts outside it (`trace_inputs.output_files`)
     outputs: Dict[str, FileRecord] = {}
-
-
-#: What version control keeps in a working copy, which no tool reads: left out of a listing of a
-#: directory a setting names (`directory_files(..., skip=VCS_METADATA)`), so a commit or a fetch
-#: there is no change to a run.
-VCS_METADATA = frozenset({".git", ".hg", ".svn"})
-
-
-def directory_files(
-    directory: Path, prune: Iterable[Path] = (), skip: frozenset[str] = frozenset()
-) -> list[Path]:
-    """Every regular file and symbolic link under `directory`, recursively, in the resolved
-    directory, sorted: a link is an entry of its own, never followed (not even to a directory,
-    so a loop is no trouble), and anything else that is no directory (a FIFO, a socket) is left
-    out, since reading it could block. A directory in `prune` (resolved) is not entered, nor is
-    an entry named in `skip`, at any depth. A directory that cannot be listed is listed itself:
-    it cannot be recorded, so its record is unknown (or missing) and the next launch runs
-    again."""
-    return _listing(
-        directory.resolve(),
-        lambda _name: False,
-        {Path(p).resolve() for p in prune},
-        skip,
-    )
+    #: the reports the run read inside its run directory (`Flow.report_file`), relative to it,
+    #: in POSIX form: removed before the next run executes (R50 j)
+    reports: List[str] = []
 
 
 def run_directory_files(run_path: Path) -> list[Path]:
-    """Every file of the run directory `run_path` (`directory_files`), but the names xeda
-    reserves at its top (`RESERVED_FILES`, clock markers)."""
-    return _listing(
-        run_path.resolve(),
-        lambda name: name in RESERVED_FILES or name.startswith(TIME_MARKER_PREFIX),
-        set(),
+    """Every entry of the run directory `run_path` (`listing.directory_files`, a link as
+    itself), but the names xeda reserves at its top (`RESERVED_FILES`, clock markers)."""
+    return directory_files(
+        run_path,
+        reserved=lambda name: name in RESERVED_FILES or name.startswith(TIME_MARKER_PREFIX),
     )
-
-
-def _listing(
-    top: Path, reserved: Callable[[str], bool], prune: Set[Path], skip: frozenset[str] = frozenset()
-) -> list[Path]:
-    found: list[Path] = []
-
-    def walk(directory: Path) -> None:
-        try:
-            with os.scandir(directory) as scan:
-                entries = sorted(scan, key=lambda entry: entry.name)
-        except OSError:
-            found.append(directory)
-            return
-        for entry in entries:
-            path = directory / entry.name
-            if (directory == top and reserved(entry.name)) or entry.name in skip:
-                continue
-            if entry.is_symlink() or entry.is_file(follow_symlinks=False):
-                found.append(path)
-            elif entry.is_dir(follow_symlinks=False) and path not in prune:
-                walk(path)
-
-    walk(top)
-    return found
 
 
 def own_files(trace: Trace, run_dir: Path) -> Set[str]:
@@ -242,18 +198,15 @@ def _image_id(reference: str) -> Optional[str]:
     return found.stdout.strip() or None
 
 
-def probe_program(name: str) -> Optional[ProgramRecord]:
-    """Where `name` is now: resolved through PATH (or as given, if absolute), with size and
-    mtime; a container image by its ID. None if it cannot be found."""
+def locate_program(name: str) -> Optional[str]:
+    """Where `name` is now: resolved through PATH (or as given, if absolute); a container image
+    by its ID. None if it cannot be found."""
     if name.startswith(DOCKER_IMAGE_PREFIX):
-        image_id = _image_id(name[len(DOCKER_IMAGE_PREFIX) :])
-        return ProgramRecord(path=image_id) if image_id else None
+        return _image_id(name[len(DOCKER_IMAGE_PREFIX) :])
     found = name if os.path.isabs(name) else shutil.which(name)
     if not found or not os.path.exists(found):
         return None
-    path = Path(found).resolve()
-    st = path.stat()
-    return ProgramRecord(path=str(path), size=st.st_size, mtime_ns=st.st_mtime_ns)
+    return str(Path(found).resolve())
 
 
 @dataclass(frozen=True)
@@ -324,11 +277,12 @@ def _location(names: Optional[List[str]]) -> str:
 def check_trace(
     run_dir: Path,
     expected: Expectation,
-    probe: Callable[[str], Optional[ProgramRecord]],
+    locate: Callable[[str], Optional[str]],
 ) -> Freshness:
     """Re-verify the trace in `run_dir` against `expected`; the first failing check is the
     reason. Files count as unchanged by their metadata when `FileRecord.trusted` says it is
-    conclusive, otherwise by content.
+    conclusive, otherwise by content -- a program's file too, found where `locate`
+    (`locate_program`) says it is now.
 
     A file read by content is recorded afresh, and the trace is refreshed with those records
     (`Freshness.refreshed`), trusted from the time the check read its first file on: that time
@@ -357,9 +311,45 @@ def check_trace(
         return Freshness(False, "xeda's code changed")
     if trace.flow_code != expected.flow_code:
         return Freshness(False, f"the {expected.flow} flow's code changed")
+    #: when the check began to read files: from then on, the records it takes vouch for them;
+    #: None if the clock could not be read, and then nothing is refreshed
+    clock: list[int | None] = []
+    #: how many files' content the check has read
+    reads = [0]
+
+    def before_reading() -> None:
+        reads[0] += 1
+        if not clock:
+            try:
+                clock.append(filesystem_time_ns(run_dir))
+            except OSError:
+                clock.append(None)
+
+    refreshed = trace.model_copy(deep=True)
+    #: the records taken by reading a file's content
+    read: list[FileRecord] = []
     for name, program in trace.programs.items():
-        if probe(name) != program:
+        where = locate(name)
+        if program is None or where != program.path:
+            if program is None and where is None:
+                continue  # not found then, nor now
             return Freshness(False, f"{name} changed")
+        if program.file is None:
+            continue  # a container image: its ID is its identity
+        if program.file.unknown:
+            return Freshness(False, f"{name} changed during the last run")
+        reads_before = reads[0]
+        try:
+            current = record_file(
+                Path(program.path), program.file, trace.outputs_recorded_ns, True, before_reading
+            )
+        except OSError:
+            return Freshness(False, f"{name} changed")
+        if current.sha != program.file.sha:
+            return Freshness(False, f"{name} changed")
+        if reads[0] > reads_before:
+            read.append(current)
+        refreshed.programs[name] = ProgramRecord(path=program.path, file=current)
     # A dependency that ran again may have changed files this run read without declaring them,
     # which the comparison of its declared outputs below cannot see.
     for run in sorted(trace.dependency_runs.keys() | expected.dependency_runs.keys()):
@@ -393,23 +383,6 @@ def check_trace(
     for entry in run_directory_files(run_dir):
         if str(entry) not in left:
             return Freshness(False, f"new file in the run directory: {entry}")
-    #: when the check began to read files: from then on, the records it takes vouch for them;
-    #: None if the clock could not be read, and then nothing is refreshed
-    clock: list[int | None] = []
-    #: how many files' content the check has read
-    reads = [0]
-
-    def before_reading() -> None:
-        reads[0] += 1
-        if not clock:
-            try:
-                clock.append(filesystem_time_ns(run_dir))
-            except OSError:
-                clock.append(None)
-
-    refreshed = trace.model_copy(deep=True)
-    #: the records taken by reading a file's content
-    read: list[FileRecord] = []
     # Every file is checked as the entry it was recorded as: a symbolic link by its target, and
     # the content of the file it points to (a directory's listing holds links, `directory_files`;
     # any other input is recorded by its resolved path, which is no link).

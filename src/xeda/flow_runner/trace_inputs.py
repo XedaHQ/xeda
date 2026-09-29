@@ -48,20 +48,18 @@ from ..digest import (
 from ..flow import Flow
 from ..dataclass import written_role
 from ..flow.flow import _annotation_contains_path, map_keyed_path_leaves
+from ..listing import VCS_METADATA, directory_files
 from ..proc_utils import DOCKER_IMAGE_PREFIX
 from ..version import __version__
 from .run_lock import lock_file
 from .trace import (
     RESERVED_FILES,
-    UNKNOWN_PROGRAM_MTIME,
-    VCS_METADATA,
     Expectation,
     ProgramRecord,
     Trace,
     as_recorded,
-    directory_files,
     expected_inputs,
-    probe_program,
+    locate_program,
     run_directory_files,
 )
 
@@ -241,17 +239,19 @@ def setting_directories(settings: Flow.Settings, run_path: Path) -> list[tuple[s
 def setting_directory_files(
     settings: Flow.Settings, run_path: Path, run_root: Optional[Path] = None
 ) -> list[Path]:
-    """Every file under each directory a setting names (`setting_directories`): its recursive
-    listing (`trace.directory_files`: a symbolic link as itself, never followed), so that a file
-    edited, added or removed there -- a library recompiled in place -- makes the run stale. The
-    run directory and the run root `run_root` are not entered where a named directory holds
-    them: their files are the runs' own; nor is version control's metadata (`VCS_METADATA`),
-    which no tool reads. A large or slow listing is reported, never capped."""
+    """Every entry under each directory a setting names (`setting_directories`): its recursive
+    listing (`listing.directory_files`: a symbolic link as itself, and a link to a directory
+    followed too, its entries by their path through it; a subdirectory and a special file as
+    entries), so that a file edited, added or removed there -- a library recompiled in place,
+    an empty directory added, an edit beneath a linked directory -- makes the run stale. The run
+    directory and the run root `run_root` are not entered where a named directory holds them,
+    however it reaches them: their files are the runs' own; nor is version control's metadata
+    (`VCS_METADATA`), which no tool reads. A large or slow listing is reported, never capped."""
     prune = [run_path] + ([run_root] if run_root is not None else [])
     files: list[Path] = []
     for key, directory in setting_directories(settings, run_path):
         started = time.monotonic()
-        listed = directory_files(directory, prune, VCS_METADATA)
+        listed = directory_files(directory, prune, VCS_METADATA, follow_links=True)
         elapsed = time.monotonic() - started
         if len(listed) > LARGE_LISTING_FILES or elapsed > SLOW_LISTING_S:
             log.warning(
@@ -300,15 +300,18 @@ def setting_locations(settings: Flow.Settings, run_path: Path) -> dict[str, list
 
 
 def artifact_files(flow: Flow) -> list[Path]:
-    """Every file among the flow's artifacts (a directory stands for the files under it), and
-    its `results.json`, resolved."""
+    """Every file among the flow's artifacts (a directory stands for the regular files under it,
+    `listing.directory_files`: a link in it is not followed out), and its `results.json`,
+    resolved."""
     files = set()
     for leaf in iter_artifact_paths(flow.results.get("artifacts") or flow.artifacts):
         path = Path(leaf) if Path(leaf).is_absolute() else flow.run_path / leaf
         if path.is_file():
             files.add(path.resolve())
         elif path.is_dir():
-            files.update(p.resolve() for p in path.rglob("*") if p.is_file())
+            files.update(
+                p.resolve() for p in directory_files(path) if p.is_file() and not p.is_symlink()
+            )
     results_json = flow.run_path / "results.json"
     if results_json.is_file():
         files.add(results_json.resolve())
@@ -317,7 +320,7 @@ def artifact_files(flow: Flow) -> list[Path]:
 
 
 def output_files(flow: Flow) -> list[Path]:
-    """The files the trace of `flow`'s run records as its own: every file in its run directory
+    """The files the trace of `flow`'s run records as its own: every entry in its run directory
     (`run_directory_files`), since a depender may read any of them, and the artifacts outside
     it."""
     run_dir = flow.run_path.resolve()
@@ -400,15 +403,16 @@ def implicit_input_files(flow: Flow) -> list[Path]:
 
 
 def _package_files(directory: Path) -> List[Path]:
-    """The files that make up a Python package directory: everything under it but compiled
-    bytecode (`__pycache__`, `.pyc`) and hidden files, which Python and editors create."""
+    """The files that make up a Python package directory (`listing.directory_files`, resolved):
+    everything under it but compiled bytecode (`__pycache__`, `.pyc`) and hidden files, which
+    Python and editors create."""
+    top = directory.resolve()
     return sorted(
         p
-        for p in directory.rglob("*")
+        for p in directory_files(top, skip=frozenset({"__pycache__"}))
         if p.is_file()
-        and "__pycache__" not in p.parts
         and p.suffix not in (".pyc", ".pyo")
-        and not any(part.startswith(".") for part in p.relative_to(directory).parts)
+        and not any(part.startswith(".") for part in p.relative_to(top).parts)
     )
 
 
@@ -451,7 +455,7 @@ def flow_code_digest(flow_class: Type[Flow]) -> str:
         files.add(module_file)
         templates = module_file.parent / "templates"
         if templates.is_dir():
-            files.update(p.resolve() for p in templates.rglob("*") if p.is_file())
+            files.update(p.resolve() for p in directory_files(templates) if p.is_file())
     if not files:
         return ""
     return _digest_files(sorted(files), Path("/"))
@@ -536,8 +540,7 @@ def snapshot_inputs(
     prior: Dict[str, FileRecord] = {}
     trusted_before_ns: Optional[int] = None
     if previous is not None:
-        own = set(previous.outputs) - set(previous.inputs) - set(previous.implicit_inputs)
-        known += [Path(p) for p in previous.implicit_inputs if p not in own]
+        known += [Path(p) for p in previous.implicit_inputs]
         prior = {**previous.implicit_inputs, **previous.inputs}
         trusted_before_ns = previous.inputs_recorded_ns
     records: Dict[str, FileRecord] = {}
@@ -562,21 +565,35 @@ def snapshot_inputs(
 
 
 def _programs(names: Sequence[str], started_ns: int) -> Dict[str, Optional[ProgramRecord]]:
-    """Each program as it is after the run; one replaced while the run went on never matches."""
+    """Each program as it is after the run, its file recorded (`record_file`, after the run's
+    output clock was read); one written while the run went on is recorded unknown, which never
+    matches. A container image by its ID alone."""
     programs: Dict[str, Optional[ProgramRecord]] = {}
     for name in names:
-        record = probe_program(name)
-        if record is not None and not name.startswith(DOCKER_IMAGE_PREFIX):
-            try:
-                replaced = written_since(Path(record.path), started_ns)
-            except OSError:
-                replaced = True  # gone since it was found
-            if replaced:
-                record = ProgramRecord(
-                    path=record.path, size=record.size, mtime_ns=UNKNOWN_PROGRAM_MTIME
-                )
-        programs[name] = record
+        where = locate_program(name)
+        if where is None or name.startswith(DOCKER_IMAGE_PREFIX):
+            programs[name] = None if where is None else ProgramRecord(path=where)
+            continue
+        path = Path(where)
+        try:
+            file = unknown_record(path) if written_since(path, started_ns) else record_file(path)
+        except OSError:
+            file = unknown_record(path)  # gone since it was found
+        programs[name] = ProgramRecord(path=where, file=file)
     return programs
+
+
+def run_reports(flow: Flow) -> List[str]:
+    """The reports `flow`'s run read (`Flow.reports_read`) that lie inside its run directory,
+    relative to it, in POSIX form, sorted: what the launcher removes before the next run
+    executes (R50 j). One named through a link out of the directory is none of them."""
+    run_directory = flow.run_directory
+    found = set()
+    for path in flow.reports_read:
+        given = path if path.is_absolute() else flow.run_path / path
+        if run_directory.holds(given):
+            found.add(run_directory.inside(given).relative_to(run_directory.path).as_posix())
+    return sorted(found)
 
 
 def build_trace(
@@ -682,4 +699,5 @@ def build_trace(
         inputs=inputs,
         implicit_inputs=implicit,
         outputs=outputs,
+        reports=run_reports(flow),
     )

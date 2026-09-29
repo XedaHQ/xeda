@@ -101,7 +101,7 @@ class OpenXC7(FpgaSynthFlow):
         )
         chipdb: Union[Path, str, None] = Field(
             None,
-            description="Xilinx: the path to the chip database, either the full binary path or the directory containing the database. If the value points to an existing directory, the binary file is automatically selected based on the FPGA part.",
+            description="Xilinx: the chip database, either the binary file or a directory holding it (`<part>*.bin`, selected by the FPGA part), which is only read. If not set, the CHIPDB_DIR environment variable is used. The named path must exist (as a file or a directory); a database not found there is looked up in xeda's cache, `<run root>/.cache/chipdb`, and generated into it when NEXTPNR_XILINX_PYTHON_DIR is set.",
         )
         prjxray_db_dir: Union[Path, str, None] = Field(
             None,
@@ -342,38 +342,7 @@ class OpenXC7(FpgaSynthFlow):
         args += setting_flag(ss.sdf)
         args += setting_flag(ss.log)
         args += setting_flag(ss.placer_budgets)
-        if not ss.chipdb:
-            ss.chipdb = os.environ.get("CHIPDB_DIR")
-        if not ss.chipdb and self.design_root:
-            ss.chipdb = self.design_root / "chipdb"
-            assert isinstance(ss.chipdb, Path)
-            if not ss.chipdb.exists():
-                ss.chipdb.mkdir(parents=True)
-        if not ss.chipdb:
-            raise FlowFatalError("Xilinx chip database (chipdb) is required!")
-        if not isinstance(ss.chipdb, Path):
-            ss.chipdb = Path(ss.chipdb)
-        if ss.chipdb.is_dir():
-            assert ss.fpga, "FPGA settings must be set!"
-            assert ss.fpga.part
-            xdc_file = next(ss.chipdb.glob(f"{ss.fpga.part}*.bin"), None)
-            if not xdc_file:
-                part_no_speed = ss.fpga.part.split("-")[0]
-                xdc_file = next(ss.chipdb.glob(f"{part_no_speed}*.bin"), None)
-            if not xdc_file or not xdc_file.exists():
-                nextpnr_xilinx_python_dir: Union[str, Path, None] = os.environ.get(
-                    "NEXTPNR_XILINX_PYTHON_DIR"
-                )
-                if nextpnr_xilinx_python_dir:
-                    nextpnr_xilinx_python_dir = Path(nextpnr_xilinx_python_dir)
-                    xdc_file = self.generate_chipdb(nextpnr_xilinx_python_dir, ss.chipdb)
-            if not xdc_file:
-                raise FlowFatalError(
-                    f"Xilinx chip database file for part {ss.fpga.part} not found in {ss.chipdb}!"
-                )
-            ss.chipdb = xdc_file
-        if not ss.chipdb.exists():
-            raise FlowFatalError(f"Xilinx chip database file {ss.chipdb} does not exist!")
+        ss.chipdb = self.chip_database()
         args += setting_flag(ss.chipdb)
 
         xdc_files = list(
@@ -456,29 +425,65 @@ class OpenXC7(FpgaSynthFlow):
             # still OK
         return True
 
-    def generate_chipdb(
-        self, nextpnr_xilinx_python_dir: Path, output_dir: Optional[Path], force=False
-    ) -> Optional[Path]:
+    def _chipdb_cache(self) -> Path:
+        """Where xeda keeps chip databases it generates: in its run root, never the design
+        tree."""
+        root = self.run_directory.run_root
+        return root / ".cache" / "chipdb" if root is not None else self.run_path / "chipdb"
+
+    def chip_database(self) -> Path:
+        """The chip database for the part: the file `chipdb` names; else `<part>*.bin` in the
+        directory `chipdb` or `CHIPDB_DIR` names, which is only read; else in xeda's cache,
+        generated there when `NEXTPNR_XILINX_PYTHON_DIR` says how. A `chipdb`/`CHIPDB_DIR` that
+        names a path which is neither an existing file nor an existing directory is a fatal
+        error, not a silent fallback to the cache."""
+        ss = self.settings
+        assert isinstance(ss, self.Settings) and ss.fpga and ss.fpga.part
+        named: Union[str, Path, None]
+        origin: Optional[str]
+        if ss.chipdb:
+            named, origin = ss.chipdb, "chipdb"
+        else:
+            env = os.environ.get("CHIPDB_DIR")
+            named, origin = (env, "CHIPDB_DIR") if env else (None, None)
+        if named is not None:
+            named_path = Path(named)
+            if not (named_path.is_file() or named_path.is_dir()):
+                raise FlowFatalError(f"{origin} names {named_path}, which does not exist")
+            if named_path.is_file():
+                return named_path
+        part_no_speed = ss.fpga.part.split("-")[0]
+        cache = self._chipdb_cache()
+        for directory in ([Path(named)] if named else []) + [cache]:
+            if directory.is_dir():
+                for pattern in (f"{ss.fpga.part}*.bin", f"{part_no_speed}*.bin"):
+                    found = next(directory.glob(pattern), None)
+                    if found is not None:
+                        return found
+        python_dir = os.environ.get("NEXTPNR_XILINX_PYTHON_DIR")
+        if python_dir:
+            generated = self.generate_chipdb(Path(python_dir), cache)
+            if generated is not None:
+                return generated
+        raise FlowFatalError(
+            f"Xilinx chip database for part {ss.fpga.part} not found in "
+            f"{named or '(no chipdb, CHIPDB_DIR)'} or {cache}: name one with `chipdb`, or set "
+            "NEXTPNR_XILINX_PYTHON_DIR to generate it"
+        )
+
+    def generate_chipdb(self, nextpnr_xilinx_python_dir: Path, output_dir: Path) -> Optional[Path]:
         ss = self.settings
         assert isinstance(ss, self.Settings)
         python_executable = "pypy3.11"
         bbasm_executable = "bbasm"
-        if output_dir is None:
-            if ss.chipdb is not None:
-                output_dir = Path(ss.chipdb).parent if os.path.isdir(ss.chipdb) else Path(ss.chipdb)
-            else:
-                output_dir = Path.cwd() / "chipdb"
         if not output_dir.exists():
             output_dir.mkdir(parents=True)
         if ss.fpga and ss.fpga.part:
             part = ss.fpga.part
             bin_path = output_dir / f"{part}.bin"
             if bin_path.exists():
-                if not force:
-                    log.info("Chip database already exists: %s", bin_path)
-                    return bin_path
-                # bbasm writes it anew: nothing is deleted in a directory that may be the user's
-                log.info("Forcing regeneration of chip database: %s", bin_path)
+                log.info("Chip database already exists: %s", bin_path)
+                return bin_path
             # The intermediate database goes to a temporary directory of its own, removed with
             # it: never a file deleted by name where the database is kept.
             scratch = tempfile.TemporaryDirectory(prefix="xeda-chipdb-")

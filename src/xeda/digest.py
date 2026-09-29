@@ -16,10 +16,17 @@ A symbolic link can be recorded as itself (`record_file(..., follow_symlinks=Fal
 directory's outputs are recorded): by its target and, when that is a regular file, by the
 file's content as well (trusted by the file's metadata like any file's); a link to a directory,
 or to nothing, by its target alone.
+
+A directory is recorded by its metadata and `DIRECTORY_DIGEST`: an entry of a listing
+(`listing.directory_files`), whose own entries are listed on their own -- and one that cannot be
+listed cannot be recorded (`PermissionError`), since what it holds is unknown. A special file (a
+FIFO, a socket, a device) by its metadata and `SPECIAL_DIGEST` + its kind, never read: reading it
+could block.
 """
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import stat
@@ -44,6 +51,14 @@ MODIFIED_DURING_RUN = "unknown: modified during the run"
 #: follows, then, for a link to a regular file, ":" and that file's content digest. A content
 #: digest never begins so: a link and a file are never mistaken for each other.
 SYMLINK_DIGEST = "symlink:"
+
+#: The digest of a directory: constant, since what it holds is listed entry by entry; a content
+#: digest never is.
+DIRECTORY_DIGEST = "directory"
+
+#: How the digest of a special file begins, its kind (`fifo`, `socket`, `device`) following: it
+#: is never read.
+SPECIAL_DIGEST = "special:"
 
 #: The name prefix of the marker `filesystem_time_ns` creates, and removes, to read a clock.
 TIME_MARKER_PREFIX = ".xeda-time-"
@@ -145,10 +160,19 @@ def record_file(
     `previous.trusted` says its metadata is conclusive; otherwise hashes the content, calling
     `before_reading` first (a check reads its clock then, see `trace.check_trace`).
 
-    Without `follow_symlinks`, a symbolic link is recorded as itself (`_record_link`)."""
+    Without `follow_symlinks`, a symbolic link is recorded as itself (`_record_link`). A
+    directory or a special file is recorded by its metadata alone, never read (see the
+    module)."""
     st = path.stat() if follow_symlinks else path.lstat()
     if stat.S_ISLNK(st.st_mode):
         return _record_link(path, st, previous, trusted_before_ns, before_reading)
+    if stat.S_ISDIR(st.st_mode):
+        if not os.access(path, os.R_OK | os.X_OK):
+            # what it holds was not listed: nothing vouches for it (the record is unknown)
+            raise PermissionError(errno.EACCES, "a directory that cannot be listed", str(path))
+        return FileRecord.of(st, DIRECTORY_DIGEST)  # its entries are listed on their own
+    if not stat.S_ISREG(st.st_mode):
+        return FileRecord.of(st, SPECIAL_DIGEST + _special_kind(st.st_mode))  # it could block
     if (
         previous is not None
         and trusted_before_ns is not None
@@ -158,6 +182,14 @@ def record_file(
     if before_reading is not None:
         before_reading()
     return FileRecord.of(st, content_digest(path))
+
+
+def _special_kind(mode: int) -> str:
+    if stat.S_ISFIFO(mode):
+        return "fifo"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    return "device"
 
 
 def _record_link(

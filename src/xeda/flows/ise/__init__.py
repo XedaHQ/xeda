@@ -4,11 +4,11 @@ import logging
 from collections.abc import Mapping
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from ...dataclass import Field
 from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
-from ...tool import Docker, OptionalBoolOrPath, OptionalPath, Tool
+from ...tool import Docker, OptionalBoolOrPath, Tool
 from ...utils import tcl_word, try_convert_to_primitives
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ class XTclSh(Tool):
             env: Optional[Dict[str, Any]] = None,
             stdout: OptionalBoolOrPath = None,
             check: bool = True,
-            root_dir: OptionalPath = None,
+            read_only: Sequence[Path] = (),
             print_command: bool = True,
             highlight_rules: Optional[Dict[str, str]] = None,
             merge_stderr: bool = False,
@@ -46,7 +46,7 @@ class XTclSh(Tool):
                 env=env,
                 stdout=stdout,
                 check=check,
-                root_dir=root_dir,
+                read_only=read_only,
                 print_command=print_command,
                 highlight_rules=highlight_rules,
                 # Every keyword of `Docker.run` must be forwarded: one accepted here and dropped

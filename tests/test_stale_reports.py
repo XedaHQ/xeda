@@ -15,14 +15,17 @@ read, and that the run failed.
 
 import builtins
 import io
+import json
 import os
 import time
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
+from pydantic import Field
 
 from xeda import Design
-from xeda.flow import Flow
+from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
 
 from .settings_samples import flow_classes, minimal_settings
@@ -264,3 +267,105 @@ def test_a_flow_the_sweep_cannot_run_never_reads_a_previous_run_s_report(
         passed = bool(flow.parse_reports()) & bool(flow.check_results())  # as the launcher does
         outcomes[age] = (passed, report.resolve() in reads)
     assert outcomes == {"this run's": (True, True), "a previous run's": (False, False)}
+
+
+class _ReadsReport(Flow):
+    """Writes its report only when told to, and succeeds only when it can read one."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Settings(Flow.Settings):
+        write: bool = Field(True, description="Whether the run writes its report.")
+
+    def run(self) -> None:
+        if self.settings.write:
+            (self.run_path / "reports").mkdir(exist_ok=True)
+            (self.run_path / "reports" / "r.txt").write_text("ok\n")
+
+    def parse_reports(self) -> bool:
+        return self.report_file(self.run_path / "reports" / "r.txt") is not None
+
+
+def test_the_reports_a_run_read_are_removed_before_the_next_run(tmp_path):
+    """R50 j: a report whose mtime was moved forward passes R49's rule; removing the reports the
+    last run read before the next one runs does not let it through."""
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    try:
+        first = runner.launch_flow(_ReadsReport, design, {"write": True})
+        trace = json.loads((first.run_path / "trace.json").read_text())
+        assert first.succeeded and trace["reports"] == ["reports/r.txt"]
+        future = time.time_ns() + 3600 * 10**9
+        os.utime(first.run_path / "reports" / "r.txt", ns=(future, future))
+        second = runner.launch_flow(_ReadsReport, design, {"write": False})
+        assert not second.succeeded
+        assert not (second.run_path / "reports" / "r.txt").exists()
+    finally:
+        for name in (_ReadsReport.name, _ReadsReport.__name__):
+            registered_flows.pop(name, None)
+
+
+#: while set, `_ReportsWhenTold` writes its report
+WRITE_REPORT = "XEDA_TEST_WRITE_REPORT"
+
+
+class _ReportsWhenTold(Flow):
+    """Writes its report only while `WRITE_REPORT` is set (the environment is no input of a
+    run), and succeeds only when it can read one."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Settings(Flow.Settings):
+        tag: str = Field("a", description="Any text: another tag is other settings.")
+        always: bool = Field(False, description="Whether the run can never be reused.")
+
+    def always_runs(self) -> str | None:
+        return "it was told to" if self.settings.always else super().always_runs()
+
+    def run(self) -> None:
+        if os.environ.get(WRITE_REPORT):
+            (self.run_path / "reports").mkdir(exist_ok=True)
+            (self.run_path / "reports" / "r.txt").write_text("ok\n")
+
+    def parse_reports(self) -> bool:
+        return self.report_file(self.run_path / "reports" / "r.txt") is not None
+
+
+@pytest.mark.parametrize(
+    "why", ["its settings changed", "an input changed", "rebuild_all", "it always runs"]
+)
+def test_a_previous_trace_s_reports_are_removed_before_every_run(tmp_path, monkeypatch, why):
+    """Whatever makes the flow run again -- other settings, an edited input, `rebuild_all`, a
+    flow that can never be reused -- the report its last traced run read is removed before it
+    runs: left with a future mtime, it passes R49's rule, and must never be read as this run's
+    (every run directory is xeda's: no exception)."""
+    (tmp_path / "a.v").write_text("module a; endmodule\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a"})
+    monkeypatch.setenv(WRITE_REPORT, "1")
+    try:
+        first = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
+            _ReportsWhenTold, design, {}
+        )
+        report = first.run_path / "reports" / "r.txt"
+        assert first.succeeded and report.exists()
+        future = time.time_ns() + 3600 * 10**9
+        os.utime(report, ns=(future, future))
+        monkeypatch.delenv(WRITE_REPORT)
+        settings: dict = {}
+        if why == "its settings changed":
+            settings = {"tag": "b"}
+        elif why == "an input changed":
+            (tmp_path / "a.v").write_text("module a(); endmodule\n")
+            design = Design(name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a"})
+        elif why == "it always runs":
+            settings = {"always": True}
+        runner = DefaultRunner(
+            tmp_path / "xeda_run", display_results=False, rebuild_all=why == "rebuild_all"
+        )
+        second = runner.launch_flow(_ReportsWhenTold, design, settings)
+        assert second.run_path == first.run_path and not second.reused
+        assert not second.succeeded, "a previous run's report was read as this run's"
+        assert not report.exists()
+    finally:
+        for name in (_ReportsWhenTold.name, _ReportsWhenTold.__name__):
+            registered_flows.pop(name, None)

@@ -258,6 +258,31 @@ def test_a_docker_run_mounts_the_directory_it_runs_in_not_an_earlier_one(monkeyp
     assert not any(str(first) in arg for arg in commands[1]), commands[1]
 
 
+def test_docker_mounts_the_design_read_only_and_the_run_directory_read_write(monkeypatch, tmp_path):
+    commands = []
+    monkeypatch.setattr(
+        "xeda.tool.run_process",
+        lambda executable, args=None, **kwargs: commands.append([str(a) for a in args or []]),
+    )
+    design_root, run_dir = tmp_path / "design", tmp_path / "design" / "xeda_run" / "d" / "f"
+    (design_root / "rtl").mkdir(parents=True)
+    run_dir.mkdir(parents=True)
+    monkeypatch.chdir(run_dir)
+    tool = Tool(
+        executable="some-tool",
+        docker=Docker(image="img"),
+        dockerized=True,
+        design_root_=design_root,
+        source_dirs_=[design_root / "rtl"],
+    )
+    tool.run("arg", stdout=True)
+    volumes = [a for a in commands[0] if a.startswith("--volume=")]
+    assert f"--volume={design_root}:{design_root}:ro,z" in volumes
+    assert f"--volume={design_root / 'rtl'}:{design_root / 'rtl'}:ro,z" in volumes
+    assert f"--volume={run_dir}:{run_dir}:z" in volumes
+    assert tool.docker.mounts == {}
+
+
 def _docker_run_overrides():
     """Every `Docker` subclass that overrides `run`, however deeply nested.
 
@@ -299,6 +324,22 @@ def test_docker_run_overrides_forward_merge_stderr(docker_cls, monkeypatch, tmp_
         f"{docker_cls.__qualname__}.run accepts merge_stderr but does not forward it to "
         "Docker.run, so callers asking for stderr silently do not get it."
     )
+
+
+@pytest.mark.parametrize("docker_cls", _docker_run_overrides(), ids=lambda c: c.__qualname__)
+def test_docker_run_overrides_mount_the_design_read_only(docker_cls, monkeypatch, tmp_path):
+    """An override that dropped `read_only` would run its tool without the design mounted."""
+    commands = []
+    monkeypatch.setattr(
+        "xeda.tool.run_process",
+        lambda executable, args=None, **kwargs: commands.append([str(a) for a in args or []]),
+    )
+    design = tmp_path / "design"
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    monkeypatch.chdir(run_dir)
+    docker_cls(image="img").run("some-tool", "--version", stdout=True, read_only=[design])
+    assert f"--volume={design}:{design}:ro,z" in commands[0]
 
 
 def test_tool_output_redirect_is_none_by_default():

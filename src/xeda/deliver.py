@@ -38,6 +38,7 @@ from typing import Any, Dict, Optional
 from .artifacts import iter_artifact_paths
 from .dataclass import DELIVERABLE_ROLE
 from .digest import FileRecord, content_digest, record_file
+from .listing import directory_files
 from .flow import Flow, FlowSettingsError
 from .flow.flow import WrittenLeaf, map_written_leaves, output_name
 from .run_root import is_run_root
@@ -287,12 +288,13 @@ def _located(path: Path) -> Path:
 
 
 def _files_under(directory: Path) -> list[Path]:
-    """The regular files under `directory`: what a directory output delivers."""
+    """The regular files under `directory` (`listing.directory_files`: a link is not followed),
+    named under `directory` as given: what a directory output delivers."""
+    top = directory.resolve()
     return sorted(
-        Path(root) / name
-        for root, _dirs, files in os.walk(directory, followlinks=False)
-        for name in files
-        if not (Path(root) / name).is_symlink()
+        directory / p.relative_to(top)
+        for p in directory_files(directory)
+        if p.is_file() and not p.is_symlink()
     )
 
 

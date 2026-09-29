@@ -1060,6 +1060,10 @@ class Flow(metaclass=ABCMeta):
         #: Files the flow reads on its own, that no setting or design field names (a board's pin
         #: constraints from its boards file): recorded after `run()` like a depfile's.
         self.implicit_inputs: List[Path] = []
+        #: Every report the flow asked for (`report_file`), as an absolute path: the trace
+        #: records those inside the run directory, which the launcher removes before the next
+        #: run executes, so a previous run's report is gone whatever its mtime (R50 j).
+        self.reports_read: List[Path] = []
         #: Set by the launcher: the previous run was still fresh and its results are reused.
         self.reused: bool = False
         #: Set by the launcher when the flow ran although a previous run existed: why.
@@ -1236,8 +1240,9 @@ class Flow(metaclass=ABCMeta):
         with a warning -- if it does not exist, or is not this run's (`written_by_this_run`: its
         identity and state are what they were before the run): a previous run's report, left in
         a run directory that is reused, is never taken for this run's. Every report a flow reads
-        goes through here (`parse_regex` does)."""
+        goes through here (`parse_regex` does). Every `path` asked for is noted (`reports_read`)."""
         path = Path(path)
+        self.reports_read.append(Path(os.path.abspath(path)))
         if not path.exists():
             log.warning(
                 "File %s does not exist! Please check the console output and the log files in %s",

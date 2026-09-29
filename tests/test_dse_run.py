@@ -13,7 +13,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from click.testing import CliRunner
+
 from xeda import Design
+from xeda.cli import cli
 from xeda.flows import VivadoSynth
 
 TESTS_DIR = Path(__file__).parent.absolute()
@@ -61,7 +64,7 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     assert best["results"]["Fmax"] == recorded_results["Fmax"]
 
     # The search's own record of it is the same view the CLI printed.
-    (best_file,) = tmp_path.glob("fmax_sqrt_vivado_synth_*.json")
+    (best_file,) = (tmp_path / "xeda_run").glob("fmax_sqrt_vivado_synth_*.json")
     recorded = json.loads(best_file.read_text())
     assert recorded["best"] == best
 
@@ -74,6 +77,24 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     )
     explored = Design.from_file(tmp_path / "sqrt.toml")
     assert Design(**recorded["design"]).rtl_hash == explored.rtl_hash
+
+    # the start directory holds the design's files and the run root, nothing else
+    assert {p.name for p in tmp_path.iterdir()} == {
+        "sqrt.vhdl",
+        "sqrt.toml",
+        "tb_sqrt.py",
+        "xeda_run",
+    }
+    assert list((tmp_path / "xeda_run" / "Logs").glob("xeda_*.log"))
+
+
+def test_an_exploration_that_fails_at_input_makes_no_run_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bad.toml").write_text(
+        'name = "bad"\n[rtl]\nsources = ["missing.vhdl"]\ntop = "bad"\n'
+    )
+    result = CliRunner().invoke(cli, ["dse", "vivado_synth", "--design", "bad.toml", "--json"])
+    assert result.exit_code != 0 and not (tmp_path / "xeda_run").exists()
 
 
 def _dse(tmp_path, design_toml: str, *args):

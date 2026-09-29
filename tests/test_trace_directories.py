@@ -269,8 +269,8 @@ def test_a_change_inside_a_library_directory_makes_the_run_stale(tmp_path, chang
 @pytest.mark.skipif(os.name == "nt", reason="symbolic links and FIFOs")
 def test_a_link_in_a_library_directory_is_recorded_as_itself(tmp_path):
     """As in a run directory (R44): a link to a file by its target and the file's content, a
-    link to a directory by its target alone -- never followed, so a loop is no trouble; a FIFO
-    is left out (reading it could block)."""
+    link to a directory by its target -- and then followed (R50 i), each directory once, so a
+    loop is no trouble; a FIFO is listed, never read (R50 h)."""
     lib = _library(tmp_path / "L", 1)
     outside = tmp_path / "outside"
     (outside / "a").mkdir(parents=True)
@@ -286,7 +286,7 @@ def test_a_link_in_a_library_directory_is_recorded_as_itself(tmp_path):
     trace = json.loads((flow.run_path / "trace.json").read_text())
     libs = (lib / "libs").resolve()
     assert sorted(p for p in trace["inputs"] if p.startswith(str(libs))) == [
-        str(libs / name) for name in ("defs.txt", "loop", "pkg.txt", "vendor")
+        str(libs / name) for name in ("defs.txt", "loop", "pipe", "pkg.txt", "vendor")
     ]
     assert _launch(tmp_path / "run", design, settings)[0].reused
     (outside / "defs.txt").write_text("edited\n")
@@ -296,6 +296,62 @@ def test_a_link_in_a_library_directory_is_recorded_as_itself(tmp_path):
     (lib / "libs" / "vendor").symlink_to(outside / "b", target_is_directory=True)
     flow, _ = _launch(tmp_path / "run", design, settings)
     assert flow.stale_reason == f"input changed: {libs / 'vendor'}"
+
+
+# --- R50 h, i: directory entries, special files and directory links in a listing -----------------
+
+LIBS = {"lib_paths": [["mylib", "$DESIGN_ROOT/libs"]]}
+
+
+def _tree(tmp_path) -> tuple[Path, Design]:
+    tree = _library(tmp_path / "t", 1)
+    return tree, Design(name="t", design_root=tree, rtl={"sources": [], "top": "t"})
+
+
+def test_an_empty_directory_added_to_a_library_is_a_new_input(tmp_path):
+    """R50 h."""
+    tree, design = _tree(tmp_path)
+    _launch(tmp_path / "run", design, LIBS)
+    (tree / "libs" / "work").mkdir()
+    flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
+        _ProbeLibraries, design, LIBS
+    )
+    assert not flow.reused
+    assert flow.stale_reason == f"new input: {(tree / 'libs' / 'work').resolve()}"
+
+
+def test_an_empty_directory_added_to_a_run_directory_is_a_change(tmp_path):
+    _tree_path, design = _tree(tmp_path)
+    first, _ = _launch(tmp_path / "run", design, LIBS)
+    (first.run_path / "extra").mkdir()
+    flow, _ = _launch(tmp_path / "run", design, LIBS)
+    assert flow.stale_reason == f"new file in the run directory: {first.run_path / 'extra'}"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="FIFOs")
+def test_a_fifo_in_a_library_is_listed_and_never_read(tmp_path):
+    tree, design = _tree(tmp_path)
+    os.mkfifo(tree / "libs" / "pipe")  # reading it would block
+    _launch(tmp_path / "run", design, LIBS)
+    flow, _ = _launch(tmp_path / "run", design, LIBS)
+    assert flow.reused, flow.stale_reason
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links")
+def test_a_library_behind_a_directory_link_is_listed_through_it(tmp_path):
+    """R50 i: an edit beneath a linked directory's target is noticed; a link cycle ends."""
+    real = _library(tmp_path / "real", 1) / "libs"
+    tree = tmp_path / "t"
+    (tree / "libs").mkdir(parents=True)
+    (tree / "libs" / "pkg.txt").write_text("K = 0\n")
+    (tree / "libs" / "vendor").symlink_to(real, target_is_directory=True)
+    (tree / "libs" / "loop").symlink_to(tree / "libs", target_is_directory=True)
+    design = Design(name="t", design_root=tree, rtl={"sources": [], "top": "t"})
+    _launch(tmp_path / "run", design, LIBS)
+    (real / "pkg.txt").write_text("K = 2\n")
+    flow, _ = _launch(tmp_path / "run", design, LIBS)
+    listed = (tree / "libs").resolve() / "vendor" / "pkg.txt"
+    assert not flow.reused and flow.stale_reason == f"input changed: {listed}"
 
 
 def test_the_run_s_own_directories_are_not_listed(tmp_path, monkeypatch):
@@ -363,8 +419,9 @@ def test_ghdl_sim_with_a_library_recompiled_in_place_is_stale(tmp_path, monkeypa
 
 
 def test_verilator_s_include_directories_are_listed(tmp_path):
-    """`include_dirs` names directories (a path setting, so the trace sees it): every file
-    under one is a candidate input; the run directory's own directories are not."""
+    """`include_dirs` names directories (a path setting, so the trace sees it): every entry
+    under one -- a subdirectory too -- is a candidate input; the run directory's own directories
+    are not."""
     from xeda.flow_runner.trace_inputs import setting_directory_files
     from xeda.flows import Verilator
 
@@ -380,6 +437,7 @@ def test_verilator_s_include_directories_are_listed(tmp_path):
     inc = (tmp_path / "inc").resolve()
     assert setting_directory_files(settings, tmp_path / "run") == [
         inc / "defs.vh",
+        inc / "sub",
         inc / "sub" / "more.vh",
     ]
 
