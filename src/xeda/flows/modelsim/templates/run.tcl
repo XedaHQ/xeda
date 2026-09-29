@@ -7,7 +7,7 @@ if { [catch {vlog {{src.file|tcl_word}}{% if src.type.name == "SystemVerilog" or
     exit -code 1
 }
 {%- elif src.type.name == "Vhdl" %}
-if { [catch {vcom {{src.file|tcl_word}} {{vcom_opts|map("tcl_word")|join(' ')}} {%- if design.language.vhdl.standard in ("93", "1993") %} -93 {% elif design.language.vhdl.standard in ("08", "2008") %} -2008 {% elif design.language.vhdl.standard %} -{{design.language.vhdl.standard}} {% endif -%} } error]} {
+if { [catch {vcom {{src.file|tcl_word}} {{vcom_opts|map("tcl_word")|join(' ')}} {%- if design.language.vhdl.standard in ("93", "1993") %} -93 {% elif design.language.vhdl.standard in ("08", "2008") %} -2008 {% elif design.language.vhdl.standard %} {{("-" ~ design.language.vhdl.standard)|tcl_word}} {% endif -%} } error]} {
     puts $error
     exit -code 1
 }
@@ -23,7 +23,7 @@ vcd file {{settings.vcd|tcl_word}}
 puts "\n===========================( *ENABLE ECHO* )==========================="
 {#- `-onfinish stop`: `$finish` (VHDL `std.env.finish`) returns to this script rather than exiting
     vsim with status 0, which would skip the VCD flush and the test-status check below #}
-if { [catch {vsim -t ps -onfinish stop {{design.sim_tops|join(' ')}} {{vsim_opts|map("tcl_word")|join(' ')}} } error]} {
+if { [catch {vsim -t ps -onfinish stop {{design.sim_tops|map("tcl_word")|join(' ')}} {{vsim_opts|map("tcl_word")|join(' ')}} } error]} {
     puts $error
     exit -code 1
 }
@@ -31,7 +31,7 @@ if { [catch {vsim -t ps -onfinish stop {{design.sim_tops|join(' ')}} {{vsim_opts
     Leave lower-severity assertions running so the testbench reaches its finish and status check.
     Fatal is the highest supported break level; a fatal break still returns to this script. #}
 set BreakOnAssertion 4
-vcd add -r {% if not settings.debug and design.tb.uut %} {{design.tb.uut}}/* {% else %} * {% endif %}
+vcd add -r {% if not settings.debug and design.tb.uut %} {{(design.tb.uut ~ "/*")|tcl_word}} {% else %} * {% endif %}
 #run_wave
 run {% if settings.stop_time is not none %} {{settings.stop_time}} {%- else %} -all {%- endif %}
 puts "\n===========================( *DISABLE ECHO* )==========================="

@@ -27,7 +27,7 @@ def test_diamond_clock_constraint_uses_settings_clock(tmp_path: Path, template: 
 
     assert (
         tmp_path / generated
-    ).read_text() == "create_clock -period 5.500 -name main_clock [get_ports clk]"
+    ).read_text() == 'create_clock -period 5.500 -name "main_clock" [get_ports "clk"]'
 
 
 def test_diamond_synth_without_clock_raises_flow_settings_exception(tmp_path: Path) -> None:

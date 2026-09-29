@@ -2,9 +2,9 @@ set_param tclapp.enableGitAccess 0
 
 {% include 'util.tcl' %}
 
-set design_name {{design.name}}
+set design_name {{design.name|tcl_word}}
 set project_name ${design_name}
-set fpga_part {{settings.fpga.part}}
+set fpga_part {{settings.fpga.part|tcl_word}}
 
 create_project -part $fpga_part -force -verbose ${project_name}
 
@@ -12,7 +12,7 @@ create_project -part $fpga_part -force -verbose ${project_name}
 set_param general.maxThreads {{settings.nthreads}}
 {%- endif %}
 {%- for msg in settings.suppress_msgs %}
-set_msg_config -id "\[{{msg}}\]" -suppress
+set_msg_config -id {{("[" ~ msg ~ "]")|tcl_word}} -suppress
 {%- endfor %}
 
 puts "\n=====================( Read Design Files and Constraints )======================"
@@ -49,8 +49,8 @@ add_files -fileset sources_1 -norecurse {{src|tcl_list}}
 {%- endfor %}
 
 {% if design.rtl.top is not none -%}
-puts "==================( Setting Top Module to {{design.rtl.top}} )========================================"
-set_property top {{design.rtl.top}} [get_fileset sources_1]
+puts "==================( Setting Top Module to {{design.rtl.top|tcl_quote}} )========================================"
+set_property top {{design.rtl.top|tcl_word}} [get_fileset sources_1]
 {% endif -%}
 
 
@@ -72,17 +72,17 @@ puts "====================( Available implementation strategies: $avail_impl_str
 {%- endif %}
 
 {%- if settings.synth.strategy %}
-puts "====================( Using {{settings.synth.strategy}} strategy for synthesis )===================="
-set_property strategy {{settings.synth.strategy}} [get_runs synth_1]
+puts "====================( Using {{settings.synth.strategy|tcl_quote}} strategy for synthesis )===================="
+set_property strategy {{settings.synth.strategy|tcl_word}} [get_runs synth_1]
 {%- endif %}
 
 {%- if settings.impl.strategy %}
-puts "====================( Using {{settings.impl.strategy}} strategy for implementation )===================="
-set_property strategy {{settings.impl.strategy}} [get_runs impl_1]
+puts "====================( Using {{settings.impl.strategy|tcl_quote}} strategy for implementation )===================="
+set_property strategy {{settings.impl.strategy|tcl_word}} [get_runs impl_1]
 {%- endif %}
 
 {%- if generics %}
-set_property generic {% raw -%} { {%- endraw -%} {{generics | join(" ")}} {%- raw -%} } {%- endraw %} [current_fileset]
+set_property generic {{generics|join(" ")|tcl_word}} [current_fileset]
 {%- endif %}
 
 {# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
@@ -97,17 +97,17 @@ set_property generic {% raw -%} { {%- endraw -%} {{generics | join(" ")}} {%- ra
 {%- if vv is iterable and (vv is not string) %}
 {%- set vv = vv | join(" ") %}
 {%- endif %}
-set_property -name {{"{"}}STEPS.{{step}}.{{name}}.{{k}} {{kk}}{{"}"}} -value {{"{"}}{{vv}}{{"}"}} -objects [get_runs {{run_name}}]
+set_property -name {{("STEPS." ~ step ~ "." ~ name ~ "." ~ k ~ " " ~ kk)|tcl_word}} -value {{vv|tcl_word}} -objects [get_runs {{run_name}}]
 {%- endfor %}
 {%- else %}
 {% if v is iterable and (v is not string) %}
 {%- set v = v | join(" ") %}
 {%- endif %}
-set_property -name {{"{"}}STEPS.{{step}}.{{name}}.{{k}}{{"}"}} -value {{"{"}}{{v}}{{"}"}} -objects [get_runs {{run_name}}]
+set_property -name {{("STEPS." ~ step ~ "." ~ name ~ "." ~ k)|tcl_word}} -value {{v|tcl_word}} -objects [get_runs {{run_name}}]
 {%- endif %}
 {%- endfor %}
 {%- else %}
-set_property -name {{"{"}}STEPS.{{step}}.{{name}}{{"}"}} -value {{"{"}}{{value}}{{"}"}} -objects [get_runs {{run_name}}]
+set_property -name {{("STEPS." ~ step ~ "." ~ name)|tcl_word}} -value {{value|tcl_word}} -objects [get_runs {{run_name}}]
 {%- endif %}
 {%- endfor %}
 {%- endfor %}
@@ -115,11 +115,11 @@ set_property -name {{"{"}}STEPS.{{step}}.{{name}}{{"}"}} -value {{"{"}}{{value}}
 
 # puts "\n====================( set_synth_properties )=============================="
 {% for k,v in settings.set_synth_properties.items() -%}
-set_property {{k}} { {{-tcl_property_value(v)-}} } [get_runs synth_1]
+set_property {{k|tcl_word}} {{tcl_property_value(v)|tcl_word}} [get_runs synth_1]
 {% endfor -%}
 # puts "\n====================( set_impl_properties )=============================="
 {% for k,v in settings.set_impl_properties.items() -%}
-set_property { {{-k-}} } { {{-tcl_property_value(v)-}} } [get_runs impl_1]
+set_property {{k|tcl_word}} {{tcl_property_value(v)|tcl_word}} [get_runs impl_1]
 {% endfor -%}
 
 # puts "\n====================( reset_run )=============================="

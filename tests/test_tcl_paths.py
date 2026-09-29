@@ -8,6 +8,7 @@ Vivado's `unknown`. The templates write such a path with `tcl_word` (a whole arg
 `tcl_quote` (inside a message). PDK files and xeda's own run-directory paths are out of scope.
 """
 
+import importlib.util
 import re
 import typing
 import shutil
@@ -16,12 +17,14 @@ from typing import List
 
 import pytest
 
+from pydantic import BaseModel
+
 from xeda import Design
 from xeda.flow.flow import FlowSettingsError, registered_flows
 from xeda.flows import dc
 from xeda.flow_runner import DefaultRunner
 
-from .tool_utils import fake_calls, fake_returns, use_fake_tools
+from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
 
 FLOWS_DIR = Path(__file__).parent.parent / "src" / "xeda" / "flows"
 TCLSH = shutil.which("tclsh")
@@ -284,8 +287,11 @@ def test_diamond_allows_or_forbids_dsps_and_brams(allowed, engine, tmp_path, mon
 
 #: Templates a Tcl interpreter reads (yosys' have filters of their own:
 #: tests/test_yosys_templates.py).
-TCL_SUFFIXES = {".tcl", ".xdc", ".sdc", ".ldc", ".fdc", ".ucf", ".xcf", ".do"}
-QUOTING = re.compile(r"\|\s*tcl_(word|quote|list)\b")
+TCL_SUFFIXES = {".tcl", ".xdc", ".sdc", ".ldc", ".fdc", ".do"}
+#: Templates no Tcl interpreter reads: yosys' scripts (their own filters:
+#: tests/test_yosys_templates.py) and open_xc7's XDC, which nextpnr's own parser reads. UCF and
+#: XCF files (ISE) are not Tcl either.
+NOT_TCL = {"yosys", "openxc7"}
 
 #: The settings a template may render raw -- as the several Tcl words the user wrote, by design --
 #: each with why: `(template, expression) -> reason`. None is a path, and none is checked by
@@ -313,37 +319,90 @@ def _text_typed(annotation) -> bool:
     return any(_text_typed(arg) for arg in typing.get_args(annotation) if arg is not type(None))
 
 
-def _settings_by_package() -> dict[str, dict[str, bool]]:
-    """`{flows package: {setting: whether any of its flows holds user text in it}}`."""
-    by_package: dict[str, dict[str, bool]] = {}
+def _model_classes(annotation) -> list:
+    """The pydantic models an annotation holds (`Optional[FPGA]` -> [FPGA])."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return [annotation]
+    return [cls for arg in typing.get_args(annotation) for cls in _model_classes(arg)]
+
+
+def _attribute_type(owner, name: str):
+    """The type of `owner.name`: a model field's annotation, or a property's return type."""
+    if name in owner.model_fields:
+        return owner.model_fields[name].annotation
+    prop = getattr(owner, name, None)
+    if isinstance(prop, property) and prop.fget is not None:
+        return typing.get_type_hints(prop.fget).get("return")
+    return None
+
+
+def _path_text_typed(roots: list, path: list[str]) -> bool:
+    """Whether the dotted `path` (an index such as `[0]` names an element) leads, from one of
+    the models `roots`, to user text."""
+    annotations = list(roots)
+    for part in path:
+        name, _, index = part.partition("[")
+        found = []
+        for annotation in annotations:
+            for model in _model_classes(annotation):
+                attribute = _attribute_type(model, name)
+                if attribute is not None:
+                    found.append(attribute)
+        if not found:
+            return False
+        if index:  # an element of a list or tuple
+            found = [arg for a in found for arg in typing.get_args(a) if arg is not Ellipsis]
+        annotations = found
+    return any(_text_typed(annotation) for annotation in annotations)
+
+
+def _roots_by_package() -> dict[str, list]:
+    """`{flows package: the Settings models of its flows}`."""
+    by_package: dict[str, list] = {}
     for _, cls in registered_flows.values():
-        package = cls.__module__.split(".")[2]  # xeda.flows.<package>
-        fields = by_package.setdefault(package, {})
-        for name, info in cls.Settings.model_fields.items():
-            fields[name] = fields.get(name, False) or _text_typed(info.annotation)
+        by_package.setdefault(cls.__module__.split(".")[2], []).append(cls.Settings)
     return by_package
 
 
+#: Where a template expression reads the design or the settings: `design.rtl.top`,
+#: `settings.fpga.part`, `design.tb.top[0]`.
+USER_TEXT_PATH = re.compile(r"\b(design|settings)((?:\.\w+(?:\[\d+\])?)+)")
+#: A Tcl filter, applied to the value or mapped over its items -- or one of the Vivado filters
+#: that render each `-generic`/`-define` assignment through `tcl_word`.
+QUOTED = re.compile(
+    r"\|\s*tcl_(word|quote|list)\b|map\(\s*[\"']tcl_(word|quote|list)[\"']\s*\)"
+    r"|\|\s*vivado_(generics|defines)\b"
+)
+
+
 def test_every_user_given_setting_in_a_tcl_template_is_a_literal_word() -> None:
-    """A mechanical oracle: every setting holding user text (a `str` or `Path`, alone or in a
-    list) that a Tcl template renders goes through `tcl_word`, `tcl_quote` or `tcl_list` -- or is
-    reviewed in `REVIEWED_RAW`. Rendered raw or inside double quotes, Tcl substitutes `$...` and
-    `[...]` in it before the command sees it: diamond's `impl_folder`, checked by xeda as the
-    literal path it is, was deleted as the directory Tcl made of it."""
-    by_package = _settings_by_package()
+    """A mechanical oracle: every value a Tcl template reads from the design or the settings
+    that holds user text -- a `str` or `Path`, alone or in a list, at any depth (`design.name`,
+    `design.rtl.top`, `design.tb.top[0]`, `settings.fpga.part`, `settings.main_clock.port`) --
+    goes through `tcl_word`, `tcl_quote` or `tcl_list`, or is reviewed in `REVIEWED_RAW`.
+    Rendered raw or inside double quotes, Tcl substitutes `$...` and `[...]` in it before the
+    command sees it: diamond's `impl_folder`, checked by xeda as the literal path it is, was
+    deleted as the directory Tcl made of it, and a design name ran as a command. Values a
+    template derives in a loop (a clock's port, a parameter) are covered by running every
+    template with such a design (`test_every_design_text_reaches_the_tool_as_a_literal_word`)."""
+    by_package = _roots_by_package()
     raw = []
     for template in sorted(FLOWS_DIR.glob("*/templates/*")):
         package = template.parts[-3]
-        if template.suffix not in TCL_SUFFIXES or package == "yosys":
+        if template.suffix not in TCL_SUFFIXES or package in NOT_TCL:
             continue
         name = template.relative_to(FLOWS_DIR).as_posix()
         for n, line in enumerate(template.read_text().splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
             for expression in EXPRESSION.findall(line):
-                setting = re.match(r"settings\.(\w+)", expression)
-                if not (setting and by_package.get(package, {}).get(setting.group(1))):
+                if QUOTED.search(expression) or (name, expression) in REVIEWED_RAW:
                     continue
-                if not QUOTING.search(expression) and (name, expression) not in REVIEWED_RAW:
-                    raw.append(f"{name}:{n}: {expression}")
+                for root, dotted in USER_TEXT_PATH.findall(expression):
+                    roots = [Design] if root == "design" else by_package.get(package, [])
+                    if _path_text_typed(roots, dotted.lstrip(".").split(".")):
+                        raw.append(f"{name}:{n}: {expression}")
+                        break
     assert not raw, "\n".join(raw)
 
 
@@ -400,3 +459,120 @@ def test_a_named_output_or_file_reaches_the_tool_whole(flow, tmp_path, monkeypat
     for *leading, argument in expected:
         matching = [call for call in calls if call[: len(leading)] == leading]
         assert any(argument in call for call in matching), (leading, argument, matching)
+
+
+# ---------------------------------------------------------------------------------------------
+# Every text of the design reaches a tool as a literal word
+# ---------------------------------------------------------------------------------------------
+
+#: Tcl metacharacters, carried by every text of the design: a command substitution (which the
+#: recorder would record as a call of `xeda_injected` if Tcl ran it), a variable Tcl cannot read,
+#: a quote, braces, a command separator and spaces.
+EVIL = '[xeda_injected] $xeda_undefined "q" {b} ;c'
+#: What of `EVIL` shows in an argument that got it split or substituted.
+EVIL_FRAGMENTS = ("xeda_injected", "xeda_undefined", "{b}", ";c")
+
+
+def _evil_design(root: Path) -> Design:
+    """A design whose name, tops, clock port, testbench instance, parameter and define values
+    all carry `EVIL`."""
+    root.mkdir(parents=True)
+    (root / "top.vhd").write_text("-- a source\n")
+    (root / "tb.vhd").write_text("-- a testbench\n")
+    return Design(
+        name=f"d {EVIL}",
+        design_root=root,
+        rtl={
+            "sources": ["top.vhd"],
+            "top": f"top {EVIL}",
+            "clock": {"port": f"clk {EVIL}"},
+            "parameters": {"G_STR": f"s {EVIL}", "G_N": 8},
+            "defines": {"D": f"v {EVIL}"},
+        },
+        tb={
+            "sources": ["tb.vhd"],
+            "top": f"tb {EVIL}",
+            "uut": f"uut {EVIL}",
+            "parameters": {"G_T": f"t {EVIL}"},
+        },
+    )
+
+
+def _fake_tool_module():
+    spec = importlib.util.spec_from_file_location("fake_tool", FAKE_TOOLS_DIR / "fake_tool.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+#: The flows the fake tools run, with the settings each needs.
+EVIL_FLOWS = {
+    "vivado_synth": {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0},
+    "vivado_alt_synth": {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0},
+    "vivado_project": {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0},
+    "vivado_sim": {},
+    "quartus": {"fpga": "10CL016YU256C6G", "clock_period": 10.0},
+    "ise_synth": {"fpga": "xc6slx9-2-tqg144", "clock_period": 10.0},
+    "diamond_synth": {"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0},
+    "dc": {"target_libraries": ["cells.db"], "clock_period": 10.0},
+    "modelsim": {},
+}
+
+
+@needs_tclsh
+@pytest.mark.parametrize("flow", sorted(EVIL_FLOWS))
+def test_every_design_text_reaches_the_tool_as_a_literal_word(flow, tmp_path, monkeypatch):
+    """Each flow's scripts -- and the constraint files it writes, which its tool sources --
+    rendered for a design whose every text carries Tcl metacharacters, and run under tclsh with
+    the tool's commands recorded: Tcl substitutes, splits and runs none of it (no call of
+    `xeda_injected`, no unreadable variable), and every argument holding a piece of such a text
+    holds all of it."""
+    use_fake_tools(monkeypatch)
+    (tmp_path / "cells.db").write_text("")
+    monkeypatch.chdir(tmp_path)
+    run_dir = tmp_path / "run"
+    try:
+        DefaultRunner(run_dir).run_flow(
+            registered_flows[flow][1], _evil_design(tmp_path / "design"), EVIL_FLOWS[flow]
+        )
+    except Exception:  # pylint: disable=broad-except
+        pass  # a fake writes no reports for some flows to parse; its record is what counts
+    fake_tool = _fake_tool_module()
+    for constraints in sorted(
+        p for suffix in ("xdc", "sdc", "ldc", "fdc") for p in run_dir.rglob(f"*.{suffix}")
+    ):
+        monkeypatch.chdir(constraints.parent)
+        assert fake_tool.run_tcl(constraints, "constraints") == 0, constraints
+
+    calls = fake_calls(run_dir)  # fails the test on a TCL error, such as an unreadable variable
+    assert calls, f"{flow} ran no tool command"
+    assert not [call for call in calls if call and call[0] == "xeda_injected"], "Tcl ran it"
+    # xeda's own paths in the run directory carry the design's name as a directory name, with
+    # the characters a file name cannot hold dropped (`"`): not a design text
+    arguments = [arg for call in calls for arg in call if str(run_dir.resolve()) not in arg]
+    torn = [a for a in arguments if any(f in a for f in EVIL_FRAGMENTS) and EVIL not in a]
+    assert not torn, torn
+    assert any(EVIL in a for a in arguments), f"no design text reached {flow}"
+
+
+@needs_tclsh
+def test_a_design_name_never_runs_as_tcl(tmp_path, monkeypatch):
+    """The reviewer's reproduction: a design name holding a Tcl command substitution that deletes
+    a file of the user's outside the run directory. It is a name, never run."""
+    use_fake_tools(monkeypatch)
+    canary = tmp_path / "users" / "keep.txt"
+    canary.parent.mkdir()
+    canary.write_text("the user's own file\n")
+    monkeypatch.setenv("XEDA_CANARY", str(canary))
+    design = _design(tmp_path / "design")
+    design.name = "[file delete -force $::env(XEDA_CANARY)]"
+    try:
+        DefaultRunner(tmp_path / "run").run_flow(
+            registered_flows["vivado_synth"][1],
+            design,
+            {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0},
+        )
+    except Exception:  # pylint: disable=broad-except
+        pass
+    assert canary.read_text() == "the user's own file\n"

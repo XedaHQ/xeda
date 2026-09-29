@@ -11,7 +11,7 @@ read_lef {{lef}}
 {% endfor %}
 
 read_verilog {{netlist}}
-link_design {{design.rtl.top}}
+link_design {{design.rtl.top|tcl_word}}
 
 {% for sdc in settings.sdc_files %}
 read_sdc {{sdc|tcl_word}}

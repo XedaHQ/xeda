@@ -154,8 +154,12 @@ All notable changes to this project will be documented in this file.
   `xelab_log`, `work_lib` and `vcd_scope`; `vivado_alt_synth`'s `bitstream`; `vivado_power`'s
   `power_report_xml`; `dc`'s TLU+ files, `target_libraries`, `compile_command`, `compile_args`
   and SDF options; `openroad`'s `dont_use_cells` and `place_density`; and the flows' report,
-  output and checkpoint directories. Tool flags and simulation times are still written as the
-  words given. `dc`'s `max_tluplus` was passed only when `min_tluplus` was set.
+  output and checkpoint directories. So is every text of the design a Tcl script or constraint
+  file renders: its name (a name holding `[...]` ran as a command where Vivado's scripts set the
+  project name), its tops, clock ports, testbench instance, parameter and define values, and the
+  FPGA part, family, device, package and speed. No script `eval`s a value any more (`vivado_sim`
+  parsed `xelab`'s arguments, `xelab_log` among them, a second time). Tool flags and simulation
+  times are still written as the words given. `dc`'s `max_tluplus` was passed only when `min_tluplus` was set.
 - `vivado_project` could not run: it rendered a report helper removed in 2025, and it ended in
   `start_gui`, which fails in every headless Vivado; the design's XDC sources never reached it
   (`p.type == "xdc"`, which no source type equals). It now creates and saves the project -- the

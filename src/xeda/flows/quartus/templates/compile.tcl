@@ -1,5 +1,5 @@
-set project_name          {{design.name}}
-set top                   {{design.rtl.top}}
+set project_name          {{design.name|tcl_word}}
+set top                   {{design.rtl.top|tcl_word}}
 
 package require ::quartus::project
 package require ::quartus::flow

@@ -12,6 +12,7 @@ import colorama
 from ...dataclass import Field
 from ...flow import Flow, SynthFlow
 from ...tool import Docker, Tool
+from ...utils import tcl_word
 
 log = logging.getLogger(__name__)
 
@@ -22,28 +23,28 @@ all = [
 ]
 
 
+def _vivado_value(v: Any, is_sim_flow: bool) -> str:
+    """A generic's or define's value as the tool reads it: for synthesis, a boolean as a
+    one-bit literal and text in double quotes (`G_STR="abc"`)."""
+    if is_sim_flow:
+        return str(v)
+    if v is False:
+        return "1'b0"
+    if v is True:
+        return "1'b1"
+    if isinstance(v, str):
+        return f'"{v}"'
+    return str(v).strip()
+
+
 def vivado_generics(is_sim_flow: bool):
     def vivado_generics_to_str(kvdict) -> str:
-        def supported_vivado_generic(v):
-            return v is not None
-
-        def value_to_str(v):
-            if is_sim_flow:
-                return v
-            if v is False:
-                return "1\\'b0"
-            if v is True:
-                return "1\\'b1"
-            if isinstance(v, str):
-                return f'\\"{v}\\"'
-            return str(v).strip()
-
+        """`-generic NAME=VALUE` for each, the assignment one literal Tcl word."""
+        option = "-generic_top" if is_sim_flow else "-generic"
         return " ".join(
-            [
-                f"-generic{'_top' if is_sim_flow else ''} {{{k}={value_to_str(v)}}}"
-                for k, v in kvdict.items()
-                if supported_vivado_generic(v)
-            ]
+            f"{option} {tcl_word(f'{k}={_vivado_value(v, is_sim_flow)}')}"
+            for k, v in kvdict.items()
+            if v is not None
         )
 
     return vivado_generics_to_str
@@ -51,22 +52,10 @@ def vivado_generics(is_sim_flow: bool):
 
 def vivado_defines(is_sim_flow: bool):
     def defines_to_str(mapping) -> str:
-        def value_to_str(v):
-            if is_sim_flow:
-                return v
-            if v is False:
-                return "1\\'b0"
-            if v is True:
-                return "1\\'b1"
-            if isinstance(v, str):
-                return f'\\"{v}\\"'
-            return str(v).strip()
-
+        """`-define NAME[=VALUE]` for each, the definition one literal Tcl word."""
         return " ".join(
-            [
-                f"-define {k}" + ("" if v is None else f"={value_to_str(v)}")
-                for k, v in mapping.items()
-            ]
+            "-define " + tcl_word(k if v is None else f"{k}={_vivado_value(v, is_sim_flow)}")
+            for k, v in mapping.items()
         )
 
     return defines_to_str

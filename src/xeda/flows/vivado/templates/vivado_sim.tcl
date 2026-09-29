@@ -2,7 +2,7 @@ set_param tclapp.enableGitAccess 0
 
 {% include 'util.tcl' %}
 
-set design_name    {{design.name}}
+set design_name    {{design.name|tcl_word}}
 set snapshot_name  snapshot
 
 load_feature simulator
@@ -26,7 +26,7 @@ if { [catch {exec xvlog {*}$analyze_flags -sv {{src.file|tcl_word}}} error]} {
     errorExit $error
 }
 {%- elif src.type.name == "Vhdl" %}
-puts "Analyzing VHDL file {{src.file|tcl_quote}} {% if design.language.vhdl.standard -%} \[VHDL {{design.language.vhdl.standard}}\] {%- endif %}"
+puts "Analyzing VHDL file {{src.file|tcl_quote}} {% if design.language.vhdl.standard -%} \[VHDL {{design.language.vhdl.standard|tcl_quote}}\] {%- endif %}"
 if { [catch {exec xvhdl {*}$analyze_flags {% if design.language.vhdl.standard in ("08", "2008") %} -2008 {% elif design.language.vhdl.standard in ("93", "1993") %} -93_mode {% endif %} {{src.file|tcl_word}}} error]} {
     errorExit $error
 }
@@ -34,12 +34,12 @@ if { [catch {exec xvhdl {*}$analyze_flags {% if design.language.vhdl.standard in
 {%- endfor %}
 
 puts "\n===========================( Elaborating design )==========================="
-if { [catch {eval exec xelab -s ${snapshot_name} -L {{settings.work_lib|tcl_word}} {%- for l,_ in settings.lib_paths %} -L {{l}} {%- endfor %} {{settings.elab_flags|join(' ')}} {{settings.optimization_flags|join(' ')}} {% if settings.xelab_log %} -log {{settings.xelab_log|tcl_word}} {%- endif %} {%- for k,v in design.tb.parameters.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in design.tb.top %} {{top}} {%- endfor %}  } error]} {
+if { [catch {exec xelab -s ${snapshot_name} -L {{settings.work_lib|tcl_word}} {%- for l,_ in settings.lib_paths %} -L {{l|tcl_word}} {%- endfor %} {{settings.elab_flags|join(' ')}} {{settings.optimization_flags|join(' ')}} {% if settings.xelab_log %} -log {{settings.xelab_log|tcl_word}} {%- endif %} {%- for k,v in design.tb.parameters.items() %} -generic_top {{("%s=%s"|format(k,v))|tcl_word}} {%- endfor %} {%- for top in design.tb.top %} {{top|tcl_word}} {%- endfor %}  } error]} {
     errorExit $error
 }
 
 puts "\n===========================( Loading Simulation )==========================="
-if { [catch {eval xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} } error] } {
+if { [catch {xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} } error] } {
     errorExit $error
 }
 
@@ -67,23 +67,23 @@ ptrace on
 puts "\n===========================( Running simulation )==========================="
 {%- if settings.prerun_time %}
 puts "Pre-run for {{settings.prerun_time}}"
-if { [catch {eval run {{settings.prerun_time}} } error]} {
+if { [catch {run {{settings.prerun_time}} } error]} {
     errorExit $error
 }
 {%- endif %}
 
 {%- if settings.saif %}
 puts "Adding nets to be logged in SAIF"
-set netlist_scope ./{{design.tb.uut}}
-eval describe ${netlist_scope}
+set netlist_scope {{("./" ~ design.tb.uut)|tcl_word}}
+describe $netlist_scope
 log_saif [get_objects -r -filter { type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } ${netlist_scope}/*]
 {%- endif %}
 
-if { [catch {eval run {%- if settings.stop_time %} {{settings.stop_time}} {%- else %} all {%- endif %} } error]} {
+if { [catch {run {%- if settings.stop_time %} {{settings.stop_time}} {%- else %} all {%- endif %} } error]} {
     errorExit $error
 }
 
-puts "Vivado simulation finished at [eval current_time]"
+puts "Vivado simulation finished at [current_time]"
 
 {%- if settings.vcd %}
 puts "\n===========================( Closing VCD file )==========================="
