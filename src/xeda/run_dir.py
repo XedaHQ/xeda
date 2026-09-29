@@ -123,9 +123,18 @@ def resolved_inside(path: Union[str, os.PathLike], directory: Path) -> Optional[
     return None
 
 
+def _make_writable(path: str) -> None:
+    """Add the owner's read, write and search permission to `path`, unless it is a symbolic
+    link: `chmod` follows links, and xeda never acts through a tool-made one."""
+    if not os.path.islink(path):
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
+
+
 def _on_rm_error(func: Any, path: str, _exc: Any) -> None:
-    """Make a read-only file or directory writable and try again (a tool may leave some)."""
-    os.chmod(path, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
+    """Make what blocked a removal writable and try again (a tool may leave a read-only file, or
+    a read-only directory that cannot lose its entries). Only entries that are not links change."""
+    _make_writable(os.path.dirname(path) or os.curdir)
+    _make_writable(path)
     func(path)
 
 
