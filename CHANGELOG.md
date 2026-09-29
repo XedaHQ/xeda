@@ -18,13 +18,13 @@ All notable changes to this project will be documented in this file.
   `sim_dir = "../x"` pointed at.
   Now xeda marks every run directory it uses with a `.xeda-run-dir` file. A directory given with
   `--cwd` or `run_path` is used only if it does not exist, is empty, or is marked. A run directory
-  xeda chooses must lie inside the run root -- a design or flow name such as `..` or `a/b`, or a
-  link leading out of it, is refused -- and is used only if it does not exist, is empty, is
-  marked, or holds an earlier xeda run of the same flow (its `settings.json` says so: existing
-  `xeda_run` trees keep working, and are marked on their next run); `xeda scrub` and `--scrub`
-  remove only such directories, and `--remote` fetches its results only into such a directory,
-  refusing any other before it connects. Anything else is refused, naming the directory, before anything
-  is created, written or deleted. **`--cwd` therefore needs an empty directory, or one xeda
+  xeda chooses must lie inside the run root, and a dependency's inside its depender's -- a design
+  or flow name such as `..` or `a/b`, or a link leading out, is refused -- and is used only if it
+  does not exist, is empty, is marked, or holds an earlier xeda run of the same flow (its
+  `settings.json` says so: existing `xeda_run` trees keep working, and are marked on their next
+  run); `xeda scrub` and `--scrub` remove only such directories, and `--remote` fetches its
+  results only into such a directory, refusing any other before it connects. Anything else is
+  refused, naming the directory, before anything is created, written or deleted. **`--cwd` therefore needs an empty directory, or one xeda
   made**: from a directory holding your files, run without it (the run goes to
   `xeda_run/<design>/<flow>`). xeda deletes nothing outside the run directory: an earlier copy of
   an output is removed only inside it, and a work directory or file a flow removes by name
