@@ -23,7 +23,10 @@ All notable changes to this project will be documented in this file.
   does not exist, is empty, is marked, or holds an earlier xeda run of the same flow (its
   `settings.json` says so: existing `xeda_run` trees keep working, and are marked on their next
   run); `xeda scrub` and `--scrub` remove only such directories, and `--remote` fetches its
-  results only into such a directory, refusing any other before it connects. Anything else is
+  results only into such a directory, refusing any other before it connects. A run directory is
+  a directory itself, never a symbolic link to one: a `run_path` given as a link to a marked
+  directory -- or a chosen or dependency's run directory that is a link -- was used, and the run
+  cleaned and wrote in whatever the link leads to. Anything else is
   refused, naming the directory, before anything is created, written or deleted. **`--cwd` therefore needs an empty directory, or one xeda
   made**: from a directory holding your files, run without it (the run goes to
   `xeda_run/<design>/<flow>`). xeda deletes nothing outside the run directory: an earlier copy of
