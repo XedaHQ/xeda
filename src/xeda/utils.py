@@ -164,26 +164,37 @@ _CREATE_MODE = 0o666 & ~_UMASK
 
 @contextmanager
 def replacing_file(
-    path: Union[str, os.PathLike], mode: str = "w", encoding: Optional[str] = None
+    path: Union[str, os.PathLike],
+    mode: str = "w",
+    encoding: Optional[str] = None,
+    *,
+    keep_on_error: bool = False,
 ) -> Iterator[IO[Any]]:
     """`open(path, mode)` for writing, except that whatever is at `path` -- a symbolic link
-    included -- is replaced, never written through: the content goes to a temporary file beside
-    `path`, which is renamed over it (`os.replace`) when the file is closed, also after an error,
-    as `open` would have left a partly written file."""
+    included -- is replaced, never written through, and only by a complete file: the content goes
+    to a temporary file beside `path`, which is renamed over it (`os.replace`) once the body has
+    completed. If the body raises, the temporary file is removed and `path` is left as it was --
+    unless `keep_on_error`, for a failed tool's redirected output, which is its diagnostic."""
     if mode not in ("w", "wt", "wb"):
         raise ValueError(f"replacing_file writes a file anew; mode {mode!r} is not one of w, wb")
     target = Path(path)
     fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    committed = False
     try:
         os.chmod(temporary, _CREATE_MODE)
-        with os.fdopen(fd, mode, encoding=None if "b" in mode else encoding) as f:
-            yield f
-    finally:
         try:
-            os.replace(temporary, target)
-        except OSError:
-            Path(temporary).unlink(missing_ok=True)  # the temporary file it just created
+            with os.fdopen(fd, mode, encoding=None if "b" in mode else encoding) as f:
+                yield f
+        except BaseException:
+            if keep_on_error:
+                os.replace(temporary, target)
+                committed = True
             raise
+        os.replace(temporary, target)
+        committed = True
+    finally:
+        if not committed:
+            Path(temporary).unlink(missing_ok=True)  # the temporary file, never committed
 
 
 def replacing_copy(src: Union[str, os.PathLike], dst: Union[str, os.PathLike]) -> Path:
