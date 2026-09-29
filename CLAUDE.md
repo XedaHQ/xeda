@@ -91,9 +91,11 @@ the same flow (`is_earlier_run_of`: its `settings.json`), which is then marked. 
 launch fails with `RunDirectoryError`; `scrub_runs` refuses the same way. `Flow.purge_run_path`
 empties only a marked directory (keeping the marker, as `--post-cleanup` does). Nothing outside
 the run directory is deleted: `Flow.remove_stale_output` removes an earlier copy of an output only
-inside it (one named outside is left for the tool to overwrite, and `Flow.wrote_output` tells it
-from one the run wrote), and a work directory removed by name goes through
-`Flow.removable_work_dir`, which refuses one outside. `RemoteRunner.run_remote` claims its local
+inside it (one named outside is left for the tool to overwrite); `Flow.wrote_output` counts an
+output as the run's own only if it was written after the run started (`run_started_ns`, read
+from the run directory's file-system clock by `run_dir.filesystem_time_ns`), which is how a
+failed run's `results.json` drops what an earlier run left. A work directory removed by name
+goes through `Flow.removable_work_dir`, which refuses one outside. `RemoteRunner.run_remote` claims its local
 results directory the same way before connecting. xeda never writes through a link: generated
 files go through `utils.replacing_file` / `replacing_copy` (a temporary beside the target,
 `os.replace`d over it), and the marker is created with `O_EXCL | O_NOFOLLOW`.

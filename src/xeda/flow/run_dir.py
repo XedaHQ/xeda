@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Optional, Union
 
@@ -35,11 +36,13 @@ __all__ = [
     "RunDirectoryError",
     "check_inside_run_root",
     "claim_run_dir",
+    "filesystem_time_ns",
     "is_earlier_run_of",
     "is_marked_run_dir",
     "mark_run_dir",
     "resolved_inside",
     "run_dir_name",
+    "written_since",
 ]
 
 log = logging.getLogger(__name__)
@@ -148,6 +151,27 @@ def claim_run_dir(directory: Path, flow_name: Optional[str] = None) -> None:
             "nothing of yours in it",
             directory,
         )
+
+
+def filesystem_time_ns(directory: Path) -> int:
+    """The time now by the clock of the file system `directory` is on -- the modification time
+    of a file created there, then removed -- so that it compares with the times of the files a
+    run writes there whatever that file system's clock and granularity."""
+    fd, name = tempfile.mkstemp(prefix=".xeda-time-", dir=directory)
+    os.close(fd)
+    probe = Path(name)
+    try:
+        os.utime(probe, None)
+        return probe.stat().st_mtime_ns
+    finally:
+        probe.unlink(missing_ok=True)  # the probe it just created
+
+
+def written_since(path: Path, since_ns: int) -> bool:
+    """Whether `path` was written -- created, modified, or its inode changed (a rename onto it, a
+    copy setting an old time) -- at or after `since_ns`. Raises `OSError` if it is not there."""
+    st = path.stat()
+    return max(st.st_mtime_ns, st.st_ctime_ns) >= since_ns
 
 
 def resolved_inside(path: Union[str, os.PathLike], directory: Path) -> Optional[Path]:
