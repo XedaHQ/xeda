@@ -4,18 +4,21 @@
 # Area/Balanced/Timing
 set strategy            {{settings.strategy|tcl_word}}
 
-set implementation_name "{{settings.impl_name}}"
-set impl_dir            "{{settings.impl_folder}}"
+set implementation_name {{settings.impl_name|tcl_word}}
+{#- `impl_dir` is exactly the path `DiamondSynth.run` checked (`Flow.removable_work_dir`), as one
+    literal word: inside double quotes Tcl substituted `$...` and `[...]` in `impl_folder`, and
+    deleted another directory than the one checked. #}
+set impl_dir            {{impl_dir|tcl_word}}
 
 # impl_dir lies inside the run directory: DiamondSynth.run refuses an impl_folder that does not
 # (Flow.removable_work_dir) before it renders this script.
-file delete -force ${impl_dir}
+file delete -force -- $impl_dir
 # Workaround for old TCL on NFS bug
 # while {[catch {file delete -force -- ${impl_dir} }] != 0} {
 #   after 2000 puts "delete failed. retrying..."
 # }
 
-prj_project new -name {{design.name}} -dev {{settings.fpga.part|tcl_word}} -impl ${implementation_name} -impl_dir ${impl_dir}
+prj_project new -name {{design.name|tcl_word}} -dev {{settings.fpga.part|tcl_word}} -impl $implementation_name -impl_dir $impl_dir
 
 prj_impl option synthesis {{settings.synthesis_engine}}
 
@@ -78,7 +81,7 @@ prj_strgy set_value -strategy custom_strategy map_timing_driven=True
 
 
 {% if settings.syn_cmdline_args %}
-prj_strgy set_value -strategy custom_strategy {syn_cmdline_args={{settings.syn_cmdline_args|join(" ")}}}
+prj_strgy set_value -strategy custom_strategy {{("syn_cmdline_args=" ~ settings.syn_cmdline_args|join(" "))|tcl_word}}
 {% endif %}
 
 {% if settings.strategy == "Area" %}
@@ -113,7 +116,7 @@ prj_strgy set_value -strategy custom_strategy {par_cmdline_args=-exp nbrMaxRunTi
 
 prj_strgy set custom_strategy
 
-{% if design.rtl.top -%} prj_impl option top {{design.rtl.top}} {%- endif %}
+{% if design.rtl.top -%} prj_impl option top {{design.rtl.top|tcl_word}} {%- endif %}
 
 prj_syn set {{settings.synthesis_engine}}
 
@@ -121,19 +124,19 @@ prj_project save
 ###################
 
 puts "\n====================( Synthesize Design )===================="
-eval prj_run Synthesis -impl ${implementation_name} -forceAll
+prj_run Synthesis -impl $implementation_name -forceAll
 
 puts "\n====================( Translate Design )===================="
-eval prj_run Translate -impl ${implementation_name}
+prj_run Translate -impl $implementation_name
 puts "\n====================( Map Design )===================="
-eval prj_run Map -impl ${implementation_name} -forceAll
+prj_run Map -impl $implementation_name -forceAll
 
 puts "\n====================( Place & Route Design )===================="
-eval prj_run PAR -impl ${implementation_name} -forceAll
+prj_run PAR -impl $implementation_name -forceAll
 # eval prj_run PAR -impl ${implementation_name} -task IOTiming -forceOne
 
 puts "\n====================( Export Files )===================="
 # the bitstream: the default Export tasks are the device's (a JEDEC file for MachXO parts)
-eval prj_run Export -impl ${implementation_name} -task Bitgen
+prj_run Export -impl $implementation_name -task Bitgen
 
 prj_project close

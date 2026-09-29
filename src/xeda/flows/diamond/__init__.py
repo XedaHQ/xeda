@@ -68,17 +68,17 @@ class DiamondSynth(FpgaSynthFlow):
             raise FlowSettingsException(
                 "diamond_synth needs a clock: set `clock.period` (or `clocks`) in the flow settings"
             )
-        # `synth.tcl` deletes the implementation directory before creating the project
-        self.removable_work_dir(self.settings.impl_folder, "impl_folder")
+        # `synth.tcl` deletes the implementation directory before creating the project: it is
+        # handed exactly the path checked here, as one literal Tcl word
+        impl_dir = self.removable_work_dir(self.settings.impl_folder, "impl_folder")
         constraint_exts = ["ldc"] if self.settings.synthesis_engine == "lse" else ["sdc", "fdc"]
         constraints = [f"constraints.{ext}" for ext in constraint_exts]
         for constraint in constraints:
             self.copy_from_template(constraint)
-        script_path = self.copy_from_template("synth.tcl")
+        script_path = self.copy_from_template("synth.tcl", impl_dir=impl_dir)
         diamondc = Tool("diamondc")
         diamondc.run(script_path)
         # Diamond names an implementation's files `<project>_<implementation>.<suffix>`
-        impl_dir = self.run_path / self.settings.impl_folder
         prefix = f"{self.design.name}_{self.settings.impl_name}"
         for label, suffix in (
             ("timing_report", "twr"),

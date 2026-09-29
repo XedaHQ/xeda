@@ -30,7 +30,9 @@ All notable changes to this project will be documented in this file.
   an output is removed only inside it, and a work directory or file a flow removes by name
   (Verilator's `sim_dir`; with `cleanup_bobjs`, the `bobj_dir`, `verilog_out_dir` and `sim_dir`
   of `bsc` and `bsc_sim`; Diamond's `impl_folder`; Vivado's `xsim.dir`; cocotb's results file)
-  must lie inside it. Nor does xeda write through a symbolic link: a file it generates -- a
+  must lie inside it -- and the tool is handed exactly the path checked: Diamond's script, which
+  deletes its `impl_folder`, received it inside double quotes, where Tcl substituted a `$...` or
+  `[...]` in it into another directory. Nor does xeda write through a symbolic link: a file it generates -- a
   script, constraints, `settings.json`, `results.json`, a copied resource, the marker -- replaces
   a link at its name rather than writing to the file the link points to.
   Unchanged in this release: an output path named explicitly (`-s bitstream=/elsewhere/x.bit`)
@@ -141,7 +143,14 @@ All notable changes to this project will be documented in this file.
   begins with `x` -- while a numeric index (`fifo[1].v`) got through by an accident of Vivado's
   `unknown`. Vivado's `read_verilog`, `read_vhdl` and `read_xdc` get a one-file list, since they
   split a single word at its spaces; `vivado_alt_synth`, `diamond_synth` and `modelsim` no longer
-  `eval` a command with a path in it, which parsed the path again.
+  `eval` a command with a path in it, which parsed the path again. So is every setting holding
+  text a user writes (a path, a name, a list of them): `diamond_synth`'s `impl_folder` and
+  `impl_name`, `syn_cmdline_args` and the design's name and top; `vivado_sim`'s `saif`, `vcd`,
+  `xelab_log`, `work_lib` and `vcd_scope`; `vivado_alt_synth`'s `bitstream`; `vivado_power`'s
+  `power_report_xml`; `dc`'s TLU+ files, `target_libraries`, `compile_command`, `compile_args`
+  and SDF options; `openroad`'s `dont_use_cells` and `place_density`; and the flows' report,
+  output and checkpoint directories. Tool flags and simulation times are still written as the
+  words given. `dc`'s `max_tluplus` was passed only when `min_tluplus` was set.
 - `vivado_project` could not run: it rendered a report helper removed in 2025, and it ended in
   `start_gui`, which fails in every headless Vivado; the design's XDC sources never reached it
   (`p.type == "xdc"`, which no source type equals). It now creates and saves the project -- the

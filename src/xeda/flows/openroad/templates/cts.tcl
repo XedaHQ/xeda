@@ -10,7 +10,7 @@ clock_tree_synthesis -root_buf "{{platform.cts_buf_cell}}" -buf_list "{{platform
   -balance_levels
 
 set_propagated_clock [all_clocks]
-set_dont_use {{settings.dont_use_cells|join(" ")|embrace}}
+set_dont_use {{settings.dont_use_cells|tcl_list}}
 
 estimate_parasitics -placement
 report_metrics "cts pre-repair"

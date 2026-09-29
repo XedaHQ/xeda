@@ -9,13 +9,13 @@ place_pins -hor_layer {{platform.io_placer_h}} -ver_layer {{platform.io_placer_v
 
 {% if not settings.macro_placement_file %}
 {{ section("tdms_place") }}
-set_dont_use {{settings.dont_use_cells|join(" ")|embrace}}
+set_dont_use {{settings.dont_use_cells|tcl_list}}
 
 set macros_found [find_macros]
 
 {% if not settings.rtlmp_flow %}
 if {$macros_found != ""} {
-    global_placement -density {{settings.place_density or platform.place_density}} \
+    global_placement -density {{(settings.place_density or platform.place_density)|tcl_word}} \
         -pad_left {{platform.cell_pad_in_sites_global_placement}} \
         -pad_right {{platform.cell_pad_in_sites_global_placement}}
 } else {

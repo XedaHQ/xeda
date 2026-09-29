@@ -9,6 +9,7 @@ Vivado's `unknown`. The templates write such a path with `tcl_word` (a whole arg
 """
 
 import re
+import typing
 import shutil
 from pathlib import Path
 from typing import List
@@ -20,7 +21,7 @@ from xeda.flow.flow import FlowSettingsError, registered_flows
 from xeda.flows import dc
 from xeda.flow_runner import DefaultRunner
 
-from .tool_utils import fake_calls, use_fake_tools
+from .tool_utils import fake_calls, fake_returns, use_fake_tools
 
 FLOWS_DIR = Path(__file__).parent.parent / "src" / "xeda" / "flows"
 TCLSH = shutil.which("tclsh")
@@ -275,3 +276,127 @@ def test_diamond_allows_or_forbids_dsps_and_brams(allowed, engine, tmp_path, mon
         (fdc,) = run_dir.rglob("constraints.fdc")
         assert ("syn_multstyle" in fdc.read_text()) != allowed
         assert ("syn_ramstyle" in fdc.read_text()) != allowed
+
+
+# ---------------------------------------------------------------------------------------------
+# Every user-given setting a Tcl template renders is a literal word
+# ---------------------------------------------------------------------------------------------
+
+#: Templates a Tcl interpreter reads (yosys' have filters of their own:
+#: tests/test_yosys_templates.py).
+TCL_SUFFIXES = {".tcl", ".xdc", ".sdc", ".ldc", ".fdc", ".ucf", ".xcf", ".do"}
+QUOTING = re.compile(r"\|\s*tcl_(word|quote|list)\b")
+
+#: The settings a template may render raw -- as the several Tcl words the user wrote, by design --
+#: each with why: `(template, expression) -> reason`. None is a path, and none is checked by
+#: xeda before a run: a raw one changes nothing xeda relies on.
+REVIEWED_RAW = {
+    ("vivado/templates/vivado_sim.tcl", "settings.analyze_flags|join(' ')"): "tool flags",
+    ("vivado/templates/vivado_sim.tcl", "settings.elab_flags|join(' ')"): "tool flags",
+    ("vivado/templates/vivado_sim.tcl", "settings.optimization_flags|join(' ')"): "tool flags",
+    ("vivado/templates/vivado_sim.tcl", "settings.sim_flags|join(' ')"): "tool flags",
+    ("vivado/templates/vivado_sim.tcl", "settings.prerun_time"): "a time, as words (`100 ns`)",
+    ("vivado/templates/vivado_sim.tcl", "settings.stop_time"): "a time, as words (`100 ns`)",
+    ("modelsim/templates/run.tcl", "settings.stop_time"): "a time, as words (`100 ns`)",
+    ("openroad/templates/global_place.tcl", 'settings.global_placement_args|join(" ")'): "flags",
+    ("openroad/templates/io_place.tcl", 'settings.global_placement_args|join(" ")'): "flags",
+    ("openroad/templates/io_place.tcl", 'settings.place_pins_args|join(" ")'): "tool flags",
+    ("openroad/templates/pre_place.tcl", 'settings.place_pins_args|join(" ")'): "tool flags",
+}
+
+
+def _text_typed(annotation) -> bool:
+    """Whether a setting of this type holds text a user writes: `str` or `Path`, possibly among
+    other types or in a list."""
+    if annotation in (str, Path):
+        return True
+    return any(_text_typed(arg) for arg in typing.get_args(annotation) if arg is not type(None))
+
+
+def _settings_by_package() -> dict[str, dict[str, bool]]:
+    """`{flows package: {setting: whether any of its flows holds user text in it}}`."""
+    by_package: dict[str, dict[str, bool]] = {}
+    for _, cls in registered_flows.values():
+        package = cls.__module__.split(".")[2]  # xeda.flows.<package>
+        fields = by_package.setdefault(package, {})
+        for name, info in cls.Settings.model_fields.items():
+            fields[name] = fields.get(name, False) or _text_typed(info.annotation)
+    return by_package
+
+
+def test_every_user_given_setting_in_a_tcl_template_is_a_literal_word() -> None:
+    """A mechanical oracle: every setting holding user text (a `str` or `Path`, alone or in a
+    list) that a Tcl template renders goes through `tcl_word`, `tcl_quote` or `tcl_list` -- or is
+    reviewed in `REVIEWED_RAW`. Rendered raw or inside double quotes, Tcl substitutes `$...` and
+    `[...]` in it before the command sees it: diamond's `impl_folder`, checked by xeda as the
+    literal path it is, was deleted as the directory Tcl made of it."""
+    by_package = _settings_by_package()
+    raw = []
+    for template in sorted(FLOWS_DIR.glob("*/templates/*")):
+        package = template.parts[-3]
+        if template.suffix not in TCL_SUFFIXES or package == "yosys":
+            continue
+        name = template.relative_to(FLOWS_DIR).as_posix()
+        for n, line in enumerate(template.read_text().splitlines(), 1):
+            for expression in EXPRESSION.findall(line):
+                setting = re.match(r"settings\.(\w+)", expression)
+                if not (setting and by_package.get(package, {}).get(setting.group(1))):
+                    continue
+                if not QUOTING.search(expression) and (name, expression) not in REVIEWED_RAW:
+                    raw.append(f"{name}:{n}: {expression}")
+    assert not raw, "\n".join(raw)
+
+
+ODD = "o [x] $v"
+
+
+def _named_outputs(root: Path) -> dict[str, tuple[dict, list[tuple[str, ...]]]]:
+    """flow -> (settings naming outputs and files with `ODD` names, the calls that must name
+    each whole: a call's leading words, then the argument)."""
+    tluplus = [_file(root, n) for n in ("max.tluplus", "min.tluplus", "map.txt")]
+    lib = _file(root, "cells.db")
+    fpga = {"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}
+    return {
+        "diamond_synth": (
+            {**fpga, "impl_folder": f"{ODD} impl", "impl_name": f"{ODD} name"},
+            [("prj_run", "Synthesis", "-impl", f"{ODD} name")],
+        ),
+        "vivado_sim": (
+            {"saif": f"{ODD}.saif", "vcd": f"{ODD}.vcd"},
+            [("open_saif", f"{ODD}.saif"), ("open_vcd", f"{ODD}.vcd")],
+        ),
+        "vivado_alt_synth": (
+            {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": f"{ODD}.bit"},
+            [("write_bitstream", "-force", f"{ODD}.bit")],
+        ),
+        "dc": (
+            {
+                "target_libraries": [lib],
+                "clock_period": 10.0,
+                "max_tluplus": tluplus[0],
+                "min_tluplus": tluplus[1],
+                "tluplus_map": tluplus[2],
+            },
+            [
+                ("set_tlu_plus_files", tluplus[0]),
+                ("set_tlu_plus_files", tluplus[1]),
+                ("set_tlu_plus_files", tluplus[2]),
+                ("set_app_var", "target_library", lib),
+            ],
+        ),
+    }
+
+
+@needs_tclsh
+@pytest.mark.parametrize("flow", ["diamond_synth", "vivado_sim", "vivado_alt_synth", "dc"])
+def test_a_named_output_or_file_reaches_the_tool_whole(flow, tmp_path, monkeypatch) -> None:
+    """A setting naming an output or a file, spelled with a space, brackets and a `$`, reaches
+    the tool as exactly that one argument: never substituted or split by Tcl."""
+    design = _design(tmp_path / "design")
+    settings, expected = _named_outputs(tmp_path / "design")[flow]
+    if flow == "dc":  # where it reads its TLU+ files
+        fake_returns(monkeypatch, {("shell_is_in_topographical_mode",): "1"})
+    calls = _calls(flow, design, settings, tmp_path, monkeypatch, elements=True)
+    for *leading, argument in expected:
+        matching = [call for call in calls if call[: len(leading)] == leading]
+        assert any(argument in call for call in matching), (leading, argument, matching)

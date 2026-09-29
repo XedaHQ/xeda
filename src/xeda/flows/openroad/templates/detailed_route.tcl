@@ -33,8 +33,8 @@ set_thread_count {{settings.nthreads}}
 {%- set additional_args = additional_args + " -repair_pdn_vias " + settings.repair_pdn_via_layer %}
 {%- endif %}
 
-detailed_route -output_drc {{settings.reports_dir}}/{{step_id}}_drc.rpt \
-    -output_maze {{settings.results_dir}}/maze.log \
+detailed_route -output_drc "{{settings.reports_dir|tcl_quote}}/{{step_id}}_drc.rpt" \
+    -output_maze "{{settings.results_dir|tcl_quote}}/maze.log" \
     -save_guide_updates -verbose {{settings.verbose}} {{additional_args}}
 
 {% if settings.post_detailed_route_tcl %}

@@ -1,9 +1,9 @@
 set_param tclapp.enableGitAccess 0
 
 set fail_critical_warning {{settings.fail_critical_warning}}
-set reports_dir           {{settings.reports_dir}}
-set settings.outputs_dir  {{settings.outputs_dir}}
-set checkpoints_dir       {{settings.checkpoints_dir}}
+set reports_dir           {{settings.reports_dir|tcl_word}}
+set settings.outputs_dir  {{settings.outputs_dir|tcl_word}}
+set checkpoints_dir       {{settings.checkpoints_dir|tcl_word}}
 set fpga_part             {{settings.fpga.part}}
 
 {% include 'util.tcl' %}
@@ -204,7 +204,7 @@ write_xdc -no_fixed_only -force ${settings.outputs_dir}/impl.xdc
 
 {% if settings.bitstream -%}
 puts "\n==============================( Writing Bitstream )==============================="
-write_bitstream -force { {{-settings.bitstream-}} }
+write_bitstream -force {{settings.bitstream|tcl_word}}
 {% endif -%}
 
 showWarningsAndErrors
