@@ -320,9 +320,12 @@ class Dse(FlowLauncher):
         optimizer.flow_class = flow_class
         optimizer.base_settings = base_settings
 
+        # The exploration's log and its best-run record go into the run root, which is made here,
+        # once the settings have validated and no deliverable names a location: an exploration
+        # that fails at its input leaves none.
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-        add_file_logger(Path.cwd(), timestamp)
-        best_json_path = Path.cwd() / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
+        add_file_logger(self.run_root / "Logs", timestamp)
+        best_json_path = self.run_root / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
         log.info("Best results are saved to %s", best_json_path)
 
         flow_setting_hashes = set()

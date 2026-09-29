@@ -237,7 +237,7 @@ def test_docker_model_and_nested_containers_are_isolated_from_the_caller(tmp_pat
     assert tool.docker.mounts is not docker.mounts
     assert tool.docker.default_env is not docker.default_env
     assert tool.docker.command == ["echo"]
-    assert tool.docker.mounts[str(tmp_path)] == str(tmp_path)
+    assert tool.docker.mounts == {"caller": "container"}  # the design root is mounted per run
 
     tool.docker.command.append("arg")
     tool.docker.mounts["new"] = "mount"

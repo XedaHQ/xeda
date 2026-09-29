@@ -36,7 +36,7 @@ from ..deliver import (
     recorded_artifacts,
     split_deliveries,
 )
-from ..design import DESIGN_NAME, Design, names_a_design_file
+from ..design import DESIGN_NAME, Design, cloning_dependencies_into, names_a_design_file
 from ..flow import Flow, FlowDependencyFailure, FlowSettingsError, registered_flows
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import written_path_problems
@@ -64,8 +64,8 @@ from .settings_layers import flow_settings_from_sections, merge_flow_sections, m
 from .trace import (
     as_recorded,
     check_trace,
+    locate_program,
     previous_trace,
-    probe_program,
     remove_trace,
     settings_difference,
     write_trace,
@@ -536,7 +536,9 @@ class FlowLauncher:
            recorded results are reused. Otherwise `flow.stale_reason` says why it runs. A flow that can
            never be reused (`Flow.always_runs`: it programs a device, draws a new random seed,
            ...) always runs, with that reason, and no trace records it.
-        6. **run**: delete the trace, then record every expected input as the run finds it
+        6. **run**: delete the trace and the reports the last run read (`Trace.reports`: a
+           previous run's report is never this run's), then record every expected input as the
+           run finds it
            (`trace_inputs.snapshot_inputs`: a file edited while the run goes on then no longer
            matches its trace), record `settings.json`, and execute (`_execute`: `run()`,
            `parse_reports()`, `check_results()`, results; a failed run's artifacts only as far as
@@ -745,7 +747,7 @@ class FlowLauncher:
                     flow.stale_reason = always
                     log.info("Running %s: %s", flow.name, always)
                 elif (not self.settings.rebuild_all or revisit) and not policy.clean:
-                    freshness = check_trace(run_path, expected, probe_program)
+                    freshness = check_trace(run_path, expected, locate_program)
                     if freshness.fresh and self._reuse_results(flow, results_json):
                         if freshness.refreshed is not None:
                             write_trace(run_path, freshness.refreshed)
@@ -759,13 +761,17 @@ class FlowLauncher:
                     )
                     log.info("Running %s: %s", flow.name, flow.stale_reason)
 
-                previous = previous_trace(run_path, flow.name) if expected is not None else None
+                previous = previous_trace(run_path, flow.name)
                 # xeda's own records never write through a link at their names (`writable`)
                 if self.settings.dump_settings_json:
                     run_directory.writable(settings_json)
                 run_directory.writable(results_json)
                 # from here until a new trace is written, nothing vouches for this directory
                 remove_trace(run_path)
+                if previous is not None:
+                    # R50 j: the reports the last run read are not this run's, whatever their
+                    # mtime (R49's rule, `Flow.report_file`, stays as a second line)
+                    run_directory.remove(*(p for p in previous.reports if run_directory.holds(p)))
                 # The run starts now: its inputs are recorded as it finds them, so that a file
                 # edited while it runs no longer matches what its trace says it consumed.
                 snapshot = (
@@ -1226,42 +1232,45 @@ class FlowLauncher:
                 # with it, rather than a project reporting a design of that name missing
                 design_not_in_project = True
                 design = Path(design)
-        if Path(xedaproject).exists():
-            try:
-                xeda_project = XedaProject.from_file(
-                    xedaproject,
-                    skip_designs=design_not_in_project,
-                    design_overrides=design_overrides,
-                    design_allow_extra=design_allow_extra,
-                    design_remove_extra=design_remove_fields,
-                )
-            except (OSError, ValueError, yaml.YAMLError) as e:
-                # unreadable, not TOML/JSON/YAML (the decode errors are `ValueError`s), or not
-                # a project's contents
-                raise ProjectFileError(
-                    f'Cannot load project file "{Path(xedaproject).absolute()}": {e}'
-                ) from e
-            flows_settings = xeda_project.flows
-        if design and design_not_in_project:
-            if isinstance(design, (str, Path)):
-                # An invalid design file raises, as a design from a project does: the caller
-                # reports it (`xeda run --json` names the error instead of "did not complete").
-                design = Design.from_file(
-                    design,
-                    overrides=design_overrides,
-                    allow_extra=design_allow_extra,
-                    remove_extra=design_remove_fields,
-                )
+        # A git dependency without a directory of its own is cloned into the run root, which
+        # is asked for only then: a design that fails to load leaves no run root behind.
+        with cloning_dependencies_into(lambda: self.run_root / ".dependencies"):
+            if Path(xedaproject).exists():
+                try:
+                    xeda_project = XedaProject.from_file(
+                        xedaproject,
+                        skip_designs=design_not_in_project,
+                        design_overrides=design_overrides,
+                        design_allow_extra=design_allow_extra,
+                        design_remove_extra=design_remove_fields,
+                    )
+                except (OSError, ValueError, yaml.YAMLError) as e:
+                    # unreadable, not TOML/JSON/YAML (the decode errors are `ValueError`s), or not
+                    # a project's contents
+                    raise ProjectFileError(
+                        f'Cannot load project file "{Path(xedaproject).absolute()}": {e}'
+                    ) from e
+                flows_settings = xeda_project.flows
+            if design and design_not_in_project:
+                if isinstance(design, (str, Path)):
+                    # An invalid design file raises, as a design from a project does: the caller
+                    # reports it (`xeda run --json` names the error instead of "did not complete").
+                    design = Design.from_file(
+                        design,
+                        overrides=design_overrides,
+                        allow_extra=design_allow_extra,
+                        remove_extra=design_remove_fields,
+                    )
 
-            elif isinstance(design, dict):
-                design = dict(design)
-                if "design_root" not in design:
-                    design["design_root"] = Path.cwd()
-                design = Design(**design)
-        else:
-            design = self._design_from_project(
-                xeda_project, xedaproject, design, select_design_in_project
-            )
+                elif isinstance(design, dict):
+                    design = dict(design)
+                    if "design_root" not in design:
+                        design["design_root"] = Path.cwd()
+                    design = Design(**design)
+            else:
+                design = self._design_from_project(
+                    xeda_project, xedaproject, design, select_design_in_project
+                )
         if isinstance(flow_settings, Flow.Settings):
             flow_settings = flow_settings.model_dump()
         else:

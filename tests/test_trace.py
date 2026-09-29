@@ -32,7 +32,12 @@ def _trace(**overrides) -> Trace:
         xeda_version="0.5.0",
         xeda_code="x" * 32,
         flow_code="c" * 32,
-        programs={"yosys": ProgramRecord(path="/opt/bin/yosys", size=1, mtime_ns=2)},
+        programs={
+            "yosys": ProgramRecord(
+                path="/opt/bin/yosys",
+                file=FileRecord(size=1, mtime_ns=2, ctime_ns=2, inode=7, sha="y" * 32),
+            )
+        },
         inputs_recorded_ns=OLD + 10**12,
         outputs_recorded_ns=OLD + 10**12,
         inputs={"/d/a.v": FileRecord(size=1, mtime_ns=2, ctime_ns=2, inode=5, sha="s" * 32)},
@@ -281,17 +286,52 @@ def test_a_file_that_appeared_in_a_managed_run_directory_is_a_change(recorded):
     (run_dir / "sub").mkdir()
     (run_dir / "sub" / "later.txt").write_text("mine\n")
     reason = _check(run_dir, expected).reason
-    assert reason == f"new file in the run directory: {(run_dir / 'sub' / 'later.txt').resolve()}"
+    # the directory is an entry of its own (R50 h), listed before what it holds
+    assert reason == f"new file in the run directory: {(run_dir / 'sub').resolve()}"
 
 
 def test_a_changed_program_is_named(recorded):
     run_dir, _, _, expected = recorded
     trace = json.loads((run_dir / "trace.json").read_text())
-    trace["programs"] = {"yosys": {"path": "/old/yosys", "size": 1, "mtime_ns": 2}}
+    trace["programs"] = {"yosys": {"path": "/old/yosys", "file": None}}
     (run_dir / "trace.json").write_text(json.dumps(trace))
-    new = ProgramRecord(path="/new/yosys")
-    reason = check_trace(run_dir, expected, lambda name: new).reason
+    reason = check_trace(run_dir, expected, lambda name: "/new/yosys").reason
     assert reason == "yosys changed"
+
+
+def _record_program(run_dir: Path, name: str, program: ProgramRecord) -> None:
+    trace = json.loads((run_dir / "trace.json").read_text())
+    trace["programs"] = {name: program.model_dump(mode="json")}
+    (run_dir / "trace.json").write_text(json.dumps(trace))
+
+
+def test_a_program_is_checked_as_a_file_under_the_trust_rule(recorded, tmp_path):
+    """R50 e: a program is its location and its file's record -- an edit given back its size
+    and mtime is a change (its inode change time moved, so its content is read); a `touch` is
+    not."""
+    run_dir, _, _, expected = recorded
+    program = _file(tmp_path / "yosys", "#!/bin/sh\necho one\n")
+    _record_program(run_dir, "yosys", ProgramRecord(path=str(program), file=record_file(program)))
+    locate = {"yosys": str(program)}.get
+    assert check_trace(run_dir, expected, locate).fresh
+    os.utime(program, None)
+    assert check_trace(run_dir, expected, locate).fresh
+    program.write_text("#!/bin/sh\necho two\n")
+    os.utime(program, ns=(OLD, OLD))
+    assert check_trace(run_dir, expected, locate).reason == "yosys changed"
+
+
+def test_a_program_replaced_during_its_run_or_an_image_is_checked_by_what_it_is(recorded):
+    run_dir, _, _, expected = recorded
+    unknown = FileRecord(size=1, mtime_ns=2, ctime_ns=2, inode=7, sha=MODIFIED_DURING_RUN)
+    _record_program(run_dir, "yosys", ProgramRecord(path="/opt/bin/yosys", file=unknown))
+    reason = check_trace(run_dir, expected, lambda name: "/opt/bin/yosys").reason
+    assert reason == "yosys changed during the last run"
+    image = "docker-image:hdlc/ghdl:yosys"
+    _record_program(run_dir, image, ProgramRecord(path="sha256:0123"))
+    assert check_trace(run_dir, expected, lambda name: "sha256:0123").fresh
+    reason = check_trace(run_dir, expected, lambda name: "sha256:4567").reason
+    assert reason == f"{image} changed"
 
 
 def test_metadata_only_design_changes_come_last(recorded):

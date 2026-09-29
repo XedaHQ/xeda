@@ -1152,20 +1152,15 @@ def dse(
             f"{', '.join(sorted(known_optimizers))}. See `xeda list-optimizers`.",
         )
 
-    # before the logger writes <root>/Logs into it
-    try:
-        root = ensure_run_root(run_root)
-    except RunRootError as e:
-        dse_failure("RunRootError", str(e), e)
-    assert root is not None  # created when absent
-
     if log_level is None:
         log_level = (
             logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
         )
     if options.debug:
         detailed_logs = True
-    setup_logger(log_level, detailed_logs, root / "Logs")
+    # No log file here: the exploration logs into its run root (`<root>/Logs`), which it makes
+    # when it starts, once its settings have validated -- one log per exploration.
+    setup_logger(log_level, detailed_logs)
 
     opt_settings = settings_to_dict(optimizer_settings, hierarchical_keys=True)
     dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
@@ -1190,7 +1185,7 @@ def dse(
         dse = Dse(
             optimizer_class=optimizer,
             optimizer_settings=opt_settings,
-            run_root=root,
+            run_root=run_root,
             debug=options.debug,
             **dse_settings_dict,
         )

@@ -10,7 +10,9 @@ import pprint
 import re
 import subprocess
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from enum import Enum
 from functools import cached_property
@@ -1249,11 +1251,34 @@ class TbDep(XedaBaseModel):
     pos: int = 0
 
 
+#: Where a git dependency without a `clone_dir` is cloned: a provider of the run root's
+#: `.dependencies`, set by the launcher around loading its designs (`cloning_dependencies_into`);
+#: unset elsewhere. A provider, called only when a dependency is cloned: the launcher's run root
+#: is created on first use, which a design that fails to load must not cause.
+dependency_cache: ContextVar[Optional[Callable[[], Path]]] = ContextVar(
+    "dependency_cache", default=None
+)
+
+
+@contextmanager
+def cloning_dependencies_into(provider: Callable[[], Path]) -> Iterator[None]:
+    """Clone the git dependencies of designs loaded meanwhile into the directory `provider`
+    names (in a run root), asking it only when one is cloned."""
+    token = dependency_cache.set(provider)
+    try:
+        yield
+    finally:
+        dependency_cache.reset(token)
+
+
 class DesignReference(XedaBaseModel):
     uri: str
     rtl: RtlDep = RtlDep()
     tb: TbDep = TbDep()
-    local_cache: Path = Path.cwd() / ".xeda_dependencies"
+    #: where a git dependency is cloned (`<local_cache>/<host>/<path>`) when it names no
+    #: `clone_dir`; unset, a launcher clones into its run root (`cloning_dependencies_into`).
+    #: A directory the user configures here is theirs to direct: xeda clones and pulls there.
+    local_cache: Optional[Path] = None
 
     @staticmethod
     def from_data(data) -> DesignReference:
@@ -1392,20 +1417,35 @@ class GitReference(DesignReference):
         import git
         from git.repo import Repo
 
-        if not self.clone_dir:
-            raise ValueError(f"'clone_dir' not set for GitReference: {self}")
+        clone_dir = self.clone_dir
+        if clone_dir is None:
+            provider = dependency_cache.get()
+            cache = self.local_cache or (provider() if provider is not None else None)
+            if cache is None:
+                raise ValueError(
+                    f"{self.repo_url} needs a directory to be cloned into: give its `clone_dir` "
+                    "(or `local_cache`), or load the design through xeda run / a launcher, which "
+                    "clones into its run root"
+                )
+            uri = urlparse(self.repo_url)
+            path = uri.path.lstrip("/.")
+            if self.commit:
+                path += "_commit=" + self.commit
+            elif self.branch:
+                path += "_" + self.branch
+            clone_dir = Path(cache) / uri.netloc / path
         repo = None
-        if self.clone_dir.exists():
+        if clone_dir.exists():
             try:
-                repo = Repo(self.clone_dir)
+                repo = Repo(clone_dir)
                 if not repo.git_dir:
                     raise ValueError(f"repo={repo} is missing 'git_dir'")
-                log.info("Updating existing git repository at %s", self.clone_dir)
+                log.info("Updating existing git repository at %s", clone_dir)
                 repo.remotes.origin.fetch()
                 if not self.commit:
                     repo.git.pull()
             except git.InvalidGitRepositoryError:
-                log.error("Path %s is not a valid git repository.", self.clone_dir)
+                log.error("Path %s is not a valid git repository.", clone_dir)
         if repo is None:
             log.info(
                 "Cloning git repository url:%s branch:%s commit:%s",
@@ -1415,7 +1455,7 @@ class GitReference(DesignReference):
             )
             repo = Repo.clone_from(
                 self.repo_url,
-                self.clone_dir,
+                clone_dir,
                 depth=1,
                 branch=self.branch,
             )
@@ -1428,7 +1468,7 @@ class GitReference(DesignReference):
             log.info("Checking out branch: %s", self.branch)
             repo.git.checkout(self.branch)
 
-        toml_path = self.clone_dir / self.design_file
+        toml_path = clone_dir / self.design_file
         return Design.from_toml(toml_path)
 
 

@@ -7,7 +7,7 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from .console import console
 from .dataclass import Field, PrivateAttr, XedaBaseModel, field_validator
@@ -92,12 +92,14 @@ class Docker(XedaBaseModel):
         env: Optional[Dict[str, Any]] = None,
         stdout: OptionalBoolOrPath = None,
         check: bool = True,
-        root_dir: OptionalPath = None,
+        read_only: Sequence[Path] = (),
         print_command: bool = True,
         highlight_rules: Optional[Dict[str, str]] = None,
         merge_stderr: bool = False,
     ) -> Union[str, None]:
-        """Run the tool from a docker container"""
+        """Run the tool from a docker container: in the directory it runs in (the run directory),
+        mounted writable, with each directory of `read_only` (the design's) mounted read-only.
+        A mount configured in `mounts` stays as configured."""
         note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
         # This run's mounts: `mounts`, and the directories this run needs. Kept out of `mounts`:
         # a later run elsewhere would mount them again -- a version probe's temporary directory
@@ -124,16 +126,16 @@ class Docker(XedaBaseModel):
         if self.privileged:
             docker_args.append("--privileged")
         mounts[str(cwd)] = str(cwd)
-        if root_dir:
-            mounts[str(root_dir)] = str(root_dir)
         if not stdout and tool_output_stream().isatty():
             docker_args += ["--tty", "--interactive"]
         if self.platform:
             docker_args += ["--platform", self.platform]
         selinux_perm = True
         cap = ":z" if selinux_perm else ""
-        for k, v in mounts.items():
-            docker_args.append(f"--volume={k}:{v}{cap}")
+        docker_args += [f"--volume={k}:{v}{cap}" for k, v in mounts.items()]
+        for directory in dict.fromkeys(str(Path(d)) for d in read_only):
+            if directory not in mounts:  # the run directory, or a mount configured writable
+                docker_args.append(f"--volume={directory}:{directory}:ro{',z' if cap else ''}")
         env = {**self.default_env, **(env or {})}
         if env:
             env_file = cwd / f".{self.name}_docker.env"
@@ -262,8 +264,6 @@ class Tool(XedaBaseModel):
                     self.docker.image = flow.settings.docker
                 else:
                     self.docker = Docker(image=flow.settings.docker)  # type: ignore
-        if self.design_root_ and self.docker and str(self.design_root_) not in self.docker.mounts:
-            self.docker.mounts[str(self.design_root_)] = str(self.design_root_)
 
         if self.minimum_version and not self.version_gte(*self.minimum_version):
             log.error(
@@ -483,16 +483,16 @@ class Tool(XedaBaseModel):
         else:
             highlight_rules = None
         if self.docker and self.dockerized:
-            for dir in self.source_dirs_:
-                if str(dir) not in self.docker.mounts:
-                    self.docker.mounts[str(dir)] = str(dir)
+            # The design is mounted read-only, per run: the tool writes only in the directory it
+            # runs in (the run directory), and in a mount the user configured writable.
+            read_only = [d for d in (self.design_root_, *self.source_dirs_) if d is not None]
             return self.docker.run(
                 executable,
                 *args,
                 env=env,
                 stdout=stdout,
                 check=check,
-                root_dir=self.design_root_,
+                read_only=read_only,
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
                 merge_stderr=merge_stderr,

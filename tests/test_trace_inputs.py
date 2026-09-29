@@ -2,6 +2,7 @@
 depfile-reported files, and every output."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import ClassVar, List, Optional
 
 import pytest
@@ -12,6 +13,7 @@ from xeda.flow import Flow, registered_flows
 from xeda.flow_runner.trace_inputs import (
     XEDA_PACKAGE,
     _package_files,
+    artifact_files,
     design_files,
     flow_code_digest,
     implicit_input_files,
@@ -19,6 +21,7 @@ from xeda.flow_runner.trace_inputs import (
     setting_files,
     xeda_code_digest,
 )
+from xeda.listing import directory_files
 
 
 @pytest.fixture(scope="module")
@@ -200,3 +203,43 @@ def test_a_flow_of_xeda_s_own_has_no_separate_code_digest():
     from xeda.flows import YosysFpga
 
     assert flow_code_digest(YosysFpga) == ""
+
+
+def test_one_walker_lists_every_file_under_a_directory():
+    """R50 m: every "every file under" of the trace and of delivery is `listing.directory_files`
+    (a link as itself unless asked to follow, no `rglob` that resolves or follows)."""
+    import xeda
+
+    package = Path(xeda.__file__).parent
+    for module in ("flow_runner/trace.py", "flow_runner/trace_inputs.py", "deliver.py"):
+        text = (package / module).read_text()
+        assert "rglob(" not in text and "os.walk(" not in text, module
+
+
+def test_a_followed_link_never_enters_a_pruned_directory(tmp_path):
+    """Opus minor: pruned by (st_dev, st_ino), so a library link to an ancestor of the run root
+    does not list the runs through it."""
+    libs = tmp_path / "t" / "libs"
+    libs.mkdir(parents=True)
+    (libs / "a.v").write_text("")
+    run_root = tmp_path / "t" / "xeda_run"
+    (run_root / "d" / "f").mkdir(parents=True)
+    (run_root / "d" / "f" / "out.v").write_text("")
+    (libs / "up").symlink_to(tmp_path / "t", target_is_directory=True)
+    listed = directory_files(libs, prune=[run_root], follow_links=True)
+    assert libs.resolve() / "a.v" in listed
+    assert not any("xeda_run" in p.parts for p in listed), listed
+
+
+def test_an_artifact_directory_s_files_are_listed_without_following_a_link_out(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("x\n")
+    run_path = tmp_path / "xeda_run" / "d" / "f"
+    (run_path / "out").mkdir(parents=True)
+    (run_path / "out" / "a.txt").write_text("a\n")
+    (run_path / "out" / "elsewhere").symlink_to(outside, target_is_directory=True)
+    flow = SimpleNamespace(results={"artifacts": {"out": "out"}}, artifacts={}, run_path=run_path)
+    files = artifact_files(flow)  # type: ignore[arg-type]
+    assert (run_path / "out" / "a.txt").resolve() in files
+    assert not any(p.is_relative_to(outside.resolve()) for p in files)

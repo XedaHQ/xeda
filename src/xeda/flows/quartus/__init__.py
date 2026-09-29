@@ -191,10 +191,8 @@ class Quartus(FpgaSynthFlow):
     def init(self) -> None:
         # FIXME only a proof of concept. Tool instantiation/invocation needs to change!
         if self.quartus_sh.docker:
-            # FIXME
-            for src in self.design.rtl.sources:
-                p = str(src.file.parent.resolve())
-                self.quartus_sh.docker.mounts[p] = p
+            # Nothing of the design goes into `mounts`, which are mounted writable: a tool built
+            # in a flow mounts the design read-only, per run (`Tool.execute`).
             if self.settings.dockerized and self.quartus_sh.docker.nproc and self.settings.nthreads:
                 self.settings.nthreads = min(self.settings.nthreads, self.quartus_sh.docker.nproc)
 
