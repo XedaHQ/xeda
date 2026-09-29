@@ -101,11 +101,18 @@ identity (device, inode), not by path: one file has many names (a link to it or 
 holding it, another letter case on a case-insensitive file system), and every name of an earlier
 run's file finds that file's state. An output inside the run directory whose identity the
 snapshot did not record was created or moved there since -- unless it lies in a directory the
-snapshot could not read, which proves nothing. `remove_stale_output` and assigning
-`self.artifacts` record the state of an output named outside the run directory. Where nothing
-tells, the prior state is unknown, and an unknown prior state is never proof a run wrote it --
-which is how a failed run's `results.json` drops what an earlier run left without ever relisting
-one it merely could not confirm. A work directory removed by name goes through `Flow.removable_work_dir`, which refuses one outside. `RemoteRunner.run_remote` claims its local
+snapshot could not read, which proves nothing. An output named outside the run directory has
+the state recorded when the run first learned of it: by `remove_stale_output`, or by assigning it
+to `self.artifacts` -- which records its state *at assignment*, its prior state only if the flow
+assigns before its tool runs. A flow assigning after its tool (nextpnr's outputs,
+openfpgaloader's and openxc7's bitstream, bsc's executable, vivado_synth's reports) records the
+state the tool left, so `wrote_output` finds it unchanged: the safe direction (a failed run omits
+it), but never use `wrote_output` to check that a run wrote such an output -- call
+`remove_stale_output` on it before the tool runs, as vivado_synth does for its bitstream. Where
+nothing tells, the prior state is unknown, and an unknown prior state is never proof a run wrote
+it -- which is how a failed run's `results.json` drops what an earlier run left without ever
+relisting one it merely could not confirm. A work directory removed by name goes through
+`Flow.removable_work_dir`, which refuses one outside. `RemoteRunner.run_remote` claims its local
 results directory the same way before connecting. xeda never writes through a link: generated
 files go through `utils.replacing_file` / `replacing_copy` (a temporary beside the target,
 `os.replace`d over it), and the marker is created with `O_EXCL | O_NOFOLLOW`.

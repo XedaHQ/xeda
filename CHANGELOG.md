@@ -50,9 +50,10 @@ All notable changes to this project will be documented in this file.
   with a warning naming them, where a failed `--remote` run used to crash fetching them instead
   of reporting its failure. Nor does it list one an earlier run left in a reused run directory
   (`quartus`'s `.sof`, `dc`'s mapped netlists, `vivado_sim`'s VCD, `vivado_alt_synth`'s
-  checkpoints): an output counts as the run's own only if it was written after the run started,
-  by the clock of the file system it is on. `dc` no longer renders `write_sdf -version None` when `sdf_version`
-  is unset.
+  checkpoints): an output counts as the run's own only if it changed from the state it was in
+  before the run -- its identity, size and times, compared with what xeda recorded of it then,
+  never with a clock, so an output on another file system whose clock differs is judged alike.
+  `dc` no longer renders `write_sdf -version None` when `sdf_version` is unset.
 - A cocotb simulation fails when its tests fail, on every simulator: `verilator` never read
   cocotb's results, so a failing test gave a successful run. A missing or unreadable results
   file, or one in which no test ran, is a failure too, and an earlier run's results file is

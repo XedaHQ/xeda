@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import pickle
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -204,8 +205,8 @@ def _sqrt_with_a_vhdl_testbench(root: Path) -> Design:
 def test_a_failed_run_never_reports_an_earlier_runs_artifact(flow_name, tmp_path, monkeypatch):
     """Every artifact a flow declares is there from an earlier run; the next run's tool fails
     before writing any of them. The failed run's `results.json` lists none of those files: a
-    file counts as the run's own only if it was written after the run started, whichever flow
-    wrote it -- no flow has to remember to clear its outputs."""
+    file counts as the run's own only if it changed from the state recorded of it before the
+    run, whichever flow wrote it -- no flow has to remember to clear its outputs."""
     if flow_name == "vivado_sim":
         design = _sqrt_with_a_vhdl_testbench(tmp_path / "design")
     else:
@@ -573,3 +574,103 @@ def test_a_failed_vivado_sim_does_not_list_an_earlier_vcd_named_through_a_link(
     assert vcd.stat().st_mtime_ns == EARLIER_NS  # the earlier run's, untouched
     saved = json.loads((run_dir / "results.json").read_text())
     assert "vcd" not in saved.get("artifacts", {})
+
+
+#: How far behind the run directory's clock the "other file system" of the test below runs.
+LAG_NS = 3600 * 10**9
+
+
+def _lagging(st: os.stat_result) -> os.stat_result:
+    """`st` as a file system whose clock runs `LAG_NS` behind would report it."""
+    lag_s = LAG_NS // 10**9
+    fields = list(st)
+    fields[8] -= lag_s  # st_mtime (whole seconds)
+    fields[9] -= lag_s  # st_ctime
+    return os.stat_result(
+        fields,
+        {
+            "st_atime": st.st_atime,
+            "st_mtime": st.st_mtime - lag_s,
+            "st_ctime": st.st_ctime - lag_s,
+            "st_atime_ns": st.st_atime_ns,
+            "st_mtime_ns": st.st_mtime_ns - LAG_NS,
+            "st_ctime_ns": st.st_ctime_ns - LAG_NS,
+        },
+    )
+
+
+def test_a_successful_vivado_synth_accepts_its_bitstream_on_a_file_system_whose_clock_is_behind(
+    tmp_path, monkeypatch
+):
+    """sol/luna's scenario itself: the bitstream is named on another file system, whose clock
+    runs an hour behind the run directory's -- every time read there (mtime and ctime alike,
+    which no `os.utime` can set) is an hour earlier. A run that compared those times with a
+    start time read from the run directory's clock judged the bitstream Vivado had just written
+    to be from before the run, and failed a correct build (`FlowFatalError`). Judged by the
+    file's own state before and after, it is the run's."""
+    use_fake_tools(monkeypatch)
+    external = tmp_path / "external"
+    external.mkdir()
+    bitstream = external / "top.bit"
+    bitstream.write_text("an earlier run's\n")
+    real_stat = os.stat
+
+    def stat(path, *args, **kwargs):
+        st = real_stat(path, *args, **kwargs)
+        inside = Path(os.fspath(path)).is_relative_to(external) if path is not None else False
+        return _lagging(st) if inside else st
+
+    monkeypatch.setattr(os, "stat", stat)
+    runner = DefaultRunner(tmp_path / "run", display_results=False, cached_dependencies=False)
+
+    flow = runner.launch_flow(
+        "vivado_synth",
+        Design.from_file(EXAMPLE),
+        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": str(bitstream)},
+    )
+
+    assert flow.succeeded
+    assert bitstream.read_text() != "an earlier run's\n"
+
+
+def test_a_runs_artifacts_and_results_pickle(tmp_path):
+    """A flow's results cross a process boundary by pickle -- the DSE's workers return them --
+    and so may its artifacts, in every shape an artifact may take: a path, a list of them, a
+    mapping, a list of mappings. Recording each output's state as it is stored is the live
+    flow's business, and none of it goes with them."""
+
+    class ManyShapes(Flow):
+        """Declare outputs in every shape."""
+
+        results_description: ClassVar[dict] = {}
+
+        def run(self) -> None:
+            for name in ("a.v", "b.v", "t.rpt"):
+                (self.run_path / name).write_text(name)
+            self.artifacts.netlist = "a.v"
+            self.artifacts.sources = ["a.v", "b.v"]
+            self.artifacts.reports = {"timing": "t.rpt"}
+            self.artifacts.runs = [{"netlist": "a.v", "report": "t.rpt"}]
+
+    flow = _launch_and_forget(ManyShapes, tmp_path)
+
+    assert flow.succeeded
+    expected = {
+        "netlist": "a.v",
+        "sources": ["a.v", "b.v"],
+        "reports": {"timing": "t.rpt"},
+        "runs": [{"netlist": "a.v", "report": "t.rpt"}],
+    }
+    assert pickle.loads(pickle.dumps(flow.results)).artifacts == expected
+    assert pickle.loads(pickle.dumps(flow.artifacts)) == expected
+
+
+def _launch_and_forget(flow_class, tmp_path: Path) -> Flow:
+    """Launch a flow class defined by a test, then unregister it."""
+    try:
+        return DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
+            flow_class, Design.from_file(EXAMPLE), {}
+        )
+    finally:
+        for name in (flow_class.name, flow_class.__name__):
+            registered_flows.pop(name, None)
