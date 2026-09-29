@@ -488,28 +488,28 @@ class OpenXC7(FpgaSynthFlow):
                 log.info("Chip database already exists: %s", bin_path)
                 return bin_path
             # The intermediate database goes to a temporary directory of its own, removed with
-            # it: never a file deleted by name where the database is kept.
-            scratch = tempfile.TemporaryDirectory(prefix="xeda-chipdb-")
-            bba_path = Path(scratch.name) / f"{part}.bba"
-            cmd = [
-                str(python_executable),
-                str(nextpnr_xilinx_python_dir / "bbaexport.py"),
-                "--device",
-                part,
-                "--bba",
-                str(bba_path),
-            ]
-            log.info(f"Running: {' '.join(map(str,cmd))}")
-            run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
-            assert bba_path.exists(), f"bbaexport failed: {bba_path} not found!"
+            # it, whether the assembly succeeds or fails: never a file deleted by name where the
+            # database is kept.
+            with tempfile.TemporaryDirectory(prefix="xeda-chipdb-") as scratch:
+                bba_path = Path(scratch) / f"{part}.bba"
+                cmd = [
+                    str(python_executable),
+                    str(nextpnr_xilinx_python_dir / "bbaexport.py"),
+                    "--device",
+                    part,
+                    "--bba",
+                    str(bba_path),
+                ]
+                log.info(f"Running: {' '.join(map(str,cmd))}")
+                run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
+                assert bba_path.exists(), f"bbaexport failed: {bba_path} not found!"
 
-            cmd = [bbasm_executable, "-l", str(bba_path), str(bin_path)]
-            log.info(f"Running: {' '.join(map(str,cmd))}")
-            run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
-            assert (
-                bin_path.exists() and bin_path.is_file()
-            ), f"Failed to generate chipdb: {bin_path} not found!"
-            scratch.cleanup()
+                cmd = [bbasm_executable, "-l", str(bba_path), str(bin_path)]
+                log.info(f"Running: {' '.join(map(str,cmd))}")
+                run_process(str(cmd[0]), [str(a) for a in cmd[1:]], check=True)
+                assert (
+                    bin_path.exists() and bin_path.is_file()
+                ), f"Failed to generate chipdb: {bin_path} not found!"
             log.info("Chip database generated: %s", bin_path)
             return bin_path
         return None
