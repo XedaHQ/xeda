@@ -38,7 +38,6 @@ from ..flow.run_dir import (
     RunDirectoryError,
     check_inside_run_root,
     claim_run_dir,
-    filesystem_time_ns,
     is_earlier_run_of,
     is_marked_run_dir,
     mark_run_dir,
@@ -355,7 +354,7 @@ def _drop_unwritten_artifacts(flow: Flow) -> None:
     flow.results.artifacts = Box(
         drop_unwritten_artifacts(
             flow.results.artifacts,
-            flow.wrote_output,  # only a file written since the run started
+            flow.wrote_output,  # only a file whose recorded prior state changed
             flow.name,
         )
     )
@@ -510,8 +509,7 @@ class FlowLauncher:
             )
         flow.design_hash = design_hash
         flow.flow_hash = flowrun_hash
-        # what this run writes from now on is its own (`Flow.wrote_output`)
-        flow.run_started_ns = filesystem_time_ns(run_path)
+        # `flow.__init__` already snapshotted `run_path`'s prior state for `Flow.wrote_output`
         flow.incremental = policy.incremental
         if flow.runner_cwd is None:  # redundant, but OK
             flow.runner_cwd = runner_cwd

@@ -6,7 +6,6 @@ import inspect
 import logging
 import os
 import shutil
-import time
 from abc import ABCMeta, abstractmethod
 from copy import deepcopy
 from pathlib import Path
@@ -14,6 +13,7 @@ from types import UnionType
 from typing import (
     Annotated,
     Any,
+    Callable,
     ClassVar,
     Dict,
     List,
@@ -31,6 +31,7 @@ import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
 
+from ..artifacts import iter_artifact_paths
 from ..dataclass import (
     Field,
     PrivateAttr,
@@ -64,8 +65,9 @@ from .run_dir import (
     RUN_DIR_MARKER,
     RunDirectoryError,
     is_marked_run_dir,
+    record_output_state,
     resolved_inside,
-    written_since,
+    snapshot_output_states,
 )
 
 log = logging.getLogger(__name__)
@@ -85,6 +87,48 @@ __all__ = [
 registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
+
+
+class _ArtifactsBox(Box):
+    """The `Box` behind `Flow.artifacts`: records each path leaf of whatever is stored here
+    (`iter_artifact_paths` walks mappings, lists and tuples the same way everywhere else
+    artifacts are walked) through `record`, before delegating to `Box`'s own storage -- for the
+    many flows that declare an output's path before running the tool that writes it, this is
+    enough on its own to give `Flow.wrote_output` that output's state from before the tool could
+    have touched it. It is a second layer: `Flow.remove_stale_output` and the run-directory
+    snapshot `Flow.__init__` takes cover every flow, including the few that learn an output's
+    path only after invoking their tool.
+
+    `Box` reconstructs a nested `dict`/`list`/`tuple` value into fresh containers of its own
+    classes when storing it, which cannot be given `record` -- harmless here, since the outer
+    call already walked the whole value with `iter_artifact_paths` first, so nothing nested is
+    missed.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        record: Callable[[Union[str, os.PathLike]], None] = lambda path: None,
+        **kwargs: Any,
+    ) -> None:
+        object.__setattr__(self, "_record", record)
+        super().__init__(*args, **kwargs)
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        record = object.__getattribute__(self, "_record")
+        for path in iter_artifact_paths(value):
+            record(path)
+        super().__setitem__(key, value)
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        # `Box.update` does not route through `__setitem__`; recurse through it ourselves so
+        # `self.artifacts.update(...)` (vivado_synth's outputs) is recorded too.
+        for arg in args:
+            items = arg.items() if hasattr(arg, "items") else arg
+            for key, value in items:
+                self[key] = value
+        for key, value in kwargs.items():
+            self[key] = value
 
 
 def _is_path_annotation(annotation: Any) -> bool:
@@ -709,10 +753,15 @@ class Flow(metaclass=ABCMeta):
         if run_path is None:
             run_path = Path.cwd()
         self.run_path = run_path
-        # When the run started, by the clock of the file system it writes to: a file written (or
-        # its inode changed) since is the run's own (`wrote_output`). The launcher reads it from
-        # the run directory (`run_dir.filesystem_time_ns`) just before the flow's `init()`.
-        self.run_started_ns: int = time.time_ns()
+        # Every existing file's state under the run directory, recorded now: before `init()`,
+        # dependencies or `run()` can write to it, however this flow was constructed -- by the
+        # launcher, or directly, as some tests do -- since construction is the one thing that
+        # must happen before any of those can run. `wrote_output` tells this run's own output
+        # from one an earlier run left by comparing against this, never a clock: sound across
+        # file systems and coarse timestamps alike.
+        self._prior_output_state: Dict[Path, Optional[Tuple[int, int, int, int]]] = dict(
+            snapshot_output_states(run_path)
+        )
 
         if isinstance(design, dict):
             design = dict(design)
@@ -757,7 +806,9 @@ class Flow(metaclass=ABCMeta):
 
         # Artifact labels map to paths or nested mappings/lists/tuples of paths. Relative
         # paths are rooted at run_path; runners walk path leaves through xeda.artifacts.
-        self.artifacts = Box()
+        # `_ArtifactsBox` records each path's prior state as it is stored -- a second layer
+        # alongside `remove_stale_output` and the run-directory snapshot above.
+        self.artifacts = _ArtifactsBox(record=self._record_output_state)
         self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
         self.add_template_filter("quote", lambda x: f'"{x}"')
@@ -820,12 +871,31 @@ class Flow(metaclass=ABCMeta):
             )
         return resolved
 
+    def _record_output_state(self, path: Union[str, os.PathLike]) -> None:
+        """Record `path`'s state now -- `record_output_state`, `None` if it is not there -- the
+        first time this run learns of it, for a path outside the run directory only. One inside
+        it is already covered, exhaustively, by the directory-wide snapshot `__init__` took
+        before anything could write to it: recording it again here, later, would capture
+        whatever it is *now* -- possibly what this very run just wrote -- as if that had been its
+        state before the run, which is exactly the bug this mechanism exists to avoid. Later
+        calls for the same outside path do nothing either: what `wrote_output` must compare
+        against is the state as of when the run first knew of this output (before its tool could
+        have written it), not whatever the path is by the time something asks."""
+        target = Path(os.path.abspath(self.run_path / path))
+        if resolved_inside(target, self.run_path) is not None:
+            return
+        if target not in self._prior_output_state:
+            self._prior_output_state[target] = record_output_state(target)
+
     def remove_stale_output(self, path: Union[str, os.PathLike]) -> None:
         """Remove an earlier copy of an output the run writes (`path`, relative to the run
         directory unless absolute) -- inside the run directory only. An output named outside it
         (`-s bitstream=/elsewhere/x.bit`) is left for the tool to overwrite, as it always was:
-        xeda deletes nothing outside the run directory. Either way, `wrote_output` tells an
-        earlier file from one this run wrote."""
+        xeda deletes nothing outside the run directory. Either way, its state is recorded first
+        (`_record_output_state`, a no-op for one inside the run directory, already covered by the
+        directory-wide snapshot), so `wrote_output` can tell an earlier file from one this run
+        wrote even when it is left for the tool to overwrite in place."""
+        self._record_output_state(path)
         inside = resolved_inside(path, self.run_path)
         if inside is not None:
             inside.unlink(missing_ok=True)
@@ -834,14 +904,31 @@ class Flow(metaclass=ABCMeta):
 
     def wrote_output(self, path: Union[str, os.PathLike]) -> bool:
         """Whether this run wrote the output at `path` (relative to the run directory unless
-        absolute): it is there, and it was written -- or its inode changed -- since the run
-        started (`run_started_ns`). A file an earlier run left, which this run did not write
-        again, is not the run's own, whichever flow declared it."""
+        absolute): it is there now, and its state -- inode, size, mtime or ctime -- differs from
+        what was recorded for it before this run's tool could have written it (created, an
+        earlier copy the tool truly overwrote, or one merely touched). Never a clock: an output
+        on a file system whose clock is behind, or read within a coarse tick, is told apart by
+        its own recorded identity and metadata, not by comparing either clock's reading of it to
+        a run-start timestamp.
+
+        A path inside the run directory that was never recorded was absent when this run's
+        directory-wide snapshot was taken at construction (`Flow.__init__`), which is exhaustive
+        -- so its absence here is itself the recorded prior state. A path outside the run
+        directory that was never recorded (never passed to `remove_stale_output`, nor assigned as
+        an artifact) is genuinely unknown, and an unknown prior state is never proof this run
+        wrote it: a failed run's results omit such an artifact rather than risk relisting one an
+        earlier run left."""
         target = Path(os.path.abspath(self.run_path / path))
-        try:
-            return written_since(target, self.run_started_ns)
-        except OSError:
-            return False
+        current = record_output_state(target)
+        if current is None:
+            return False  # not there now: this run cannot have written it
+        if target in self._prior_output_state:
+            prior = self._prior_output_state[target]
+        elif resolved_inside(target, self.run_path) is not None:
+            prior = None  # the run-directory snapshot found nothing there
+        else:
+            return False  # outside the run directory, and never recorded: unknown, not proven
+        return prior != current
 
     def parse_reports(self) -> bool:
         log.debug("No parse_reports action for %s", self.name)

@@ -23,9 +23,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, Optional, Tuple, Union
 
 from pathvalidate import sanitize_filename
 
@@ -36,13 +35,13 @@ __all__ = [
     "RunDirectoryError",
     "check_inside_run_root",
     "claim_run_dir",
-    "filesystem_time_ns",
     "is_earlier_run_of",
     "is_marked_run_dir",
     "mark_run_dir",
+    "record_output_state",
     "resolved_inside",
     "run_dir_name",
-    "written_since",
+    "snapshot_output_states",
 ]
 
 log = logging.getLogger(__name__)
@@ -153,25 +152,39 @@ def claim_run_dir(directory: Path, flow_name: Optional[str] = None) -> None:
         )
 
 
-def filesystem_time_ns(directory: Path) -> int:
-    """The time now by the clock of the file system `directory` is on -- the modification time
-    of a file created there, then removed -- so that it compares with the times of the files a
-    run writes there whatever that file system's clock and granularity."""
-    fd, name = tempfile.mkstemp(prefix=".xeda-time-", dir=directory)
-    os.close(fd)
-    probe = Path(name)
+def record_output_state(path: Path) -> Optional[Tuple[int, int, int, int]]:
+    """`path`'s `(inode, size, mtime_ns, ctime_ns)`, or `None` if it is not there.
+
+    What `Flow.wrote_output` compares a path's later state against, so that a run's own output is
+    told from one an earlier run left by the file's own identity and metadata changing -- never a
+    clock. A file on a file system whose clock is behind (an external, named output) or read
+    within a coarse tick (FAT's 2s) is judged the same way: unsound comparisons like `mtime >=
+    some_timestamp` never enter into it.
+    """
     try:
-        os.utime(probe, None)
-        return probe.stat().st_mtime_ns
-    finally:
-        probe.unlink(missing_ok=True)  # the probe it just created
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
 
 
-def written_since(path: Path, since_ns: int) -> bool:
-    """Whether `path` was written -- created, modified, or its inode changed (a rename onto it, a
-    copy setting an old time) -- at or after `since_ns`. Raises `OSError` if it is not there."""
-    st = path.stat()
-    return max(st.st_mtime_ns, st.st_ctime_ns) >= since_ns
+def snapshot_output_states(directory: Path) -> Dict[Path, Tuple[int, int, int, int]]:
+    """Every existing file's state under `directory`, recursively, keyed by its path.
+
+    Meant to be taken before anything can write to `directory`: a path found here later with a
+    different state (or a path never listed here at all) is new or changed since. `directory` not
+    existing yet, or being empty, both come back empty -- everything under it was absent.
+    Symbolic links to a directory are not followed, so a link cannot walk this outside `directory`
+    or loop back into it.
+    """
+    states: Dict[Path, Tuple[int, int, int, int]] = {}
+    for dirpath, _dirnames, filenames in os.walk(directory, followlinks=False):
+        for filename in filenames:
+            path = Path(dirpath) / filename
+            state = record_output_state(path)
+            if state is not None:
+                states[path] = state
+    return states
 
 
 def resolved_inside(path: Union[str, os.PathLike], directory: Path) -> Optional[Path]:

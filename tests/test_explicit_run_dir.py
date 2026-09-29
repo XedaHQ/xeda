@@ -1262,11 +1262,6 @@ REVIEWED_SITES = [
         "Path(temporary).unlink(missing_ok=True)  # the temporary file, never committed",
         "`replacing_file`: the temporary file it created, when the body failed or the rename did",
     ),
-    (
-        "flow/run_dir.py",
-        "probe.unlink(missing_ok=True)  # the probe it just created",
-        "`filesystem_time_ns`: the temporary file it created in the run directory to read its clock",
-    ),
     ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lef", "PDK script: its own"),
     ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lib", "PDK script: its own"),
 ]
