@@ -27,11 +27,13 @@ from rich.text import Text
 
 from ..artifacts import drop_unwritten_artifacts, iter_artifact_paths
 from ..console import console
-from ..dataclass import XedaBaseModel, model_validator
+from ..dataclass import WORKING_ROLE, XedaBaseModel, model_validator
 from ..deliver import (
+    OUTPUTS_TO,
     Conflict,
     Deliveries,
     ReadInputs,
+    deliverable_setting_names,
     outputs_to_deliveries,
     recorded_artifacts,
     split_deliveries,
@@ -39,7 +41,7 @@ from ..deliver import (
 from ..design import DESIGN_NAME, Design, cloning_dependencies_into, names_a_design_file
 from ..flow import Flow, FlowDependencyFailure, FlowSettingsError, registered_flows
 from ..flow import flowrun_hash as flow_run_hash
-from ..flow.flow import written_path_problems
+from ..flow.flow import WrittenLeaf, map_written_leaves, written_path_problems
 from ..proc_utils import recording_programs
 from ..run_dir import RunDirectory, RunDirectoryError
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
@@ -74,6 +76,7 @@ from .trace_inputs import (
     build_trace,
     design_files,
     expectation,
+    register_read_settings,
     setting_files,
     snapshot_inputs,
 )
@@ -325,6 +328,51 @@ def _refuse_inputs_inside(run_path: Path, flow_name: str, files: Iterable[Path])
             f"{inside[0]} lies in {run_path}, {flow_name}'s own run directory, which xeda "
             "empties and rewrites: keep your files in your design, outside the run root"
         )
+
+
+def _free_working_locations(flow: Flow) -> None:
+    """Before the run: each working location of `flow` (a setting with the `WORKING` role, a name
+    inside the run directory) is where its tools work, never through a symbolic link out of the
+    run directory. A tool may leave its working location's own name a link, anywhere: that link
+    is removed as itself -- never what it points to -- and the tool makes the location anew. One
+    reached through a link that leads out is refused, naming the link (`RunDirectory.inside`),
+    before anything runs there."""
+    run_directory = flow.run_directory
+
+    def free(written: WrittenLeaf) -> Any:
+        leaf = written.value
+        if written.role != WORKING_ROLE or not isinstance(leaf, (str, os.PathLike)):
+            return leaf
+        if os.path.normpath(os.fspath(leaf)) in ("", "."):
+            return leaf  # the run directory itself
+        located = run_directory.inside(leaf)
+        if located.is_symlink() and not RunDirectory.lies_under(located, run_directory.path):
+            log.info(
+                "Removing %s, a link left where `%s` works: it leads out of the run directory",
+                located,
+                written.key,
+            )
+            run_directory.remove(located)
+        return leaf
+
+    map_written_leaves(flow.settings, free)
+
+
+def _warn_outputs_to_delivered_nothing(flow: Flow, outputs_to: Path) -> None:
+    """`--outputs-to` copies only artifacts a successful, requested flow reported inside its run
+    directory: a flow that reported none there, or names no setting deliverable, delivers nothing
+    and nothing else says so. Name the flow and, where it has any, the deliverable settings of its
+    own a location could be given instead (`vcd` for a simulator), so a bare run is not mistaken
+    for xeda silently dropping a file."""
+    names = deliverable_setting_names(type(flow.settings))
+    which = ", ".join(names) if names else "none"
+    log.warning(
+        "--outputs-to %s: %s delivered nothing there -- its deliverable settings (%s) are what "
+        "--outputs-to copies; give one a location for something to deliver",
+        outputs_to,
+        flow.name,
+        which,
+    )
 
 
 FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
@@ -593,6 +641,12 @@ class FlowLauncher:
             error = self._finish_launch(deliver=flow.succeeded)
             if error is not None:
                 raise error
+            if (
+                self.settings.outputs_to is not None
+                and flow.succeeded
+                and not any(d.key == OUTPUTS_TO for d in flow.deliveries)
+            ):
+                _warn_outputs_to_delivered_nothing(flow, self.settings.outputs_to)
         return flow
 
     def _finish_launch(self, deliver: bool) -> Optional[Exception]:
@@ -609,6 +663,10 @@ class FlowLauncher:
                 with run_dir_lock(flow.run_path):
                     flow.deliveries = delivery.deliver()
             except Exception as e:  # noqa: BLE001 - every delivery gets its turn
+                # `deliver()` records, and reports through `delivery.delivered`, whatever it
+                # copied before raising (an `OSError` partway through), so a `--json` reader still
+                # sees the copies that actually reached disk
+                flow.deliveries = delivery.delivered
                 log.error("Delivering the outputs of %s failed: %s", flow.name, e)
                 first_error = first_error or e
         pending, self._pending_clean_ups = self._pending_clean_ups, []
@@ -671,14 +729,14 @@ class FlowLauncher:
         # D21: a deliverable given as a location becomes its conventional name here, before the
         # identity; the tools write that, and a delivery copies it to the location
         deliveries = split_deliveries(input_settings, design.name)
-        # gpt-6-sol's final (c): what this flow reads -- the settings of a dependency nested in
-        # its own included -- is an input no delivery of the launch may replace, registered
-        # before any of this flow's deliveries, or its dependencies', is checked
-        self._read_inputs.add(
-            [*design_files(design), *setting_files(input_settings, dependencies=True)]
-        )
         copy_resources = [res for res in copy_resources if os.path.isfile(res)]
         design_hash, flowrun_hash, run_path = self._run_identity(flow_name, design, input_settings)
+        # gpt-6-sol's final (c): what this flow reads -- the settings of a dependency nested in
+        # its own included, and every file under a directory one names, as its trace lists it --
+        # is an input no delivery of the launch may replace, nor land beside in such a directory:
+        # registered before any of this flow's deliveries, or its dependencies', is checked
+        self._read_inputs.add(design_files(design))
+        register_read_settings(self._read_inputs, input_settings, run_path, self.run_root)
         _refuse_inputs_inside(
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
@@ -704,6 +762,11 @@ class FlowLauncher:
                 overwrite=self.settings.overwrite_outputs,
                 confirm=self.confirm_overwrite,
             )
+            # the directory itself, not only a file predicted from the last run's artifacts: a
+            # location becomes a concrete `Delivery` only once its tool has run and reported an
+            # artifact, so without this a run root or an input named by `--outputs-to` is refused
+            # only after the requested flow's tools (its dependencies' included) have already run
+            delivery.check_outputs_to(outputs_to)
             delivery.check(
                 outputs_to_deliveries(recorded_artifacts(results_json), run_path, outputs_to)
             )
@@ -807,6 +870,8 @@ class FlowLauncher:
                 # conventional names', inside the run directory (relative, never `..`)
                 for d in deliveries:
                     (run_path / d.name).parent.mkdir(parents=True, exist_ok=True)
+                # never through a link a tool left leading out of the run directory
+                _free_working_locations(flow)
                 # From now on, what the run directory holds is this run's own only if the run
                 # writes it (`Flow.wrote_output`, by identity): a report left from before is a
                 # previous run's (`Flow.report_file`).

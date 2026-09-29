@@ -107,34 +107,40 @@ def test_a_failed_ise_process_fails_the_run(process, how, tmp_path, monkeypatch)
     assert ran[-1] == process  # nothing runs after a failed process
 
 
-def test_ise_removes_only_its_own_outputs_from_the_run_directory(tmp_path, monkeypatch) -> None:
-    """Before running, ISE removes the files it records (the bitstream and the reports it parses)
-    and nothing else: a directory xeda ran in before (marked as xeda's, as `--cwd` leaves it)
-    may hold other files."""
+def test_a_failed_ise_run_leaves_nothing_of_the_previous_run_in_its_run_directory(
+    tmp_path, monkeypatch
+) -> None:
+    """ISE empties its run directory before running (a stale ISE project would be reopened
+    otherwise), so a run whose tool writes nothing leaves none of the previous run's outputs
+    (bitstream, reports) and lists no artifacts. The run directory is xeda's; the user's own
+    files, in the directory xeda was started from, are never touched."""
     work = tmp_path / "work"
     work.mkdir()
-    own = [work / name for name in ("sqrt.bit", "sqrt.syr", "sqrt_par.xrpt")]
-    theirs = [work / name for name in ("sqrt.vhdl", "notes.txt", "sqrt.ucf")]
-    for path in own + theirs:
-        path.write_text("from before\n")
+    theirs = [work / name for name in ("sqrt.bit", "sqrt.syr", "notes.txt", "sqrt.ucf")]
+    for path in theirs:
+        path.write_text("the user's\n")
     (work / "rtl").mkdir()
     (work / "rtl" / "core.vhdl").write_text("-- a source\n")
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(work)
-    # a run that writes none of the files: whatever is left of them is from before
-    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "{Implement Design}")
     design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    runner = DefaultRunner(tmp_path / "xeda_run", rebuild_all=True)
 
-    flow = DefaultRunner(tmp_path / "xeda_run").run_flow(
-        IseSynth, design, ISE_SETTINGS, run_path=work
-    )
+    first = runner.run_flow(IseSynth, design, ISE_SETTINGS)
+    assert first is not None
+    earlier = [path for path in first.run_path.rglob("*") if path.suffix in {".bit", ".syr"}]
+    assert any(path.suffix == ".bit" for path in earlier)
 
-    assert flow is not None and flow.run_path == work
+    # a run that writes none of the files: whatever is left of them would be from before
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "{Implement Design}")
+    flow = runner.run_flow(IseSynth, design, ISE_SETTINGS)
+
+    assert flow is not None and flow.run_path == first.run_path
     assert not flow.results.success
-    assert [path for path in own if path.exists()] == []
-    assert all(path.read_text() == "from before\n" for path in theirs)
-    assert (work / "rtl" / "core.vhdl").is_file()
+    assert [path for path in earlier if path.exists()] == []
     assert not flow.artifacts
+    assert all(path.read_text() == "the user's\n" for path in theirs)
+    assert (work / "rtl" / "core.vhdl").is_file()
 
 
 def test_an_ise_run_without_its_bitstream_fails_naming_it(tmp_path, monkeypatch) -> None:

@@ -67,6 +67,35 @@ violation. The JSON document keeps the parsed `results`; inspect them and the re
 A design-space exploration completed without a successful candidate. Inspect the attempted run
 directories, then correct the flow settings or adjust the search range.
 
+### `RunRootError`
+
+The run root (`--run-root`/`XEDA_RUN_ROOT`, default `./xeda_run`) holds files but carries no marker
+xeda created (`.xeda-run-root`), or it lies somewhere xeda cannot write. The message names the
+directory. Move it aside, or run `touch <dir>/.xeda-run-root` to hand it to xeda -- but only if you
+are sure nothing of yours is in there: everything under a marked run root is xeda's from then on.
+The one exception is by name and location, not history: a directory named `xeda_run` directly in
+the start directory is adopted automatically, whatever put files there -- xeda does not check who
+created it. Keep nothing of your own in a directory called `xeda_run` beside where you run xeda
+from.
+
+### `DeliveryError`
+
+A setting or `--outputs-to` named a location xeda could not deliver the output to: the run did not
+write the file the setting expects, or the destination is an input the launch reads (a
+dependency's, or the design's own), a directory where a file was expected, or a path inside a run
+root. The role -- *working* or *deliverable* -- belongs to the setting itself, not to the value you
+gave it (`xeda list-settings <flow> --json` shows each setting's `"writes"`): a *working* setting
+always stays a bare name inside the run directory, whatever it is given, and is never delivered
+anywhere; only a *deliverable* setting given a location -- an absolute path, or one anchored with
+`$PWD`/`$DESIGN_ROOT` -- is copied out.
+
+### `OutputExistsError`
+
+A subclass of `DeliveryError`: the destination already holds a file, and it is not xeda's own
+earlier, unchanged delivery there, so replacing it needs your say-so. Rerun with
+`--overwrite-outputs`, or, at an interactive terminal, answer the prompt; under `--json` or with no
+terminal, only the flag works.
+
 ### `DesignValidationError`
 
 The design file is invalid. `xeda design-schema` describes its structure, but deliberately leaves

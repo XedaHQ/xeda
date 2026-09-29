@@ -22,11 +22,11 @@ RESOURCES_DIR = TESTS_DIR / "resources"
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
 
-def test_vivado_synth_template() -> None:
+def test_vivado_synth_template(tmp_path: Path) -> None:
     design = Design.from_toml(RESOURCES_DIR / "design0/design0.toml")
     settings = VivadoSynth.Settings(fpga=FPGA(part="abcd"), clock_period=5.5)  # type: ignore
-    run_dir = Path.cwd() / "vivado_synth_run"
-    run_dir.mkdir(exist_ok=True)
+    run_dir = tmp_path / "vivado_synth_run"
+    run_dir.mkdir()
     flow = VivadoSynth(settings, design, run_dir)  # type: ignore
     tcl_file = flow.copy_from_template(
         "vivado_synth.tcl",
@@ -47,24 +47,22 @@ def test_vivado_synth_template() -> None:
         assert line in vivado_tcl
 
 
-def test_vivado_synth_py() -> None:
+def test_vivado_synth_py(tmp_path: Path) -> None:
     # Append to PATH so if the actual tool exists, would take precedences.
     os.environ["PATH"] = (
         os.path.join(TESTS_DIR, "fake_tools") + os.pathsep + os.environ.get("PATH", "")
     )
     design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
-    with tempfile.TemporaryDirectory(dir=Path.cwd()) as run_dir:
-        print("Xeda run dir: ", run_dir)
-        xeda_runner = DefaultRunner(run_dir, debug=True)
-        flow = xeda_runner.run_flow(VivadoSynth, design, settings)
-        assert flow is not None, "run_flow returned None"
-        settings_json = flow.run_path / "settings.json"
-        results_json = flow.run_path / "results.json"
-        assert settings_json.exists()
-        assert results_json.exists()
-        assert flow.succeeded
-        assert 0.3 < flow.results.runtime  # type: ignore
+    xeda_runner = DefaultRunner(tmp_path / "xeda_run", debug=True)
+    flow = xeda_runner.run_flow(VivadoSynth, design, settings)
+    assert flow is not None, "run_flow returned None"
+    settings_json = flow.run_path / "settings.json"
+    results_json = flow.run_path / "results.json"
+    assert settings_json.exists()
+    assert results_json.exists()
+    assert flow.succeeded
+    assert 0.3 < flow.results.runtime  # type: ignore
 
 
 # (slack, total datapath delay) of the 10 worst setup paths of a real single-clock
@@ -380,8 +378,8 @@ def test_vivado_sim_records_vcd_and_saif_as_artifacts(tmp_path, monkeypatch) -> 
     run_dir = tmp_path / "run"
     flow = DefaultRunner(run_dir).run_flow(VivadoSim, design, settings)
     assert flow is not None and flow.succeeded
-    assert flow.artifacts.vcd == "dump.vcd"
-    assert flow.artifacts.saif == "switching.saif"
+    assert Path(flow.artifacts.vcd) == Path("dump.vcd")
+    assert Path(flow.artifacts.saif) == Path("switching.saif")
 
     calls = fake_calls(flow.run_path)
     assert ["open_vcd", "dump.vcd"] in calls
@@ -401,14 +399,8 @@ def test_vivado_sim_does_not_record_vcd_or_saif_when_disabled(tmp_path, monkeypa
     assert "saif" not in flow.artifacts
 
 
-def test_parse_hier_util() -> None:
-    d = parse_hier_util("tests/resources/vivado_synth/hierarchical_utilization.xml")
-    # print(json.dumps(d, indent=2))
-    with open("hier.json", "w") as f:
+def test_parse_hier_util(tmp_path: Path) -> None:
+    d = parse_hier_util(RESOURCES_DIR / "vivado_synth" / "hierarchical_utilization.xml")
+    with open(tmp_path / "hier.json", "w") as f:
         json.dump(d, f, indent=4)
     assert d
-
-
-if __name__ == "__main__":
-    # test_vivado_synth_py()
-    test_parse_hier_util()

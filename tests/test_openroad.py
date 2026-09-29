@@ -19,7 +19,7 @@ from xeda.flows import Openroad, Yosys, YosysFpga
 from xeda.flows.openroad import abc_opt_script
 from xeda.tool import ExecutableNotFound
 
-from .tool_utils import require_yosys
+from .tool_utils import launch_until_fresh, require_yosys
 
 NANGATE45_LIB = (
     Path(__file__).parent.parent
@@ -222,8 +222,10 @@ def test_a_second_launch_of_openroad_is_fresh(tmp_path, copy_platform_files):
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
         first = runner.launch_flow(OpenroadSynthesisOnly, _mac_design(tmp_path), settings)
         assert first.succeeded and not first.reused
-        again = runner.launch_flow(OpenroadSynthesisOnly, _mac_design(tmp_path), settings)
-        assert again.reused, again.stale_reason
+        again = launch_until_fresh(
+            runner,
+            lambda: runner.launch_flow(OpenroadSynthesisOnly, _mac_design(tmp_path), settings),
+        )
         assert again.completed_dependencies[0].reused
     finally:
         from xeda.flow import registered_flows

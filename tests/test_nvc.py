@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import tempfile
 from pathlib import Path
 
 from xeda.flow_runner import DefaultRunner
@@ -13,26 +12,21 @@ EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 debug = False
 
 
-def test_nvc_sim_py() -> None:
+def test_nvc_sim_py(tmp_path: Path) -> None:
     require_nvc()
     design_paths = [
         EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml",
         EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium.xeda.yaml",
         EXAMPLES_DIR / "vhdl" / "pipeline" / "pipelined_adder.toml",
     ]
-    with tempfile.TemporaryDirectory(dir=Path.cwd()) as run_dir:
-        print("Xeda run dir: ", run_dir)
-        for design in design_paths:
-            xeda_runner = DefaultRunner(run_dir, debug=debug)
-            flow = xeda_runner.run(Nvc, design, flow_overrides=dict(debug=debug, verbose=debug))
-            assert flow is not None, "run_flow returned None"
-            settings_json = flow.run_path / "settings.json"
-            results_json = flow.run_path / "results.json"
-            assert settings_json.exists()
-            assert flow.succeeded
-            assert isinstance(flow.settings, Nvc.Settings)
-            assert results_json.exists()
-
-
-if __name__ == "__main__":
-    test_nvc_sim_py()
+    run_dir = tmp_path / "xeda_run"
+    for design in design_paths:
+        xeda_runner = DefaultRunner(run_dir, debug=debug)
+        flow = xeda_runner.run(Nvc, design, flow_overrides=dict(debug=debug, verbose=debug))
+        assert flow is not None, "run_flow returned None"
+        settings_json = flow.run_path / "settings.json"
+        results_json = flow.run_path / "results.json"
+        assert settings_json.exists()
+        assert flow.succeeded
+        assert isinstance(flow.settings, Nvc.Settings)
+        assert results_json.exists()

@@ -17,6 +17,7 @@ from xeda.artifacts import filter_artifact_paths, iter_artifact_paths, map_artif
 from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import _artifact_rows
+from xeda.run_root import ensure_run_root
 
 from .tool_utils import use_fake_tools
 
@@ -243,6 +244,15 @@ def test_a_failed_run_never_reports_an_earlier_runs_artifact(flow_name, tmp_path
 EARLIER_NS = 1_000_000_000
 
 
+def _run_dir_of(run_root: Path, flow_name: str, design_name: str = "sqrt") -> Path:
+    """The run directory the launcher gives `flow_name` of the example design: made (with the run
+    root, which xeda marks) so a test can leave an earlier run's files in it before launching."""
+    ensure_run_root(run_root)
+    run_dir = DefaultRunner(run_root).get_flow_run_path(design_name, flow_name)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir
+
+
 # ---------------------------------------------------------------------------------------------
 # Freshness from each output's own prior state, never a clock (E17 part 2)
 # ---------------------------------------------------------------------------------------------
@@ -289,8 +299,7 @@ def test_an_untouched_artifact_at_the_run_starts_own_tick_is_not_written(tmp_pat
     (FAT's 2s) a `mtime >= run_start` comparison could get wrong. Comparison is by the file's own
     recorded state (its snapshot, taken at construction, unchanged since), never by reading any
     clock at all, so the coincidence cannot matter."""
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
+    run_dir = _run_dir_of(tmp_path / "xeda_run", "sees_earlier_artifact")
     old = run_dir / "old.bit"
     old.write_text("old\n")
     now = time.time()
@@ -310,8 +319,9 @@ def test_an_untouched_artifact_at_the_run_starts_own_tick_is_not_written(tmp_pat
     design = Design.from_file(EXAMPLE)
     try:
         flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
-            SeesEarlierArtifact, design, {}, run_path=run_dir
+            SeesEarlierArtifact, design, {}
         )
+        assert flow.run_path == run_dir
     finally:
         for name in (SeesEarlierArtifact.name, SeesEarlierArtifact.__name__):
             registered_flows.pop(name, None)
@@ -321,32 +331,28 @@ def test_an_untouched_artifact_at_the_run_starts_own_tick_is_not_written(tmp_pat
     assert saved.get("artifacts", {}) == {}
 
 
-def test_a_successful_vivado_synth_writes_an_external_bitstream_with_an_early_mtime(
+def test_a_successful_vivado_synth_overwrites_an_earlier_bitstream_with_an_early_mtime(
     tmp_path, monkeypatch
 ):
-    """(c) sol/luna's scenario: an external bitstream (outside the run directory, so possibly on
-    another file system) already exists with an old timestamp -- as if that file system's clock
-    were behind, or an earlier run left it there. `VivadoSynth.run` records its prior state
-    (`remove_stale_output`) before Vivado can touch it; once Vivado's `write_bitstream` step
-    genuinely overwrites it, the check at the end of `run()` compares identity and metadata, never
-    a clock, so a successful build never raises `FlowFatalError` for a bitstream it plainly
-    wrote."""
+    """(c) sol/luna's scenario: the run directory already holds a bitstream with an old
+    timestamp -- as if its file system's clock were behind, or an earlier run left it there.
+    Once Vivado's `write_bitstream` step genuinely overwrites it, the check at the end of `run()`
+    compares identity and metadata, never a clock, so a successful build never raises
+    `FlowFatalError` for a bitstream it plainly wrote. (A bitstream is always written in the run
+    directory now; a location the user names is delivered to after the launch.)"""
     use_fake_tools(monkeypatch)
     design = Design.from_file(EXAMPLE)
-    external = tmp_path / "external"
-    external.mkdir()
-    bitstream = external / "top.bit"
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    settings = {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": "outputs/top.bit"}
+    first = runner.launch_flow("vivado_synth", design, settings)
+    bitstream = first.run_path / "outputs" / "top.bit"
     bitstream.write_text("an earlier run's, on a lagging clock\n")
     os.utime(bitstream, ns=(EARLIER_NS, EARLIER_NS))
-    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    runner = DefaultRunner(tmp_path / "run", display_results=False, rebuild_all=True)
 
-    flow = runner.launch_flow(
-        "vivado_synth",
-        design,
-        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": str(bitstream)},
-    )
+    flow = runner.launch_flow("vivado_synth", design, settings)
 
-    assert flow.succeeded
+    assert flow.succeeded and not flow.reused
     assert bitstream.read_text() != "an earlier run's, on a lagging clock\n"
     assert bitstream.stat().st_mtime_ns != EARLIER_NS
 
@@ -421,10 +427,10 @@ def test_a_directly_constructed_flow_with_a_relative_run_path_is_still_sound(tmp
 # ---------------------------------------------------------------------------------------------
 
 
-def _earlier_run_dir(tmp_path: Path) -> Path:
-    """A run directory an earlier run left: marked, so the launcher reuses it as it is, with
+def _earlier_run_dir(tmp_path: Path, flow_name: str = "declares_an_output") -> Path:
+    """The run directory the launcher gives `flow_name`, as an earlier run left it: with
     `old.bit` and `real/old.bit` from that run."""
-    run_dir = tmp_path / "run"
+    run_dir = _run_dir_of(tmp_path / "xeda_run", flow_name)
     (run_dir / "real").mkdir(parents=True)
     for old in (run_dir / "old.bit", run_dir / "real" / "old.bit"):
         old.write_text("an earlier run's\n")
@@ -451,8 +457,9 @@ def _failed_run_artifacts(tmp_path: Path, run_dir: Path, artifact: str, rewrite=
 
     try:
         flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
-            DeclaresAnOutput, Design.from_file(EXAMPLE), {}, run_path=run_dir
+            DeclaresAnOutput, Design.from_file(EXAMPLE), {}
         )
+        assert flow.run_path == run_dir
     finally:
         for name in (DeclaresAnOutput.name, DeclaresAnOutput.__name__):
             registered_flows.pop(name, None)
@@ -543,26 +550,24 @@ def test_a_directory_the_snapshot_could_not_read_is_never_taken_for_empty(tmp_pa
     assert flow.wrote_output("old.bit") is False
 
 
-def test_a_failed_vivado_sim_does_not_list_an_earlier_vcd_named_through_a_link(
-    tmp_path, monkeypatch
-):
-    """The case above through a real flow: `vivado_sim` names its VCD where the setting says,
-    here through a link to its own run directory, and registers it before Vivado runs. A run
-    whose tool fails before writing it does not list the earlier run's VCD there as its own."""
+def test_a_failed_vivado_sim_does_not_list_an_earlier_vcd(tmp_path, monkeypatch):
+    """The case above through a real flow: `vivado_sim` names its VCD by a name in its run
+    directory and registers it before Vivado runs. A run whose tool fails before writing it does
+    not list the earlier run's VCD there as its own. (A VCD named through a link to the run
+    directory is an absolute location now, which is delivered, not written in place.)"""
     design = _sqrt_with_a_vhdl_testbench(tmp_path / "design")
     monkeypatch.chdir(tmp_path)
     use_fake_tools(monkeypatch)
     runner = DefaultRunner(  # as `xeda run` makes it: one run directory, reused
-        tmp_path / "xeda_run", display_results=False
+        tmp_path / "xeda_run", display_results=False, rebuild_all=True
     )
     run_dir = runner.launch_flow("vivado_sim", design, {"vcd": "wave.vcd"}).run_path
     vcd = run_dir / "wave.vcd"
     vcd.write_text("an earlier run's\n")
     os.utime(vcd, ns=(EARLIER_NS, EARLIER_NS))
-    (tmp_path / "latest").symlink_to(run_dir, target_is_directory=True)
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "xvhdl")
 
-    again = runner.launch_flow("vivado_sim", design, {"vcd": str(tmp_path / "latest" / "wave.vcd")})
+    again = runner.launch_flow("vivado_sim", design, {"vcd": "wave.vcd"})
 
     assert again.run_path == run_dir and not again.succeeded
     assert vcd.stat().st_mtime_ns == EARLIER_NS  # the earlier run's, untouched
@@ -596,23 +601,20 @@ def _lagging(st: os.stat_result) -> os.stat_result:
 def test_a_successful_vivado_synth_accepts_its_bitstream_on_a_file_system_whose_clock_is_behind(
     tmp_path, monkeypatch
 ):
-    """sol/luna's scenario itself: the bitstream is named on another file system, whose clock
-    runs an hour behind the run directory's -- every time read there (mtime and ctime alike,
-    which no `os.utime` can set) is an hour earlier. A run that compared those times with a
-    start time read from the run directory's clock judged the bitstream Vivado had just written
-    to be from before the run, and failed a correct build (`FlowFatalError`). Judged by the
-    file's own state before and after, it is the run's."""
+    """sol/luna's scenario itself: the file system holding the bitstream runs an hour behind
+    the launcher's clock -- every time read there (mtime and ctime alike, which no `os.utime`
+    can set) is an hour earlier. A run that compared those times with a start time read from
+    another clock judged the bitstream Vivado had just written to be from before the run, and
+    failed a correct build (`FlowFatalError`). Judged by the file's own state before and after,
+    it is the run's -- and the location the user named receives it."""
     use_fake_tools(monkeypatch)
-    external = tmp_path / "external"
-    external.mkdir()
-    bitstream = external / "top.bit"
-    bitstream.write_text("an earlier run's\n")
+    delivered = tmp_path / "delivered" / "top.bit"
     real_stat = os.stat
 
     def stat(path, *args, **kwargs):
         st = real_stat(path, *args, **kwargs)
-        inside = Path(os.fspath(path)).is_relative_to(external) if path is not None else False
-        return _lagging(st) if inside else st
+        lagging = path is not None and not isinstance(path, int) and str(path).endswith(".bit")
+        return _lagging(st) if lagging else st
 
     monkeypatch.setattr(os, "stat", stat)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -620,11 +622,13 @@ def test_a_successful_vivado_synth_accepts_its_bitstream_on_a_file_system_whose_
     flow = runner.launch_flow(
         "vivado_synth",
         Design.from_file(EXAMPLE),
-        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": str(bitstream)},
+        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": str(delivered)},
     )
 
     assert flow.succeeded
-    assert bitstream.read_text() != "an earlier run's\n"
+    written = flow.run_path / "outputs" / "sqrt.bit"
+    assert written.is_file() and delivered.is_file()
+    assert delivered.read_bytes() == written.read_bytes()
 
 
 def test_a_runs_artifacts_and_results_pickle(tmp_path):

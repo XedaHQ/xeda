@@ -1,5 +1,4 @@
 import re
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -19,7 +18,7 @@ EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 debug = False
 
 
-def test_ghdl_sim_py() -> None:
+def test_ghdl_sim_py(tmp_path: Path) -> None:
     require_ghdl()
     # settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
     # run_dir = "tests_run_dir"
@@ -28,18 +27,17 @@ def test_ghdl_sim_py() -> None:
         EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium.xeda.yaml",
         EXAMPLES_DIR / "vhdl" / "pipeline" / "pipelined_adder.toml",
     ]
-    with tempfile.TemporaryDirectory(dir=Path.cwd()) as run_dir:
-        print("Xeda run dir: ", run_dir)
-        for design in design_paths:
-            xeda_runner = DefaultRunner(run_dir, debug=debug)
-            flow = xeda_runner.run(GhdlSim, design, flow_overrides=dict(debug=debug, verbose=debug))
-            assert flow is not None, "run_flow returned None"
-            settings_json = flow.run_path / "settings.json"
-            results_json = flow.run_path / "results.json"
-            assert settings_json.exists()
-            assert flow.succeeded
-            assert isinstance(flow.settings, GhdlSim.Settings)
-            assert results_json.exists()
+    run_dir = tmp_path / "xeda_run"
+    for design in design_paths:
+        xeda_runner = DefaultRunner(run_dir, debug=debug)
+        flow = xeda_runner.run(GhdlSim, design, flow_overrides=dict(debug=debug, verbose=debug))
+        assert flow is not None, "run_flow returned None"
+        settings_json = flow.run_path / "settings.json"
+        results_json = flow.run_path / "results.json"
+        assert settings_json.exists()
+        assert flow.succeeded
+        assert isinstance(flow.settings, GhdlSim.Settings)
+        assert results_json.exists()
 
 
 @pytest.mark.parametrize(
@@ -162,7 +160,3 @@ def test_ghdl_synth_output_name_collision_is_reported_before_synthesis(
     assert "rtl/a/fifo.vhd" in message and "rtl/b/fifo.vhd" in message
     assert "same.v" in message
     assert ghdl_commands and "synth" not in ghdl_commands
-
-
-if __name__ == "__main__":
-    test_ghdl_sim_py()

@@ -83,6 +83,7 @@ type as ``-s <name>=<value>``:
           "default": null,
           "description": "Max number of threads",
           "enum": null,
+          "writes": null,
           "common": true,
           "declared_by": "xeda.flow.flow.Flow.Settings",
           "json_schema": {
@@ -99,6 +100,11 @@ type as ``-s <name>=<value>``:
 
 * ``common`` marks the settings every flow accepts. ``--no-common`` omits them.
 * ``alias`` is a second accepted name; both work.
+* ``writes`` says whether the flow writes to the path this setting names: ``"working"`` (an
+  intermediate location, always used as a bare name inside the run directory, whatever it is
+  given -- ``sim_dir``, a log path), ``"deliverable"`` (an output that may be given a location,
+  which is then delivered there once the run finishes -- ``bitstream_file``, ``vcd``), or
+  ``null`` when the setting is read, not written.
 * ``enum`` lists the permitted values when a setting is constrained to a set.
 * ``definitions`` describes nested setting types (``FPGA``, ``PhysicalClock``, ``RunOptions``, ...).
   This is xeda's own envelope key and keeps its name; inside ``json_schema`` the same types appear
@@ -149,7 +155,9 @@ Running a flow
 ==============
 
 ``xeda run <flow> <design> --json`` writes a single JSON object to stdout. Here ``nextpnr``
-depends on ``yosys_fpga``, whose recorded run was still valid:
+depends on ``yosys_fpga``, whose recorded run was still valid, and ``textcfg`` (its routed ECP5
+design, as a Trellis text configuration) was given a location, so it was delivered there once the
+run finished:
 
 .. code-block:: json
 
@@ -163,9 +171,13 @@ depends on ``yosys_fpga``, whose recorded run was still valid:
       "settings_json": "/path/to/xeda_run/blinky/nextpnr/settings.json",
       "nodes": [
         {"flow": "yosys_fpga", "run_path": "/path/to/xeda_run/blinky/yosys_fpga",
-         "state": "fresh", "reason": ""},
+         "state": "fresh", "reason": "", "deliveries": []},
         {"flow": "nextpnr", "run_path": "/path/to/xeda_run/blinky/nextpnr",
-         "state": "ran", "reason": "settings changed: seed"}
+         "state": "ran", "reason": "settings changed: seed",
+         "deliveries": [
+           {"setting": "textcfg", "from": "/path/to/xeda_run/blinky/nextpnr/config.txt",
+            "to": "/home/user/blinky_config.txt", "state": "delivered"}
+         ]}
       ]
     }
 
@@ -177,6 +189,14 @@ recorded run was still valid and was reused, without re-running), ``"ran"`` or `
 fresh run is ``"success": true`` with every node ``"fresh"``. See :doc:`run-directories` for what makes
 a node stale. A flow that always runs (``openfpgaloader``, ``open_xc7`` when it programs a
 device, a flow asked for a fresh random seed) is never ``"fresh"``; its ``reason`` says why.
+
+``deliveries`` lists every output that node's flow copied to a location the settings or
+``--outputs-to`` named, once the whole launch finished (see :doc:`run-directories`'s "Outputs
+where you name them"): ``setting`` is the setting (or ``--outputs-to``) that asked for it,
+``from`` the file in the run directory, ``to`` where it was copied, and ``state`` either
+``"delivered"`` (a new copy was written) or ``"unchanged"`` (the destination already held exactly
+that file). It is ``[]`` for a node with nothing to deliver, and a fresh node still lists its
+deliveries: delivery follows a node's outcome, not whether its tool ran.
 
 On failure the document carries an ``error`` object alongside any available results, and the exit
 status is non-zero. ``nodes`` still lists every node that ran before the failure, and the one that
@@ -202,7 +222,19 @@ unknown flow or setting):
 ``ExecutableNotFound`` (the tool is not installed), ``NonZeroExitCode`` (the tool failed),
 ``DesignValidationError`` (a bad design file), ``FlowFailed`` (the flow ran but reported failure),
 ``NoSuccessfulRun`` (a DSE search found no successful candidate), ``FlowFatalError``, and
-``FlowException``.
+``FlowException``. Four more come from run-directory and delivery isolation (D21):
+
+* ``RunRootError`` -- the run root (``--run-root``/``XEDA_RUN_ROOT``) cannot be used: it holds
+  files and carries no marker Xeda created, or it lies where Xeda cannot write. Names the
+  directory and the fix (move it aside, or mark it yourself).
+* ``RunDirectoryError`` -- a run directory itself cannot be used: it would lie outside its run
+  root, or a write inside it would go through a symbolic link Xeda does not control.
+* ``DeliveryError`` -- an output named by a setting or ``--outputs-to`` could not be delivered:
+  the run did not write the file the setting expected, the destination is an input of the launch,
+  a directory, or inside a run root, or it changed after it was checked.
+* ``OutputExistsError`` -- a subclass of ``DeliveryError``: the destination holds a file that is
+  not Xeda's own unchanged earlier delivery, and replacing it was not confirmed. Rerun with
+  ``--overwrite-outputs``, or answer the prompt at an interactive terminal.
 
 Exit status
 ===========

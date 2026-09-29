@@ -25,7 +25,13 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, 
 from pydantic import ValidationError
 
 from ..dataclass import XedaBaseModel
-from ..digest import TIME_MARKER_PREFIX, FileRecord, filesystem_time_ns, record_file
+from ..digest import (
+    TIME_MARKER_PREFIX,
+    UNRECORDED_BEFORE_RUN,
+    FileRecord,
+    filesystem_time_ns,
+    record_file,
+)
 from ..listing import directory_files
 from ..proc_utils import DOCKER_IMAGE_PREFIX
 from ..utils import json_encodable, with_json_keys
@@ -392,6 +398,12 @@ def check_trace(
         (refreshed.outputs, "output", trace.outputs_recorded_ns),
     ):
         for path, record in records.items():
+            if record.sha == UNRECORDED_BEFORE_RUN:
+                return Freshness(
+                    False,
+                    f"{what} first read by the last run, on another file system, with no record "
+                    f"from before it: {path}",
+                )
             if record.unknown:
                 return Freshness(False, f"{what} modified during the last run: {path}")
             reads_before = reads[0]

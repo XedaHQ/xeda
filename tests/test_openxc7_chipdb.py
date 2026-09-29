@@ -1,5 +1,6 @@
 """open_xc7's chip database: read where the user keeps it, generated only into xeda's cache."""
 
+import os
 import re
 from pathlib import Path
 
@@ -7,8 +8,12 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowFatalError
+from xeda.flow_runner import DefaultRunner
 from xeda.flows import OpenXC7
 from xeda.run_dir import RunDirectory
+from xeda.run_root import ensure_run_root
+
+from .tool_utils import launch_until_fresh, require_yosys
 
 PART = "xc7a35tcsg324-1"
 
@@ -88,3 +93,57 @@ def test_a_missing_chipdb_dir_is_an_error(flow, tmp_path, monkeypatch):
     with pytest.raises(FlowFatalError, match=re.escape(str(missing))):
         flow().chip_database()
     assert asked == []
+
+
+#: nextpnr-xilinx, as far as the flow needs it: the log and the FASM file it is asked for
+FAKE_NEXTPNR_XILINX = """#!/bin/sh
+for arg in "$@"; do
+  case "$arg" in
+    --log=*) echo "Info: Program finished normally." > "${arg#--log=}" ;;
+    --fasm=*) : > "${arg#--fasm=}" ;;
+  esac
+done
+"""
+
+
+@pytest.mark.parametrize("where", ["CHIPDB_DIR", "cache"])
+def test_a_replaced_database_makes_the_next_launch_stale(where, tmp_path, monkeypatch):
+    """The database handed to nextpnr is an input of the run wherever it was found -- also
+    where no setting names it (`CHIPDB_DIR`, xeda's cache) -- so replacing it runs again."""
+    require_yosys()
+    monkeypatch.delenv("CHIPDB_DIR", raising=False)
+    monkeypatch.delenv("NEXTPNR_XILINX_PYTHON_DIR", raising=False)
+    monkeypatch.delenv("PRJXRAY_DB_DIR", raising=False)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    nextpnr = bin_dir / "nextpnr-xilinx"
+    nextpnr.write_text(FAKE_NEXTPNR_XILINX)
+    nextpnr.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    root = ensure_run_root(tmp_path / "xeda_run")
+    assert root is not None
+    if where == "CHIPDB_DIR":
+        database = tmp_path / "chipdb" / f"{PART}.bin"
+        monkeypatch.setenv("CHIPDB_DIR", str(database.parent))
+    else:
+        database = root / ".cache" / "chipdb" / f"{PART}.bin"
+    database.parent.mkdir(parents=True)
+    database.write_bytes(b"a database")
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "inv.v").write_text(
+        "module inv(input clk, input a, output reg y); always @(posedge clk) y <= ~a; endmodule\n"
+    )
+    design = Design(
+        name="inv",
+        design_root=tmp_path / "design",
+        rtl={"sources": ["inv.v"], "top": "inv", "clock": {"port": "clk"}},
+    )
+    runner = DefaultRunner(root, display_results=False)
+    settings = {"fpga": {"part": PART}, "clock": {"period": 10.0}}
+
+    first = runner.launch_flow("open_xc7", design, settings)
+    assert first.succeeded and first.settings.chipdb == database
+    launch_until_fresh(runner, lambda: runner.launch_flow("open_xc7", design, settings))
+    database.write_bytes(b"another database")
+    again = runner.launch_flow("open_xc7", design, settings)
+    assert not again.reused and again.stale_reason == f"input changed: {database.resolve()}"

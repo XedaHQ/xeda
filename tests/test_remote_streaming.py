@@ -45,14 +45,16 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
     shell), and an old one fails on the design archive with whatever its loader chokes on first
     -- a 0.2 checkout said `rtl.sources: unhashable type: 'dict'`. The check names the version,
     the interpreter and *where* that xeda lives, which is what finds a shadowing install."""
-    check_remote_xeda("0.4.0", "/site/xeda/__init__.py", "/usr/bin/python3")
+    check_remote_xeda("0.4.3", "/site/xeda/__init__.py", "/usr/bin/python3")
     check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3")
+    with pytest.raises(RemoteIncompatible, match="0.4.3 or newer"):
+        check_remote_xeda("0.4.2", "/site/xeda/__init__.py", "/usr/bin/python3")
 
     with pytest.raises(RemoteIncompatible) as old:
         check_remote_xeda(
             "0.2.13.dev1+g13970c24c", "/home/u/src/xeda/src/xeda/__init__.py", "/usr/bin/python3"
         )
-    for part in ("0.2.13.dev1", "/home/u/src/xeda/src/xeda", "/usr/bin/python3", "0.4.0"):
+    for part in ("0.2.13.dev1", "/home/u/src/xeda/src/xeda", "/usr/bin/python3", "0.4.3"):
         assert part in str(old.value)
 
     with pytest.raises(RemoteIncompatible, match="/usr/bin/python3.*no xeda"):

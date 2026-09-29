@@ -5,6 +5,7 @@ import os
 import pty
 import re
 import select
+import shutil
 import signal
 import subprocess
 import sys
@@ -13,7 +14,7 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, TextIO, Union
+from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, Union
 
 import colorama
 
@@ -30,13 +31,39 @@ _tool_output: Optional[TextIO] = None
 #: A container image is recorded under this prefix, beside the programs `run_process` starts.
 DOCKER_IMAGE_PREFIX = "docker-image:"
 
-_programs: ContextVar[Optional[List[str]]] = ContextVar("xeda_programs", default=None)
+#: A program file's state: `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)`.
+ProgramState = Tuple[int, int, int, int, int]
+
+
+class StartedPrograms(List[str]):
+    """The programs started while `recording_programs` is active, in order and once each, and
+    (`before`) the state of each one's file when it was first started: what its trace compares
+    the file with afterwards, by identity and metadata, never a clock."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.before: Dict[str, Optional[ProgramState]] = {}
+
+
+def program_state(name: str) -> Optional[ProgramState]:
+    """The state of the file `name` runs -- found on PATH unless it is a path -- or None."""
+    found = name if os.path.isabs(name) or os.sep in name else shutil.which(name)
+    try:
+        st = os.stat(found) if found else None
+    except OSError:
+        return None
+    if st is None:
+        return None
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
+_programs: ContextVar[Optional[StartedPrograms]] = ContextVar("xeda_programs", default=None)
 
 
 @contextmanager
-def recording_programs() -> Iterator[List[str]]:
+def recording_programs() -> Iterator[StartedPrograms]:
     """Collect, in order and once each, every program started while the context is active."""
-    names: List[str] = []
+    names = StartedPrograms()
     token = _programs.set(names)
     try:
         yield names
@@ -45,10 +72,13 @@ def recording_programs() -> Iterator[List[str]]:
 
 
 def note_program(name: str) -> None:
-    """Record `name` if a recording is active."""
+    """Record `name`, and the state of its file as it is now, before it starts, if a recording
+    is active."""
     names = _programs.get()
     if names is not None and name not in names:
         names.append(name)
+        if not name.startswith(DOCKER_IMAGE_PREFIX):
+            names.before[name] = program_state(name)
 
 
 def set_tool_output(stream: Optional[TextIO]) -> None:

@@ -661,6 +661,14 @@ def test_an_edited_include_reruns_yosys(tmp_path):
     header = (tmp_path / "defs.vh").resolve()
     trace = json.loads((first.run_path / "trace.json").read_text())
     assert str(header) in trace["implicit_inputs"]
+    # yosys's own library files, which its depfile names too, are recorded from before a run
+    # only once a trace names them: where they lie on another file system than the run
+    # directory, whose clock cannot tell whether they changed during the first run, the second
+    # launch runs once more, saying so
+    again = runner.launch_flow("yosys_fpga", design, settings)
+    if not again.reused:
+        assert again.stale_reason.startswith("input first read by the last run"), again
+        assert runner.launch_flow("yosys_fpga", design, settings).reused
     header.write_text("`define W 8\n")
     second = runner.launch_flow("yosys_fpga", design, settings)
     assert not second.reused and second.stale_reason == f"input changed: {header}"

@@ -1,6 +1,7 @@
 """The ModelSim flow against the fake `vsim`, which runs the flow's script under tclsh with the
 tool's commands recorded and exits as vsim does: only `exit -code N` sets the status."""
 
+import logging
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -76,6 +77,21 @@ def test_flags_reach_their_tools_one_word_each(tmp_path, monkeypatch) -> None:
     assert by_command["vcom"][2:] == ["-explicit"]
     assert by_command["vlog"][2:] == ["+define+MSG=a b"]
     assert "-voptargs=+acc" in by_command["vsim"]
+
+
+@needs_tclsh
+def test_outputs_to_warns_when_a_simulation_delivers_no_waveform(tmp_path, monkeypatch, caplog):
+    """Opus minor: `--outputs-to` copies only what a flow reported as an artifact inside its run
+    directory; a bare simulation (no `vcd`) reports none, so it silently delivered nothing there.
+    The warning names the flow and its deliverable settings (`vcd`, for a simulator)."""
+    use_fake_tools(monkeypatch)
+    run_dir = tmp_path / "run"
+    design = _design(tmp_path / "design")
+    with caplog.at_level(logging.WARNING, logger="xeda.flow_runner.default_runner"):
+        flow = DefaultRunner(run_dir, outputs_to=tmp_path / "got").run_flow(Modelsim, design, {})
+    assert flow is not None and flow.succeeded and flow.deliveries == []
+    assert not (tmp_path / "got").exists()
+    assert "modelsim" in caplog.text and "vcd" in caplog.text and "delivered nothing" in caplog.text
 
 
 def test_a_design_without_a_simulation_top_is_rejected(tmp_path, monkeypatch) -> None:

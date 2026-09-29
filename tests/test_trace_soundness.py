@@ -243,6 +243,25 @@ def test_an_include_known_from_the_last_run_edited_during_the_run_is_stale(probe
     assert flow.stale_reason == f"input modified during the last run: {(root / 'inc.vh').resolve()}"
 
 
+def test_an_input_recorded_before_the_run_is_judged_by_identity_not_a_clock(
+    probes, root, monkeypatch
+):
+    """An input with a record from before the run is judged by its own metadata -- size, mtime,
+    inode change time, inode -- never by comparing its times with a clock: edited during the run
+    on a file system whose clock is far behind (here, one no clock comparison can see at all),
+    it is still unknown, and the next launch runs again."""
+    from xeda.flow_runner import trace_inputs
+
+    cls = probes["ProbeDepfile"]
+    _launch(root, cls)
+    monkeypatch.setattr(trace_inputs, "written_since", lambda *_: False)  # a clock that lags
+    EDIT["include"] = (root / "inc.vh", "`define W 8\n", True)
+    _launch(root, cls, rebuild_all=True)
+    flow, out = _launch(root, cls)
+    assert not flow.reused and out == "`define W 8\n"
+    assert flow.stale_reason == f"input modified during the last run: {(root / 'inc.vh').resolve()}"
+
+
 def test_a_new_include_edited_during_the_run_is_stale(probes, root):
     """A file a depfile names for the first time, written while the run went on, cannot be
     vouched for: it is recorded as unknown, and the next launch runs again."""

@@ -4,6 +4,152 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **The run root is `--run-root`** (`XEDA_RUN_ROOT`; the API's `run_root`, the launchers' first
+  argument and property; the key `run_root` of `xeda scrub --json`), for `run`, `dse` and
+  `scrub`: it is the directory holding every run directory. `--xeda-run-dir`, `XEDA_RUN_DIR` and
+  the API keyword and property `xeda_run_dir` fail naming their replacement. `xeda dse` and `Dse`
+  use one default, `./xeda_run`, shared with `xeda run --hashed-run-dirs` (`Dse` defaulted to
+  `xeda_run_dse`).
+- `xeda run`, `dse` and `scrub` read only the environment variables they declare:
+  `XEDA_RUN_ROOT`, `XEDA_DEBUG`, `XEDA_LOG_LEVEL`, `XEDA_DETAILED_LOGS`; for `run`, also
+  `XEDA_REMOTE`; for `dse`, also `XEDA_XEDAPROJECT`, `XEDA_OPTIMIZER`, `XEDA_DSE_SETTINGS`,
+  `XEDA_OPTIMIZER_SETTINGS` and `XEDA_MAX_WORKERS` (`--xedaproject`, `--optimizer`,
+  `--dse-settings`, `--optimizer-settings` and `--max-workers`, declared on purpose rather than
+  dropped with the automatic ones). Every other option had an automatic `XEDA_<OPTION>` variable,
+  so a leftover `XEDA_CLEAN=1` emptied every run directory on every run, with nothing on the
+  command line to turn it off.
+- **Every run lives in a run root xeda created and marked** (`.xeda-run-root`, a `.gitignore` of
+  `*`, and a `CACHEDIR.TAG`, each added only where that name is not already present), the first
+  time it is used; a directory named as the run root that already holds files and carries no
+  marker is refused, naming it and the fix, before anything runs. The one exception: a directory
+  named `xeda_run` directly in the start directory is adopted by that name and location alone,
+  whatever put files there, with a log line instead of a refusal -- keep nothing of your own in a
+  directory called `xeda_run` beside where you run xeda from.
+- **An output setting given a location is delivered, not written there directly.** `-s
+  bitstream_file=$PWD/sqrt.bit` still writes the run's copy under the setting's fixed conventional
+  name in the run directory (`outputs/sqrt.bit`), and copies it to `$PWD/sqrt.bit` once the whole
+  launch has finished; moving or renaming the destination therefore never changes what the tools do
+  or re-runs the flow. `--outputs-to DIR` delivers the requested flow's artifacts the same way, and
+  `--overwrite-outputs` allows replacing a destination that is not xeda's own unchanged earlier
+  delivery (otherwise refused, or asked about at an interactive terminal). A destination is never a
+  directory, never an input of the launch (a dependency's, or a later flow's), and never inside any
+  run root.
+- **Working locations are names, not places to reach**: `sim_dir`, `bobj_dir`, bsc's `info_dir` and
+  `verilog_out_dir`, `impl_folder`, `results_dir`, DC's `alib_dir`, log paths and the like are
+  always used as bare names inside the run directory, whatever they are given.
+- Deliveries are made once the whole launch has finished -- dependencies included -- never onto a
+  file any flow of the launch reads. `--remote` delivers `--outputs-to` only after a run that
+  succeeded, from the artifacts of its local mirror (always the hashed layout).
+- `$PWD` (and `$DESIGN_ROOT`) now also expand inside a nested setting given as a mapping or model
+  instance, such as `cocotb.results_xml` and `yosys_sim.cxxrtl.filename`, not only in a
+  `Flow.Settings`'s own top-level fields.
+- `vcs` writes its waveform at a relative path inside the run directory, not the design root.
+- `xeda dse`'s log and best-run record, `open_xc7`'s generated chip database
+  (`<run root>/.cache/chipdb`), and a git dependency's clone (`<run root>/.dependencies`, unless a
+  `clone_dir`/`local_cache` is configured) now go into the run root rather than beside the design.
+- A container mounts the design root and the RTL/testbench source directories read-only; the run
+  directory a flow's own tools write in, and a `Docker.mounts` entry you configure yourself, are
+  writable. (A dependency's outputs are not yet mounted at all for a dockerized flow that needs
+  them; that is plan 2a's `docker_mounts`.)
+- **A design's name must be a name** (`[A-Za-z][A-Za-z0-9_-]*`): it becomes a path component under
+  the run root, so `..` or a `/` in it could otherwise point outside.
+- A run directory that is itself a symbolic link is used when it resolves inside the run root
+  (0.4.3 refused every such link, wherever it led); one that leads out of the run root is still
+  refused, before anything runs. A symbolic link a tool leaves in its run directory is never
+  followed out of it: a path a flow writes or removes through one that leads out is refused,
+  naming the link, and an artifact that is a link to a directory outside the run directory, a
+  dangling link or a cycle of links is not delivered.
+- Whether a file a run read changed while the run went on is judged by the file's own identity
+  and metadata against its record from before the run, never by comparing its times with a clock
+  of another file system. A file a run is found to read only afterwards (a `yosys -E` depfile's
+  entry, such as yosys's own library files) has no such record: on the run directory's file
+  system its clock still decides, but on another one nothing does, so the next launch runs once
+  more, saying so ("input first read by the last run, on another file system").
+- `--remote` needs xeda 0.4.3 or newer on the remote host.
+
+### Removed
+- **The `<design>_<design_hash>/` run-directory layer.** It only ever appeared with
+  `--cached-dependencies --no-incremental`; delete any such directories by hand, xeda no longer
+  looks for them.
+- CLI options `--cached-dependencies` (use the default, which reuses unchanged runs, and
+  `--hashed-run-dirs` to keep settings variants side by side), `--no-cached-dependencies` (use
+  `--rebuild-all`) and `--incremental`/`--no-incremental` on `run` and `scrub` (run directories
+  are always reused now; `--clean` empties one before running). Launcher settings
+  `cached_dependencies`, `skip_if_previous_run_exists`, `incremental` and `cleanup_before_run` (use
+  the default, `hashed_run_dirs` and `clean`). Each fails naming its replacement rather than being
+  silently ignored.
+- The per-flow `clean` setting and verilator's `clean_before_run` (use the `--clean` CLI option).
+  GHDL's `clean` is renamed `clean_before_analyze` (whether `ghdl remove` runs before analysis),
+  unrelated to the run-directory `--clean`.
+- **`--cwd`** (a flow's run directory was never anything but a directory xeda chose, D21):
+  `` `--cwd` was removed: use --outputs-to . to receive the outputs here; the run itself goes
+  under the run root (./xeda_run)``. With it go the launcher setting and the `launch_flow`/
+  `run_flow` parameter `run_path` (`` `run_path` was removed: use run_root to choose where runs
+  go (a flow always runs in a directory xeda creates under it), and outputs_to to receive its
+  outputs elsewhere``), and constructing a `Flow` without a run path (it is now a required
+  argument). The ownership record a `--cwd` run kept, `.xeda-owned.json`, and the lock file inside
+  a `--cwd` directory (`.xeda.lock`, which was never released on Windows) go with it -- an older
+  xeda's `--cwd` runs may still have left these files behind; see below for what to delete by hand.
+- An unmarked `xeda_run_dse` or `xeda_run_<optimizer>` holding runs of an older xeda is refused,
+  the same as any other run root that holds files and carries no marker: delete it, or create its
+  `.xeda-run-root` to hand it to xeda.
+- **The names of the files an older xeda's `--cwd` runs left in your own directories.** Nothing
+  reads or manages them any more; delete them by hand: `<flow>.tcl` and the other generated
+  scripts and constraints, `results.json`, `settings.json`, the four Vivado hook scripts,
+  `<design>.xpr` and its project directories, `reports/`, `outputs/`, `checkpoints/`,
+  `.xeda.lock`, `.xeda-owned.json`.
+- The `.xeda-run-dir` marker 0.4.3 wrote into every run directory, and the adoption of an
+  unmarked directory holding an earlier run of the same flow: the run root's marker makes
+  everything under it xeda's. A leftover `.xeda-run-dir` is an ordinary file of the run
+  directory.
+
+### Added
+- **`xeda run` is make-like by default.** A flow re-runs only when something it consumed or produced
+  changed since its last successful run; `--rebuild-all` (API `rebuild_all=True`) runs every flow,
+  as every run did before. A flow that runs logs why (`Running <flow>: <reason>`); a
+  flow left alone logs that it is up to date and shows its previously recorded results. Staleness
+  covers: no successful previous run; changed settings (named in the reason); a changed xeda
+  version or flow code/templates; a changed program (path, size or mtime; a container image's
+  ID); a dependency that ran again (until per-edge cutoff arrives, this always re-runs what
+  depends on it); an input added, removed, changed or missing; an output deleted or edited; or
+  changed design metadata (`top`, parameters, defines). Dependencies are always brought up to
+  date before the flow depending on them is judged. Each run directory records this in a new
+  `trace.json`, written last and atomically after a successful run and removed before the next
+  run executes, so its mere presence certifies the last run there succeeded. A file counts as
+  unchanged by size and mtime unless it was touched within 2 seconds of the trace (a racy
+  timestamp), otherwise by content hash -- a `touch` or a branch round-trip costs a hash, not a
+  re-run, and a file restored with a stale mtime is still caught. `openfpgaloader` and `open_xc7`
+  (`Flow.is_action`) always run and keep no trace, since programming a device changes the outside
+  world.
+- `--hashed-run-dirs` (API `hashed_run_dirs=True`) gives each settings variant of a flow its own
+  directory (`<design>/<flow>_<16-char settings hash>/`, hashed from the flow's input settings
+  alone, so editing the design never moves it); the default is one directory per flow
+  (`<design>/<flow>/`). A dependency's run directory is always a sibling of the flow that launched
+  it, in the same layout, never nested under it -- so two dependencies of one flow, or the same
+  flow run for two different dependers, each get their own directory. Within one launch, a run
+  directory is entered at most once: two different configurations of one flow resolving to the
+  same directory in the same launch is now an error naming both requesters, instead of the second
+  silently overwriting what the first produced. `xeda run --remote` always mirrors its results in
+  the hashed layout, so remote runs of different settings never share a directory (`--rebuild-all`,
+  `--clean` and `--hashed-run-dirs` are refused with `--remote`).
+- `--clean` empties each flow's run directory before it runs and runs every flow ("make clean,
+  then make"; it implies `--rebuild-all`).
+- A POSIX lock file (`<run dir>.lock`, beside the run directory; none on Windows) serializes
+  concurrent launches of the same run directory, so two overlapping invocations sharing a
+  dependency take turns with it instead of one clobbering the other's output. `xeda scrub` removes
+  the lock file along with the directory.
+- `xeda run --json`'s document gains `nodes`: one entry per flow the run touched (dependencies
+  included), in completion order, as `{"flow", "run_path", "state": "fresh"|"ran"|"failed",
+  "reason"}`. A fully fresh run is `"success": true` with every node `"fresh"`; `nodes` is `[]`
+  for an error before anything ran.
+
+
+## [v0.4.3] - 2026-09-29
+
+Everything up to and including v0.4.3; earlier 0.x releases were not recorded separately.
+
+
 ### Fixed
 - xeda could delete a user's files, in three ways. `xeda run <flow> <design> --cwd`, started in
   a directory holding files -- the design's own directory, typically -- deleted every file there:
@@ -552,7 +698,7 @@ All notable changes to this project will be documented in this file.
   project's, say -- and the argv form set none at all. A `DESIGN_ROOT` the generator's own `env`
   states is still kept.
 - `xeda run --remote` no longer crashes after fetching the run's artifacts when the local run
-  directory is not under the directory xeda was started in (`--run-root`, `XEDA_RUN_ROOT`):
+  directory is not under the directory xeda was started in (`--xeda-run-dir`, `XEDA_RUN_DIR`):
   a log message computed its path relative to the start directory.
 - `bsc` generated no Verilog for a `(* synthesize *)` module defined in another package: every
   source but the top file was compiled without a backend, so only the top's own package got
@@ -600,20 +746,6 @@ All notable changes to this project will be documented in this file.
   is still not compared.
 
 ### Changed
-- **The run root is `--run-root`** (`XEDA_RUN_ROOT`; the API's `run_root`, the launchers' first
-  argument and property; the key `run_root` of `xeda scrub --json`), for `run`, `dse` and
-  `scrub`: it is the directory holding every run directory. `--xeda-run-dir`, `XEDA_RUN_DIR` and
-  the API keyword and property `xeda_run_dir` fail naming their replacement. `xeda dse` and `Dse`
-  use one default, `./xeda_run`, shared with `xeda run --hashed-run-dirs` (`Dse` defaulted to
-  `xeda_run_dse`).
-- `xeda run`, `dse` and `scrub` read only the environment variables they declare:
-  `XEDA_RUN_ROOT`, `XEDA_DEBUG`, `XEDA_LOG_LEVEL`, `XEDA_DETAILED_LOGS`; for `run`, also
-  `XEDA_REMOTE`; for `dse`, also `XEDA_XEDAPROJECT`, `XEDA_OPTIMIZER`, `XEDA_DSE_SETTINGS`,
-  `XEDA_OPTIMIZER_SETTINGS` and `XEDA_MAX_WORKERS` (`--xedaproject`, `--optimizer`,
-  `--dse-settings`, `--optimizer-settings` and `--max-workers`, declared on purpose rather than
-  dropped with the automatic ones). Every other option had an automatic `XEDA_<OPTION>` variable,
-  so a leftover `XEDA_CLEAN=1` emptied every run directory on every run, with nothing on the
-  command line to turn it off.
 - Design- and project-file suffixes are case-sensitive, and read by one table: `.TOML` is rejected
   naming `.toml`, and `.yml` is YAML for a project file too. A string with a design-file suffix is
   always a design file -- for `xeda run --remote` as for a local run -- never a design's name to
@@ -748,60 +880,8 @@ All notable changes to this project will be documented in this file.
 - **`bsc`'s `gtkwave_package` setting** and the Bluetcl script behind it (GTKWave translation
   filters for enums). Design files that set it (e.g. bluelight's `xedaproject.toml`,
   `[flow.bsc] gtkwave_package = ...`) must drop it. Also removed: `warn_flags`, `incremental`.
-- **The `<design>_<design_hash>/` run-directory layer.** It only ever appeared with
-  `--cached-dependencies --no-incremental`; delete any such directories by hand, xeda no longer
-  looks for them.
-- CLI options `--cached-dependencies` (use the default, which reuses unchanged runs, and
-  `--hashed-run-dirs` to keep settings variants side by side), `--no-cached-dependencies` (use
-  `--rebuild-all`) and `--incremental`/`--no-incremental` on `run` and `scrub` (run directories
-  are always reused now; `--clean` empties one before running). Launcher settings
-  `cached_dependencies`, `skip_if_previous_run_exists`, `incremental` and `cleanup_before_run` (use
-  the default, `hashed_run_dirs` and `clean`). Each fails naming its replacement rather than being
-  silently ignored.
-- The per-flow `clean` setting and verilator's `clean_before_run` (use the `--clean` CLI option).
-  GHDL's `clean` is renamed `clean_before_analyze` (whether `ghdl remove` runs before analysis),
-  unrelated to the run-directory `--clean`.
 
 ### Added
-- **`xeda run` is make-like by default.** A flow re-runs only when something it consumed or produced
-  changed since its last successful run; `--rebuild-all` (API `rebuild_all=True`) runs every flow,
-  as every run did before. A flow that runs logs why (`Running <flow>: <reason>`); a
-  flow left alone logs that it is up to date and shows its previously recorded results. Staleness
-  covers: no successful previous run; changed settings (named in the reason); a changed xeda
-  version or flow code/templates; a changed program (path, size or mtime; a container image's
-  ID); a dependency that ran again (until per-edge cutoff arrives, this always re-runs what
-  depends on it); an input added, removed, changed or missing; an output deleted or edited; or
-  changed design metadata (`top`, parameters, defines). Dependencies are always brought up to
-  date before the flow depending on them is judged. Each run directory records this in a new
-  `trace.json`, written last and atomically after a successful run and removed before the next
-  run executes, so its mere presence certifies the last run there succeeded. A file counts as
-  unchanged by size and mtime unless it was touched within 2 seconds of the trace (a racy
-  timestamp), otherwise by content hash -- a `touch` or a branch round-trip costs a hash, not a
-  re-run, and a file restored with a stale mtime is still caught. `openfpgaloader` and `open_xc7`
-  (`Flow.is_action`) always run and keep no trace, since programming a device changes the outside
-  world.
-- `--hashed-run-dirs` (API `hashed_run_dirs=True`) gives each settings variant of a flow its own
-  directory (`<design>/<flow>_<16-char settings hash>/`, hashed from the flow's input settings
-  alone, so editing the design never moves it); the default is one directory per flow
-  (`<design>/<flow>/`). A dependency's run directory is always a sibling of the flow that launched
-  it, in the same layout, never nested under it -- so two dependencies of one flow, or the same
-  flow run for two different dependers, each get their own directory. Within one launch, a run
-  directory is entered at most once: two different configurations of one flow resolving to the
-  same directory in the same launch is now an error naming both requesters, instead of the second
-  silently overwriting what the first produced. `xeda run --remote` always mirrors its results in
-  the hashed layout, so remote runs of different settings never share a directory (`--rebuild-all`,
-  `--clean` and `--hashed-run-dirs` are refused with `--remote`).
-- `--clean` empties each flow's run directory before it runs and runs every flow ("make clean,
-  then make"; it implies `--rebuild-all`); refused together with `--cwd`, which would otherwise
-  empty the current directory.
-- A POSIX lock file (`<run dir>.lock`, beside the run directory; none on Windows) serializes
-  concurrent launches of the same run directory, so two overlapping invocations sharing a
-  dependency take turns with it instead of one clobbering the other's output. `xeda scrub` removes
-  the lock file along with the directory.
-- `xeda run --json`'s document gains `nodes`: one entry per flow the run touched (dependencies
-  included), in completion order, as `{"flow", "run_path", "state": "fresh"|"ran"|"failed",
-  "reason"}`. A fully fresh run is `"success": true` with every node `"fresh"`; `nodes` is `[]`
-  for an error before anything ran.
 - Tests: the fake tools (`tests/fake_tools/`: `vivado`, `quartus_sh`, `xtclsh`, `dc_shell`, and now
   `diamondc` and `vsim`) run the TCL script a flow hands them under `tclsh`, the tool's commands
   recorded, and fail on a TCL error as the tool would -- every test using a fake now checks the

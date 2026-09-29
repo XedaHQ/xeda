@@ -95,7 +95,7 @@ design file's `[flows.<flow>]` section -> command-line `-s`. Layers merge key by
 xeda run vivado_synth sqrt.toml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
 ```
 
-Every flow also accepts `ncpus` (alias `nthreads`), `dockerized`/`docker`, `clean`,
+Every flow also accepts `ncpus` (alias `nthreads`), `dockerized`/`docker`,
 `quiet`/`verbose`/`debug`, `redirect_stdout` and `lib_paths`. `xeda list-settings <flow> --json`
 marks these with `"common": true`; `--no-common` omits them.
 
@@ -145,8 +145,11 @@ Keys beginning with `_` are internal and may change.
 
 ## Where output lands
 
-Default `./xeda_run/<design>/<flow>/`, under the run root `./xeda_run` (`--run-root` moves it;
-xeda owns everything in it, so keep nothing of yours there). `--hashed-run-dirs` instead appends
+Default `./xeda_run/<design>/<flow>/`, under the run root `./xeda_run` (`--run-root` moves it).
+The first time xeda uses a run root it creates and marks it (`.xeda-run-root`, `.gitignore`,
+`CACHEDIR.TAG`); **everything under a marked run root is xeda's -- never keep files of your own in
+`xeda_run/`.** A directory named as the run root that already holds files and carries no marker is
+refused before anything runs, naming it and the fix. `--hashed-run-dirs` instead appends
 the settings hash, `<flow>_<hash>`, so settings variants coexist. A dependency gets its own
 directory, a sibling of the flow that launched it. The directory holds the generated tool
 scripts, the tool logs, `reports/`, `outputs/`, `checkpoints/`, plus:
@@ -160,23 +163,42 @@ scripts, the tool logs, `reports/`, `outputs/`, `checkpoints/`, plus:
 
 `xeda run --json` reports all three paths, so there is no need to guess.
 
+## Getting a named output out of the run directory
+
+A setting that names an output (`bitstream`, `vcd`, ...) can be given a location -- an
+absolute path, or one anchored with `$PWD`/`$DESIGN_ROOT`: the run still writes its own copy
+inside the run directory, and once the whole run has finished xeda copies it to the location you
+named. Moving or renaming that destination later never re-runs the flow. `--outputs-to DIR`
+delivers the requested flow's artifacts the same way, each at its path inside the run directory:
+
+```bash
+xeda run vivado_synth blinky.toml -s bitstream=$PWD/blinky.bit
+xeda run vivado_synth blinky.toml --outputs-to ./out
+```
+
+A delivery never replaces a directory, a design source, or a file the run itself reads. An
+existing file at the destination is replaced without asking only if it is xeda's own earlier,
+unchanged delivery; otherwise rerun with `--overwrite-outputs`, or answer the interactive prompt.
+
 ## Rebuilds are make-like by default
 
 Re-running `xeda run` only re-runs a flow whose settings, sources, code, tools or outputs changed
 since its last successful run (the default); an unchanged flow's recorded results are reused and
 shown as if it had just run. `--rebuild-all` forces every flow to run regardless. The `--json`
 document's `nodes` list reports, per flow that was touched, whether it was `"fresh"`, `"ran"` or
-`"failed"`, and why (`reason`). Not tracked: the contents of directories
-settings name (include directories), programs started indirectly (a compiler under `make`, Python
-packages such as cocotb), environment variables, and files a tool reads without reporting them -
+`"failed"`, and why (`reason`). A directory a setting names has its contents tracked too (every
+entry, recursively, a symbolic link followed); what is not tracked: what a symbolic link *in a run
+directory* points to when that is a directory (recorded by its target text, never followed),
+programs started indirectly (a compiler under `make`, Python packages such as cocotb), environment
+variables, and files a tool finds on its own without reporting them -
 `--rebuild-all` is the escape if a rebuild looks wrong. A flow that programs a device, or that is
 asked for a fresh random seed (`random_seed = "random"`, `randomize_seed = true`; seeds default to
 fixed values), always runs and says so.
 
 `--clean` empties a flow's run directory before running and forces every flow to run ("make clean,
-then make"; it implies `--rebuild-all`). `--xeda-run-dir`, `--cached-dependencies` and
-`--incremental`/`--no-incremental` were removed; giving them fails naming their replacement
-(`--run-root`, `--rebuild-all`, `--hashed-run-dirs`, `--clean`).
+then make"; it implies `--rebuild-all`). `--xeda-run-dir`, `--cached-dependencies`,
+`--incremental`/`--no-incremental` and `--cwd` were removed; giving them fails naming their
+replacement (`--run-root`, `--rebuild-all`, `--hashed-run-dirs`, `--clean`, `--outputs-to`).
 
 ## When something fails
 
@@ -191,6 +213,9 @@ then make"; it implies `--rebuild-all`). `--xeda-run-dir`, `--cached-dependencie
 | `DesignValidationError` | The design file is invalid | Validate against `xeda design-schema` |
 | `FlowFailed` | The flow ran but reported failure | Read `results` and the reports under `run_path` |
 | `NoSuccessfulRun` | A DSE search found no successful run | Inspect the attempted runs and relax or correct the search settings |
+| `RunRootError` | The run root holds files but no marker xeda created, or cannot be written | Move it aside, or create `<dir>/.xeda-run-root` to hand it to xeda |
+| `DeliveryError` | A named output could not be delivered: the run did not write it, or the destination is an input, a directory, or inside a run root | Check the setting's value and that it does not point at an input or a run root |
+| `OutputExistsError` | The destination holds a file that is not xeda's own unchanged earlier delivery | Rerun with `--overwrite-outputs`, or confirm the interactive prompt |
 
 Flow names are forgiving - `vivado_synth`, `vivado-synth` and `VivadoSynth` all work. Setting
 names are not.

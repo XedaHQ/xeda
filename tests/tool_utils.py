@@ -21,7 +21,7 @@ import tempfile
 from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 import pytest
 
@@ -478,3 +478,27 @@ def yosys_json_attribute_holders(netlist: Path, attribute: str) -> list[str]:
                 yield from holders(value, f"{path}/{key}" if path else str(key))
 
     return list(holders(json.loads(netlist.read_text()), ""))
+
+
+#: How a stale reason begins for an input the last run was found to read only afterwards (a
+#: depfile's entry), on another file system than its run directory's, of which no record from
+#: before that run exists: whether it changed during the run is unknown, and no clock of another
+#: file system decides it (`xeda.digest.UNRECORDED_BEFORE_RUN`).
+UNRECORDED_BEFORE_RUN_REASON = "input first read by the last run, on another file system"
+
+
+def launch_until_fresh(runner: Any, launch: Any) -> Any:
+    """`launch()`, which launches a flow through `runner` that ran before, until the flow is found
+    up to date -- at most once more: a tool reporting what it read (`yosys -E`) names files of
+    its own installation, which lie on another file system than the run directory on some
+    machines (a macOS volume, say), and with no record of them from before the first run, the
+    next launch runs once more, saying so. The fresh flow."""
+    first = len(runner.launched)
+    flow = launch()
+    if flow.reused:
+        return flow
+    reasons = [f.stale_reason for f in runner.launched[first:]]
+    assert any(r and r.startswith(UNRECORDED_BEFORE_RUN_REASON) for r in reasons), reasons
+    flow = launch()
+    assert flow.reused, flow.stale_reason
+    return flow
