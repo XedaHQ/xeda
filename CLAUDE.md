@@ -115,7 +115,7 @@ it), but never use `wrote_output` to check that a run wrote such an output -- ca
 nothing tells, the prior state is unknown, and an unknown prior state is never proof a run wrote
 it -- which is how a failed run's `results.json` drops what an earlier run left without ever
 relisting one it merely could not confirm. A work directory removed by name goes through
-`Flow.removable_work_dir`, which refuses one outside. `RemoteRunner.run_remote` claims its local
+`Flow.removable_work_dir`, which refuses one outside (a link a tool left at its own name is removed as a link, never what it points to). `RemoteRunner.run_remote` claims its local
 results directory the same way before connecting. xeda never writes through a link: generated
 files go through `utils.replacing_file` / `replacing_copy` (a temporary beside the target,
 `os.replace`d over it), and the marker is created with `O_EXCL | O_NOFOLLOW`.

@@ -558,16 +558,17 @@ def test_a_diamond_impl_folder_is_deleted_exactly_as_checked(tmp_path, monkeypat
     assert new[new.index("-impl_dir") + 1] == str(run_dir.resolve() / impl_folder)
 
 
-def test_a_vivado_xsim_dir_linked_out_of_the_run_directory_is_refused(tmp_path, monkeypatch):
-    """The Vivado simulation script deletes `xsim.dir` in the run directory: one that resolves
-    elsewhere (a link) is refused, naming it, before the script runs."""
+def test_a_work_directory_a_tool_left_as_a_link_is_removed_as_a_link(tmp_path, monkeypatch):
+    """A tool may turn a work directory into a symbolic link to anywhere (an install tree, say).
+    The Vivado simulation script deletes `xsim.dir` in the run directory: the next run removes
+    the link itself and proceeds -- it neither fails nor touches what the link leads to."""
     use_fake_tools(monkeypatch)
     launcher = _launcher(tmp_path)
     outside = _outside(tmp_path, launcher, "vivado_sim", "xsim")
     before = _tree(outside)
     run_dir = launcher.get_flow_run_path("sqrt", "vivado_sim")
     run_dir.mkdir(parents=True)
-    (run_dir / MARKER).write_text("format = 1\n")  # xeda's, where a link has appeared
+    (run_dir / MARKER).write_text("format = 1\n")  # xeda's, where a tool made a link
     (run_dir / "xsim.dir").symlink_to(outside, target_is_directory=True)
     source = tmp_path / "tb.v"
     source.write_text("module tb; endmodule\n")
@@ -578,13 +579,36 @@ def test_a_vivado_xsim_dir_linked_out_of_the_run_directory_is_refused(tmp_path, 
         design_root=tmp_path,
     )
 
+    launcher.launch_flow(VivadoSim, design, {})
+
+    assert not (run_dir / "xsim.dir").is_symlink()
+    assert _tree(outside) == before
+    assert fake_calls(run_dir)
+
+
+def test_a_work_directory_behind_a_link_out_of_the_run_directory_is_refused(tmp_path, monkeypatch):
+    """Only the work directory's own name may be a link: when an earlier component of its path is
+    one that leads out (`tools/sim` with `tools` -> elsewhere), the directory really lies
+    outside the run directory, and is refused, naming it, with nothing removed."""
+    _no_tools(monkeypatch)
+    launcher = _launcher(tmp_path)
+    outside = _outside(tmp_path, launcher, "verilator", "x")
+    before = _tree(outside)
+    run_dir = launcher.get_flow_run_path("sqrt", "verilator")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / MARKER).write_text("format = 1\n")
+    (run_dir / "tools").symlink_to(outside, target_is_directory=True)
+    source = tmp_path / "top.v"
+    source.write_text("module top; endmodule\n")
+    design = Design(name="sqrt", rtl={"sources": [str(source)], "top": "top"}, design_root=tmp_path)
+
     with pytest.raises(XedaException) as refused:
-        launcher.launch_flow(VivadoSim, design, {})
+        launcher.launch_flow(Verilator, design, {"sim_dir": "tools/sim", "clean": True})
 
     assert type(refused.value).__name__ == "RunDirectoryError"
-    assert "xsim.dir" in str(refused.value)
+    assert "sim_dir" in str(refused.value)
+    assert (run_dir / "tools").is_symlink()
     assert _tree(outside) == before
-    assert not fake_calls(run_dir)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1391,6 +1415,12 @@ REVIEWED_SITES = [
         "flows/openxc7/__init__.py",
         "bba_path.unlink()",
         "the chip database's intermediate, which it wrote into the run directory just before",
+    ),
+    (
+        "flow/flow.py",
+        "named.unlink()",
+        "`Flow.removable_work_dir`: the work directory's own name, a link a tool made, removed "
+        "as a link (never what it leads to); its parent lies inside the run directory",
     ),
     ("flows/verilator/__init__.py", "p.unlink()", f"`*.d` in `sim_dir`: {_INSIDE}"),
     ("flows/verilator/__init__.py", "shutil.rmtree(sim_dir)", f"`sim_dir`: {_INSIDE}"),
