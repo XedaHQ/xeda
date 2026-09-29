@@ -52,7 +52,7 @@ def test_verilator_cocotb_verdict(tmp_path: Path, expected: int, success: bool) 
         "@cocotb.test()\n"
         "async def check_output(dut):\n"
         "    dut.a.value = 0\n"
-        "    await Timer(1, unit='ns')\n"
+        "    await Timer(1, 'ns')\n"
         f"    assert int(dut.y.value) == {expected}\n"
     )
     design = Design(
