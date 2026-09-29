@@ -385,3 +385,34 @@ def test_a_directly_constructed_flow_does_not_reintroduce_the_stale_artifact_bug
     finally:
         for name in (DirectlyConstructed.name, DirectlyConstructed.__name__):
             registered_flows.pop(name, None)
+
+
+def test_a_directly_constructed_flow_with_a_relative_run_path_is_still_sound(tmp_path, monkeypatch):
+    """The same invariant, but with a *relative* `run_path` (luna's finding): `Flow.__init__`
+    must snapshot and `wrote_output` must look paths up under the *same* normalized (absolute)
+    form of the run directory, or an untouched earlier artifact is missed at snapshot time --
+    recorded under a relative key -- and then reported as written, because looking it up later
+    (always through an absolute path) finds nothing there and falls back to "absent"."""
+    monkeypatch.chdir(tmp_path)
+
+    class DirectlyConstructedRelative(Flow):
+        results_description: ClassVar[dict] = {}
+
+        def run(self) -> None:
+            pass
+
+    run_dir = Path("run")  # relative to the (now current) tmp_path
+    (tmp_path / run_dir).mkdir()
+    old = tmp_path / run_dir / "old.bit"
+    old.write_text("old\n")  # here before the flow is even constructed
+
+    try:
+        flow = DirectlyConstructedRelative({}, Design.from_file(EXAMPLE), run_dir)
+        fresh = tmp_path / run_dir / "fresh.bit"
+        fresh.write_text("fresh\n")
+
+        assert flow.wrote_output("old.bit") is False
+        assert flow.wrote_output("fresh.bit") is True
+    finally:
+        for name in (DirectlyConstructedRelative.name, DirectlyConstructedRelative.__name__):
+            registered_flows.pop(name, None)
