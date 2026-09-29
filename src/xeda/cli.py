@@ -1,4 +1,3 @@
-# © 2022-2025 [Kamyar Mohajerani](mailto:kammoh@gmail.com)
 """Xeda Command-line interface"""
 
 import logging

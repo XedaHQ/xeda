@@ -1,6 +1,6 @@
 --===============================================================================================--
 --! @brief         Compute square-root of an integer
---! @author        Kamyar Mohajerani (kamyar@ieee.org)
+--! @author        Kamyar Mohajerani
 --! @copyright     Copyright (c) 2022
 --! @license       Solderpad Hardware License v2.1 (SHL-2.1)
 --! @brief         Compute square-root of an integer
