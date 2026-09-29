@@ -357,10 +357,17 @@ def _path_text_typed(roots: list, path: list[str]) -> bool:
 
 
 def _roots_by_package() -> dict[str, list]:
-    """`{flows package: the Settings models of its flows}`."""
+    """`{flows package: the Settings models of its flows}`. `registered_flows` also holds
+    test-only flows other test modules register under their own module (not `xeda.flows.<pkg>`,
+    e.g. `tests.test_documentation._AliasFlow`), which a plain `__module__.split(".")[2]` would
+    either mis-bucket or, for a module with fewer than three components, raise `IndexError` on --
+    order-dependent, since it only ever bites once such a module has been imported first."""
     by_package: dict[str, list] = {}
     for _, cls in registered_flows.values():
-        by_package.setdefault(cls.__module__.split(".")[2], []).append(cls.Settings)
+        module = cls.__module__.split(".")
+        if module[:2] != ["xeda", "flows"]:
+            continue
+        by_package.setdefault(module[2], []).append(cls.Settings)
     return by_package
 
 
