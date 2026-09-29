@@ -56,6 +56,10 @@ All notable changes to this project will be documented in this file.
   checkpoints): an output counts as the run's own only if it changed from the state it was in
   before the run -- its identity, size and times, compared with what xeda recorded of it then,
   never with a clock, so an output on another file system whose clock differs is judged alike.
+  A failed `--remote` run fetches and lists only the outputs the remote vouches its run wrote,
+  judged on the remote's own file system the same way, even on a remote with an older xeda --
+  never one merely because a file is there, such as an earlier run's output named outside the
+  remote run directory.
   `dc` no longer renders `write_sdf -version None` when `sdf_version` is unset.
 - A cocotb simulation fails when its tests fail, on every simulator: `verilator` never read
   cocotb's results, so a failing test gave a successful run. A missing or unreadable results
