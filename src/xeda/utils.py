@@ -191,10 +191,13 @@ def replacing_file(
                 yield f
         except BaseException:
             if keep_on_error:
-                if copy_mode_from is not None:
-                    shutil.copymode(copy_mode_from, temporary)
-                os.replace(temporary, target)
-                committed = True
+                try:
+                    if copy_mode_from is not None:
+                        shutil.copymode(copy_mode_from, temporary)
+                    os.replace(temporary, target)
+                    committed = True
+                except OSError:
+                    log.warning("Could not save the diagnostic output at %s", target)
             raise
         if copy_mode_from is not None:
             shutil.copymode(copy_mode_from, temporary)
