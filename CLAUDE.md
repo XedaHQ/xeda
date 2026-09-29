@@ -87,9 +87,12 @@ the launcher's `run_path`) is used only if it does not exist, is empty, or is ma
 chooses (a dependency's nested in its depender's) must resolve strictly inside the run root --
 `get_flow_run_path` refuses a design or flow name such as `..` or `a/b`, and a link leading out
 -- and is used only if it does not exist, is empty, is marked, or holds an earlier xeda run of
-the same flow (`is_earlier_run_of`: its `settings.json`), which is then marked. Otherwise the
-launch fails with `RunDirectoryError`; `scrub_runs` refuses the same way. `Flow.purge_run_path`
-empties only a marked directory (keeping the marker, as `--post-cleanup` does). Nothing outside
+the same flow (`is_earlier_run_of`: its `settings.json`), which is then marked. Neither may be a
+symbolic link itself (`refuse_linked_run_dir`, first in `claim_run_dir`, `mark_run_dir` and
+`purge_run_path`): its marker would be read, and the run would clean and write, in whatever the
+link leads to. Otherwise the launch fails with `RunDirectoryError`; `scrub_runs` refuses the same
+way. `Flow.purge_run_path` empties only a marked directory (keeping the marker, as
+`--post-cleanup` does). Nothing outside
 the run directory is deleted: `Flow.remove_stale_output` removes an earlier copy of an output only
 inside it (one named outside is left for the tool to overwrite); `Flow.wrote_output` counts an
 output as the run's own only if its state -- device, inode, size, mtime, ctime
