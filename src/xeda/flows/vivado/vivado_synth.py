@@ -628,12 +628,12 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             self.results["_utilization"] = utilization
         wns = self.results.get("wns")
         if wns is not None and isinstance(wns, (float, int, str)):
-            failed |= float(wns) < 0.0
+            failed |= float(wns) < 0.0 and self.settings.fail_timing
         whs = self.results.get("whs")
         if whs is not None and isinstance(whs, (float, int, str)):
-            failed |= float(whs) < 0.0
+            failed |= float(whs) < 0.0 and self.settings.fail_timing
         if "_failing_endpoints" in self.results:
-            failed |= self.results["_failing_endpoints"] != 0
+            failed |= self.results["_failing_endpoints"] != 0 and self.settings.fail_timing
         return not failed
 
 
