@@ -92,18 +92,20 @@ launch fails with `RunDirectoryError`; `scrub_runs` refuses the same way. `Flow.
 empties only a marked directory (keeping the marker, as `--post-cleanup` does). Nothing outside
 the run directory is deleted: `Flow.remove_stale_output` removes an earlier copy of an output only
 inside it (one named outside is left for the tool to overwrite); `Flow.wrote_output` counts an
-output as the run's own only if its state -- inode, size, mtime, ctime
+output as the run's own only if its state -- device, inode, size, mtime, ctime
 (`run_dir.record_output_state`) -- differs from what was recorded for it before this run's tool
 could have written it, never from comparing a timestamp to a clock. `Flow.__init__` snapshots
-every existing file under the run directory (`run_dir.snapshot_output_states`) before `init()`,
-dependencies or `run()` can write to it, whichever way the flow was constructed;
-`remove_stale_output` and assigning `self.artifacts` record an output's prior state the same way
-for one named outside the run directory. A path inside the run directory the snapshot never saw
-was absent; one outside it that was never recorded either way is unknown, and an unknown prior
-state is never proof a run wrote it -- which is how a failed run's `results.json` drops what an
-earlier run left without ever relisting one it merely could not confirm. A work directory removed
-by name
-goes through `Flow.removable_work_dir`, which refuses one outside. `RemoteRunner.run_remote` claims its local
+every file and directory under the run directory (`run_dir.OutputSnapshot`) before `init()`,
+dependencies or `run()` can write to it, whichever way the flow was constructed, keyed by
+identity (device, inode), not by path: one file has many names (a link to it or to a directory
+holding it, another letter case on a case-insensitive file system), and every name of an earlier
+run's file finds that file's state. An output inside the run directory whose identity the
+snapshot did not record was created or moved there since -- unless it lies in a directory the
+snapshot could not read, which proves nothing. `remove_stale_output` and assigning
+`self.artifacts` record the state of an output named outside the run directory. Where nothing
+tells, the prior state is unknown, and an unknown prior state is never proof a run wrote it --
+which is how a failed run's `results.json` drops what an earlier run left without ever relisting
+one it merely could not confirm. A work directory removed by name goes through `Flow.removable_work_dir`, which refuses one outside. `RemoteRunner.run_remote` claims its local
 results directory the same way before connecting. xeda never writes through a link: generated
 files go through `utils.replacing_file` / `replacing_copy` (a temporary beside the target,
 `os.replace`d over it), and the marker is created with `O_EXCL | O_NOFOLLOW`.

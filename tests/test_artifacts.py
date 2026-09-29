@@ -416,3 +416,160 @@ def test_a_directly_constructed_flow_with_a_relative_run_path_is_still_sound(tmp
     finally:
         for name in (DirectlyConstructedRelative.name, DirectlyConstructedRelative.__name__):
             registered_flows.pop(name, None)
+
+
+# ---------------------------------------------------------------------------------------------
+# An earlier output is the same output under any name: the snapshot is keyed by identity
+# ---------------------------------------------------------------------------------------------
+
+
+def _earlier_run_dir(tmp_path: Path) -> Path:
+    """A run directory an earlier run left: marked, so the launcher reuses it as it is, with
+    `old.bit` and `real/old.bit` from that run."""
+    run_dir = tmp_path / "run"
+    (run_dir / "real").mkdir(parents=True)
+    (run_dir / RUN_DIR_MARKER).write_text("format = 1\n")
+    for old in (run_dir / "old.bit", run_dir / "real" / "old.bit"):
+        old.write_text("an earlier run's\n")
+        os.utime(old, ns=(EARLIER_NS, EARLIER_NS))
+    return run_dir
+
+
+def _failed_run_artifacts(tmp_path: Path, run_dir: Path, artifact: str, rewrite=None) -> dict:
+    """The artifacts a failed run into `run_dir` reports when it declares `artifact`, after
+    writing `rewrite` (a file of the run directory) if one is given."""
+
+    class DeclaresAnOutput(Flow):
+        """Declare one output, write it only if told to, and fail."""
+
+        results_description: ClassVar[dict] = {}
+
+        def run(self) -> None:
+            self.artifacts.output = artifact
+            if rewrite is not None:
+                rewrite.write_text("this run's, and longer\n")
+
+        def parse_reports(self) -> bool:
+            return False
+
+    try:
+        flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
+            DeclaresAnOutput, Design.from_file(EXAMPLE), {}, run_path=run_dir
+        )
+    finally:
+        for name in (DeclaresAnOutput.name, DeclaresAnOutput.__name__):
+            registered_flows.pop(name, None)
+    assert not flow.succeeded
+    return json.loads((run_dir / "results.json").read_text()).get("artifacts", {})
+
+
+#: Ways to name an earlier output other than as the run-directory walk spells it: the name the
+#: flow declares, and the file of the run directory it is.
+OTHER_NAMES = {
+    # a link inside the run directory to a directory of it
+    "linked subdirectory": (lambda tmp, run: "alias/old.bit", "real/old.bit"),
+    # a link outside the run directory to a file in it (`-s vcd=/elsewhere/latest.vcd`)
+    "link into the run directory": (lambda tmp, run: str(tmp / "latest.bit"), "old.bit"),
+    # a path through a link to the run directory itself (a "latest" link)
+    "linked run directory": (lambda tmp, run: str(tmp / "latest" / "old.bit"), "old.bit"),
+    # another case of the name, on a case-insensitive file system (macOS's default)
+    "letter case": (lambda tmp, run: "OLD.BIT", "old.bit"),
+}
+
+
+@pytest.mark.parametrize("written", [False, True], ids=["untouched", "rewritten"])
+@pytest.mark.parametrize("spelling", sorted(OTHER_NAMES))
+def test_an_earlier_output_under_another_name_is_still_the_earlier_output(
+    spelling, written, tmp_path
+):
+    """A failed run lists an output it declares only if the run wrote it, however the flow names
+    it: through a link into or inside the run directory, or in another letter case on a
+    case-insensitive file system. The snapshot `Flow.__init__` takes is keyed by each file's
+    identity (device and inode), not by how a walk of the run directory happened to spell its
+    path, so another name for an earlier run's file finds that file's recorded state -- it is
+    never taken for a path the snapshot did not see, and so for a file this run created."""
+    run_dir = _earlier_run_dir(tmp_path)
+    name_of, file = OTHER_NAMES[spelling]
+    (run_dir / "alias").symlink_to(run_dir / "real", target_is_directory=True)
+    (tmp_path / "latest.bit").symlink_to(run_dir / "old.bit")
+    (tmp_path / "latest").symlink_to(run_dir, target_is_directory=True)
+    if spelling == "letter case" and not (run_dir / "OLD.BIT").exists():
+        pytest.skip("the file system is case-sensitive: OLD.BIT is another file")
+    artifact = name_of(tmp_path, run_dir)
+
+    listed = _failed_run_artifacts(
+        tmp_path, run_dir, artifact, rewrite=run_dir / file if written else None
+    )
+
+    assert listed == ({"output": artifact} if written else {})
+
+
+@pytest.mark.parametrize("written", [False, True], ids=["untouched", "written into"])
+def test_a_directory_output_is_the_runs_only_if_the_run_changed_it(written, tmp_path):
+    """An output may be a directory. The snapshot records directories as well as files, so an
+    earlier run's directory this run left alone is not its own -- one it wrote a file into is,
+    as a directory's own state changes when an entry is added to it."""
+    run_dir = _earlier_run_dir(tmp_path)
+
+    listed = _failed_run_artifacts(
+        tmp_path, run_dir, "real", rewrite=run_dir / "real" / "new.v" if written else None
+    )
+
+    assert listed == ({"output": "real"} if written else {})
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs POSIX permissions")
+def test_a_directory_the_snapshot_could_not_read_is_never_taken_for_empty(tmp_path):
+    """The snapshot proves a path absent only where it could look. A directory of the run
+    directory it could not list is not recorded as empty: whatever is found there later has no
+    known prior state, so it is not proof the run wrote it (a failed run omits it)."""
+
+    class NeverRuns(Flow):
+        """Only constructed."""
+
+        results_description: ClassVar[dict] = {}
+
+        def run(self) -> None:
+            pass
+
+    run_dir = _earlier_run_dir(tmp_path)
+    locked = run_dir / "real"
+    locked.chmod(0)
+    try:
+        flow = NeverRuns({}, Design.from_file(EXAMPLE), run_dir)
+    finally:
+        locked.chmod(0o755)
+        for name in (NeverRuns.name, NeverRuns.__name__):
+            registered_flows.pop(name, None)
+
+    assert flow.wrote_output("real/old.bit") is False
+    assert flow.wrote_output("old.bit") is False
+
+
+def test_a_failed_vivado_sim_does_not_list_an_earlier_vcd_named_through_a_link(
+    tmp_path, monkeypatch
+):
+    """The case above through a real flow: `vivado_sim` names its VCD where the setting says,
+    here through a link to its own run directory, and registers it before Vivado runs. A run
+    whose tool fails before writing it does not list the earlier run's VCD there as its own."""
+    design = _sqrt_with_a_vhdl_testbench(tmp_path / "design")
+    monkeypatch.chdir(tmp_path)
+    use_fake_tools(monkeypatch)
+    runner = DefaultRunner(  # as `xeda run` makes it: one run directory, reused
+        tmp_path / "xeda_run", display_results=False, cached_dependencies=False, incremental=True
+    )
+    run_dir = runner.launch_flow("vivado_sim", design, {"vcd": "wave.vcd", "clean": False}).run_path
+    vcd = run_dir / "wave.vcd"
+    vcd.write_text("an earlier run's\n")
+    os.utime(vcd, ns=(EARLIER_NS, EARLIER_NS))
+    (tmp_path / "latest").symlink_to(run_dir, target_is_directory=True)
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "xvhdl")
+
+    again = runner.launch_flow(
+        "vivado_sim", design, {"vcd": str(tmp_path / "latest" / "wave.vcd"), "clean": False}
+    )
+
+    assert again.run_path == run_dir and not again.succeeded
+    assert vcd.stat().st_mtime_ns == EARLIER_NS  # the earlier run's, untouched
+    saved = json.loads((run_dir / "results.json").read_text())
+    assert "vcd" not in saved.get("artifacts", {})

@@ -24,7 +24,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from pathvalidate import sanitize_filename
 
@@ -32,6 +32,8 @@ from ..utils import XedaException
 
 __all__ = [
     "RUN_DIR_MARKER",
+    "OutputSnapshot",
+    "OutputState",
     "RunDirectoryError",
     "check_inside_run_root",
     "claim_run_dir",
@@ -41,7 +43,6 @@ __all__ = [
     "record_output_state",
     "resolved_inside",
     "run_dir_name",
-    "snapshot_output_states",
 ]
 
 log = logging.getLogger(__name__)
@@ -152,39 +153,72 @@ def claim_run_dir(directory: Path, flow_name: Optional[str] = None) -> None:
         )
 
 
-def record_output_state(path: Path) -> Optional[Tuple[int, int, int, int]]:
-    """`path`'s `(inode, size, mtime_ns, ctime_ns)`, or `None` if it is not there.
+#: A file's or directory's state: `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)`.
+OutputState = Tuple[int, int, int, int, int]
 
-    What `Flow.wrote_output` compares a path's later state against, so that a run's own output is
-    told from one an earlier run left by the file's own identity and metadata changing -- never a
-    clock. A file on a file system whose clock is behind (an external, named output) or read
-    within a coarse tick (FAT's 2s) is judged the same way: unsound comparisons like `mtime >=
-    some_timestamp` never enter into it.
+
+def record_output_state(path: Union[str, os.PathLike]) -> Optional[OutputState]:
+    """`path`'s state -- its identity (device, inode), size, mtime and ctime -- or `None` if it
+    is not there.
+
+    What `Flow.wrote_output` compares an output's later state against, so that a run's own
+    output is told from one an earlier run left by the file's own identity and metadata
+    changing -- never a clock. A file on a file system whose clock is behind (an external, named
+    output) or read within a coarse tick (FAT's 2s) is judged the same way: unsound comparisons
+    like `mtime >= some_timestamp` never enter into it.
     """
     try:
-        st = path.stat()
+        st = os.stat(path)
     except OSError:
         return None
-    return (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
 
 
-def snapshot_output_states(directory: Path) -> Dict[Path, Tuple[int, int, int, int]]:
-    """Every existing file's state under `directory`, recursively, keyed by its path.
+class OutputSnapshot:
+    """What was under a run directory before a run could write to it: the state of every file
+    and directory there (`record_output_state`), keyed by its identity -- device and inode --
+    rather than by a path.
 
-    Meant to be taken before anything can write to `directory`: a path found here later with a
-    different state (or a path never listed here at all) is new or changed since. `directory` not
-    existing yet, or being empty, both come back empty -- everything under it was absent.
-    Symbolic links to a directory are not followed, so a link cannot walk this outside `directory`
-    or loop back into it.
+    One file has many names: a link to it or to a directory holding it, a path through a link to
+    the run directory, another letter case or Unicode form on a file system that ignores them. An
+    output is the same output under any of them, so `changed` looks it up by what it *is*. Taken
+    before anything can write to the directory, a walk that read every directory saw every file
+    and directory in it, so one whose identity it did not record was created (or moved there)
+    since. A directory the walk could not read (`unread`) proves nothing: what is found under it
+    later has no known prior state. Symbolic links to a directory are not followed, so the walk
+    cannot leave the directory or loop; what a link inside leads to inside is walked where it
+    lies.
     """
-    states: Dict[Path, Tuple[int, int, int, int]] = {}
-    for dirpath, _dirnames, filenames in os.walk(directory, followlinks=False):
-        for filename in filenames:
-            path = Path(dirpath) / filename
-            state = record_output_state(path)
-            if state is not None:
-                states[path] = state
-    return states
+
+    def __init__(self, directory: Path) -> None:
+        self.states: Dict[Tuple[int, int], OutputState] = {}
+        #: The directories, resolved, the walk could not read.
+        self.unread: List[Path] = []
+
+        def unreadable(error: OSError) -> None:
+            if isinstance(error, FileNotFoundError):
+                return  # not there (a run directory not created yet): nothing to record
+            self.unread.append(Path(error.filename or directory).resolve())
+
+        for dirpath, _dirnames, filenames in os.walk(
+            directory, onerror=unreadable, followlinks=False
+        ):
+            for path in (dirpath, *(os.path.join(dirpath, name) for name in filenames)):
+                state = record_output_state(path)
+                if state is not None:
+                    self.states[state[:2]] = state
+
+    def changed(self, path: Path, current: OutputState) -> Optional[bool]:
+        """Whether what is at `path` now -- resolved, under the snapshot's directory -- with
+        state `current` is new or changed since the snapshot was taken: its identity recorded
+        with another state, or not recorded at all (created or moved there since). `None` if the
+        snapshot cannot tell, `path` lying in a directory the walk could not read."""
+        prior = self.states.get(current[:2])
+        if prior is not None:
+            return prior != current
+        if any(path.is_relative_to(unread) for unread in self.unread):
+            return None
+        return True
 
 
 def resolved_inside(path: Union[str, os.PathLike], directory: Path) -> Optional[Path]:
