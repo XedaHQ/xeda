@@ -16,7 +16,7 @@ if {$place_density > 1.0} {
     set place_density 1.0
 }
 {% else %}
-set place_density {{settings.place_density or platform.place_density}}
+set place_density {{(settings.place_density or platform.place_density)|tcl_word}}
 {% endif %}
 
 global_placement -skip_io -density $place_density \

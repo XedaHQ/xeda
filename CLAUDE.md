@@ -535,7 +535,12 @@ while it is open). A flow sharing
   split a single word at its spaces (`utils.py`, registered by `Flow._create_jinja_env`). Never
   `eval` a command with a path: it parses the path a second time. `tests/test_yosys_templates.py`
   and `tests/test_tcl_paths.py` enforce this; the latter runs rendered scripts under `tclsh` with
-  every tool command recorded. PDK files and xeda's own run-directory paths are left raw.
+  every tool command recorded, and its oracle requires every setting holding user text (`str` or
+  `Path`, alone or in a list) that a Tcl template renders to go through a filter, unless
+  `REVIEWED_RAW` says why it is written as words (tool flags, a simulation time). A path xeda
+  checked before the run (`removable_work_dir`) is handed to the script as the checked value
+  itself: Diamond's `impl_folder`, checked literally but rendered in double quotes, was deleted
+  as whatever Tcl substituted it into. PDK files and xeda's own run-directory paths are left raw.
 - **Compare a source's type with `SourceType`, never with free text**: `src.type is
   SourceType.Xdc` in Python, `src.type.name == "Vhdl"` in a template. A `SourceType` equals only
   its own name, so `src.type == 'verilog'` is silently never true -- ModelSim compiled no source

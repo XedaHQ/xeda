@@ -13,8 +13,8 @@ set_app_var echo_include_commands false
 
 set SCRIPTS_DIR [file dirname [info script]]
 
-set OUTPUTS_DIR {{settings.outputs_dir}}
-set REPORTS_DIR {{settings.reports_dir}}
+set OUTPUTS_DIR {{settings.outputs_dir|tcl_word}}
+set REPORTS_DIR {{settings.reports_dir|tcl_word}}
 
 set TOP_MODULE {{design.rtl.top}}
 
@@ -25,7 +25,7 @@ if { ${TOP_MODULE} == "" } {
 
 set OPTIMIZATION {{settings.optimization}}
 
-set TARGET_LIBRARY_FILES "{{settings.target_libraries | join(' ')}}"
+set TARGET_LIBRARY_FILES {{settings.target_libraries|tcl_list}}
 
 {% if settings.nthreads is not none %}
 set_host_options -max_cores {{settings.nthreads}}
@@ -196,13 +196,13 @@ redirect -file ${REPORTS_DIR}/linked.constraints.rpt {report_constraint -nosplit
 
 write_file -hierarchy -format ddc -output ${OUTPUTS_DIR}/${TOP_MODULE}.linked.ddc
 
-set compile_command {{settings.compile_command}}
+set compile_command {{settings.compile_command|tcl_word}}
 
-set compile_options [list {{settings.compile_args | join(' ')}}]
+set compile_options {{settings.compile_args|tcl_list}}
 
 if {[shell_is_in_topographical_mode]} {
     {%if settings.max_tluplus or settings.min_tluplus -%}
-    set_tlu_plus_files {%if settings.min_tluplus -%} -max_tluplus {{settings.max_tluplus}} {%endif-%} {%if settings.min_tluplus -%} -min_tluplus {{settings.min_tluplus}} {%endif-%} {%if settings.tluplus_map -%} -tech2itf_map {{settings.tluplus_map}} {%endif-%}
+    set_tlu_plus_files {%if settings.max_tluplus -%} -max_tluplus {{settings.max_tluplus|tcl_word}} {%endif-%} {%if settings.min_tluplus -%} -min_tluplus {{settings.min_tluplus|tcl_word}} {%endif-%} {%if settings.tluplus_map -%} -tech2itf_map {{settings.tluplus_map|tcl_word}} {%endif-%}
     check_tlu_plus_files
     {% endif -%}
 
@@ -338,7 +338,7 @@ puts "==========================( Writing Generated Netlist )===================
 write -hierarchy -format ddc -compress gzip -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.ddc
 write -hierarchy -format verilog -output $OUTPUTS_DIR/${TOP_MODULE}.mapped.v
 
-write_sdf {% if settings.sdf_version %}-version {{ settings.sdf_version }} {% endif %}{%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name}} {%endif-%} $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
+write_sdf {% if settings.sdf_version %}-version {{ settings.sdf_version|tcl_word }} {% endif %}{%if settings.sdf_inst_name is not none-%} -instance {{settings.sdf_inst_name|tcl_word}} {%endif-%} $OUTPUTS_DIR/${TOP_MODULE}.mapped.sdf
 
 set_app_var write_sdc_output_lumped_net_capacitance false
 set_app_var write_sdc_output_net_resistance false

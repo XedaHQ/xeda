@@ -1,5 +1,5 @@
-variable reports_dir "{{settings.reports_dir}}"
-variable results_dir "{{settings.results_dir}}"
+variable reports_dir {{settings.reports_dir|tcl_word}}
+variable results_dir {{settings.results_dir|tcl_word}}
 
 proc read_libraries {} {
   {% if (settings.multi_corner and platform.corner|length) > 1 %}

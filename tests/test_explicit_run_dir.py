@@ -526,6 +526,38 @@ def test_a_diamond_impl_folder_outside_the_run_directory_is_refused(tmp_path, mo
     assert not fake_calls(launcher.get_flow_run_path("sqrt", "diamond_synth"))
 
 
+@pytest.mark.parametrize(
+    "impl_folder",
+    ["$::env(XEDA_TEST_TARGET)", "[set ::env(XEDA_TEST_TARGET)]", "${::env(XEDA_TEST_TARGET)}"],
+    ids=["variable", "command", "braced variable"],
+)
+def test_a_diamond_impl_folder_is_deleted_exactly_as_checked(tmp_path, monkeypatch, impl_folder):
+    """The reviewer's reproduction: an `impl_folder` that Tcl would substitute -- here to a
+    directory of the user's outside the run directory -- was checked as the literal path it is,
+    then rendered inside double quotes, where Tcl substituted it before `file delete -force`.
+    The script is handed exactly the path the check approved, as one literal word."""
+    use_fake_tools(monkeypatch)
+    launcher = _launcher(tmp_path)
+    outside = _outside(tmp_path, launcher, "diamond_synth", "users")
+    before = _tree(outside)
+    monkeypatch.setenv("XEDA_TEST_TARGET", str(outside))
+    settings = {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock": {"period": 10.0}}
+
+    try:
+        launcher.launch_flow(
+            DiamondSynth,
+            Design.from_file(SQRT / "sqrt.toml"),
+            settings | {"impl_folder": impl_folder},
+        )
+    except Exception:  # pylint: disable=broad-except
+        pass  # the fake writes empty reports, which diamond's parser cannot read; not the point
+
+    assert _tree(outside) == before
+    run_dir = launcher.get_flow_run_path("sqrt", "diamond_synth")
+    (new,) = [call for call in fake_calls(run_dir) if call[:2] == ["prj_project", "new"]]
+    assert new[new.index("-impl_dir") + 1] == str(run_dir.resolve() / impl_folder)
+
+
 def test_a_vivado_xsim_dir_linked_out_of_the_run_directory_is_refused(tmp_path, monkeypatch):
     """The Vivado simulation script deletes `xsim.dir` in the run directory: one that resolves
     elsewhere (a link) is refused, naming it, before the script runs."""
@@ -1115,8 +1147,9 @@ REVIEWED_SITES = [
     ("flows/vivado/__init__.py", "super().purge_run_path()", _PURGE),
     (
         "flows/diamond/templates/synth.tcl",
-        "file delete -force ${impl_dir}",
-        f"`impl_folder`, checked by `DiamondSynth.run` before the script is rendered: {_INSIDE}",
+        "file delete -force -- $impl_dir",
+        "`impl_folder`, checked by `DiamondSynth.run` (`Flow.removable_work_dir`) and rendered as "
+        "exactly the path checked, one literal Tcl word",
     ),
     (
         "flows/ghdl/__init__.py",

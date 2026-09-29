@@ -1,6 +1,6 @@
 proc save_images {} {
-    set reports_dir {{settings.reports_dir}}
-    set results_dir {{settings.results_dir}}
+    set reports_dir {{settings.reports_dir|tcl_word}}
+    set results_dir {{settings.results_dir|tcl_word}}
     set route_drc_rpt $reports_dir/{{ get_step_id("detailed_route") }}_drc.rpt
     set step_id {{step_id}}
 

@@ -6,7 +6,7 @@ source {{file|tcl_word}}
 {%- endfor %}
 
 {#- `ACTIVE_STEP` is Vivado's own: its runs set it before each step and unset it after. #}
-set xeda_reports_dir [file join {{run_dir|tcl_word}} {{settings.reports_dir}} {{step}}]
+set xeda_reports_dir [file join {{run_dir|tcl_word}} {{settings.reports_dir|tcl_word}} {{step}}]
 
 puts "\n=======================( Writing reports after {{step}} )========================"
 puts "Writing reports to ${xeda_reports_dir}"

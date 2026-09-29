@@ -11,7 +11,7 @@ if { [catch {file delete -force xsim.dir} error]} {
     puts "Failed to delete previously existing xsim.dir: $error"
 }
 
-set analyze_flags "-work {{settings.work_lib}} {%- if settings.debug %} -verbose 2 {%- endif %} {{settings.analyze_flags|join(' ')}}"
+set analyze_flags "-work {{settings.work_lib|tcl_quote}} {%- if settings.debug %} -verbose 2 {%- endif %} {{settings.analyze_flags|join(' ')}}"
 
 puts "\n===========================( Analyzing HDL Sources )==========================="
 {%- for src in design.sim_sources %}
@@ -34,7 +34,7 @@ if { [catch {exec xvhdl {*}$analyze_flags {% if design.language.vhdl.standard in
 {%- endfor %}
 
 puts "\n===========================( Elaborating design )==========================="
-if { [catch {eval exec xelab -s ${snapshot_name} -L {{settings.work_lib}} {%- for l,_ in settings.lib_paths %} -L {{l}} {%- endfor %} {{settings.elab_flags|join(' ')}} {{settings.optimization_flags|join(' ')}} {% if settings.xelab_log %} -log {{settings.xelab_log}} {%- endif %} {%- for k,v in design.tb.parameters.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in design.tb.top %} {{top}} {%- endfor %}  } error]} {
+if { [catch {eval exec xelab -s ${snapshot_name} -L {{settings.work_lib|tcl_word}} {%- for l,_ in settings.lib_paths %} -L {{l}} {%- endfor %} {{settings.elab_flags|join(' ')}} {{settings.optimization_flags|join(' ')}} {% if settings.xelab_log %} -log {{settings.xelab_log|tcl_word}} {%- endif %} {%- for k,v in design.tb.parameters.items() %} {{"-generic_top %s=%s"|format(k,v)}} {%- endfor %} {%- for top in design.tb.top %} {{top}} {%- endfor %}  } error]} {
     errorExit $error
 }
 
@@ -47,17 +47,17 @@ if { [catch {eval xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} } error
 puts "\n===========================( Setting up SAIF )==========================="
 {#- An earlier SAIF file in the run directory was removed before the script (`VivadoSim.run`,
     `Flow.remove_stale_output`); one named outside it is left for `open_saif` to overwrite. #}
-open_saif {{settings.saif}}
+open_saif {{settings.saif|tcl_word}}
 {%- endif %}
 
 {#- ## TODO: WDB support: open_wave_database ${wdb_file} #}
 
 {%- if settings.vcd %}
 puts "\n===========================( Setting up VCD )==========================="
-open_vcd {{settings.vcd}}
+open_vcd {{settings.vcd|tcl_word}}
 ## Vivado (tested on 2020.1) crashes if using * and shared/protected variables are present
 ## log_vcd [get_objects -r -filter { type == variable || type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } /*]
-log_vcd {%- if settings.is_quiet %} -quiet {%- elif settings.verbose %} -verbose {%- endif %} {%- if settings.vcd_level %} -level {{settings.vcd_level}} {%- endif %} {{settings.vcd_scope}}
+log_vcd {%- if settings.is_quiet %} -quiet {%- elif settings.verbose %} -verbose {%- endif %} {%- if settings.vcd_level %} -level {{settings.vcd_level}} {%- endif %} {%- if settings.vcd_scope %} {{settings.vcd_scope|tcl_word}} {%- endif %}
 {%- endif %}
 {%- if settings.debug_traces %}
 ltrace on

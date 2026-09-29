@@ -1,5 +1,5 @@
 
-set_dont_use {{settings.dont_use_cells|join(" ")|embrace}}
+set_dont_use {{settings.dont_use_cells|tcl_list}}
 
 # set fastroute layer reduction
 {% if platform.fastroute_tcl %}
@@ -21,7 +21,7 @@ if {$place_density > 1.0} {
     utl::error FLW 24 "Place density exceeds 1.0 (current PLACE_DENSITY_LB_ADDON = {{settings.place_density_lb_addon}}). Please check if the value of PLACE_DENSITY_LB_ADDON is between 0 and 0.99."
 }
 {% else %}
-set place_density {{settings.place_density or platform.place_density}}
+set place_density {{(settings.place_density or platform.place_density)|tcl_word}}
 {% endif %}
 
 set global_placement_args "{{ settings.global_placement_args|join(" ") }}"
