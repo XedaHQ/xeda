@@ -7,7 +7,7 @@ import socket
 import sys
 import tempfile
 import zipfile
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Any, Dict, Optional, Tuple, Union
@@ -48,12 +48,17 @@ def _transfer_artifacts(
     local_dir: Path,
     succeeded: bool = True,
     flow_name: str = "the remote flow",
+    written_on_remote: Optional[Collection[str]] = None,
 ) -> Any:
     """Fetch path leaves and return the same artifact tree with local path strings.
 
-    A missing artifact of a successful run is an error. One of a failed run is dropped, as the
-    launcher does (`drop_unwritten_artifacts`): the remote may run an older xeda, which lists
-    every artifact its flow recorded whether or not the run wrote it."""
+    A missing artifact of a successful run is an error. Of a failed run's, only those the
+    remote vouched its run wrote (`written_on_remote`, as each is named in the results) are
+    fetched and kept; the rest are dropped, as the launcher drops them
+    (`drop_unwritten_artifacts`). The remote may run an older xeda, which lists every artifact
+    its flow recorded whether or not the run wrote it, and a file there may be an earlier run's:
+    only the remote can tell, from its own file system (`remote_runner`), so a file merely
+    existing there proves nothing, and with no word from the remote none is kept."""
     remote_root = os.path.normpath(remote_run_path)
 
     def remote_path_of(artifact: ArtifactPath) -> str:
@@ -63,14 +68,10 @@ def _transfer_artifacts(
         )
 
     if not succeeded:
-        sftp = conn.sftp()
+        vouched = frozenset(written_on_remote or ())
 
         def written(artifact: ArtifactPath) -> bool:
-            try:
-                sftp.stat(remote_path_of(artifact))
-            except FileNotFoundError:
-                return False
-            return True
+            return os.fspath(artifact) in vouched
 
         artifacts = drop_unwritten_artifacts(artifacts, written, flow_name)
 
@@ -375,6 +376,48 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
     with zipfile.ZipFile(zip_file, mode="r") as archive:
         archive.extractall(path=remote_path)
 
+    # What the remote directory holds before the run -- every file's and directory's identity,
+    # size and times, on the remote's own file system -- so that a failed run's artifacts can be
+    # told from files that were already here (below). The remote's xeda may be too old to tell
+    # them apart itself (`Flow.wrote_output`). The directory is fresh, so this is the design
+    # archive's files; one it could not read proves nothing about what lies under it.
+    remote_root = os.path.realpath(remote_path)
+    before: dict = {}
+    unread: list = []
+    pending_dirs: list = [remote_root]
+    while pending_dirs:
+        top = pending_dirs.pop()
+        try:
+            st = os.stat(top)
+            entries = list(os.scandir(top))
+        except FileNotFoundError:
+            continue
+        except OSError:
+            unread.append(top)
+            continue
+        before[(st.st_dev, st.st_ino)] = (
+            st.st_dev,
+            st.st_ino,
+            st.st_size,
+            st.st_mtime_ns,
+            st.st_ctime_ns,
+        )
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    pending_dirs.append(entry.path)
+                    continue
+                st = os.stat(entry.path)
+            except OSError:
+                continue
+            before[(st.st_dev, st.st_ino)] = (
+                st.st_dev,
+                st.st_ino,
+                st.st_size,
+                st.st_mtime_ns,
+                st.st_ctime_ns,
+            )
+
     # xeda_run_dir = Path("remote_run").joinpath(datetime.now().strftime("%y%m%d%H%M%S%f"))
     xeda_run_dir = str(Path.cwd())
     launcher = DefaultRunner(
@@ -437,6 +480,52 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
                 pending.append((items, index))
     results = json.dumps(root[0], default=str, indent=1)
     channel.send(results)
+
+    # Which of a failed run's artifacts the run wrote, judged here, on the remote's own file
+    # system -- this side never compares its clock or its files with the remote's: by the
+    # remote flow's own record (`wrote_output`) where its xeda has one; otherwise, one under the
+    # remote directory whose identity it did not hold before the run, or whose state changed
+    # since. Anything else -- one outside it, or under a directory the snapshot could not
+    # read -- is unknown, and not vouched for: this side drops it. Named as in the results.
+    written = None
+    if f is not None and not f.results.get("success"):
+        written = []
+        wrote_output = getattr(f, "wrote_output", None)
+        run_dir = str(f.run_path)
+        pending_leaves: list = [f.results.get("artifacts")]
+        while pending_leaves:
+            node = pending_leaves.pop()
+            if isinstance(node, dict):
+                pending_leaves.extend(node.values())
+                continue
+            if isinstance(node, (list, tuple)):
+                pending_leaves.extend(node)
+                continue
+            if not isinstance(node, (str, os.PathLike)) or not os.fspath(node):
+                continue
+            name = os.fspath(node)
+            full = name if os.path.isabs(name) else os.path.join(run_dir, name)
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            if wrote_output is not None:
+                try:
+                    vouched = bool(wrote_output(node))
+                except Exception:  # pylint: disable=broad-except
+                    vouched = False
+            else:
+                real = os.path.realpath(full)
+                vouched = real.startswith(remote_root + os.sep)
+                for directory in unread:
+                    if real == directory or real.startswith(directory + os.sep):
+                        vouched = False
+                state = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+                if before.get((st.st_dev, st.st_ino)) == state:
+                    vouched = False
+            if vouched and name not in written:
+                written.append(name)
+    channel.send(json.dumps(written))
 
 
 def get_env_var(conn, var):
@@ -792,6 +881,7 @@ class RemoteRunner(FlowLauncher):
         )
         dump_json(all_settings, settings_json, backup=self.settings.backups)
         results = None
+        written_on_remote = None
 
         # Stream the remote flow's output (its own, and that of every tool it
         # spawns) back to this terminal live, line by line, as it is produced.
@@ -815,6 +905,8 @@ class RemoteRunner(FlowLauncher):
                 results_str = results_channel.receive()
                 if results_str:
                     results = json.loads(results_str)
+                # then which of a failed run's artifacts the remote vouches its run wrote
+                written_on_remote = json.loads(results_channel.receive())
             results_channel.waitclose()
         except execnet.gateway_base.RemoteError as e:
             log.critical("Remote exception: %s", e.formatted)
@@ -874,6 +966,7 @@ class RemoteRunner(FlowLauncher):
                     local_artifacts_dir,
                     succeeded=bool(results.get("success")),
                     flow_name=flow_name,
+                    written_on_remote=written_on_remote,
                 )
 
             # the remote run_path no longer exists locally; report the local copy's path instead

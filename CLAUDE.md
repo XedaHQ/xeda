@@ -392,8 +392,15 @@ With `--cached-dependencies`, a dependency whose `settings.json` records matchin
   latest published xeda or newer** (currently 0.4.0), and `check_remote_xeda` refuses anything
   older. On each release, raise `REMOTE_XEDA_MIN_VERSION` and `test_remote_run.py`'s
   `RELEASED_RTL_KEYS`/`RELEASED_TB_KEYS` to the new release; until then the archive and the
-  shipped `remote_runner` may rely on nothing newer than it. `REMOTE_PROBE` reports
+  shipped `remote_runner` may rely on nothing newer than it (a newer API only behind a
+  `getattr` probe, as for `Flow.wrote_output`). `REMOTE_PROBE` reports
   which xeda the remote interpreter imports (execnet starts `python3` from the *non-login* PATH).
+  A failed remote run's artifacts are fetched only if the remote vouches its run wrote them:
+  `remote_runner` sends its results, then that list, judged on the remote's own file system (the
+  remote flow's `wrote_output`, or, on an older xeda, the remote directory's state recorded
+  before the run: identity, size, times); `_transfer_artifacts` drops the rest. A file merely
+  existing on the remote (an earlier run's) proves nothing, and no clock or file of this side is
+  ever compared with the remote's.
 - `platforms/` - ASIC PDK descriptions (asap7, nangate45, sky130hd/hs) for OpenROAD/DC;
   `board.py` + `data/boards.toml` for FPGA boards.
 

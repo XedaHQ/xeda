@@ -347,6 +347,165 @@ def test_an_older_remote_lists_artifacts_its_run_did_not_write(
         assert f"{label}: {path}" in warning
 
 
+def _xeda_0_4_remote_runner_without_wrote_output(channel, **kwargs):
+    """`remote_runner` on a remote with xeda 0.4's launcher, which lists every artifact a flow
+    recorded, and its `Flow`, which cannot tell what its run wrote (no `wrote_output`)."""
+    from xeda.flow import Flow
+    from xeda.flow_runner import default_runner
+    from xeda.flow_runner.remote import remote_runner
+
+    default_runner._drop_unwritten_artifacts = id  # a no-op of one argument
+    del Flow.wrote_output
+    remote_runner(channel, **kwargs)
+
+
+REMOTES = {
+    "this xeda": None,
+    "xeda 0.4": _xeda_0_4_remote_runner,
+    "xeda 0.4 without wrote_output": _xeda_0_4_remote_runner_without_wrote_output,
+}
+
+
+@pytest.mark.parametrize("remote", sorted(REMOTES))
+def test_a_failed_remote_run_does_not_fetch_an_earlier_runs_output(
+    remote, tmp_path, remote_host, monkeypatch
+):
+    """An output an earlier run left on the remote -- here the bitstream, named on the remote
+    outside its run directory -- is there when the next run fails before rewriting it. That run
+    neither fetches it nor lists it: the remote judges what its failed run wrote on its own file
+    system, and this side keeps only what it vouched for, never a file merely because it exists.
+    (A remote's run directory itself is fresh each run, under a new time-stamped directory.)"""
+    if REMOTES[remote] is not None:
+        monkeypatch.setattr(remote_module, "remote_runner", REMOTES[remote])
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "launch_runs")  # inherited by the "remote"
+    bitstream = remote_host / "bits" / "top.bit"
+    bitstream.parent.mkdir()
+    bitstream.write_text("an earlier run's\n")
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.toml").write_text(
+        'name = "sqrt"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\nclock.port = "clk"\n'
+    )
+
+    results = RemoteRunner(tmp_path / "local" / "xeda_run").run_remote(
+        design_root / "sqrt.toml",
+        "vivado_synth",
+        host="somewhere",
+        flow_settings=[
+            "fpga.part=xc7a12tcsg325-1",
+            "clock.period=5.0",
+            f"bitstream={bitstream}",
+        ],
+    )
+
+    assert results is not None and results["success"] is False, results
+    assert "bitstream" not in results["artifacts"], results["artifacts"]
+    local_run = Path(results["run_path"])
+    assert not list(local_run.rglob("top.bit")), "the earlier run's bitstream was fetched"
+    saved = json.loads((local_run / "results.json").read_text())
+    assert "bitstream" not in saved["artifacts"]
+    assert bitstream.read_text() == "an earlier run's\n"
+
+
+class _Channel:
+    """An execnet channel's sending end, recording what is sent."""
+
+    def __init__(self):
+        self.sent: list = []
+
+    def isclosed(self):
+        return False
+
+    def send(self, value):
+        self.sent.append(value)
+
+
+@pytest.mark.parametrize("remote", ["this xeda", "xeda 0.4 without wrote_output"])
+def test_the_remote_vouches_only_for_what_its_failed_run_wrote(remote, tmp_path, monkeypatch):
+    """`remote_runner` itself, run here as the remote runs it: after a failed run it sends back
+    which of the run's artifacts the run wrote, judged on the remote's own file system -- by the
+    remote flow's own `wrote_output` where it has one, and otherwise by the state of what the
+    remote directory held before the run. A file the run wrote is vouched for; one it never
+    wrote, a file the design archive brought, and one outside the remote directory that it cannot
+    judge are not."""
+    from xeda.flow import Flow, registered_flows
+    from xeda.flow_runner import default_runner
+
+    remote_path = tmp_path / "remote" / "220101"
+    remote_path.mkdir(parents=True)
+    outside = tmp_path / "elsewhere" / "stale.bit"
+    outside.parent.mkdir()
+    outside.write_text("an earlier run's\n")
+    monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
+    zip_file, design_file = remote_module.send_design(
+        Design.from_file(SQRT / "sqrt.toml"), _LocalConnection("somewhere"), str(remote_path)
+    )
+    if remote != "this xeda":
+        monkeypatch.setattr(default_runner, "_drop_unwritten_artifacts", id)
+        monkeypatch.delattr(Flow, "wrote_output")
+
+    class WritesOneAndFails(Flow):
+        """Write one of the outputs it declares, then fail."""
+
+        results_description = {}
+
+        def run(self):
+            (self.run_path / "written.v").write_text("this run's\n")
+            self.artifacts.written = "written.v"
+            self.artifacts.never = "never.v"
+            self.artifacts.outside = str(outside)
+            self.artifacts.archived = str(remote_path / design_file)
+
+        def parse_reports(self):
+            return False
+
+    monkeypatch.chdir(tmp_path)  # `remote_runner` changes into the remote directory
+    channel = _Channel()
+    try:
+        remote_module.remote_runner(
+            channel, str(remote_path), zip_file, WritesOneAndFails.name, design_file, {}
+        )
+    finally:
+        for name in (WritesOneAndFails.name, WritesOneAndFails.__name__):
+            registered_flows.pop(name, None)
+
+    sent, written = channel.sent
+    results = json.loads(sent)
+    assert results["success"] is False
+    if remote != "this xeda":  # the remote's launcher listed them all
+        assert set(results["artifacts"]) == {"written", "never", "outside", "archived"}
+    assert json.loads(written) == ["written.v"]
+
+
+@pytest.mark.parametrize("vouched", [None, [], ["reports/written.txt"]])
+def test_a_failed_remote_run_keeps_only_the_artifacts_the_remote_vouched_for(vouched, tmp_path):
+    """This side's half: of a failed run's artifacts, only those the remote vouched for are
+    fetched and kept -- a file that merely exists on the remote is not, and with no word from the
+    remote at all, none is."""
+    remote_run = tmp_path / "remote" / "run"
+    (remote_run / "reports").mkdir(parents=True)
+    for name in ("written.txt", "earlier.txt"):
+        (remote_run / "reports" / name).write_text(name)
+    local_dir = tmp_path / "local" / "artifacts"
+
+    transferred = remote_module._transfer_artifacts(
+        _LocalConnection("somewhere"),
+        {"written": "reports/written.txt", "earlier": "reports/earlier.txt"},
+        str(remote_run),
+        local_dir,
+        succeeded=False,
+        written_on_remote=vouched,
+    )
+
+    if vouched:
+        assert list(transferred) == ["written"]
+        assert Path(transferred["written"]).read_text() == "written.txt"
+    else:
+        assert transferred == {}
+    assert not list(local_dir.rglob("earlier.txt"))
+
+
 def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remote_host):
     """With a real simulator: the testbench opens the file its `ROM` generic names, and writes
     to the one `TRACE` names -- a path the remote made a place for, not a file that travelled."""
@@ -589,5 +748,6 @@ def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch
     channel = Channel()
     remote_module.remote_runner(channel, str(tmp_path), "d.zip", "flow", "d.xeda.json", {})
 
-    (sent,) = channel.sent
+    sent, written = channel.sent  # the results, then which artifacts a failed run wrote
     assert json.loads(sent)["timing"] == {"('clk', 'rise')": 1.5, "/x.v": 2}
+    assert json.loads(written) is None  # the run succeeded
