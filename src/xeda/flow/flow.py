@@ -6,6 +6,7 @@ import inspect
 import logging
 import os
 import shutil
+import time
 from abc import ABCMeta, abstractmethod
 from copy import deepcopy
 from pathlib import Path
@@ -59,7 +60,13 @@ from ..utils import (
     try_convert,
     unique,
 )
-from .run_dir import RUN_DIR_MARKER, RunDirectoryError, is_marked_run_dir, resolved_inside
+from .run_dir import (
+    RUN_DIR_MARKER,
+    RunDirectoryError,
+    is_marked_run_dir,
+    resolved_inside,
+    written_since,
+)
 
 log = logging.getLogger(__name__)
 
@@ -702,9 +709,10 @@ class Flow(metaclass=ABCMeta):
         if run_path is None:
             run_path = Path.cwd()
         self.run_path = run_path
-        # The outputs named outside the run directory that `remove_stale_output` left in place,
-        # each with the state its file had before the run (None: there was none)
-        self._outputs_before_run: Dict[Path, Optional[Tuple[int, int, int]]] = {}
+        # When the run started, by the clock of the file system it writes to: a file written (or
+        # its inode changed) since is the run's own (`wrote_output`). The launcher reads it from
+        # the run directory (`run_dir.filesystem_time_ns`) just before the flow's `init()`.
+        self.run_started_ns: int = time.time_ns()
 
         if isinstance(design, dict):
             design = dict(design)
@@ -812,40 +820,28 @@ class Flow(metaclass=ABCMeta):
             )
         return resolved
 
-    @staticmethod
-    def _file_state(path: Path) -> Optional[Tuple[int, int, int]]:
-        try:
-            st = path.stat()
-        except OSError:
-            return None
-        return (st.st_size, st.st_mtime_ns, st.st_ino)
-
     def remove_stale_output(self, path: Union[str, os.PathLike]) -> None:
         """Remove an earlier copy of an output the run writes (`path`, relative to the run
-        directory unless absolute), so that it cannot pass for this run's -- inside the run
-        directory only. An output named outside it (`-s bitstream=/elsewhere/x.bit`) is left for
-        the tool to overwrite, as it always was; xeda deletes nothing outside the run directory.
-        Its state is noted instead, so that `wrote_output` can tell the earlier file from one this
-        run wrote."""
+        directory unless absolute) -- inside the run directory only. An output named outside it
+        (`-s bitstream=/elsewhere/x.bit`) is left for the tool to overwrite, as it always was:
+        xeda deletes nothing outside the run directory. Either way, `wrote_output` tells an
+        earlier file from one this run wrote."""
         inside = resolved_inside(path, self.run_path)
         if inside is not None:
             inside.unlink(missing_ok=True)
-            return
-        outside = Path(os.path.abspath(self.run_path / path))
-        state = self._file_state(outside)
-        self._outputs_before_run[outside] = state
-        if state is not None:
-            log.debug("Leaving %s, outside the run directory, for the tool to overwrite", outside)
+        else:
+            log.debug("Leaving %s, outside the run directory, for the tool to overwrite", path)
 
     def wrote_output(self, path: Union[str, os.PathLike]) -> bool:
-        """Whether the output at `path` (relative to the run directory unless absolute) is there,
-        and is not an earlier file `remove_stale_output` left in place unchanged."""
+        """Whether this run wrote the output at `path` (relative to the run directory unless
+        absolute): it is there, and it was written -- or its inode changed -- since the run
+        started (`run_started_ns`). A file an earlier run left, which this run did not write
+        again, is not the run's own, whichever flow declared it."""
         target = Path(os.path.abspath(self.run_path / path))
-        if not target.exists():
+        try:
+            return written_since(target, self.run_started_ns)
+        except OSError:
             return False
-        if target in self._outputs_before_run:
-            return self._file_state(target) != self._outputs_before_run[target]
-        return True
 
     def parse_reports(self) -> bool:
         log.debug("No parse_reports action for %s", self.name)

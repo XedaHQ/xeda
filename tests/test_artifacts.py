@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from copy import deepcopy
 from pathlib import Path
 from typing import ClassVar
@@ -14,6 +15,8 @@ from xeda.artifacts import filter_artifact_paths, iter_artifact_paths, map_artif
 from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import _artifact_rows
+
+from .tool_utils import use_fake_tools
 
 EXAMPLE = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.toml"
 
@@ -158,3 +161,82 @@ def test_a_failed_run_reports_only_the_artifacts_that_exist(passes, tmp_path, ca
             "sdc: never_written.sdc",
         ):
             assert dropped in warning
+
+
+#: The flows the fake tools run: the settings each needs (`clean` off, so an earlier run's outputs
+#: are still there when the next run starts), and the tool command that fails in the script that
+#: writes its outputs (`XEDA_FAKE_TOOL_FAIL`), after the flow has declared them.
+FAKE_TOOL_FLOWS = {
+    "vivado_synth": (
+        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": "o/top.bit"},
+        "launch_runs",
+    ),
+    "vivado_alt_synth": (
+        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "write_netlist": True},
+        "synth_design",
+    ),
+    # the first command of `compile.tcl` (the fake records `qexit -error` rather than exiting)
+    "quartus": ({"fpga": "10CL016YU256C6G", "clock_period": 10.0}, "load_package"),
+    "ise_synth": ({"fpga": "xc6slx9-2-tqg144", "clock_period": 10.0}, "{Implement Design}"),
+    "diamond_synth": ({"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}, "prj_run"),
+    "dc": ({"target_libraries": ["cells.db"], "clock_period": 10.0}, "elaborate"),
+    "vivado_sim": ({"vcd": "wave.vcd", "saif": "power.saif"}, "xvhdl"),
+}
+
+
+def _sqrt_with_a_vhdl_testbench(root: Path) -> Design:
+    """`sqrt` with a plain VHDL testbench, which the Vivado simulator can run (its own is a
+    cocotb one)."""
+    root.mkdir()
+    (root / "tb.vhd").write_text("entity tb is end;\narchitecture sim of tb is begin end;\n")
+    return Design(
+        name="sqrt",
+        design_root=root,
+        rtl={"sources": [str(EXAMPLE.parent / "sqrt.vhdl")], "top": "sqrt"},
+        tb={"sources": ["tb.vhd"], "top": "tb", "uut": "uut"},
+        language={"vhdl": {"standard": "2008"}},
+    )
+
+
+@pytest.mark.parametrize("flow_name", sorted(FAKE_TOOL_FLOWS))
+def test_a_failed_run_never_reports_an_earlier_runs_artifact(flow_name, tmp_path, monkeypatch):
+    """Every artifact a flow declares is there from an earlier run; the next run's tool fails
+    before writing any of them. The failed run's `results.json` lists none of those files: a
+    file counts as the run's own only if it was written after the run started, whichever flow
+    wrote it -- no flow has to remember to clear its outputs."""
+    if flow_name == "vivado_sim":
+        design = _sqrt_with_a_vhdl_testbench(tmp_path / "design")
+    else:
+        design = Design.from_file(EXAMPLE)
+    (tmp_path / "cells.db").write_text("")
+    monkeypatch.chdir(tmp_path)
+    settings, failing = FAKE_TOOL_FLOWS[flow_name]
+    settings = settings | {"clean": False}
+    runner = DefaultRunner(  # as `xeda run` makes it: one run directory, reused
+        tmp_path / "run", display_results=False, cached_dependencies=False, incremental=True
+    )
+    use_fake_tools(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", failing)
+    declared = runner.launch_flow(flow_name, design, settings)
+    run_dir = declared.run_path
+    # every declared output, and every other file in the run directory, as an earlier run left it
+    for path in iter_artifact_paths(declared.artifacts):
+        path = Path(os.path.abspath(run_dir / path))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            path.write_text("an earlier run's\n")
+    earlier = {path for path in run_dir.rglob("*") if path.is_file()}
+    for path in earlier:
+        os.utime(path, ns=(EARLIER_NS, EARLIER_NS))
+
+    again = runner.launch_flow(flow_name, design, settings)
+
+    assert not again.succeeded
+    saved = json.loads((again.run_path / "results.json").read_text())
+    listed = [Path(os.path.abspath(run_dir / p)) for p in iter_artifact_paths(saved["artifacts"])]
+    stale = [p for p in listed if p.is_file() and p.stat().st_mtime_ns == EARLIER_NS]
+    assert not stale, [str(p) for p in stale]
+
+
+#: The modification time an earlier run's files are given: 1970, long before any run starts.
+EARLIER_NS = 1_000_000_000

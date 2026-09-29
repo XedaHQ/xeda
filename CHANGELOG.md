@@ -46,7 +46,10 @@ All notable changes to this project will be documented in this file.
   SDF and SDC, and `quartus`'s `.sof` (`bitstream`) -- each only when the setting that writes it
   is on. A failed run no longer lists outputs it never wrote: they are dropped from its results
   with a warning naming them, where a failed `--remote` run used to crash fetching them instead
-  of reporting its failure. `dc` no longer renders `write_sdf -version None` when `sdf_version`
+  of reporting its failure. Nor does it list one an earlier run left in a reused run directory
+  (`quartus`'s `.sof`, `dc`'s mapped netlists, `vivado_sim`'s VCD, `vivado_alt_synth`'s
+  checkpoints): an output counts as the run's own only if it was written after the run started,
+  by the clock of the file system it is on. `dc` no longer renders `write_sdf -version None` when `sdf_version`
   is unset.
 - A cocotb simulation fails when its tests fail, on every simulator: `verilator` never read
   cocotb's results, so a failing test gave a successful run. A missing or unreadable results
