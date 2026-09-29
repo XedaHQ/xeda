@@ -752,6 +752,14 @@ class Flow(metaclass=ABCMeta):
         """
         if run_path is None:
             run_path = Path.cwd()
+        # Normalized once, here, to absolute: every later join (`self.run_path / path`) and the
+        # snapshot below must key off the *same* form, or a relative `run_path` given directly
+        # (bypassing the launcher, which always hands one down already absolute) would snapshot
+        # under relative keys while every lookup -- `_record_output_state`, `wrote_output` --
+        # looks up an absolute one, missing every entry and reporting an untouched file as
+        # written (it would resolve inside the run directory, so its absence from the -- actually
+        # present but differently-keyed -- snapshot would be read as "absent when snapshotted").
+        run_path = Path(os.path.abspath(run_path))
         self.run_path = run_path
         # Every existing file's state under the run directory, recorded now: before `init()`,
         # dependencies or `run()` can write to it, however this flow was constructed -- by the
