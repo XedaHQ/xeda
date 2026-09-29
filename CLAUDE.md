@@ -425,7 +425,7 @@ racy threshold; each file as itself, `follow_symlinks=False`, reusing the previo
 where `FileRecord.trusted` vouches for it), so a file edited while the run goes on no longer
 matches; its **implicit inputs**, known only after the run (depfile
 entries, `yosys -E`, and files `run()` registers in `Flow.implicit_inputs`, such as open_xc7's
-chip database wherever it was found); and its **outputs**
+chip database wherever it was found; a depfile entry under the installation prefix of a host program the flow started, the directory above its resolved `bin/`, is the tool's own file and is not recorded); and its **outputs**
 (`output_files`, with `outputs_recorded_ns`): every entry of the run directory after the run
 (`run_directory_files`: `xeda.listing.directory_files`, recursive, artifact or not, since a
 depender may read any of them by path; a link recorded as itself, never followed, by its target

@@ -137,6 +137,25 @@ def probes():
             _copy_to_output(self, "done\n")
             _edit_during_run("program")
 
+    class ProbeToolDepfile(Flow):
+        """Starts a program and reports, in its depfile, the files a setting names."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Settings(Flow.Settings):
+            program: Optional[Path] = Field(None, description="The program it starts.")
+            reported: list[str] = Field([], description="The files its depfile lists.")
+
+        def run(self) -> None:
+            assert self.settings.program is not None
+            note_program(str(self.settings.program))
+            depfile = self.run_path / "deps.d"
+            depfile.write_text(
+                "out.txt: " + " ".join(str(p) for p in self.settings.reported) + "\n"
+            )
+            self.depfiles.append(depfile)
+            _copy_to_output(self, "done\n")
+
     class ProbeScratcher(Flow):
         """Writes files it does not declare besides its one artifact, as a tool leaves a netlist
         or a checkpoint its depender reads by path."""
@@ -170,6 +189,7 @@ def probes():
         ProbeRom,
         ProbeOutputPath,
         ProbeProgram,
+        ProbeToolDepfile,
         ProbeScratcher,
         ProbeScratchReader,
     )
@@ -396,6 +416,28 @@ def test_an_edited_results_json_is_stale(probes, root):
     assert not flow.reused and flow.stale_reason == f"output changed: {results.resolve()}"
 
 
+def test_a_tools_own_installation_files_are_not_recorded_as_inputs(probes, root, tmp_path):
+    """A depfile entry under the installation prefix of the program that wrote it is internal to
+    the tool; a user's include file outside the design root, and any other entry, is recorded."""
+    prefix = tmp_path / "tool-install"
+    (prefix / "bin").mkdir(parents=True)
+    program = prefix / "bin" / "tool"
+    program.write_text("#!/bin/sh\n")
+    program.chmod(0o755)
+    (prefix / "share").mkdir()
+    library = prefix / "share" / "lib.v"
+    library.write_text("module lib; endmodule\n")
+    outside = tmp_path / "shared" / "defs.vh"
+    outside.parent.mkdir()
+    outside.write_text("`define W 4\n")
+    settings = {"program": str(program), "reported": [str(library), str(outside)]}
+    flow, _ = _launch(root, probes["ProbeToolDepfile"], settings)
+    trace = json.loads((flow.run_path / "trace.json").read_text())
+    assert str(outside.resolve()) in trace["implicit_inputs"]
+    assert str(library.resolve()) not in trace["implicit_inputs"]
+    assert str(library.resolve()) not in trace["inputs"]
+
+
 def test_a_program_replaced_during_the_run_is_stale(probes, root, tmp_path):
     cls = probes["ProbeProgram"]
     program = tmp_path / "tool.sh"
@@ -418,8 +460,8 @@ def test_a_file_that_vanishes_while_the_trace_is_built_is_unknown(probes, root, 
     cls = probes["ProbeDepfile"]
     listed = trace_inputs.implicit_input_files
 
-    def listed_then_removed(flow):
-        found = listed(flow)
+    def listed_then_removed(flow, programs=()):
+        found = listed(flow, programs)
         (root / "inc.vh").rename(root / "inc.vh.moved")
         return found
 
