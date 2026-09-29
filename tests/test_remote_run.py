@@ -26,11 +26,13 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
+from xeda.design import GitReference
 from xeda.deliver import DeliveryError
 from xeda.flow import FlowException
 from xeda.flow_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteRunner
+from xeda.flow_runner.run_lock import lock_file
 from xeda.run_root import RunRootError, ensure_run_root, is_run_root
 
 from .tool_utils import require_ghdl
@@ -117,7 +119,7 @@ def _remote_run_dir(home: Path, flow_name: str) -> Path:
     return settings.parent
 
 
-#: What xeda 0.4.0, the oldest release a remote may run, accepts in a design's `rtl` and `tb`.
+#: What xeda 0.4.3, the oldest release a remote may run, accepts in a design's `rtl` and `tb`.
 #: Every test above runs the "remote" on this very xeda, so none of them can see version skew;
 #: but the archive is read by whatever xeda the remote host has, and that one forbids extra keys.
 #: A key outside these fails *every* remote run on that release ("Extra inputs are not
@@ -158,6 +160,48 @@ def test_the_design_archive_is_readable_by_a_released_remote(design_file, tmp_pa
 
     assert set(shipped["rtl"]) <= RELEASED_RTL_KEYS
     assert set(shipped["tb"]) <= RELEASED_TB_KEYS
+
+
+#: What xeda 0.4.3 accepts in a design dependency (`GitReference`), and the keys it accepts as
+#: `null`: its `local_cache` is a `Path` with a default, which rejects `null`.
+RELEASED_GIT_REFERENCE_KEYS = {
+    "uri",
+    "rtl",
+    "tb",
+    "local_cache",
+    "repo_url",
+    "design_file",
+    "commit",
+    "branch",
+    "clone_dir",
+}
+RELEASED_NULLABLE_GIT_REFERENCE_KEYS = {"commit", "branch", "clone_dir"}
+
+
+@pytest.mark.parametrize("local_cache", [None, "deps"])
+def test_a_git_dependency_is_archived_as_a_released_remote_reads_it(
+    local_cache, tmp_path, monkeypatch
+):
+    """A loaded design holds its dependencies' sources itself and ships no dependency; one
+    assigned afterwards is shipped for the remote to fetch, in the form 0.4 reads."""
+    monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
+    design = Design.from_file(_sqrt_design(tmp_path / "design"))
+    reference = {"uri": "https://example.com/org/repo.git?branch=dev#design.toml"}
+    if local_cache is not None:
+        reference["local_cache"] = str(tmp_path / local_cache)
+    design.dependencies = [GitReference(**reference)]
+    remote_dir = tmp_path / "remote"
+    remote_dir.mkdir()
+    zip_name, design_name = remote_module.send_design(
+        design, _LocalConnection("somewhere"), str(remote_dir)
+    )
+    with zipfile.ZipFile(remote_dir / zip_name) as archive:
+        (shipped,) = json.loads(archive.read(design_name))["dependencies"]
+
+    assert set(shipped) <= RELEASED_GIT_REFERENCE_KEYS
+    assert {k for k, v in shipped.items() if v is None} <= RELEASED_NULLABLE_GIT_REFERENCE_KEYS
+    assert shipped.get("local_cache") == reference.get("local_cache")
+    assert shipped["repo_url"] == "https://example.com/org/repo.git"
 
 
 def test_the_archive_keeps_the_layout_an_include_is_resolved_by(tmp_path, monkeypatch):
@@ -292,6 +336,7 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     again = run_remote()
     assert again and again["success"] and Path(again["run_path"]) == local_run
     assert not (local_run / "trace.json").exists()
+    assert list((tmp_path / "started_in").iterdir()) == [], "the start directory stays empty"
 
 
 def test_a_remote_run_is_always_mirrored_in_hashed_run_directories(tmp_path):
@@ -578,6 +623,7 @@ def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remo
     assert trace.is_relative_to(remote_host)
     assert trace.read_text().strip() == "seen 00 11"
     assert not (design_root / "trace.txt").exists(), "the local tree is not the remote's"
+    assert list((tmp_path / "started_in").iterdir()) == [], "the start directory stays empty"
 
 
 def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
@@ -605,6 +651,7 @@ def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
     assert Path(generated[0]).is_relative_to(Path(results["run_path"]) / "artifacts")
     saved = json.loads((Path(results["run_path"]) / "results.json").read_text())
     assert saved["artifacts"]["generated_verilog"] == generated
+    assert list((tmp_path / "started_in").iterdir()) == [], "the start directory stays empty"
 
 
 def test_a_remote_run_rejects_a_testbench_the_simulator_cannot_run_before_connecting(
@@ -866,3 +913,223 @@ def test_a_remote_run_delivers_outputs_to_but_never_onto_a_read_input(tmp_path, 
             flow_settings=[*SQRT_SETTINGS, f"xdc_files={delivered}"],
         )
     assert delivered.read_bytes() == kept
+    assert list((tmp_path / "started_in").iterdir()) == [], "the start directory stays empty"
+
+
+def test_a_remote_run_never_delivers_into_a_directory_a_setting_reads(
+    tmp_path, remote_host, monkeypatch
+):
+    """gpt-6-sol's PR 2 review, finding 1, remote: outputs delivered into a directory that a later
+    run's `lib_paths` names are inputs of that run -- every file under it is -- so that run's
+    `--outputs-to` there is refused before connecting, --overwrite-outputs or not, and xeda's
+    earlier copies stay as they were."""
+    design = _sqrt_design(tmp_path / "design")
+    got, root = tmp_path / "got", tmp_path / "local" / "xeda_run"
+    first = RemoteRunner(root, outputs_to=got).run_remote(
+        design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
+    )
+    assert first["success"] and first["deliveries"]
+    kept = {p: p.read_bytes() for p in got.rglob("*") if p.is_file()}
+    assert kept
+    monkeypatch.setattr(remote_module, "Connection", lambda *a, **k: pytest.fail("it connected"))
+    with pytest.raises(DeliveryError, match=rf"`lib_paths\[0\]\[1\]` names {got.resolve()}"):
+        RemoteRunner(root, outputs_to=got, overwrite_outputs=True).run_remote(
+            design,
+            "vivado_synth",
+            host="somewhere",
+            flow_settings=[*SQRT_SETTINGS, {"lib_paths": [["work", str(got)]]}],
+        )
+    assert {p: p.read_bytes() for p in got.rglob("*") if p.is_file()} == kept
+
+
+def test_a_remote_run_guards_the_directories_its_flow_reads_as_the_command_line_leaves_them(
+    tmp_path, remote_host, monkeypatch
+):
+    """gpt-6-sol's re-check: the requested flow's own `[flows.<flow>]` section is registered as
+    the launch uses it, the command line's settings over it -- `lib_paths` given on the command
+    line replaces the section's, so the section's directory is no input and `--outputs-to` may
+    deliver there -- while a destination inside the directory the run does read is refused."""
+    design = _sqrt_design(tmp_path / "design")
+    old, new = tmp_path / "old", tmp_path / "new"
+    for directory in (old, new):
+        directory.mkdir()
+        (directory / "cells.v").write_text("module cell; endmodule\n")
+    with design.open("a") as toml:
+        toml.write(f'[flows.vivado_synth]\nlib_paths = [["work", "{old}"]]\n')
+    root = tmp_path / "local" / "xeda_run"
+    overridden = [*SQRT_SETTINGS, {"lib_paths": [["work", str(new)]]}]
+    result = RemoteRunner(root, outputs_to=old).run_remote(
+        design, "vivado_synth", host="somewhere", flow_settings=overridden
+    )
+    assert result["success"] and result["deliveries"]
+    assert all(Path(d["to"]).is_relative_to(old) for d in result["deliveries"])
+    monkeypatch.setattr(remote_module, "Connection", lambda *a, **k: pytest.fail("it connected"))
+    with pytest.raises(DeliveryError, match=rf"`lib_paths\[0\]\[1\]` names {new.resolve()}"):
+        RemoteRunner(root, outputs_to=new / "got", overwrite_outputs=True).run_remote(
+            design, "vivado_synth", host="somewhere", flow_settings=overridden
+        )
+    assert sorted(p.name for p in new.iterdir()) == ["cells.v"]
+
+
+def test_a_remote_run_refuses_an_outputs_to_directory_before_connecting(
+    tmp_path, remote_host, monkeypatch
+):
+    """As a local launch does (`Deliveries.check_outputs_to`): a run root, an input, or an
+    existing non-directory file named by `--outputs-to` is refused up front, before the run's
+    tools -- here, before the remote is even connected to. `remote_host` sets up the whole
+    filesystem-backed transport; overriding `Connection` to fail if constructed proves the refusal
+    happens before it, not merely before the run reports back."""
+    design = _sqrt_design(tmp_path / "design")
+    root = tmp_path / "local" / "xeda_run"
+    monkeypatch.setattr(remote_module, "Connection", lambda *a, **k: pytest.fail("it connected"))
+    with pytest.raises(DeliveryError, match="run root"):
+        RemoteRunner(root, outputs_to=root / "grab").run_remote(
+            design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
+        )
+
+
+def test_a_remote_run_reports_partial_deliveries_before_an_oserror_re_raises(
+    tmp_path, remote_host, monkeypatch
+):
+    """Mirrors the local fix (`_finish_launch`/`Deliveries.deliver`): `--outputs-to` fetches
+    several files here (vivado_synth's reports and log), so an `OSError` from `_copy` on the
+    second one must not lose the first from `results["deliveries"]` -- the dict `_deliver_fetched`
+    builds for `--json` -- even though `Deliveries.deliver`'s own `finally` already wrote it to
+    the on-disk delivery record. `Deliveries._copy` itself (not the shared `shutil.copyfileobj`,
+    which the remote pipeline also uses to send/fetch the archive and artifacts) is the call to
+    intercept, so only a delivery's own copies are counted."""
+    import xeda.deliver
+
+    design = _sqrt_design(tmp_path / "design")
+    root = tmp_path / "local" / "xeda_run"
+    real_copy = xeda.deliver.Deliveries._copy
+    made: list = []
+
+    def copy_then_fail_second(self, delivery, source, destination, expected, sha):
+        made.append(destination)
+        if len(made) == 2:
+            raise OSError("disk full")
+        return real_copy(self, delivery, source, destination, expected, sha)
+
+    monkeypatch.setattr(xeda.deliver.Deliveries, "_copy", copy_then_fail_second)
+    captured: dict = {}
+    real_print_results = remote_module.print_results
+
+    def capture_print_results(**kwargs):
+        captured["results"] = kwargs["results"]
+        return real_print_results(**kwargs)
+
+    monkeypatch.setattr(remote_module, "print_results", capture_print_results)
+    runner = RemoteRunner(root, outputs_to=tmp_path / "got")
+    with pytest.raises(OSError, match="disk full"):
+        runner.run_remote(design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS)
+    results = captured["results"]
+    assert results["success"]
+    assert len(results["deliveries"]) == 1
+    delivered = Path(results["deliveries"][0]["to"])
+    assert delivered.is_relative_to(tmp_path / "got") and delivered.is_file()
+
+
+def _locked_elsewhere(run_path: Path) -> bool:
+    """Whether another holder has `run_path`'s run directory lock: a lock taken through a new
+    open file is refused while any other open file holds it, in this process too."""
+    import fcntl
+
+    with open(lock_file(run_path), "a") as f:
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        return False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no run directory lock on Windows")
+def test_the_mirror_is_written_and_delivered_under_its_run_directory_lock(
+    tmp_path, remote_host, monkeypatch
+):
+    """The mirror is the directory a local `--hashed-run-dirs` run of the same settings uses, and
+    another remote run's: every write to it, and its delivery, holds that directory's lock, as a
+    local launch does, so concurrent runs take turns instead of mixing their files."""
+    design = _sqrt_design(tmp_path / "design")
+    root = tmp_path / "local" / "xeda_run"
+    writes: list = []
+
+    def recorded(what, run_path_of, real):
+        def call(*args, **kwargs):
+            run_path = run_path_of(*args, **kwargs)
+            writes.append((what, run_path, _locked_elsewhere(run_path)))
+            return real(*args, **kwargs)
+
+        return call
+
+    monkeypatch.setattr(
+        remote_module,
+        "dump_json",
+        recorded("dump_json", lambda data, path, **_: Path(path).parent, remote_module.dump_json),
+    )
+    monkeypatch.setattr(
+        remote_module,
+        "remove_trace",
+        recorded("remove_trace", lambda run_path: run_path, remote_module.remove_trace),
+    )
+    monkeypatch.setattr(
+        remote_module,
+        "_transfer_artifacts",
+        recorded(
+            "_transfer_artifacts",
+            lambda conn, artifacts, remote_run_path, local_dir, **kwargs: local_dir.parent,
+            remote_module._transfer_artifacts,
+        ),
+    )
+    monkeypatch.setattr(
+        remote_module.Deliveries,
+        "deliver",
+        recorded("deliver", lambda self: self.run_path, remote_module.Deliveries.deliver),
+    )
+    results = RemoteRunner(root, outputs_to=tmp_path / "got").run_remote(
+        design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
+    )
+
+    assert results["success"] and results["deliveries"]
+    mirror = Path(results["run_path"])
+    assert {what for what, _, _ in writes} == {
+        "dump_json",
+        "remove_trace",
+        "_transfer_artifacts",
+        "deliver",
+    }
+    assert all(run_path == mirror for _, run_path, _ in writes), writes
+    assert [what for what, _, locked in writes if not locked] == []
+    assert not _locked_elsewhere(mirror), "the lock is released once the run is delivered"
+
+
+def test_a_refused_delivery_still_closes_the_gateway_and_the_connection(
+    tmp_path, remote_host, monkeypatch
+):
+    design = _sqrt_design(tmp_path / "design")
+    closed: list = []
+    real_makegateway = remote_module.execnet.makegateway
+
+    def makegateway(spec):
+        gateway = real_makegateway(spec)
+        real_exit = gateway.exit
+
+        def exit():
+            closed.append("gateway")
+            real_exit()
+
+        gateway.exit = exit
+        return gateway
+
+    def refuse(self, *args, **kwargs):
+        raise DeliveryError("refused")
+
+    monkeypatch.setattr(remote_module.execnet, "makegateway", makegateway)
+    monkeypatch.setattr(_LocalConnection, "close", lambda self: closed.append("connection"))
+    monkeypatch.setattr(RemoteRunner, "_deliver_fetched", refuse)
+    with pytest.raises(DeliveryError, match="refused"):
+        RemoteRunner(tmp_path / "local" / "xeda_run", outputs_to=tmp_path / "got").run_remote(
+            design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
+        )
+    assert sorted(closed) == ["connection", "gateway"]

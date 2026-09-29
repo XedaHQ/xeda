@@ -26,6 +26,7 @@ import inspect
 import logging
 import os
 import re
+import stat
 import time
 import uuid
 from dataclasses import dataclass
@@ -38,6 +39,8 @@ from pydantic import BaseModel
 from ..artifacts import iter_artifact_paths
 from ..design import Design, FileResource
 from ..digest import (
+    MODIFIED_DURING_RUN,
+    UNRECORDED_BEFORE_RUN,
     FileRecord,
     content_digest,
     filesystem_time_ns,
@@ -47,9 +50,10 @@ from ..digest import (
 )
 from ..flow import Flow
 from ..dataclass import written_role
+from ..deliver import ReadInputs
 from ..flow.flow import _annotation_contains_path, map_keyed_path_leaves
 from ..listing import VCS_METADATA, directory_files
-from ..proc_utils import DOCKER_IMAGE_PREFIX
+from ..proc_utils import DOCKER_IMAGE_PREFIX, program_state
 from ..version import __version__
 from .run_lock import lock_file
 from .trace import (
@@ -216,17 +220,20 @@ LARGE_LISTING_FILES = 10_000
 SLOW_LISTING_S = 2.0
 
 
-def setting_directories(settings: Flow.Settings, run_path: Path) -> list[tuple[str, Path]]:
+def setting_directories(
+    settings: Flow.Settings, run_path: Path, *, dependencies: bool = False
+) -> list[tuple[str, Path]]:
     """Every existing directory a path-typed setting the flow reads names (`setting_path_leaves`),
     with the key path of the first setting naming it, resolved: an absolute path as itself, a
     relative one under the design root and under the start directory (as `setting_files`) --
     but the run directory and every directory in it, whose files are outputs of the run already.
     A directory the flow writes (`reports_dir`, `sim_dir`: a role,
-    `xeda.dataclass.written_role`) is no input."""
+    `xeda.dataclass.written_role`) is no input. With `dependencies`, those the dependencies'
+    settings nested in `settings` name too (as `setting_file_keys`)."""
     roots = _setting_roots(settings)
     run_dir = run_path.resolve()
     found: dict[Path, str] = {}
-    for key, leaf in setting_path_leaves(settings, written=False):
+    for key, leaf in setting_path_leaves(settings, written=False, dependencies=dependencies):
         for candidate in _candidates(leaf, roots):
             if candidate.is_dir():
                 resolved = candidate.resolve()
@@ -236,20 +243,25 @@ def setting_directories(settings: Flow.Settings, run_path: Path) -> list[tuple[s
     return [(key, directory) for directory, key in found.items()]
 
 
-def setting_directory_files(
-    settings: Flow.Settings, run_path: Path, run_root: Optional[Path] = None
-) -> list[Path]:
-    """Every entry under each directory a setting names (`setting_directories`): its recursive
-    listing (`listing.directory_files`: a symbolic link as itself, and a link to a directory
-    followed too, its entries by their path through it; a subdirectory and a special file as
-    entries), so that a file edited, added or removed there -- a library recompiled in place,
-    an empty directory added, an edit beneath a linked directory -- makes the run stale. The run
-    directory and the run root `run_root` are not entered where a named directory holds them,
-    however it reaches them: their files are the runs' own; nor is version control's metadata
-    (`VCS_METADATA`), which no tool reads. A large or slow listing is reported, never capped."""
+def setting_directory_listings(
+    settings: Flow.Settings,
+    run_path: Path,
+    run_root: Path | None = None,
+    *,
+    dependencies: bool = False,
+) -> list[tuple[str, Path, list[Path]]]:
+    """Each directory a setting names (`setting_directories`), with the key path of the setting
+    naming it and every entry under it: its recursive listing (`listing.directory_files`: a
+    symbolic link as itself, and a link to a directory followed too, its entries by their path
+    through it; a subdirectory and a special file as entries). The run directory and the run
+    root `run_root` are not entered where a named directory holds them, however it reaches them:
+    their files are the runs' own; nor is version control's metadata (`VCS_METADATA`), which no
+    tool reads. A large or slow listing is reported, never capped. The one listing of what a
+    flow reads through a directory: the trace records it (`setting_directory_files`), and the
+    delivery guard never delivers into it (`register_read_settings`)."""
     prune = [run_path] + ([run_root] if run_root is not None else [])
-    files: list[Path] = []
-    for key, directory in setting_directories(settings, run_path):
+    listings: list[tuple[str, Path, list[Path]]] = []
+    for key, directory in setting_directories(settings, run_path, dependencies=dependencies):
         started = time.monotonic()
         listed = directory_files(directory, prune, VCS_METADATA, follow_links=True)
         elapsed = time.monotonic() - started
@@ -262,8 +274,36 @@ def setting_directory_files(
                 len(listed),
                 elapsed,
             )
-        files += listed
-    return files
+        listings.append((key, directory, listed))
+    return listings
+
+
+def setting_directory_files(
+    settings: Flow.Settings, run_path: Path, run_root: Path | None = None
+) -> list[Path]:
+    """Every entry under each directory a setting names (`setting_directory_listings`), so that
+    a file edited, added or removed there -- a library recompiled in place, an empty directory
+    added, an edit beneath a linked directory -- makes the run stale."""
+    return [
+        path
+        for _key, _directory, listed in setting_directory_listings(settings, run_path, run_root)
+        for path in listed
+    ]
+
+
+def register_read_settings(
+    inputs: ReadInputs, settings: Flow.Settings, run_path: Path, run_root: Path
+) -> None:
+    """Register with a launch's delivery guard (`xeda.deliver.ReadInputs`) everything the read
+    settings of `settings` -- a dependency's settings nested in them included -- make an input,
+    as the trace records it: every file one names (`setting_files`), and every directory one
+    names with each entry under it (`setting_directory_listings`, the trace's own listing), so
+    that no delivery lands on a file the launch read, nor anywhere in a directory it reads."""
+    inputs.add(setting_files(settings, dependencies=True))
+    for key, directory, listed in setting_directory_listings(
+        settings, run_path, run_root, dependencies=True
+    ):
+        inputs.add_directory(key, directory, listed)
 
 
 def setting_locations(settings: Flow.Settings, run_path: Path) -> dict[str, list[str]]:
@@ -564,10 +604,13 @@ def snapshot_inputs(
     )
 
 
-def _programs(names: Sequence[str], started_ns: int) -> Dict[str, Optional[ProgramRecord]]:
+def _programs(names: Sequence[str]) -> Dict[str, Optional[ProgramRecord]]:
     """Each program as it is after the run, its file recorded (`record_file`, after the run's
-    output clock was read); one written while the run went on is recorded unknown, which never
-    matches. A container image by its ID alone."""
+    output clock was read); one whose file changed since it was started -- its identity or
+    metadata differs from what `proc_utils.note_program` recorded then (`StartedPrograms.before`),
+    never a clock -- is recorded unknown, which never matches. A container image by its ID
+    alone."""
+    before = getattr(names, "before", {})
     programs: Dict[str, Optional[ProgramRecord]] = {}
     for name in names:
         where = locate_program(name)
@@ -575,12 +618,41 @@ def _programs(names: Sequence[str], started_ns: int) -> Dict[str, Optional[Progr
             programs[name] = None if where is None else ProgramRecord(path=where)
             continue
         path = Path(where)
+        prior = before.get(name)
         try:
-            file = unknown_record(path) if written_since(path, started_ns) else record_file(path)
+            if prior is None or program_state(where) != prior:
+                file = unknown_record(path)  # not there when started, or changed since
+            else:
+                file = record_file(path)
         except OSError:
             file = unknown_record(path)  # gone since it was found
         programs[name] = ProgramRecord(path=where, file=file)
     return programs
+
+
+def _as_recorded(path: Path) -> Optional[Tuple[int, int, int, int]]:
+    """`path`'s metadata as `digest.record_file(..., follow_symlinks=False)` records it -- a
+    symbolic link to a regular file by that file's, anything else by its own -- or None if it
+    is gone."""
+    try:
+        st = os.lstat(path)
+        if stat.S_ISLNK(st.st_mode):
+            try:
+                target = os.stat(path)
+            except OSError:
+                target = None
+            if target is not None and stat.S_ISREG(target.st_mode):
+                st = target
+    except OSError:
+        return None
+    return (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino)
+
+
+def changed_since(path: Path, before: FileRecord) -> bool:
+    """Whether `path` changed since `before` recorded it, just before the run: its size, mtime,
+    inode change time or inode differ, or it is gone -- by its own metadata, never a clock, so a
+    file on a file system whose clock differs from the run directory's is judged alike."""
+    return _as_recorded(path) != (before.size, before.mtime_ns, before.ctime_ns, before.inode)
 
 
 def run_reports(flow: Flow) -> List[str]:
@@ -610,16 +682,26 @@ def build_trace(
     else -- unknown if it was written during the run (see the module docstring)."""
     started_ns = snapshot.started_ns
     run_dir = flow.run_path.resolve()
+    run_device = run_dir.stat().st_dev
     bookkeeping = bookkeeping_files(flow.run_path)
     # before any output is read: from then on, the records taken of them vouch for them
     outputs_recorded_ns = filesystem_time_ns(flow.run_path)
 
-    def written(path: Path) -> bool:
-        """Written during the run; a file that vanished since it was listed counts as written."""
+    def written(path: Path, before: Optional[FileRecord]) -> Optional[str]:
+        """Why `path` is not what the run read, or None: written during the run. Against its
+        record from before the run where there is one (`changed_since`: identity and metadata,
+        never a clock). Without one, by the run directory's file-system clock only on that same
+        file system; on another, whose clock may differ, nothing tells (`UNRECORDED_BEFORE_RUN`).
+        A file that vanished since it was listed counts as written."""
+        if before is not None:
+            return MODIFIED_DURING_RUN if changed_since(path, before) else None
         try:
-            return written_since(path, started_ns)
+            st = path.stat()
         except OSError:
-            return True
+            return MODIFIED_DURING_RUN
+        if st.st_dev != run_device:
+            return UNRECORDED_BEFORE_RUN
+        return MODIFIED_DURING_RUN if written_since(path, started_ns) else None
 
     def record(path: Path) -> FileRecord:
         """The record of `path` now, as the entry it is (a symbolic link by its target); unknown
@@ -650,24 +732,27 @@ def build_trace(
         before = snapshot.records.get(key)
         if before is None:
             continue  # absent when the run started: a new input next time, if it appears
-        if written(path):
+        why = written(path, before)
+        if why is not None:
             if own(path):
                 if path in named:
                     outputs[key] = output(path)
                 continue
-            inputs[key] = unknown_record(path)
+            inputs[key] = unknown_record(path, why)
         else:
             inputs[key] = before
     for path in sorted(named - set(snapshot.expected)):
         key = str(path)
         if key in inputs or key in outputs:
             continue
-        # A setting may name a file that was absent when the run started.
-        if written(path):
+        # A setting may name a file that was absent when the run started: no record from before
+        # the run covers it.
+        why = written(path, snapshot.records.get(key))
+        if why is not None:
             if own(path):
                 outputs[key] = output(path)
             else:
-                inputs[key] = unknown_record(path)
+                inputs[key] = unknown_record(path, why)
         else:
             inputs[key] = record(path)
     for path in implicit_paths:
@@ -675,12 +760,13 @@ def build_trace(
         if key in inputs or key in outputs or path in bookkeeping:
             continue
         before = snapshot.records.get(key)
-        if written(path):
+        why = written(path, before)
+        if why is not None:
             if own(path):
                 outputs[key] = output(path)
                 continue
             # What the run read is unknown outside its run directory.
-            implicit[key] = unknown_record(path)
+            implicit[key] = unknown_record(path, why)
         else:
             implicit[key] = before if before is not None else record(path)
     return Trace(
@@ -691,7 +777,7 @@ def build_trace(
         xeda_version=expected.xeda_version,
         xeda_code=expected.xeda_code,
         flow_code=expected.flow_code,
-        programs=_programs(programs, started_ns),
+        programs=_programs(programs),
         dependency_runs=dict(expected.dependency_runs),
         setting_locations={key: list(value) for key, value in expected.setting_locations.items()},
         inputs_recorded_ns=snapshot.inputs_recorded_ns,

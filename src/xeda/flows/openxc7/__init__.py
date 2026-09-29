@@ -343,6 +343,9 @@ class OpenXC7(FpgaSynthFlow):
         args += setting_flag(ss.log)
         args += setting_flag(ss.placer_budgets)
         ss.chipdb = self.chip_database()
+        # an input wherever it was found: a database found through `CHIPDB_DIR` or in xeda's
+        # cache is named by no setting, and a replaced one must run the flow again
+        self.implicit_inputs.append(ss.chipdb)
         args += setting_flag(ss.chipdb)
 
         xdc_files = list(

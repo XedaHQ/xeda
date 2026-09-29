@@ -20,6 +20,7 @@ import pytest
 from pydantic import BaseModel
 
 from xeda import Design
+from xeda.design import DesignValidationError
 from xeda.flow.flow import FlowSettingsError, registered_flows
 from xeda.flows import dc
 from xeda.flow_runner import DefaultRunner
@@ -413,7 +414,9 @@ def test_every_user_given_setting_in_a_tcl_template_is_a_literal_word() -> None:
     assert not raw, "\n".join(raw)
 
 
-ODD = "o [x] $v"
+#: A `$` in a path setting is refused at validation (xeda reads only `$PWD` and `$DESIGN_ROOT`
+#: there), so the names of outputs carry a space and brackets only.
+ODD = "o [x] v"
 
 
 def _named_outputs(root: Path) -> dict[str, tuple[dict, list[tuple[str, ...]]]]:
@@ -456,8 +459,8 @@ def _named_outputs(root: Path) -> dict[str, tuple[dict, list[tuple[str, ...]]]]:
 @needs_tclsh
 @pytest.mark.parametrize("flow", ["diamond_synth", "vivado_sim", "vivado_alt_synth", "dc"])
 def test_a_named_output_or_file_reaches_the_tool_whole(flow, tmp_path, monkeypatch) -> None:
-    """A setting naming an output or a file, spelled with a space, brackets and a `$`, reaches
-    the tool as exactly that one argument: never substituted or split by Tcl."""
+    """A setting naming an output or a file, spelled with a space and brackets (or, for a file,
+    a `$`), reaches the tool as exactly that one argument: never substituted or split by Tcl."""
     design = _design(tmp_path / "design")
     settings, expected = _named_outputs(tmp_path / "design")[flow]
     if flow == "dc":  # where it reads its TLU+ files
@@ -481,13 +484,14 @@ EVIL_FRAGMENTS = ("xeda_injected", "xeda_undefined", "{b}", ";c")
 
 
 def _evil_design(root: Path) -> Design:
-    """A design whose name, tops, clock port, testbench instance, parameter and define values
-    all carry `EVIL`."""
+    """A design whose tops, clock port, testbench instance, parameter and define values all
+    carry `EVIL`. Its name is a plain one: a name is restricted by `Design` validation (see
+    `test_a_design_name_never_runs_as_tcl`), so it cannot carry any."""
     root.mkdir(parents=True)
     (root / "top.vhd").write_text("-- a source\n")
     (root / "tb.vhd").write_text("-- a testbench\n")
     return Design(
-        name=f"d {EVIL}",
+        name="d",
         design_root=root,
         rtl={
             "sources": ["top.vhd"],
@@ -563,19 +567,43 @@ def test_every_design_text_reaches_the_tool_as_a_literal_word(flow, tmp_path, mo
     assert any(EVIL in a for a in arguments), f"no design text reached {flow}"
 
 
-@needs_tclsh
-def test_a_design_name_never_runs_as_tcl(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "name",
+    [
+        "[file delete -force $::env(XEDA_CANARY)]",
+        "d [x]",
+        "d $v",
+        "d;x",
+        "d x",
+        'd"x',
+        "d{x}",
+        "../d",
+        "",
+    ],
+)
+def test_a_design_name_with_tcl_metacharacters_is_rejected(name, tmp_path):
     """The reviewer's reproduction: a design name holding a Tcl command substitution that deletes
-    a file of the user's outside the run directory. It is a name, never run."""
+    a file of the user's outside the run directory. A name is restricted to
+    `[A-Za-z][A-Za-z0-9_-]*` when the design is loaded, so it is rejected before anything runs
+    -- and no tool script ever holds one."""
+    with pytest.raises(DesignValidationError, match="not a design name"):
+        Design(name=name, design_root=tmp_path, rtl={"sources": [], "top": "top"})
+
+
+@needs_tclsh
+def test_a_valid_design_name_reaches_the_tool_whole(tmp_path, monkeypatch):
+    """A name that passes the validation is one literal word for Tcl: it reaches the tool whole,
+    and a run with the canary's environment leaves the user's file alone."""
     use_fake_tools(monkeypatch)
     canary = tmp_path / "users" / "keep.txt"
     canary.parent.mkdir()
     canary.write_text("the user's own file\n")
     monkeypatch.setenv("XEDA_CANARY", str(canary))
     design = _design(tmp_path / "design")
-    design.name = "[file delete -force $::env(XEDA_CANARY)]"
+    design.name = "my-design_1"
+    run_dir = tmp_path / "run"
     try:
-        DefaultRunner(tmp_path / "run").run_flow(
+        DefaultRunner(run_dir).run_flow(
             registered_flows["vivado_synth"][1],
             design,
             {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0},
@@ -583,3 +611,4 @@ def test_a_design_name_never_runs_as_tcl(tmp_path, monkeypatch):
     except Exception:  # pylint: disable=broad-except
         pass
     assert canary.read_text() == "the user's own file\n"
+    assert any("my-design_1" in arg for call in fake_calls(run_dir) for arg in call)

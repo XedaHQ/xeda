@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import json
 import logging
@@ -59,9 +60,10 @@ from .default_runner import (
     get_flow_class,
     print_results,
 )
+from .run_lock import run_dir_lock
 from .settings_layers import flow_settings_from_sections, merge_flow_sections, merge_layers
 from .trace import remove_trace
-from .trace_inputs import design_files, setting_files
+from .trace_inputs import design_files, register_read_settings
 
 log = logging.getLogger(__name__)
 
@@ -141,25 +143,34 @@ def remote_read_inputs(
     input_settings: Flow.Settings,
     sections: Mapping[str, Any],
     launch_inputs: Sequence[Path],
+    *,
+    flow_class: type[Flow],
+    run_path: Path,
+    run_root: Path,
 ) -> ReadInputs:
     """The inputs a remote run's deliveries protect (gpt-6-sol's final (c)): every file of its
-    graph this side can name -- the design's files, the design and project file given, and the
-    files the read settings of the flow, of the dependencies' settings nested in it and of every
-    flow's section sent with the design (`[flows.<name>]`, the project's merged in) name. A
-    section that does not validate names nothing: that flow's remote run fails before anything
-    is delivered."""
-    inputs = ReadInputs(
-        [*design_files(design), *launch_inputs, *setting_files(input_settings, dependencies=True)]
-    )
+    graph this side can name -- the design's files, the design and project file given, and what
+    the read settings name of the requested flow `flow_class`, as the launch uses them
+    (`input_settings`: its section with the command line's settings over it, the dependencies'
+    settings nested in it included; never its section as written, since what the command line
+    replaced there no flow of the run reads -- gpt-6-sol's re-check), and of every other flow's
+    section sent with the design (`[flows.<name>]`, the project's merged in) as written, since
+    which dependencies the remote launches, and with what, is not known here. A file, or a
+    directory with every entry under it, as a local launch registers them
+    (`trace_inputs.register_read_settings`, with `run_path`, the local mirror, and `run_root`
+    for where the listings stop). A section that does not validate names nothing: that flow's
+    remote run fails before anything is delivered."""
+    inputs = ReadInputs([*design_files(design), *launch_inputs])
+    register_read_settings(inputs, input_settings, run_path, run_root)
     for name, section in sections.items():
-        flow_class = _get_flow_class_if_known(name)
-        if flow_class is None or not isinstance(section, Mapping):
+        section_class = _get_flow_class_if_known(name)
+        if section_class is None or section_class is flow_class or not isinstance(section, Mapping):
             continue
         try:
-            settings = flow_class.Settings.from_input(section, **input_settings.context)
+            settings = section_class.Settings.from_input(section, **input_settings.context)
         except FlowSettingsError:
             continue
-        inputs.add(setting_files(settings, dependencies=True))
+        register_read_settings(inputs, settings, run_path, run_root)
     return inputs
 
 
@@ -184,7 +195,7 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
 #: The oldest xeda a remote may run. The remote loads the design archive `send_design` builds
 #: with *its* xeda, which forbids unknown keys, so the archive must stay loadable by this release
 #: (`tests/test_remote_run.py` pins the keys it accepts).
-REMOTE_XEDA_MIN_VERSION = (0, 4, 0)
+REMOTE_XEDA_MIN_VERSION = (0, 4, 3)
 
 # Runs on the remote first, like `STREAM_OUTPUT_SETUP`: stdlib only, and it never imports xeda,
 # so a missing or broken install is reported rather than tripped over. `find_spec` locates the
@@ -270,6 +281,13 @@ def send_design(
             **design.model_dump(mode="json"),
             "design_root": None,
         }
+        # A dependency as a released remote reads it (a loaded design has none left: it holds
+        # their sources itself). 0.4's `local_cache` is a `Path` with a default, which rejects
+        # the `null` an unset one dumps as; left out, the remote uses its default.
+        new_design["dependencies"] = [
+            {k: v for k, v in dependency.items() if k != "local_cache" or v is not None}
+            for dependency in new_design.get("dependencies", [])
+        ]
         rtl: Dict[str, Any] = {}
         tb: Dict[str, Any] = {}
         remote_sources_path = Path(design.name) / "sources"
@@ -885,11 +903,24 @@ class RemoteRunner(FlowLauncher):
         delivery = Deliveries(
             run_path,
             self.run_root,
-            inputs=remote_read_inputs(design, input_settings, sections, launch_inputs),
+            inputs=remote_read_inputs(
+                design,
+                input_settings,
+                sections,
+                launch_inputs,
+                flow_class=flow_class,
+                run_path=run_path,
+                run_root=self.run_root,
+            ),
             overwrite=self.settings.overwrite_outputs,
             confirm=self.confirm_overwrite,
         )
         previous = recorded_artifacts(run_path / "results.json")
+        # the directory itself, not only a file predicted from the last run's artifacts: as on a
+        # local launch, a location becomes a concrete `Delivery` only once its tool has run and
+        # reported an artifact, so without this a run root or an input named by `--outputs-to` is
+        # refused only after the remote run has already completed
+        delivery.check_outputs_to(outputs_to)
         delivery.check(outputs_to_deliveries(previous, run_path / "artifacts", outputs_to))
 
         host_split = host.split(":")
@@ -900,180 +931,194 @@ class RemoteRunner(FlowLauncher):
             "Connecting to %s%s%s...", f"{user}@" if user else "", host, f":{port}" if port else ""
         )
         conn = Connection(host=host, user=user, port=port)
-        log.info("logging in...")
-        remote_env = get_login_env(conn)
-        remote_env_path = remote_env.get("PATH", "")
-        remote_home = remote_env.get("HOME", ".")
-        log.info("Remote PATH=%s HOME=%s", remote_env_path, remote_home)
+        with contextlib.ExitStack() as connected:
+            # however the run ends -- a refused delivery, a failed fetch -- the gateway, then the
+            # connection, is closed
+            connected.callback(conn.close)
+            log.info("logging in...")
+            remote_env = get_login_env(conn)
+            remote_env_path = remote_env.get("PATH", "")
+            remote_home = remote_env.get("HOME", ".")
+            log.info("Remote PATH=%s HOME=%s", remote_env_path, remote_home)
 
-        remote_xeda = Path(remote_home) / ".xeda"
-        if not Transfer(conn).is_remote_dir(str(remote_xeda)):
+            remote_xeda = Path(remote_home) / ".xeda"
+            if not Transfer(conn).is_remote_dir(str(remote_xeda)):
 
-            conn.sftp().mkdir(str(remote_xeda))
-        remote_xeda_run = remote_xeda / "remote_run"
-        if not Transfer(conn).is_remote_dir(str(remote_xeda_run)):
-            conn.sftp().mkdir(str(remote_xeda_run))
-        # use a timestamped subdirectory to avoid any race conditions and also have the chronology clear
-        remote_path = str(remote_xeda_run / datetime.now().strftime("%y%m%d%H%M%S%f"))
-        if not Transfer(conn).is_remote_dir(remote_path):
-            conn.sftp().mkdir(remote_path)
-        assert Transfer(conn).is_remote_dir(remote_path)
-        conn.sftp().chdir(remote_path)
+                conn.sftp().mkdir(str(remote_xeda))
+            remote_xeda_run = remote_xeda / "remote_run"
+            if not Transfer(conn).is_remote_dir(str(remote_xeda_run)):
+                conn.sftp().mkdir(str(remote_xeda_run))
+            # use a timestamped subdirectory to avoid any race conditions and also have the
+            # chronology clear
+            remote_path = str(remote_xeda_run / datetime.now().strftime("%y%m%d%H%M%S%f"))
+            if not Transfer(conn).is_remote_dir(remote_path):
+                conn.sftp().mkdir(remote_path)
+            assert Transfer(conn).is_remote_dir(remote_path)
+            conn.sftp().chdir(remote_path)
 
-        ssh_opt = f"{host}"
-        if user:
-            ssh_opt = f"{user}@{ssh_opt}"
-        if port:
-            ssh_opt += f" -p {port}"
+            ssh_opt = f"{host}"
+            if user:
+                ssh_opt = f"{user}@{ssh_opt}"
+            if port:
+                ssh_opt += f" -p {port}"
 
-        python_exec = "python3"
+            python_exec = "python3"
 
-        spec = {
-            "ssh": ssh_opt,
-            "chdir": remote_path,
-            "env:PATH": remote_env_path,
-            "python": python_exec,
-        }
-        gw = execnet.makegateway("//".join([f"{k}={v}" for k, v in spec.items()]))
-        # `python` is resolved by the remote's *non-login* shell; `env:PATH` above is applied
-        # only once that interpreter runs. So which xeda answers is not a given: ask.
-        platform, version_info, remote_python, remote_xeda, remote_xeda_at = gw.remote_exec(
-            REMOTE_PROBE
-        ).receive()
-        version_info_str = ".".join(str(v) for v in version_info)
-        log.info("Remote host:%s (%s python:%s)", host, platform, version_info_str)
-        log.info("Remote xeda: %s at %s (%s)", remote_xeda, remote_xeda_at, remote_python)
-        # The remotely executed worker is this installed xeda package, so its interpreter must
-        # satisfy the same floor as pyproject.toml rather than a historical transport-only floor.
-        check_remote_python(version_info)
-        check_remote_xeda(remote_xeda, remote_xeda_at, remote_python)
+            spec = {
+                "ssh": ssh_opt,
+                "chdir": remote_path,
+                "env:PATH": remote_env_path,
+                "python": python_exec,
+            }
+            gw = execnet.makegateway("//".join([f"{k}={v}" for k, v in spec.items()]))
+            connected.callback(gw.exit)
+            # `python` is resolved by the remote's *non-login* shell; `env:PATH` above is applied
+            # only once that interpreter runs. So which xeda answers is not a given: ask.
+            platform, version_info, remote_python, remote_xeda, remote_xeda_at = gw.remote_exec(
+                REMOTE_PROBE
+            ).receive()
+            version_info_str = ".".join(str(v) for v in version_info)
+            log.info("Remote host:%s (%s python:%s)", host, platform, version_info_str)
+            log.info("Remote xeda: %s at %s (%s)", remote_xeda, remote_xeda_at, remote_python)
+            # The remotely executed worker is this installed xeda package, so its interpreter
+            # must satisfy the same floor as pyproject.toml rather than a historical
+            # transport-only floor.
+            check_remote_python(version_info)
+            check_remote_xeda(remote_xeda, remote_xeda_at, remote_python)
 
-        # Only now that the remote can read it.
-        zip_file, design_file = send_design(design, conn, remote_path, all_flows_settings=sections)
-
-        run_path.mkdir(parents=True, exist_ok=True)
-        # The local mirror holds the remote run's records, never a local run's: no trace left
-        # there by a local run may vouch for them.
-        remove_trace(run_path)
-
-        settings_json = run_path / "settings.json"
-        results_json_path = run_path / "results.json"
-
-        log.info("dumping input settings to %s", settings_json)
-        all_settings = dict(
-            design=design,
-            design_hash=design_hash,
-            rtl_fingerprint=design.rtl_fingerprint,
-            rtl_hash=design.rtl_hash,
-            flow_name=flow_name,
-            flow_settings=input_settings,
-            effective_flow_settings=input_settings,
-            xeda_version=__version__,
-            flowrun_hash=flowrun_hash,
-        )
-        dump_json(all_settings, settings_json, backup=self.settings.backups)
-        results = None
-        written_on_remote = None
-
-        # Stream the remote flow's output (its own, and that of every tool it
-        # spawns) back to this terminal live, line by line, as it is produced.
-        stream_channel = gw.remote_exec(STREAM_OUTPUT_SETUP)
-        outchan, errchan = stream_channel.receive()
-        # The remote flow's stdout is tool output: it must follow the same redirection as a
-        # local tool's, or it corrupts a `--json` document.
-        outchan.setcallback(RemoteLogger(tool_output_stream(), label="stdout").cb, endmarker=None)
-        errchan.setcallback(RemoteLogger(sys.stderr, label="stderr").cb, endmarker=None)
-
-        try:
-            results_channel = gw.remote_exec(
-                remote_runner,
-                remote_path=remote_path,
-                zip_file=zip_file,
-                flow=flow_name,
-                design_file=design_file,
-                flow_settings=flow_settings,
+            # Only now that the remote can read it.
+            zip_file, design_file = send_design(
+                design, conn, remote_path, all_flows_settings=sections
             )
-            if not results_channel.isclosed():
-                results_str = results_channel.receive()
-                if results_str:
-                    results = json.loads(results_str)
-                # then which of a failed run's artifacts the remote vouches its run wrote
-                written_on_remote = json.loads(results_channel.receive())
-            results_channel.waitclose()
-        except execnet.gateway_base.RemoteError as e:
-            log.critical("Remote exception: %s", e.formatted)
-        finally:
-            # Tear the redirection down and wait for the remote pumps to drain,
-            # so trailing output can't be lost -- and so it can't land in the
-            # middle of the results table printed below. Best-effort: if the
-            # remote died, teardown will fail too, and that must not mask the
-            # actual failure.
+
+            # From the first write to the mirror to its delivery, the mirror is this run's
+            # alone: a local `--hashed-run-dirs` launch of the same settings, or another remote
+            # run, takes the same lock (`run_dir_lock`), so no two of them mix their files.
+            connected.enter_context(run_dir_lock(run_path))
+            run_path.mkdir(parents=True, exist_ok=True)
+            # The local mirror holds the remote run's records, never a local run's: no trace left
+            # there by a local run may vouch for them.
+            remove_trace(run_path)
+
+            settings_json = run_path / "settings.json"
+            results_json_path = run_path / "results.json"
+
+            log.info("dumping input settings to %s", settings_json)
+            all_settings = dict(
+                design=design,
+                design_hash=design_hash,
+                rtl_fingerprint=design.rtl_fingerprint,
+                rtl_hash=design.rtl_hash,
+                flow_name=flow_name,
+                flow_settings=input_settings,
+                effective_flow_settings=input_settings,
+                xeda_version=__version__,
+                flowrun_hash=flowrun_hash,
+            )
+            dump_json(all_settings, settings_json, backup=self.settings.backups)
+            results = None
+            written_on_remote = None
+
+            # Stream the remote flow's output (its own, and that of every tool it
+            # spawns) back to this terminal live, line by line, as it is produced.
+            stream_channel = gw.remote_exec(STREAM_OUTPUT_SETUP)
+            outchan, errchan = stream_channel.receive()
+            # The remote flow's stdout is tool output: it must follow the same redirection as a
+            # local tool's, or it corrupts a `--json` document.
+            outchan.setcallback(
+                RemoteLogger(tool_output_stream(), label="stdout").cb, endmarker=None
+            )
+            errchan.setcallback(RemoteLogger(sys.stderr, label="stderr").cb, endmarker=None)
+
             try:
-                stream_channel.send("stop")
-                stream_channel.receive()
-                stream_channel.waitclose()
-            except (EOFError, OSError, execnet.gateway_base.RemoteError) as e:
-                log.debug("Could not cleanly stop remote output streaming: %s", e)
-
-        if results:
-            print_results(
-                results=results,
-                title=f"Results of flow:{flow_name} design:{design.name}",
-                skip_if_false={"artifacts", "reports"},
-            )
-
-            artifacts = results.get("artifacts")
-            remote_run_path = results.get("run_path")
-
-            # Keep the local settings document in the same shape as a local run. Its input and
-            # design stay local (and therefore re-runnable here); only the effective settings,
-            # which can be known only after the remote flow's `init()`, come back from the remote
-            # run directory. Older remote Xeda versions recorded those under `flow_settings`.
-            if remote_run_path:
+                results_channel = gw.remote_exec(
+                    remote_runner,
+                    remote_path=remote_path,
+                    zip_file=zip_file,
+                    flow=flow_name,
+                    design_file=design_file,
+                    flow_settings=flow_settings,
+                )
+                if not results_channel.isclosed():
+                    results_str = results_channel.receive()
+                    if results_str:
+                        results = json.loads(results_str)
+                    # then which of a failed run's artifacts the remote vouches its run wrote
+                    written_on_remote = json.loads(results_channel.receive())
+                results_channel.waitclose()
+            except execnet.gateway_base.RemoteError as e:
+                log.critical("Remote exception: %s", e.formatted)
+            finally:
+                # Tear the redirection down and wait for the remote pumps to drain,
+                # so trailing output can't be lost -- and so it can't land in the
+                # middle of the results table printed below. Best-effort: if the
+                # remote died, teardown will fail too, and that must not mask the
+                # actual failure.
                 try:
-                    remote_settings_path = str(Path(remote_run_path) / "settings.json")
-                    with conn.sftp().open(remote_settings_path, "r") as remote_settings_file:
-                        remote_settings = json.load(remote_settings_file)
-                    effective_settings = remote_settings.get(
-                        "effective_flow_settings", remote_settings.get("flow_settings")
-                    )
-                    if effective_settings is not None:
-                        all_settings["effective_flow_settings"] = effective_settings
-                        dump_json(all_settings, settings_json, backup=False)
-                except (OSError, ValueError, TypeError) as e:
-                    log.warning(
-                        "Could not read effective settings from remote run %s: %s",
-                        remote_run_path,
-                        e,
-                    )
+                    stream_channel.send("stop")
+                    stream_channel.receive()
+                    stream_channel.waitclose()
+                except (EOFError, OSError, execnet.gateway_base.RemoteError) as e:
+                    log.debug("Could not cleanly stop remote output streaming: %s", e)
 
-            local_artifacts_dir = run_path / "artifacts"
-
-            if remote_run_path and artifacts:
-                assert isinstance(remote_run_path, str)
-                results["artifacts"] = _transfer_artifacts(
-                    conn,
-                    artifacts,
-                    remote_run_path,
-                    local_artifacts_dir,
-                    succeeded=bool(results.get("success")),
-                    flow_name=flow_name,
-                    written_on_remote=written_on_remote,
+            if results:
+                print_results(
+                    results=results,
+                    title=f"Results of flow:{flow_name} design:{design.name}",
+                    skip_if_false={"artifacts", "reports"},
                 )
 
-            # the remote run_path no longer exists locally; report the local copy's path instead
-            if "run_path" in results:
-                results["run_path"] = str(run_path)
+                artifacts = results.get("artifacts")
+                remote_run_path = results.get("run_path")
 
-            dump_json(results, results_json_path, backup=True)
-            log.info("Results written to %s", results_json_path)
-            # after the mirror's records are whole: a refused delivery leaves them as they are
-            self._deliver_fetched(
-                delivery, results, artifacts, remote_run_path, local_artifacts_dir
-            )
-        gw.exit()
-        conn.close()
-        return results
+                # Keep the local settings document in the same shape as a local run. Its input
+                # and design stay local (and therefore re-runnable here); only the effective
+                # settings, which can be known only after the remote flow's `init()`, come back
+                # from the remote run directory. Older remote Xeda versions recorded those under
+                # `flow_settings`.
+                if remote_run_path:
+                    try:
+                        remote_settings_path = str(Path(remote_run_path) / "settings.json")
+                        with conn.sftp().open(remote_settings_path, "r") as remote_settings_file:
+                            remote_settings = json.load(remote_settings_file)
+                        effective_settings = remote_settings.get(
+                            "effective_flow_settings", remote_settings.get("flow_settings")
+                        )
+                        if effective_settings is not None:
+                            all_settings["effective_flow_settings"] = effective_settings
+                            dump_json(all_settings, settings_json, backup=False)
+                    except (OSError, ValueError, TypeError) as e:
+                        log.warning(
+                            "Could not read effective settings from remote run %s: %s",
+                            remote_run_path,
+                            e,
+                        )
+
+                local_artifacts_dir = run_path / "artifacts"
+
+                if remote_run_path and artifacts:
+                    assert isinstance(remote_run_path, str)
+                    results["artifacts"] = _transfer_artifacts(
+                        conn,
+                        artifacts,
+                        remote_run_path,
+                        local_artifacts_dir,
+                        succeeded=bool(results.get("success")),
+                        flow_name=flow_name,
+                        written_on_remote=written_on_remote,
+                    )
+
+                # the remote run_path no longer exists locally; report the local copy's path instead
+                if "run_path" in results:
+                    results["run_path"] = str(run_path)
+
+                dump_json(results, results_json_path, backup=True)
+                log.info("Results written to %s", results_json_path)
+                # after the mirror's records are whole: a refused delivery leaves them as they are
+                self._deliver_fetched(
+                    delivery, results, artifacts, remote_run_path, local_artifacts_dir
+                )
+            return results
 
     def _deliver_fetched(
         self,
@@ -1094,4 +1139,13 @@ class RemoteRunner(FlowLauncher):
             return
         extra = outputs_to_deliveries(remote_artifacts, Path(remote_run_path), outputs_to)
         delivery.collect(local_artifacts_dir, extra)
-        results["deliveries"] = [d.as_json_value() for d in delivery.deliver()]
+        try:
+            delivered = delivery.deliver()
+        except Exception:
+            # As `_finish_launch` does for a local run: `deliver()` records, and reports through
+            # `delivery.delivered`, whatever it copied before raising (an `OSError` partway
+            # through), so `results["deliveries"]` -- what a `--json` reader sees -- still lists
+            # the copies that actually reached disk before the error propagates.
+            results["deliveries"] = [d.as_json_value() for d in delivery.delivered]
+            raise
+        results["deliveries"] = [d.as_json_value() for d in delivered]

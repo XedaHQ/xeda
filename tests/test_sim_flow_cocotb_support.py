@@ -19,6 +19,7 @@ from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
 from xeda.flows import Modelsim, Vcs
+from xeda.run_root import ensure_run_root
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 
@@ -68,7 +69,7 @@ def test_a_simulator_without_cocotb_names_the_ones_with_it(flow_class, cocotb_de
 
 
 @pytest.mark.parametrize("flow_name", SIM_FLOW_NAMES, ids=str)
-def test_every_simulator_runs_or_rejects_a_cocotb_testbench(flow_name, cocotb_design):
+def test_every_simulator_runs_or_rejects_a_cocotb_testbench(flow_name, cocotb_design, tmp_path):
     """Every simulator runs or rejects a cocotb testbench."""
     flow_class = get_flow_class(flow_name)
     if flow_class.cocotb_sim_name:
@@ -82,6 +83,7 @@ def test_every_simulator_runs_or_rejects_a_cocotb_testbench(flow_name, cocotb_de
         flow_class(
             settings=_minimal_required_settings(flow_class.Settings),
             design=cocotb_design,
+            run_path=tmp_path / "run",
         )
 
 
@@ -96,19 +98,21 @@ def test_every_simulator_runs_a_design_without_a_cocotb_testbench(flow_name, coc
 
 @pytest.mark.parametrize("flow_class", [Modelsim, Vcs], ids=lambda cls: cls.name)
 def test_a_rejected_launch_sets_up_no_run_directory(flow_class, cocotb_design, tmp_path):
-    """Rejected at launch, before a run directory is created for it."""
+    """Rejected at launch, before anything is set up: not a run directory, not even the run root
+    (created lazily, on first use)."""
     run_dir = tmp_path / "xeda_run"
 
     with pytest.raises(FlowException, match=re.escape(f"{flow_class.name} cannot run cocotb")):
         DefaultRunner(run_dir, display_results=False).run_flow(flow_class, cocotb_design)
 
-    assert not list(run_dir.iterdir())
+    assert not run_dir.exists()
 
 
 def test_a_rejected_launch_keeps_the_previous_run_directory(cocotb_design, tmp_path):
     """A previous run's directory, which a `clean` launch empties, survives a launch that is
     rejected."""
-    run_dir = tmp_path / "xeda_run"
+    run_dir = ensure_run_root(tmp_path / "xeda_run")
+    assert run_dir is not None
     previous = run_dir / "sqrt" / "modelsim" / "results.json"
     previous.parent.mkdir(parents=True)
     previous.write_text('{"success": true}')
@@ -116,7 +120,7 @@ def test_a_rejected_launch_keeps_the_previous_run_directory(cocotb_design, tmp_p
     with pytest.raises(FlowException, match=re.escape("modelsim cannot run cocotb")):
         DefaultRunner(run_dir, clean=True, display_results=False).run_flow(Modelsim, cocotb_design)
 
-    assert sorted(run_dir.rglob("*")) == [previous.parent.parent, previous.parent, previous]
+    assert sorted(previous.parent.rglob("*")) == [previous]
     assert previous.read_text() == '{"success": true}'
 
 
@@ -136,5 +140,5 @@ def test_a_design_space_exploration_rejects_it_before_starting_any_run(
     with pytest.raises(FlowException, match=re.escape("modelsim cannot run cocotb tests")):
         dse.run_flow(Modelsim, cocotb_design)
 
-    assert not list(run_dir.iterdir())
+    assert not run_dir.exists(), "no run root was created"
     assert not list(tmp_path.glob("fmax_*")), "no search was started"

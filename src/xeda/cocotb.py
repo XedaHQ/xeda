@@ -367,6 +367,15 @@ class Cocotb(CocotbSettings, Tool):
         alternatives = "|".join(re.escape(name) for name in names)
         return {"COCOTB_TEST_FILTER": rf"(?:^|\.)(?:{alternatives})$"}
 
+    def pycache_prefix(self) -> Path:
+        """Where the Python the simulator embeds caches bytecode: in the run directory.
+
+        By default Python writes a module's cache into a `__pycache__` beside it, and the
+        testbench is imported from the design's directory (`PYTHONPATH` above; pytest's assertion
+        rewriting compiles it), so without this every cocotb run wrote into the user's tree."""
+        run_dir = self._run_directory.path if self._run_directory is not None else Path.cwd()
+        return run_dir / "__pycache__"
+
     def env(self, design: Design) -> Dict[str, Any]:
         """The environment a simulator needs to run the design's cocotb testbench.
 
@@ -424,6 +433,7 @@ class Cocotb(CocotbSettings, Tool):
                     "COCOTB_REDUCED_LOG_FMT", "1" if self.reduced_log_fmt else "0"
                 ),
                 "PYTHONPATH": os.pathsep.join(py_path),
+                "PYTHONPYCACHEPREFIX": str(self.pycache_prefix()),
                 "COCOTB_RESULTS_FILE": str(self.results_xml),
                 "COCOTB_RESOLVE_X": self.resolve_x,
                 "PYGPI_PYTHON_BIN": os.environ.get(

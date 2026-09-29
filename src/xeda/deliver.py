@@ -10,8 +10,9 @@ the run's identity sees only that name (`flow.identity_settings`): where an outp
 it is called there, never changes what the tools do or what the run is.
 
 A delivery never goes onto an input -- any file a flow of the launch reads (`ReadInputs`, by file
-identity and resolved path) -- into a run root, or over a directory; it
-never deletes anything and never writes through a symbolic link (a temporary file in the
+identity and resolved path) -- nor into a directory a read setting names (every file there is an
+input of the run, one delivered there too), into a run root, or over a directory; it never
+deletes anything and never writes through a symbolic link (a temporary file in the
 destination's directory, renamed into place). An existing file is replaced only when it is xeda's
 own earlier delivery, unchanged, as its record says (`delivery_record`: beside the run directory,
 in the run root); anything else needs the user's confirmation -- `overwrite_outputs`, or a yes
@@ -36,7 +37,7 @@ from pathlib import Path, PurePath
 from typing import Any, Dict, Optional
 
 from .artifacts import iter_artifact_paths
-from .dataclass import DELIVERABLE_ROLE
+from .dataclass import DELIVERABLE_ROLE, written_role
 from .digest import FileRecord, content_digest, record_file
 from .listing import directory_files
 from .flow import Flow, FlowSettingsError
@@ -59,6 +60,7 @@ __all__ = [
     "OutputExistsError",
     "ReadInputs",
     "deliverable_locations",
+    "deliverable_setting_names",
     "delivery_record",
     "outputs_to_deliveries",
     "recorded_artifacts",
@@ -204,6 +206,18 @@ def deliverable_locations(settings: Flow.Settings) -> list[tuple[str, Path]]:
     return found
 
 
+def deliverable_setting_names(settings_cls: "type[Flow.Settings]") -> list[str]:
+    """The name of every field `settings_cls` itself declares deliverable (`DELIVERABLE_ROLE`),
+    whatever its current value -- a dependency's are its own launch's, so not included. Named in
+    the warning `--outputs-to` gives when a flow delivered nothing, so an unset `vcd` is not
+    mistaken for xeda silently dropping a file it wrote."""
+    return [
+        name
+        for name in settings_cls.model_fields
+        if written_role(settings_cls, name) == DELIVERABLE_ROLE
+    ]
+
+
 def outputs_to_deliveries(
     artifacts: Any, run_path: Path, directory: Optional[Path]
 ) -> list[Delivery]:
@@ -245,24 +259,48 @@ def _identity(path: Path, follow: bool = True) -> Optional[tuple[int, int]]:
 
 class ReadInputs:
     """Every file the flows of a launch read (gpt-6-sol's final (c)): the design's files, the design
-    and project file the launch was given, and the file each read setting of any of its flows
-    names -- a dependency's settings nested in its depender's included -- by file identity
-    (`st_dev`, `st_ino`) and by resolved path. No delivery ever replaces one, `--overwrite-outputs`
-    or not. One is shared by a launch's `Deliveries` and completed as each flow is launched, so a
-    delivery -- made when the launch has finished -- is checked against all of them."""
+    and project file the launch was given, the file each read setting of any of its flows names
+    -- a dependency's settings nested in its depender's included -- and every entry under a
+    directory one names, as the trace lists it (`trace_inputs.register_read_settings`), by file
+    identity (`st_dev`, `st_ino`) and by resolved path; and those directories themselves, each
+    with the setting naming it (`directory_of`). No delivery ever replaces one of those files, or
+    lands anywhere in one of those directories, `--overwrite-outputs` or not. One is shared by a
+    launch's `Deliveries` and completed as each flow is launched, so a delivery -- made when the
+    launch has finished -- is checked against all of them."""
 
     def __init__(self, paths: Iterable[Path] = ()) -> None:
         self._by_identity: dict[tuple[int, int], Path] = {}
         self._by_path: dict[Path, Path] = {}
+        #: each directory read (resolved), with the key of the setting naming the directory it
+        #: was listed under, and that directory
+        self._directories: dict[Path, tuple[str, Path]] = {}
         self.add(paths)
 
     def add(self, paths: Iterable[Path]) -> None:
         for given in paths:
-            path = Path(given)
-            identity = _identity(path)
-            if identity is not None:
-                self._by_identity.setdefault(identity, path)
-            self._by_path.setdefault(Path(os.path.realpath(path)), path)
+            self._add_file(Path(given), _identity(Path(given)))
+
+    def _add_file(self, path: Path, identity: tuple[int, int] | None) -> None:
+        if identity is not None:
+            self._by_identity.setdefault(identity, path)
+        self._by_path.setdefault(Path(os.path.realpath(path)), path)
+
+    def add_directory(self, key: str, directory: Path, entries: Iterable[Path]) -> None:
+        """`directory`, which the read setting `key` names, and `entries`, everything under it
+        (`trace_inputs.setting_directory_listings`): each file an input; the directory, and each
+        directory under it -- one reached through a link included, where the listing follows it
+        -- a place no delivery goes, whether or not a file is there yet: a tool of the launch
+        may read any file there, which cannot be known before it runs."""
+        named = Path(directory)
+        for path in (named, *entries):
+            try:
+                st: os.stat_result | None = os.stat(path)
+            except OSError:
+                st = None
+            if st is not None and stat.S_ISDIR(st.st_mode):
+                self._directories.setdefault(Path(os.path.realpath(path)), (key, named))
+            else:
+                self._add_file(path, None if st is None else (st.st_dev, st.st_ino))
 
     def find(self, destination: Path) -> Optional[Path]:
         """The input `destination` is -- followed, as itself, or by its resolved path (an input
@@ -271,6 +309,16 @@ class ReadInputs:
             if identity is not None and identity in self._by_identity:
                 return self._by_identity[identity]
         return self._by_path.get(Path(os.path.realpath(destination)))
+
+    def directory_of(self, destination: Path) -> tuple[str, Path] | None:
+        """The read directory `destination` is, or lies in -- as named, or by its resolved path
+        (a link to one) -- if any: the key of the setting naming it, and the directory it
+        names."""
+        for path in dict.fromkeys((Path(destination), Path(os.path.realpath(destination)))):
+            for candidate in (path, *path.parents):
+                if candidate in self._directories:
+                    return self._directories[candidate]
+        return None
 
 
 def _state(path: Path) -> _State:
@@ -296,6 +344,26 @@ def _files_under(directory: Path) -> list[Path]:
         for p in directory_files(directory)
         if p.is_file() and not p.is_symlink()
     )
+
+
+def _check_link(delivery: Delivery, source: Path, run_dir: Path) -> None:
+    """A delivery whose source is a symbolic link (a tool may leave one): a link to a file,
+    inside the run directory or out of it, delivers that file's content, and a link to a
+    directory inside the run directory delivers its tree -- but a link to a directory outside the
+    run directory is never expanded (it may lead to a whole install tree), and a link that leads
+    nowhere, or into a cycle, has nothing to deliver. Either is a `DeliveryError` naming it."""
+    if not source.is_symlink():
+        return
+    target = Path(os.path.realpath(source))
+    what = f"`{delivery.key}` names {delivery.destination}, but {source} is a symbolic link"
+    if not target.exists():
+        raise DeliveryError(f"{what} that leads nowhere (to {os.readlink(source)}), or in a cycle")
+    root = Path(os.path.realpath(run_dir))
+    if target.is_dir() and not (target == root or target.is_relative_to(root)):
+        raise DeliveryError(
+            f"{what} to {target}, a directory outside the run directory, which xeda does not "
+            "copy: name the files to deliver instead"
+        )
 
 
 def _read_record(path: Path) -> dict[str, Any]:
@@ -348,6 +416,9 @@ class Deliveries:
         #: what the node delivers, noted when it completed (`collect`): each file, where it goes,
         #: and its content digest as the run left it
         self.pending: list[tuple[Delivery, Path, Path, str]] = []
+        #: what `deliver` has copied so far this call, even one it goes on to raise out of: an
+        #: `OSError` partway through must not make the copies already made unreported
+        self.delivered: list[Delivered] = []
 
     def _refusal(self, destination: Path, delivery: Delivery) -> Optional[str]:
         """Why nothing may ever be delivered to `destination` (located), whatever the options."""
@@ -359,6 +430,14 @@ class Deliveries:
             return (
                 "inside a run root of xeda's, where only xeda's runs live: a bare name puts an "
                 "output in its run directory"
+            )
+        read = self.inputs.directory_of(destination)
+        if read is not None:
+            key, directory = read
+            return (
+                f"in a directory a flow of the launch reads (`{key}` names {directory}, and every "
+                "file under it, a link followed, is an input of the run): an output never goes "
+                "there; name another path"
             )
         found = self.inputs.find(destination)
         if found is not None:
@@ -408,9 +487,28 @@ class Deliveries:
     def _confirmed(self, conflicts: Sequence[Conflict]) -> bool:
         return self.overwrite or (self.confirm is not None and bool(self.confirm(conflicts)))
 
+    def check_outputs_to(self, directory: Optional[Path]) -> None:
+        """Before any tool of the launch runs: refuse an `--outputs-to` directory that lies in a
+        run root or in a directory the launch reads, is an input of the run, or already exists as
+        anything but a directory (`DeliveryError`). `check`'s own loop only sees `--outputs-to` once a location becomes a
+        concrete `Delivery` -- from `predicted`, the last run's artifacts, or `collect`'s `extra`,
+        this run's -- so without this the directory itself is refused only after the requested
+        flow's tools (and, for a launch with dependencies, every one of them) have already run."""
+        if directory is None:
+            return
+        destination = _located(directory)
+        refusal = self._refusal(destination, Delivery(OUTPUTS_TO, PurePath("."), destination))
+        if refusal is None and os.path.lexists(destination) and not destination.is_dir():
+            refusal = (
+                "an existing file: --outputs-to copies outputs into a directory, not onto a file"
+            )
+        if refusal is not None:
+            raise DeliveryError(f"--outputs-to names {destination}, {refusal}")
+
     def check(self, predicted: Sequence[Delivery] = ()) -> None:
         """Before any tool of the node runs: refuse a destination that is an input, lies in a run
-        root, or is a directory where a file goes (`DeliveryError`); unless confirmed, refuse to
+        root or in a directory the launch reads, or is a directory where a file goes
+        (`DeliveryError`); unless confirmed, refuse to
         replace a file that is not xeda's own unchanged earlier delivery (`OutputExistsError`).
         `predicted`: what `--outputs-to` expects to deliver, from the last run's artifacts."""
         refusals: list[str] = []
@@ -446,6 +544,7 @@ class Deliveries:
                     f"`{delivery.key}` names {delivery.destination}, but the run wrote no "
                     f"{delivery.name} in {source_root}"
                 )
+            _check_link(delivery, source, Path(source_root))
             if source.is_dir():
                 pairs = [
                     (file, delivery.destination / file.relative_to(source))
@@ -472,43 +571,48 @@ class Deliveries:
         """Copy each file `collect` noted to where it was named. A destination that is an input
         -- of any flow of the launch, all known by now -- is refused; one checked before the run
         that changed since is not replaced (`DeliveryError`, once the others are made); a file
-        found in the way only now needs the yes `check` would have asked for."""
-        delivered: list[Delivered] = []
+        found in the way only now needs the yes `check` would have asked for. Whatever is copied
+        before an `OSError` from `_copy` (a full disk, a permission lost mid-run) is still
+        recorded (`self.delivered`, `_write_record` under `finally`), so a later call, and the
+        caller's `flow.deliveries` (reported in `--json`'s `nodes[].deliveries`), do not
+        under-report what actually reached disk before the error."""
+        self.delivered = []
         changed: list[str] = []
         late: list[tuple[Conflict, Path, _State, str]] = []
-        for delivery, src, dest, sha in self.pending:
-            destination = _located(dest)
-            refusal = self._refusal(destination, delivery)
-            if refusal is None and destination.is_dir() and not destination.is_symlink():
-                refusal = "a directory"
-            if refusal is not None:
-                self._write_record()
-                raise DeliveryError(f"`{delivery.key}` names {destination}, {refusal}")
-            if destination in self.checked:
-                expected = self.checked[destination]
-                if _state(destination) != expected:
-                    changed.append(str(destination))
-                    continue
-            else:
-                expected = _state(destination)
-                why = self._why_not_ours(destination)
-                if why is not None:
-                    late.append((Conflict(delivery, destination, why), src, expected, sha))
-                    continue
-            made = self._copy(delivery, src, destination, expected, sha)
-            if made is None:
-                changed.append(str(destination))
-            else:
-                delivered.append(made)
-        if late and self._confirmed([conflict for conflict, *_rest in late]):
-            for conflict, src, expected, sha in late:
-                made = self._copy(conflict.delivery, src, conflict.destination, expected, sha)
-                if made is None:
-                    changed.append(str(conflict.destination))
+        try:
+            for delivery, src, dest, sha in self.pending:
+                destination = _located(dest)
+                refusal = self._refusal(destination, delivery)
+                if refusal is None and destination.is_dir() and not destination.is_symlink():
+                    refusal = "a directory"
+                if refusal is not None:
+                    raise DeliveryError(f"`{delivery.key}` names {destination}, {refusal}")
+                if destination in self.checked:
+                    expected = self.checked[destination]
+                    if _state(destination) != expected:
+                        changed.append(str(destination))
+                        continue
                 else:
-                    delivered.append(made)
-            late = []
-        self._write_record()
+                    expected = _state(destination)
+                    why = self._why_not_ours(destination)
+                    if why is not None:
+                        late.append((Conflict(delivery, destination, why), src, expected, sha))
+                        continue
+                made = self._copy(delivery, src, destination, expected, sha)
+                if made is None:
+                    changed.append(str(destination))
+                else:
+                    self.delivered.append(made)
+            if late and self._confirmed([conflict for conflict, *_rest in late]):
+                for conflict, src, expected, sha in late:
+                    made = self._copy(conflict.delivery, src, conflict.destination, expected, sha)
+                    if made is None:
+                        changed.append(str(conflict.destination))
+                    else:
+                        self.delivered.append(made)
+                late = []
+        finally:
+            self._write_record()
         self.pending = []
         if late:
             raise OutputExistsError(_refused([conflict for conflict, *_rest in late]))
@@ -517,7 +621,7 @@ class Deliveries:
                 f"not delivered: {', '.join(changed)} changed while the run went on, after it "
                 f"was checked; the outputs are in {self.run_path}"
             )
-        return delivered
+        return self.delivered
 
     def _copy(
         self, delivery: Delivery, source: Path, destination: Path, expected: _State, sha: str

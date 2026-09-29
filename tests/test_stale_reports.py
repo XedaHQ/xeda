@@ -17,6 +17,7 @@ import builtins
 import io
 import json
 import os
+import shutil
 import time
 from pathlib import Path
 from typing import ClassVar
@@ -29,8 +30,22 @@ from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
 
 from .settings_samples import flow_classes, minimal_settings
-from .test_run_dir_ownership import EXTRA_SETTINGS, FAKED, SOURCES, _design_directory
+from .test_isolation import EXTRA_SETTINGS, FAKED, SQRT
 from .tool_utils import use_fake_tools
+
+#: the design's sources for a flow whose tool does not read VHDL
+SOURCES = {"bsc": (["Top.bsv"], "mkTop"), "bsc_sim": (["Top.bsv"], "mkTop")}
+
+
+def _design_directory(work: Path) -> Path:
+    """The design's own directory: the sqrt design plus the bsc/bsc_sim sources."""
+    work.mkdir(parents=True)
+    for name in ("sqrt.vhdl", "sqrt.toml", "tb_sqrt.py"):
+        shutil.copy(SQRT / name, work / name)
+    (work / "Top.bsv").write_text("module mkTop(Empty); endmodule\n")
+    (work / "Tb.bsv").write_text("module mkTb(Empty); endmodule\n")
+    return work
+
 
 #: The flows the sweep brings to read their reports (a flow whose tool is stubbed and that fails
 #: before its `parse_reports`, or reads no report of its own, is skipped).

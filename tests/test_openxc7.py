@@ -2,6 +2,7 @@
 (`fasm2frames`, `xc7frames2bit`) write the files they are asked for, or leave some out. These tests
 check what the flow records from the files it finds, not what the real toolchain produces."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 import xeda.flows.openxc7 as openxc7
 from xeda import Design
 from xeda.flow import FPGA
+from xeda.flow_runner import DefaultRunner
 from xeda.flows import OpenXC7, YosysFpga
 
 DESIGN0 = Path(__file__).parent / "resources/design0/design0.toml"
@@ -141,3 +143,44 @@ def test_openxc7_records_no_bitstream_the_packer_did_not_write(tmp_path: Path, m
 
     assert "frames" in flow.artifacts
     assert "bitstream" not in flow.artifacts
+
+
+def test_openxc7_reuses_the_bitstream_its_previous_run_recorded(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A second launch with unchanged inputs finds open_xc7 up to date (the trace decides, not
+    the flow's own reading of `results.json`): neither nextpnr nor the packers run again, and
+    the recorded bitstream artifact of the first run is still reported."""
+    if shutil.which("yosys") is None:
+        pytest.skip("open_xc7 depends on yosys_fpga, whose `init` asks the installed yosys")
+
+    def fake_yosys_run(self) -> None:  # the netlist open_xc7 reads; no real synthesis
+        (self.run_path / "netlist.json").write_text("{}")
+
+    monkeypatch.setattr(YosysFpga, "run", fake_yosys_run)
+    monkeypatch.setattr(YosysFpga, "parse_reports", lambda self: True)
+    nextpnr = FakeNextpnr()
+    monkeypatch.setattr(OpenXC7, "next_pnr", nextpnr)
+    packers = _stub_packers(monkeypatch)
+    chipdb = tmp_path / f"{PART}.bin"
+    chipdb.write_bytes(b"")
+    settings = {"fpga": FPGA(PART), "prjxray_db_dir": _prjxray_db(tmp_path), "chipdb": chipdb}
+    (tmp_path / "top.v").write_text(
+        "module top(input clk, input d, output reg q); always @(posedge clk) q <= d; endmodule\n"
+    )
+    design = Design(name="design0", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+
+    first = runner.launch_flow(OpenXC7, design, settings)
+
+    assert first.succeeded and not first.reused
+    assert len(nextpnr.runs) == 1 and packers == ["fasm2frames", "xc7frames2bit"]
+    bitstream = first.run_path / "top.bit"
+    assert bitstream.is_file()
+
+    again = runner.launch_flow(OpenXC7, design, settings)
+
+    assert again.reused and again.succeeded
+    assert len(nextpnr.runs) == 1 and len(packers) == 2
+    assert Path(again.results.artifacts["bitstream"]).name == "top.bit"
+    assert bitstream.is_file()

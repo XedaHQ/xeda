@@ -81,50 +81,30 @@ so editing the design never moves it. The old `<design>_<design_hash>/` layer (d
 `--no-incremental`) is gone; delete such directories by hand. Xeda always reuses a flow's
 directory across runs unless `--clean` empties it first (see "Caching and run directories"
 below). Each run dir gets `settings.json`, `results.json` and `trace.json`, plus `reports/`,
-`outputs/`, `checkpoints/`. `--cwd` relocates only the *requested* flow's run directory into the
-current directory; its dependencies still go in the usual layout under the run root.
+`outputs/`, `checkpoints/`. Every run directory lies under the run root -- xeda created and marked
+it (`.xeda-run-root`, `.gitignore`, `CACHEDIR.TAG`); keep nothing of yours there.
 
-xeda runs only in a directory that is its own (`flow/run_dir.py`), and marks every run
-directory it uses with `.xeda-run-dir` (`claim_run_dir`, in `launch_flow` before anything is
-written or deleted; `_prepare_run_path` marks one it re-creates). One given explicitly (`--cwd`,
-the launcher's `run_path`) is used only if it does not exist, is empty, or is marked. One xeda
-chooses (a dependency's nested in its depender's) must resolve strictly inside the run root --
-`get_flow_run_path` refuses a design or flow name such as `..` or `a/b`, and a link leading out
--- and is used only if it does not exist, is empty, is marked, or holds an earlier xeda run of
-the same flow (`is_earlier_run_of`: its `settings.json`), which is then marked. Neither may be a
-symbolic link itself (`refuse_linked_run_dir`, first in `claim_run_dir`, `mark_run_dir` and
-`purge_run_path`): its marker would be read, and the run would clean and write, in whatever the
-link leads to. Otherwise the launch fails with `RunDirectoryError`; `scrub_runs` refuses the same
-way. `Flow.purge_run_path` empties only a marked directory (keeping the marker, as
-`--post-cleanup` does). Nothing outside
-the run directory is deleted: `Flow.remove_stale_output` removes an earlier copy of an output only
-inside it (one named outside is left for the tool to overwrite); `Flow.wrote_output` counts an
-output as the run's own only if its state -- device, inode, size, mtime, ctime
-(`run_dir.record_output_state`) -- differs from what was recorded for it before this run's tool
-could have written it, never from comparing a timestamp to a clock. `Flow.__init__` snapshots
-every file and directory under the run directory (`run_dir.OutputSnapshot`) before `init()`,
-dependencies or `run()` can write to it, whichever way the flow was constructed, keyed by
-identity (device, inode), not by path: one file has many names (a link to it or to a directory
-holding it, another letter case on a case-insensitive file system), and every name of an earlier
-run's file finds that file's state. An output inside the run directory whose identity the
-snapshot did not record was created or moved there since -- unless it lies in a directory the
-snapshot could not read, which proves nothing. An output named outside the run directory has
-the state recorded when the run first learned of it: by `remove_stale_output`, or by assigning it
-to `self.artifacts` -- which records its state *at assignment*, its prior state only if the flow
-assigns before its tool runs. A flow assigning after its tool (nextpnr's outputs,
-openfpgaloader's and openxc7's bitstream, bsc's executable, vivado_synth's reports) records the
-state the tool left, so `wrote_output` finds it unchanged: the safe direction (a failed run omits
-it), but never use `wrote_output` to check that a run wrote such an output -- call
-`remove_stale_output` on it before the tool runs, as vivado_synth does for its bitstream. Where
-nothing tells, the prior state is unknown, and an unknown prior state is never proof a run wrote
-it -- which is how a failed run's `results.json` drops what an earlier run left without ever
-relisting one it merely could not confirm. A work directory removed by name goes through
-`Flow.removable_work_dir`, which refuses one outside (a link a tool left at its own name is removed as a link, never what it points to). `RemoteRunner.run_remote` claims its local
-results directory the same way before connecting. xeda never writes through a link: generated
-files go through `utils.replacing_file` / `replacing_copy` (a temporary beside the target,
-`os.replace`d over it), and the marker is created with `O_EXCL | O_NOFOLLOW`.
-`tests/test_explicit_run_dir.py` holds two oracles, every deletion site and every raw write
-primitive in `src/xeda`: a new one fails them until reviewed.
+A run directory is `<run root>/<design>/<flow>` (or `<flow>_<hash>`) and nothing else:
+`get_flow_run_path` refuses a design name that is not a name (`design.DESIGN_NAME`) and a directory
+that leads out of the run root through a symbolic link; one that is itself a link resolving inside
+the run root is used. **What a run wrote is told by identity, never by a clock** (`xeda/run_dir.py`):
+the launcher snapshots every file and directory under the run directory right before `run()`
+(`Flow.start_run`, `run_dir.OutputSnapshot`, keyed by device and inode, so every name of an
+earlier run's file -- through a link, in another letter case -- finds that file's state; a flow
+built directly takes it at construction). `Flow.wrote_output` counts an output as the run's own
+only if its state -- device, inode, size, mtime, ctime (`run_dir.record_output_state`) -- differs
+from the snapshot's, or the snapshot never saw it; one under a directory the snapshot could not
+read, or outside the run directory, has no known prior state, which is never proof. A failed run's
+`results.json` lists only the artifacts it wrote (`artifacts.drop_unwritten_artifacts`, from
+`_execute`), and a failed `--remote` run keeps only what the remote vouches its run wrote, judged
+on the remote's own file system (`remote_runner`'s second message). A tool may leave symbolic
+links in its run directory: before the run, a working location whose own name is a link leading
+out of the run directory is removed as a link, never what it points to, and one reached through
+such a link is refused, naming it (`default_runner._free_working_locations`,
+`RunDirectory.inside`); a delivery never expands a link to a directory outside the run directory,
+nor copies from a link that leads nowhere (`deliver._check_link`). xeda never writes through a
+link: a file goes through `utils.replacing_file`/`replacing_copy` (complete, then renamed over the
+target) at the path `RunDirectory.writable` located.
 
 ### Machine-readable CLI (for agents and scripts)
 
@@ -243,14 +223,15 @@ fresh `trace.json`, on success, once `_report` has returned).
   never a clock): a run directory is reused, and a previous run's report must never pass for
   this run's when the tool fails before writing its own. `tests/test_stale_reports.py` sweeps
   every flow (a stale copy of each file its `parse_reports` reads, and a tool that writes
-  nothing: none is read, the run fails). The runner then calls `check_results()`, the checks a whole family
-  of flows shares, which must pass too: `SimFlow`'s reads cocotb's results for every simulator
-  that ran a cocotb testbench (`Cocotb.add_results`; a missing or unreadable results file, or one
-  in which no test ran, is a failure). No cocotb simulator overrides it (`tests/test_cocotb.py`
-  sweeps them, on real tools).
+  nothing: none is read, the run fails). The runner then calls `check_results()`, the checks a
+  whole family of flows shares, which must pass too: `SimFlow`'s reads cocotb's results for every
+  simulator that ran a cocotb testbench, from the results file this run wrote (`report_file`;
+  `Cocotb.add_results`: a missing or unreadable results file, or one in which no test ran, is a
+  failure). No cocotb simulator overrides it (`tests/test_cocotb.py` sweeps them, on real tools).
 - `Cocotb.env()` is what every cocotb simulator run goes through, right before it simulates; it
-  also removes an earlier run's results file, since cocotb writes none when its test module
-  fails to import and the simulators still exit 0.
+  also removes an earlier run's results file (`RunDirectory.remove`, in the simulating flow's run
+  directory), since cocotb writes none when its test module fails to import and the simulators
+  still exit 0.
 
 ### Flow registration
 
@@ -422,52 +403,68 @@ atomically after a successful run (`write_trace`) and removed before the next ru
 "the last run here completed and succeeded" (S4 in `design-notes/13-foundations.md`). It records
 `flowrun_hash`, `design_hash`, `xeda_version`, a digest of every file of the installed xeda package
 (`xeda_code_digest`, once per process: an editable install keeps its version across edits) and of a
-plugin flow's own modules (`flow_code_digest`), the programs it started (`ProgramRecord`: resolved
-path, size, mtime; a container image by its ID), and every file as a `FileRecord` (`size, mtime_ns,
-ctime_ns, inode, sha`, `digest.record_file`): its **inputs** -- the design's files (`design_files`:
-one walker over `rtl` and `tb`, so a file-valued parameter counts), every existing file a path-typed
-setting names (`setting_files`: nested models too, not a dependency's settings; relative paths under
-the design root *and* the start directory), every file under a directory such a setting names
-(`setting_directory_files`: `trace.directory_files`, recursive, a link as itself and never
-followed, `.git`/`.hg`/`.svn` skipped; not the flow's declared output directories
-(`Flow.Settings.output_directories`: `reports_dir`, `outputs_dir`, `checkpoints_dir`, and a
-flow's own, e.g. OpenROAD's `results_dir`; `tests/test_setting_file_types.py` makes every
-directory setting an input or a declared output), not the run directory itself (unmanaged, a
-setting naming it makes the flow always run), nor -- in a
-managed one -- anything in it; the run root pruned; no size cap, a warning past
-`LARGE_LISTING_FILES`/`SLOW_LISTING_S`), the files the flow registered in
+plugin flow's own modules (`flow_code_digest`), the programs it started as `FileRecord`s of the
+resolved executable (`ProgramRecord.file`: size, mtime, inode change time, inode, content hash --
+a program is checked exactly as any other input; a container image is recorded by its ID alone,
+`ProgramRecord.path`), and every file as a `FileRecord` (`size, mtime_ns, ctime_ns, inode, sha`,
+`digest.record_file`): its **inputs** -- the design's files (`design_files`: one walker over `rtl`
+and `tb`, so a file-valued parameter counts), every existing file a path-typed setting names
+(`setting_files`: nested models too, not a dependency's settings; relative paths under the design
+root *and* the start directory), every entry under a directory such a setting names
+(`setting_directory_files`: `xeda.listing.directory_files(follow_links=True)`, recursive, a
+symbolic link followed -- cycles and re-entry broken by `(st_dev, st_ino)`, so a library reached
+only through a link is tracked like any other -- `.git`/`.hg`/`.svn` skipped; not the flow's
+working locations (a setting with the `WORKING` role: `reports`, `outputs`, `checkpoints`, and a
+flow's own, e.g. OpenROAD's `results_dir` -- see "Every path a flow writes has a role" below), not
+the run directory or run root themselves where a named directory holds them; no size cap, a
+warning past `LARGE_LISTING_FILES`/`SLOW_LISTING_S`), the files the flow registered in
 `Flow.implicit_inputs` by the end of `init()` (`registered_input_files`: yosys's `abc_script`,
 expanded against the start directory or the environment) and the dependencies' outputs --
 **recorded just before the run starts** (`snapshot_inputs`, with `inputs_recorded_ns` as their
 racy threshold; each file as itself, `follow_symlinks=False`, reusing the previous run's record
 where `FileRecord.trusted` vouches for it), so a file edited while the run goes on no longer
 matches; its **implicit inputs**, known only after the run (depfile
-entries, `yosys -E`, and files `run()` registers in `Flow.implicit_inputs`); and its **outputs**
-(`output_files`, with `outputs_recorded_ns`): in a run directory xeda manages, every regular file
-under it after the run (`run_directory_files`: recursive, artifact or not, since a depender may read
-any of them by path; a symbolic link recorded as itself, `record_file(..., follow_symlinks=False)`,
-by its target text and, for a link to a file, that file's content; the names xeda reserves,
+entries, `yosys -E`, and files `run()` registers in `Flow.implicit_inputs`, such as open_xc7's
+chip database wherever it was found); and its **outputs**
+(`output_files`, with `outputs_recorded_ns`): every entry of the run directory after the run
+(`run_directory_files`: `xeda.listing.directory_files`, recursive, artifact or not, since a
+depender may read any of them by path; a link recorded as itself, never followed, by its target
+text and, for a link to a file, that file's content; a directory recorded by its metadata alone,
+a fixed `"directory"` digest -- its own entries are recorded in their own right; a FIFO, socket or
+device by its metadata and a `"special:<kind>"` digest, never read; the names xeda reserves,
 `trace.RESERVED_FILES` and the clock markers, left out) plus the artifacts outside it -- hashed once
-after the run, checked by metadata after that; and **where each path-typed setting points**
-(`setting_locations`, by key path such as `lib_paths[0][1]` from
-`setting_path_leaves`/`flow.map_keyed_path_leaves`): an absolute leaf as itself, a relative one as
-each existing path it is found at under the design root and the start directory (not inside the run
-directory) -- `flowrun_hash` is location-free, so this is what binds a setting naming a directory,
-and a launch from another start directory or of another design tree with the same text reports
-"`<key>` now names `<B>` (was `<A>`)". **What a run owns is decided by location alone**: a run
-directory xeda manages (under the run root, never the `--cwd` directory) is the run's exclusively,
-every file in it an output, and a file that appears there after the run makes it stale ("new file in
-the run directory"); anywhere else, a file a setting, a depfile or the design names stays an input,
-recorded as unknown (`MODIFIED_DURING_RUN`) if it was absent before the run or written during it
-(mtime or inode change time at or after the run's start), so the next launch runs again; in the
-`--cwd` directory the outputs are only the artifacts, `results.json` and every file of what the
-run claimed there (`trace_inputs.claimed_files`). Times compared with a
-file's come from the run directory's **file-system clock** (`digest.filesystem_time_ns`: a marker
-file's mtime), never the process clock. A program replaced during the run never matches either. It
+after the run, checked by metadata after that. The reports a flow read while parsing its results
+(`Flow.reports_read`, noted through `Flow.report_file`) are removed from the run directory only
+when the next run turns out not to be fresh, right before it executes
+(`trace_inputs.run_reports`/`default_runner`) -- not right after the trace that recorded them, so
+a fresh run's own outputs, reports included, are left alone -- so a tool that fails before writing
+its own report can never leave a previous run's report to be read as if it were this run's. It
+also records
+**where each path-typed setting points** (`setting_locations`, by key path such as
+`lib_paths[0][1]` from `setting_path_leaves`/`flow.map_keyed_path_leaves`): an absolute leaf as
+itself, a relative one as each existing path it is found at under the design root and the start
+directory (not inside the run directory) -- `flowrun_hash` is location-free, so this is what binds
+a setting naming a directory, and a launch from another start directory or of another design tree
+with the same text reports "`<key>` now names `<B>` (was `<A>`)". **What a run owns is decided by
+location alone**: every run directory lies under the run root now (D21), and is the run's
+exclusively -- every entry in it an output, and one that appears there after the run makes it
+stale ("new file in the run directory"); anywhere else, a file a setting, a depfile or the design
+names stays an input, recorded as unknown (`MODIFIED_DURING_RUN`) if it was absent before the run
+or changed during it, so the next launch runs again. **Whether it changed is judged by identity,
+never by a clock across file systems**: against its record from before the run
+(`snapshot_inputs`), by its own size, mtime, inode change time and inode
+(`trace_inputs.changed_since`); a program's file against its state when it was started
+(`proc_utils.StartedPrograms.before`). A file first known after the run (a depfile's entry) has
+no record from before it: on the run directory's own file system, the run directory's
+**file-system clock** (`digest.filesystem_time_ns`: a marker file's mtime, never the process
+clock) decides; on another file system nothing does, and it is recorded unknown
+(`UNRECORDED_BEFORE_RUN`), so the next launch runs once more, saying so ("input first read by the
+last run, on another file system ...") -- yosys's own library files on another volume do that
+once after a flow's first run (`tests/tool_utils.launch_until_fresh`). It
 also carries a `run_id` for the run itself and, keyed by each dependency's run directory relative to
 the run root, the `run_id` of the dependency run it consumed (`dependency_runs`) -- provenance (S3),
-since there is no per-edge output digest yet (plan 2). `trace.check_trace(..., managed=...)` (the
-launcher says whether the directory is xeda's) re-derives all of this (`trace_inputs.expectation`)
+since there is no per-edge output digest yet (plan 2). `trace.check_trace` re-derives all of this
+(`trace_inputs.expectation`)
 and returns the first mismatch as the stale reason. A file counts as unchanged by its metadata when
 `FileRecord.trusted` says so -- size, mtime, inode change time and inode all equal, and the later of
 mtime and ctime more than 2s before the record was taken (racy timestamps) -- otherwise by content
@@ -478,9 +475,9 @@ record it read changed or has settled since (`FileRecord.settled_before`), so a 
 hashed at every later check; in a read-only run directory it checks without refreshing. A dependency
 that ran again always makes its depender stale too, even if nothing it declared as an input actually
 changed -- there is no cross-edge cutoff until declared inputs/outputs (plan 2). What is not tracked
-(each can make a stale result look fresh; `--rebuild-all` is the escape): the contents of a
-directory a link points to (in a run directory, or in a directory a setting names), or of one a
-setting names inside the run directory; programs started indirectly (a compiler under `make`, Python packages such as
+(each can make a stale result look fresh; `--rebuild-all` is the escape): what a symbolic link in a
+run directory points to, when that is a directory (the link is recorded by its target, never
+followed); programs started indirectly (a compiler under `make`, Python packages such as
 cocotb); environment variables; files a tool finds on its own without reporting them. A hand edit of
 any file a dependency's run left, or a file added there, makes the dependency stale, and its
 dependers follow through its new `run_id`.
@@ -493,30 +490,137 @@ directory in one launch is a `FlowSettingsError` naming both requesters
 keeps no trace and reports that reason: `openfpgaloader` and a programming `open_xc7` ("it
 programs a device"), a flow asked for a fresh random seed ("it draws a new random seed"), nextpnr
 with pin constraints from a URL. Seeds are settings with fixed defaults (verilator and cocotb
-`random_seed = 1`; `randomize_seed` defaults to false), so a default configuration is reusable. The base
-`Flow.always_runs` also answers "a setting (<key>) names the directory it runs in, whose contents
-cannot be told apart from its outputs" when a setting names the run directory, or one holding it,
-that xeda does not manage (`include_dirs = ["."]` under `--cwd`;
-`trace_inputs.setting_naming_directory`): every override returns `super().always_runs()`.
+`random_seed = 1`; `randomize_seed` defaults to false), so a default configuration is reusable. The
+base `Flow.always_runs` returns `None`; every override calls `super().always_runs()`. There is no
+longer a "setting names the directory it runs in" case: every launched run directory is xeda's own
+(D21), so a flow's working locations can never overlap the directory it reads its inputs from --
+that case existed only for the now-removed `--cwd`.
 
 `--clean` empties a flow's run directory before it runs and runs every flow ("make clean, then
-make"; it implies `--rebuild-all`); refused together with `--cwd`. `--post-cleanup`/`--post-cleanup-purge` clean up after the
+make"; it implies `--rebuild-all`). `--post-cleanup`/`--post-cleanup-purge` clean up after the
 *requested* flow completes, dependencies included but deferred to the end so a depender can still
 read a dependency's files; pruning removes the trace first, so a pruned run is not reused. A
-POSIX lock file (`<run dir>.lock`, `run_lock.py`; `.xeda.lock` inside the directory `--cwd`
-names; none on Windows) serializes concurrent launches of the same run directory; `xeda scrub`
+POSIX lock file (`<run dir>.lock`, `run_lock.py`, beside the run directory, never inside it; none
+on Windows) serializes concurrent launches of the same run directory; `xeda scrub`
 removes it with the directory. `--remote` always mirrors into the hashed layout
 (`<flow>_<flowrun_hash>`, `RemoteRunner.Settings.hashed_run_dirs`, `Literal[True]` as `Dse`'s), so
 remote runs of different settings never share a directory, and refuses `--rebuild-all`, `--clean`
-and `--hashed-run-dirs` alike (a remote run always runs fresh).
+and `--hashed-run-dirs` alike (a remote run always runs fresh); it also refuses a deliverable
+setting given as a location before shipping anything, and delivers `--outputs-to` only after a run
+that succeeded, from the fetched artifacts in its local (always hashed) mirror. From its first write
+to the mirror to that delivery it holds the mirror's `run_dir_lock`, as a local launch of the same
+directory does, and it closes the gateway and connection however it ends.
 
 `--xeda-run-dir`/`XEDA_RUN_DIR` (a hidden option per command catches both), the API keyword and
 property `xeda_run_dir`, `--cached-dependencies`/`--no-cached-dependencies`,
-`--incremental`/`--no-incremental`, and the launcher settings `cached_dependencies`,
+`--incremental`/`--no-incremental`, `--cwd`, the API/launcher parameter `run_path`, and the
+launcher settings `cached_dependencies`,
 `skip_if_previous_run_exists`, `incremental`, `cleanup_before_run` are removed: each fails with
 `` `<name>` was removed: use <replacement>``, naming the option above. `--rebuild`/`--run-dirs`
 never shipped: click suggests the flags. Flow settings named `clean`/`clean_before_run` are removed the same way
 (GHDL's former `clean` is now `clean_before_analyze`, an unrelated per-analysis setting).
+
+**Every path a flow writes has a role** (D21), a `json_schema_extra` marker on the setting's field:
+`WORKING` (`xeda.dataclass.WORKING`) for a working location, always a bare name inside the run
+directory whatever it is given (`sim_dir`, `bobj_dir`, `impl_folder`, a log path, ...), or
+`deliverable(conventional=...)` for a setting the user may give a location, which is then
+**delivered** -- copied to that location once the whole launch has finished, while the run itself
+always writes the fixed `conventional` name in the run directory (plan 2's convention is
+`outputs/<design>.<ext>`; `flow.output_name`). `dataclass.written_role(model, field)` reads the
+marker back; `introspect`'s `writes` key (`"working"`/`"deliverable"`/`None`) exposes it through
+`xeda list-settings --json`. `tests/test_written_paths.py`'s `ROLES` is the one table of every
+written field of every flow, bsc's four working locations (`bobj_dir`, `info_dir`,
+`verilog_out_dir`, `sim_dir`) included; a new written setting needs its role added there. A plain
+nested model's path fields (not only a `Flow.Settings`' own) expand `$PWD`/`$DESIGN_ROOT` too, once,
+when the flow's settings are built or a field of theirs is assigned -- `cocotb.results_xml` and
+`yosys_sim.cxxrtl.filename` are the settings this covers; a value assigned straight onto the
+nested model afterwards is not expanded, and `written_path_problems` reports it as such.
+
+**`xeda.deliver`** makes good on a deliverable setting's location, or `--outputs-to`, once a
+launch has finished, never sooner: `ReadInputs` holds every file the launch's flows read (the
+design's files, the files given, and every read setting of every launched flow, a dependency's
+nested settings included) and every directory such a setting names, with each entry under it --
+the trace's own listing (`trace_inputs.register_read_settings`, local and remote alike) -- so a
+destination can be none of those files, nor lie in one of those directories, a file there yet or
+not (whether a tool reads it cannot be known before the run; `--outputs-to` into one is refused
+up front). Each node notes what it
+delivers, with every file's digest, as its own run completes (`Deliveries.collect`, under its run
+directory's lock); the copies themselves are made in `_finish_launch`, before the deferred
+clean-ups, once every flow of the graph has registered its reads -- a dependency's output could
+otherwise replace a file a later sibling or its own depender reads before that depender's `init()`
+has even run. An existing file at a destination is replaced without asking only when it is xeda's
+own earlier delivery there, unchanged: inode and content digest are what decide (never mtime
+alone, which the R38 trust rule never lets vouch for a delivery on its own) -- a same-inode file
+holding exactly the delivered bytes is xeda's copy whatever touched it since, while another inode,
+or different bytes, fails closed and asks. See `docs/run-directories.rst`'s "Outputs where you
+name them" for the user-facing rules (never onto an input nor into a read directory, never a
+directory, never into a run root, `--overwrite-outputs`, the delivery record beside the run
+directory).
+
+`tests/test_isolation.py` is the isolation oracle (O1-O4), in four parts:
+
+- **O1, the canary sweep, and O3, the audit hook**, exercised together by
+  `test_nothing_outside_the_run_root_changes_but_what_was_named`: every registered flow
+  (`FLOWS`/`settings_samples.flow_classes()`), launched under stand-in tools, in four scenarios
+  (`twice`, `clean`, `purge`, `delivered` -- 100 cases) inside a `World` seeded with a canary file
+  at every name a template or xeda itself could write (`CANARIES`: every flow's template
+  filenames, `trace.json`, `.xeda.lock`, a Vivado project, `Logs/canary.log`, ...) and a symlink
+  out to a sibling `outside/` directory. `_state` snapshots every entry of the design directory's
+  *parent* (type, mode, content or link text, a file's modification time) before and after a
+  launch; nothing outside the run root may differ but exactly the destinations the launch named
+  (a located deliverable, the `outputs_to` directory) and the files delivery wrote there (O1) --
+  a tool's file beside a delivered one, or a touch-only change, fails it
+  (`test_the_sweep_sees_an_extra_file_beside_a_delivered_one`,
+  `test_the_sweep_sees_a_touch_only_change`). At the same time, a `sys.addaudithook`
+  installed once for the session (`_audit`, live only inside a `watching()` context) records every
+  write, create, rename or delete a launch makes (`open` in a writing mode,
+  `os.remove`/`rmdir`/`mkdir`/`chmod`/`utime`, `os.rename`/`os.link` -- which also covers
+  `os.replace` -- `os.symlink`, `shutil.copyfile`, `shutil.rmtree`, `os.truncate`): a write inside
+  the run root is ignored, one under the named delivery destination is allowed only when it comes
+  from `xeda/deliver.py` (`_from_deliver`, walking the call stack), anything else is a violation
+  (O3) -- so a stray write is caught even if the canary sweep's own before/after diff happens to
+  miss it. `test_the_oracle_sees_every_change_outside_the_run_root` is O3's teeth test: it
+  exercises every one of those calls directly and checks the hook counts them all (CPython audits
+  a missing `dir_fd` as `-1`, not `None`, which is why `_placed` treats both as "no descriptor").
+  Its limits, stated in the module docstring: tools outside `FAKED` are stubbed, so their real
+  writes are not observed; the audit hook sees only the test's own process; paths outside the
+  snapshotted parent are not compared -- the opt-in real-tool layers are where to extend it.
+- **O2, the read-only tree**: `test_a_launch_needs_nothing_writable_but_its_run_root` makes every
+  flow's whole tree read-only except the run root (`_freeze`/`_thaw`) and checks the launch ends
+  the same way it does on a writable tree; `test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree`
+  repeats it with real `bsc`/Bluesim on PR #88's `gcd` example. `test_the_command_line_changes_nothing_outside_the_run_root`
+  covers the CLI itself (`--clean`, `--post-cleanup`, plain), asserting exit 0 so the oracle cannot
+  pass merely because the run failed early, and
+  `test_ise_synth_from_the_design_directory_deletes_none_of_its_files` is the original P10
+  regression (ISE used to delete the design's own files from its start directory), with and
+  without `xtclsh` on `PATH`.
+- **O4, the static scan** (moved verbatim from the deleted `test_run_dir_ownership.py`): an AST
+  walk of every `.py` file under `xeda/` for a call that deletes, moves over or replaces a file by
+  name (`unlink`, `remove`, `rmdir`, `rmtree`, `rename`, `move`, `replace`, `truncate`, ...) outside
+  `xeda.run_dir`/a `.run_directory` receiver
+  (`test_nothing_deletes_but_through_the_run_directory`, checked against the exact reviewed sites
+  in `REVIEWED_PY_DELETIONS`), and a text/regex scan of every non-Python file (tool scripts,
+  OpenROAD and platform scripts) plus every flow's own tool commands for a deleting or
+  `-force`/`-overwrite`/`create_project`-style replacing command
+  (`test_every_tool_command_that_deletes_or_replaces_is_reviewed_and_guarded`, against
+  `REVIEWED_SCRIPT_DELETIONS`, each entry recording why it is safe and, where it deletes or
+  replaces by name, the guard text that must still be present in that flow's module). A new site,
+  or a second copy of a reviewed one, fails the oracle until it is reviewed and added. Its third
+  scan (`test_every_raw_write_by_name_is_reviewed`, from PR #89, with its mutation test) finds
+  every raw write by name -- `open` for writing, `write_text`, a copy, a rename, a link -- that
+  does not go through `replacing_file`/`replacing_copy`, against `REVIEWED_WRITES`.
+  `test_links_a_tool_left_are_never_followed_out_of_the_run_directory` is the tool-made-links
+  case: links in, out, dangling, cyclic and at a working location's name, through a relaunch,
+  `--clean`, post-cleanup, a purge, `xeda scrub` and deliveries, with the outside tree unchanged.
+
+`tests/conftest.py`'s autouse, session-scoped fixture snapshots the checkout's top level, `tests/`
+and every example design's own directory before the suite runs, and fails if any of them gained a
+new entry by the end -- the exemptions are `tests/__pycache__` (the suite's own imports) and a
+top-level `xeda_run/`, the latter only when an opt-in
+layer (`XEDA_TESTS_VIVADO`/`XEDA_TESTS_DOCKER`/`XEDA_TESTS_EXTERNAL`) is set, since those tests
+deliberately work in the checkout's own `xeda_run/` (a container can mount it where the system
+temp directory is not). A `__pycache__` in an example's directory is a failure: `test_ghdl.py`
+and `test_nvc.py` simulate the examples in place.
 
 ### Other runners
 
@@ -528,11 +632,12 @@ never shipped: click suggests the flags. Flow settings named `clean`/`clean_befo
   `remote_runner`) must stay dependency-free and only use long-stable xeda API - a test asserts this.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
   keys, so it must stay loadable by `REMOTE_XEDA_MIN_VERSION`. **Requirement: a remote runs the
-  latest published xeda or newer** (currently 0.4.0), and `check_remote_xeda` refuses anything
+  latest published xeda or newer** (currently 0.4.3), and `check_remote_xeda` refuses anything
   older. On each release, raise `REMOTE_XEDA_MIN_VERSION` and `test_remote_run.py`'s
-  `RELEASED_RTL_KEYS`/`RELEASED_TB_KEYS` to the new release; until then the archive and the
+  `RELEASED_RTL_KEYS`/`RELEASED_TB_KEYS`/`RELEASED_GIT_REFERENCE_KEYS` (with the keys it takes as
+  `null`) to the new release; until then the archive and the
   shipped `remote_runner` may rely on nothing newer than it (a newer API only behind a
-  `getattr` probe, as for `Flow.wrote_output`). `REMOTE_PROBE` reports
+  `getattr` probe). `REMOTE_PROBE` reports
   which xeda the remote interpreter imports (execnet starts `python3` from the *non-login* PATH).
   A failed remote run's artifacts are fetched only if the remote vouches its run wrote them:
   `remote_runner` sends its results, then that list, judged on the remote's own file system (the
@@ -582,6 +687,11 @@ while it is open). A flow sharing
   which matches every test name ending with it. When a cocotb upgrade breaks every simulation at
   once, or a setting silently stops working, compare `Cocotb.env()` against
   `cocotb_tools/runner.py` first.
+  `Cocotb.env()` also sets `PYTHONPYCACHEPREFIX` to the run directory's `__pycache__`: the
+  testbench is imported from the design's directory (`PYTHONPATH`), and pytest's assertion
+  rewriting would otherwise write its bytecode there, into the user's tree
+  (`test_isolation.py::test_a_cocotb_simulation_leaves_the_design_directory_as_it_was`, real
+  GHDL and nvc).
 - **pydantic 2 is pinned** (`>=2.13.5,<3`). Import `field_validator` / `model_validator` from
   `xeda.dataclass` (which re-exports and adds `XedaBaseModel`), not directly from `pydantic`.
   Every validator needs an explicit `@classmethod` under its decorator.
@@ -713,30 +823,37 @@ while it is open). A flow sharing
   located before the run (`RunDirectory.inside`) is handed to the script as that value itself:
   Diamond's `impl_folder`, rendered in double quotes, named whatever Tcl substituted it into.
   PDK files and xeda's own run-directory paths are left raw.
-- **Every deletion in a run directory, and every file xeda writes itself where a flow runs, goes
-  through `RunDirectory` (`xeda/run_dir.py`)**, the flow's read-only `self.run_directory`, which
-  the launcher decides once and hands to the flow's constructor: `RunDirectory.claimed` (a
-  directory xeda chose that lies under its run root) or `RunDirectory.users` (`--cwd`, an API
-  `run_path`, or a chosen path that resolves elsewhere). `remove()` deletes inside the directory
-  only (containment without following a link out); `clear()`/`delete()` refuse the user's
-  directory (`purge_run_path` too). Where the directory is not xeda's, xeda deletes, writes over
-  or lets a tool replace only what it owns there, as it left it (`recorded()`): what its runs
-  claimed -- files it generates (`require_writable`, which `copy_from_template`, the launcher's
-  `settings.json`/`results.json`, `Tool.run`'s `env.sh` and every flow's own writes go through),
-  projects and directories a tool replaces by name (`require_replaceable`, whose answer also
-  decides the tool's `-force`/`-overwrite`: never where nothing of it is there yet) -- and its
-  artifacts, recorded after every run that executed, failed or not, in the ownership record
-  `.xeda-owned.json` (`record_ownership`, `read_ownership`; not the trace, which exists only
-  after a success). A design source is never written over, a setting-named file only if xeda owns
-  it -- or if it is the output file the user explicitly gave that setting for
-  (`require_writable(..., given=flow.given_setting(name))`, then `discard`), which may be
-  replaced wherever it is (never a directory, nor a file another setting names). `ghdl remove`
-  runs only over a work library xeda owns (`require_replaceable`) or in its own directory. `tests/test_run_dir_ownership.py` sweeps every flow with `--cwd`
-  (canaries named like each flow's work directories and like every file it generates, the tool
-  commands each ran, nothing written unchecked where the tools are stubbed) and greps xeda's code
-  and every template for deletions outside `RunDirectory` and for unguarded deleting or
-  replacing tool commands; the fake Vivado, Quartus, DC and ISE create and replace projects as
-  the real tools do.
+- **A flow's clean-up deletions, and every file a flow or the launcher writes where a flow runs, go
+  through `RunDirectory` (`xeda/run_dir.py`)**, the flow's read-only `self.run_directory`, a frozen
+  dataclass the launcher decides once and hands to the flow's constructor: `RunDirectory.claimed`
+  (a directory xeda chose that lies under its run root -- every launched flow's, now, D21) or
+  `RunDirectory.unlaunched` (a flow built directly, not through a launcher: xeda deletes nothing
+  there, logged instead). `inside`/`holds` locate a path inside the directory without following a
+  symbolic link out of it (a link is itself, its last component never resolved); `writable(path)`
+  is what every file xeda writes there itself goes through (`copy_from_template`, the launcher's
+  `settings.json`/`results.json`, `Tool.run`'s `env.sh`, and every flow's own writes) -- it removes
+  a link at that name first, so the write always makes a regular file, and raises in an
+  `unlaunched` directory rather than silently deleting through someone else's link. The file
+  itself is then written complete-then-renamed (`utils.replacing_file` / `replacing_copy`: a
+  temporary beside the target, `os.replace`d over it only once whole, `keep_on_error` for a failed
+  tool's log, `copy_mode_from` before the commit), so an interrupted write leaves the earlier
+  file. A path that leads out of the run directory -- by `..`, or through a symbolic link a tool
+  may have made -- is refused by `inside` with a `RunDirectoryError` naming the link; a link at a
+  path's own name is removed as itself, never followed. `remove(*paths)`
+  deletes each -- file, link (as itself) or directory tree -- inside the directory only, nothing in
+  an `unlaunched` one; `clear()` empties the whole directory; `delete()` also removes the directory
+  itself. A tool is free to replace a project or a directory by its own name inside the run
+  directory (`-force`/`-overwrite`, Diamond's and ISE's new project): the whole directory is
+  xeda's, so there is nothing of the user's there for the tool to lose. **`RunDirectory` is not the
+  only writer of a run directory, though**: `trace.json` (`write_trace`/`remove_trace`,
+  `flow_runner/trace.py`) and the marker `filesystem_time_ns` touches to read the run directory's
+  clock (`digest.py`) are xeda's own reserved names, created and removed directly by those modules
+  rather than through `RunDirectory`; a dockerized tool's own `.<tool>_docker.env` (`Tool.execute`,
+  `tool.py` ~140, written with a plain `open(..., "w")` right before the container starts) bypasses
+  it the same way -- there is nothing of a flow's or a user's under any of these names for that
+  boundary to protect. `tests/test_isolation.py` is the current oracle (see "Caching and
+  run directories" above; it replaced `test_run_dir_ownership.py`'s `--cwd` sweep, which is gone
+  with `--cwd` itself).
 - **Compare a source's type with `SourceType`, never with free text**: `src.type is
   SourceType.Xdc` in Python, `src.type.name == "Vhdl"` in a template. A `SourceType` equals only
   its own name, so `src.type == 'verilog'` is silently never true -- ModelSim compiled no source

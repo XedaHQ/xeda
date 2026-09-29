@@ -48,6 +48,11 @@ class _Deliverer(Flow):
             description="The netlist it writes.",
             json_schema_extra=deliverable("outputs/{design}.v"),
         )
+        report: Optional[Path] = Field(
+            None,
+            description="A second file it writes.",
+            json_schema_extra=deliverable("outputs/{design}.rpt"),
+        )
         text: str = Field("net\n", description="What it writes.")
         fail: bool = Field(False, description="Whether its reports say it failed.")
         reads: Optional[Path] = Field(None, description="A file it reads: an input.")
@@ -59,6 +64,11 @@ class _Deliverer(Flow):
         netlist.parent.mkdir(parents=True, exist_ok=True)
         netlist.write_text(self.settings.text)
         self.artifacts["netlist"] = str(netlist)
+        if self.settings.report is not None:
+            report = Path(self.settings.report)
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(self.settings.text)
+            self.artifacts["report"] = str(report)
         for action in DURING_RUN:
             action()
 
@@ -268,6 +278,84 @@ def test_an_input_is_never_a_destination_even_with_overwrite_outputs(world, spel
     assert source.read_text() == "module top; endmodule\n" and RUNS == []
 
 
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_an_earlier_delivery_into_a_directory_a_setting_now_reads_is_never_replaced(
+    world, overwrite
+):
+    """gpt-6-sol's PR 2 review, finding 1: an output delivered into a library directory, which a
+    later launch reads through a setting naming the directory (`lib_paths`, an include
+    directory), is an input of that launch -- the trace lists every file there -- so the later
+    launch refuses to replace it, before its tool runs, even though the delivery record says it
+    is xeda's own unchanged copy, and even with --overwrite-outputs."""
+    (world.user / "lib").mkdir()
+    _launch(world, netlist="$PWD/lib/net.v", text="a\n")
+    assert (world.user / "lib" / "net.v").read_text() == "a\n"
+    RUNS.clear()
+    launcher = DefaultRunner(world.root, display_results=False, overwrite_outputs=overwrite)
+    with pytest.raises(DeliveryError, match="`reads` names"):
+        _launch(world, launcher, reads="$PWD/lib", netlist="$PWD/lib/net.v", text="b\n")
+    assert (world.user / "lib" / "net.v").read_text() == "a\n" and RUNS == []
+
+
+@pytest.mark.parametrize("where", ["a new file", "a new subdirectory", "a dependency's"])
+def test_a_destination_inside_a_directory_a_setting_reads_is_refused_before_the_tool_runs(
+    world, where
+):
+    """No file need be there yet: whether a tool of the launch would read it -- every file under
+    the directory is an input of the run -- cannot be known before it runs, so a delivery into a
+    read directory is refused outright, naming the setting and the directory."""
+    lib = world.user / "lib"
+    lib.mkdir()
+    (lib / "cells.v").write_text("module cell; endmodule\n")
+    if where == "a dependency's":
+        launch = dict(flow=_Wrapper, inner={"reads": "$PWD/lib", "netlist": "$PWD/lib/net.v"})
+        key = "inner.reads"
+    else:
+        name = "net.v" if where == "a new file" else "sub/net.v"
+        launch = dict(reads="$PWD/lib", netlist=f"$PWD/lib/{name}")
+        key = "reads"
+    launcher = DefaultRunner(world.root, display_results=False, overwrite_outputs=True)
+    with pytest.raises(DeliveryError, match=f"`{key}` names {lib.resolve()}") as refused:
+        _launch(world, launcher, **launch)
+    assert "an input of the run" in str(refused.value)
+    assert RUNS == [] and sorted(p.name for p in lib.iterdir()) == ["cells.v"]
+
+
+def test_a_file_a_read_directory_reaches_through_a_link_is_never_a_destination(world, tmp_path):
+    """The trace lists a read directory following its links (`listing.directory_files`), so a
+    file reached through a link in it is an input wherever it lies: its own path, outside the
+    directory, is no way around the guard -- and neither is a new file beside it."""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "cells.v").write_text("module cell; endmodule\n")
+    (world.user / "lib").mkdir()
+    (world.user / "lib" / "shared").symlink_to(elsewhere, target_is_directory=True)
+    launcher = DefaultRunner(world.root, display_results=False, overwrite_outputs=True)
+    for destination in (elsewhere / "cells.v", elsewhere / "new.v"):
+        with pytest.raises(DeliveryError, match="an input of the run"):
+            _launch(world, launcher, reads="$PWD/lib", netlist=str(destination))
+    assert (elsewhere / "cells.v").read_text() == "module cell; endmodule\n"
+    assert not (elsewhere / "new.v").exists() and RUNS == []
+
+
+@pytest.mark.parametrize("named", ["the directory", "inside it", "a link to it"])
+def test_outputs_to_into_a_directory_a_setting_reads_is_refused_before_the_first_tool_runs(
+    world, named
+):
+    lib = world.user / "lib"
+    lib.mkdir()
+    (lib / "cells.v").write_text("module cell; endmodule\n")
+    outputs_to = {"the directory": lib, "inside it": lib / "got", "a link to it": world.user / "l"}
+    if named == "a link to it":
+        outputs_to[named].symlink_to(lib, target_is_directory=True)
+    launcher = DefaultRunner(
+        world.root, display_results=False, outputs_to=outputs_to[named], overwrite_outputs=True
+    )
+    with pytest.raises(DeliveryError, match=r"--outputs-to names .*`inner\.reads` names"):
+        _launch(world, launcher, flow=_Wrapper, inner={"netlist": "build/n.v", "reads": str(lib)})
+    assert RUNS == [] and sorted(p.name for p in lib.iterdir()) == ["cells.v"]
+
+
 def test_a_directory_is_not_a_file_s_destination(world):
     (world.user / "net.v").mkdir()
     with pytest.raises(DeliveryError, match="a directory"):
@@ -353,6 +441,35 @@ def test_a_destination_swapped_during_the_copy_is_not_replaced(world, monkeypatc
         assert (world.design.root_path / "top.v").read_text() == "module top; endmodule\n"
 
 
+def test_an_oserror_mid_delivery_still_records_and_reports_the_copies_already_made(
+    world, monkeypatch
+):
+    """One node delivering two files: an `OSError` (a full disk) copying the second must not lose
+    track of the first -- its record is still written (`try`/`finally`), and `flow.deliveries`
+    (reported in `--json`'s `nodes[].deliveries`) still lists it, before the error is raised."""
+    import xeda.deliver
+
+    copy = shutil.copyfileobj
+    made: List[bool] = []
+
+    def copy_then_fail_second(source, target, *args):
+        copy(source, target, *args)
+        made.append(True)
+        if len(made) == 2:
+            raise OSError("disk full")
+
+    monkeypatch.setattr(xeda.deliver.shutil, "copyfileobj", copy_then_fail_second)
+    launcher = DefaultRunner(world.root, display_results=False)
+    with pytest.raises(OSError, match="disk full"):
+        _launch(world, launcher, netlist="$PWD/a.v", report="$PWD/b.v")
+    flow = launcher.launched[-1]
+    assert (world.user / "a.v").read_text() == "net\n" and not (world.user / "b.v").exists()
+    assert [d.destination for d in flow.deliveries] == [world.user / "a.v"]
+    record = json.loads(delivery_record(flow.run_path).read_text())
+    assert str(world.user / "a.v") in record["files"]
+    assert str(world.user / "b.v") not in record["files"]
+
+
 def test_the_same_bytes_in_another_file_are_not_xeda_s_copy(world):
     """A record is a `FileRecord`: a user's file of the same content put in place of xeda's copy
     (another inode) is not xeda's, and is not replaced without a yes."""
@@ -372,6 +489,17 @@ def test_outputs_to_copies_the_requested_flow_s_artifacts_only(world):
     assert (world.user / "got" / "summary.txt").read_text() == "ok\n"
     assert not (world.user / "got" / "build").exists(), "a dependency's artifacts stay put"
     assert [d.key for d in flow.deliveries] == ["--outputs-to"]
+
+
+def test_outputs_to_into_the_run_root_is_refused_before_the_first_tool_runs(world):
+    """Opus minor: a location only becomes a concrete `Delivery` -- and so reaches `check`'s
+    per-destination loop -- once its flow's tool has run and reported an artifact, so without
+    `check_outputs_to` this was refused only in `deliver()`, after both the dependency's and the
+    depending flow's tools had already run."""
+    launcher = DefaultRunner(world.root, display_results=False, outputs_to=world.root / "grab")
+    with pytest.raises(DeliveryError, match="run root"):
+        _launch(world, launcher, flow=_Wrapper, inner={"netlist": "build/net.v"})
+    assert RUNS == []
 
 
 def test_a_dependency_s_read_input_is_never_a_destination(world):
@@ -481,18 +609,86 @@ def test_a_remote_run_protects_every_read_input_it_can_name(world):
     from xeda.flow_runner.remote import remote_read_inputs
     from xeda.flows import VivadoPostsynthSim
 
-    for name in ("nested.xdc", "section.xdc"):
+    for name in ("nested.xdc", "section.xdc", "nested_lib/a.v", "section_lib/b.v"):
+        (world.user / name).parent.mkdir(exist_ok=True)
         (world.user / name).write_text("")
     settings = VivadoPostsynthSim.Settings.from_input(
-        {"synth": {"fpga": {"part": "xc7a12tcsg325-1"}, "xdc_files": ["$PWD/nested.xdc"]}},
+        {
+            "synth": {
+                "fpga": {"part": "xc7a12tcsg325-1"},
+                "xdc_files": ["$PWD/nested.xdc"],
+                "lib_paths": [["work", "$PWD/nested_lib"]],
+            }
+        },
         design_root=world.design.root_path,
         runner_cwd=world.user,
     )
-    sections = {"vivado_synth": {"xdc_files": [str(world.user / "section.xdc")]}}
-    inputs = remote_read_inputs(world.design, settings, sections, [])
+    sections = {
+        "vivado_synth": {
+            "xdc_files": [str(world.user / "section.xdc")],
+            "lib_paths": [["work", str(world.user / "section_lib")]],
+        }
+    }
+    root = ensure_run_root(world.root)
+    assert root is not None
+    inputs = remote_read_inputs(
+        world.design,
+        settings,
+        sections,
+        [],
+        flow_class=VivadoPostsynthSim,
+        run_path=root / "d" / "f",
+        run_root=root,
+    )
     named = [world.user / "nested.xdc", world.user / "section.xdc"]
-    for path in [*named, world.design.root_path / "top.v"]:
+    listed = [world.user / "nested_lib" / "a.v", world.user / "section_lib" / "b.v"]
+    for path in [*named, *listed, world.design.root_path / "top.v"]:
         assert inputs.find(path) is not None, path
+    # and every destination inside a directory they name, a file there or not
+    assert inputs.directory_of(world.user / "nested_lib" / "new.v") == (
+        "synth.lib_paths[0][1]",
+        (world.user / "nested_lib").resolve(),
+    )
+    assert inputs.directory_of(world.user / "section_lib" / "new.v") == (
+        "lib_paths[0][1]",
+        (world.user / "section_lib").resolve(),
+    )
+    assert inputs.directory_of(world.user / "new.v") is None
+
+
+def test_a_remote_run_registers_its_own_flow_s_section_as_the_launch_uses_it(world):
+    """gpt-6-sol's re-check: the requested flow's section is registered only as merged into its
+    settings (the command line's over it), never as written -- `lib_paths` given on the command
+    line replaces the section's, and the run reads only that; another flow's section is
+    registered as written, since which dependencies the remote launches is not known here."""
+    from xeda.flow_runner.remote import remote_read_inputs
+    from xeda.flows import GhdlSim, VivadoSynth
+
+    for name in ("old", "new", "other"):
+        (world.user / name).mkdir()
+    settings = VivadoSynth.Settings.from_input(
+        {"fpga": {"part": "xc7a12tcsg325-1"}, "lib_paths": [["work", "$PWD/new"]]},
+        design_root=world.design.root_path,
+        runner_cwd=world.user,
+    )
+    sections = {
+        VivadoSynth.name: {"lib_paths": [["work", str(world.user / "old")]]},
+        GhdlSim.name: {"lib_paths": [["work", str(world.user / "other")]]},
+    }
+    root = ensure_run_root(world.root)
+    assert root is not None
+    inputs = remote_read_inputs(
+        world.design,
+        settings,
+        sections,
+        [],
+        flow_class=VivadoSynth,
+        run_path=root / "d" / "f",
+        run_root=root,
+    )
+    assert inputs.directory_of(world.user / "old" / "x.v") is None
+    assert inputs.directory_of(world.user / "new" / "x.v") is not None
+    assert inputs.directory_of(world.user / "other" / "x.v") is not None
 
 
 def test_a_failed_remote_run_delivers_nothing(world):

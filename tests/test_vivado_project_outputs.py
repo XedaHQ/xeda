@@ -292,28 +292,30 @@ def test_the_write_bitstream_step_keeps_its_own_settings(tmp_path, monkeypatch) 
 
 
 @needs_tclsh
-def test_a_bitstream_outside_the_run_directory_is_registered_where_it_is(
+def test_a_bitstream_given_as_a_location_is_registered_in_the_run_directory_and_delivered(
     tmp_path, monkeypatch
 ) -> None:
-    """A path outside the run directory has no relative form. An earlier bitstream there is left
-    for Vivado to overwrite -- xeda deletes nothing outside the run directory -- but a run whose
-    `write_bitstream` step fails does not report it as its own."""
+    """A bitstream named by a location is written under the conventional name in the run
+    directory, registered there, and copied to the location once the launch succeeded. A later
+    run whose `write_bitstream` step fails neither reports a bitstream as its own nor touches
+    the earlier delivery."""
     bitstream = tmp_path / "bits" / "sqrt.bit"
-    bitstream.parent.mkdir()
     flow = _synth(tmp_path, monkeypatch, bitstream=str(bitstream))
-    assert _registered(flow) == {vs.BITSTREAM: bitstream}
-    assert bitstream.is_file()
-    _source_hooks(flow, tmp_path / "runs")
-    assert bitstream.read_text() == "bit"
+    assert _registered(flow) == {vs.BITSTREAM: Path("outputs/sqrt.bit")}
+    written = flow.run_path / "outputs" / "sqrt.bit"
+    assert written.is_file()
+    assert bitstream.read_bytes() == written.read_bytes()
+    delivered, content = bitstream.stat(), bitstream.read_bytes()
 
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "write_bitstream")
-    failed = DefaultRunner(tmp_path / "run").run_flow(
+    failed = DefaultRunner(tmp_path / "run", rebuild_all=True).run_flow(
         VivadoSynth,
         Design.from_toml(SQRT),
         {"fpga": PART, "clock_period": 5.5, "bitstream": str(bitstream)},
     )
     assert failed is not None and not failed.succeeded
-    assert bitstream.read_text() == "bit", "the earlier bitstream is where it was"
+    assert bitstream.stat().st_ino == delivered.st_ino, "the earlier delivery is where it was"
+    assert bitstream.read_bytes() == content
     assert vs.BITSTREAM not in failed.results.artifacts
 
 
@@ -432,8 +434,8 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
         flow.run_path.mkdir()
         monkeypatch.chdir(flow.run_path)  # where the runner runs a flow's tools
         flow.run()
-    assert ["open_saif", power.settings.saif] in fake_calls(post.run_path)
+    assert ["open_saif", str(power.settings.saif)] in fake_calls(post.run_path)
     calls = fake_calls(power.run_path)
     assert ["open_checkpoint", str(synth.run_path / synth.artifacts[vs.CHECKPOINT_ROUTE])] in calls
-    assert post.artifacts["saif"] == power.settings.saif
+    assert Path(post.artifacts["saif"]) == Path(power.settings.saif)
     assert ["read_saif", "-verbose", str(post.run_path / power.settings.saif)] in calls

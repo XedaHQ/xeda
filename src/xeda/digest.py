@@ -10,7 +10,10 @@ does; a copy that keeps the mtime (`cp -p`) is another inode. Each of these cost
 wrong reuse.
 
 A record whose `sha` is `MODIFIED_DURING_RUN` stands for a file that changed while a run was
-using it, so what the run read is unknown: it never matches.
+using it, so what the run read is unknown: it never matches. So does one whose `sha` is
+`UNRECORDED_BEFORE_RUN`: a file the run was found to read only afterwards (a depfile's entry), on
+a file system other than the run directory's, whose clock cannot tell whether it changed while the
+run went on and of which no record from before the run exists.
 
 A symbolic link can be recorded as itself (`record_file(..., follow_symlinks=False)`, how a run
 directory's outputs are recorded): by its target and, when that is a regular file, by the
@@ -46,6 +49,9 @@ _CHUNK = 1 << 20
 #: The digest of a file that was written while the run that read it was going on: what the run
 #: read is unknown, so this record never matches the file (`FileRecord.unknown`).
 MODIFIED_DURING_RUN = "unknown: modified during the run"
+#: The digest of a file first found to be read after the run, with no record from before it, on
+#: another file system than the run directory's: whether it changed during the run is unknown.
+UNRECORDED_BEFORE_RUN = "unknown: no record from before the run"
 
 #: How the digest of a symbolic link recorded as itself begins; a digest of its target text
 #: follows, then, for a link to a regular file, ":" and that file's content digest. A content
@@ -111,8 +117,9 @@ class FileRecord(XedaBaseModel):
 
     @property
     def unknown(self) -> bool:
-        """The file changed while a run used it: its content then is unknown."""
-        return self.sha == MODIFIED_DURING_RUN
+        """The file changed while a run used it, or nothing tells whether it did: its content
+        then is unknown."""
+        return self.sha in (MODIFIED_DURING_RUN, UNRECORDED_BEFORE_RUN)
 
 
 def written_since(path: Path, since_ns: int) -> bool:
@@ -126,14 +133,15 @@ def written_since(path: Path, since_ns: int) -> bool:
     return max(st.st_mtime_ns, st.st_ctime_ns) >= since_ns
 
 
-def unknown_record(path: Path) -> FileRecord:
+def unknown_record(path: Path, why: str = MODIFIED_DURING_RUN) -> FileRecord:
     """The record of a file that was written during the run that read it (or that vanished
-    before it could be recorded)."""
+    before it could be recorded) -- or, with `why` `UNRECORDED_BEFORE_RUN`, of which nothing
+    tells whether it was."""
     try:
         st = path.stat()
     except OSError:
-        return FileRecord(size=-1, mtime_ns=-1, ctime_ns=-1, inode=-1, sha=MODIFIED_DURING_RUN)
-    return FileRecord.of(st, MODIFIED_DURING_RUN)
+        return FileRecord(size=-1, mtime_ns=-1, ctime_ns=-1, inode=-1, sha=why)
+    return FileRecord.of(st, why)
 
 
 def filesystem_time_ns(directory: Path) -> int:

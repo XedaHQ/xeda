@@ -1178,9 +1178,11 @@ class Flow(metaclass=ABCMeta):
         )
         # inside the run directory (`RunDirectory.writable`), and only as a complete file, which
         # replaces a link at its name rather than writing through it (`replacing_file`)
-        with replacing_file(self.run_directory.writable(script_path)) as f:
+        located = self.run_directory.writable(script_path)
+        with replacing_file(located) as f:
             f.write(rendered_content)
-        return script_path.resolve().relative_to(self.run_path)
+        # relative to the run directory as resolved: `run_path` may be a link into the run root
+        return located.relative_to(self.run_directory.path)
 
     def add_template_filter(self, filter_name: str, func, replace_existing=False) -> None:
         assert filter_name
