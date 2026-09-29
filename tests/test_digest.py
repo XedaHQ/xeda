@@ -1,6 +1,7 @@
 """File records: metadata decides whether to look, content decides whether a file changed."""
 
 import os
+import time
 from pathlib import Path
 
 from xeda.digest import RACY_NS, FileRecord, content_digest, record_file
@@ -67,7 +68,14 @@ def test_changed_metadata_with_the_same_content_keeps_the_hash(tmp_path):
 def test_changed_content_changes_the_hash(tmp_path):
     f = _write(tmp_path / "a.v", "x", 10**18)
     before = record_file(f)
-    _write(f, "y", 10**18)  # same size and mtime restored: the inode change time tells
+    # same size and mtime restored: the inode change time tells. Where that clock is coarse,
+    # rewrite until it has advanced
+    for _ in range(200):
+        _write(f, "y", 10**18)
+        if f.stat().st_ctime_ns != before.ctime_ns:
+            break
+        time.sleep(0.01)
+    assert f.stat().st_ctime_ns != before.ctime_ns
     assert record_file(f, before, trusted_before_ns=_long_after(f)).sha != before.sha
 
 
