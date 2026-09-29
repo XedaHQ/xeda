@@ -500,16 +500,18 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         su_fail = self.results.get("setup_violations")
         if su_fail:
             log.error("%s setup violations. WNS: %s", su_fail, wns)
-            failed = True
+            if self.settings.fail_timing:
+                failed = True
         hld_fail = self.results.get("hold_violations")
         if hld_fail:
             log.error("%s hold violations. WHS: %s", hld_fail, self.results.get("whs"))
-            failed = True
+            if self.settings.fail_timing:
+                failed = True
         if wns is not None:
             if not isinstance(wns, (float, int)):
                 log.critical("Parsed value for `WNS` is %s (%s)", wns, type(wns))
             else:
-                if wns < 0:
+                if wns < 0 and self.settings.fail_timing:
                     failed = True
                 # see https://support.xilinx.com/s/article/57304?language=en_US
                 # Fmax in Megahertz

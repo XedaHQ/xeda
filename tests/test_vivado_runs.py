@@ -13,6 +13,7 @@ and reports what became of each run as Vivado 2024.2 does (`STATUS`, `PROGRESS`)
 import re
 import shutil
 from pathlib import Path
+from zipfile import ZipFile
 
 import click
 import pytest
@@ -23,7 +24,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoSynth
 from xeda.flows.vivado import vivado_synth as vs
 
-from .tool_utils import fake_calls, fake_returns, use_fake_tools
+from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.toml"
 FLOWS_DIR = Path(__file__).parent.parent / "src" / "xeda" / "flows"
@@ -128,6 +129,57 @@ def test_a_route_hook_that_fails_on_timing_fails_the_flow(
         assert flow.results["status"] == "write_bitstream Complete!"
         assert not messages
         assert (flow.run_path / BITSTREAM).is_file()
+
+
+#: The fake Vivado's own `timing_summary.rpt` "Design Timing Summary" numbers row: meets timing.
+_OK_TIMING_ROW = (
+    "      0.046        0.000                      0                12068"
+    "        0.006        0.000                      0                12068"
+    "        0.616        0.000                       0                  4529  "
+)
+#: The same row, negative slack and nonzero setup/hold violations.
+_VIOLATED_TIMING_ROW = (
+    "     -0.123       -4.500                      3                12068"
+    "       -0.045       -1.200                      2                12068"
+    "        0.616        0.000                       0                  4529  "
+)
+
+
+def _violated_timing_summary() -> str:
+    """The fake Vivado's canned `timing_summary.rpt`, its Design Timing Summary numbers replaced
+    by a violated one (negative WNS/WHS, 3 setup and 2 hold violations) -- everything else (the
+    report's format, its Clock Summary) exactly as the fake writes it, so the parser sees a
+    genuine timing report with only the numbers changed."""
+    with ZipFile(FAKE_TOOLS_DIR / "resource" / "fake_vivado_reports") as zf:
+        report = zf.read("timing_summary.rpt").decode()
+    assert _OK_TIMING_ROW in report
+    return report.replace(_OK_TIMING_ROW, _VIOLATED_TIMING_ROW)
+
+
+@needs_tclsh
+@pytest.mark.parametrize("fail_timing", [True, False], ids=["fail_timing", "no_fail_timing"])
+def test_fail_timing_governs_only_the_timing_violation_decision(
+    tmp_path, monkeypatch, fail_timing
+) -> None:
+    """`fail_timing` decides whether a timing violation the *parsed report* shows (negative WNS or
+    WHS, setup or hold violations) fails the flow -- not whether xeda parses or reports those
+    metrics, which it does either way. A route hook's own live `SLACK` check
+    (`test_a_route_hook_that_fails_on_timing_fails_the_flow`) is a separate mechanism; here the
+    run itself succeeds on the fake's own (clean) canned reports, and the route report is then
+    overwritten with a violated one and re-parsed in isolation."""
+    flow = _run(tmp_path, monkeypatch, bitstream=BITSTREAM, fail_timing=fail_timing)
+    assert flow.succeeded  # the run completed; only the (about to be swapped) report is violated
+
+    reports_dir = flow.run_path / flow.settings.reports_dir / "route_design"
+    (reports_dir / "timing_summary.rpt").write_text(_violated_timing_summary())
+
+    ok = flow.parse_timing_report(reports_dir)
+
+    assert ok != fail_timing
+    assert flow.results["wns"] == -0.123
+    assert flow.results["whs"] == -0.045
+    assert flow.results["setup_violations"] == 3
+    assert flow.results["hold_violations"] == 2
 
 
 @needs_tclsh
