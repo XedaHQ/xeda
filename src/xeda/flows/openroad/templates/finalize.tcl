@@ -22,7 +22,7 @@ extract_parasitics -ext_model_file {{platform.default_corner_settings.rcx_rules}
 
 set spef_file $results_dir/{{step_id}}.spef
 write_spef $spef_file
-file delete {{design.rtl.top}}.totCap
+file delete -- [file tail {{(design.rtl.top ~ ".totCap")|tcl_word}}]
 
 # Read Spef for OpenSTA
 if { [file exists $spef_file]} {

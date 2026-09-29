@@ -16,7 +16,7 @@ set SCRIPTS_DIR [file dirname [info script]]
 set OUTPUTS_DIR {{settings.outputs_dir|tcl_word}}
 set REPORTS_DIR {{settings.reports_dir|tcl_word}}
 
-set TOP_MODULE {{design.rtl.top}}
+set TOP_MODULE {{design.rtl.top|tcl_word}}
 
 if { ${TOP_MODULE} == "" } {
     puts "\[ERROR]\ No top module specified!\n"
@@ -50,7 +50,7 @@ set_message_info -id VHDL-290 -limit 5 ;# VHDL: a dummy net is created
 
 
 {%- for k,v in settings.hdlin.items() %}
-set_app_var hdlin_{{k}} {{v}}
+set_app_var {{("hdlin_" ~ k)|tcl_word}} {{v|tcl_word}}
 {%- endfor %}
 
 puts "Optimization: $OPTIMIZATION"

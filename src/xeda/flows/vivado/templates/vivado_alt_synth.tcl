@@ -4,7 +4,7 @@ set fail_critical_warning {{settings.fail_critical_warning}}
 set reports_dir           {{settings.reports_dir|tcl_word}}
 set settings.outputs_dir  {{settings.outputs_dir|tcl_word}}
 set checkpoints_dir       {{settings.checkpoints_dir|tcl_word}}
-set fpga_part             {{settings.fpga.part}}
+set fpga_part             {{settings.fpga.part|tcl_word}}
 
 {% include 'util.tcl' %}
 
@@ -20,7 +20,7 @@ file mkdir ${checkpoints_dir}
 
 
 {%- for msg in settings.suppress_msgs %}
-set_msg_config -id "\[{{msg}}\]" -suppress
+set_msg_config -id {{("[" ~ msg ~ "]")|tcl_word}} -suppress
 {%- endfor %}
 
 set_param tcl.collectionResultDisplayLimit 0
@@ -64,7 +64,7 @@ read_xdc {{xdc_file|tcl_list}}
 {%- endfor %}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="
-eval synth_design -part $fpga_part -top {{design.rtl.top}} {{settings.synth.steps.synth|flatten_options}} {{design.rtl.parameters|vivado_generics}} {{design.rtl.defines|vivado_defines}}
+synth_design -part $fpga_part -top {{design.rtl.top|tcl_word}} {{settings.synth.steps.synth|flatten_options}} {{design.rtl.parameters|vivado_generics}} {{design.rtl.defines|vivado_defines}}
 
 {%- if settings.synth.strategy == "Debug" %}
 set_property KEEP_HIERARCHY true [get_cells -hier * ]
@@ -75,7 +75,7 @@ showWarningsAndErrors
 
 {% if settings.synth.steps.opt is not none %}
 puts "\n==============================( Optimize Design )================================"
-eval opt_design {{settings.synth.steps.opt|flatten_options}}
+opt_design {{settings.synth.steps.opt|flatten_options}}
 {%- endif %}
 
 {% if settings.write_checkpoint %}
@@ -91,19 +91,19 @@ report_utilization -hierarchical -force -file ${reports_dir}/post_synth/hierarch
 {% if settings.synth.steps.power_opt and not settings.impl.steps.power_opt %}
 puts "\n===============================( Post-synth Power Optimization )================================"
 # this is more effective than Post-placement Power Optimization but can hurt timing
-eval power_opt_design
+power_opt_design
 report_power_opt -file ${reports_dir}/post_synth/power_optimization.rpt
 showWarningsAndErrors
 {%- endif %}
 
 puts "\n================================( Place Design )================================="
-eval place_design {{settings.impl.steps.place|flatten_options}}
+place_design {{settings.impl.steps.place|flatten_options}}
 showWarningsAndErrors
 
 
 {% if settings.impl.steps.power_opt %}
 puts "\n===============================( Post-placement Power Optimization )================================"
-eval power_opt_design
+power_opt_design
 report_power_opt -file ${reports_dir}/post_place/post_place_power_optimization.rpt
 showWarningsAndErrors
 {%- endif %}
@@ -111,11 +111,11 @@ showWarningsAndErrors
 {% if settings.impl.steps.place_opt is not none %}
 
 puts "\n==============================( Post-place optimization )================================"
-eval opt_design {{settings.impl.steps.place_opt|flatten_options}}
+opt_design {{settings.impl.steps.place_opt|flatten_options}}
 
 {% if settings.impl.steps.place_opt2 is not none %}
 puts "\n==============================( Post-place optimization 2)================================"
-eval opt_design {{settings.impl.steps.place_opt2|flatten_options}}
+opt_design {{settings.impl.steps.place_opt2|flatten_options}}
 {%- endif %}
 
 {%- endif %}
@@ -123,11 +123,11 @@ eval opt_design {{settings.impl.steps.place_opt2|flatten_options}}
 
 {% if settings.impl.steps.phys_opt is not none %}
 puts "\n========================( Post-place Physical Optimization )=========================="
-eval phys_opt_design {{settings.impl.steps.phys_opt|flatten_options}}
+phys_opt_design {{settings.impl.steps.phys_opt|flatten_options}}
 
 {% if settings.impl.steps.phys_opt is not none %}
 puts "\n========================( Post-place Physical Optimization 2 )=========================="
-eval phys_opt_design {{settings.impl.steps.phys_opt|flatten_options}}
+phys_opt_design {{settings.impl.steps.phys_opt|flatten_options}}
 {%- endif %}
 {%- endif %}
 
@@ -138,7 +138,7 @@ report_utilization -hierarchical -force -file ${reports_dir}/post_place/hierarch
 {%- endif %}
 
 puts "\n================================( Route Design )================================="
-eval route_design {{settings.impl.steps.route|flatten_options}}
+route_design {{settings.impl.steps.route|flatten_options}}
 showWarningsAndErrors
 
 {% if settings.impl.steps.post_route_phys_opt is not none %}

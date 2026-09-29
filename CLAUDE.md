@@ -537,9 +537,13 @@ while it is open). A flow sharing
   split a single word at its spaces (`utils.py`, registered by `Flow._create_jinja_env`). Never
   `eval` a command with a path: it parses the path a second time. `tests/test_yosys_templates.py`
   and `tests/test_tcl_paths.py` enforce this; the latter runs rendered scripts under `tclsh` with
-  every tool command recorded, and its oracle requires every setting holding user text (`str` or
-  `Path`, alone or in a list) that a Tcl template renders to go through a filter, unless
-  `REVIEWED_RAW` says why it is written as words (tool flags, a simulation time). A path xeda
+  every tool command recorded. Its oracle requires every value a Tcl template reads from the
+  design or the settings that holds user text (`str` or `Path`, alone or in a list, at any depth:
+  `design.name`, `design.tb.top[0]`, `settings.fpga.part`) to go through a filter, unless
+  `REVIEWED_RAW` says why it is written as words (tool flags, a simulation time); and it renders
+  every fake-tool flow's scripts and constraint files for a design whose every text carries Tcl
+  metacharacters, which must reach the tool whole. Never `eval` a value in a template: rendered
+  text is parsed once already. A path xeda
   checked before the run (`removable_work_dir`) is handed to the script as the checked value
   itself: Diamond's `impl_folder`, checked literally but rendered in double quotes, was deleted
   as whatever Tcl substituted it into. PDK files and xeda's own run-directory paths are left raw.

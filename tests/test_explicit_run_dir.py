@@ -1236,8 +1236,9 @@ REVIEWED_SITES = [
     ),
     (
         "flows/openroad/templates/finalize.tcl",
-        "file delete {{design.rtl.top}}.totCap",
-        "a fixed name in the run directory, which OpenROAD wrote just before",
+        'file delete -- [file tail {{(design.rtl.top ~ ".totCap")|tcl_word}}]',
+        "`<top>.totCap`, which OpenROAD wrote just before, in the run directory: the top as one "
+        "literal word, and `file tail` keeps it there",
     ),
     (
         "flows/openxc7/__init__.py",

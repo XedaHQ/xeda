@@ -32,14 +32,14 @@ prj_src add {% if src.type.name == "Vhdl" -%} -format VHDL {%- elif src.type.nam
 
 {% if settings.synthesis_engine == "synplify" %}
 # non-timing
-eval prj_src add constraints.fdc
+prj_src add constraints.fdc
 
 # timing
-eval prj_src add constraints.sdc
+prj_src add constraints.sdc
 {% endif %}
 
 {% if settings.synthesis_engine == "lse" %}
-eval prj_src add constraints.ldc
+prj_src add constraints.ldc
 {% endif %}
 
 

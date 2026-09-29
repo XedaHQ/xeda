@@ -3,20 +3,20 @@
 ## ISE 14.7
 
 puts "\n==============================( Creating Project )================================"
-if { [catch  { project new {{design.name}} }] } {
-    project open {{design.name}}
+if { [catch  { project new {{design.name|tcl_word}} }] } {
+    project open {{design.name|tcl_word}}
 }
 {% if settings.fpga.family %}
-project set family {{settings.fpga.family}}
+project set family {{settings.fpga.family|tcl_word}}
 {% endif %}
 {% if settings.fpga.device %}
-project set device {{settings.fpga.device}}
+project set device {{settings.fpga.device|tcl_word}}
 {% endif %}
 {% if settings.fpga.package %}
-project set package {{settings.fpga.package}}
+project set package {{settings.fpga.package|tcl_word}}
 {% endif %}
 {% if settings.fpga.speed %}
-project set speed "-{{settings.fpga.speed}}"
+project set speed {{("-" ~ settings.fpga.speed)|tcl_word}}
 {% endif %}
 
 project set "Generate Detailed MAP Report" TRUE
@@ -27,7 +27,7 @@ puts "\n==============================( Adding RTL Sources )====================
 xfile add {{src.file|tcl_word}} -copy
 {%- endfor %}
 
-project set top {{design.rtl.top}}
+project set top {{design.rtl.top|tcl_word}}
 
 puts "\n==============================( Adding Constraint Files )================================"
 {% for ucf_file in settings.ucf_files %}
@@ -50,19 +50,19 @@ project set "Enable Multi-Threading" {{[settings.nthreads, 4]|min if settings.nt
 {% endif %}
 
 {% for k, v in settings.translate_options.items() %}
-project set "{{k}}" {{format_value(v)}} -process "Translate"
+project set {{k|tcl_word}} {{format_value(v)}} -process "Translate"
 {% endfor %}
 {% for k, v in settings.synthesis_options.items() %}
-project set "{{k}}" {{format_value(v)}} -process "Synthesize - XST"
+project set {{k|tcl_word}} {{format_value(v)}} -process "Synthesize - XST"
 {% endfor %}
 {% for k, v in settings.map_options.items() %}
-project set "{{k}}" {{format_value(v)}} -process "Map"
+project set {{k|tcl_word}} {{format_value(v)}} -process "Map"
 {% endfor %}
 {% for k, v in settings.pnr_options.items() %}
-project set "{{k}}" {{format_value(v)}} -process "Place & Route"
+project set {{k|tcl_word}} {{format_value(v)}} -process "Place & Route"
 {% endfor %}
 {% for k, v in settings.trace_options.items() %}
-project set "{{k}}" {{format_value(v)}} -process "Generate Post-Place & Route Static Timing"
+project set {{k|tcl_word}} {{format_value(v)}} -process "Generate Post-Place & Route Static Timing"
 {% endfor %}
 
 

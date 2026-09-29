@@ -38,8 +38,10 @@ def test_vivado_synth_template() -> None:
     )
     with open(run_dir / tcl_file) as f:
         vivado_tcl = f.read()
+    # One literal Tcl word, whose value is the brace group's before it -- `G_STR=\"abcd\"`, the
+    # backslashes Vivado reads -- and in which no `[...]` or `$` is ever substituted
     expected_lines = [
-        """set_property generic {G_IN_WIDTH=32 G_ITERATIVE=1'b1 G_STR=\\"abcd\\" G_BITVECTOR=7'b0101001} [current_fileset]""",
+        """set_property generic "G_IN_WIDTH=32 G_ITERATIVE=1'b1 G_STR=\\\\\\"abcd\\\\\\" G_BITVECTOR=7'b0101001" [current_fileset]""",
     ]
     for line in expected_lines:
         assert line in vivado_tcl

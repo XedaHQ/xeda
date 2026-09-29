@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from ...dataclass import Field
 from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
 from ...tool import Docker, OptionalBoolOrPath, OptionalPath, Tool
-from ...utils import try_convert_to_primitives
+from ...utils import tcl_word, try_convert_to_primitives
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def format_value(v) -> str:
     if isinstance(v, bool):
         return "TRUE" if v else "FALSE"
     if isinstance(v, str):
-        return f'"{v}"'
+        return tcl_word(v)  # one literal word: `$` and `[` in it are never substituted
     return str(v)
 
 
