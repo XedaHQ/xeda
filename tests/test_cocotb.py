@@ -82,7 +82,7 @@ def test_cocotb_results_of_a_previous_run_are_not_reused(tmp_path: Path, flow_na
     """
     design_root = tmp_path / "design"
     design_root.mkdir()
-    runner = DefaultRunner(tmp_path / "runs", incremental=True)
+    runner = DefaultRunner(tmp_path / "runs")
     design = _inverter_design(design_root, flow_name, _TEST_HEADER + _cocotb_test("passes"))
     first = runner.run_flow(flow_name, design)
     assert first is not None and first.succeeded

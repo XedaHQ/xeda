@@ -1,7 +1,7 @@
 """Tests for `xeda scrub` / `scrub_runs`.
 
 Ground truth (see CLAUDE.md's run-directory table, and `DefaultRunner.get_flow_run_path`): a
-flow's run directory hash suffix only appears with `--cached-dependencies`. The default,
+flow's run directory hash suffix only appears with hashed run directories. The default,
 unhashed `<design>/<flow>/` directory that every ordinary run creates must still be removable by
 `xeda scrub`.
 """
@@ -32,7 +32,7 @@ def _make_flow_dirs(base: Path) -> dict:
     """Populate `base` (a design directory) with the run-directory shapes scrub must tell apart."""
     names = [
         "vivado_synth",  # default, unhashed run dir -- must be scrubbed
-        "vivado_synth_0123456789abcdef",  # --cached-dependencies run dir -- must be scrubbed
+        "vivado_synth_0123456789abcdef",  # hashed run dir -- must be scrubbed
         "vivado_synth_other",  # not a 16-char hash suffix -- must survive
         "vivado_synth.backup_x",  # a backup dir, not an underscore suffix -- must survive
         "yosys_fpga",  # a different flow that merely starts with a similar prefix pattern
@@ -71,7 +71,7 @@ def test_scrub_runs_removes_unhashed_and_hashed_dirs_only(tmp_path, monkeypatch)
 
 
 def test_scrub_runs_respects_exclude(tmp_path, monkeypatch):
-    """`_prepare_run_path` calls `scrub_runs` with the current run dir excluded."""
+    """The launcher calls `scrub_runs` with the current run dir excluded."""
     base = tmp_path / "foo"
     base.mkdir()
     dirs = _make_flow_dirs(base)
@@ -168,9 +168,12 @@ def test_run_help_does_not_mention_flow_settings_hash():
     assert result.exit_code == 0
     text = " ".join(_output(result).split())
     assert "flow_settings_hash" not in text
-    # ... and says what the directories are named by instead
-    assert "a hash of design and/or flow settings" in text
-    assert "the design directory name also gets a design-hash suffix" in text
+    # ... and documents the make-like rebuild/run-dirs options instead
+    assert "make-like, the default" in text
+    assert "One run directory per flow (<design>/<flow>)" in text
+    # the removed options are gone from --help, not merely reworded
+    assert "--cached-dependencies" not in text
+    assert "--incremental" not in text
 
 
 def test_scrub_help_does_not_mention_flow_settings_hash():
@@ -180,4 +183,5 @@ def test_scrub_help_does_not_mention_flow_settings_hash():
     assert result.exit_code == 0
     text = " ".join(_output(result).split())
     assert "flow_settings_hash" not in text
-    assert "not only <design_name>_<design_hash> ones" in text
+    assert "--incremental" not in text
+    assert "under" in text and "<design_name>" in text

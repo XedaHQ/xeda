@@ -181,7 +181,9 @@ class Dse(FlowLauncher):
             self.settings.post_cleanup = False
             self.settings.post_cleanup_purge = False
         self.settings.display_results = False
-        self.settings.incremental = False
+        # Each variant keeps its own directory. Variants (and dependencies) with identical settings
+        # share one, locked while a launch uses it, so the second reuses what the first ran.
+        self.settings.run_dirs = "hashed"
 
         if isinstance(optimizer_class, str):
             cls = load_class(optimizer_class, __package__)

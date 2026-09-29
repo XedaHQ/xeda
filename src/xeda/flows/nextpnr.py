@@ -231,8 +231,8 @@ class Nextpnr(FpgaSynthFlow):
         )
         randomize_seed: bool = Field(
             False,
-            description="Use a fresh random seed on every run. Makes results non-reproducible; "
-            "set `seed` instead to pin one.",
+            description="Use a fresh random seed on every run. Makes results non-reproducible, "
+            "so the flow then always runs and is never reused; set `seed` instead to pin one.",
         )
         timing_allow_fail: bool = Field(
             False,
@@ -387,6 +387,37 @@ class Nextpnr(FpgaSynthFlow):
         yosys = ss.resolve_dependency("yosys")  # adopts an `fpga` given only for yosys_fpga
         self._target()  # rejects an unsupported target before its synthesis runs
         self.add_dependency(YosysFpga, yosys)
+
+    def always_runs(self) -> Optional[str]:
+        """A fresh random seed, or pin constraints fetched from a URL -- which no trace can
+        verify until the board database pins them by hash (plan 3's cached fetch)."""
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.randomize_seed:
+            return "it draws a new random seed"
+        if self._constraint_url() is not None:
+            return "its constraints are fetched from a URL"
+        return super().always_runs()
+
+    def _constraint_kind(self) -> Optional[str]:
+        """The kind of pin constraint file this flow's FPGA family takes: lpf, pcf or pdc."""
+        assert isinstance(self.settings, self.Settings)
+        fpga = self.settings.fpga
+        family = ((fpga.family if fpga is not None else None) or "").lower()
+        return {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc"}.get(family)
+
+    def _constraint_url(self) -> Optional[str]:
+        """The URL the board database gives for this flow's pin constraints, when no setting
+        names a file instead."""
+        assert isinstance(self.settings, self.Settings)
+        kind = self._constraint_kind()
+        if kind is None or getattr(self.settings, f"{kind}_cfg"):
+            return None
+        board_data = self.settings.board_data()
+        uri = board_data.get(kind) if board_data else None
+        if not isinstance(uri, str):
+            return None
+        parsed = urlparse(uri)
+        return uri if parsed.scheme and parsed.netloc else None
 
     def _target(self) -> Tuple[str, List[str]]:
         """The nextpnr architecture for `fpga`, and the arguments selecting its device.
@@ -558,6 +589,9 @@ class Nextpnr(FpgaSynthFlow):
             yield lpf
         else:
             with ss.board_file(uri) as lpf_path:
+                # no setting names it: the trace learns of it here (the bundled files are part
+                # of xeda's code digest as well)
+                self.implicit_inputs.append(Path(lpf_path))
                 yield lpf_path
 
     # ------------------------------------------------------------------ report parsing

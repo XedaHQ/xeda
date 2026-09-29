@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import re
@@ -64,9 +63,10 @@ class OpenXC7(FpgaSynthFlow):
             "sweeping the seed is a common way to squeeze out extra Fmax.",
         )
         randomize_seed: bool = Field(
-            True,
-            description="Use a fresh random seed on every run. Makes results non-reproducible; "
-            "set `seed` instead to pin one.",
+            False,
+            description="Use a fresh random seed on every run (unless `seed` is set). Makes "
+            "results non-reproducible, so the flow then always runs and is never reused; set "
+            "`seed` instead to pin one.",
         )
         timing_allow_fail: bool = Field(
             False,
@@ -82,12 +82,12 @@ class OpenXC7(FpgaSynthFlow):
         extra_args: List[str] = Field(
             [], description="Extra command-line arguments appended to the nextpnr invocation."
         )
-        py_script: Optional[str] = Field(
+        py_script: Optional[Path] = Field(
             None,
             description="Python script run inside nextpnr (`--run`), for custom constraints or "
             "analysis. Requires a nextpnr built with Python support.",
         )
-        sdf: Optional[str] = Field(
+        sdf: Optional[Path] = Field(
             None,
             description="Write post-routing timing to this SDF file, for timing-annotated "
             "netlist simulation.",
@@ -157,9 +157,19 @@ class OpenXC7(FpgaSynthFlow):
 
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
-        self.skip_parse_reports = False
         ss = self.settings
         self.add_dependency(YosysFpga, ss.resolve_dependency("yosys"))
+
+    def always_runs(self) -> Optional[str]:
+        """It programs a device exactly when `program_fpga` does; otherwise it is an ordinary
+        node, reused when nothing it consumed changed -- unless it draws a new seed."""
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        if ss.program or ss.board:
+            return "it programs a device"
+        if ss.seed is None and ss.randomize_seed:
+            return "it draws a new random seed"
+        return super().always_runs()
 
     @classmethod
     def check_settings(cls, settings: Settings) -> None:
@@ -234,37 +244,6 @@ class OpenXC7(FpgaSynthFlow):
             self.artifacts["bitstream"] = bitstream_path.resolve()
         return bitstream_path
 
-    def use_existing_results(self) -> bool:
-        results_json = self.run_path / "results.json"
-        if results_json.exists() and results_json.is_file():
-            prev_results = None
-            try:
-                with open(results_json) as f:
-                    prev_results = json.load(f)
-            except TypeError:
-                pass
-            except ValueError:
-                pass
-            if (
-                prev_results
-                and prev_results.get("success")
-                and prev_results.get("design") == self.design.name
-                and prev_results.get("design_hash") == self.design_hash
-                and prev_results.get("flow") == self.name
-                and prev_results.get("flow_hash") == self.flow_hash
-            ):
-                self.results.update(**prev_results)
-                if "artifacts" in prev_results:
-                    self.artifacts = prev_results["artifacts"]
-                    return True
-            else:
-                log.debug(
-                    "No valid previous results found in %s. Running %s from scratch.",
-                    self.run_path,
-                    self.name,
-                )
-        return False
-
     def program_fpga(self, bitstream_path) -> None:
         ss = self.settings
         assert isinstance(ss, self.Settings)
@@ -309,15 +288,6 @@ class OpenXC7(FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         log.debug("design_hash=%s flow_hash=%s", self.design_hash, self.flow_hash)
-        if self.use_existing_results():
-            bitstream_path = self.artifacts.get("bitstream")
-            if bitstream_path:
-                bitstream_path = Path(bitstream_path)
-                if bitstream_path.exists():
-                    log.info("Bitstream file found: %s", bitstream_path)
-                    self.program_fpga(bitstream_path)
-                    self.skip_parse_reports = True
-                    return
         yosys_flow = self.completed_dependencies[0]
         assert isinstance(yosys_flow, YosysFpga)
         assert isinstance(yosys_flow.settings, YosysFpga.Settings)
@@ -438,8 +408,6 @@ class OpenXC7(FpgaSynthFlow):
         self.program_fpga(bitstream_path)
 
     def parse_reports(self):
-        if self.skip_parse_reports:
-            return True
         ss = self.settings
         assert isinstance(ss, self.Settings)
         if ss.log:

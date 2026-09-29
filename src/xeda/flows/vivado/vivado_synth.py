@@ -249,11 +249,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         """Vivado synthesis settings"""
 
-        clean: bool = Field(
-            True,
-            description="Remove the contents of the run directory before running. Vivado defaults "
-            "this to true, unlike other flows, because it reuses run directories.",
-        )
         fail_critical_warning: bool = Field(
             False,
             description="Flow fails if any Critical Warnings are reported by Vivado",

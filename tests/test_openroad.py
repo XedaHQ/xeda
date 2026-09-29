@@ -82,7 +82,7 @@ def test_optimize_selects_a_script_and_post_synthesis_optimization_together(
             _mac_design(tmp_path),
             {"platform": "nangate45", "clock": {"period": 2.0}, "optimize": optimize},
         )
-    (settings_json,) = tmp_path.glob("xeda_run/mac*/openroad*/yosys*/settings.json")
+    (settings_json,) = tmp_path.glob("xeda_run/mac/yosys*/settings.json")
     yosys_settings = json.loads(settings_json.read_text())["flow_settings"]
     script = (settings_json.parent / "yosys_synth.ys").read_text()
     assert any(Path(cmd[0]).name == "yosys" for cmd in commands), "yosys was never launched"
@@ -157,7 +157,7 @@ def test_the_openroad_flow_synthesizes_with_the_selected_script(optimize, tmp_pa
             {"platform": "nangate45", "clock": {"period": 2.0}, "optimize": optimize},
         )
 
-    (yosys_results,) = tmp_path.glob("xeda_run/mac*/openroad*/yosys*/results.json")
+    (yosys_results,) = tmp_path.glob("xeda_run/mac/yosys*/results.json")
     yosys_run = yosys_results.parent
     assert json.loads((yosys_run / "results.json").read_text())["success"] is True
     executed = re.findall(r"^ABC: \+ (.+?)\s*$", (yosys_run / "yosys.log").read_text(), re.M)

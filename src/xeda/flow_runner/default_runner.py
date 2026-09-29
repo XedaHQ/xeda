@@ -11,17 +11,17 @@ import re
 import shutil
 import sys
 import time
+import uuid
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from glob import glob
 from pathlib import Path
 from pprint import PrettyPrinter
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Type, TypeVar, Union
 
 import yaml
 from box import Box
-from pathvalidate import sanitize_filename
 from rich import box
 from rich.style import Style
 from rich.table import Table
@@ -29,9 +29,9 @@ from rich.text import Text
 
 from ..artifacts import drop_unwritten_artifacts, iter_artifact_paths
 from ..console import console
-from ..dataclass import XedaBaseModel
+from ..dataclass import XedaBaseModel, model_validator
 from ..design import Design, names_a_design_file
-from ..flow import Flow, FlowDependencyFailure, registered_flows
+from ..flow import Flow, FlowDependencyFailure, FlowSettingsError, registered_flows
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.run_dir import (
     RUN_DIR_MARKER,
@@ -43,6 +43,7 @@ from ..flow.run_dir import (
     mark_run_dir,
     run_dir_name,
 )
+from ..proc_utils import recording_programs
 from ..tool import NonZeroExitCode
 from ..utils import (
     WorkingDirectory,
@@ -59,7 +60,18 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import XedaProject
+from .run_lock import lock_file, run_dir_lock
 from .settings_layers import flow_settings_from_sections, merge_flow_sections, merge_layers
+from .trace import (
+    as_recorded,
+    check_trace,
+    previous_trace,
+    probe_program,
+    remove_trace,
+    settings_difference,
+    write_trace,
+)
+from .trace_inputs import build_trace, expectation, snapshot_inputs
 
 __all__ = [
     "DefaultRunner",
@@ -165,6 +177,18 @@ class ProjectFileError(XedaException):
     """A project file (`xedaproject.toml`) that cannot be opened, parsed or used."""
 
 
+#: Launcher settings that no longer exist, with what replaced them. Giving one is an error that
+#: says so, in the words `Flow.Settings.removed_settings` uses for flow settings.
+_REMOVED_LAUNCHER_SETTINGS = {
+    "cached_dependencies": "rebuild='stale' (the default) to reuse unchanged runs, and "
+    "run_dirs='hashed' to keep settings variants side by side",
+    "skip_if_previous_run_exists": "rebuild='stale' (the default)",
+    "incremental": "clean=True to empty run directories before running (they are otherwise "
+    "always reused)",
+    "cleanup_before_run": "clean=True",
+}
+
+
 @dataclass(frozen=True)
 class RunDirPolicy:
     """What one launch does with its run directory (see `FlowLauncher._run_dir_policy`).
@@ -173,7 +197,7 @@ class RunDirPolicy:
     shares those, each of its dependency launches included.
     """
 
-    incremental: bool
+    clean: bool
     scrub_old_runs: bool
     post_cleanup: bool
     post_cleanup_purge: bool
@@ -244,7 +268,7 @@ def scrub_runs(flow_name: str, dir: Path, exclude: List[Path] = []) -> bool:
 
     A run directory of the flow is named `flow_name`, optionally followed by an underscore and
     a `DIR_NAME_HASH_LEN`-char `[a-z0-9]` `flowrun_hash` (the unhashed form is what every default
-    run creates; the hashed form only appears with `--cached-dependencies`). Matched against
+    run creates; the hashed form only appears with `run_dirs="hashed"`). Matched against
     `dir`'s children rather than a `f"{flow_name}_*"` glob, so the unhashed directory -- which
     that glob can never match -- is included too.
 
@@ -298,6 +322,8 @@ def scrub_runs(flow_name: str, dir: Path, exclude: List[Path] = []) -> bool:
             )
             for p in dirs_to_rm:
                 rmtree(p)
+                if not p.exists():  # its lock, beside it, only once it is gone
+                    lock_file(p).unlink(missing_ok=True)
             console.print(f"{len(dirs_to_rm)} folders removed.")
             return True
         else:
@@ -370,13 +396,7 @@ def _drop_unwritten_artifacts(flow: Flow) -> None:
 
 class FlowLauncher:
     """
-    Manage running flows and their dependencies.
-    1. Instantiate instance of flow class with proper settings assigned (__init__)
-    2. call Flow.init()
-    3. Run all dependency flows (asked by the flow, during Flow.init)
-    3. Run the flow by calling run()
-    4. Run flow's parse_reports() ## TODO parse_reports will be renamed
-    5. Evaluate and print the results
+    Manage running flows and their dependencies, make-like: see `launch_flow`.
     """
 
     class Settings(XedaBaseModel):
@@ -386,11 +406,13 @@ class FlowLauncher:
         dump_settings_json: bool = True
         display_results: bool = True
         dump_results_json: bool = True
-        cached_dependencies: bool = True
-        skip_if_previous_run_exists: bool = False
+        #: "stale" (make-like): only flows whose trace no longer matches; "all": every flow.
+        rebuild: Literal["all", "stale"] = "stale"
+        #: "stable": <design>/<flow>; "hashed": <design>/<flow>_<settings hash>.
+        run_dirs: Literal["stable", "hashed"] = "stable"
+        #: empty each flow's run directory before it runs, and run every flow
+        clean: bool = False
         backups: bool = False
-        incremental: bool = False
-        cleanup_before_run: bool = False
         # remove flow files except settings.json, results.json, and artifacts _after_ run:
         post_cleanup: bool = False
         # remove flow_run folder and all of its contents _after_ running the flow:
@@ -398,6 +420,15 @@ class FlowLauncher:
         # remove previous flow directories _before_ running the flow:
         scrub_old_runs: bool = False
         run_path: Optional[Union[str, os.PathLike]] = None
+
+        @model_validator(mode="before")
+        @classmethod
+        def _removed_settings(cls, values):
+            if isinstance(values, dict):
+                for old, replacement in _REMOVED_LAUNCHER_SETTINGS.items():
+                    if old in values:
+                        raise ValueError(f"`{old}` was removed: use {replacement}")
+            return values
 
     def __init__(self, xeda_run_dir: Union[str, Path, None] = None, **kwargs) -> None:
         if "xeda_run_dir" in kwargs:
@@ -413,31 +444,29 @@ class FlowLauncher:
             log.setLevel(logging.DEBUG)
             log.root.setLevel(logging.DEBUG)
         self.debug = self.settings.debug
+        #: every flow launched through this launcher, dependencies included, in completion order
+        self.launched: List[Flow] = []
+        self._launch_depth = 0
+        #: post-run clean-ups waiting for the flow the current launch was asked for to complete
+        self._pending_clean_ups: List[Tuple[Flow, Path, Path, RunDirPolicy]] = []
+        #: in the current launch, each run directory's configuration: its `flowrun_hash`, which
+        #: flow asked for it, and its input settings `as_recorded`
+        self._claims: Dict[Path, Tuple[str, str, Any]] = {}
 
         if self.settings.run_path is not None:
-            self.settings.incremental = True
             self.settings.post_cleanup = False
             self.settings.scrub_old_runs = False
 
     def get_flow_run_path(
-        self,
-        design_name: str,
-        flow_name: str,
-        design_hash: Optional[str] = None,
-        flowrun_hash: Optional[str] = None,
+        self, design_name: str, node_name: str, identity: Optional[str] = None
     ) -> Path:
-        """The run directory xeda chooses for `flow_name` on `design_name`: strictly inside the
-        run root, or refused (`run_dir.RunDirectoryError`) -- a design named `..` would run, and
-        its `clean` delete, in a directory of the user's."""
-        design_subdir = run_dir_name(design_name, "design")
-        flow_subdir = run_dir_name(flow_name, "flow")
-        if self.settings.cached_dependencies:
-            if design_hash and not self.settings.incremental:
-                design_subdir += f"_{design_hash[:DIR_NAME_HASH_LEN]}"
-            if flowrun_hash:
-                flow_subdir += f"_{flowrun_hash[:DIR_NAME_HASH_LEN]}"
-
-        run_path: Path = self.xeda_run_dir / sanitize_filename(design_subdir) / flow_subdir
+        """`<xeda_run>/<design>/<node>`, or `<node>_<identity>` with hashed run directories:
+        strictly inside the run root, or refused (`run_dir.RunDirectoryError`) -- a design named
+        `..` would run, and its `clean` delete, in a directory of the user's."""
+        subdir = run_dir_name(node_name, "flow")
+        if self.settings.run_dirs == "hashed" and identity:
+            subdir += f"_{identity[:DIR_NAME_HASH_LEN]}"
+        run_path = self.xeda_run_dir / run_dir_name(design_name, "design") / subdir
         check_inside_run_root(run_path, self.xeda_run_dir)
         return run_path
 
@@ -452,23 +481,127 @@ class FlowLauncher:
         all_flows_settings: Union[Dict, None] = None,
     ) -> Flow:
         """Launch `flow_class` on `design`: the one procedure every flow run, and every
-        dependency run, goes through. Its stages, in order:
+        dependency run, goes through -- make's order: bring every prerequisite up to date, then
+        judge this flow against them. Its stages, in order:
 
         1. **input** (`_input_settings`): validate the settings in their context (design root,
            start directory) and apply the launcher's ``--debug``. The result is the run's input,
            never modified afterwards. A missing required setting, or a design the flow cannot
            run, fails the launch here.
-        2. **identity** (`_run_identity`): the design's hash (its sources' contents) and the
-           settings' `flowrun_hash`, which also name the run directory.
-        3. **reuse** (`_previous_results`): with ``--cached-dependencies``, a successful previous
-           run with the same identity is reused instead of repeated.
-        4. **prepare**: construct the flow with its own copy of the input and call its `init()`,
-           which may do setup work and registers the flow's dependencies; record `settings.json`.
-        5. **dependencies** (`_run_dependencies`): launch each through this same procedure, with
-           settings composed by `dependency_settings`.
-        6. **run** (`_execute`): `run()`, `parse_reports()`, `check_results()`, results.
-        7. **report** (`_report`): artifacts, `results.json`, clean-up.
+        2. **identity** (`_run_identity`): the design's hash and the settings' `flowrun_hash`;
+           the run directory, `<design>/<flow>` (``run_dirs="hashed"``: `<flow>_<flowrun_hash>`),
+           locked from here until the run's trace is written (`run_lock`; a directory given as
+           `run_path` by a lock file inside it). With ``clean``, the directory is emptied now
+           (or backed up, with ``backups``).
+        3. **prepare**: construct the flow with its own copy of the input and call its `init()`,
+           which registers the flow's dependencies. `init()` runs for a flow that turns out to be
+           fresh too, so it must not touch the flow's outputs.
+        4. **dependencies** (`_run_dependencies`): launch each through this same procedure, in a
+           sibling run directory, with settings composed by `dependency_settings`.
+        5. **freshness**: with ``rebuild="stale"`` (the default), a flow whose trace still
+           matches what it would consume now (`trace.check_trace`) is not run again: its recorded
+           results are reused. Otherwise `flow.stale_reason` says why it runs. A flow that can
+           never be reused (`Flow.always_runs`: it programs a device, draws a new random seed,
+           ...) always runs, with that reason, and no trace records it.
+        6. **run**: delete the trace, then record every expected input as the run finds it
+           (`trace_inputs.snapshot_inputs`: a file edited while the run goes on then no longer
+           matches its trace), record `settings.json`, and execute (`_execute`: `run()`,
+           `parse_reports()`, `check_results()`, results; a failed run's artifacts only as far as
+           it wrote them, `Flow.wrote_output`).
+        7. **report** (`_report`): artifacts, `results.json`; then, for a successful run, the
+           trace (`trace_inputs.build_trace`: the snapshot, and every file the run's depfiles
+           and settings name classified by its origin -- written by the run, or read by it).
+           The post-run clean-up (`_clean_up`) of every flow that ran waits until the flow this
+           launch was asked for has completed: until then, a flow may still read files its
+           dependencies wrote without declaring them.
+
+        Within one launch, a run directory holds one configuration: a second launch into it with
+        other settings is a `FlowSettingsError`, since it would overwrite what the first one
+        produced; with the same settings, the second reuses the first's run. Every flow launched
+        is appended to `launched` as it completes, whether it succeeded, failed or raised.
         """
+        top_level = self._launch_depth == 0
+        if top_level:
+            self._claims = {}
+        self._launch_depth += 1
+        try:
+            flow = self._launch(
+                flow_class,
+                design,
+                flow_settings,
+                depender,
+                copy_resources,
+                run_path,
+                all_flows_settings,
+            )
+        except BaseException:
+            self._launch_depth -= 1
+            if top_level:
+                self._finish_launch()  # its failures are logged; the launch's error propagates
+            raise
+        self._launch_depth -= 1
+        if top_level:
+            error = self._finish_launch()
+            if error is not None:
+                raise error
+        return flow
+
+    def _finish_launch(self) -> Optional[Exception]:
+        """At the end of a top-level launch: run the deferred clean-ups in completion order, each
+        on its own, logging a failure and going on with the next. The first failure, if any."""
+        self._claims = {}
+        pending, self._pending_clean_ups = self._pending_clean_ups, []
+        first_error: Optional[Exception] = None
+        for flow, settings_json, results_json, policy in pending:
+            try:
+                with run_dir_lock(flow.run_path):
+                    self._clean_up(flow, settings_json, results_json, policy)
+            except Exception as e:  # noqa: BLE001 - every clean-up gets its turn
+                log.error("Cleaning up %s failed: %s", flow.run_path, e, exc_info=True)
+                first_error = first_error or e
+        return first_error
+
+    def _claim_run_dir(
+        self,
+        flow_class: Type[Flow],
+        run_path: Path,
+        flowrun_hash: str,
+        input_settings: Flow.Settings,
+        depender: Optional[Flow],
+    ) -> bool:
+        """Record which configuration `run_path` holds in this launch. True if this launch already
+        claimed it with the same settings, whose run is then reused; a `FlowSettingsError` if it
+        claimed it with other settings."""
+        requester = depender.name if depender is not None else "the requested flow"
+        key = Path(os.path.abspath(run_path))
+        claim = self._claims.get(key)
+        if claim is None:
+            self._claims[key] = (flowrun_hash, requester, as_recorded(input_settings))
+            return False
+        claimed_hash, first, first_settings = claim
+        if claimed_hash == flowrun_hash:
+            return True
+        difference = settings_difference(first_settings, as_recorded(input_settings))
+        message = (
+            f"{flow_class.name} would run twice in {run_path}, with different settings "
+            f"(differing in {difference}): for {first} and for {requester}. The second run would "
+            "overwrite what the first produced; run_dirs='hashed' gives each its own directory"
+        )
+        raise FlowSettingsError(
+            [(str(run_path), message, None, "run_directory_conflict")], flow_class.Settings
+        )
+
+    def _launch(
+        self,
+        flow_class: Union[str, Type[Flow]],
+        design: Design,
+        flow_settings: Union[Dict[str, Any], Flow.Settings, None],
+        depender: Optional[Flow],
+        copy_resources: List[str],
+        run_path: Optional[Path],
+        all_flows_settings: Union[Dict, None],
+    ) -> Flow:
+        """`launch_flow`'s stages, for one flow."""
         self.debug |= self.settings.debug
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
@@ -480,97 +613,134 @@ class FlowLauncher:
             claim_run_dir(run_path)
         runner_cwd = Path.cwd()
         input_settings = self._input_settings(flow_class, flow_settings, design, runner_cwd)
-        copy_resources = [
-            res for res in copy_resources if os.path.exists(res) and os.path.isfile(res)
-        ]
+        copy_resources = [res for res in copy_resources if os.path.isfile(res)]
+        # the directory `--cwd` names is the user's, not xeda's: never cleaned, nor locked from
+        # beside it, outside the directory the user chose
+        managed = run_path is None
         policy = self._run_dir_policy(run_path)
         design_hash, flowrun_hash, run_path = self._run_identity(
             flow_name, design, input_settings, run_path
         )
         if not explicit:
-            # A directory xeda derived, before it is scrubbed, emptied or removed: it must
-            # resolve strictly inside the directory it was derived in -- the run root, or for a
-            # dependency its depender's run directory, where a link could lead anywhere -- and
-            # be xeda's.
-            if depender is not None:
-                check_inside_run_root(run_path, depender.run_path, "its depender's run directory")
-            else:
-                check_inside_run_root(run_path, self.xeda_run_dir)
+            # A directory xeda derived -- a dependency's too, a sibling of its depender's -- before
+            # it is scrubbed, emptied or removed: it must resolve strictly inside the run root,
+            # where a link could lead anywhere, and be xeda's.
+            check_inside_run_root(run_path, self.xeda_run_dir)
             claim_run_dir(run_path, flow_name)
+        revisit = self._claim_run_dir(flow_class, run_path, flowrun_hash, input_settings, depender)
+        if revisit:
+            # already run in this launch, with these settings: reused, not emptied again
+            policy = replace(policy, clean=False, scrub_old_runs=False)
         settings_json = run_path / "settings.json"
         results_json = run_path / "results.json"
-        previous_results = self._previous_results(
-            flow_name, run_path, design_hash, flowrun_hash, depender
-        )
-        self._prepare_run_path(flow_name, run_path, previous_results, policy)
+        with run_dir_lock(run_path, inside=not managed):
+            if policy.scrub_old_runs:
+                scrub_runs(flow_name, run_path.parent, [run_path])
+            if policy.clean and run_path.exists():
+                if self.settings.backups:
+                    backup_existing(run_path)
+                else:
+                    rmtree(run_path)
+            run_path.mkdir(parents=True, exist_ok=True)
+            mark_run_dir(run_path)  # re-created by `clean`, it stays xeda's
 
-        with WorkingDirectory(run_path):
-            log.debug("Instantiating flow from %s", flow_class)
-            # A copy of each, the flow's own to complete: the design, like the settings, has
-            # been hashed already, is recorded beside that hash, and goes on to the flow's
-            # dependencies, none of which may see what the flow does to it.
-            flow = flow_class(
-                input_settings.model_copy(deep=True),
-                design.model_copy(deep=True),
-                run_path,
-                runner_cwd=runner_cwd,
-            )
-        flow.design_hash = design_hash
-        flow.flow_hash = flowrun_hash
-        # `flow.__init__` already snapshotted `run_path`'s prior state for `Flow.wrote_output`
-        flow.incremental = policy.incremental
-        if flow.runner_cwd is None:  # redundant, but OK
-            flow.runner_cwd = runner_cwd
-        flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-        # flow execution time includes init() as well as execution of all its dependency flows
-        flow.init_time = time.monotonic()
-
-        if previous_results:
-            log.warning(
-                "Using previous %s results and artifacts from %s (timestamp: %s)",
-                flow_name,
-                run_path.absolute(),
-                previous_results.get("timestamp"),
-            )
-            flow.results.update(**previous_results)
-            flow.artifacts = previous_results.artifacts
-        else:
-            if self.settings.cleanup_before_run:
-                flow.settings.clean = True
             with WorkingDirectory(run_path):
-                if flow.settings.clean:
-                    flow.clean()
-                flow.init()
-            if self.settings.dump_settings_json:
-                log.info("writing prepared settings to %s", settings_json)
+                log.debug("Instantiating flow from %s", flow_class)
+                # A copy of each, the flow's own to complete: the design, like the settings, has
+                # been hashed already, is recorded beside that hash, and goes on to the flow's
+                # dependencies, none of which may see what the flow does to it.
+                flow = flow_class(
+                    input_settings.model_copy(deep=True),
+                    design.model_copy(deep=True),
+                    run_path,
+                    runner_cwd=runner_cwd,
+                )
+            try:
+                flow.design_hash = design_hash
+                flow.flow_hash = flowrun_hash
+                flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                # the flow's run time includes init() and the execution of its dependencies
+                flow.init_time = time.monotonic()
+                with WorkingDirectory(run_path):
+                    flow.init()
+                self._run_dependencies(flow, design, all_flows_settings)
+
+                # only now: what the flow consumes includes its dependencies' outputs and runs
+                always = flow.always_runs()
+                expected = (
+                    None
+                    if always is not None
+                    else expectation(flow, design, input_settings, self.xeda_run_dir)
+                )
+                if expected is None:
+                    flow.stale_reason = always
+                    log.info("Running %s: %s", flow.name, always)
+                elif (self.settings.rebuild == "stale" or revisit) and not policy.clean:
+                    freshness = check_trace(run_path, expected, probe_program)
+                    if freshness.fresh and self._reuse_results(flow, results_json):
+                        if freshness.refreshed is not None:
+                            write_trace(run_path, freshness.refreshed)
+                        flow.run_id = freshness.run_id
+                        log.info("%s is up to date (%s)", flow.name, run_path)
+                        self._report(flow, design, results_json, record=False)
+                        return flow
+                    flow.stale_reason = (
+                        freshness.reason or f"no successful results in {results_json}"
+                    )
+                    log.info("Running %s: %s", flow.name, flow.stale_reason)
+
+                previous = previous_trace(run_path, flow.name) if expected is not None else None
+                # from here until a new trace is written, nothing vouches for this directory
+                remove_trace(run_path)
+                # The run starts now: its inputs are recorded as it finds them, so that a file
+                # edited while it runs no longer matches what its trace says it consumed.
+                snapshot = (
+                    None
+                    if expected is None
+                    else snapshot_inputs(expected, previous, run_path, managed)
+                )
                 all_settings = dict(
                     design=design,
                     design_hash=design_hash,
                     rtl_fingerprint=design.rtl_fingerprint,
                     rtl_hash=design.rtl_hash,
-                    flow_name=flow_name,
+                    flow_name=flow.name,
                     flow_settings=input_settings,
                     effective_flow_settings=flow.settings,
                     xeda_version=__version__,
                     flowrun_hash=flowrun_hash,
                 )
-                dump_json(all_settings, settings_json, backup=self.settings.backups)
-            copied_res_dir = run_path / flow_class.copied_resources_dir
-            if copy_resources:
-                copied_res_dir.mkdir(parents=True, exist_ok=True)
-            for res in copy_resources:
-                log.info("Copying %s to %s", str(res), str(copied_res_dir))
-                replacing_copy(res, copied_res_dir)
-            self._run_dependencies(flow, design, run_path, all_flows_settings)
-            self._execute(flow, run_path, input_settings)
-            if self.settings.dump_settings_json:
-                # `run()` may finish resolving generated files or derived switches. Keep the
-                # pre-run write above so a crash still leaves useful diagnostics, then replace
-                # its effective snapshot after a completed execution without backing up that
-                # transient snapshot.
-                dump_json(all_settings, settings_json, backup=False)
-
-        self._report(flow, design, settings_json, results_json, policy)
+                if self.settings.dump_settings_json:
+                    log.info("writing prepared settings to %s", settings_json)
+                    dump_json(all_settings, settings_json, backup=self.settings.backups)
+                copied_res_dir = run_path / flow.copied_resources_dir
+                for res in copy_resources:
+                    log.info("Copying %s to %s", str(res), str(copied_res_dir))
+                    copied_res_dir.mkdir(parents=True, exist_ok=True)
+                    replacing_copy(res, copied_res_dir)  # a link there is replaced, not followed
+                with recording_programs() as programs:
+                    self._execute(flow, run_path, input_settings)
+                if self.settings.dump_settings_json:
+                    # `run()` may finish resolving generated files or derived switches. Keep the
+                    # pre-run write above so a crash still leaves useful diagnostics, then replace
+                    # its effective snapshot after a completed execution without backing up that
+                    # transient snapshot.
+                    dump_json(all_settings, settings_json, backup=False)
+                self._report(flow, design, results_json, record=True)
+                if flow.succeeded and expected is not None and snapshot is not None:
+                    # Recorded once the run has written everything, `results.json` included, and
+                    # before the clean-up, which may remove files the trace names (a depfile).
+                    # The clean-up only removes files: the trace is the last thing a run writes.
+                    trace = build_trace(expected, flow, programs, snapshot, input_settings)
+                    write_trace(run_path, trace)
+                    flow.run_id = trace.run_id
+                else:
+                    # no trace records this run, so nothing can have consumed it before
+                    flow.run_id = uuid.uuid4().hex
+                if policy.post_cleanup:
+                    self._pending_clean_ups.append((flow, settings_json, results_json, policy))
+            finally:
+                self.launched.append(flow)
         return flow
 
     def _input_settings(
@@ -630,103 +800,47 @@ class FlowLauncher:
         )
         flowrun_hash = flow_run_hash(flow_name, settings)
         if run_path is None:
-            run_path = self.get_flow_run_path(
-                design.name,
-                flow_name,
-                design_hash,
-                flowrun_hash,
-            )
+            run_path = self.get_flow_run_path(design.name, flow_name, flowrun_hash)
         return design_hash, flowrun_hash, run_path
 
     def _run_dir_policy(self, run_path: Path | None) -> RunDirPolicy:
-        """What this launch does with its run directory: the launcher's settings, except for a
-        launch into a given `run_path` -- a dependency in its depender's run directory, or the
-        directory `--cwd` names -- which works in it incrementally, and neither scrubs other runs
-        nor cleans up after itself, since that directory is not its own to clean."""
+        """What this launch does with its run directory: the launcher's settings, for every
+        flow alike, dependencies included -- except for a launch into a given `run_path`, the
+        directory `--cwd` names, which neither cleans nor scrubs it, nor cleans up after itself,
+        since that directory is not xeda's to clean."""
         if run_path is not None:
             return RunDirPolicy(
-                incremental=True, scrub_old_runs=False, post_cleanup=False, post_cleanup_purge=False
+                clean=False, scrub_old_runs=False, post_cleanup=False, post_cleanup_purge=False
             )
         return RunDirPolicy(
-            incremental=self.settings.incremental,
+            clean=self.settings.clean,
             scrub_old_runs=self.settings.scrub_old_runs,
             post_cleanup=self.settings.post_cleanup,
             post_cleanup_purge=self.settings.post_cleanup_purge,
         )
 
-    def _previous_results(
-        self,
-        flow_name: str,
-        run_path: Path,
-        design_hash: str,
-        flowrun_hash: str,
-        depender: Flow | None,
-    ) -> Box | None:
-        """Stage 3: the results of a successful previous run with the same identity, if any is to
-        be reused."""
-        settings_json = run_path / "settings.json"
-        results_json = run_path / "results.json"
-        if not (
-            (depender or self.settings.skip_if_previous_run_exists)
-            and self.settings.cached_dependencies
-            and run_path.exists()
-            and settings_json.exists()
-            and results_json.exists()
-        ):
-            return None
-        prev_results, prev_settings = None, None
+    @staticmethod
+    def _reuse_results(flow: Flow, results_json: Path) -> bool:
+        """Adopt the recorded results of a fresh run; False if they cannot be read."""
         try:
-            with open(settings_json) as f:
-                prev_settings = json.load(f)
-            with open(results_json) as f:
-                prev_results = json.load(f)
-        except TypeError:
-            pass
-        except ValueError:
-            pass
-        if prev_results and prev_results.get("success") and prev_settings:
-            if (
-                prev_settings.get("flow_name") == flow_name
-                and prev_settings.get("design_hash") == design_hash
-                and prev_settings.get("flowrun_hash") == flowrun_hash
-            ):
-                return Box(prev_results)
-            log.warning(
-                "%s does not contain the expected flow and/or design hash.",
-                str(settings_json.absolute()),
-            )
-        else:
-            log.warning(
-                "No valid previous results found in %s. Running %s from scratch.",
-                run_path,
-                flow_name,
-            )
-        return None
-
-    def _prepare_run_path(
-        self, flow_name: str, run_path: Path, previous_results: Box | None, policy: RunDirPolicy
-    ) -> None:
-        """Apply the run directory policy before starting a flow."""
-        if policy.scrub_old_runs:
-            scrub_runs(flow_name, run_path.parent, [run_path])
-        if not previous_results and run_path.exists():
-            if not policy.incremental and self.settings.run_path is None:
-                if self.settings.backups:
-                    backup_existing(run_path)
-                else:
-                    rmtree(run_path)
-        if not run_path.exists():
-            run_path.mkdir(parents=True)
-        mark_run_dir(run_path)
+            previous = Box(json.loads(results_json.read_text()))
+        except (OSError, ValueError):
+            return False
+        if not previous.get("success"):
+            return False
+        flow.results.update(**previous)
+        flow.artifacts = previous.get("artifacts", Box())
+        flow.reused = True
+        return True
 
     def _run_dependencies(
         self,
         flow: Flow,
         design: Design,
-        run_path: Path,
         all_flows_settings: Dict | None,
     ) -> None:
-        """Stage 5: launch every dependency `flow.init()` registered, through `launch_flow`."""
+        """Stage 4: launch every dependency `flow.init()` registered, through `launch_flow`, each
+        in its own run directory beside `flow`'s."""
         for dep_cls, dep_settings, dep_resources in flow.dependencies:
             if isinstance(dep_cls, str):
                 dep_cls = get_flow_class(dep_cls)
@@ -750,7 +864,6 @@ class FlowLauncher:
                 dep_settings,
                 depender=flow,
                 copy_resources=resources,
-                run_path=run_path / dep_cls.name if run_path else None,
                 all_flows_settings=all_flows_settings,
             )
             if not completed_dep.succeeded:
@@ -759,7 +872,7 @@ class FlowLauncher:
             flow.completed_dependencies.append(completed_dep)
 
     def _execute(self, flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
-        """Stage 6: `run()`, `parse_reports()`, and the run's results."""
+        """Stage 6: `run()`, `parse_reports()`, and the run's results, artifacts included."""
         flow.results["design"] = flow.design.name
         flow.results["design_hash"] = flow.design_hash
         flow.results["flow"] = flow.name
@@ -798,22 +911,15 @@ class FlowLauncher:
                 log.debug("Failure was reported in the parsed results.")
             flow.results.success = success
             flow.results.timestamp = flow.timestamp
-
-    def _report(
-        self,
-        flow: Flow,
-        design: Design,
-        settings_json: Path,
-        results_json: Path,
-        policy: RunDirPolicy,
-    ) -> None:
-        """Stage 7: show and record the results; clean up the run directory as `policy` says."""
         for k, v in flow.artifacts.items():
             if not flow.results.artifacts.get(k):
                 flow.results.artifacts[k] = v
         if not flow.succeeded:
             _drop_unwritten_artifacts(flow)
 
+    def _report(self, flow: Flow, design: Design, results_json: Path, record: bool) -> None:
+        """Stage 7: show the results and, for a run that just executed (`record`), write them to
+        `results.json`. A reused run's directory is left exactly as it was."""
         if self.settings.display_results and flow.artifacts and flow.succeeded:
             table = Table(
                 box=box.SIMPLE,
@@ -835,7 +941,7 @@ class FlowLauncher:
             console.print(table)
             console.print("")
 
-        if self.settings.dump_results_json:
+        if record and self.settings.dump_results_json:
             dump_json(flow.results, results_json, backup=self.settings.backups)
             log.info("Results written to %s", results_json)
 
@@ -846,7 +952,17 @@ class FlowLauncher:
                 skip_if_false={"artifacts", "reports"},
             )
 
+    def _clean_up(
+        self, flow: Flow, settings_json: Path, results_json: Path, policy: RunDirPolicy
+    ) -> None:
+        """After a run: purge its directory, or prune it to what the run reports and records
+        (`settings.json`, `results.json`, artifacts), as `policy` says.
+
+        Pruning removes the trace first: until every flow declares every output it writes, a
+        pruned directory may lack a file its depender reads, so the run must not be reused --
+        not even if the pruning is interrupted halfway."""
         if policy.post_cleanup:
+            remove_trace(flow.run_path)
             if policy.post_cleanup_purge:
                 log.warning("Deleting flow run path %s", flow.run_path)
                 rmtree(flow.run_path)

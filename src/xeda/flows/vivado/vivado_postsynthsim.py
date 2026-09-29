@@ -64,7 +64,7 @@ class VivadoPostsynthSim(VivadoSim):
 
         if ss.timing_sim:
             if not ss.sdf.delay_items():
-                ss.sdf = SDF(max=str(artifact_path(synth_flow, SDF_MAX)))
+                ss.sdf = SDF(max=artifact_path(synth_flow, SDF_MAX))
             if not ss.sdf.root:
                 ss.sdf.root = self.design.tb.uut
             log.info("Timing simulation using SDF %s", ss.sdf)

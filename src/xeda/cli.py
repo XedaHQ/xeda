@@ -3,15 +3,15 @@
 
 import logging
 import os
-import re
 import sys
 from collections import OrderedDict
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import click
 import coloredlogs
+from click.core import ParameterSource
 from click.shell_completion import get_completion_class
 from click_extra import Command as ColorizedCommand
 from click_extra import HelpKeywords
@@ -39,7 +39,6 @@ from .console import console
 from .flow import Flow, FlowFatalError, registered_flows
 from .flow.run_dir import RunDirectoryError, run_dir_name
 from .flow_runner import (
-    DIR_NAME_HASH_LEN,
     DefaultRunner,
     XedaOptions,
     add_file_logger,
@@ -346,8 +345,55 @@ def _error_message(exc: BaseException) -> str:
     return f"{kind}: {text}"
 
 
+def _removed_option(replacement: str, false_replacement: Optional[str] = None):
+    """A hidden option that only exists to say what replaced it.
+
+    `replacement` is the wording used when the flag as given (`--foo`) was passed; for a
+    boolean pair whose negation (`--no-foo`) needs different wording, `false_replacement` gives
+    that. Matches the launcher's and flow settings' own wording (`` `<name>` was removed: use
+    <replacement>``) exactly, so a removed CLI option, launcher setting and flow setting all read
+    the same way.
+    """
+
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
+        if value is not None:
+            given = param.opts[0] if value else param.secondary_opts[0]
+            text = replacement if value or false_replacement is None else false_replacement
+            raise click.UsageError(f"`{given}` was removed: use {text}", ctx=ctx)
+
+    return callback
+
+
+def _node_states(flows: Iterable[Flow]) -> List[Dict[str, Any]]:
+    """One `nodes` entry per run directory the launcher entered, in completion order: what
+    `run --json` reports about each node of the run, whether it was reused, ran, or failed. A
+    directory entered again within the launch (the same configuration asked for twice) reuses
+    the first run, which is the one reported. A flow that always runs (`Flow.always_runs`) is
+    never `reused`, so it is reported as "ran"/"failed", never "fresh"."""
+    nodes: List[Dict[str, Any]] = []
+    seen = set()
+    for f in flows:
+        run_path = os.path.abspath(f.run_path)
+        if run_path in seen:
+            continue
+        seen.add(run_path)
+        nodes.append(
+            {
+                "flow": f.name,
+                "run_path": str(f.run_path),
+                "state": "fresh" if f.reused else ("ran" if f.succeeded else "failed"),
+                "reason": f.stale_reason or "",
+            }
+        )
+    return nodes
+
+
 def _run_document(
-    flow_name: str, design: Any, flow_obj: Optional[Flow], success: bool
+    flow_name: str,
+    design: Any,
+    flow_obj: Optional[Flow],
+    success: bool,
+    nodes: Iterable[Flow] = (),
 ) -> Dict[str, Any]:
     """The machine-readable summary emitted by `xeda run --json`."""
     document: Dict[str, Any] = {
@@ -372,6 +418,7 @@ def _run_document(
             "type": "FlowFailed",
             "message": f"Flow '{document['flow']}' did not complete successfully.",
         }
+    document["nodes"] = _node_states(nodes)
     return document
 
 
@@ -424,30 +471,54 @@ def _run_document(
     show_envvar=True,
 )
 @click.option(
+    "--rebuild",
+    type=click.Choice(["stale", "all"]),
+    default="stale",
+    show_default=True,
+    help="Run only the flows whose sources, settings, tools or outputs changed since their last "
+    "successful run (make-like, the default), or every flow.",
+)
+@click.option(
+    "--run-dirs",
+    type=click.Choice(["stable", "hashed"]),
+    default="stable",
+    show_default=True,
+    help="One run directory per flow (<design>/<flow>), or one per settings variant "
+    "(<design>/<flow>_<hash>).",
+)
+@click.option(
     "--cached-dependencies/--no-cached-dependencies",
-    default=False,
-    help="Don't run dependency flows if a previous successfull run on the same design and flow settings exists. Generated directory names will contain a hash of design and/or flow settings.",
+    default=None,
+    hidden=True,
+    expose_value=False,
+    callback=_removed_option(
+        "--rebuild stale (the default) to reuse unchanged runs, and --run-dirs hashed to keep "
+        "settings variants side by side",
+        "--rebuild all to run every flow",
+    ),
 )
 @click.option(
     "--incremental/--no-incremental",
-    default=True,
-    help="Incremental build (default): reuse the same run directory across runs. "
-    "--no-incremental deletes an existing run directory, and everything in it, before running "
-    "the flow; combined with --cached-dependencies, the design directory name also gets a "
-    "design-hash suffix.",
+    default=None,
+    hidden=True,
+    expose_value=False,
+    callback=_removed_option(
+        "the default behavior: run directories are always reused, and --clean empties them first",
+        "--clean to empty run directories before running",
+    ),
 )
 @click.option(
     "--cwd",
     is_flag=True,
-    help="Run in the current directory instead of under --xeda-run-dir. The directory must be "
-    "empty, or one xeda ran in before (it holds xeda's .xeda-run-dir marker): a run replaces and "
-    "deletes files in its run directory.",
+    help="Run the requested flow in the current directory; its dependencies go in the usual "
+    "layout under --xeda-run-dir. The directory must be empty, or one xeda ran in before (it "
+    "holds xeda's .xeda-run-dir marker): a run replaces and deletes files in its run directory.",
 )
 @click.option(
     "--clean",
     is_flag=True,
     default=False,
-    help="Run `clean` before `run`.",
+    help="Empty each flow's run directory before running it, and run every flow.",
 )
 @click.option(
     "--xedaproject",
@@ -573,9 +644,9 @@ def run(
     flow: str,
     design_file: Optional[str] = None,
     design_file_opt: Optional[str] = None,
-    cached_dependencies: bool = False,
+    rebuild: str = "stale",
+    run_dirs: str = "stable",
     flow_settings: Union[None, str, Iterable[str]] = None,
-    incremental: bool = True,
     clean: bool = False,
     xeda_run_dir: Optional[Path] = None,
     xedaproject: Optional[str] = None,
@@ -605,11 +676,24 @@ def run(
         sys.exit(0)
     debug |= options.debug
     if cwd and remote:
-        log.critical("--cwd and --remote are mutually exclusive!")
+        message = "--cwd and --remote are mutually exclusive!"
+        log.critical(message)
+        if json_flag:
+            emit_structured(
+                {
+                    "flow": flow,
+                    "design": design_file or design_file_opt or design_name,
+                    "success": False,
+                    "results": {},
+                    "error": {"type": "UsageError", "message": message},
+                    "nodes": [],
+                },
+                "json",
+            )
         sys.exit(1)
-    if cwd:
-        xeda_run_dir = Path.cwd()
-    elif xeda_run_dir is None:
+    if cwd and clean:
+        raise click.UsageError("--clean with --cwd would empty the current directory", ctx=ctx)
+    if xeda_run_dir is None:
         xeda_run_dir = Path.cwd() / "xeda_run"
 
     if log_level is None:
@@ -637,18 +721,22 @@ def run(
                     "success": False,
                     "results": {},
                     "error": {"type": "DesignNotSpecified", "message": message},
+                    "nodes": [],
                 },
                 "json",
             )
         sys.exit(1)
 
     if remote:
-        from .flow_runner.remote import RemoteRunner
+        from .flow_runner import remote as remote_runner
 
-        rl = RemoteRunner(
-            xeda_run_dir,
-            cached_dependencies=cached_dependencies,
-        )
+        for name in ("rebuild", "clean"):
+            if ctx.get_parameter_source(name) not in (None, ParameterSource.DEFAULT):
+                raise click.UsageError(
+                    f"`--{name}` is not supported with --remote: remote runs always run fresh",
+                    ctx=ctx,
+                )
+        rl = remote_runner.RemoteRunner(xeda_run_dir, run_dirs=run_dirs)
         assert design
         try:
             remote_results = rl.run_remote(
@@ -685,8 +773,11 @@ def run(
             emit_structured(_remote_document(flow, design, remote, remote_results, success), "json")
         sys.exit(0 if success else 1)
 
+    launcher: Optional[DefaultRunner] = None
+
     def emit_failure(error_type: str, message: str, exc: Exception) -> None:
-        """Report a failed run identically whether the caller wants text or JSON."""
+        """Report a failed run identically whether the caller wants text or JSON: with every
+        node the launcher had launched when the run failed."""
         log.critical("%s", message)
         if json_flag:
             emit_structured(
@@ -696,6 +787,7 @@ def run(
                     "success": False,
                     "results": {},
                     "error": {"type": error_type, "message": message},
+                    "nodes": _node_states(launcher.launched) if launcher is not None else [],
                 },
                 "json",
             )
@@ -704,18 +796,12 @@ def run(
         sys.exit(1)
 
     try:
-        launcher = DefaultRunner(
-            xeda_run_dir,
-            cached_dependencies=cached_dependencies,
-        )
-        launcher.settings.cleanup_before_run = clean
+        launcher = DefaultRunner(xeda_run_dir, rebuild=rebuild, run_dirs=run_dirs, clean=clean)
         if cwd:
-            launcher.settings.incremental = True
             launcher.settings.run_path = Path.cwd()
             launcher.settings.dump_settings_json = False
             launcher.settings.dump_results_json = True
         else:
-            launcher.settings.incremental = incremental
             launcher.settings.post_cleanup = post_cleanup
             launcher.settings.post_cleanup_purge = post_cleanup_purge
             launcher.settings.scrub_old_runs = scrub
@@ -731,7 +817,7 @@ def run(
         )
         success = bool(f and f.results.success)
         if json_flag:
-            emit_structured(_run_document(flow, design, f, success), "json")
+            emit_structured(_run_document(flow, design, f, success, launcher.launched), "json")
         sys.exit(0 if success else 1)
     except FlowFatalError as e:
         emit_failure(
@@ -1098,9 +1184,12 @@ def dse(
 )
 @click.option(
     "--incremental/--no-incremental",
-    default=True,
-    help="Also scrub runs under the plain <design_name> directory, not only "
-    "<design_name>_<design_hash> ones.",
+    default=None,
+    hidden=True,
+    expose_value=False,
+    callback=_removed_option(
+        "the default: scrub always looks in <design>/ for <flow> and <flow>_<hash> directories"
+    ),
 )
 @click.option(
     "--json",
@@ -1113,7 +1202,8 @@ def dse(
     ),
 )
 @click.pass_context
-def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, incremental, json_flag):
+def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, json_flag):
+    """Remove FLOW_NAME's previous run directories for DESIGN_NAME, under <xeda-run-dir>/<design_name>."""
     if json_flag:
         machine_readable_mode()
     xeda_run_dir = Path(xeda_run_dir).resolve()
@@ -1124,12 +1214,8 @@ def scrub(ctx: click.Context, flow, design_name, xeda_run_dir, incremental, json
     except RunDirectoryError as e:
         raise click.BadParameter(str(e), param_hint="DESIGN_NAME") from e
 
-    regex = re.compile(f"^{re.escape(design_name)}_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r"$")
-    design_dirs = [
-        p for p in xeda_run_dir.glob(f"{design_name}_*") if p.is_dir() and regex.match(p.name)
-    ]
-    if incremental and (xeda_run_dir / design_name).exists():
-        design_dirs.append(xeda_run_dir / design_name)
+    design_dir = xeda_run_dir / design_name
+    design_dirs = [design_dir] if design_dir.exists() else []
 
     try:
         scrubbed = [dd for dd in design_dirs if scrub_runs(flow_class.name, dd)]

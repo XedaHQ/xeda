@@ -734,8 +734,56 @@ All notable changes to this project will be documented in this file.
 - **`bsc`'s `gtkwave_package` setting** and the Bluetcl script behind it (GTKWave translation
   filters for enums). Design files that set it (e.g. bluelight's `xedaproject.toml`,
   `[flow.bsc] gtkwave_package = ...`) must drop it. Also removed: `warn_flags`, `incremental`.
+- **The `<design>_<design_hash>/` run-directory layer.** It only ever appeared with
+  `--cached-dependencies --no-incremental`; delete any such directories by hand, xeda no longer
+  looks for them.
+- CLI options `--cached-dependencies`/`--no-cached-dependencies` (use `--rebuild stale`, the
+  default, to reuse unchanged runs, and `--run-dirs hashed` to keep settings variants side by
+  side) and `--incremental`/`--no-incremental` on `run` and `scrub` (run directories are always
+  reused now; `--clean` empties one before running). Launcher settings `cached_dependencies`,
+  `skip_if_previous_run_exists`, `incremental` and `cleanup_before_run` (use `rebuild`,
+  `run_dirs` and `clean`). Each fails naming its replacement rather than being silently ignored.
+- The per-flow `clean` setting and verilator's `clean_before_run` (use the `--clean` CLI option).
+  GHDL's `clean` is renamed `clean_before_analyze` (whether `ghdl remove` runs before analysis),
+  unrelated to the run-directory `--clean`.
 
 ### Added
+- **`xeda run` is make-like by default.** `--rebuild stale` (the default) re-runs a flow only when
+  something it consumed or produced changed since its last successful run; `--rebuild all` runs
+  every flow, as every run did before. A flow that runs logs why (`Running <flow>: <reason>`); a
+  flow left alone logs that it is up to date and shows its previously recorded results. Staleness
+  covers: no successful previous run; changed settings (named in the reason); a changed xeda
+  version or flow code/templates; a changed program (path, size or mtime; a container image's
+  ID); a dependency that ran again (until per-edge cutoff arrives, this always re-runs what
+  depends on it); an input added, removed, changed or missing; an output deleted or edited; or
+  changed design metadata (`top`, parameters, defines). Dependencies are always brought up to
+  date before the flow depending on them is judged. Each run directory records this in a new
+  `trace.json`, written last and atomically after a successful run and removed before the next
+  run executes, so its mere presence certifies the last run there succeeded. A file counts as
+  unchanged by size and mtime unless it was touched within 2 seconds of the trace (a racy
+  timestamp), otherwise by content hash -- a `touch` or a branch round-trip costs a hash, not a
+  re-run, and a file restored with a stale mtime is still caught. `openfpgaloader` and `open_xc7`
+  (`Flow.is_action`) always run and keep no trace, since programming a device changes the outside
+  world.
+- `--run-dirs hashed` gives each settings variant of a flow its own directory
+  (`<design>/<flow>_<16-char settings hash>/`, hashed from the flow's input settings alone, so
+  editing the design never moves it); the default, `--run-dirs stable`, is one directory per flow
+  (`<design>/<flow>/`). A dependency's run directory is always a sibling of the flow that launched
+  it, in the same layout, never nested under it -- so two dependencies of one flow, or the same
+  flow run for two different dependers, each get their own directory. Within one launch, a run
+  directory is entered at most once: two different configurations of one flow resolving to the
+  same directory in the same launch is now an error naming both requesters, instead of the second
+  silently overwriting what the first produced.
+- `--clean` empties each flow's run directory before it runs and runs every flow ("make clean,
+  then make"); refused together with `--cwd`, which would otherwise empty the current directory.
+- A POSIX lock file (`<run dir>.lock`, beside the run directory; none on Windows) serializes
+  concurrent launches of the same run directory, so two overlapping invocations sharing a
+  dependency take turns with it instead of one clobbering the other's output. `xeda scrub` removes
+  the lock file along with the directory.
+- `xeda run --json`'s document gains `nodes`: one entry per flow the run touched (dependencies
+  included), in completion order, as `{"flow", "run_path", "state": "fresh"|"ran"|"failed",
+  "reason"}`. A fully fresh run is `"success": true` with every node `"fresh"`; `nodes` is `[]`
+  for an error before anything ran.
 - Tests: the fake tools (`tests/fake_tools/`: `vivado`, `quartus_sh`, `xtclsh`, `dc_shell`, and now
   `diamondc` and `vsim`) run the TCL script a flow hands them under `tclsh`, the tool's commands
   recorded, and fail on a TCL error as the tool would -- every test using a fake now checks the

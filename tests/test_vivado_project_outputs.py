@@ -405,7 +405,7 @@ def test_postsynth_sim_simulates_what_its_synthesis_registered(
     sim.run()
     netlist = vs.NETLIST_TIMING if timing_sim else vs.NETLIST
     assert observed["sources"] == [synth.run_path / synth.artifacts[netlist]]
-    sdf = [("max", str(synth.run_path / synth.artifacts[vs.SDF_MAX]))]
+    sdf = [("max", synth.run_path / synth.artifacts[vs.SDF_MAX])]
     assert observed["sdf"] == (sdf if timing_sim else [])
     # the functional netlist instantiates UNISIM primitives, the timing one SIMPRIM primitives
     assert observed["libs"] == (["simprims_ver"] if timing_sim else ["unisims_ver", "simprims_ver"])

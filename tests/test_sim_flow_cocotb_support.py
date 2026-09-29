@@ -106,17 +106,15 @@ def test_a_rejected_launch_sets_up_no_run_directory(flow_class, cocotb_design, t
 
 
 def test_a_rejected_launch_keeps_the_previous_run_directory(cocotb_design, tmp_path):
-    """A previous run's directory, which a non-incremental launch replaces, survives a launch
-    that is rejected."""
+    """A previous run's directory, which a `clean` launch empties, survives a launch that is
+    rejected."""
     run_dir = tmp_path / "xeda_run"
     previous = run_dir / "sqrt" / "modelsim" / "results.json"
     previous.parent.mkdir(parents=True)
     previous.write_text('{"success": true}')
 
     with pytest.raises(FlowException, match=re.escape("modelsim cannot run cocotb")):
-        DefaultRunner(
-            run_dir, cached_dependencies=False, incremental=False, display_results=False
-        ).run_flow(Modelsim, cocotb_design)
+        DefaultRunner(run_dir, clean=True, display_results=False).run_flow(Modelsim, cocotb_design)
 
     assert sorted(run_dir.rglob("*")) == [previous.parent.parent, previous.parent, previous]
     assert previous.read_text() == '{"success": true}'

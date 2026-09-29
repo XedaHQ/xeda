@@ -145,15 +145,36 @@ Keys beginning with `_` are internal and may change.
 
 ## Where output lands
 
-Default `./xeda_run/<design>/<flow>/`, holding the generated tool scripts, the tool logs,
+Default `./xeda_run/<design>/<flow>/` (`--run-dirs hashed` instead appends the settings hash:
+`<flow>_<hash>`, so settings variants coexist). A dependency gets its own directory, a sibling of
+the flow that launched it. The directory holds the generated tool scripts, the tool logs,
 `reports/`, `outputs/`, `checkpoints/`, plus:
 
 - `settings.json` - `flow_settings`, the run's input (every layer merged; re-runnable), and
   `effective_flow_settings`, what the flow made of it. Read the latter first when a run did
   something unexpected.
 - `results.json` - what was parsed back out.
+- `trace.json` - what the run consumed and produced, present only after a successful run; it is
+  what makes rebuilds make-like (see below).
 
 `xeda run --json` reports all three paths, so there is no need to guess.
+
+## Rebuilds are make-like by default
+
+Re-running `xeda run` only re-runs a flow whose settings, sources, code, tools or outputs changed
+since its last successful run (`--rebuild stale`, the default); an unchanged flow's recorded
+results are reused and shown as if it had just run. `--rebuild all` forces every flow to run
+regardless. The `--json` document's `nodes` list reports, per flow that was touched, whether it
+was `"fresh"`, `"ran"` or `"failed"`, and why (`reason`). Not tracked: the contents of directories
+settings name (include directories), programs started indirectly (a compiler under `make`, Python
+packages such as cocotb), environment variables, and files a tool reads without reporting them -
+`--rebuild all` is the escape if a rebuild looks wrong. A flow that programs a device, or that is
+asked for a fresh random seed (`random_seed = "random"`, `randomize_seed = true`; seeds default to
+fixed values), always runs and says so.
+
+`--clean` empties a flow's run directory before running and forces every flow to run ("make clean,
+then make"). `--cached-dependencies` and `--incremental`/`--no-incremental` were removed; giving
+them fails naming their replacement (`--rebuild`, `--run-dirs`, `--clean`).
 
 ## When something fails
 

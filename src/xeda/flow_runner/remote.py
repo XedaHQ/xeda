@@ -37,6 +37,7 @@ from ..version import __version__
 from ..xedaproject import XedaProject
 from .default_runner import FlowLauncher, FlowNotFoundError, get_flow_class, print_results
 from .settings_layers import flow_settings_from_sections, merge_flow_sections, merge_layers
+from .trace import remove_trace
 
 log = logging.getLogger(__name__)
 
@@ -420,14 +421,19 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
 
     # xeda_run_dir = Path("remote_run").joinpath(datetime.now().strftime("%y%m%d%H%M%S%f"))
     xeda_run_dir = str(Path.cwd())
+    # Every run starts clean, in a directory named by its settings -- with whichever launcher
+    # settings the remote's xeda has for that.
+    fields = getattr(DefaultRunner.Settings, "model_fields", None) or getattr(
+        DefaultRunner.Settings, "__fields__", {}
+    )
+    if "rebuild" in fields:
+        launcher_settings = dict(rebuild="all", run_dirs="hashed", clean=True)
+    else:  # a remote xeda from before `rebuild` (0.4.x)
+        launcher_settings = dict(
+            cached_dependencies=True, cleanup_before_run=True, incremental=False
+        )
     launcher = DefaultRunner(
-        xeda_run_dir,
-        cached_dependencies=True,
-        backups=False,
-        cleanup_before_run=True,
-        incremental=False,
-        post_cleanup=False,
-        display_results=False,
+        xeda_run_dir, backups=False, post_cleanup=False, display_results=False, **launcher_settings
     )
     # NOTE: this function's *source* is shipped to the remote host and executed
     # there against whatever xeda version is installed remotely, so it must not
@@ -795,12 +801,7 @@ class RemoteRunner(FlowLauncher):
         # The local run directory results are fetched into -- a run directory xeda chooses, which
         # its settings, results and artifacts overwrite -- is claimed, or refused, before
         # connecting: made, empty, marked, or an earlier run of the flow.
-        run_path = self.get_flow_run_path(
-            design.name,
-            flow_name,
-            design_hash,
-            flowrun_hash,
-        )
+        run_path = self.get_flow_run_path(design.name, flow_name, flowrun_hash)
         claim_run_dir(run_path, flow_name)
 
         host_split = host.split(":")
@@ -863,6 +864,9 @@ class RemoteRunner(FlowLauncher):
         zip_file, design_file = send_design(design, conn, remote_path, all_flows_settings=sections)
 
         run_path.mkdir(parents=True, exist_ok=True)
+        # The local mirror holds the remote run's records, never a local run's: no trace left
+        # there by a local run may vouch for them.
+        remove_trace(run_path)
 
         settings_json = run_path / "settings.json"
         results_json_path = run_path / "results.json"

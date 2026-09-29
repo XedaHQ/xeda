@@ -10,8 +10,10 @@ import subprocess
 import sys
 import termios
 from collections.abc import Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TextIO, Union
+from typing import Any, Dict, Iterator, List, Optional, TextIO, Union
 
 import colorama
 
@@ -24,6 +26,29 @@ log = logging.getLogger(__name__)
 #: The CLI's machine-readable modes (`--json`) point this at `sys.stderr` so that a parseable
 #: result can own stdout; child processes that inherit our stdout are redirected too.
 _tool_output: Optional[TextIO] = None
+
+#: A container image is recorded under this prefix, beside the programs `run_process` starts.
+DOCKER_IMAGE_PREFIX = "docker-image:"
+
+_programs: ContextVar[Optional[List[str]]] = ContextVar("xeda_programs", default=None)
+
+
+@contextmanager
+def recording_programs() -> Iterator[List[str]]:
+    """Collect, in order and once each, every program started while the context is active."""
+    names: List[str] = []
+    token = _programs.set(names)
+    try:
+        yield names
+    finally:
+        _programs.reset(token)
+
+
+def note_program(name: str) -> None:
+    """Record `name` if a recording is active."""
+    names = _programs.get()
+    if names is not None and name not in names:
+        names.append(name)
 
 
 def set_tool_output(stream: Optional[TextIO]) -> None:
@@ -44,6 +69,43 @@ def tool_output_redirect() -> Optional[TextIO]:
     runner) must honor this, or its output lands on fd 1 and corrupts a `--json` document.
     """
     return _tool_output
+
+
+def _stream_has_fileno(stream: Optional[TextIO]) -> bool:
+    """Whether `stream` can be handed to `Popen(stdout=...)` as an inheritable file descriptor.
+
+    False for anything that only exists at the Python level -- `click.testing.CliRunner`'s
+    captured streams, an `io.StringIO`, an embedding program's own redirected stdio -- which
+    raise `io.UnsupportedOperation` (itself both an `OSError` and a `ValueError`) from
+    `.fileno()`, or lack the method (`AttributeError`) entirely. `subprocess.Popen` calls
+    `.fileno()` on whatever it is given with no such guard, so handing it one of these raises
+    deep inside `subprocess` instead of here.
+    """
+    if stream is None:
+        return False
+    try:
+        stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return False
+    return True
+
+
+def _needs_line_copy(
+    stdout: Union[None, bool, str, os.PathLike],
+    highlight_rules: Optional[Dict[str, str]],
+    redirect: Optional[TextIO],
+) -> bool:
+    """Whether a child's stdout must be piped and copied to `tool_output_stream()` line by line
+    in Python, rather than handed to `Popen` directly.
+
+    Only with no capture requested (`stdout is None`): then either highlighting wants to inspect
+    each line anyway, or `redirect` (tool output has been redirected, e.g. under `--json`) is a
+    stream that cannot be passed to `Popen` as a file descriptor at all (`_stream_has_fileno`) --
+    handing it one anyway raises `io.UnsupportedOperation` deep inside `subprocess` instead.
+    """
+    if stdout is not None:
+        return False
+    return bool(highlight_rules) or (redirect is not None and not _stream_has_fileno(redirect))
 
 
 def _stdout_terminal_fd() -> Optional[int]:
@@ -112,6 +174,7 @@ def run_process(
     `merge_stderr` folds the child's stderr into the captured stdout. Only meaningful while
     capturing (`stdout=True`), and needed for tools that print their version banner to stderr.
     """
+    note_program(str(executable))
     if args is None:
         args = []
     args = [str(a) for a in args]
@@ -125,11 +188,10 @@ def run_process(
         log.debug("Running `%s`", cmd_str)
     if cwd:
         log.debug("cwd=%s", cwd)
-    if highlight_rules and stdout is None:
-
+    if _needs_line_copy(stdout, highlight_rules, tool_output_redirect()):
         # compile regex str keys to improve performance
         highlight_rules_re: Dict[re.Pattern, str] = {}
-        for pattern, subs in highlight_rules.items():
+        for pattern, subs in (highlight_rules or {}).items():
             highlight_rules_re[re.compile(pattern)] = subs
 
         with subprocess.Popen(

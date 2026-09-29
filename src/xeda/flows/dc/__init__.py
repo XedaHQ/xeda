@@ -186,10 +186,6 @@ class Dc(AsicSynthFlow):
         default_max_output_delay: Optional[float] = Field(
             0.0, description="Default max delay to set on all output ports"
         )
-        clean: bool = Field(
-            True,
-            description="Delete all the existing files in run_dir before running synthesis.",
-        )
         sdf_version: Optional[str] = Field(
             None,
             description="SDF version to use for the SDF output. If not set (=None), the default version (2.1) will be used.",
@@ -259,10 +255,6 @@ class Dc(AsicSynthFlow):
                 ss.hdlin["vhdl_std"] = "2008"
             elif self.design.language.vhdl.standard in ("93", "1993"):
                 ss.hdlin["vhdl_std"] = "1993"
-
-    def clean(self):
-        # completely erase the content of the run directory
-        self.purge_run_path()
 
     def run(self):
         assert isinstance(self.settings, self.Settings)

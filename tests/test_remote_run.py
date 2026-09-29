@@ -25,6 +25,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowException, RunDirectoryError
+from xeda.flow.run_dir import mark_run_dir
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteRunner
 
@@ -228,6 +229,11 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
         'G_IN_WIDTH = 32\nROM = { file = "rom.mem" }\nTRACE = { path = "out/trace.txt" }\n'
     )
     local_run_dir = tmp_path / "local" / "xeda_run"  # deliberately not under the start directory
+    # a local run's trace, which must not vouch for the remote run's results
+    local_trace = local_run_dir / "sqrt" / "vivado_synth" / "trace.json"
+    local_trace.parent.mkdir(parents=True)
+    mark_run_dir(local_trace.parent)  # a local run's directory, xeda's
+    local_trace.write_text("{}")
 
     results = RemoteRunner(local_run_dir).run_remote(
         design_root / "sqrt.toml",
@@ -240,6 +246,7 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     remote_run = _remote_run_dir(remote_host, "vivado_synth")
     local_run = Path(results["run_path"])
     assert local_run.is_relative_to(local_run_dir), "the run is reported where it now is"
+    assert local_run == local_trace.parent and not local_trace.exists()
 
     # One run, one identity: the remote hashes exactly what this side hashed -- although it
     # unpacked everything under another root, with the sources in a flat archive.
@@ -622,7 +629,7 @@ def test_a_remote_run_refuses_a_users_local_results_directory_before_connecting(
     canary.write_text("the user's own file\n")
 
     with pytest.raises(RunDirectoryError, match=re.escape(str(canary.parent))):
-        RemoteRunner(local_run_dir, cached_dependencies=False).run_remote(
+        RemoteRunner(local_run_dir).run_remote(
             SQRT / "sqrt.toml",
             "vivado_synth",
             host="somewhere",
@@ -640,7 +647,7 @@ def test_a_remote_run_marks_its_local_results_directory_and_reuses_it(tmp_path, 
     local one) of the flow reuses it."""
     local_run_dir = tmp_path / "local" / "xeda_run"
     for attempt in (1, 2):
-        results = RemoteRunner(local_run_dir, cached_dependencies=False).run_remote(
+        results = RemoteRunner(local_run_dir).run_remote(
             SQRT / "sqrt.toml",
             "vivado_synth",
             host="somewhere",
@@ -711,27 +718,30 @@ def test_transfer_rejects_artifact_destination_symlink(tmp_path):
     assert list(outside.iterdir()) == []
 
 
-def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch):
-    """`remote_runner` encodes the remote's results for the trip back. `json` raises on a key it
-    cannot write (a tuple, a `Path`), which lost a remote run's results entirely; the function
-    runs against the remote's xeda, so it applies the key rule itself, in plain Python."""
+def _run_remote_runner(tmp_path, monkeypatch, results, settings_fields):
+    """Run `remote_runner` against a stand-in for the remote's `DefaultRunner`, whose `Settings`
+    declares `settings_fields`. What it sent back, and the launcher settings it was given."""
     import xeda.flow_runner
 
     class Results(dict):
         def to_dict(self):
             return dict(self)
 
+    given: dict = {}
+
     class Launcher:
+        class Settings:
+            model_fields = dict.fromkeys(settings_fields)
+
         def __init__(self, *args, **kwargs):
-            pass
+            given.update(kwargs)
 
         def run(self, *args, **kwargs):
-            return SimpleNamespace(
-                results=Results(success=True, timing={("clk", "rise"): 1.5, Path("/x.v"): 2})
-            )
+            return SimpleNamespace(results=Results(results))
 
     class Channel:
-        sent: list = []
+        def __init__(self):
+            self.sent: list = []
 
         def isclosed(self):
             return False
@@ -747,7 +757,36 @@ def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch
         archive.writestr("d.xeda.json", "{}")
     channel = Channel()
     remote_module.remote_runner(channel, str(tmp_path), "d.zip", "flow", "d.xeda.json", {})
-
     sent, written = channel.sent  # the results, then which artifacts a failed run wrote
+    return sent, written, given
+
+
+def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch):
+    """`remote_runner` encodes the remote's results for the trip back. `json` raises on a key it
+    cannot write (a tuple, a `Path`), which lost a remote run's results entirely; the function
+    runs against the remote's xeda, so it applies the key rule itself, in plain Python."""
+    results = dict(success=True, timing={("clk", "rise"): 1.5, Path("/x.v"): 2})
+    sent, written, _ = _run_remote_runner(tmp_path, monkeypatch, results, ["rebuild"])
     assert json.loads(sent)["timing"] == {"('clk', 'rise')": 1.5, "/x.v": 2}
     assert json.loads(written) is None  # the run succeeded
+
+
+@pytest.mark.parametrize(
+    "settings_fields, expected",
+    [
+        (["rebuild", "run_dirs", "clean"], dict(rebuild="all", run_dirs="hashed", clean=True)),
+        # xeda 0.4.x, from before `rebuild`: the same behavior, in its own settings
+        (
+            ["cached_dependencies", "cleanup_before_run", "incremental"],
+            dict(cached_dependencies=True, cleanup_before_run=True, incremental=False),
+        ),
+    ],
+    ids=["current", "0.4"],
+)
+def test_the_remote_runs_every_flow_clean_with_the_settings_its_xeda_has(
+    tmp_path, monkeypatch, settings_fields, expected
+):
+    """The remote's xeda may be older than this one: `remote_runner` asks its launcher which
+    settings it has, and runs every flow from a clean directory named by its settings."""
+    _, _, given = _run_remote_runner(tmp_path, monkeypatch, dict(success=True), settings_fields)
+    assert given == dict(backups=False, post_cleanup=False, display_results=False, **expected)

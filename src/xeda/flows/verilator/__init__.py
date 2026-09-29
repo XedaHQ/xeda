@@ -1,13 +1,12 @@
 import logging
 import os
-import shutil
 from pathlib import Path
 from random import randint
-from typing import Any, List, Optional, Union
+from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field
 from ...design import SourceType
-from ...flow import SimFlow
+from ...flow import Flow, SimFlow
 from ...tool import Tool
 from ...utils import replacing_copy, unique
 
@@ -62,7 +61,7 @@ class Verilator(SimFlow):
         model_args: List[str] = Field(
             default=[], description="Arguments to pass to the model executable"
         )
-        verilog_libs: List[str] = Field(
+        verilog_libs: List[Path] = Field(
             [],
             description="Verilog library files (`-v`): their modules are elaborated only when "
             "instantiated.",
@@ -97,8 +96,15 @@ class Verilator(SimFlow):
         )
         random_init: bool = Field(
             True,
-            description="Randomize the initial value of uninitialized signals at each run, which "
-            "surfaces reset bugs a zero-initialized model would hide. See `x_initial`.",
+            description="Randomize the initial value of uninitialized signals, which surfaces "
+            "reset bugs a zero-initialized model would hide. The values come from `random_seed`. "
+            "See `x_initial`.",
+        )
+        random_seed: Union[Literal["random"], Annotated[int, Field(ge=1)]] = Field(
+            1,
+            description="Seed of the random initialization (`+verilator+seed+`): the same seed "
+            'gives the same run. "random" draws a new seed on every run, so the flow then always '
+            "runs and is never reused.",
         )
         x_initial: str = Field(
             "unique",
@@ -142,11 +148,17 @@ class Verilator(SimFlow):
         trace_max_array: Optional[int] = Field(
             2048, description="Do not trace arrays with more than this many elements."
         )
-        clean_before_run: bool = Field(
-            True,
-            description="Remove `sim_dir` before building, so a stale generated model is never "
-            "reused.",
-        )
+
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **Flow.Settings.removed_settings,
+            "clean_before_run": "the --clean option",
+        }
+
+    def always_runs(self) -> Optional[str]:
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.random_init and self.settings.random_seed == "random":
+            return "it draws a new random seed"
+        return super().always_runs()
 
     def run(self):
         """Compile the design and run its Verilator simulation."""
@@ -322,7 +334,7 @@ class Verilator(SimFlow):
 
         # read verilog libs
         for vlib in ss.verilog_libs:
-            args += ["-v", vlib]
+            args += ["-v", str(vlib)]
 
         sources: List[Any] = self.design.sources_of_type(
             SourceType.Verilog, SourceType.SystemVerilog, SourceType.Cpp, rtl=True, tb=True
@@ -353,10 +365,9 @@ class Verilator(SimFlow):
 
         verilator.run(*args, *sources)
         if ss.random_init:
-            random_seed = (
-                1 if ss.debug else randint(1, 1 << 31)
-            )  # 0 = choose value from system random number generator
-            model_args += [f"+verilator+seed+{random_seed}", "+verilator+rand+reset+2"]
+            # a seed of 0 would ask the model to pick one from the system's random generator
+            seed = randint(1, 1 << 31) if ss.random_seed == "random" else ss.random_seed
+            model_args += [f"+verilator+seed+{seed}", "+verilator+rand+reset+2"]
         model = verilator.derive(verilated_bin)
         model.run(*ss.model_args, env=env)
 
@@ -369,10 +380,3 @@ class Verilator(SimFlow):
                 if p.is_file():
                     log.debug("Deleting %s", p)
                     p.unlink()
-
-    def clean(self):
-        assert isinstance(self.settings, self.Settings)
-        if self.settings.clean_before_run:
-            sim_dir = self.removable_work_dir(self.settings.sim_dir, "sim_dir")
-            if sim_dir.exists():
-                shutil.rmtree(sim_dir)

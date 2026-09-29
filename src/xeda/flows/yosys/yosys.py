@@ -297,6 +297,9 @@ class Yosys(YosysBase, SynthFlow):
         if ss.log_file:
             log.info("Logging yosys output to %s", ss.log_file)
             args += ["-L", ss.log_file]
+        depfile = self.run_path / "yosys.d"
+        args += ["-E", depfile]
+        self.depfiles.append(depfile)
         self.yosys.run(*args)
 
     def parse_reports(self) -> bool:

@@ -96,9 +96,9 @@ chain leading to it.
     vivado_power    ->  vivado_postsynth_sim  ->  vivado_synth
     openroad        ->  yosys
 
-A dependency runs in a nested run directory, and its settings are reachable from the parent as a
-nested settings key. For example, to change how ``nextpnr``'s synthesis dependency behaves while
-running ``openfpgaloader``::
+A dependency runs in its own run directory, a sibling of the flow that launched it, and its
+settings are reachable from the parent as a nested settings key. For example, to change how
+``nextpnr``'s synthesis dependency behaves while running ``openfpgaloader``::
 
     xeda run openfpgaloader blinky.toml -s nextpnr.yosys.flatten=true
 
@@ -107,8 +107,8 @@ flows -- are resolved when the dependency is launched: the flow's own value is u
 if the flow leaves a shared setting unset, the value given in the dependency's nested settings is
 used instead.
 
-With ``--cached-dependencies``, a dependency whose recorded design and settings hashes match a
-previous successful run is skipped and its results reused.
+Runs are make-like by default (``--rebuild stale``): a dependency whose trace still matches what
+it would consume now is skipped and its recorded results reused. See :doc:`run-directories`.
 
 Open-source FPGA flow targets and tuning
 ========================================

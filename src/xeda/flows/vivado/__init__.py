@@ -197,6 +197,3 @@ class Vivado(Flow, metaclass=ABCMeta):
         if isinstance(path, str):
             path = path.split(".")
         return reduce(dict.__getitem__, path, dct)
-
-    def clean(self):
-        super().purge_run_path()

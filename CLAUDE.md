@@ -68,17 +68,21 @@ xeda scrub <flow> <design_name>      # remove previous run dirs
 ```
 
 Flow runs land under `./xeda_run/` (configurable via `--xeda-run-dir` / `XEDA_RUN_DIR`). The exact
-layout depends on two options - hashes appear **only** with `--cached-dependencies`:
+layout depends on `--run-dirs`:
 
 | options | path |
 | --- | --- |
-| *(default)* | `<design>/<flow>/` |
-| `--cached-dependencies` | `<design>/<flow>_<flowrun_hash>/` |
-| `--cached-dependencies --no-incremental` | `<design>_<design_hash>/<flow>_<flowrun_hash>/` |
+| *(default,* `--run-dirs stable` *)* | `<design>/<flow>/` |
+| `--run-dirs hashed` | `<design>/<flow>_<16-char settings hash>/` |
 
-`--no-incremental` on its own keeps the same path but backs up or removes the existing directory
-first. Each run dir gets `settings.json` and `results.json`, plus `reports/`, `outputs/`,
-`checkpoints/`.
+A dependency's run directory is a **sibling** of the flow that launched it, in the same layout,
+never nested under it. `--run-dirs hashed` names a directory by the flow's *input settings* only,
+so editing the design never moves it. The old `<design>_<design_hash>/` layer (dropped with
+`--no-incremental`) is gone; delete such directories by hand. Xeda always reuses a flow's
+directory across runs unless `--clean` empties it first (see "Caching and run directories"
+below). Each run dir gets `settings.json`, `results.json` and `trace.json`, plus `reports/`,
+`outputs/`, `checkpoints/`. `--cwd` relocates only the *requested* flow's run directory into the
+current directory; its dependencies still go in the usual layout under `--xeda-run-dir`.
 
 xeda runs only in a directory that is its own (`flow/run_dir.py`), and marks every run
 directory it uses with `.xeda-run-dir` (`claim_run_dir`, in `launch_flow` before anything is
@@ -190,11 +194,19 @@ settings that get merged into dependency flows.
 ### Flow lifecycle
 
 `FlowLauncher.launch_flow()` is the one procedure every flow run and every dependency run goes
-through, in named stages (each a method; the docstring lists them): **input** (`_input_settings`:
-validate in context, apply `--debug`) -> **identity** (`_run_identity`: design hash + `flowrun_hash`,
-run dir) -> **reuse** (`_previous_results`) -> **prepare** (construct the flow with its own *copy* of
-the input, `init()`, write `settings.json`) -> **dependencies** (`_run_dependencies`, recursing) ->
-**run** (`_execute`: `run()`, `parse_reports()`, `check_results()`) -> **report** (`_report`).
+through, make's order: bring every prerequisite up to date, then judge this flow against them. Its
+stages (each a method; the docstring lists them): **input** (`_input_settings`: validate in
+context, apply `--debug`) -> **identity** (`_run_identity`: design hash + `flowrun_hash`, run dir,
+locked via `run_lock` until the trace is written) -> **prepare** (construct the flow with its own
+*copy* of the input, `init()`, which registers dependencies -- runs even for a flow that turns out
+fresh, so it must not touch outputs) -> **dependencies** (`_run_dependencies`, recursing, each in
+a sibling run directory) -> **freshness** (with `rebuild="stale"`, the default: `trace.check_trace`
+against what the flow would consume now; a match reuses the recorded results and skips **run**
+entirely; `_launch` itself removes the trace here, before **run**, so nothing vouches for the
+directory from this point on) -> **run** (`_launch` records every expected input as the run finds
+it, `trace_inputs.snapshot_inputs`, and writes `settings.json`; then `_execute`: `run()`,
+`parse_reports()`, `check_results()`) -> **report** (`_report`: artifacts, `results.json`; `_launch` then writes a
+fresh `trace.json`, on success, once `_report` has returned).
 
 - **The input settings are never modified.** The launcher keeps them (they are what the run is
   hashed by and recorded as `settings.json`'s `flow_settings`); the flow gets a deep copy as
@@ -375,9 +387,74 @@ under the design root counts relative to it (`location_free`, the `flowrun_hash`
 the root counts as the location it names); its content is never hashed. `send_design` re-roots such a path for a remote from the value alone. Settings paths count as text; only design sources are read
 for content, and no directory's content is ever hashed. The xeda version is deliberately not part
 of the hash. Local and remote runs share `flowrun_hash`.
-With `--cached-dependencies`, a dependency whose `settings.json` records matching hashes and whose
-`results.json` reports success is skipped and its results/artifacts reused.
-`--incremental` (default) drops the design hash from the path so repeated runs reuse one directory.
+
+**Runs are make-like by default.** `--rebuild stale` (the default) re-runs a flow only when
+something it consumed or produced changed since its last successful run; `--rebuild all` runs
+every flow. `--run-dirs stable` (default) is one directory per flow, `--run-dirs hashed` one per
+settings variant (`<flow>_<flowrun_hash>`) -- dependencies are always siblings in the same layout,
+never nested. A flow that runs logs why (`log.info("Running %s: %s", flow.name, flow.stale_reason)`);
+a fresh one logs that it is up to date and its recorded results are shown as if it had just run.
+
+`trace.py`/`trace_inputs.py` implement this. `trace.json`, written into the run directory last and
+atomically after a successful run (`write_trace`) and removed before the next run executes
+(`remove_trace`), is what makes a directory's freshness self-certifying: its mere presence means
+"the last run here completed and succeeded" (S4 in `design-notes/13-foundations.md`). It records
+`flowrun_hash`, `design_hash`, `xeda_version`, a digest of every file of the installed xeda
+package (`xeda_code_digest`, once per process: an editable install keeps its version across
+edits) and of a plugin flow's own modules (`flow_code_digest`), the programs it started
+(`ProgramRecord`: resolved path, size, mtime; a container image by its ID), and every file as
+`(size, mtime_ns, content hash)` (`digest.record_file`): its **inputs** -- the design's files
+(`design_files`: one walker over `rtl` and `tb`, so a file-valued parameter counts), every existing
+file a path-typed setting names (`setting_files`: nested models too, not a dependency's settings;
+relative paths under the design root *and* the start directory) and the dependencies' outputs --
+**recorded just before the run starts** (`snapshot_inputs`, with `inputs_recorded_ns` as their
+racy threshold), so a file edited while the run goes on no longer matches; its **implicit
+inputs**, known only after the run (depfile entries, `yosys -E`, and `Flow.implicit_inputs`);
+and its **outputs** (artifacts, `results.json`, and every file the run wrote that a setting or a
+depfile names). Whether a file is an input or the run's own is decided by **origin, not
+location**: written during the run (mtime or inode change time at or after the start) in a run
+directory xeda manages, created directly in the `--cwd` directory, or written by the previous
+run too, it is the run's own; written during the run otherwise, it is recorded both ways (an
+unknown record, `MODIFIED_DURING_RUN`, if nothing recorded it before the run) so the next launch
+runs again. A program replaced during the run never matches either. It also carries a `run_id`
+for the run itself and, keyed by each dependency's run directory relative to the run root, the
+`run_id` of the dependency run it consumed (`dependency_runs`) -- provenance (S3), since there is
+no per-edge output digest yet (plan 2). `trace.check_trace` re-derives all of this
+(`trace_inputs.expectation`) and returns the first mismatch as the stale reason; a file counts as
+unchanged by size and mtime unless it was touched within 2s of its record (racy timestamps),
+otherwise by content hash, so a `touch` or a branch round-trip costs a hash, not a re-run, while
+a file restored with a stale mtime is still caught. A dependency that ran again always makes its
+depender stale too, even if nothing it declared as an input actually changed -- there is no
+cross-edge cutoff until declared inputs/outputs (plan 2). What is not tracked (each can make a
+stale result look fresh; `--rebuild all` is the escape): the contents of a directory a setting
+names (include directories, `lib_paths` directories); programs started indirectly (a compiler
+under `make`, Python packages such as cocotb); environment variables; files a tool finds on its
+own without reporting them; hand edits to a dependency's files that are not among its artifacts.
+Pin constraints fetched from a URL are not verifiable either, so a flow using them always runs.
+
+Dependencies are brought up to date first, then the depending flow is judged. Within one launch, a
+run directory is entered at most once: two configurations of one flow resolving to the same
+directory in one launch is a `FlowSettingsError` naming both requesters
+(`FlowLauncher._claim_run_dir`). A flow whose `Flow.always_runs()` gives a reason always runs,
+keeps no trace and reports that reason: `openfpgaloader` and a programming `open_xc7` ("it
+programs a device"), a flow asked for a fresh random seed ("it draws a new random seed"), nextpnr
+with pin constraints from a URL. Seeds are settings with fixed defaults (verilator and cocotb
+`random_seed = 1`; `randomize_seed` defaults to false), so a default configuration is reusable.
+
+`--clean` empties a flow's run directory before it runs and runs every flow ("make clean, then
+make"); refused together with `--cwd`. `--post-cleanup`/`--post-cleanup-purge` clean up after the
+*requested* flow completes, dependencies included but deferred to the end so a depender can still
+read a dependency's files; pruning removes the trace first, so a pruned run is not reused. A
+POSIX lock file (`<run dir>.lock`, `run_lock.py`; `.xeda.lock` inside the directory `--cwd`
+names; none on Windows) serializes concurrent launches of the same run directory; `xeda scrub`
+removes it with the directory. `--remote` mirrors into the chosen `--run-dirs` layout and refuses
+an explicit `--rebuild`/`--clean` (a remote run always runs fresh).
+
+`--cached-dependencies`/`--no-cached-dependencies`, `--incremental`/`--no-incremental`, and the
+launcher settings `cached_dependencies`, `skip_if_previous_run_exists`, `incremental`,
+`cleanup_before_run` are removed: each fails with `` `<name>` was removed: use <replacement>``,
+naming the option above. Flow settings named `clean`/`clean_before_run` are removed the same way
+(GHDL's former `clean` is now `clean_before_analyze`, an unrelated per-analysis setting).
 
 ### Other runners
 

@@ -397,6 +397,9 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         # output. `-T -Q` come with the tool's defaults already (`yosys`), and were given twice.
         if ss.log_file and not ss.verbose and not ss.debug:
             args.append("-q")
+        depfile = self.run_path / "yosys.d"
+        args += ["-E", depfile]
+        self.depfiles.append(depfile)
         self.yosys.run(*args)
 
     def parse_reports(self) -> bool:

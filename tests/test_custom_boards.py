@@ -203,6 +203,22 @@ def test_nextpnr_uses_custom_board_lpf(tmp_path, monkeypatch):
     assert f"--lpf={tmp_path / 'board files' / 'pins.lpf'}" in args
 
 
+def test_nextpnr_records_the_board_lpf_it_reads_as_an_implicit_input(tmp_path, monkeypatch):
+    """No setting names a board's pin constraints: the flow registers the file it read, so a
+    trace notices an edit to it."""
+    board_file(tmp_path)
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    settings = Nextpnr.Settings.from_input(
+        {"board": "MY_BOARD", "custom_boards_file": "board files/boards.toml"},
+        design_root=tmp_path,
+    )
+    flow = Nextpnr(settings, design, tmp_path / "nextpnr")
+    with flow._constraint_file("lpf") as lpf:
+        assert lpf == tmp_path / "board files" / "pins.lpf"
+    assert flow.implicit_inputs == [tmp_path / "board files" / "pins.lpf"]
+    assert flow.always_runs() is None  # a local file: the trace can verify it
+
+
 def test_nextpnr_resolves_bundled_board_lpf_against_bundled_database(tmp_path, monkeypatch):
     board = {"fpga": {"part": "LFE5U-85F-6BG381C"}, "lpf": "boards/ulx3s/board.lpf"}
     monkeypatch.setattr(xeda.board, "get_board_data", lambda name, custom=None: board)

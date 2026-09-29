@@ -291,3 +291,25 @@ def test_tool_output_redirect_is_none_by_default():
     finally:
         proc_utils.set_tool_output(None)
     assert proc_utils.tool_output_stream() is sys.stdout
+
+
+def test_run_process_pipes_output_when_the_redirect_has_no_file_descriptor():
+    """`set_tool_output` may point at a stream that exists only at the Python level -- an
+    `io.StringIO`, `click.testing.CliRunner`'s captured streams, an embedding program's own
+    redirected stdio -- and cannot be handed to `Popen(stdout=...)` as a file descriptor.
+    `run_process` used to hand it over anyway, which raised `io.UnsupportedOperation: fileno`
+    deep inside `subprocess` the moment any code ran a real flow under `--json`; it must instead
+    fall back to piping and copying, exactly as the highlighting path already does."""
+    import io
+
+    from xeda import proc_utils
+
+    previous = proc_utils.tool_output_redirect()
+    buffer = io.StringIO()
+    proc_utils.set_tool_output(buffer)
+    try:
+        run_process(sys.executable, ["-c", "print('hi')"])
+    finally:
+        proc_utils.set_tool_output(previous)
+
+    assert "hi" in buffer.getvalue()

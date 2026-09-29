@@ -79,6 +79,9 @@ class Openfpgaloader(FpgaSynthFlow):
 
         dependency_settings = {"nextpnr": ("fpga", "board", "custom_boards_file", "clocks")}
 
+    def always_runs(self) -> Optional[str]:
+        return "it programs a device"
+
     def init(self) -> None:
         """Select the FPGA packer and register the nextpnr dependency."""
         assert isinstance(self.settings, self.Settings)

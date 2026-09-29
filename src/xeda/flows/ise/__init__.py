@@ -162,6 +162,9 @@ class IseSynth(FpgaSynthFlow):
         }
 
     def run(self) -> None:
+        # here, not in `init()`, which also runs for a fresh flow whose outputs are reused
+        logger.info("Deleting previous artifacts as ISE needs to run in a clean directory.")
+        self.purge_run_path()
         assert isinstance(self.settings, self.Settings)
         # A previous run's outputs must not pass for this run's. Only they are removed, and only
         # inside the run directory.

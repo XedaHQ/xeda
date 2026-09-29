@@ -53,7 +53,6 @@ class Vcs(SimFlow):
     simv = Tool("./simv", version_flag=None)
 
     class Settings(SimFlow.Settings):
-        clean: bool = Field(True, description="Clean the run path before running")
         simv_flags: List[str] = Field(
             [],
             description="Extra arguments passed to the compiled simulator executable (simv). "
@@ -185,9 +184,6 @@ class Vcs(SimFlow):
             None,
             description="Set the VPD size limit in MB. When the limit is reached, the simulation overwrites older history",
         )
-
-    def clean(self):
-        super().purge_run_path()
 
     def init(self):
         assert isinstance(self.settings, self.Settings)
