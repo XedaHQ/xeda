@@ -428,18 +428,44 @@ def registered_input_files(flow: Flow) -> list[Path]:
     return _existing_files(flow.implicit_inputs, flow.run_path)
 
 
-def implicit_input_files(flow: Flow) -> list[Path]:
+def installation_prefixes(programs: Sequence[str]) -> list[Path]:
+    """The installation prefix of each host program among `programs`: the directory above the
+    `bin/` its resolved executable lies in. A container image has none (its paths are not host
+    paths), nor has a program outside a `bin/` directory or one found nowhere."""
+    prefixes = []
+    for name in programs:
+        if name.startswith(DOCKER_IMAGE_PREFIX):
+            continue
+        where = locate_program(name)
+        if where is None:
+            continue
+        parent = Path(where).parent
+        if parent.name == "bin" and parent.parent != parent.parent.parent:
+            prefixes.append(parent.parent)
+    return prefixes
+
+
+def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]:
     """Every existing file the flow read that is known only after its run: those a depfile its
-    tools wrote (`yosys -E`, ...) names, and those it registered in `Flow.implicit_inputs`
-    (including the ones its `init()` registered, which are expected inputs already). Where a
-    file lies decides whether it is an input or the run's own (`build_trace`)."""
+    tools wrote (`yosys -E`, ...) names, except the tool's own installation's files (under the
+    prefix of a program in `programs`: internal to the tool, and xeda stays agnostic to how
+    tools are installed), and those it registered in `Flow.implicit_inputs` (including the ones
+    its `init()` registered, which are expected inputs already). Where a file lies decides
+    whether it is an input or the run's own (`build_trace`)."""
+    prefixes = installation_prefixes(programs)
     named = [
         dep
         for depfile in flow.depfiles
         if depfile.is_file()
         for dep in parse_depfile(depfile, flow.run_path)
+        if not any(_resolved(dep, flow.run_path).is_relative_to(prefix) for prefix in prefixes)
     ]
     return _existing_files([*named, *flow.implicit_inputs], flow.run_path)
+
+
+def _resolved(path: Path, run_path: Path) -> Path:
+    """`path` (relative ones under `run_path`) with symbolic links resolved, existing or not."""
+    return (path if path.is_absolute() else run_path / path).resolve()
 
 
 def _package_files(directory: Path) -> List[Path]:
@@ -721,7 +747,7 @@ def build_trace(
     inputs: Dict[str, FileRecord] = {}
     implicit: Dict[str, FileRecord] = {}
     named = set(setting_files(input_settings)) - bookkeeping
-    implicit_paths = implicit_input_files(flow)
+    implicit_paths = implicit_input_files(flow, programs)
     referenced = set(snapshot.expected) | named | set(implicit_paths)
     for path in referenced:
         if not own(path):
