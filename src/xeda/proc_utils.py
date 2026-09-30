@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, Union
 
 import colorama
+import psutil
 
 from .utils import ExecutableNotFound, NonZeroExitCode, replacing_file
 
@@ -213,13 +214,18 @@ class _Deadline:
     def __enter__(self) -> "_Deadline":
         return self
 
+    def _exited_unreaped(self) -> bool:
+        """Whether the leader has exited but is still ours to reap (a zombie), read without
+        `wait`/`poll`/`waitpid`, which would release its pid and group id."""
+        try:
+            return psutil.Process(self.proc.pid).status() == psutil.STATUS_ZOMBIE
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            return True
+
     def _wait_unreaped(self) -> None:
         """Give the POSIX leader its grace period without releasing its pid or group id."""
         end = time.monotonic() + PROCESS_STOP_GRACE
-        while True:
-            status = os.waitid(os.P_PID, self.proc.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
-            if status is not None and status.si_pid:
-                return
+        while not self._exited_unreaped():
             remaining = end - time.monotonic()
             if remaining <= 0:
                 return
