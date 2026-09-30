@@ -28,6 +28,7 @@ also needs `XEDA_TESTS_EXTERNAL_SLOW=1`.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -35,6 +36,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+try:
+    import fcntl
+
+    HAVE_FCNTL = True
+except ImportError:  # Windows: no lock, as for the run directories
+    HAVE_FCNTL = False
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
@@ -81,18 +89,39 @@ def _checked_out_sha(path: Path) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
+@contextlib.contextmanager
+def _cache_lock(dest: Path):
+    """Hold an exclusive lock beside `dest` while it is being filled or judged.
+
+    Under `pytest -n`, every worker process asks for the same checkout: without the lock one
+    would find another's half-fetched directory (no complete `.git` yet), take it for a broken
+    checkout and delete it under the other's feet. `flock` is released when the process ends,
+    however it ends."""
+    if not HAVE_FCNTL:
+        yield
+        return
+    with open(dest.parent / f"{dest.name}.lock", "a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def _fetch_pinned_commit(name: str, url: str, sha: str) -> Path:
-    """A checkout of `url` at the pinned commit `sha`, from the session cache -- fetched fresh
-    only when no cached checkout is already at that exact commit."""
+    """A checkout of `url` at the pinned commit `sha`, from the cache -- fetched fresh only when
+    no cached checkout is already at that exact commit. Safe to call from several processes at
+    once (`pytest -n`): they take turns, and the later ones find the finished checkout."""
     dest = _external_cache_dir() / f"{name}-{sha[:12]}"
-    if _checked_out_sha(dest) == sha:
-        return dest
-    if dest.exists():
-        shutil.rmtree(dest)
-    dest.mkdir(parents=True)
-    _run_git(["init", "-q"], dest)
-    _run_git(["fetch", "--depth", "1", url, sha], dest)
-    _run_git(["checkout", "-q", "FETCH_HEAD"], dest)
+    with _cache_lock(dest):
+        if _checked_out_sha(dest) == sha:
+            return dest
+        if dest.exists():
+            shutil.rmtree(dest)
+        dest.mkdir(parents=True)
+        _run_git(["init", "-q"], dest)
+        _run_git(["fetch", "--depth", "1", url, sha], dest)
+        _run_git(["checkout", "-q", "FETCH_HEAD"], dest)
     return dest
 
 
