@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from . import test_bsc_external
 from .test_bsc_external import HAVE_FCNTL, _checked_out_sha, _fetch_pinned_commit
 
 WORKERS = 6
@@ -66,3 +67,21 @@ def test_a_finished_checkout_is_reused_not_fetched_again(tmp_path, origin, monke
     (first / "marker").write_text("kept")
     assert _fetch_pinned_commit("repo", str(src), sha) == first
     assert (first / "marker").read_text() == "kept"
+
+
+@pytest.mark.parametrize("worker", [None, "gw0"], ids=["serial", "xdist"])
+def test_cache_access_without_fcntl_is_serial_only(tmp_path, origin, monkeypatch, worker):
+    src, sha = origin
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("XEDA_TESTS_EXTERNAL_CACHE", str(cache))
+    monkeypatch.setattr(test_bsc_external, "HAVE_FCNTL", False)
+    if worker is None:
+        monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+        dest = _fetch_pinned_commit("repo", str(src), sha)
+        assert _checked_out_sha(dest) == sha
+        assert (dest / "f199.txt").is_file()
+    else:
+        monkeypatch.setenv("PYTEST_XDIST_WORKER", worker)
+        with pytest.raises(pytest.skip.Exception, match="fcntl.*serial"):
+            _fetch_pinned_commit("repo", str(src), sha)
+        assert not list(cache.iterdir())

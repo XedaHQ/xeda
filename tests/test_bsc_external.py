@@ -14,6 +14,7 @@ cache directory: `XEDA_TESTS_EXTERNAL_CACHE` if set, otherwise the checkout's `x
 (which is git-ignored, like the rest of `xeda_run/`). An existing checkout already at the pinned
 commit is reused, across tests and across sessions. A failed fetch is a test failure, not a skip:
 under `XEDA_TESTS_EXTERNAL=1` this layer is expected to work.
+Parallel cache access skips on platforms without `fcntl`; run this layer serially there.
 
 Even when opted in, a missing or non-functional tool still skips (or, under
 `XEDA_TESTS_REQUIRE_TOOLS=1`, fails) through the ordinary `require_bsc`/`require_bluesim`/
@@ -98,6 +99,8 @@ def _cache_lock(dest: Path):
     checkout and delete it under the other's feet. `flock` is released when the process ends,
     however it ends."""
     if not HAVE_FCNTL:
+        if "PYTEST_XDIST_WORKER" in os.environ:
+            pytest.skip("external cache locking requires fcntl; run these tests serially")
         yield
         return
     with open(dest.parent / f"{dest.name}.lock", "a") as lock:
@@ -111,7 +114,8 @@ def _cache_lock(dest: Path):
 def _fetch_pinned_commit(name: str, url: str, sha: str) -> Path:
     """A checkout of `url` at the pinned commit `sha`, from the cache -- fetched fresh only when
     no cached checkout is already at that exact commit. Safe to call from several processes at
-    once (`pytest -n`): they take turns, and the later ones find the finished checkout."""
+    once (`pytest -n`): they take turns, and the later ones find the finished checkout. Without
+    `fcntl`, cache access skips in xdist workers; serial tests can still use the cache."""
     dest = _external_cache_dir() / f"{name}-{sha[:12]}"
     with _cache_lock(dest):
         if _checked_out_sha(dest) == sha:
