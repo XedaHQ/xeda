@@ -789,3 +789,79 @@ def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypa
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(design, "nextpnr", "host")
     assert composed["settings"].yosys.fpga.part == "LFE5U-25F-6BG381C"
+
+
+def _one_design(tmp_path, flows_toml: str):
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    return _write(
+        tmp_path / "d.toml",
+        f"""
+        name = "d"
+        [rtl]
+        sources = ["top.v"]
+        top = "top"
+        {flows_toml}
+        """,
+    )
+
+
+def test_a_design_files_own_section_beats_a_project_files_nested_value(
+    tmp_path, monkeypatch, launched
+):
+    """C1: origin decides first; nesting only breaks ties within one origin."""
+    monkeypatch.chdir(tmp_path)
+    _write(tmp_path / "xedaproject.toml", "[flows.nextpnr]\nyosys.flatten = true\n")
+    design = _one_design(
+        tmp_path,
+        '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n[flows.yosys_fpga]\nflatten = false\n',
+    )
+    with pytest.raises(_Launched):
+        DefaultRunner(tmp_path / "run").run("nextpnr", design)
+    assert launched["settings"]["yosys"]["flatten"] is False
+
+
+def test_within_one_origin_the_nested_value_beats_the_dependencys_own_section(
+    tmp_path, monkeypatch, launched
+):
+    monkeypatch.chdir(tmp_path)
+    design = _one_design(
+        tmp_path,
+        '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\nyosys.flatten = true\n'
+        "[flows.yosys_fpga]\nflatten = false\n",
+    )
+    with pytest.raises(_Launched):
+        DefaultRunner(tmp_path / "run").run("nextpnr", design)
+    assert launched["settings"]["yosys"]["flatten"] is True
+
+
+def test_run_flow_composes_the_sections_it_is_given(tmp_path, monkeypatch):
+    """C2: the API entry `run_flow(..., all_flows_settings=...)` composes like `run()`."""
+    seen = {}
+
+    def launch_flow(self, flow_class, design, flow_settings, **kwargs):
+        seen["settings"] = flow_settings
+        raise _Launched
+
+    monkeypatch.setattr(DefaultRunner, "launch_flow", launch_flow)
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    with pytest.raises(_Launched):
+        DefaultRunner(tmp_path / "run").run_flow(
+            Nextpnr,
+            design,
+            {"fpga": {"part": "LFE5U-25F-6BG381C"}},
+            all_flows_settings={"yosys_fpga": {"flatten": True}},
+        )
+    assert seen["settings"]["yosys"]["flatten"] is True
+    assert seen["settings"]["fpga"] == {"part": "LFE5U-25F-6BG381C"}
+
+
+def test_composing_twice_changes_nothing(tmp_path):
+    """`run()` composes, then `run_flow` composes its result again with the merged sections."""
+    from xeda.flow_runner.settings_layers import compose_flow_settings
+
+    project = {"nextpnr": {"yosys": {"flatten": True}, "seed": 1}}
+    design = {"yosys_fpga": {"flatten": False, "abc9": True}}
+    once = compose_flow_settings(Nextpnr, [project, design], {"seed": 3})
+    merged = merge_flow_sections(project, design)
+    assert compose_flow_settings(Nextpnr, [merged], once) == once
