@@ -167,6 +167,20 @@ struct AtExit {
     AtExit() { std::atexit(write_record_at_exit); }
 } g_at_exit;
 
+// xeda copies the model's output through a pipe (into `sim.log`), where the C runtime buffers
+// stdout in blocks: what the simulation printed before a time limit, a Ctrl-C or a crash stopped
+// it would be lost, and the rest shown late. Line-buffered, as on a terminal, each line is out
+// once printed -- in xeda's driver and a design's own alike, before either prints anything.
+struct LineBufferedStdout {
+    LineBufferedStdout() {
+#ifdef _WIN32
+        std::setvbuf(stdout, nullptr, _IONBF, 0);  // its C runtime has no line buffering
+#else
+        std::setvbuf(stdout, nullptr, _IOLBF, BUFSIZ);
+#endif
+    }
+} g_line_buffered_stdout;
+
 // Verilator's own message format (vl_print_warn_error in verilated.cpp): a message
 // "CODE: text" prints as "<prefix>-CODE: <file>:<line>: text".
 void print_message(const char* prefix, const char* filename, int linenum, const char* msg) {
