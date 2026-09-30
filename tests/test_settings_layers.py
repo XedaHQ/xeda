@@ -865,3 +865,80 @@ def test_composing_twice_changes_nothing(tmp_path):
     once = compose_flow_settings(Nextpnr, [project, design], {"seed": 3})
     merged = merge_flow_sections(project, design)
     assert compose_flow_settings(Nextpnr, [merged], once) == once
+
+
+def test_dash_s_flows_node_key_sets_a_dependencys_setting(tmp_path, monkeypatch, launched):
+    monkeypatch.chdir(tmp_path)
+    design = _one_design(
+        tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\nyosys.flatten = true\n'
+    )
+    with pytest.raises(_Launched):
+        DefaultRunner(tmp_path / "run").run(
+            "nextpnr", design, flow_settings=["flows.yosys_fpga.flatten=false", "seed=3"]
+        )
+    assert launched["settings"]["yosys"]["flatten"] == "false"  # command line beats the design file
+    assert launched["settings"]["seed"] == "3"
+    assert launched["all_flows"]["yosys_fpga"]["flatten"] == "false"
+
+
+def test_dash_s_key_and_flows_requested_key_are_one_leaf(tmp_path, monkeypatch, launched):
+    monkeypatch.chdir(tmp_path)
+    design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
+    with pytest.raises(_Launched):
+        DefaultRunner(tmp_path / "run").run(
+            "nextpnr", design, flow_settings=["seed=3", "flows.nextpnr.seed=3"]
+        )
+    assert launched["settings"]["seed"] == "3"
+    with pytest.raises(FlowSettingsError, match=r"seed.*flows\.nextpnr\.seed"):
+        DefaultRunner(tmp_path / "run").run(
+            "nextpnr", design, flow_settings=["seed=3", "flows.nextpnr.seed=4"]
+        )
+
+
+def test_no_flow_has_a_setting_named_flows():
+    """`flows` is the command line's reserved prefix for `-s flows.<node>.key`."""
+    from xeda.flow import registered_flows
+
+    assert not [
+        cls.name for _, cls in registered_flows.values() if "flows" in cls.Settings.model_fields
+    ]
+
+
+def test_dash_s_flows_must_name_a_flow_of_the_run(tmp_path, monkeypatch):
+    """R13: a typo in `-s flows.<name>` is an error with suggestions, never silently ignored."""
+    monkeypatch.chdir(tmp_path)
+    design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
+    with pytest.raises(FlowSettingsError, match=r"yosys_fpg.*yosys_fpga"):
+        DefaultRunner(tmp_path / "run").run(
+            "nextpnr", design, flow_settings=["flows.yosys_fpg.flatten=true"]
+        )
+
+
+def test_a_command_line_dependency_setting_beats_a_files_nested_value(
+    tmp_path, monkeypatch, launched
+):
+    monkeypatch.chdir(tmp_path)
+    design = _one_design(
+        tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\nyosys.abc9 = true\n'
+    )
+    with pytest.raises(_Launched):
+        DefaultRunner(tmp_path / "run").run(
+            "nextpnr", design, flow_settings=["flows.yosys_fpga.abc9=false"]
+        )
+    assert launched["settings"]["yosys"]["abc9"] == "false"
+
+
+def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeypatch):
+    """R7: the merge keeps every name, so a higher layer never hides an unknown one."""
+    monkeypatch.chdir(tmp_path)
+    _write(tmp_path / "xedaproject.toml", "[flows.nextpnr]\nno_such_setting = 1\n")
+    design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
+    with pytest.raises(FlowSettingsError, match="no_such_setting"):
+        DefaultRunner(tmp_path / "run").run("nextpnr", design, flow_settings=["seed=3"])
+
+
+def test_a_misdirected_setting_suggests_the_node_it_belongs_to(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
+    with pytest.raises(FlowSettingsError, match=r"-s flows\.yosys_fpga\.flatten"):
+        DefaultRunner(tmp_path / "run").run("nextpnr", design, flow_settings=["flatten=true"])
