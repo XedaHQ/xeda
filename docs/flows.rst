@@ -39,13 +39,14 @@ same flow. An unrecognized name suggests close matches.
 Settings
 ========
 
-Every flow declares its own settings. They can be given in four places, in increasing order of
+Every flow declares its own settings. They can be given in five places, in increasing order of
 precedence:
 
 1. the flow's own defaults
 2. a ``xedaproject.toml``'s ``flows.<flow_name>`` section
 3. the design file's ``[flows.<flow_name>]`` section
 4. the command line, via ``-s``/``--settings``
+5. the API, via ``flow_overrides``
 
 They merge key by key: ``-s yosys.flatten=true`` changes that one setting of a ``yosys`` section
 given in the design file, rather than replacing the whole section. Precedence goes by where a
