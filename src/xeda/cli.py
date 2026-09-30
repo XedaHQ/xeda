@@ -635,6 +635,7 @@ def _run_document(
     default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
     Example: --settings clock.period=2.345 impl.strategy=Debug
+    flows.<flow>.KEY=VALUE sets a setting of another flow of the run, e.g. -s flows.yosys_fpga.flatten=true.
     """,
     #  examples: # FIXME move to docs
     # - xeda vivado_sim --flow-settings stop_time=100us

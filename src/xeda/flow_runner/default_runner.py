@@ -62,7 +62,13 @@ from ..utils import (
 from ..version import __version__
 from ..xedaproject import XedaProject
 from .run_lock import lock_file, run_dir_lock
-from .settings_layers import compose_flow_settings, merge_flow_sections, merge_layers
+from .settings_layers import (
+    compose_flow_settings,
+    merge_flow_sections,
+    merge_layers,
+    split_flow_sections,
+    transitive_dependencies,
+)
 from .trace import (
     as_recorded,
     check_trace,
@@ -725,7 +731,9 @@ class FlowLauncher:
             flow_class = get_flow_class(flow_class)
         flow_name = flow_class.name
         runner_cwd = Path.cwd()
-        input_settings = self._input_settings(flow_class, flow_settings, design, runner_cwd)
+        input_settings = self._input_settings(
+            flow_class, flow_settings, design, runner_cwd, depender
+        )
         # D21: a deliverable given as a location becomes its conventional name here, before the
         # identity; the tools write that, and a delivery copies it to the location
         deliveries = split_deliveries(input_settings, design.name)
@@ -925,6 +933,7 @@ class FlowLauncher:
         flow_settings: dict[str, Any] | Flow.Settings | None,
         design: Design,
         runner_cwd: Path,
+        depender: Optional[Flow] = None,
     ) -> Flow.Settings:
         """Stage 1: the run's input settings, validated in context and owned by the launcher.
 
@@ -935,9 +944,14 @@ class FlowLauncher:
         if flow_settings is None:
             flow_settings = {}
         if isinstance(flow_settings, dict):
-            settings = flow_class.Settings.from_input(
-                flow_settings, design_root=design.root_path, runner_cwd=runner_cwd
-            )
+            try:
+                settings = flow_class.Settings.from_input(
+                    flow_settings, design_root=design.root_path, runner_cwd=runner_cwd
+                )
+            except FlowSettingsError as error:
+                if depender is None:
+                    self._suggest_dependency_node(flow_class, error)
+                raise
         elif not flow_settings.context:
             settings = flow_class.Settings.from_input(
                 # Preserve edits made inside default-created nested dependency settings. The
@@ -968,6 +982,21 @@ class FlowLauncher:
         flow_class.check_required_settings(settings)
         flow_class.check_design_supported(design)
         return settings
+
+    @staticmethod
+    def _suggest_dependency_node(flow_class: type[Flow], error: FlowSettingsError) -> None:
+        """Tell a setting that belongs to a dependency where it goes: `-s flows.<node>.key`."""
+        dependencies = transitive_dependencies(flow_class)
+        suggested = []
+        for location, message, context, kind in error.errors:
+            if kind == "extra_forbidden" and location and " -> " not in location:
+                owner = next(
+                    (d for d in dependencies.values() if location in d.Settings.model_fields), None
+                )
+                if owner is not None:
+                    message = f"{message}; did you mean -s flows.{owner.name}.{location}=...?"
+            suggested.append((location, message, context, kind))
+        error.errors = suggested
 
     def _run_identity(
         self, flow_name: str, design: Design, settings: Flow.Settings
@@ -1382,7 +1411,31 @@ class FlowLauncher:
             flows_settings, flow_class_for=_get_flow_class_if_known
         )
         design_sections = merge_flow_sections(design.flow, flow_class_for=_get_flow_class_if_known)
-        origins = [project_sections, design_sections]
+        # the command line's `-s flows.<node>.key` is the third origin; it may only name a flow
+        # of this run, and `-s key` is the requested flow's own leaf
+        cli_sections, flow_settings = split_flow_sections(
+            flow_settings, flow_class.name, flow_class_for=_get_flow_class_if_known
+        )
+        run_flows = {flow_class.name, *transitive_dependencies(flow_class)}
+        unknown = [name for name in cli_sections if name not in run_flows]
+        if unknown:
+            raise FlowSettingsError(
+                [
+                    (
+                        f"flows.{name}",
+                        f"`-s flows.{name}.*` names no flow of this run ({', '.join(sorted(run_flows))})"
+                        + "".join(
+                            f"; did you mean `flows.{m}`?"
+                            for m in difflib.get_close_matches(name, sorted(run_flows), n=3)
+                        ),
+                        None,
+                        "unknown_flow",
+                    )
+                    for name in unknown
+                ],
+                flow_class.Settings,
+            )
+        origins = [project_sections, design_sections, cli_sections]  # the three origins, in order
         # dependencies read their own merged section (`dependency_settings`), under the
         # depender's resolved nested value
         all_sections = merge_flow_sections(*origins, flow_class_for=_get_flow_class_if_known)

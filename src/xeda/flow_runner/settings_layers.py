@@ -23,7 +23,7 @@ from types import UnionType
 from typing import Annotated, Any, Union, get_args, get_origin
 
 from ..dataclass import XedaBaseModel, input_names
-from ..flow import Flow, registered_flows
+from ..flow import Flow, FlowSettingsError, registered_flows
 from ..utils import hierarchical_merge, settings_to_dict
 
 __all__ = [
@@ -31,6 +31,8 @@ __all__ = [
     "flow_settings_from_sections",
     "merge_flow_sections",
     "merge_layers",
+    "split_flow_sections",
+    "transitive_dependencies",
 ]
 
 #: One layer: a (possibly nested, possibly dotted-key) mapping, or `KEY=VALUE` strings.
@@ -267,6 +269,62 @@ def compose_flow_settings(
     """
     per_origin = [flow_settings_from_sections(flow_cls, sections or {}) for sections in origins]
     return merge_layers(*per_origin, *layers, settings_cls=flow_cls.Settings)
+
+
+def _leaves(mapping: Mapping[str, Any], prefix: tuple[str, ...] = ()) -> dict[tuple[str, ...], Any]:
+    """Every leaf of a nested mapping, keyed by its path."""
+    leaves: dict[tuple[str, ...], Any] = {}
+    for key, value in mapping.items():
+        if isinstance(value, Mapping) and value:
+            leaves.update(_leaves(value, (*prefix, key)))
+        else:
+            leaves[(*prefix, key)] = value
+    return leaves
+
+
+def split_flow_sections(
+    layer: Mapping[str, Any],
+    requested: str,
+    flow_class_for: Callable[[str], Any | None] | None = None,
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    """Split a command-line layer into its ``flows.<node>.*`` sections and the requested flow's
+    own settings. ``-s key`` and ``-s flows.<requested>.key`` name one leaf: the same value twice
+    is accepted, two different values are an error naming both spellings."""
+    own = settings_to_dict(layer)  # type: ignore[arg-type]
+    sections = merge_flow_sections(own.pop("flows", None) or {}, flow_class_for=flow_class_for)
+    requested_leaves = _leaves(sections.get(requested, {}))
+    conflicts = [
+        (".".join(path), value, requested_leaves[path])
+        for path, value in _leaves(own).items()
+        if path in requested_leaves and requested_leaves[path] != value
+    ]
+    if conflicts:
+        flow_cls = flow_class_for(requested) if flow_class_for is not None else None
+        raise FlowSettingsError(
+            [
+                (
+                    key,
+                    f"`-s {key}={a}` and `-s flows.{requested}.{key}={b}` set one setting to two "
+                    "values; give one",
+                    None,
+                    "conflicting_spellings",
+                )
+                for key, a, b in conflicts
+            ],
+            flow_cls.Settings if flow_cls is not None else requested,
+        )
+    return sections, own
+
+
+def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
+    """The flows `flow_cls` declares as dependencies, transitively, by canonical name."""
+    found: dict[str, type[Flow]] = {}
+    for field in flow_cls.Settings.dependency_settings:
+        dependency = _flow_of(flow_cls.Settings._dependency_settings_class(field))
+        if dependency is not None and dependency.name not in found:
+            found[dependency.name] = dependency
+            found.update(transitive_dependencies(dependency))
+    return found
 
 
 def _flow_of(settings_cls: type[Flow.Settings] | None) -> type[Flow] | None:
