@@ -41,7 +41,8 @@ Verify the installation with `xeda --version`.
 git clone --recursive https://github.com/XedaHQ/xeda.git
 cd xeda
 uv sync
-uv run pytest tests/
+uv run pytest tests/          # serial
+uv run pytest tests/ -n auto  # one worker per CPU, several times faster
 ```
 
 An editable pip installation also works if `uv` is unavailable.
