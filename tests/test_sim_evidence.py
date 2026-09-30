@@ -20,9 +20,10 @@ NOT_YET_CONVERTED = {
     "vivado_postsynth_sim": "P1b: xsim's end (a vivado_sim on the netlist)",
     "vivado_power": "P1b: xsim's end (activity simulation)",
     "yosys_sim": "P1b: the CXXRTL driver reports no end",
+    "bsc_sim": "Task 9 converts its Verilator backend",
 }
 #: Converted for some backends only: the rest are P1b.
-PARTLY_CONVERTED = {"bsc_sim": "Verilator converted in P1; Bluesim, Icarus and the others in P1b"}
+PARTLY_CONVERTED: dict[str, str] = {}
 
 
 def _sim_flows():
@@ -34,7 +35,6 @@ def _sim_flows():
     }
 
 
-@pytest.mark.xfail(strict=True, reason="Task 7 converts verilator")
 def test_every_simulator_flow_is_converted_or_listed_with_a_reason():
     converted = {"verilator"}
     assert _sim_flows() == converted | set(NOT_YET_CONVERTED) | set(PARTLY_CONVERTED)
@@ -137,3 +137,75 @@ def test_an_all_skipped_cocotb_run_fails(tmp_path):
     flow_results: dict = {}
     assert cocotb_verdict(results, flow_results) is False
     assert flow_results["cocotb.skipped"] == 2
+
+
+def test_verilator_reads_its_end_record(tmp_path):
+    from xeda.flows.verilator import parse_end_record
+
+    record = tmp_path / "xeda_end.json"
+    record.write_text(
+        '{"ended_by": "finish", "time": 64000, "time_unit": "1ps", "exit_code": null, "events": ['
+        '{"kind": "stop_maybe", "maybe": true, "file": "tb.sv", "line": 6, "time": 34000, "msg": ""},'
+        '{"kind": "stop_maybe", "maybe": false, "file": "tb.sv", "line": 9, "time": 44000, "msg": ""},'
+        '{"kind": "finish", "file": "tb.sv", "line": 11, "time": 64000, "msg": ""}]}'
+    )
+    evidence = parse_end_record(record)
+    assert [e.kind for e in evidence.events] == ["error", "fatal", "finish"]
+    assert evidence.ended_by == "finish" and evidence.time == 64000
+    assert evidence.events[0].location == "tb.sv:6"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "{",
+        "[]",
+        '{"ended_by": "finish", "events": [{"kind": "bogus"}]}',
+        '{"ended_by": "nonsense"}',
+        '{"ended_by": "finish", "events": [{"kind": "stop_maybe", "file": "tb.sv", "line": 1}]}',
+    ],
+)
+def test_a_malformed_end_record_is_no_evidence(tmp_path, text):
+    from xeda.flows.verilator import parse_end_record
+
+    record = tmp_path / "xeda_end.json"
+    record.write_text(text)
+    with pytest.raises(ValueError):
+        parse_end_record(record)
+
+
+FINISHED = (
+    '{"ended_by": "finish", "time": 34000, "time_unit": "1ps", "exit_code": null, "events": '
+    '[{"kind": "finish", "file": "tb.sv", "line": 2, "time": 34000, "msg": ""}]}\n'
+)
+
+
+def test_verilator_never_takes_a_previous_runs_end_record(tmp_path, monkeypatch):
+    """A passing end record, written by this run, passes; left by a previous run -- there,
+    unchanged, since the run started -- it is not read, and the run does not pass."""
+    from xeda import Design
+    from xeda.flows import Verilator
+
+    design = Design(
+        name="tb",
+        design_root=tmp_path,
+        rtl={"sources": [], "top": "tb"},
+        tb={"sources": [], "top": "tb"},
+    )
+    outcomes = {}
+    for age in ("this run's", "a previous run's"):
+        run_dir = tmp_path / age.replace(" ", "_").replace("'", "")
+        run_dir.mkdir()
+        monkeypatch.chdir(run_dir)
+        flow = Verilator({}, design, run_dir)
+        assert flow.has_evidence_adapter()
+        record = run_dir / flow.settings.sim_dir / "xeda_end.json"
+        record.parent.mkdir(parents=True)
+        if age == "a previous run's":
+            record.write_text(FINISHED)
+        flow.start_run()
+        if age == "this run's":
+            record.write_text(FINISHED)
+        outcomes[age] = (flow.check_results(), flow.results.get("sim.ended_by"))
+    assert outcomes == {"this run's": (True, "finish"), "a previous run's": (False, None)}

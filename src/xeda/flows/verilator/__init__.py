@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from glob import escape as glob_escape
@@ -8,11 +9,82 @@ from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Unio
 
 from ...dataclass import WORKING, Field, deliverable
 from ...design import SourceType
-from ...flow import Flow, SimFlow
-from ...tool import Tool
+from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
+from ...flow.sim import SimEvent, SimEvidence
+from ...tool import NonZeroExitCode, Tool
+from ...units import convert_unit
 from ...utils import replacing_copy, unique
 
 log = logging.getLogger(__name__)
+
+#: The end record xeda's hooks write in `sim_dir` (`templates/xeda_hooks.cpp`).
+END_RECORD = "xeda_end.json"
+#: Verilator's runtime functions xeda's hooks define in place of its own (verilated.cpp).
+HOOK_MACROS = (
+    "VL_USER_FINISH",
+    "VL_USER_STOP",
+    "VL_USER_FATAL",
+    "VL_USER_WARN",
+    "VL_USER_STOP_MAYBE",
+)
+#: An end record's event kinds, as `SimEvent` kinds; `stop_maybe` is classified by its `maybe`.
+_RECORD_EVENT_KINDS = {
+    "stop": "stop",
+    "fatal": "fatal",
+    "finish": "finish",
+    "warning": "warning",
+}
+
+
+def parse_end_record(path: Path) -> SimEvidence:
+    """The evidence in the end record xeda's Verilator hooks write (`templates/xeda_hooks.cpp`).
+    A `stop_maybe` event is an error (`$error`, a failed assertion, `$stop`) when `maybe` is true
+    and a fatal error (`$fatal`) when it is false. An unreadable or malformed record is a
+    `ValueError`."""
+    try:
+        data = json.loads(Path(path).read_bytes().decode("utf-8", errors="replace"))
+    except OSError as e:
+        raise ValueError(f"cannot read {path}: {e}") from e
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} holds no end record: {data!r}")
+    raw_events = data.get("events", [])
+    if not isinstance(raw_events, list):
+        raise ValueError(f"{path}: `events` is not a list")
+    events = []
+    for raw in raw_events:
+        if not isinstance(raw, dict):
+            raise ValueError(f"{path}: an event is not a mapping: {raw!r}")
+        kind = raw.get("kind")
+        if kind == "stop_maybe":
+            maybe = raw.get("maybe")
+            if not isinstance(maybe, bool):
+                raise ValueError(f"{path}: a stop_maybe event without `maybe`: {raw!r}")
+            kind = "error" if maybe else "fatal"
+        elif kind in _RECORD_EVENT_KINDS:
+            kind = _RECORD_EVENT_KINDS[kind]
+        else:
+            raise ValueError(f"{path}: unknown event kind {kind!r}")
+        file = raw.get("file")
+        events.append(
+            SimEvent.model_validate(
+                {
+                    "kind": kind,
+                    "time": raw.get("time"),
+                    "location": f"{file}:{raw.get('line')}" if file else None,
+                    "message": raw.get("msg") or "",
+                }
+            )
+        )
+    # a record's content is checked as the model's (pydantic's ValidationError is a ValueError)
+    return SimEvidence.model_validate(
+        {
+            "ended_by": data.get("ended_by"),
+            "time": data.get("time"),
+            "time_unit": data.get("time_unit"),
+            "exit_code": data.get("exit_code"),
+            "events": events,
+        }
+    )
 
 
 class Verilator(SimFlow):
@@ -21,9 +93,24 @@ class Verilator(SimFlow):
     Verilator compiles the design to C++ (or SystemC) and builds a native executable, which
     makes it the fastest open-source simulator for large designs. Supports cocotb testbenches,
     plain C++/SystemC harnesses, and VCD/FST waveform tracing.
+
+    The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (with cocotb,
+    always `rtl.top`). Without cocotb, a run passes only on evidence of how the simulation
+    ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in `sim_dir`):
+    xeda's own driver runs the model unless the design brings its own C++ driver, and the run
+    passes when it ends by `$finish` or at the requested `stop_time` -- or, with the design's
+    own driver, when that driver exits with status 0 -- and nothing reported reaches
+    `fail_severity`. An event queue that runs empty without a `$finish` fails.
     """
 
     cocotb_sim_name = "verilator"
+
+    results_description = describe_results(
+        "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+    )
+
+    #: the exit status of this run's model, once it has returned (0) or failed
+    _driver_exit_code: int | None = None
 
     class Settings(SimFlow.Settings):
         sim_dir: Path = Field(
@@ -155,6 +242,17 @@ class Verilator(SimFlow):
         trace_max_array: Optional[int] = Field(
             2048, description="Do not trace arrays with more than this many elements."
         )
+        timeout: float | None = Field(
+            None,
+            gt=0,
+            description="Stop the simulation after this many seconds of wall-clock time and fail "
+            "the run. None (the default) sets no limit.",
+        )
+        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
+            "error",
+            description="The least severe report that fails the run: `warning` ($warning), "
+            "`error` ($error, a failed assertion, $stop), `failure` or `fatal` ($fatal).",
+        )
 
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
@@ -166,6 +264,41 @@ class Verilator(SimFlow):
         if self.settings.random_init and self.settings.random_seed == "random":
             return "it draws a new random seed"
         return super().always_runs()
+
+    def has_evidence_adapter(self) -> bool:
+        """xeda's hooks record how the simulation ended, except under cocotb, whose own driver
+        runs the model and whose results decide the run."""
+        return not self.cocotb
+
+    def simulation_top(self) -> str:
+        """The simulated top module: the RTL top with cocotb (cocotb's `TOPLEVEL`); otherwise
+        the testbench's first `tb.top`, or else the RTL top."""
+        tb_top = None if self.cocotb else next(iter(self.design.tb.top), None)
+        top = tb_top or self.design.rtl.top
+        if not top:
+            raise FlowSettingsException("no simulation top: set tb.top or rtl.top")
+        return top
+
+    def own_driver(self) -> bool:
+        """Whether the design brings its own C++ driver (`Cpp` sources), which runs the model in
+        place of xeda's."""
+        return bool(self.design.sim_sources_of_type(SourceType.Cpp))
+
+    def simulation_evidence(self) -> SimEvidence | None:
+        """The end record this run's model wrote (`report_file`: this run's own only). A design's
+        own driver that ended the simulation by exiting has the status it exited with."""
+        assert isinstance(self.settings, self.Settings)
+        path = self.report_file(self.run_path / self.settings.sim_dir / END_RECORD)
+        if path is None:
+            return None
+        try:
+            evidence = parse_end_record(path)
+        except ValueError as e:
+            log.error("The simulation's end record %s cannot be read: %s", path, e)
+            return None
+        if evidence.ended_by == "exit" and evidence.exit_code is None and self.own_driver():
+            evidence.exit_code = self._driver_exit_code
+        return evidence
 
     def run(self):
         """Compile the design and run its Verilator simulation."""
@@ -179,8 +312,18 @@ class Verilator(SimFlow):
             docker="xeda-verilator",
         )
 
-        top = None  # self.design.sim_tops[0] if self.design.sim_tops else None
-        verilated_bin = os.path.join(ss.sim_dir, top or "top")
+        top = self.simulation_top()
+        sim_dir = Path(ss.sim_dir)
+        verilated_bin = os.path.join(ss.sim_dir, "top")
+        # without cocotb, xeda's hooks record how the simulation ends, in the design's own
+        # driver or else in xeda's
+        hooked = not self.cocotb
+        xeda_driver = hooked and not self.own_driver()
+        if xeda_driver and ss.generate_systemc:
+            raise FlowSettingsException(
+                "generate_systemc needs the design's own sc_main among its C++ sources: xeda's "
+                "driver runs a C++ model"
+            )
 
         compile_args = ss.compile_args
         parameters = self.design.tb.parameters
@@ -197,9 +340,6 @@ class Verilator(SimFlow):
 
         if ss.generate_executable:
             args += ["--exe"]
-
-        if not self.cocotb and not self.design.sim_sources_of_type(SourceType.Cpp):
-            args += ["--main"]
 
         if ss.build:
             args.append("--build")
@@ -226,16 +366,7 @@ class Verilator(SimFlow):
             ]
 
         args += ["-Mdir", ss.sim_dir]
-
-        if top:
-            args += ["--top-module", top]
-        else:
-            args += ["--prefix", "Vtop"]
-
-        args += [
-            "-o",
-            top or "top",
-        ]
+        args += ["--top-module", top, "--prefix", "Vtop", "-o", "top"]
 
         if self.cocotb or ss.vpi:
             args.append("--vpi")
@@ -286,7 +417,7 @@ class Verilator(SimFlow):
                 cocotb_docker.invalidate_cached_properties()
                 self.cocotb.docker = cocotb_docker
 
-        model_args = ss.model_args
+        model_args = [*ss.model_args]
         if ss.vcd:
             args += [
                 "--trace-vcd",
@@ -329,6 +460,30 @@ class Verilator(SimFlow):
         if cflags:
             args += ["-CFLAGS", " ".join(cflags)]
 
+        hooks: list[Any] = []
+        if hooked:
+            sim_dir.mkdir(parents=True, exist_ok=True)
+            header = self.copy_from_template(
+                "xeda_hooks.h", script_filename=sim_dir / "xeda_hooks.h"
+            )
+            hooks.append(
+                self.copy_from_template(
+                    "xeda_hooks.cpp", script_filename=sim_dir / "xeda_hooks.cpp"
+                )
+            )
+            if xeda_driver:
+                hooks.append(
+                    self.copy_from_template(
+                        "verilator_main.cpp",
+                        script_filename=sim_dir / "verilator_main.cpp",
+                        prefix="Vtop",
+                        threads=ss.threads or 1,
+                    )
+                )
+            for macro in HOOK_MACROS:
+                args += ["-CFLAGS", f"-D{macro}"]
+            args += ["-CFLAGS", f"-include {self.run_path / header}"]
+
         env = None
 
         # every header's directory, the testbench's included: Verilator compiles both
@@ -368,16 +523,38 @@ class Verilator(SimFlow):
                     cocotb_cpp = replacing_copy(cocotb_cpp_path, target)
                     assert cocotb_cpp.exists()
             if cocotb_cpp is None:
-                cocotb_cpp = self.copy_from_template("cocotb_verilator.cpp", top=top or "top")
+                cocotb_cpp = self.copy_from_template("cocotb_verilator.cpp", top="top")
             sources.append(cocotb_cpp)
 
-        verilator.run(*args, *sources)
+        verilator.run(*args, *sources, *hooks)
         if ss.random_init:
             # a seed of 0 would ask the model to pick one from the system's random generator
             seed = randint(1, 1 << 31) if ss.random_seed == "random" else ss.random_seed
             model_args += [f"+verilator+seed+{seed}", "+verilator+rand+reset+2"]
+        if hooked:
+            record = self.run_path / sim_dir / END_RECORD
+            # a previous run's record (or a link a tool left at its name) is never this run's
+            self.run_directory.remove(record, record.with_name(record.name + ".tmp"))
+            if xeda_driver:
+                model_args.append(f"+xeda+end_record+{record}")
+                if ss.stop_time is not None:
+                    # a bare number is nanoseconds (`SimFlow.Settings.stop_time`)
+                    stop_ps = round(convert_unit(ss.stop_time, "ps", from_unit="ns"))
+                    model_args.append(f"+xeda+stop_time_ps+{stop_ps}")
+            else:  # a design's own driver takes no arguments of xeda's
+                env = {**(env or {}), "XEDA_END_RECORD": str(record)}
         model = verilator.derive(verilated_bin)
-        model.run(*ss.model_args, env=env)
+        try:
+            model.run(
+                *model_args,
+                env=env,
+                timeout=ss.timeout,
+                tee=self.run_directory.writable(sim_dir / "sim.log"),
+            )
+        except NonZeroExitCode as e:
+            self._driver_exit_code = e.exit_code
+            raise
+        self._driver_exit_code = 0
 
     def rm_dep_files(self):
         """Remove the make dependency files in `sim_dir`, to trigger verilator (through the run
