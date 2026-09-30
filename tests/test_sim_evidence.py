@@ -75,6 +75,7 @@ class _Stub:
             None,
             False,
         ),  # nobody asked for a stop
+        (SimEvidence(ended_by="stop_time", time=15000), "15ns", False),  # no unit: unconfirmed
         (SimEvidence(ended_by="fatal", time=5), None, False),
         (SimEvidence(ended_by="error", time=5), None, False),
         (SimEvidence(ended_by="unknown"), None, False),
