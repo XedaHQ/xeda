@@ -62,7 +62,7 @@ from ..utils import (
 from ..version import __version__
 from ..xedaproject import XedaProject
 from .run_lock import lock_file, run_dir_lock
-from .settings_layers import flow_settings_from_sections, merge_flow_sections, merge_layers
+from .settings_layers import compose_flow_settings, merge_flow_sections, merge_layers
 from .trace import (
     as_recorded,
     check_trace,
@@ -1196,7 +1196,16 @@ class FlowLauncher:
         copy_resources: List[str] = [],
         all_flows_settings: Union[Dict, None] = None,
     ) -> Optional[Flow]:
-        # default run_flow() is launch_flow() but can be overridden in a subclass
+        """Launch `flow_class` on `design`. `all_flows_settings` (`flows` sections) are composed
+        into `flow_settings` exactly as `run()` composes the design's and project's sections
+        (`compose_flow_settings`); a `Flow.Settings` instance is taken as final."""
+        if all_flows_settings and depender is None and not isinstance(flow_settings, Flow.Settings):
+            flow_cls = get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class
+            sections = merge_flow_sections(
+                all_flows_settings, flow_class_for=_get_flow_class_if_known
+            )
+            flow_settings = compose_flow_settings(flow_cls, [sections], flow_settings or {})
+            all_flows_settings = sections
         return self.launch_flow(
             flow_class,
             design,
@@ -1367,18 +1376,19 @@ class FlowLauncher:
         # Canonicalize flow-section aliases and merge an embedded/project-selected design's own
         # settings too. Previously only an explicitly supplied design file reached this merge;
         # `[design.flows.*]` inside xedaproject.toml was silently ignored.
-        flows_settings = merge_flow_sections(
-            flows_settings,
-            design.flow,
-            flow_class_for=_get_flow_class_if_known,
+        # One origin per file, each normalized on its own: origin decides first, nesting only
+        # within one origin (`compose_flow_settings`).
+        project_sections = merge_flow_sections(
+            flows_settings, flow_class_for=_get_flow_class_if_known
         )
-
+        design_sections = merge_flow_sections(design.flow, flow_class_for=_get_flow_class_if_known)
+        origins = [project_sections, design_sections]
+        # dependencies read their own merged section (`dependency_settings`), under the
+        # depender's resolved nested value
+        all_sections = merge_flow_sections(*origins, flow_class_for=_get_flow_class_if_known)
         # `-s` wins over the design and project files, as documented; see `settings_layers`.
-        final_flow_settings = merge_layers(
-            flow_settings_from_sections(flow_class, flows_settings),
-            flow_settings,
-            flow_overrides,
-            settings_cls=flow_class.Settings,
+        final_flow_settings = compose_flow_settings(
+            flow_class, origins, flow_settings, flow_overrides
         )
         if self.settings.debug:
             log.info("design: %s" % PrettyPrinter().pformat(design.model_dump()))
@@ -1392,7 +1402,7 @@ class FlowLauncher:
             flow_class,
             design,
             final_flow_settings,
-            all_flows_settings=flows_settings,
+            all_flows_settings=all_sections,
         )
 
 

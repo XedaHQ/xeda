@@ -26,7 +26,12 @@ from ..dataclass import XedaBaseModel, input_names
 from ..flow import Flow, registered_flows
 from ..utils import hierarchical_merge, settings_to_dict
 
-__all__ = ["flow_settings_from_sections", "merge_flow_sections", "merge_layers"]
+__all__ = [
+    "compose_flow_settings",
+    "flow_settings_from_sections",
+    "merge_flow_sections",
+    "merge_layers",
+]
 
 #: One layer: a (possibly nested, possibly dotted-key) mapping, or `KEY=VALUE` strings.
 Layer = None | Mapping[str, Any] | Sequence[str]
@@ -241,6 +246,27 @@ def flow_settings_from_sections(
             if section:
                 dependencies[field] = section
     return merge_layers(dependencies, sections.get(flow_cls.name), settings_cls=flow_cls.Settings)
+
+
+def compose_flow_settings(
+    flow_cls: type[Flow],
+    origins: Sequence[Mapping[str, Any] | None],
+    *layers: Layer,
+) -> dict[str, Any]:
+    """`flow_cls`'s settings from `flows` sections given by origin, lowest precedence first
+    (project, design, command line, API), then `layers` -- the requested flow's own settings
+    (the command line's `-s`, then API overrides).
+
+    Each origin is composed on its own first -- a dependency's own section under the depender's
+    nested value for it (`flow_settings_from_sections`) -- and the composed origins are then
+    stacked. So a leaf is decided by where it was given first, and by nesting only within one
+    origin: a design file's ``[flows.yosys_fpga] flatten`` beats a project file's
+    ``[flows.nextpnr] yosys.flatten``, while within the design file ``[flows.nextpnr]
+    yosys.flatten`` beats ``[flows.yosys_fpga] flatten``. Composing a result again with the
+    merged sections below it changes nothing, so `run()` and `run_flow` may both compose.
+    """
+    per_origin = [flow_settings_from_sections(flow_cls, sections or {}) for sections in origins]
+    return merge_layers(*per_origin, *layers, settings_cls=flow_cls.Settings)
 
 
 def _flow_of(settings_cls: type[Flow.Settings] | None) -> type[Flow] | None:
