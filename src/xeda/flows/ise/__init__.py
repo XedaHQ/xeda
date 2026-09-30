@@ -32,8 +32,8 @@ class XTclSh(Tool):
             print_command: bool = True,
             highlight_rules: Optional[Dict[str, str]] = None,
             merge_stderr: bool = False,
-            timeout: Optional[float] = None,
-            tee: Optional[Path] = None,
+            timeout: float | None = None,
+            tee: Path | None = None,
         ) -> Union[None, str]:
             XILINX = "/opt/Xilinx/14.7/ISE_DS"
             args_str = " ".join(str(a) for a in args)

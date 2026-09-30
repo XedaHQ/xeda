@@ -11,7 +11,7 @@ import subprocess
 import sys
 import termios
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -134,35 +134,90 @@ class ProcessTimeout(NonZeroExitCode):
 
 
 class _Deadline:
-    """Stops `proc` and every process it started (its own session) once `timeout` seconds pass."""
+    """Watches `proc`: once `timeout` seconds pass (`None`: never) while it still runs, stops it
+    and, when it leads a session of its own (`group`, POSIX), every process it started.
 
-    def __init__(self, proc: "subprocess.Popen[Any]", timeout: Optional[float]) -> None:
+    Used as a context manager around everything that waits for `proc`: on leaving it, the timer
+    is cancelled and its thread joined, so nothing signals afterwards; an exception (Ctrl-C
+    included) stops and reaps the process, and its group, before it propagates. `on_stop` runs
+    after a process was stopped, for what killing the process does not reach (a container)."""
+
+    def __init__(
+        self,
+        proc: "subprocess.Popen[Any]",
+        timeout: float | None,
+        *,
+        group: bool = False,
+        on_stop: Callable[[], None] | None = None,
+    ) -> None:
         self.proc, self.expired = proc, False
-        self._timer = threading.Timer(timeout, self._expire) if timeout else None
+        self._group = group and os.name == "posix"
+        self._on_stop = on_stop
+        self._lock = threading.Lock()
+        self._cancelled = False
+        self._timer = threading.Timer(timeout, self._expire) if timeout is not None else None
         if self._timer is not None:
             self._timer.daemon = True
             self._timer.start()
 
-    def _expire(self) -> None:
-        self.expired = True
+    def _signal(self, sig: int) -> None:
         try:
-            if os.name == "posix":
-                os.killpg(self.proc.pid, signal.SIGKILL)
+            if self._group:
+                os.killpg(self.proc.pid, sig)
             else:
-                self.proc.kill()
+                self.proc.send_signal(sig)
         except (ProcessLookupError, PermissionError):
             pass
 
+    def _stopped(self) -> None:
+        if self._on_stop is not None:
+            try:
+                self._on_stop()
+            except Exception as e:  # stopping is best effort
+                log.warning("Stopping %s failed: %s", self.proc.args, e)
+
+    def _expire(self) -> None:
+        with self._lock:
+            # a process that ended by itself is not a timeout; `poll` not `None` also means the
+            # pid (and group) is not yet reaped, hence not recycled
+            if self._cancelled or self.proc.poll() is not None:
+                return
+            self.expired = True
+            self._signal(signal.SIGKILL)
+        self._stopped()
+
     def cancel(self) -> None:
+        with self._lock:
+            self._cancelled = True
         if self._timer is not None:
             self._timer.cancel()
+            if self._timer is not threading.current_thread():
+                self._timer.join()
+
+    def __enter__(self) -> "_Deadline":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self.cancel()
+        if exc_type is not None and self.proc.poll() is None:
+            log.debug("Stopping %s(pid=%s)", self.proc.args, self.proc.pid)
+            self._signal(signal.SIGTERM)
+            self._stopped()
+            try:
+                self.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                self._signal(signal.SIGKILL)
+        if exc_type is not None:
+            if self._group:  # what the leader started may outlive it
+                self._signal(signal.SIGKILL)
+            self.proc.wait()
 
 
 def _needs_line_copy(
     stdout: Union[None, bool, str, os.PathLike],
     highlight_rules: Optional[Dict[str, str]],
     redirect: Optional[TextIO],
-    tee: Optional[Path] = None,
+    tee: Path | None = None,
 ) -> bool:
     """Whether a child's stdout must be piped and copied to `tool_output_stream()` line by line
     in Python, rather than handed to `Popen` directly.
@@ -241,18 +296,25 @@ def run_process(
     print_command: bool = False,
     highlight_rules: Optional[Dict[str, str]] = None,
     merge_stderr: bool = False,
-    timeout: Optional[float] = None,
-    tee: Optional[Path] = None,
+    timeout: float | None = None,
+    tee: Path | None = None,
+    on_stop: Callable[[], None] | None = None,
 ) -> Union[None, str]:
     """Run `executable`; return its captured stdout when `stdout` is True.
 
     `timeout`: stop the process, and those it started, after this many seconds, raising
     `ProcessTimeout`. `tee`: also write every line of the output to this file, through
-    `utils.replacing_file` with `keep_on_error=True` (only when the output is not captured).
+    `utils.replacing_file` with `keep_on_error=True`; the output is then not captured, so `tee`
+    with a `stdout` other than `None` is a `ValueError`. `on_stop` runs when the process was
+    stopped (timeout or interrupt), for what killing it does not reach.
 
     `merge_stderr` folds the child's stderr into the captured stdout. Only meaningful while
     capturing (`stdout=True`), and needed for tools that print their version banner to stderr.
     """
+    if timeout is not None and not timeout > 0:
+        raise ValueError(f"timeout must be a positive number of seconds, not {timeout!r}")
+    if tee is not None and stdout is not None:
+        raise ValueError("`tee` copies the output while showing it: not with `stdout` given")
     note_program(str(executable))
     if args is None:
         args = []
@@ -284,38 +346,41 @@ def run_process(
             start_new_session=new_session,
         ) as proc:
             assert proc.stdout is not None, f"Popen for '{cmd_str}' failed: stdout is None!"
-            deadline = _Deadline(proc, timeout)
-
             terminal_fd = _stdout_terminal_fd()
-            with contextlib.ExitStack() as stack:
-                tee_file = (
-                    stack.enter_context(replacing_file(tee, encoding="utf-8", keep_on_error=True))
-                    if tee is not None
-                    else None
-                )
-                proc_stdout = stack.enter_context(
-                    open(proc.stdout.fileno(), errors="ignore", closefd=False)
-                )
-                for line in proc_stdout:
-                    if tee_file is not None:
-                        tee_file.write(line)
-                    for re_pat, subs in highlight_rules_re.items():
-                        line, matches = re_pat.subn(subs + colorama.Style.RESET_ALL, line, count=1)
-                        if matches > 0:
-                            break
-                    # Re-checked per line rather than once up front: a tool can
-                    # switch the terminal into raw mode while it runs and restore
-                    # it on exit, so this is not fixed for the duration of the
-                    # call. The check costs well under a microsecond.
-                    print(
-                        line,
-                        end="\r" if _needs_explicit_carriage_return(terminal_fd) else "",
-                        file=tool_output_stream(),
+            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+                with contextlib.ExitStack() as stack:
+                    tee_file = (
+                        stack.enter_context(
+                            replacing_file(tee, encoding="utf-8", keep_on_error=True)
+                        )
+                        if tee is not None
+                        else None
                     )
-            ret = proc.wait()
-            deadline.cancel()
+                    proc_stdout = stack.enter_context(
+                        open(proc.stdout.fileno(), errors="ignore", closefd=False)
+                    )
+                    for line in proc_stdout:
+                        if tee_file is not None:
+                            tee_file.write(line)
+                        for re_pat, subs in highlight_rules_re.items():
+                            line, matches = re_pat.subn(
+                                subs + colorama.Style.RESET_ALL, line, count=1
+                            )
+                            if matches > 0:
+                                break
+                        # Re-checked per line rather than once up front: a tool can
+                        # switch the terminal into raw mode while it runs and restore
+                        # it on exit, so this is not fixed for the duration of the
+                        # call. The check costs well under a microsecond.
+                        print(
+                            line,
+                            end="\r" if _needs_explicit_carriage_return(terminal_fd) else "",
+                            file=tool_output_stream(),
+                        )
+                ret = proc.wait()
             if deadline.expired:
-                raise ProcessTimeout(command, timeout)  # type: ignore[arg-type]
+                assert timeout is not None
+                raise ProcessTimeout(command, timeout)
             if check and ret != 0:
                 raise NonZeroExitCode(command, ret)
             return None
@@ -332,6 +397,7 @@ def run_process(
     else:
         cm = contextlib.nullcontext
 
+    out = err = ""
     with cm() as f:
         with subprocess.Popen(
             [executable, *args],
@@ -350,44 +416,27 @@ def run_process(
             start_new_session=new_session,
         ) as proc:
             log.debug("Started %s[%d]", executable, proc.pid)
-            deadline = _Deadline(proc, timeout)
-            try:
+            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
                 if stdout:
                     if isinstance(stdout, bool):
                         out, err = proc.communicate(timeout=None)
-                        deadline.cancel()
-                        if deadline.expired:
-                            raise ProcessTimeout(command, timeout)  # type: ignore[arg-type]
-                        if check and proc.returncode != 0:
-                            raise NonZeroExitCode(proc.args, proc.returncode)
-                        if err:
-                            print(err, file=sys.stderr)
-                        return out.strip()
                     else:
                         log.info(
                             "Standard output is redirected to: %s",
                             os.path.abspath(stdout),
                         )
-                proc.wait()
-                deadline.cancel()
-            except KeyboardInterrupt as e:
-                try:
-                    log.debug(
-                        "Received KeyboardInterrupt! Terminating %s(pid=%s)",
-                        executable,
-                        proc.pid,
-                    )
-                    proc.terminate()
-                except OSError as e2:
-                    log.warning("Terminate failed: %s", e2)
-                finally:
-                    deadline.cancel()
+                        proc.wait()
+                else:
                     proc.wait()
-                    raise e from None
         if deadline.expired:
-            raise ProcessTimeout(command, timeout)  # type: ignore[arg-type]
+            assert timeout is not None
+            raise ProcessTimeout(command, timeout)
         if check and proc.returncode != 0:
             raise NonZeroExitCode(proc.args, proc.returncode)
+        if stdout and isinstance(stdout, bool):
+            if err:
+                print(err, file=sys.stderr)
+            return out.strip()
 
     return None
 
