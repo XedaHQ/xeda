@@ -32,7 +32,8 @@ from .utils import (
 
 log = logging.getLogger(__name__)
 
-#: How long `docker kill` of a stopped run's container may take, in seconds.
+#: How long `docker kill` of a stopped run's container may take, in seconds: the only bound
+#: of `Docker.run`'s stop hook, which `run_process` runs on the waiting thread, unbounded.
 DOCKER_KILL_TIMEOUT = 30
 
 __all__ = [
@@ -168,6 +169,7 @@ class Docker(XedaBaseModel):
         cmd = ["run", "--name", container, *docker_args, image, *command, *args]
 
         def kill_container() -> None:
+            # `run_process`'s `on_stop`: the caller waits for it; `DOCKER_KILL_TIMEOUT` bounds it
             try:  # already gone is fine: `--rm` removed it after it exited on its own
                 run_process(
                     self.cli,
