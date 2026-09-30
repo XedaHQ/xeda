@@ -1,3 +1,7 @@
+import json
+import os
+from pathlib import Path
+
 import click
 from click.testing import CliRunner
 
@@ -66,3 +70,59 @@ def test_machine_readable_mode_does_not_leak_between_invocations():
     second = runner.invoke(cli, ["list-flows"])
     assert second.exit_code == 0
     assert "vivado_synth" in _output(second), "human-facing output went to the previous stream"
+
+
+SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.toml"
+FAKE_TOOLS = Path(__file__).parent / "fake_tools"
+
+
+def _fake_vivado(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(FAKE_TOOLS) + os.pathsep + os.environ["PATH"])
+    monkeypatch.chdir(tmp_path)
+
+
+def test_dash_s_stops_before_the_design_file(tmp_path, monkeypatch):
+    _fake_vivado(tmp_path, monkeypatch)
+    result = CliRunner().invoke(
+        cli, ["run", "vivado_synth", "-s", "fpga.part=xc7a12tcsg325-1", str(SQRT), "--json"]
+    )
+    document = json.loads(result.stdout)
+    assert result.exit_code == 0, document
+    assert document["design"] == "sqrt"
+
+
+def test_dash_s_keeps_a_value_that_contains_equals_signs():
+    """Only the first `=` splits key from value; the list still ends at a bare token."""
+    from xeda.cli_utils import OptionEatAll
+
+    seen = {}
+
+    @click.command()
+    @click.option("-s", "settings", cls=OptionEatAll, type=tuple)
+    @click.argument("design", required=False)
+    def command(settings, design):
+        seen.update(settings=settings, design=design)
+
+    result = CliRunner().invoke(command, ["-s", "a=b=c", "x=1", "design.toml"])
+    assert result.exit_code == 0, result.output
+    assert seen == {"settings": ("a=b=c", "x=1"), "design": "design.toml"}
+
+
+def test_a_missing_design_after_dash_s_is_reported_as_missing(tmp_path, monkeypatch):
+    _fake_vivado(tmp_path, monkeypatch)
+    result = CliRunner().invoke(
+        cli, ["run", "vivado_synth", "-s", "fpga.part=xc7a12tcsg325-1", "missing.toml", "--json"]
+    )
+    document = json.loads(result.stdout)
+    assert not document["success"]
+    assert "missing.toml" in document["error"]["message"]
+
+
+def test_dash_s_needs_key_value_items(tmp_path, monkeypatch):
+    """R11: a bare first token is an error naming it, never silently taken as the design."""
+    _fake_vivado(tmp_path, monkeypatch)
+    result = CliRunner().invoke(cli, ["run", "vivado_synth", "-s", "missing.toml", "--json"])
+    document = json.loads(result.stdout)
+    assert not document["success"]
+    message = document["error"]["message"]
+    assert "KEY=VALUE" in message and "missing.toml" in message

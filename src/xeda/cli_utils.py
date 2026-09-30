@@ -122,6 +122,9 @@ class ClickMutex(click.Option):
 class OptionEatAll(click.Option):
     """
     Taken from https://stackoverflow.com/questions/48391777/nargs-equivalent-for-options-in-click#answer-48394004.
+
+    Takes `KEY=VALUE` items up to the next option or the first token that is not `KEY=VALUE`;
+    the first item must be `KEY=VALUE`.
     """
 
     @overrides
@@ -137,16 +140,20 @@ class OptionEatAll(click.Option):
     def add_to_parser(self, parser, ctx):
         def parser_process(value: str, state):
             """method to hook to the parser.process"""
+            if "=" not in value:
+                raise click.UsageError(
+                    f"{'/'.join(self.opts)} takes KEY=VALUE items; got {value!r}", ctx=ctx
+                )
             value_list = [value]
             if self._eat_all_parser is not None and self.save_other_options:
-                # grab everything up to the next option
-                done = False
+                # grab every KEY=VALUE item up to the next option; a token without `=` (the
+                # design file, a mistyped path) ends the list, so the command line's positional
+                # arguments are never eaten as settings
                 while state.rargs:
-                    for prefix in self._eat_all_parser.prefixes:
-                        if state.rargs[0].startswith(prefix):
-                            done = True
-                            break
-                    if done:
+                    token = state.rargs[0]
+                    if any(token.startswith(prefix) for prefix in self._eat_all_parser.prefixes):
+                        break
+                    if "=" not in token:
                         break
                     value_list.append(state.rargs.pop(0))
             else:
