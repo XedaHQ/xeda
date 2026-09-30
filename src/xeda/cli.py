@@ -633,7 +633,7 @@ def _run_document(
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
+    help="""Override setting values for the executed flow. Separate multiple KEY=VALUE items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
     Example: --settings clock.period=2.345 impl.strategy=Debug
     flows.<flow>.KEY=VALUE sets a setting of another flow of the run, e.g. -s flows.yosys_fpga.flatten=true.
     """,
@@ -975,7 +975,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    help="""Override setting values for the executed flow. Separate multiple KEY=VALUE overrides with commas. KEY can be a hierarchical name using dot notation.
+    help="""Override setting values for the executed flow. Separate multiple KEY=VALUE items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
     Example: --settings clock.period=2.345 impl.strategy=Debug
     """,
 )

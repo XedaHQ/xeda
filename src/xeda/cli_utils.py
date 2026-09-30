@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import sys
 from contextlib import contextmanager
 from typing import (
@@ -119,6 +120,15 @@ class ClickMutex(click.Option):
         return super().handle_parse_result(ctx, opts, args)
 
 
+_SETTING_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*")
+
+
+def _is_key_value(token: str) -> bool:
+    """`KEY=VALUE` with a KEY shaped like a settings key (never a path such as `dir/a=b.toml`)."""
+    key, sep, _ = token.partition("=")
+    return bool(sep) and _SETTING_KEY.fullmatch(key) is not None
+
+
 class OptionEatAll(click.Option):
     """
     Taken from https://stackoverflow.com/questions/48391777/nargs-equivalent-for-options-in-click#answer-48394004.
@@ -140,20 +150,20 @@ class OptionEatAll(click.Option):
     def add_to_parser(self, parser, ctx):
         def parser_process(value: str, state):
             """method to hook to the parser.process"""
-            if "=" not in value:
+            if not _is_key_value(value):
                 raise click.UsageError(
                     f"{'/'.join(self.opts)} takes KEY=VALUE items; got {value!r}", ctx=ctx
                 )
             value_list = [value]
             if self._eat_all_parser is not None and self.save_other_options:
                 # grab every KEY=VALUE item up to the next option; a token without `=` (the
-                # design file, a mistyped path) ends the list, so the command line's positional
+                # design file, a mistyped path, `dir/a=b.toml`) ends the list, so the command line's positional
                 # arguments are never eaten as settings
                 while state.rargs:
                     token = state.rargs[0]
                     if any(token.startswith(prefix) for prefix in self._eat_all_parser.prefixes):
                         break
-                    if "=" not in token:
+                    if not _is_key_value(token):
                         break
                     value_list.append(state.rargs.pop(0))
             else:
