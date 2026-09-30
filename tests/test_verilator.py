@@ -111,7 +111,6 @@ def _launch(
             {"timing": True, "fail_severity": "failure"},
             "finish",
             True,
-            marks=pytest.mark.xfail(strict=True, reason="Task 8"),
         ),
         (
             'initial begin #5 $fatal(1, "f"); end',
@@ -124,7 +123,6 @@ def _launch(
             {"timing": True, "fail_severity": "warning"},
             "finish",
             False,
-            marks=pytest.mark.xfail(strict=True, reason="Task 8"),
         ),
     ],
 )
@@ -226,3 +224,68 @@ def test_verilator_judges_the_designs_own_driver_by_its_exit(
 
 if __name__ == "__main__":
     test_verilator_sim_py()
+
+
+def test_verilator_defaults_do_not_randomize(tmp_path):
+    from xeda.flows.verilator import MIN_VERILATOR_VERSION
+
+    ss = Verilator.Settings()
+    assert ss.random_init is False and ss.x_initial == "0" and ss.x_assign == "0"
+    assert ss.fail_severity == "error"
+    assert MIN_VERILATOR_VERSION == (5, 24)
+
+
+def test_the_model_arguments_are_not_written_into_the_settings(tmp_path):
+    """M7: `--trace`, the seed and xeda's own arguments are the run's, not the user's."""
+    require_verilator()
+    flow = _launch(
+        tmp_path,
+        "initial begin #1 $finish; end",
+        {"timing": True, "vcd": "w.vcd", "random_init": True},
+    )
+    assert flow.settings.model_args == []
+
+
+def test_rtl_parameters_reach_a_cocotb_top(tmp_path):
+    """M4: with cocotb the simulated top is the RTL top, so `rtl.parameters` apply to it."""
+    require_verilator()
+    require_cocotb()
+    (tmp_path / "dut.sv").write_text(
+        "module dut #(parameter W = 1) (output logic [W-1:0] y); assign y = '1; endmodule\n"
+    )
+    (tmp_path / "tb_dut.py").write_text(
+        "import cocotb\n"
+        "from cocotb.triggers import Timer\n"
+        "@cocotb.test()\n"
+        "async def width(dut):\n"
+        "    await Timer(1, 'ns')\n"
+        "    assert int(dut.y.value) == 15\n"
+    )
+    design = Design(
+        name="dut",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.sv"], "top": "dut", "parameters": {"W": 4}},
+        tb={"sources": ["tb_dut.py"], "cocotb": True},
+    )
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(Verilator, design)
+    assert flow is not None and flow.succeeded
+
+
+def test_stop_time_is_refused_where_it_cannot_be_enforced(tmp_path):
+    from xeda.flow import FlowSettingsException
+
+    (tmp_path / "dut.sv").write_text("module dut; endmodule\n")
+    (tmp_path / "tb_dut.py").write_text("")
+    (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
+    cases = {
+        "cocotb": ({"sources": ["tb_dut.py"], "cocotb": True}, "with cocotb"),
+        "cpp": ({"sources": ["main.cpp"]}, "design.s own C\\+\\+ driver"),
+    }
+    for name, (tb, text) in cases.items():
+        design = Design(
+            name=name, design_root=tmp_path, rtl={"sources": ["dut.sv"], "top": "dut"}, tb=tb
+        )
+        settings = Verilator.Settings.from_input({"stop_time": "10ns"}, design_root=tmp_path)
+        flow = Verilator(settings, design, tmp_path / "run")
+        with pytest.raises(FlowSettingsException, match=text):
+            flow.init()
