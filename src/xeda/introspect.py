@@ -27,6 +27,7 @@ from pydantic import BaseModel
 from .dataclass import PydanticUndefined, input_names, written_role
 from .design import Design
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
+from .flow.io import declared_inputs, declared_outputs, is_declared
 from .flow_runner import get_flow_class
 from .flows import __builtin_flows__
 from .utils import json_encodable, toml_load, unique, with_json_keys
@@ -153,7 +154,32 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         "description": _own_docstring(cls),
         "category": _category(cls),
         "supports_cocotb": bool(getattr(cls, "cocotb_sim_name", None)),
-        "dependencies": _declared_dependencies(cls),
+        "dependencies": unique(
+            _declared_dependencies(cls)
+            + [d.producer for d in declared_inputs(cls).values() if d.producer is not None]
+        ),
+        "declared": is_declared(cls),
+        "inputs": [
+            {
+                "name": d.name,
+                "types": [t.name for t in d.types],
+                "cardinality": d.cardinality,
+                "producer": d.producer,
+                "output": d.output,
+                "description": d.description,
+            }
+            for d in declared_inputs(cls).values()
+        ],
+        "outputs": [
+            {
+                "name": d.name,
+                "types": [t.name for t in d.types],
+                "cardinality": d.cardinality,
+                "enabled_by": d.enabled_by,
+                "description": d.description,
+            }
+            for d in declared_outputs(cls).values()
+        ],
         "settings_class": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
     }
 

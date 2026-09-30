@@ -15,7 +15,7 @@ import pytest
 from xeda.dataclass import annotation_args
 from xeda.flow import Flow, describe_results
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
-from xeda.introspect import all_flow_classes, results_info, settings_info
+from xeda.introspect import all_flow_classes, flow_info, results_info, settings_info
 
 #: (flow, setting) pairs that are allowed to have no description. Empty on purpose: every
 #: setting is documented today. A new setting must be documented rather than added here.
@@ -214,7 +214,16 @@ def test_readme_catalog_lists_every_flow():
             listed.add(get_flow_class(token).name)
         except FlowNotFoundError:
             continue
-    missing = sorted(set(FLOW_IDS) - listed)
+    public_flows = {cls.name for cls in FLOW_CLASSES if not cls.__name__.startswith("_")}
+    missing = sorted(public_flows - listed)
     assert (
         not missing
     ), f"These flows are registered but absent from {CATALOG_HEADING!r} in README.md: {missing}."
+
+
+@pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
+def test_every_declared_input_and_output_is_documented(flow_class):
+    """`xeda list-flows --json` shows what each declared input and output is."""
+    info = flow_info(flow_class)
+    undocumented = [d["name"] for d in info["inputs"] + info["outputs"] if not d["description"]]
+    assert not undocumented, f"{flow_class.name}: {undocumented}"

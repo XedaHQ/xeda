@@ -160,7 +160,7 @@ class IseSynth(FpgaSynthFlow):
                 f"{self.name} needs the design's top-level entity or module: set `rtl.top`."
             )
 
-    def outputs(self) -> Dict[str, Path]:
+    def project_outputs(self) -> dict[str, Path]:
         """The files of the ISE project this flow records, by artifact label. ISE names them
         after the top."""
         top = self.design.rtl.top
@@ -186,16 +186,16 @@ class IseSynth(FpgaSynthFlow):
         script_path = self.copy_from_template("ise_synth.tcl")
         xtclsh = XTclSh()  # type: ignore
         xtclsh.run(script_path)
-        for label, path in self.outputs().items():
+        for label, path in self.project_outputs().items():
             if path.is_file() and self.written_by_this_run(path):
                 self.artifacts[label] = path
         if "bitstream" not in self.artifacts:
             raise FlowFatalError(
-                f"ISE's bitgen did not write the bitstream {self.outputs()['bitstream']}."
+                f"ISE's bitgen did not write the bitstream {self.project_outputs()['bitstream']}."
             )
 
     def parse_reports(self) -> bool:
-        outputs = self.outputs()
+        outputs = self.project_outputs()
         # self.parse_report_regex(self.design.name + ".twr", r'(?P<wns>\-?\d+')
         fail = not self.parse_report_regex(
             outputs["place_route_report"],
