@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
+import re
 from abc import ABCMeta
 from pathlib import Path
-import re
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
@@ -81,14 +81,17 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     flow.results["sim.warnings"] = sum(e.kind == "warning" for e in evidence.events)
     stop_time = getattr(flow.settings, "stop_time", None)
     stop_reached = False
-    if evidence.ended_by == "stop_time" and stop_time is not None and evidence.time is not None:
+    if (
+        evidence.ended_by == "stop_time"
+        and stop_time is not None
+        and evidence.time is not None
+        and evidence.time_unit is not None
+    ):
         # a bare number is nanoseconds (`SimFlow.Settings.stop_time`); within one tick of the
         # record's precision, since the driver stops at the last whole tick
         requested = int(round(convert_unit(stop_time, "fs", from_unit="ns")))
-        tick = time_in_fs(1, evidence.time_unit or "1ps")
-        stop_reached = (
-            abs(time_in_fs(evidence.time, evidence.time_unit or "1ps") - requested) < tick
-        )
+        tick = time_in_fs(1, evidence.time_unit)
+        stop_reached = abs(time_in_fs(evidence.time, evidence.time_unit) - requested) < tick
     ok = {
         "finish": True,
         "stop_time": stop_reached,
@@ -100,9 +103,14 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
             "drained": "its event queue ran empty without a $finish"
             + (f" before the requested stop_time {stop_time}" if stop_time is not None else ""),
             "stop_time": (
-                f"it stopped at a time other than the requested stop_time {stop_time}"
-                if stop_time is not None
-                else "it stopped at a stop_time nobody asked for"
+                f"the stop could not be confirmed: the record gave no time or time unit "
+                f"(requested stop_time {stop_time})"
+                if stop_time is not None and (evidence.time is None or evidence.time_unit is None)
+                else (
+                    f"it stopped at a time other than the requested stop_time {stop_time}"
+                    if stop_time is not None
+                    else "it stopped at a stop_time nobody asked for"
+                )
             ),
             "max_cycles": "it stopped at a max_cycles nobody asked for",
             "exit": f"the testbench's driver exited with status {evidence.exit_code}",
