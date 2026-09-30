@@ -30,6 +30,10 @@ add_files -fileset constrs_1 -norecurse {{xdc_file|tcl_list}}
 add_files -fileset utils_1 -norecurse {{tcl_file|tcl_list}}
 {%- endfor %}
 
+{%- for src in sources_read(rtl=true, tb=true) %}
+set_property FILE_TYPE {{vivado_file_type(src)|tcl_word}} [get_files {{src|tcl_list}}]
+{%- endfor %}
+
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
 

@@ -262,7 +262,23 @@ def _read_call(flow, member, path, calls):
         return handed(["add_files", "-fileset", "sources_1", "-norecurse"])
     if flow == "vivado_project":
         fileset = "constrs_1" if name in ("Xdc", "Sdc") else "sources_1"
-        return handed(["add_files", "-fileset", fileset, "-norecurse"])
+        fmt = {
+            "Verilog": "Verilog",
+            "SystemVerilog": "SystemVerilog",
+            "Vhdl": "VHDL",
+            "VerilogHeader": "Verilog Header",
+            "SVHeader": "Verilog Header",
+            "MemoryFile": "Memory File",
+            "Xdc": "XDC",
+            "Sdc": "SDC",
+            "Tcl": "TCL",
+        }[name]
+        return handed(["add_files", "-fileset", fileset, "-norecurse"]) and any(
+            first[0] == "get_files"
+            and str(path) in first[1:]
+            and second[:3] == ["set_property", "FILE_TYPE", fmt]
+            for first, second in zip(calls, calls[1:])
+        )
     if flow == "quartus":
         assignment = {
             "Verilog": "VERILOG_FILE",
@@ -278,7 +294,16 @@ def _read_call(flow, member, path, calls):
         fmt = {"Vhdl": "VHDL", "Verilog": "Verilog", "SystemVerilog": "SystemVerilog"}.get(name)
         return handed(["prj_src", "add"] + (["-format", fmt] if fmt else []))
     if flow == "ise_synth":
-        return handed(["xfile", "add"]) and any(c[-1] == "-copy" and str(path) in c for c in calls)
+        fmt = {"Verilog": ".v", "Vhdl": ".vhd", "VerilogHeader": ".vh", "Ucf": ".ucf"}[name]
+        return any(
+            c[:2] == ["xfile", "add"]
+            and c[-1] == "-copy"
+            and (
+                str(path) in c
+                or (Path(c[2]).suffix == fmt and Path(c[2]).read_bytes() == path.read_bytes())
+            )
+            for c in calls
+        )
     if flow == "dc":
         if name in ("Sdc", "Tcl"):
             return handed(["source", "-echo"])
@@ -313,6 +338,14 @@ def test_vivado_project_filters_testbench_sources_in_design_order(tmp_path, monk
     assert len(sim) == 1
     all_paths = {str(p) for p in files.values()}
     assert [arg for arg in sim[0][4:] if arg in all_paths] == expected
+    for member in (SourceType.SystemVerilog, SourceType.Vhdl):
+        fmt = "SystemVerilog" if member is SourceType.SystemVerilog else "VHDL"
+        assert any(
+            first[0] == "get_files"
+            and str(files[member]) in first[1:]
+            and second[:3] == ["set_property", "FILE_TYPE", fmt]
+            for first, second in zip(calls, calls[1:])
+        )
 
 
 @needs_tclsh
@@ -323,3 +356,44 @@ def test_the_script_completion_oracle_catches_an_early_read_failure(tmp_path, mo
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "read_verilog")
     with pytest.raises(AssertionError, match="did not finish its script"):
         _calls("vivado_synth", design, _settings(root, "vivado_synth"), tmp_path, monkeypatch)
+
+
+@needs_tclsh
+@pytest.mark.parametrize("flow", FLOWS + ["yosys_fpga"])
+@pytest.mark.parametrize(
+    "member,suffix", [(SourceType.SystemVerilog, "v"), (SourceType.Vhdl, "dat")]
+)
+def test_explicit_language_reaches_the_tool_command(flow, member, suffix, tmp_path, monkeypatch):
+    cls = registered_flows[flow][1]
+    if member not in cls.reads_sources:
+        pytest.skip("ISE does not support SystemVerilog")
+    root = tmp_path / "design"
+    root.mkdir()
+    path = root / f"legacy.{suffix}"
+    path.write_text("a language source\n")
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={
+            "sources": [{"file": str(path), "type": member.name}],
+            "top": "top",
+            "clock_port": "clk",
+        },
+    )
+    if flow == "yosys_fpga":
+        settings = {**_settings(root, flow), "systemverilog": "default"}
+        instance = cls(cls.Settings.from_input(settings), design, tmp_path / "render")
+        instance.init()
+        template = instance.jinja_env.get_template("read_files.ys")
+        script = template.render(
+            settings=instance.settings, design=design, defines=[], ghdl_args=[], parameters={}
+        )
+        prefix = "read_verilog -sv" if member is SourceType.SystemVerilog else "ghdl "
+        assert any(line.startswith(prefix) and str(path) in line for line in script.splitlines())
+    else:
+        calls = _calls(flow, design, _settings(root, flow), tmp_path, monkeypatch)
+        if flow == "ise_synth":
+            added = [Path(c[2]) for c in calls if c[:2] == ["xfile", "add"] and c[-1] == "-copy"]
+            assert any(p.suffix == ".vhd" and p.read_bytes() == path.read_bytes() for p in added)
+        else:
+            assert _read_call(flow, member, path, calls), (flow, member, calls)

@@ -35,6 +35,7 @@ if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") -%}
 {%- elif src.type.name in ("VerilogHeader", "SVHeader") %}
 puts "Adding header file {{src|tcl_quote}}"
 add_files -fileset sources_1 -norecurse {{src|tcl_list}}
+set_property FILE_TYPE {{vivado_file_type(src)|tcl_word}} [get_files {{src|tcl_list}}]
 {%- elif src.type.name == "MemoryFile" %}
 puts "Adding MemoryFile file {{src|tcl_quote}}"
 add_files -fileset sources_1 -norecurse {{src|tcl_list}}
@@ -59,6 +60,9 @@ add_files -fileset utils_1 -norecurse {{file|tcl_list}}
 puts "====================( Adding constraints file {{file|tcl_quote}} )======================================"
 add_files -fileset constrs_1 -norecurse {{file|tcl_list}}
 # read_xdc {{file}}
+{%- endfor %}
+{%- for src in sources_read() if src.type.name in ("Xdc", "Sdc") %}
+set_property FILE_TYPE {{vivado_file_type(src)|tcl_word}} [get_files {{src|tcl_list}}]
 {%- endfor %}
 
 {%- if settings.show_available_strategies %}

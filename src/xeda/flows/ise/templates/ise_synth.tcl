@@ -23,9 +23,12 @@ project set "Generate Detailed MAP Report" TRUE
 
 
 puts "\n==============================( Adding RTL Sources )================================"
-{% for src in sources_read() %}
-xfile add {{src.file|tcl_word}} -copy
+{% for src in source_files|default(sources_read()) %}
+xfile add {{src|tcl_word}} -copy
 {%- endfor %}
+{% if source_include_dirs|default([]) %}
+project set "Verilog Include Directories" {{source_include_dirs|map('string')|join(' ')|tcl_word}} -process "Synthesize - XST"
+{% endif %}
 
 project set top {{design.rtl.top|tcl_word}}
 
