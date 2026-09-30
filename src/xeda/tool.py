@@ -96,6 +96,8 @@ class Docker(XedaBaseModel):
         print_command: bool = True,
         highlight_rules: Optional[Dict[str, str]] = None,
         merge_stderr: bool = False,
+        timeout: Optional[float] = None,
+        tee: Optional[Path] = None,
     ) -> Union[str, None]:
         """Run the tool from a docker container: in the directory it runs in (the run directory),
         mounted writable, with each directory of `read_only` (the design's) mounted read-only.
@@ -161,6 +163,8 @@ class Docker(XedaBaseModel):
                 print_command=print_command,
                 highlight_rules=highlight_rules,
                 merge_stderr=merge_stderr,
+                timeout=timeout,
+                tee=tee,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
@@ -446,6 +450,8 @@ class Tool(XedaBaseModel):
         check: bool = True,
         highlight_rules: Optional[Dict[str, str]] = None,
         merge_stderr: bool = False,
+        timeout: Optional[float] = None,
+        tee: Optional[Path] = None,
     ) -> Union[str, None]:
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
@@ -462,6 +468,8 @@ class Tool(XedaBaseModel):
             check=check,
             highlight_rules=highlight_rules,
             merge_stderr=merge_stderr,
+            timeout=timeout,
+            tee=tee,
         )
 
     def execute(
@@ -474,6 +482,8 @@ class Tool(XedaBaseModel):
         cwd: Optional[Path] = None,
         highlight_rules: Optional[Dict[str, str]] = None,
         merge_stderr: bool = False,
+        timeout: Optional[float] = None,
+        tee: Optional[Path] = None,
     ) -> Union[str, None]:
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
@@ -496,6 +506,8 @@ class Tool(XedaBaseModel):
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
                 merge_stderr=merge_stderr,
+                timeout=timeout,
+                tee=tee,
             )
         if env is not None:
             env = {**os.environ, **env}
@@ -510,6 +522,8 @@ class Tool(XedaBaseModel):
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
                 merge_stderr=merge_stderr,
+                timeout=timeout,
+                tee=tee,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")

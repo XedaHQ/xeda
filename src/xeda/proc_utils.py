@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import termios
+import threading
 from collections.abc import Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -120,10 +121,48 @@ def _stream_has_fileno(stream: Optional[TextIO]) -> bool:
     return True
 
 
+class ProcessTimeout(NonZeroExitCode):
+    """A process ran past its time limit and was stopped."""
+
+    def __init__(self, command_args: Any, timeout: float) -> None:
+        super().__init__(command_args, -1)
+        self.timeout = timeout
+
+    def __str__(self) -> str:
+        what = self.command_args.split(" ")[0] if self.command_args else "process"
+        return f"{what} ran past its time limit of {self.timeout} s and was stopped"
+
+
+class _Deadline:
+    """Stops `proc` and every process it started (its own session) once `timeout` seconds pass."""
+
+    def __init__(self, proc: "subprocess.Popen[Any]", timeout: Optional[float]) -> None:
+        self.proc, self.expired = proc, False
+        self._timer = threading.Timer(timeout, self._expire) if timeout else None
+        if self._timer is not None:
+            self._timer.daemon = True
+            self._timer.start()
+
+    def _expire(self) -> None:
+        self.expired = True
+        try:
+            if os.name == "posix":
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            else:
+                self.proc.kill()
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def cancel(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+
+
 def _needs_line_copy(
     stdout: Union[None, bool, str, os.PathLike],
     highlight_rules: Optional[Dict[str, str]],
     redirect: Optional[TextIO],
+    tee: Optional[Path] = None,
 ) -> bool:
     """Whether a child's stdout must be piped and copied to `tool_output_stream()` line by line
     in Python, rather than handed to `Popen` directly.
@@ -135,7 +174,11 @@ def _needs_line_copy(
     """
     if stdout is not None:
         return False
-    return bool(highlight_rules) or (redirect is not None and not _stream_has_fileno(redirect))
+    return (
+        tee is not None
+        or bool(highlight_rules)
+        or (redirect is not None and not _stream_has_fileno(redirect))
+    )
 
 
 def _stdout_terminal_fd() -> Optional[int]:
@@ -198,8 +241,14 @@ def run_process(
     print_command: bool = False,
     highlight_rules: Optional[Dict[str, str]] = None,
     merge_stderr: bool = False,
+    timeout: Optional[float] = None,
+    tee: Optional[Path] = None,
 ) -> Union[None, str]:
     """Run `executable`; return its captured stdout when `stdout` is True.
+
+    `timeout`: stop the process, and those it started, after this many seconds, raising
+    `ProcessTimeout`. `tee`: also write every line of the output to this file, through
+    `utils.replacing_file` with `keep_on_error=True` (only when the output is not captured).
 
     `merge_stderr` folds the child's stderr into the captured stdout. Only meaningful while
     capturing (`stdout=True`), and needed for tools that print their version banner to stderr.
@@ -218,7 +267,8 @@ def run_process(
         log.debug("Running `%s`", cmd_str)
     if cwd:
         log.debug("cwd=%s", cwd)
-    if _needs_line_copy(stdout, highlight_rules, tool_output_redirect()):
+    new_session = timeout is not None and os.name == "posix"
+    if _needs_line_copy(stdout, highlight_rules, tool_output_redirect(), tee):
         # compile regex str keys to improve performance
         highlight_rules_re: Dict[re.Pattern, str] = {}
         for pattern, subs in (highlight_rules or {}).items():
@@ -231,12 +281,24 @@ def run_process(
             cwd=cwd,
             universal_newlines=True,
             bufsize=1,
+            start_new_session=new_session,
         ) as proc:
             assert proc.stdout is not None, f"Popen for '{cmd_str}' failed: stdout is None!"
+            deadline = _Deadline(proc, timeout)
 
             terminal_fd = _stdout_terminal_fd()
-            with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
+            with contextlib.ExitStack() as stack:
+                tee_file = (
+                    stack.enter_context(replacing_file(tee, encoding="utf-8", keep_on_error=True))
+                    if tee is not None
+                    else None
+                )
+                proc_stdout = stack.enter_context(
+                    open(proc.stdout.fileno(), errors="ignore", closefd=False)
+                )
                 for line in proc_stdout:
+                    if tee_file is not None:
+                        tee_file.write(line)
                     for re_pat, subs in highlight_rules_re.items():
                         line, matches = re_pat.subn(subs + colorama.Style.RESET_ALL, line, count=1)
                         if matches > 0:
@@ -251,6 +313,9 @@ def run_process(
                         file=tool_output_stream(),
                     )
             ret = proc.wait()
+            deadline.cancel()
+            if deadline.expired:
+                raise ProcessTimeout(command, timeout)  # type: ignore[arg-type]
             if check and ret != 0:
                 raise NonZeroExitCode(command, ret)
             return None
@@ -282,12 +347,17 @@ def run_process(
             encoding="utf-8",
             errors="replace",
             env=env,
+            start_new_session=new_session,
         ) as proc:
             log.debug("Started %s[%d]", executable, proc.pid)
+            deadline = _Deadline(proc, timeout)
             try:
                 if stdout:
                     if isinstance(stdout, bool):
                         out, err = proc.communicate(timeout=None)
+                        deadline.cancel()
+                        if deadline.expired:
+                            raise ProcessTimeout(command, timeout)  # type: ignore[arg-type]
                         if check and proc.returncode != 0:
                             raise NonZeroExitCode(proc.args, proc.returncode)
                         if err:
@@ -299,6 +369,7 @@ def run_process(
                             os.path.abspath(stdout),
                         )
                 proc.wait()
+                deadline.cancel()
             except KeyboardInterrupt as e:
                 try:
                     log.debug(
@@ -310,8 +381,11 @@ def run_process(
                 except OSError as e2:
                     log.warning("Terminate failed: %s", e2)
                 finally:
+                    deadline.cancel()
                     proc.wait()
                     raise e from None
+        if deadline.expired:
+            raise ProcessTimeout(command, timeout)  # type: ignore[arg-type]
         if check and proc.returncode != 0:
             raise NonZeroExitCode(proc.args, proc.returncode)
 

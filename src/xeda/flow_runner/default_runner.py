@@ -42,7 +42,7 @@ from ..design import DESIGN_NAME, Design, cloning_dependencies_into, names_a_des
 from ..flow import Flow, FlowDependencyFailure, FlowSettingsError, registered_flows
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import WrittenLeaf, map_written_leaves, written_path_problems
-from ..proc_utils import recording_programs
+from ..proc_utils import ProcessTimeout, recording_programs
 from ..run_dir import RunDirectory, RunDirectoryError
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from ..tool import NonZeroExitCode
@@ -1122,15 +1122,18 @@ class FlowLauncher:
             try:
                 flow.run()
             except NonZeroExitCode as e:
-                log.error(
-                    "Execution of '%s' returned %d",
-                    (
-                        " ".join(e.command_args)
-                        if isinstance(e.command_args, (list, tuple))
-                        else e.command_args
-                    ),
-                    e.exit_code,
-                )
+                if isinstance(e, ProcessTimeout):
+                    log.error("%s", e)
+                else:
+                    log.error(
+                        "Execution of '%s' returned %d",
+                        (
+                            " ".join(e.command_args)
+                            if isinstance(e.command_args, (list, tuple))
+                            else e.command_args
+                        ),
+                        e.exit_code,
+                    )
                 flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
                 success = False
             if flow.init_time is not None:
