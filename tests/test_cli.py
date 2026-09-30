@@ -126,3 +126,41 @@ def test_dash_s_needs_key_value_items(tmp_path, monkeypatch):
     assert not document["success"]
     message = document["error"]["message"]
     assert "KEY=VALUE" in message and "missing.toml" in message
+
+
+def _eat_all(args):
+    from xeda.cli_utils import OptionEatAll
+
+    seen = {}
+
+    @click.command()
+    @click.option("-s", "settings", cls=OptionEatAll, type=tuple)
+    @click.argument("design", required=False)
+    def command(settings, design):
+        seen.update(settings=settings, design=design)
+
+    result = CliRunner().invoke(command, args)
+    assert result.exit_code == 0, result.output
+    return seen
+
+
+def test_dash_s_ends_at_a_path_that_contains_equals_signs():
+    assert _eat_all(["-s", "x=1", "dir/a=b.toml"]) == {
+        "settings": ("x=1",),
+        "design": "dir/a=b.toml",
+    }
+    assert _eat_all(["-s", "x=1", "./a=b/x.toml"]) == {
+        "settings": ("x=1",),
+        "design": "./a=b/x.toml",
+    }
+
+
+def test_double_dash_ends_the_settings_list():
+    assert _eat_all(["-s", "x=1", "--", "a=b.toml"]) == {"settings": ("x=1",), "design": "a=b.toml"}
+
+
+def test_dash_s_keys_may_have_brackets_and_dots():
+    assert _eat_all(["-s", "lib_paths[0]=x", "y.z=1"]) == {
+        "settings": ("lib_paths[0]=x", "y.z=1"),
+        "design": None,
+    }
