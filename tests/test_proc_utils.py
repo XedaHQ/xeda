@@ -624,6 +624,8 @@ def test_exception_cleanup_allows_a_graceful_exit(tmp_path, monkeypatch, error):
     import xeda.proc_utils as pu
 
     monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", 1.0)
+    # CPython on macOS lacks os.waitid before 3.13: the grace period must not depend on it
+    monkeypatch.delattr(os, "waitid", raising=False)
     marker = tmp_path / "graceful"
     script = (
         "import signal, time\n"
