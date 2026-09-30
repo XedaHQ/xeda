@@ -37,7 +37,7 @@ if {[lsearch -exact $parts $fpga_part] < 0} {
 
 puts "Targeting device: $fpga_part"
 
-{% for src in design.rtl.sources %}
+{% for src in sources_read() %}
 {% if src.type.name == "Verilog" %}
 puts "Reading Verilog file {{src.file|tcl_quote}}"
 if { [catch {read_verilog {{src.file|tcl_list}}} myError]} {
@@ -55,6 +55,10 @@ if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") %} 
 }
 {%- endif %}
 {%- endfor %}
+
+{%- if design.header_dirs() %}
+set_property include_dirs {{design.header_dirs()|tcl_list}} [current_fileset]
+{%- endif %}
 
 # TODO: Skip saving some artifects in case timing not met or synthesis failed for any reason
 

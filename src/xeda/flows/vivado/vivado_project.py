@@ -53,6 +53,21 @@ class VivadoProject(Vivado, FpgaSynthFlow):
     # Creating a project reports nothing beyond the keys every flow reports.
     results_description: dict = {}
 
+    reads_source_parts = ("rtl", "tb")
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Vhdl,
+            SourceType.VerilogHeader,
+            SourceType.SVHeader,
+            SourceType.MemoryFile,
+            SourceType.Xdc,
+            SourceType.Sdc,
+            SourceType.Tcl,
+        }
+    )
+
     class Settings(VivadoSynth.Settings, VivadoSim.Settings):
         """Settings for a Vivado project: synthesis, implementation and simulation"""
 
@@ -91,7 +106,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
             # constraints go to the constraint fileset, as `vivado_synth` reads them
             sources=[
                 src
-                for src in self.design.rtl.sources
+                for src in self.sources_read()
                 if src.type not in (SourceType.Xdc, SourceType.Sdc)
             ],
             xdc_files=constraint_files(self, settings),

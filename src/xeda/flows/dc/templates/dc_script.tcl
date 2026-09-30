@@ -75,47 +75,21 @@ set_app_var link_library "* $synthetic_library $target_library"
 
 remove_design -all
 
-set SOURCE_FILES [list {{ design.rtl.sources | map("tcl_word") | join(' ') }}]
+set SOURCE_FILES {{ sources_read() | tcl_list }}
 
-foreach src $SOURCE_FILES {
-    set ext [file extension $src]
-    switch -- $ext {
-        ".v" {
-            set format verilog
-        }
-        ".verilog" {
-            set format verilog
-        }
-        ".vhd" {
-            set format vhdl
-        }
-        ".vhdl" {
-            set format vhdl
-        }
-        ".sv" {
-            set format sverilog
-        }
-        ".sdc" {
-            puts "Loading design SDC file: $src"
-            source -echo $src
-            continue
-        }
-        ".tcl" {
-            puts "Loading design TCL file: $src"
-            source -echo $src
-            continue
-        }
-        default {
-            puts "Unknown file extension: $ext"
-            exit 1
-        }
-    }
-    puts "===================( Analysing $src ($format) )==================="
-    if  { [ analyze -format $format $src ] != 1 } {
-        puts "\[ERROR]\ Analysing $format file $src failed!\n"
-        exit 1
-    }
+{%- for src in sources_read() %}
+{%- if src.type.name in ("Sdc", "Tcl") %}
+puts "Loading design {{src.type.name}} file: {{src|tcl_quote}}"
+source -echo {{src|tcl_word}}
+{%- else %}
+{%- set format = {"Verilog": "verilog", "SystemVerilog": "sverilog", "Vhdl": "vhdl"}[src.type.name] %}
+puts "===================( Analyzing {{src|tcl_quote}} ({{format}}) )==================="
+if { [analyze -format {{format}} {{src|tcl_word}}] != 1 } {
+    puts "\[ERROR]\ Analyzing {{format}} file {{src|tcl_quote}} failed!\n"
+    exit 1
 }
+{%- endif %}
+{%- endfor %}
 
 {{ hook("pre_elab") }}
 

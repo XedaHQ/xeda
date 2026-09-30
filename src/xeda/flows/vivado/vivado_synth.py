@@ -246,6 +246,20 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         },
     )
 
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Vhdl,
+            SourceType.VerilogHeader,
+            SourceType.SVHeader,
+            SourceType.MemoryFile,
+            SourceType.Xdc,
+            SourceType.Sdc,
+            SourceType.Tcl,
+        }
+    )
+
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         """Vivado synthesis settings"""
 

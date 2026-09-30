@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional
 
 from ...dataclass import Field, field_validator, input_names
+from ...design import SourceType
 from ...flow import FlowSettingsException, FpgaSynthFlow, describe_results
 from ...flows.ghdl import GhdlSynth
 from ...utils import replacing_file
@@ -68,6 +69,16 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             "LUT:RAM": "Number of LUTs used as distributed RAM.",
             "FF": "Number of flip-flops (registers) used.",
         },
+    )
+
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Vhdl,
+            SourceType.VerilogHeader,
+            SourceType.SVHeader,
+        }
     )
 
     class Settings(YosysBase.Settings, FpgaSynthFlow.Settings):

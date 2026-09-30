@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from ...dataclass import Field
+from ...design import SourceType
 from ...flow import FpgaSynthFlow, describe_results
 from ...tool import Docker, Tool
 from ...types import PathLike
@@ -91,6 +92,17 @@ class Quartus(FpgaSynthFlow):
             "lut": "Number of combinational ALUTs / logic elements used.",
             "ff": "Number of dedicated logic registers used.",
         },
+    )
+
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Vhdl,
+            SourceType.VerilogHeader,
+            SourceType.SVHeader,
+            SourceType.Sdc,
+        }
     )
 
     class Settings(FpgaSynthFlow.Settings):

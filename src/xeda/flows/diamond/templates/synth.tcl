@@ -18,7 +18,7 @@ prj_impl option synthesis {{settings.synthesis_engine}}
 ##strategy
 prj_strgy copy -from $strategy -name custom_strategy -file diamond_strategy.sty
 
-{% for src in design.rtl.sources %}
+{% for src in sources_read() %}
 prj_src add {% if src.type.name == "Vhdl" -%} -format VHDL {%- elif src.type.name == "Verilog" -%} -format Verilog {%- elif src.type.name == "SystemVerilog" -%} -format SystemVerilog {%- endif %} {{src.file|tcl_word}}
 {% endfor %}
 

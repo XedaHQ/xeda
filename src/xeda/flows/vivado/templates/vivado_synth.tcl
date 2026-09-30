@@ -16,7 +16,7 @@ set_msg_config -id {{("[" ~ msg ~ "]")|tcl_word}} -suppress
 {%- endfor %}
 
 puts "\n=====================( Read Design Files and Constraints )======================"
-{%- for src in design.rtl.sources %}
+{%- for src in sources_read() %}
 {%- if src.type.name == "Verilog" %}
 puts "Reading Verilog file {{src|tcl_quote}}"
 if { [catch {read_verilog {{src|tcl_list}}} myError]} {
@@ -32,19 +32,16 @@ puts "Reading VHDL file {{src|tcl_quote}}"
 if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") -%} -vhdl2008 {% endif -%} {{src|tcl_list}}} myError]} {
   errorExit $myError
 }
+{%- elif src.type.name in ("VerilogHeader", "SVHeader") %}
+puts "Adding header file {{src|tcl_quote}}"
+add_files -fileset sources_1 -norecurse {{src|tcl_list}}
 {%- elif src.type.name == "MemoryFile" %}
 puts "Adding MemoryFile file {{src|tcl_quote}}"
 add_files -fileset sources_1 -norecurse {{src|tcl_list}}
 set_property -name "file_type" -value "Memory File" -objects [get_files {{src|tcl_list}}]
-{%- elif src.type.name == "Xdc" %}
-# puts "Reading XDC file {{src}}"
-# source -verbose {{src}}
 {%- elif src.type.name == "Tcl" %}
 puts "Reading TCL file {{src|tcl_quote}}"
 source -verbose {{src|tcl_word}}
-{%- else %}
-puts "Adding source file with unknown type: {{src|tcl_quote}}"
-add_files -fileset sources_1 -norecurse {{src|tcl_list}}
 {%- endif %}
 {%- endfor %}
 

@@ -83,6 +83,7 @@ __all__ = [
     "SOURCE_SUFFIXES",
     "AMBIGUOUS_SUFFIXES",
     "TYPE_ONLY",
+    "LANGUAGE_TYPES",
     "source_type_named",
     "source_type_of",
     "SourceType",
@@ -716,6 +717,19 @@ TYPE_ONLY: frozenset[SourceType] = frozenset(
         SourceType.VhdlNetlist,
         SourceType.Chipdb,
         SourceType.Data,
+    }
+)
+
+
+#: Languages whose omission would leave an incomplete design. Contract flows refuse a
+#: language they cannot read; other source types may belong to another flow.
+LANGUAGE_TYPES: frozenset[SourceType] = frozenset(
+    {
+        SourceType.Verilog,
+        SourceType.SystemVerilog,
+        SourceType.Vhdl,
+        SourceType.Bluespec,
+        SourceType.Chisel,
     }
 )
 
