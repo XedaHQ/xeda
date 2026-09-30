@@ -112,10 +112,12 @@ def test_nextpnr_draws_a_new_seed_only_when_asked(tmp_path, design):
 def test_verilator_s_random_initialization_has_a_fixed_seed(tmp_path, design):
     """`+verilator+seed+0` would pick a seed from the system: the default is a fixed 1."""
     assert Verilator.Settings().random_seed == 1
-    assert _flow(Verilator, design, tmp_path).always_runs() is None
-    fresh = _flow(Verilator, design, tmp_path, random_seed="random")
+    assert _flow(Verilator, design, tmp_path, random_init=True).always_runs() is None
+    fresh = _flow(Verilator, design, tmp_path, random_seed="random", random_init=True)
     assert fresh.always_runs() == "it draws a new random seed"
-    unused = _flow(Verilator, design, tmp_path, random_seed="random", random_init=False)
+    # the seed is used only by the random initialization, which is off by default
+    assert Verilator.Settings().random_init is False
+    unused = _flow(Verilator, design, tmp_path, random_seed="random")
     assert unused.always_runs() is None  # no random initialization, no seed drawn
 
 
