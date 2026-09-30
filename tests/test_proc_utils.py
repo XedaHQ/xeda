@@ -528,6 +528,168 @@ def test_an_interrupt_while_copying_output_stops_the_process(monkeypatch):
     assert time.monotonic() - started < 30
 
 
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_a_process_without_a_time_limit_stays_in_the_callers_group(tmp_path, monkeypatch):
+    """Both output paths preserve the caller's process group when no timeout is set."""
+    import xeda.proc_utils as pu
+
+    groups = []
+    real_popen = subprocess.Popen
+
+    def started(*args, **kwargs):
+        proc = real_popen(*args, **kwargs)
+        groups.append(os.getpgid(proc.pid))
+        return proc
+
+    monkeypatch.setattr(pu.subprocess, "Popen", started)
+    run_process(sys.executable, ["-c", "print('ok')"], stdout=True)
+    run_process(sys.executable, ["-c", "print('ok')"], tee=tmp_path / "log")
+    # A terminal's SIGINT/SIGHUP must reach the tool and its descendants.
+    assert groups == [os.getpgrp(), os.getpgrp()]
+
+
+@pytest.mark.parametrize("stop", ["timeout", "interrupt"])
+def test_non_group_cleanup_needs_no_sigkill(monkeypatch, stop):
+    """Windows has Popen.kill(), but no signal.SIGKILL; test both forced-stop paths."""
+    from types import SimpleNamespace
+
+    import xeda.proc_utils as pu
+
+    class Running:
+        args = ["stubborn"]
+        pid = 12345
+
+        def __init__(self):
+            self.killed = False
+            self.reaped = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def send_signal(self, sig):
+            pass
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self, timeout=None):
+            if not self.killed:
+                raise subprocess.TimeoutExpired(self.args, timeout)
+            self.reaped = True
+            return -1
+
+    proc = Running()
+    monkeypatch.setattr(pu, "signal", SimpleNamespace(SIGTERM=pu.signal.SIGTERM))
+    deadline = _Deadline(proc, None)  # type: ignore[arg-type]
+    if stop == "timeout":
+        deadline._expire()
+        deadline.__exit__(None, None, None)
+        assert deadline.expired
+    else:
+        deadline.__exit__(KeyboardInterrupt, KeyboardInterrupt(), None)
+    assert proc.killed and proc.reaped
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_interruption_signals_the_group_before_reaping_the_leader(monkeypatch):
+    """R29's recycled-group hazard applies to interruption cleanup as well as a timeout."""
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+    )
+    real_killpg = os.killpg
+    signals = []
+
+    def killpg(pid, sig):
+        signals.append((sig, proc.returncode))
+        real_killpg(pid, sig)
+
+    monkeypatch.setattr(os, "killpg", killpg)
+    with pytest.raises(KeyboardInterrupt):
+        with _Deadline(proc, 60, group=True):
+            raise KeyboardInterrupt
+    assert signals and all(returncode is None for _, returncode in signals), signals
+    assert proc.returncode is not None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+@pytest.mark.parametrize("error", [KeyboardInterrupt, RuntimeError])
+def test_exception_cleanup_allows_a_graceful_exit(tmp_path, monkeypatch, error):
+    """Forward the terminal's SIGINT on Ctrl-C, or SIGTERM on another exception, and let
+    the tool flush its output before killing surviving group members."""
+    import signal
+
+    import xeda.proc_utils as pu
+
+    monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", 1.0)
+    marker = tmp_path / "graceful"
+    script = (
+        "import signal, time\n"
+        "def stopped(sig, frame):\n"
+        "    time.sleep(0.15)\n"
+        f"    open({str(marker)!r}, 'w').write(str(sig))\n"
+        "    raise SystemExit(0)\n"
+        "signal.signal(signal.SIGINT, stopped)\n"
+        "signal.signal(signal.SIGTERM, stopped)\n"
+        "print('ready', flush=True)\n"
+        "while True: time.sleep(1)\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, start_new_session=True
+    )
+    try:
+        assert proc.stdout.readline() == b"ready\n"
+        with pytest.raises(error):
+            with _Deadline(proc, 60, group=True):
+                raise error
+        expected = signal.SIGINT if error is KeyboardInterrupt else signal.SIGTERM
+        assert marker.read_text() == str(expected)
+        assert proc.returncode == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        proc.stdout.close()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+@pytest.mark.parametrize("error", [KeyboardInterrupt, RuntimeError])
+def test_exception_cleanup_kills_a_tool_after_the_grace_period(monkeypatch, error):
+    """A tool ignoring the graceful signal still gets stopped after the bounded grace."""
+    import signal
+
+    import xeda.proc_utils as pu
+
+    grace = 0.25
+    monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", grace)
+    script = (
+        "import signal, time\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "print('ready', flush=True)\n"
+        "while True: time.sleep(1)\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, start_new_session=True
+    )
+    try:
+        assert proc.stdout.readline() == b"ready\n"
+        started = time.monotonic()
+        with pytest.raises(error):
+            with _Deadline(proc, 60, group=True):
+                raise error
+        elapsed = time.monotonic() - started
+        assert grace <= elapsed < 3
+        assert proc.returncode == -signal.SIGKILL
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        proc.stdout.close()
+
+
 @pytest.mark.parametrize("bad", [0, -1, 0.0])
 def test_a_non_positive_time_limit_is_refused(bad):
     with pytest.raises(ValueError, match=str(bad)):
