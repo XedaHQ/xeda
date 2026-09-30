@@ -61,6 +61,7 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import XedaProject
+from .outputs import record_outputs
 from .run_lock import lock_file, run_dir_lock
 from .settings_layers import (
     compose_flow_settings,
@@ -136,6 +137,7 @@ def print_results(
         "tools",
         "run_path",
         "artifacts",
+        "outputs",
     ]
     for k, v in results.items():
         skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
@@ -1149,6 +1151,17 @@ class FlowLauncher:
                 if success:  # if so far so good this is a bug!
                     raise e
             flow.add_canonical_result_aliases()
+            if success:
+                # Consumers use these integrity records for fresh and reused producers alike.
+                problems = record_outputs(flow)
+                for problem in problems:
+                    log.error("%s", problem)
+                if problems:
+                    success = False
+                    flow.results["error"] = {
+                        "type": "MissingOutput",
+                        "message": "; ".join(problems),
+                    }
             if not success and not input_settings.is_quiet:
                 log.debug("Failure was reported in the parsed results.")
             flow.results.success = success
