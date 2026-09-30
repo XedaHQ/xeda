@@ -291,6 +291,39 @@ def test_rtl_parameters_reach_a_cocotb_top(tmp_path):
     assert flow is not None and flow.succeeded
 
 
+def test_a_cocotb_toplevel_other_than_the_rtl_top_is_simulated(tmp_path):
+    """cocotb drives `tb.cocotb.toplevel` (a wrapper of the RTL top here): that is the model's
+    top, and `rtl.parameters` (the RTL top's) do not apply to it."""
+    require_verilator()
+    require_cocotb()
+    (tmp_path / "dut.sv").write_text(
+        "module dut #(parameter W = 1) (output logic [W-1:0] y); assign y = '1; endmodule\n"
+    )
+    (tmp_path / "dut_wrap.sv").write_text(
+        "module dut_wrap (output logic [1:0] wrapped); dut #(.W(2)) u (.y(wrapped)); endmodule\n"
+    )
+    (tmp_path / "tb_wrap.py").write_text(
+        "import cocotb\n"
+        "from cocotb.triggers import Timer\n"
+        "@cocotb.test()\n"
+        "async def wrapped(dut):\n"
+        "    await Timer(1, 'ns')\n"
+        "    assert int(dut.wrapped.value) == 3\n"
+    )
+    design = Design(
+        name="dut_wrap",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.sv"], "top": "dut", "parameters": {"W": 4}},
+        tb={
+            "sources": ["dut_wrap.sv", "tb_wrap.py"],
+            "cocotb": {"toplevel": "dut_wrap"},
+        },
+    )
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(Verilator, design)
+    assert flow is not None and flow.succeeded
+    assert flow.results["cocotb.tests"] == 1
+
+
 def test_stop_time_is_refused_where_it_cannot_be_enforced(tmp_path):
     from xeda.flow import FlowSettingsException
 

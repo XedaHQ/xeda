@@ -8,6 +8,7 @@ from pathlib import Path
 from random import randint
 from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Union
 
+from ...cocotb import cocotb_toplevel
 from ...dataclass import WORKING, Field, deliverable
 from ...design import SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
@@ -99,15 +100,16 @@ class Verilator(SimFlow):
     makes it the fastest open-source simulator for large designs. Supports cocotb testbenches,
     plain C++/SystemC harnesses, and VCD/FST waveform tracing.
 
-    The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (with cocotb,
-    always `rtl.top`). Its parameters (`-G`) are `rtl.parameters` updated by `tb.parameters` when
-    that is the RTL top (cocotb, or no testbench top), and `tb.parameters` alone for a testbench
-    top. Without cocotb, a run passes only on evidence of how the simulation
-    ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in `sim_dir`):
-    xeda's own driver runs the model unless the design brings its own C++ driver, and the run
-    passes when it ends by `$finish` or at the requested `stop_time` -- or, with the design's
-    own driver, when that driver exits with status 0 -- and nothing reported reaches
-    `fail_severity`. An event queue that runs empty without a `$finish` fails.
+    The simulated top is the testbench's `tb.top`, or else the design's `rtl.top`; with cocotb,
+    the module cocotb drives: `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are
+    `rtl.parameters` updated by `tb.parameters` when the simulated top is the RTL top, and
+    `tb.parameters` alone otherwise. Without cocotb, a run passes only on evidence of how the
+    simulation ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in
+    `sim_dir`): xeda's own driver runs the model unless the design brings its own C++ driver,
+    whose end the hooks record just the same, and the run passes when it ends by `$finish` or
+    at the requested `stop_time` -- or, with the design's own driver, when that driver exits
+    with status 0 -- and nothing reported reaches `fail_severity`. An event queue that runs
+    empty without a `$finish` fails. With cocotb, cocotb's results decide the run.
     """
 
     cocotb_sim_name = "verilator"
@@ -297,10 +299,13 @@ class Verilator(SimFlow):
         return not self.cocotb
 
     def simulation_top(self) -> str:
-        """The simulated top module: the RTL top with cocotb (cocotb's `TOPLEVEL`); otherwise
-        the testbench's first `tb.top`, or else the RTL top."""
-        tb_top = None if self.cocotb else next(iter(self.design.tb.top), None)
-        top = tb_top or self.design.rtl.top
+        """The simulated top module: with cocotb, the one cocotb drives (`cocotb_toplevel`:
+        `tb.cocotb.toplevel`, or else the RTL top); otherwise the testbench's first `tb.top`, or
+        else the RTL top."""
+        if self.cocotb:
+            top = cocotb_toplevel(self.design)
+        else:
+            top = next(iter(self.design.tb.top), None) or self.design.rtl.top
         if not top:
             raise FlowSettingsException("no simulation top: set tb.top or rtl.top")
         return top
@@ -361,7 +366,8 @@ class Verilator(SimFlow):
             )
 
         compile_args = ss.compile_args
-        if self.cocotb or not next(iter(self.design.tb.top), None):
+        # `rtl.parameters` are the RTL top's: they apply only when it is the simulated top
+        if top == self.design.rtl.top:
             parameters = {**self.design.rtl.parameters, **self.design.tb.parameters}
         else:
             parameters = dict(self.design.tb.parameters)
