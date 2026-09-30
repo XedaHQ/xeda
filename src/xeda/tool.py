@@ -170,7 +170,12 @@ class Docker(XedaBaseModel):
         def kill_container() -> None:
             try:  # already gone is fine: `--rm` removed it after it exited on its own
                 run_process(
-                    self.cli, ["kill", container], stdout=True, check=False, merge_stderr=True
+                    self.cli,
+                    ["kill", container],
+                    stdout=True,
+                    check=False,
+                    merge_stderr=True,
+                    timeout=DOCKER_KILL_TIMEOUT,
                 )
             except (OSError, ProcessTimeout) as e:
                 log.warning("Could not stop container %s: %s", container, e)
