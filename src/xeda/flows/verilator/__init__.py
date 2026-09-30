@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from glob import escape as glob_escape
 from glob import glob
 from pathlib import Path
@@ -87,6 +88,10 @@ def parse_end_record(path: Path) -> SimEvidence:
     )
 
 
+#: The oldest Verilator with what xeda's driver and hooks use.
+MIN_VERILATOR_VERSION = (5, 24)
+
+
 class Verilator(SimFlow):
     """Simulate a Verilog or SystemVerilog design with Verilator.
 
@@ -95,7 +100,9 @@ class Verilator(SimFlow):
     plain C++/SystemC harnesses, and VCD/FST waveform tracing.
 
     The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (with cocotb,
-    always `rtl.top`). Without cocotb, a run passes only on evidence of how the simulation
+    always `rtl.top`). Its parameters (`-G`) are `rtl.parameters` updated by `tb.parameters` when
+    that is the RTL top (cocotb, or no testbench top), and `tb.parameters` alone for a testbench
+    top. Without cocotb, a run passes only on evidence of how the simulation
     ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in `sim_dir`):
     xeda's own driver runs the model unless the design brings its own C++ driver, and the run
     passes when it ends by `$finish` or at the requested `stop_time` -- or, with the design's
@@ -111,6 +118,7 @@ class Verilator(SimFlow):
 
     #: the exit status of this run's model, once it has returned (0) or failed
     _driver_exit_code: int | None = None
+    _model_log: Path | None = None
 
     class Settings(SimFlow.Settings):
         sim_dir: Path = Field(
@@ -187,10 +195,11 @@ class Verilator(SimFlow):
             "Verilator's own choice.",
         )
         random_init: bool = Field(
-            True,
+            False,
             description="Randomize the initial value of uninitialized signals, which surfaces "
             "reset bugs a zero-initialized model would hide. The values come from `random_seed`. "
-            "See `x_initial`.",
+            "Off by default, as in Verilator; turning it on can hang a testbench that relies on "
+            "an uninitialized clock, such as bsc's `main.v`. See `x_initial`.",
         )
         random_seed: Union[Literal["random"], Annotated[int, Field(ge=1)]] = Field(
             1,
@@ -199,12 +208,12 @@ class Verilator(SimFlow):
             "runs and is never reused.",
         )
         x_initial: str = Field(
-            "unique",
+            "0",
             description='How uninitialized values are set at time 0: "unique" (random per '
             'run), "0", or "fast".',
         )
         x_assign: str = Field(
-            "unique",
+            "0",
             description='How explicit assignments of X are resolved: "unique" (random per '
             'run), "0", "1", or "fast".',
         )
@@ -251,13 +260,30 @@ class Verilator(SimFlow):
         fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
             "error",
             description="The least severe report that fails the run: `warning` ($warning), "
-            "`error` ($error, a failed assertion, $stop), `failure` or `fatal` ($fatal).",
+            "`error` ($error, a failed assertion, $stop), `failure` or `fatal` ($fatal). Below "
+            "`error`, the simulation runs on past errors (`+verilator+error+limit`), and each is "
+            "recorded.",
         )
 
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
             "clean_before_run": "the --clean option",
         }
+
+    def init(self) -> None:
+        super().init()
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.stop_time is not None:
+            if self.cocotb:
+                raise FlowSettingsException(
+                    "stop_time is enforced only by xeda's own Verilator driver; with cocotb, "
+                    "stop the simulation in the test"
+                )
+            if self.own_driver():
+                raise FlowSettingsException(
+                    "stop_time is enforced only by xeda's own Verilator driver; with the "
+                    "design's own C++ driver, stop it there"
+                )
 
     def always_runs(self) -> Optional[str]:
         assert isinstance(self.settings, self.Settings)
@@ -288,6 +314,7 @@ class Verilator(SimFlow):
         """The end record this run's model wrote (`report_file`: this run's own only). A design's
         own driver that ended the simulation by exiting has the status it exited with."""
         assert isinstance(self.settings, self.Settings)
+        ss = self.settings
         path = self.report_file(self.run_path / self.settings.sim_dir / END_RECORD)
         if path is None:
             return None
@@ -296,6 +323,13 @@ class Verilator(SimFlow):
         except ValueError as e:
             log.error("The simulation's end record %s cannot be read: %s", path, e)
             return None
+        if ss.fail_severity == "warning" and self._model_log is not None:
+            # `$warning` reaches no hook: Verilator prints it as `[time] %Warning: ...`
+            log_file = self.report_file(self._model_log)
+            if log_file is not None:
+                for line in log_file.read_text(errors="replace").splitlines():
+                    if re.match(r"\[\d+\] %Warning:", line):
+                        evidence.events.append(SimEvent(kind="warning", message=line))
         if evidence.ended_by == "exit" and evidence.exit_code is None and self.own_driver():
             evidence.exit_code = self._driver_exit_code
         return evidence
@@ -310,6 +344,7 @@ class Verilator(SimFlow):
         verilator = Tool(
             "verilator",
             docker="xeda-verilator",
+            minimum_version=MIN_VERILATOR_VERSION,
         )
 
         top = self.simulation_top()
@@ -326,7 +361,10 @@ class Verilator(SimFlow):
             )
 
         compile_args = ss.compile_args
-        parameters = self.design.tb.parameters
+        if self.cocotb or not next(iter(self.design.tb.top), None):
+            parameters = {**self.design.rtl.parameters, **self.design.tb.parameters}
+        else:
+            parameters = dict(self.design.tb.parameters)
         # tb defines override rtl defines; merged into a new mapping, as the design is shared by
         # every flow of the run and already hashed
         defines: dict[str, Any] = {**self.design.rtl.defines, **self.design.tb.defines}
@@ -531,6 +569,8 @@ class Verilator(SimFlow):
             # a seed of 0 would ask the model to pick one from the system's random generator
             seed = randint(1, 1 << 31) if ss.random_seed == "random" else ss.random_seed
             model_args += [f"+verilator+seed+{seed}", "+verilator+rand+reset+2"]
+        if ss.fail_severity in ("failure", "fatal"):
+            model_args.append("+verilator+error+limit+2147483647")
         if hooked:
             record = self.run_path / sim_dir / END_RECORD
             # a previous run's record (or a link a tool left at its name) is never this run's
@@ -555,6 +595,7 @@ class Verilator(SimFlow):
             self._driver_exit_code = e.exit_code
             raise
         self._driver_exit_code = 0
+        self._model_log = self.run_path / sim_dir / "sim.log"
 
     def rm_dep_files(self):
         """Remove the make dependency files in `sim_dir`, to trigger verilator (through the run

@@ -1128,6 +1128,12 @@ class BscSim(BscFlow, SimFlow):
     output_dir_setting = "sim_dir"
 
     class Settings(BscFlow.Settings, SimFlow.Settings):
+        timeout: float | None = Field(
+            None,
+            gt=0,
+            description="Stop the simulation after this many seconds of wall-clock time and fail "
+            "the run. None (the default) sets no limit.",
+        )
         simulator: SimulatorName = Field(
             "bluesim",
             description='The simulator: "bluesim", or a Verilog simulator bsc links the '
@@ -1343,7 +1349,7 @@ class BscSim(BscFlow, SimFlow):
         simulation = self.bsc.derive(str(executable), version_flag=None, minimum_version=None)
         simulation.highlight_rules = None
         try:
-            simulation.run(*sim_args)
+            simulation.run(*sim_args, timeout=ss.timeout)
         finally:
             if vcd and dump and self.wrote_output(dump):
                 if dump != vcd:

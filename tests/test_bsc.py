@@ -1296,3 +1296,25 @@ def test_verilator_needs_the_dpi_for_imported_c_functions(tmp_path, monkeypatch)
     )
     with pytest.raises(FlowSettingsException, match="use_dpi = true"):
         _run(BscSim, design, tmp_path / "run", simulator="verilator")
+
+
+def test_bsc_sim_time_limit_stops_a_testbench_that_never_finishes(tmp_path):
+    import time
+
+    require_bsc()
+    (tmp_path / "Tb.bsv").write_text(
+        "package Tb;\nmodule mkTb(Empty);\n  Reg#(UInt#(32)) n <- mkReg(0);\n"
+        "  rule tick; n <= n + 1; endrule\nendmodule\nendpackage\n"
+    )
+    design = Design(
+        name="tb",
+        design_root=tmp_path,
+        rtl={"sources": ["Tb.bsv"], "top": "mkTb"},
+        tb={"sources": ["Tb.bsv"], "top": "mkTb"},
+    )
+    start = time.monotonic()
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        BscSim, design, {"timeout": 5}
+    )
+    assert flow is not None and not flow.succeeded
+    assert time.monotonic() - start < 60
