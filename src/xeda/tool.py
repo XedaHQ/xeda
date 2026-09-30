@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -96,8 +97,8 @@ class Docker(XedaBaseModel):
         print_command: bool = True,
         highlight_rules: Optional[Dict[str, str]] = None,
         merge_stderr: bool = False,
-        timeout: Optional[float] = None,
-        tee: Optional[Path] = None,
+        timeout: float | None = None,
+        tee: Path | None = None,
     ) -> Union[str, None]:
         """Run the tool from a docker container: in the directory it runs in (the run directory),
         mounted writable, with each directory of `read_only` (the design's) mounted read-only.
@@ -152,7 +153,19 @@ class Docker(XedaBaseModel):
             command = self.command
         else:
             command = [executable]
-        cmd = ["run", *docker_args, image, *command, *args]
+        # named, so that stopping the run (a time limit, Ctrl-C) can stop the container itself:
+        # killing the `docker` client leaves it running
+        container = f"xeda-{uuid.uuid4().hex}"
+        cmd = ["run", "--name", container, *docker_args, image, *command, *args]
+
+        def kill_container() -> None:
+            try:  # already gone is fine: `--rm` removed it after it exited on its own
+                run_process(
+                    self.cli, ["kill", container], stdout=True, check=False, merge_stderr=True
+                )
+            except OSError as e:
+                log.warning("Could not stop container %s: %s", container, e)
+
         try:
             return run_process(
                 self.cli,
@@ -165,6 +178,7 @@ class Docker(XedaBaseModel):
                 merge_stderr=merge_stderr,
                 timeout=timeout,
                 tee=tee,
+                on_stop=kill_container,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
@@ -450,8 +464,8 @@ class Tool(XedaBaseModel):
         check: bool = True,
         highlight_rules: Optional[Dict[str, str]] = None,
         merge_stderr: bool = False,
-        timeout: Optional[float] = None,
-        tee: Optional[Path] = None,
+        timeout: float | None = None,
+        tee: Path | None = None,
     ) -> Union[str, None]:
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
@@ -482,8 +496,8 @@ class Tool(XedaBaseModel):
         cwd: Optional[Path] = None,
         highlight_rules: Optional[Dict[str, str]] = None,
         merge_stderr: bool = False,
-        timeout: Optional[float] = None,
-        tee: Optional[Path] = None,
+        timeout: float | None = None,
+        tee: Path | None = None,
     ) -> Union[str, None]:
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout

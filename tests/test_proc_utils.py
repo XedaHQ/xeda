@@ -445,3 +445,117 @@ def test_the_time_limit_stops_the_process_tree(tmp_path):
         run_process(sys.executable, ["-c", parent], timeout=0.5)
     time.sleep(4)
     assert not marker.exists()
+
+
+# ---- fix round 1: the watchdog's lifecycle ---------------------------------------------------
+import subprocess  # noqa: E402
+
+from xeda.proc_utils import _Deadline  # noqa: E402
+
+
+class _Finished:
+    """A stand-in for a process that has already ended by itself."""
+
+    pid = 2**22 + 12345
+    killed = False
+
+    def __init__(self):
+        self.args = ["done"]
+
+    def poll(self):
+        return 0
+
+    def send_signal(self, sig):
+        self.killed = True
+
+    def kill(self):
+        self.killed = True
+
+
+def test_a_process_that_ended_by_itself_is_not_a_timeout(monkeypatch):
+    proc = _Finished()
+    monkeypatch.setattr("os.killpg", lambda *a: setattr(proc, "killed", True))
+    with _Deadline(proc, 0.05, group=True) as deadline:  # type: ignore[arg-type]
+        time.sleep(0.3)
+    assert not deadline.expired
+    assert not proc.killed
+
+
+def test_a_cancelled_deadline_never_signals(monkeypatch):
+    proc = _Finished()
+    with _Deadline(proc, 0.2) as deadline:  # type: ignore[arg-type]
+        deadline.cancel()
+        time.sleep(0.4)
+    assert not deadline.expired and not proc.killed
+
+
+def test_a_process_that_exits_within_its_limit_is_never_a_timeout():
+    for _ in range(5):
+        run_process(sys.executable, ["-c", "pass"], timeout=5)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_an_interrupt_stops_the_whole_process_tree(tmp_path):
+    marker = tmp_path / "late"
+    child = f"import time; time.sleep(3); open({str(marker)!r}, 'w').close()"
+    parent = f"import subprocess, sys; subprocess.run([sys.executable, '-c', {child!r}])"
+    proc = subprocess.Popen([sys.executable, "-c", parent], start_new_session=True)
+    time.sleep(0.5)
+    with pytest.raises(KeyboardInterrupt):
+        with _Deadline(proc, 60, group=True):
+            raise KeyboardInterrupt
+    assert proc.poll() is not None
+    time.sleep(4)
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_an_interrupt_while_copying_output_stops_the_process(monkeypatch):
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.print", interrupted)
+    started = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        run_process(
+            sys.executable,
+            ["-c", "import time; print('x', flush=True); time.sleep(60)"],
+            highlight_rules={"x": ""},
+            timeout=60,
+        )
+    assert time.monotonic() - started < 30
+
+
+@pytest.mark.parametrize("bad", [0, -1, 0.0])
+def test_a_non_positive_time_limit_is_refused(bad):
+    with pytest.raises(ValueError, match=str(bad)):
+        run_process(sys.executable, ["-c", "pass"], timeout=bad)
+
+
+@pytest.mark.parametrize("stdout", [True, "out.txt"])
+def test_tee_with_captured_output_is_refused(tmp_path, stdout):
+    with pytest.raises(ValueError, match="tee"):
+        run_process(sys.executable, ["-c", "pass"], stdout=stdout, tee=tmp_path / "log")
+
+
+def test_a_docker_run_names_its_container_and_stops_it_when_stopped(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run_process(executable, args=None, **kwargs):
+        calls.append((list(args or []), kwargs))
+        if kwargs.get("on_stop"):
+            kwargs["on_stop"]()
+            raise ProcessTimeout([executable], kwargs["timeout"])
+        return None
+
+    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.chdir(tmp_path)
+    tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
+    with pytest.raises(ProcessTimeout):
+        tool.run("arg", timeout=3)
+    (run_args, run_kwargs), (kill_args, kill_kwargs) = calls
+    name = run_args[run_args.index("--name") + 1]
+    assert name.startswith("xeda-")
+    assert kill_args == ["kill", name]
+    assert kill_kwargs.get("check") is False
+    assert run_kwargs["timeout"] == 3
