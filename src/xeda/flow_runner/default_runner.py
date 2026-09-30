@@ -41,7 +41,7 @@ from ..deliver import (
 from ..design import DESIGN_NAME, Design, cloning_dependencies_into, names_a_design_file
 from ..flow import Flow, FlowDependencyFailure, FlowSettingsError, registered_flows
 from ..flow import flowrun_hash as flow_run_hash
-from ..flow.flow import WrittenLeaf, map_written_leaves, written_path_problems
+from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout, recording_programs
 from ..run_dir import RunDirectory, RunDirectoryError
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
@@ -62,13 +62,15 @@ from ..utils import (
 from ..version import __version__
 from ..xedaproject import XedaProject
 from .outputs import record_outputs
+from .resolver import check_launchable
 from .run_lock import lock_file, run_dir_lock
 from .settings_layers import (
-    compose_flow_settings,
-    merge_flow_sections,
-    merge_layers,
     command_line_sections,
-    transitive_dependencies,
+    compose_flow_settings,
+    dependency_settings,
+    merge_flow_sections,
+    settings_in_context,
+    suggest_dependency_node,
 )
 from .trace import (
     as_recorded,
@@ -384,39 +386,6 @@ def _warn_outputs_to_delivered_nothing(flow: Flow, outputs_to: Path) -> None:
 
 
 FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
-
-
-def dependency_settings(
-    dep_cls: type[Flow],
-    given: Flow.Settings | None,
-    depender_settings: Flow.Settings,
-    all_flows_settings: Mapping[str, Any] | None = None,
-) -> Flow.Settings:
-    """The settings a dependency is launched with -- composed here, and only here.
-
-    `given` is what the depending flow passed to `add_dependency` (for a declared dependency,
-    already `resolve_dependency`-d). Layers, lowest precedence first:
-
-    1. the design's / project's own section for the dependency's flow (``[flows.yosys_fpga]``),
-       merged deeply like any settings layer (`settings_layers.merge_layers`);
-    2. `given`, which is more specific.
-
-    The depending flow's diagnostics then carry over: `debug` if it is on, and a `verbose` level
-    above 1 when the dependency has none of its own.
-    """
-    section = (all_flows_settings or {}).get(dep_cls.name)
-    if section or given is None or not given.context:
-        own = given.model_dump(exclude_unset=True) if given is not None else {}
-        settings = dep_cls.Settings.from_input(
-            merge_layers(section, own, settings_cls=dep_cls.Settings),
-            **depender_settings.context,
-        )
-    else:
-        settings = given
-    settings.debug |= depender_settings.debug
-    if not settings.verbose and depender_settings.verbose > 1:
-        settings.verbose = depender_settings.verbose
-    return settings
 
 
 def _artifact_rows(artifacts: Mapping[str, Any]) -> list[tuple[str, str, bool]]:
@@ -967,28 +936,12 @@ class FlowLauncher:
         its `__init__`/`init()`/`run()` may complete with derived values, resolved paths and
         outputs without any of that leaking into the run's identity.
         """
-        if flow_settings is None:
-            flow_settings = {}
-        if isinstance(flow_settings, dict):
-            try:
-                settings = flow_class.Settings.from_input(
-                    flow_settings, design_root=design.root_path, runner_cwd=runner_cwd
-                )
-            except FlowSettingsError as error:
-                if depender is None:
-                    self._suggest_dependency_node(flow_class, error)
-                raise
-        elif not flow_settings.context:
-            settings = flow_class.Settings.from_input(
-                # Preserve edits made inside default-created nested dependency settings. The
-                # parent field is not marked "set" when only its child is assigned, so
-                # `exclude_unset=True` would silently discard that caller input here.
-                flow_settings.model_dump(),
-                design_root=design.root_path,
-                runner_cwd=runner_cwd,
-            )
-        else:
-            settings = flow_settings.model_copy(deep=True)
+        try:
+            settings = settings_in_context(flow_class, flow_settings, design.root_path, runner_cwd)
+        except FlowSettingsError as error:
+            if depender is None:
+                suggest_dependency_node(flow_class, error)
+            raise
         if self.debug:
             log.debug(
                 "Flow '%s' settings: %s",
@@ -999,30 +952,13 @@ class FlowLauncher:
         # a path the flow writes that leads out of its run directory (rule R4), a setting the
         # flow cannot run without, and a design it cannot run are reported now, before anything
         # is set up for the run
-        problems = written_path_problems(settings)
-        if problems:
-            raise FlowSettingsError(
-                [(key, message, None, "value_error") for key, message in problems],
-                flow_class.Settings,
-            )
-        flow_class.check_required_settings(settings)
-        flow_class.check_design_supported(design)
+        check_launchable(flow_class, settings, design)
         return settings
 
     @staticmethod
     def _suggest_dependency_node(flow_class: type[Flow], error: FlowSettingsError) -> None:
         """Tell a setting that belongs to a dependency where it goes: `-s flows.<node>.key`."""
-        dependencies = transitive_dependencies(flow_class)
-        suggested = []
-        for location, message, context, kind in error.errors:
-            if kind == "extra_forbidden" and location and " -> " not in location:
-                owner = next(
-                    (d for d in dependencies.values() if location in d.Settings.model_fields), None
-                )
-                if owner is not None:
-                    message = f"{message}; did you mean -s flows.{owner.name}.{location}=...?"
-            suggested.append((location, message, context, kind))
-        error.errors = suggested
+        suggest_dependency_node(flow_class, error)
 
     def _run_identity(
         self, flow_name: str, design: Design, settings: Flow.Settings
