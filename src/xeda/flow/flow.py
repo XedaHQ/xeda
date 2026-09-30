@@ -51,7 +51,7 @@ from ..dataclass import (
     validation_errors,
     written_role,
 )
-from ..design import Design
+from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..utils import (
     XedaException,
@@ -593,6 +593,11 @@ class Flow(metaclass=ABCMeta):
     #: they lack, so a model that insisted on them could not even be nested.
     required_settings: Dict[str, str] = {}
 
+    #: Types this flow hands its tools directly. None keeps selection in the flow's own code.
+    #: Unsupported languages are refused; other unconsumed types belong to another flow.
+    reads_sources: ClassVar[frozenset[SourceType] | None] = None
+    reads_source_parts: ClassVar[tuple[str, ...]] = ("rtl",)
+
     @classmethod
     def check_required_settings(cls, settings: "Flow.Settings") -> None:
         """Fail a launch that lacks a `required_settings` entry, naming each and how to give it,
@@ -615,8 +620,24 @@ class Flow(metaclass=ABCMeta):
     @classmethod
     def check_design_supported(cls, design: Design) -> None:
         """Fail a launch on a design this flow cannot run, before anything is set up for the run
-        or shipped to a remote; checked wherever `check_required_settings` is. A flow accepts
-        every design unless it overrides this."""
+        or shipped to a remote; checked wherever `check_required_settings` is. A flow that reads
+        the design's sources itself (`reads_sources`) refuses a source in a language it cannot
+        read, naming it; a flow may refuse more by overriding this (and calling it)."""
+        if cls.reads_sources is None:
+            return
+        unread = [
+            src
+            for part in cls.reads_source_parts
+            for src in getattr(design, part).sources
+            if src.type in LANGUAGE_TYPES and src.type not in cls.reads_sources
+        ]
+        if unread:
+            kinds = sorted({src.type.name for src in unread})
+            raise FlowSettingsException(
+                f"{cls.name} cannot read the design's {' and '.join(kinds)} source(s) "
+                f"{', '.join(str(src.file) for src in unread)}; it reads "
+                f"{', '.join(sorted(member.name for member in cls.reads_sources))}"
+            )
 
     class Settings(XedaBaseModel):
         """Settings that can affect flow's behavior"""
@@ -1060,6 +1081,7 @@ class Flow(metaclass=ABCMeta):
         self.artifacts = Box()
         self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
+        self.jinja_env.globals["sources_read"] = self.sources_read
         self.add_template_filter("quote", lambda x: f'"{x}"')
         self.add_template_test("match", regex_match)
         self.dependencies: List[Tuple[Union[Type[Flow], str], Flow.Settings, List[str]]] = []
@@ -1171,6 +1193,14 @@ class Flow(metaclass=ABCMeta):
                 if value is not None:
                     self.results[canonical] = value
                     break
+
+    def sources_read(self, rtl: bool = True, tb: bool = False) -> list[DesignSource]:
+        """The design's sources this flow reads (`reads_sources`), in design order: what its
+        scripts hand the tool. `rtl`, `tb`: which parts (`Design.sources_of_type`)."""
+        sources = self.design.sources_of_type("*", rtl=rtl, tb=tb)
+        if self.reads_sources is None:
+            return sources
+        return [src for src in sources if src.type in self.reads_sources]
 
     def copy_from_template(
         self, resource_name, lstrip_blocks=False, trim_blocks=False, script_filename=None, **kwargs

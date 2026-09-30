@@ -23,7 +23,7 @@ project set "Generate Detailed MAP Report" TRUE
 
 
 puts "\n==============================( Adding RTL Sources )================================"
-{% for src in design.rtl.sources %}
+{% for src in sources_read() %}
 xfile add {{src.file|tcl_word}} -copy
 {%- endfor %}
 

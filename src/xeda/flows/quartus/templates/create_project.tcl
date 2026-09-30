@@ -31,8 +31,18 @@ set_global_assignment -name TOP_LEVEL_ENTITY ${top}
 set_global_assignment -name VHDL_INPUT_VERSION {{("VHDL_" ~ design.language.vhdl.standard)|tcl_word}}
 {%- endif %}
 
-{%- for src in design.rtl.sources %}
-set_global_assignment -name {{src.type.name|upper}}_FILE {{src.file|tcl_word}}
+{%- for src in sources_read() %}
+{%- if src.type.name == "Verilog" %}
+set_global_assignment -name VERILOG_FILE {{src.file|tcl_word}}
+{%- elif src.type.name == "SystemVerilog" %}
+set_global_assignment -name SYSTEMVERILOG_FILE {{src.file|tcl_word}}
+{%- elif src.type.name == "Vhdl" %}
+set_global_assignment -name VHDL_FILE {{src.file|tcl_word}}
+{%- elif src.type.name in ("VerilogHeader", "SVHeader") %}
+set_global_assignment -name SEARCH_PATH {{src.file.parent|tcl_word}}
+{%- elif src.type.name == "Sdc" %}
+set_global_assignment -name SDC_FILE {{src.file|tcl_word}}
+{%- endif %}
 {%- endfor %}
 
 {%- for k,v in design.rtl.parameters.items() %}

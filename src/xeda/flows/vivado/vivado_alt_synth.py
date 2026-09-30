@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ...dataclass import Field, field_validator
+from ...design import SourceType
 from ...flow import FpgaSynthFlow
 from .vivado_synth import (
     CHECKPOINT_PLACE,
@@ -355,6 +356,18 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     results_description = {
         key: text for key, text in VivadoSynth.results_description.items() if key != "status"
     }
+
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Vhdl,
+            SourceType.VerilogHeader,
+            SourceType.SVHeader,
+            SourceType.Xdc,
+            SourceType.Sdc,
+        }
+    )
 
     class Settings(VivadoSynth.Settings):
         synth: RunOptions = Field(

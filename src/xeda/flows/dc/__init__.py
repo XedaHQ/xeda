@@ -8,6 +8,7 @@ import colorama
 from box import Box
 
 from ...dataclass import WORKING, Field, field_validator
+from ...design import SourceType
 from ...flow import AsicSynthFlow, describe_results
 from ...platforms import AsicsPlatform
 from ...tool import Tool
@@ -79,6 +80,16 @@ class Dc(AsicSynthFlow):
             "reported so existing scripts keep working.",
             "num_macro_bbox": "Number of macros / black boxes in the mapped design.",
         },
+    )
+
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Vhdl,
+            SourceType.Sdc,
+            SourceType.Tcl,
+        }
     )
 
     class Settings(AsicSynthFlow.Settings):

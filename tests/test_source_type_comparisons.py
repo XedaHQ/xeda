@@ -36,3 +36,20 @@ def test_every_source_type_compared_with_text_is_a_name_the_type_has() -> None:
                 )
                 wrong += [f"{path.relative_to(SRC)}:{n}: {t!r}" for t in texts if t not in NAMES]
     assert not wrong, "not a SourceType name:\n" + "\n".join(wrong)
+
+
+#: A source type's name turned into tool syntax: `{{src.type.name|upper}}_FILE`.
+NAME_AS_SYNTAX = re.compile(r"\.type(?:\.name)?\s*\|\s*(?:upper|lower|capitalize|title)\b")
+
+
+def test_no_template_turns_a_source_type_s_name_into_tool_syntax() -> None:
+    """Quartus wrote `{{src.type.name|upper}}_FILE`: `XDC_FILE` and `MEMORYFILE_FILE` are no
+    assignments Quartus has (ST4). A template names each type's command explicitly."""
+    found = [
+        f"{path.relative_to(SRC)}:{n}"
+        for path in sorted(SRC.rglob("*"))
+        if path.suffix in (".tcl", ".ys", ".xdc", ".sdc", ".fdc", ".ldc")
+        for n, line in enumerate(path.read_text(errors="ignore").splitlines(), 1)
+        if NAME_AS_SYNTAX.search(line)
+    ]
+    assert not found, "\n".join(found)

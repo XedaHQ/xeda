@@ -17,8 +17,9 @@ set_msg_config -id {{("[" ~ msg ~ "]")|tcl_word}} -suppress
 add_files -fileset sources_1 -norecurse {{ sources | tcl_list }}
 {%- endif %}
 
-{%- if design.tb and design.tb.sources %}
-add_files -fileset sim_1 -norecurse {{ design.tb.sources | tcl_list }}
+{%- set tb_sources = sources_read(rtl=false, tb=true) %}
+{%- if tb_sources %}
+add_files -fileset sim_1 -norecurse {{ tb_sources | tcl_list }}
 {%- endif %}
 
 {%- for xdc_file in xdc_files %}

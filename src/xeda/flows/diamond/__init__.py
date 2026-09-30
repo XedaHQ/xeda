@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Literal
 
 from ...dataclass import WORKING, Field
+from ...design import SourceType
 from ...flow import FlowFatalError, FlowSettingsException, FpgaSynthFlow, describe_results
 from ...tool import Tool
 
@@ -28,6 +29,19 @@ class DiamondSynth(FpgaSynthFlow):
         "slice",
         "dsp",
         "bram",
+    )
+
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Vhdl,
+            SourceType.VerilogHeader,
+            SourceType.SVHeader,
+            SourceType.MemoryFile,
+            SourceType.Sdc,
+            SourceType.Lpf,
+        }
     )
 
     class Settings(FpgaSynthFlow.Settings):

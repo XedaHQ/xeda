@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from ...dataclass import Field
+from ...design import SourceType
 from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
 from ...tool import Docker, OptionalBoolOrPath, Tool
 from ...utils import tcl_word, try_convert_to_primitives
@@ -100,6 +101,10 @@ class IseSynth(FpgaSynthFlow):
         "lut",
         "ff",
         "slice",
+    )
+
+    reads_sources = frozenset(
+        {SourceType.Verilog, SourceType.VerilogHeader, SourceType.Vhdl, SourceType.Ucf}
     )
 
     class Settings(FpgaSynthFlow.Settings):
