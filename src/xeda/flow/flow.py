@@ -70,6 +70,8 @@ from ..utils import (
     unique,
 )
 
+from .io import FlowInputs, FlowOutputs, check_io_declarations
+
 if TYPE_CHECKING:
     from ..deliver import Delivered
 
@@ -639,6 +641,14 @@ class Flow(metaclass=ABCMeta):
                 f"{', '.join(sorted(member.name for member in cls.reads_sources))}"
             )
 
+    class Inputs(FlowInputs):
+        """The files this flow reads besides its design's and its settings': none, unless the
+        flow declares them (`xeda.flow.io.In`)."""
+
+    class Outputs(FlowOutputs):
+        """The files this flow writes for another flow to read: none, unless the flow declares
+        them (`xeda.flow.io.Out`)."""
+
     class Settings(XedaBaseModel):
         """Settings that can affect flow's behavior"""
 
@@ -918,6 +928,7 @@ class Flow(metaclass=ABCMeta):
         return self.results.success  # pyright: ignore
 
     def __init_subclass__(cls) -> None:
+        check_io_declarations(cls)
         cls_name = cls.__name__
         mod_name = cls.__module__
         log.info("registering flow %s from %s", cls_name, mod_name)
@@ -1086,6 +1097,10 @@ class Flow(metaclass=ABCMeta):
         self.add_template_test("match", regex_match)
         self.dependencies: List[Tuple[Union[Type[Flow], str], Flow.Settings, List[str]]] = []
         self.completed_dependencies: List[Flow] = []
+        #: Declared inputs, filled by the launcher before freshness is judged; init never reads them.
+        self.inputs = type(self).Inputs.model_construct()
+        #: Declared outputs, set by the flow and recorded by the launcher after a successful run.
+        self.outputs = type(self).Outputs.model_construct()
 
         #: Makefile-style dependency files the flow's tools wrote (`yosys -E`); read after
         #: `run()` into the trace's implicit inputs.
