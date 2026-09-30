@@ -340,6 +340,12 @@ outputs: ``trace.json``, ``trace.json.tmp`` (a trace being written), and ``.xeda
 marker touched to read the file system's clock, removed at once). A flow must not write files by
 these names.
 
+A remote host must run a P2a xeda build: the 0.4.4 release line (including development builds)
+or newer, with remote protocol 1 or newer. Xeda checks the package the remote interpreter
+actually imports before shipping the design. A 0.4.3 install or a build without P2a support
+is refused with an "upgrade the remote xeda" error. Until P2a is released, install this P2a
+branch on the remote host.
+
 A remote run (``--remote``) always runs fresh on the remote, and its results are always mirrored
 locally in the hashed layout (``<design>/<flow>_<hash>``), so remote runs of different settings
 never share a directory. ``--rebuild-all``, ``--clean`` and ``--hashed-run-dirs`` would change

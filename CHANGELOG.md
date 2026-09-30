@@ -98,7 +98,9 @@ All notable changes to this project will be documented in this file.
   entry, such as yosys's own library files) has no such record: on the run directory's file
   system its clock still decides, but on another one nothing does, so the next launch runs once
   more, saying so ("input first read by the last run, on another file system").
-- `--remote` needs xeda 0.4.3 or newer on the remote host.
+- `--remote` needs a P2a xeda build on the remote host: the 0.4.4 release line (including dev
+  builds) or newer, with remote protocol 1 or newer. A 0.4.3 host is refused before anything
+  ships, with an error asking to upgrade the remote xeda.
 
 ### Removed
 - **The `<design>_<design_hash>/` run-directory layer.** It only ever appeared with
