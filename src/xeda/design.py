@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import errno
 import hashlib
 import inspect
@@ -79,6 +80,11 @@ __all__ = [
     "DesignValidationError",
     "FileResource",
     "LanguageSettings",
+    "SOURCE_SUFFIXES",
+    "AMBIGUOUS_SUFFIXES",
+    "TYPE_ONLY",
+    "source_type_named",
+    "source_type_of",
     "SourceType",
     "VhdlSettings",
 ]
@@ -548,7 +554,8 @@ class SourceType(str, Enum):
     """Type of a design source file.
 
     Values are the member names themselves so that serialized settings and results are
-    self-describing. NOTE: the declaration order is significant, see `from_str`.
+    self-describing. NOTE: the declaration order is significant, see `from_str`: members are
+    only ever appended after the last one, never inserted or reordered.
     """
 
     Verilog = "Verilog"
@@ -564,6 +571,44 @@ class SourceType(str, Enum):
     Chisel = "Chisel"
     Cpp = "Cpp"
     Cocotb = "Cocotb"
+    # the ordinals 1-13 above are frozen (old settings.json files); every member below is appended
+    Lpf = "Lpf"
+    Pcf = "Pcf"
+    Pdc = "Pdc"
+    JsonNetlist = "JsonNetlist"
+    EcpConfig = "EcpConfig"
+    IceAsc = "IceAsc"
+    Fasm = "Fasm"
+    Bitstream = "Bitstream"
+    VerilogNetlist = "VerilogNetlist"
+    VhdlNetlist = "VhdlNetlist"
+    Blif = "Blif"
+    Edif = "Edif"
+    Ucf = "Ucf"
+    Xcf = "Xcf"
+    Qsf = "Qsf"
+    Ldc = "Ldc"
+    Fdc = "Fdc"
+    Sdf = "Sdf"
+    Spef = "Spef"
+    Saif = "Saif"
+    Vcd = "Vcd"
+    Fst = "Fst"
+    Ghw = "Ghw"
+    Vpd = "Vpd"
+    Fsdb = "Fsdb"
+    Checkpoint = "Checkpoint"
+    Liberty = "Liberty"
+    Def = "Def"
+    Odb = "Odb"
+    Gds = "Gds"
+    Cdl = "Cdl"
+    Chipdb = "Chipdb"
+    C = "C"
+    CHeader = "CHeader"
+    ObjectFile = "ObjectFile"
+    Vlt = "Vlt"
+    Data = "Data"
 
     def __str__(self) -> str:
         return str(self.name)
@@ -592,7 +637,137 @@ class SourceType(str, Enum):
         return None
 
 
+#: The suffix (without its dot, and in its letter case: inference is case-sensitive) each type
+#: is inferred from, with its variant: one member per suffix. A member missing here is given only
+#: by `type` (`TYPE_ONLY`). `tests/test_source_types.py` pins both.
+SOURCE_SUFFIXES: dict[str, tuple[SourceType, str | None]] = {
+    "v": (SourceType.Verilog, None),
+    "vh": (SourceType.VerilogHeader, None),
+    "sv": (SourceType.SystemVerilog, None),
+    "svh": (SourceType.SVHeader, None),
+    "vhd": (SourceType.Vhdl, None),
+    "vhdl": (SourceType.Vhdl, None),
+    "bsv": (SourceType.Bluespec, "bsv"),
+    "bs": (SourceType.Bluespec, "bh"),
+    "bh": (SourceType.Bluespec, "bh"),
+    "xdc": (SourceType.Xdc, None),
+    "sdc": (SourceType.Sdc, None),
+    "mem": (SourceType.MemoryFile, None),
+    "init": (SourceType.MemoryFile, None),
+    "hex": (SourceType.MemoryFile, None),
+    "tcl": (SourceType.Tcl, None),
+    "sc": (SourceType.Chisel, None),
+    "cc": (SourceType.Cpp, None),
+    "cpp": (SourceType.Cpp, None),
+    "cxx": (SourceType.Cpp, None),
+    "py": (SourceType.Cocotb, None),
+    "lpf": (SourceType.Lpf, None),
+    "pcf": (SourceType.Pcf, None),
+    "pdc": (SourceType.Pdc, None),
+    "asc": (SourceType.IceAsc, None),
+    "fasm": (SourceType.Fasm, None),
+    "bit": (SourceType.Bitstream, None),
+    "sof": (SourceType.Bitstream, None),
+    "blif": (SourceType.Blif, None),
+    "edf": (SourceType.Edif, None),
+    "edif": (SourceType.Edif, None),
+    "ucf": (SourceType.Ucf, None),
+    "xcf": (SourceType.Xcf, None),
+    "qsf": (SourceType.Qsf, None),
+    "ldc": (SourceType.Ldc, None),
+    "fdc": (SourceType.Fdc, None),
+    "sdf": (SourceType.Sdf, None),
+    "spef": (SourceType.Spef, None),
+    "saif": (SourceType.Saif, None),
+    "vcd": (SourceType.Vcd, None),
+    "fst": (SourceType.Fst, None),
+    "ghw": (SourceType.Ghw, None),
+    "vpd": (SourceType.Vpd, None),
+    "fsdb": (SourceType.Fsdb, None),
+    "dcp": (SourceType.Checkpoint, None),
+    "lib": (SourceType.Liberty, None),
+    "def": (SourceType.Def, None),
+    "odb": (SourceType.Odb, None),
+    "gds": (SourceType.Gds, None),
+    "cdl": (SourceType.Cdl, None),
+    "c": (SourceType.C, None),
+    "h": (SourceType.CHeader, None),
+    "hpp": (SourceType.CHeader, None),
+    "o": (SourceType.ObjectFile, None),
+    "a": (SourceType.ObjectFile, None),
+    "vlt": (SourceType.Vlt, None),
+}
+
+#: Suffixes that name several kinds of file (D14): a source with one needs its `type`. Each
+#: lists the members it is most often, for the message.
+AMBIGUOUS_SUFFIXES: dict[str, tuple[SourceType, ...]] = {
+    "json": (SourceType.JsonNetlist,),
+    "bin": (SourceType.Bitstream, SourceType.Chipdb),
+    "cfg": (SourceType.EcpConfig,),
+    "config": (SourceType.EcpConfig,),
+}
+
+#: Members no suffix infers: given by an explicit `type` only (or, later, by a declared output).
+TYPE_ONLY: frozenset[SourceType] = frozenset(
+    {
+        SourceType.JsonNetlist,
+        SourceType.EcpConfig,
+        SourceType.VerilogNetlist,
+        SourceType.VhdlNetlist,
+        SourceType.Chipdb,
+        SourceType.Data,
+    }
+)
+
+
+def source_type_named(text: str) -> SourceType:
+    """The member `text` names (`SourceType.from_str`: its name in any letter case, or an old
+    `settings.json`'s ordinal); a `ValueError` naming the closest members otherwise."""
+    member = SourceType.from_str(text)
+    if member is not None:
+        return member
+    names = [m.name for m in SourceType]
+    by_lower = {name.lower(): name for name in names}
+    close = [
+        by_lower[match]
+        for match in difflib.get_close_matches(text.lower(), list(by_lower), n=3, cutoff=0.6)
+    ]
+    hint = f"; did you mean {' or '.join(f'`{name}`' for name in close)}?" if close else ""
+    raise ValueError(f"unknown source type {text!r}{hint} (the types: {', '.join(names)})")
+
+
+def source_type_of(path: Path) -> tuple[SourceType, str | None]:
+    """The type and variant `path`'s suffix says (`SOURCE_SUFFIXES`); a `ValueError` asking for
+    an explicit `type` when the suffix names several kinds of file, is in another letter case
+    than the one xeda knows, or is one xeda infers nothing from."""
+    suffix = path.suffix[1:]
+    if suffix in SOURCE_SUFFIXES:
+        return SOURCE_SUFFIXES[suffix]
+    if suffix in AMBIGUOUS_SUFFIXES:
+        candidates = AMBIGUOUS_SUFFIXES[suffix]
+        raise ValueError(
+            f"{path}: `.{suffix}` names several kinds of file "
+            f"({', '.join(m.name for m in candidates)} among them): give its type, e.g. "
+            f'{{ file = "{path.name}", type = "{candidates[0].name}" }}'
+        )
+    if suffix.lower() in SOURCE_SUFFIXES:
+        member = SOURCE_SUFFIXES[suffix.lower()][0]
+        raise ValueError(
+            f"{path}: xeda infers no source type from `.{suffix}` (`.{suffix.lower()}` is "
+            f'{member.name}): rename it, or give its type, e.g. {{ file = "{path.name}", '
+            f'type = "{member.name}" }}'
+        )
+    what = f"`.{suffix}`" if suffix else "a file without a suffix"
+    raise ValueError(
+        f"{path}: xeda infers no source type from {what}: give its type, e.g. "
+        f'{{ file = "{path.name}", type = "Data" }} -- `Data` has no automatic HDL frontend (test '
+        f"vectors, a script's input); the types: {', '.join(m.name for m in SourceType)}"
+    )
+
+
 class DesignSource(FileResource):
+    type: SourceType
+
     def __init__(
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
@@ -604,53 +779,41 @@ class DesignSource(FileResource):
     ) -> None:
         """Build a design source while retaining its stated metadata."""
         if isinstance(path, dict):
-            typ = typ or path.pop("type", None)
-            standard = standard or path.pop("standard", None)
-            variant = variant or path.pop("variant", None)
+            path = dict(path)
+            stated_type = path.pop("type", None)
+            if typ is None:
+                typ = stated_type
+            stated_standard = path.pop("standard", None)
+            if standard is None:
+                standard = stated_standard
+            stated_variant = path.pop("variant", None)
+            if variant is None:
+                variant = stated_variant
             rp = path.pop("root_path", None)
             if not _root_path and rp:
                 _root_path = Path(rp)
         super().__init__(path, _root_path=_root_path, **kwargs)
 
-        def type_from_suffix(path: Path) -> Tuple[Optional[SourceType], Optional[str]]:
-            type_variants_map = {
-                (SourceType.Chisel, None): ["sc"],
-                (SourceType.Cpp, None): ["cc", "cpp", "cxx"],
-                (SourceType.Vhdl, None): ["vhd", "vhdl"],
-                (SourceType.Verilog, None): ["v"],
-                (SourceType.VerilogHeader, None): ["vh"],
-                (SourceType.SVHeader, None): ["svh"],
-                (SourceType.SystemVerilog, None): ["sv"],
-                (SourceType.Bluespec, "bsv"): ["bsv"],
-                (SourceType.Bluespec, "bh"): ["bs", "bh"],
-                (SourceType.Xdc, None): ["xdc"],
-                (SourceType.Sdc, None): ["sdc"],
-                (SourceType.Tcl, None): ["tcl"],
-                (SourceType.Cocotb, None): ["py"],
-                (SourceType.MemoryFile, None): ["mem"],
-            }
-            for (typ, vari), suffixes in type_variants_map.items():
-                if path.suffix[1:] in suffixes:
-                    return (typ, vari)
-            return None, None
-
         self.variant = variant
-        self.type = None
         if isinstance(typ, SourceType):
             self.type = typ
         elif isinstance(typ, str):
-            self.type = SourceType.from_str(typ)
-        if not self.type:
-            self.type, self.variant = type_from_suffix(self.file)
+            self.type = source_type_named(typ)
+        elif typ is None:
+            self.type, inferred_variant = source_type_of(self.file)
+            if variant is None:
+                self.variant = inferred_variant
+        else:
+            raise ValueError(f"a source's `type` is the name of a source type, not {typ!r}")
         self.standard = standard
         # What the design *stated*, as opposed to what the filename implied. Only the former is
         # written back out: reloading re-infers the latter from the same suffix, while a stated
         # `type` that contradicts it (`{ file = "legacy.v", type = "SystemVerilog" }`) is lost
         # for good if the dump leaves it out -- and it is part of the design's identity.
-        self._stated: Dict[str, Any] = {
+        self._stated: dict[str, Any] = {
             key: value
             for key, value in (
-                ("type", str(self.type) if typ is not None and self.type is not None else None),
+                ("type", str(self.type) if typ is not None else None),
                 ("standard", standard),
                 ("variant", variant),
             )

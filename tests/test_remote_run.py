@@ -26,7 +26,7 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
-from xeda.design import GitReference
+from xeda.design import GitReference, SourceType
 from xeda.deliver import DeliveryError
 from xeda.flow import FlowException, FlowSettingsError
 from xeda.flow_runner import DIR_NAME_HASH_LEN
@@ -1171,3 +1171,26 @@ def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(tmp_path, 
             design, "nextpnr", host="h", flow_settings=["flows.yosys_fpga.flatten=true"]
         )
     assert connected_to == ["h"]
+
+
+def test_the_archive_names_every_source_s_type(tmp_path, monkeypatch):
+    """Every source travels with its canonical type name. This checks serialization only;
+    floor-version loading and execution semantics are covered separately under Q1."""
+    root = tmp_path / "d"
+    root.mkdir()
+    members = (SourceType.Verilog, SourceType.Lpf, SourceType.JsonNetlist, SourceType.Data)
+    sources = []
+    for member in members:
+        name = f"{member.name.lower()}.src"
+        (root / name).write_text("x\n")
+        sources.append({"file": name, "type": member.name})
+    design = Design(name="d", design_root=root, rtl={"sources": sources, "top": "t"})
+    monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
+    remote_dir = tmp_path / "remote"
+    remote_dir.mkdir()
+    zip_name, design_name = remote_module.send_design(
+        design, _LocalConnection("somewhere"), str(remote_dir)
+    )
+    with zipfile.ZipFile(remote_dir / zip_name) as archive:
+        shipped = json.loads(archive.read(design_name))
+    assert [source["type"] for source in shipped["rtl"]["sources"]] == [m.name for m in members]
