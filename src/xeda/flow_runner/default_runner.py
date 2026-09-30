@@ -957,7 +957,7 @@ class FlowLauncher:
         flow_settings: dict[str, Any] | Flow.Settings | None,
         design: Design,
         runner_cwd: Path,
-        depender: Optional[Flow] = None,
+        depender: Flow | None = None,
     ) -> Flow.Settings:
         """Stage 1: the run's input settings, validated in context and owned by the launcher.
 
@@ -1097,7 +1097,10 @@ class FlowLauncher:
             )
             if not completed_dep.succeeded:
                 log.critical("Dependency flow: %s failed!", dep_cls.name)
-                raise FlowDependencyFailure()
+                raise FlowDependencyFailure(
+                    f"dependency {dep_cls.name} failed: see "
+                    f"{completed_dep.run_path.absolute() / 'results.json'}"
+                )
             flow.completed_dependencies.append(completed_dep)
 
     @staticmethod

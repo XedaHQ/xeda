@@ -125,3 +125,11 @@ def test_a_failing_dependency_replaces_the_depender_previous_success(
     assert document["error"]["type"] == error_type
     assert document["flow"] == first.name and document["design"] == "d"
     assert not (first.run_path / "trace.json").exists()
+    message = document["error"]["message"]
+    if raised is FlowDependencyFailure:
+        # the depender's document says which dependency failed, and where its own document is
+        (dependency,) = first.completed_dependencies
+        assert dependency.name in message
+        assert str(dependency.run_path / "results.json") in message
+    else:  # what the dependency raised, as it raised it
+        assert message == "boom"
