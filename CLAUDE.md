@@ -20,13 +20,28 @@ uv sync                              # or: python -m pip install -U --editable .
 Tests, lint, format, type-check:
 
 ```bash
-pytest tests/                        # full test suite
+pytest tests/ -n auto                # full test suite, one pytest-xdist worker per CPU
+pytest tests/                        # the same, serially
 pytest tests/test_vivado.py::test_vivado_synth_py -s -v   # single test
 tox                                  # CI matrix: py311-py314 + mypy + black + ruff
 tox -e mypy                          # mypy --install-types --non-interactive src - currently clean
 tox -e black                         # black --check --diff src tests (line-length 100) - clean
 ruff check src tests                 # .ruff.toml, line-length 120
 ```
+
+**The suite is safe to run in parallel** (`pytest-xdist`, in the `dev` group; tox and CI use
+`-n auto`), with outcomes identical to a serial run (checked on the full suite with the real
+tools: 3767 tests, serial 15.6 min, `-n auto` on 10 cores 3.2 min). Each test works under
+`tmp_path`, so workers share nothing but read-only files (the examples, `tests/resources`, the
+fake tools) and the opt-in layers' checkout `xeda_run/`. The exception that needed a fix is the
+external-repository cache (`XEDA_TESTS_EXTERNAL_CACHE`): every worker asks for the same pinned
+checkout, so `test_bsc_external._fetch_pinned_commit` holds an `flock` beside it while it fetches
+(`tests/test_external_cache.py`). On platforms without `fcntl`, cache access skips in xdist
+workers; run the external tests serially there. Keep it so: a test must not write outside
+`tmp_path`, leave a process-wide change (`chdir`, `environ`, a registered flow) behind, or take a fixed name, and a
+session-scoped fixture runs once per worker, not once per run. `addopts` deliberately has no
+`-n`: it would start workers for `pytest tests/test_x.py::test_y`. Under `-n`, the conftest
+checkout guard still fires (per worker, at its teardown, on whichever test ran last there).
 
 `jsonschema` is a test-only dependency (in the `dev` group and in tox), used to check that the
 published design schema agrees with the loader.

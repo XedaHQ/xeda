@@ -78,7 +78,7 @@ xeda = "xeda.cli:cli"
 
 [dependency-groups]
 # black >= 25.9 is the first release that knows the py314 target set in [tool.black].
-dev = ["pytest", "jsonschema", "mypy", "black>=25.9", "isort", "pylint", "tox", "ruff>=0.11.13"]
+dev = ["pytest", "pytest-xdist", "jsonschema", "mypy", "black>=25.9", "isort", "pylint", "tox", "ruff>=0.11.13"]
 
 [build-system]
 requires = ["setuptools>=77", "wheel>=0.37", "setuptools_scm[toml]>=7.1"]
