@@ -139,8 +139,8 @@ class _Deadline:
 
     Used as a context manager around everything that waits for `proc`: on leaving it, the timer
     is cancelled and its thread joined, so nothing signals afterwards; an exception (Ctrl-C
-    included) stops and reaps the process, and its group, before it propagates. `on_stop` runs
-    once the process was stopped and reaped (timeout or exception), from the thread that waited for it, for what killing the process does not reach (a container).
+    included) stops and reaps the process, and its group, before it propagates. `on_stop` then
+    runs, on the thread leaving the context, as `run_process` documents.
     """
 
     def __init__(
@@ -171,8 +171,9 @@ class _Deadline:
             pass
 
     def _stopped(self) -> None:
-        """Run `on_stop`, once, in the calling thread, after the process was reaped. It bounds
-        itself; a failure is logged and never replaces the exception in flight."""
+        """Run `on_stop`, once, in the calling thread, after the process was reaped. Nothing
+        bounds it here: it bounds itself. An `Exception` from it is logged and never replaces
+        the exception in flight; a `KeyboardInterrupt` (a second Ctrl-C) propagates."""
         if self._on_stop is None:
             return
         try:
@@ -310,8 +311,19 @@ def run_process(
     `timeout`: stop the process, and those it started, after this many seconds, raising
     `ProcessTimeout`. `tee`: also write every line of the output to this file, through
     `utils.replacing_file` with `keep_on_error=True`; the output is then not captured, so `tee`
-    with a `stdout` other than `None` is a `ValueError`. `on_stop` runs when the process was
-    stopped (timeout or interrupt), for what killing it does not reach.
+    with a `stdout` other than `None` is a `ValueError`.
+
+    `on_stop` stops what killing the process does not reach (a container: `Docker.run`). It is
+    called at most once, and only when xeda stopped the process: its time limit expired, or an
+    exception (Ctrl-C included) was raised while it still ran -- never for a process that ended
+    by itself. It runs synchronously, on the thread that called `run_process`, after the
+    process was stopped and reaped and, when it leads a process group of its own (POSIX, with a
+    `timeout`), that group was sent SIGKILL. An `Exception` it raises is logged and never
+    replaces the exception in flight, nor the `ProcessTimeout`; a `KeyboardInterrupt` during it
+    (a second Ctrl-C) still propagates. Nothing bounds its run time from outside, and the
+    caller waits for it: a hook that can block must carry its own time limit, such as a
+    `run_process(..., timeout=...)` of its own (`Docker.run`'s `docker kill` is bounded by
+    `tool.DOCKER_KILL_TIMEOUT`).
 
     `merge_stderr` folds the child's stderr into the captured stdout. Only meaningful while
     capturing (`stdout=True`), and needed for tools that print their version banner to stderr.
