@@ -13,7 +13,13 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 from .console import console
 from .dataclass import Field, PrivateAttr, XedaBaseModel, field_validator
 from .flow import Flow
-from .proc_utils import DOCKER_IMAGE_PREFIX, note_program, run_process, tool_output_stream
+from .proc_utils import (
+    DOCKER_IMAGE_PREFIX,
+    ProcessTimeout,
+    note_program,
+    run_process,
+    tool_output_stream,
+)
 from .utils import (
     ExecutableNotFound,
     NonZeroExitCode,
@@ -25,6 +31,9 @@ from .utils import (
 )
 
 log = logging.getLogger(__name__)
+
+#: How long `docker kill` of a stopped run's container may take, in seconds.
+DOCKER_KILL_TIMEOUT = 30
 
 __all__ = [
     "Docker",
@@ -163,7 +172,7 @@ class Docker(XedaBaseModel):
                 run_process(
                     self.cli, ["kill", container], stdout=True, check=False, merge_stderr=True
                 )
-            except OSError as e:
+            except (OSError, ProcessTimeout) as e:
                 log.warning("Could not stop container %s: %s", container, e)
 
         try:
