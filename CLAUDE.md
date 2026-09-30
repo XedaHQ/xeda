@@ -191,7 +191,8 @@ fresh `trace.json`, on success, once `_report` has returned).
 
 **Every failure path after a run starts leaves a failure document**: `results.json` with
 `success: false`, `error.type`, `error.message` and the run's identity -- a failing `run()`, and a
-failing dependency, which the depender's directory reports too. The previous `results.json` is
+failing dependency, which the depender's directory reports too (a `FlowDependencyFailure` naming
+the dependency and its `results.json`). The previous `results.json` is
 removed before the run, so an earlier success never stands for a run that died
 (`tests/test_failure_results.py`).
 
@@ -919,14 +920,22 @@ while it is open). A flow sharing
 - **A simulation passes only on evidence that it ended.** `SimFlow.check_results` judges a run by
   `SimEvidence` through `judge_evidence` (`flow/sim.py`), never by the tool's exit status alone:
   what the simulator's own end record shows (`sim.ended_by`, `sim.time`, ... result keys), against
-  `fail_severity`. cocotb needs at least one test that ran and none that failed (an all-skipped
-  run fails). Verilator is driven by xeda's own C++ main, which installs Verilator's `VL_USER_*`
-  hooks and writes the end record; a design's own C++ driver, or cocotb, replaces it. Its
-  settings: `timeout`, `fail_severity` (`warning`/`error`/`failure`/`fatal`, default `error`),
-  `random_init` (default false), `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied when the
-  RTL top is the simulated top, `--top-module`, and `stop_time` (rejected with cocotb or a design's
-  own driver); minimum Verilator 5.024. `bsc_sim` has `timeout`. The other simulators are not
-  converted yet; `tests/test_sim_evidence.py` is the oracle and lists them.
+  `fail_severity`. cocotb, on every simulator, needs at least one test that ran and none that
+  failed (an all-skipped run fails). Verilator is driven by xeda's own C++ main
+  (`verilator_main.cpp`), and xeda's `VL_USER_*` hooks (`xeda_hooks.cpp`) record every
+  `$finish`/`$stop`/`$error`/`$fatal`/warning and write the end record. A design's own C++ driver
+  replaces only xeda's main: the hooks are still linked in and record how it ended
+  (`ended_by = "exit"`, with the driver's exit status, plus the recorded events). cocotb replaces the whole mechanism: no hooks, and cocotb's results decide.
+  The hooks also make the model's stdout line-buffered, since it is copied through a pipe to
+  `sim_dir/sim.log` (block-buffered, a timed-out model's output was lost); under cocotb nothing is
+  copied, so its output keeps the terminal. The simulated top (`--top-module`) is `tb.top`, else
+  `rtl.top`; with cocotb, `cocotb.cocotb_toplevel` (`tb.cocotb.toplevel`, else `rtl.top`), the
+  one rule `Cocotb.env` sets `TOPLEVEL` by. Its settings: `timeout`, `fail_severity`
+  (`warning`/`error`/`failure`/`fatal`, default `error`), `random_init` (default false),
+  `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied only when the RTL top is the simulated
+  top, and `stop_time` (rejected with cocotb or a design's own driver); minimum Verilator 5.024.
+  `bsc_sim` has `timeout` only and is not converted (P1b: its Verilator backend's hooks); neither
+  are the other simulators; `tests/test_sim_evidence.py` is the oracle and lists them.
 - **ModelSim exits 0 unless told otherwise.** Its `exit` takes the status as `exit -code N` (a
   plain `exit 1` exits 0, and the fake `vsim` mimics that); without `vsim -onfinish stop`, `$finish`
   exits vsim at once with status 0; and a testbench's `$error` or failed assertion never changes

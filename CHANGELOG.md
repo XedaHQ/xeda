@@ -16,19 +16,27 @@ All notable changes to this project will be documented in this file.
 - **A failed run leaves a failure document**: `results.json` with `success: false`, `error.type`,
   `error.message` and the run's identity, also when a dependency fails; the previous
   `results.json` is removed before a run starts.
-- **A simulation passes only on evidence that it ended.** cocotb needs at least one test that ran
-  and none that failed (an all-skipped run fails). Verilator runs under Xeda's own C++ main and
-  reports `sim.ended_by`, `sim.time` and related keys; it gains `timeout`, `fail_severity`
-  (default `error`), `stop_time`, `rtl.parameters` on the RTL top and `--top-module`, no longer
-  initializes randomly unless `random_init` is set (`x_initial`/`x_assign` default `"0"`), and
-  needs Verilator 5.024 or newer. `bsc_sim` gains `timeout`. Other simulators are not converted
-  yet.
+- **A simulation passes only on evidence that it ended.** A cocotb run, on any simulator, needs
+  at least one test that ran and none that failed (an all-skipped run fails). Verilator runs under
+  Xeda's own C++ main (a design's own C++ driver keeps its place, and Xeda's hooks still record how
+  it ended) and reports `sim.ended_by`, `sim.time` and related keys; it gains `timeout`,
+  `fail_severity` (default `error`) and `stop_time`, simulates the testbench's top by name
+  (`--top-module`: `tb.top`, else `rtl.top`; with cocotb, `tb.cocotb.toplevel`, else `rtl.top`),
+  applies `rtl.parameters` only when the RTL top is the simulated top, and copies the model's output
+  to `sim.log` in `sim_dir` (not under cocotb). Only Verilator is converted: `bsc_sim` gains
+  `timeout` but is otherwise judged as before, by its exit status, and so are the other simulators.
+- A failed dependency's `FlowDependencyFailure` names the dependency and its `results.json`.
 
 ### Added
 - `run_process` and `Tool.run` take `timeout` (the process group, or a named Docker container, is
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **Verilator simulation**: `random_init` now defaults to false, as in Verilator, and
+  `random_seed` is used only with it; `x_initial`/`x_assign` default to `"0"` (were `"unique"`);
+  `stop_time` with cocotb or with a design's own C++ driver is an error (only Xeda's own driver
+  enforces it); `generate_systemc` without an `sc_main` among the design's C++ sources is an error
+  (Xeda's driver runs a C++ model); Verilator 5.024 or newer is required.
 - **The run root is `--run-root`** (`XEDA_RUN_ROOT`; the API's `run_root`, the launchers' first
   argument and property; the key `run_root` of `xeda scrub --json`), for `run`, `dse` and
   `scrub`: it is the directory holding every run directory. `--xeda-run-dir`, `XEDA_RUN_DIR` and
