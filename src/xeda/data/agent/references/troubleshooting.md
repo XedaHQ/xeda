@@ -38,10 +38,11 @@ accepts comma-separated text (`-s xdc_files=a.xdc,b.xdc`).
 ### A simulation fails with "no evidence" or an all-skipped cocotb run
 
 A simulation passes only when it shows how it ended. Read `results.json`: `error.message` and, for
-Verilator, `sim.ended_by` and `sim.time`. A cocotb run needs at least one test that ran and none
-that failed. Verilator fails at `fail_severity` (default `error`; `warning`, `error`, `failure` or
-`fatal`) and stops at `timeout`. Simulators other than Verilator, cocotb and `bsc_sim` are not
-converted to this rule yet.
+Verilator, `sim.ended_by` and `sim.time`. A cocotb run, on any simulator, needs at least one test
+that ran and none that failed. Verilator fails at `fail_severity` (default `error`; `warning`,
+`error`, `failure` or `fatal`) and stops at `timeout`. Simulators other than Verilator (and
+cocotb's verdict on every simulator) are not converted to this rule yet and are judged as before:
+`bsc_sim` only gained `timeout`.
 
 ### `-s` took the design file, or a setting names the wrong flow
 

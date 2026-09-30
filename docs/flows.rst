@@ -252,14 +252,37 @@ Simulation results
 ==================
 
 A simulation passes only on evidence that it ended, not on the simulator's exit status alone. A
-cocotb run needs at least one test that ran and none that failed; a run in which every test was
-skipped fails. Verilator is driven by Xeda's own C++ main, which records how the run ended: the
-``sim.ended_by`` and ``sim.time`` result keys, among others. ``fail_severity`` (``warning``,
-``error``, ``failure`` or ``fatal``; default ``error``) sets the severity at which the run fails,
-and ``timeout`` stops a run that does not end. Verilator also takes ``stop_time`` (not with cocotb
-or a design's own C++ driver), starts with no random initialization unless ``random_init`` is set,
-applies ``rtl.parameters`` when the RTL top is the simulated top, and needs Verilator 5.024 or
-newer. ``bsc_sim`` takes ``timeout`` as well. The other simulators are not converted yet.
+cocotb run, on any simulator, needs at least one test that ran and none that failed; a run in
+which every test was skipped fails. Of the simulator flows, only ``verilator`` is converted so
+far. ``bsc_sim`` takes a ``timeout``, but is otherwise judged as before, by its exit status; so
+are the other simulators.
+
+Verilator
+---------
+
+Verilator is driven by Xeda's own C++ main, and Xeda's hooks in Verilator's runtime record how the
+run ended: the ``sim.ended_by`` and ``sim.time`` result keys, among others. The run passes when it
+ends by ``$finish`` or at the requested ``stop_time`` and nothing reported reaches
+``fail_severity`` (``warning``, ``error``, ``failure`` or ``fatal``; default ``error``); an event
+queue that runs empty without a ``$finish`` fails, and ``timeout`` stops a run that does not end.
+A design with its own C++ driver keeps it, and the hooks still record how it ended: it passes when
+the driver exits with status 0 and nothing reported reaches ``fail_severity``. With cocotb,
+cocotb's results decide the run. The model's output is also copied to ``sim.log`` in ``sim_dir``,
+except under cocotb, whose output goes straight to the terminal.
+
+The simulated top (``--top-module``) is the testbench's ``tb.top``, or else ``rtl.top``; with
+cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. ``rtl.parameters``
+apply only when the RTL top is the simulated top; ``tb.parameters`` always do.
+
+Changed behavior:
+
+* ``random_init`` defaults to false, as in Verilator, and ``random_seed`` is used only with it;
+  ``x_initial`` and ``x_assign`` default to ``"0"`` (they were ``"unique"``).
+* ``stop_time`` is enforced by Xeda's own driver only: with cocotb, or with a design's own C++
+  driver, it is an error.
+* ``generate_systemc`` needs the design's own ``sc_main`` among its C++ sources: without one it is
+  an error, since Xeda's driver runs a C++ model.
+* Verilator 5.024 or newer is required.
 
 Writing a new flow
 ==================
