@@ -36,8 +36,9 @@ tools: 3767 tests, serial 15.6 min, `-n auto` on 10 cores 3.2 min). Each test wo
 fake tools) and the opt-in layers' checkout `xeda_run/`. The exception that needed a fix is the
 external-repository cache (`XEDA_TESTS_EXTERNAL_CACHE`): every worker asks for the same pinned
 checkout, so `test_bsc_external._fetch_pinned_commit` holds an `flock` beside it while it fetches
-(`tests/test_external_cache.py`). Keep it so: a test must not write outside `tmp_path`, leave a
-process-wide change (`chdir`, `environ`, a registered flow) behind, or take a fixed name, and a
+(`tests/test_external_cache.py`). On platforms without `fcntl`, cache access skips in xdist
+workers; run the external tests serially there. Keep it so: a test must not write outside
+`tmp_path`, leave a process-wide change (`chdir`, `environ`, a registered flow) behind, or take a fixed name, and a
 session-scoped fixture runs once per worker, not once per run. `addopts` deliberately has no
 `-n`: it would start workers for `pytest tests/test_x.py::test_y`. Under `-n`, the conftest
 checkout guard still fires (per worker, at its teardown, on whichever test ran last there).
