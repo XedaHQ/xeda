@@ -235,6 +235,33 @@ class TestResults:
         return TestResults.from_test_suites(results)
 
 
+def cocotb_verdict(
+    results: "TestResults", flow_results: Dict[str, Any], prefix: str = "cocotb."
+) -> bool:
+    """Record cocotb's counts in `flow_results`; pass only if at least one test ran (skipped
+    tests do not count) and none failed or errored."""
+    flow_results[prefix + "tests"] = results.tests
+    flow_results[prefix + "errors"] = results.errors
+    flow_results[prefix + "failures"] = results.failures
+    flow_results[prefix + "skipped"] = results.skipped
+    flow_results[prefix + "time"] = results.time
+    flow_results[prefix + "sim_time_ns"] = results.total_sim_time_ns
+    if results.errors:
+        log.error("Cocotb: %d error(s)", results.errors)
+        return False
+    if results.failures:
+        log.critical("Cocotb: %d failure(s)", results.failures)
+        return False
+    if results.tests - results.skipped <= 0:
+        log.error(
+            "Cocotb ran no test: %d found, %d skipped (does `testcase` name one?).",
+            results.tests,
+            results.skipped,
+        )
+        return False
+    return True
+
+
 class Cocotb(CocotbSettings, Tool):
     """Cocotb support for a SimFlow"""
 
@@ -486,23 +513,8 @@ class Cocotb(CocotbSettings, Tool):
             log.error("Could not read cocotb test results from %s: %s", where, exc)
             return False
         if results is not None:
-            flow_results[prefix + "tests"] = results.tests
-            flow_results[prefix + "errors"] = results.errors
-            flow_results[prefix + "failures"] = results.failures
-            flow_results[prefix + "skipped"] = results.skipped
-            flow_results[prefix + "time"] = results.time
-            flow_results[prefix + "sim_time_ns"] = results.total_sim_time_ns
-            if results.errors:
-                log.error("Cocotb: %d error(s)", results.errors)
-                return False
-            if results.failures:
-                log.critical("Cocotb: %d failure(s)", results.failures)
-                return False
-            if not results.tests:
-                log.error("Cocotb ran no test (does `testcase` name one?).")
-                return False
-            flow_results["success"] = True
-            return True
+            flow_results["success"] = cocotb_verdict(results, flow_results, prefix)
+            return flow_results["success"]
         else:
             log.error("No tests results were found.")
             return False

@@ -5,18 +5,130 @@ from __future__ import annotations
 import logging
 from abc import ABCMeta
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+import re
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
-from ..dataclass import Field, deliverable, field_validator
+from ..dataclass import Field, XedaBaseModel, deliverable, field_validator
 from ..design import Design
+from ..units import convert_unit
 from .flow import Flow, FlowSettingsException, registered_flows
 
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "SimEvent",
+    "SimEvidence",
     "SimFlow",
+    "judge_evidence",
+    "time_in_fs",
 ]
+
+
+class SimEvent(XedaBaseModel):
+    """Something a simulation reported while it ran."""
+
+    kind: Literal["finish", "stop", "error", "fatal", "warning"] = Field(
+        description="What happened."
+    )
+    time: int | None = Field(None, description="Simulated time, in the record's time unit.")
+    location: str | None = Field(None, description="Source file and line, when known.")
+    message: str = Field("", description="The simulator's message.")
+
+
+class SimEvidence(XedaBaseModel):
+    """How a simulation ended, as its simulator reported it (an end record)."""
+
+    ended_by: Literal[
+        "finish", "stop_time", "max_cycles", "exit", "drained", "error", "fatal", "unknown"
+    ] = Field(
+        description="What ended the simulation: `$finish`, the requested `stop_time` or "
+        "`max_cycles`, the testbench's own driver exiting (`exit`), an event queue that ran "
+        "empty (`drained`), an error or a fatal error, or unknown."
+    )
+    time: int | None = Field(None, description="Simulated time at the end, in `time_unit`.")
+    time_unit: str | None = Field(None, description="The unit of `time`, e.g. `1ps`.")
+    events: list[SimEvent] = Field([], description="Events recorded while the simulation ran.")
+    exit_code: int | None = Field(None, description="The driver's exit status, for `exit`.")
+
+
+SEVERITY_RANK = {"warning": 1, "error": 2, "failure": 3, "fatal": 3}
+#: How severe each event kind is; kinds not listed (`finish`) never fail a run.
+_EVENT_RANK = {"warning": 1, "error": 2, "stop": 2, "fatal": 3}
+_FS_PER_UNIT = {"s": 10**15, "ms": 10**12, "us": 10**9, "ns": 10**6, "ps": 10**3, "fs": 1}
+
+
+def time_in_fs(time: int, unit: str) -> int:
+    """`time` ticks of `unit` (`"1ps"`, `"100fs"`, `"10ns"`) in femtoseconds."""
+    match = re.fullmatch(r"\s*(\d+)\s*(s|ms|us|ns|ps|fs)\s*", unit)
+    if not match:
+        raise ValueError(f"not a time unit: {unit!r}")
+    return time * int(match.group(1)) * _FS_PER_UNIT[match.group(2)]
+
+
+def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) -> bool:
+    """The evidence rule (design 8a, Q12, Q16): a simulation passes only if it ended by
+    `$finish` (at any time), by the `stop_time` the user asked for, or by the testbench's own
+    driver exiting with status 0; and no recorded event reached `fail_severity`. An end record
+    that is missing, or ends by a drained event queue, an error or a fatal error, fails."""
+    if evidence is None:
+        log.error("The simulation left no end record: it did not report how it ended.")
+        return False
+    flow.results["sim.ended_by"] = evidence.ended_by
+    flow.results["sim.time"] = evidence.time
+    flow.results["sim.time_unit"] = evidence.time_unit
+    flow.results["sim.errors"] = sum(e.kind in ("error", "stop", "fatal") for e in evidence.events)
+    flow.results["sim.warnings"] = sum(e.kind == "warning" for e in evidence.events)
+    stop_time = getattr(flow.settings, "stop_time", None)
+    stop_reached = False
+    if evidence.ended_by == "stop_time" and stop_time is not None and evidence.time is not None:
+        # a bare number is nanoseconds (`SimFlow.Settings.stop_time`); within one tick of the
+        # record's precision, since the driver stops at the last whole tick
+        requested = int(round(convert_unit(stop_time, "fs", from_unit="ns")))
+        tick = time_in_fs(1, evidence.time_unit or "1ps")
+        stop_reached = (
+            abs(time_in_fs(evidence.time, evidence.time_unit or "1ps") - requested) < tick
+        )
+    ok = {
+        "finish": True,
+        "stop_time": stop_reached,
+        "max_cycles": getattr(flow.settings, "max_cycles", None) is not None,
+        "exit": evidence.exit_code == 0,
+    }.get(evidence.ended_by, False)
+    if not ok:
+        why = {
+            "drained": "its event queue ran empty without a $finish"
+            + (f" before the requested stop_time {stop_time}" if stop_time is not None else ""),
+            "stop_time": (
+                f"it stopped at a time other than the requested stop_time {stop_time}"
+                if stop_time is not None
+                else "it stopped at a stop_time nobody asked for"
+            ),
+            "max_cycles": "it stopped at a max_cycles nobody asked for",
+            "exit": f"the testbench's driver exited with status {evidence.exit_code}",
+            "error": "an error ended it",
+            "fatal": "a fatal error ended it",
+        }.get(evidence.ended_by, "it did not report how it ended")
+        log.error(
+            "The simulation did not end as intended: %s (time %s %s).",
+            why,
+            evidence.time,
+            evidence.time_unit or "",
+        )
+        return False
+    threshold = SEVERITY_RANK[fail_severity]
+    worst = [e for e in evidence.events if _EVENT_RANK.get(e.kind, 0) >= threshold]
+    if worst:
+        log.error(
+            "The simulation reported %d event(s) at or above fail_severity=%s, the first: %s at %s: %s",
+            len(worst),
+            fail_severity,
+            worst[0].kind,
+            worst[0].location,
+            worst[0].message,
+        )
+        return False
+    return True
 
 
 class SimFlow(Flow, metaclass=ABCMeta):
@@ -99,13 +211,26 @@ class SimFlow(Flow, metaclass=ABCMeta):
             else None
         )
 
+    def has_evidence_adapter(self) -> bool:
+        """Whether this run's simulator reports how it ended (`simulation_evidence`). A flow is
+        converted when it returns True for every backend it runs (tests/test_sim_evidence.py)."""
+        return False
+
+    def simulation_evidence(self) -> SimEvidence | None:
+        """This run's end record, read through `Flow.report_file` (this run's own only)."""
+        return None
+
     def check_results(self) -> bool:
-        """Include the cocotb verdict for every simulator that ran a cocotb testbench, from the
-        results file this run wrote (`Flow.report_file`: a previous run's is never read)."""
+        """cocotb's verdict for a cocotb testbench (on every simulator); otherwise the evidence
+        rule for a flow that reports evidence; otherwise, until P1b converts the flow, the exit
+        status alone (listed in tests/test_sim_evidence.py)."""
         if self.cocotb:
             return self.cocotb.add_results(
                 self.results, results_file=self.report_file(self.cocotb.results_xml)
             )
+        if self.has_evidence_adapter():
+            severity = getattr(self.settings, "fail_severity", "error")
+            return judge_evidence(self, self.simulation_evidence(), severity)
         return True
 
     def always_runs(self) -> Optional[str]:
