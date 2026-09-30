@@ -805,7 +805,17 @@ class FlowLauncher:
                 flow.init_time = time.monotonic()
                 with WorkingDirectory(run_path):
                     flow.init()
-                self._run_dependencies(flow, design, all_flows_settings)
+                try:
+                    self._run_dependencies(flow, design, all_flows_settings)
+                except Exception as e:  # noqa: BLE001 - recorded, then re-raised
+                    # a dependency failed or raised: this flow did not run: its directory no longer vouches for a success
+                    remove_trace(run_path)
+                    run_directory.remove(results_json)
+                    self._record_identity(flow, run_path)
+                    flow.results.success = False
+                    flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
+                    self._report(flow, design, results_json, record=True)
+                    raise
 
                 # only now: what the flow consumes includes its dependencies' outputs and runs
                 always = flow.always_runs()
@@ -836,6 +846,9 @@ class FlowLauncher:
                 # xeda's own records never write through a link at their names (`writable`)
                 if self.settings.dump_settings_json:
                     run_directory.writable(settings_json)
+                # the last run's results are never this run's: gone before this one starts, like
+                # the trace, so a run that fails in any way cannot leave them behind
+                run_directory.remove(results_json)
                 run_directory.writable(results_json)
                 # from here until a new trace is written, nothing vouches for this directory
                 remove_trace(run_path)
@@ -884,8 +897,19 @@ class FlowLauncher:
                 # writes it (`Flow.wrote_output`, by identity): a report left from before is a
                 # previous run's (`Flow.report_file`).
                 flow.start_run()
-                with recording_programs() as programs:
-                    self._execute(flow, run_path, input_settings)
+                try:
+                    with recording_programs() as programs:
+                        self._execute(flow, run_path, input_settings)
+                except Exception as e:  # noqa: BLE001 - recorded, then re-raised
+                    flow.results.success = False
+                    flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
+                    if flow.init_time is not None:
+                        flow.results.runtime = time.monotonic() - flow.init_time
+                    for k, v in flow.artifacts.items():
+                        flow.results.artifacts.setdefault(k, v)
+                    _drop_unwritten_artifacts(flow)
+                    self._report(flow, design, results_json, record=True)
+                    raise
                 if self.settings.dump_settings_json:
                     # `run()` may finish resolving generated files or derived switches. Keep the
                     # pre-run write above so a crash still leaves useful diagnostics, then replace
@@ -1076,13 +1100,19 @@ class FlowLauncher:
                 raise FlowDependencyFailure()
             flow.completed_dependencies.append(completed_dep)
 
-    def _execute(self, flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
-        """Stage 6: `run()`, `parse_reports()`, and the run's results, artifacts included."""
+    @staticmethod
+    def _record_identity(flow: Flow, run_path: Path) -> None:
+        """What every results document says of the run, whether it succeeded or not."""
         flow.results["design"] = flow.design.name
         flow.results["design_hash"] = flow.design_hash
         flow.results["flow"] = flow.name
         flow.results["flow_hash"] = flow.flow_hash
         flow.results["run_path"] = run_path.absolute()
+        flow.results.timestamp = flow.timestamp
+
+    def _execute(self, flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
+        """Stage 6: `run()`, `parse_reports()`, and the run's results, artifacts included."""
+        self._record_identity(flow, run_path)
 
         success = True
 
@@ -1101,6 +1131,7 @@ class FlowLauncher:
                     ),
                     e.exit_code,
                 )
+                flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
                 success = False
             if flow.init_time is not None:
                 flow.results.runtime = time.monotonic() - flow.init_time
@@ -1115,7 +1146,6 @@ class FlowLauncher:
             if not success and not input_settings.is_quiet:
                 log.debug("Failure was reported in the parsed results.")
             flow.results.success = success
-            flow.results.timestamp = flow.timestamp
         for k, v in flow.artifacts.items():
             if not flow.results.artifacts.get(k):
                 flow.results.artifacts[k] = v
