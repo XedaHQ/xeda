@@ -20,14 +20,21 @@ import difflib
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
+from pathlib import Path
 from types import UnionType
 from typing import Annotated, Any, Union, get_args, get_origin
 
 from ..dataclass import XedaBaseModel, input_names
 from ..flow import Flow, FlowSettingsError, registered_flows
+from ..flow.io import declared_inputs
 from ..utils import hierarchical_merge, settings_to_dict
 
 __all__ = [
+    "carry_diagnostics",
+    "dependency_settings",
+    "settings_in_context",
+    "suggest_dependency_node",
+    "registered_flow",
     "compose_flow_settings",
     "flow_settings_from_sections",
     "merge_flow_sections",
@@ -370,14 +377,37 @@ def command_line_sections(
     return sections, own
 
 
+def registered_flow(name: str) -> type[Flow] | None:
+    """Resolve a registered canonical name, class name or alias without importing the runner."""
+    normalized = name.strip().replace("-", "_").lower()
+    return next(
+        (cls for key, (_module, cls) in registered_flows.items() if key.lower() == normalized),
+        None,
+    )
+
+
 def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
-    """The flows `flow_cls` declares as dependencies, transitively, by canonical name."""
+    """Nested settings dependencies and declared default producers, with one traversal state."""
     found: dict[str, type[Flow]] = {}
-    for field in flow_cls.Settings.dependency_settings:
-        dependency = _flow_of(flow_cls.Settings._dependency_settings_class(field))
-        if dependency is not None and dependency.name not in found:
-            found[dependency.name] = dependency
-            found.update(transitive_dependencies(dependency))
+    visited = {flow_cls.name}
+
+    def visit(cls: type[Flow]) -> None:
+        dependencies = [
+            _flow_of(cls.Settings._dependency_settings_class(field))
+            for field in cls.Settings.dependency_settings
+        ]
+        dependencies.extend(
+            registered_flow(declaration.producer)
+            for declaration in declared_inputs(cls).values()
+            if declaration.producer is not None
+        )
+        for dependency in dependencies:
+            if dependency is not None and dependency.name not in visited:
+                visited.add(dependency.name)
+                found[dependency.name] = dependency
+                visit(dependency)
+
+    visit(flow_cls)
     return found
 
 
@@ -431,3 +461,74 @@ def merge_flow_sections(
         )
         for name in dict.fromkeys(names)
     }
+
+
+def carry_diagnostics(settings: Flow.Settings, depender: Flow.Settings) -> None:
+    """Carry debug and an inherited verbose level into a dependency before hashing."""
+    settings.debug |= depender.debug
+    if not settings.verbose and depender.verbose > 1:
+        settings.verbose = depender.verbose
+
+
+def dependency_settings(
+    dep_cls: type[Flow],
+    given: Flow.Settings | None,
+    depender_settings: Flow.Settings,
+    all_flows_settings: Mapping[str, Any] | None = None,
+) -> Flow.Settings:
+    """The settings a dependency is launched with -- composed here, and only here.
+
+    `given` is what the depending flow passed to `add_dependency` (for a declared dependency,
+    already `resolve_dependency`-d). Layers, lowest precedence first:
+
+    1. the design's / project's own section for the dependency's flow (``[flows.yosys_fpga]``),
+       merged deeply like any settings layer (`settings_layers.merge_layers`);
+    2. `given`, which is more specific.
+
+    The depending flow's diagnostics then carry over: `debug` if it is on, and a `verbose` level
+    above 1 when the dependency has none of its own.
+    """
+    section = (all_flows_settings or {}).get(dep_cls.name)
+    if section or given is None or not given.context:
+        own = given.model_dump(exclude_unset=True) if given is not None else {}
+        settings = dep_cls.Settings.from_input(
+            merge_layers(section, own, settings_cls=dep_cls.Settings),
+            **depender_settings.context,
+        )
+    else:
+        settings = given
+    carry_diagnostics(settings, depender_settings)
+    return settings
+
+
+def settings_in_context(
+    flow_cls: type[Flow],
+    given: Mapping[str, Any] | Flow.Settings | None,
+    design_root: Path | None,
+    runner_cwd: Path | None,
+) -> Flow.Settings:
+    """Validate mappings in launch context; copy models, preserving their original context."""
+    if given is None or isinstance(given, Mapping):
+        return flow_cls.Settings.from_input(
+            given or {}, design_root=design_root, runner_cwd=runner_cwd
+        )
+    if not given.context:
+        return flow_cls.Settings.from_input(
+            given.model_dump(), design_root=design_root, runner_cwd=runner_cwd
+        )
+    return given.model_copy(deep=True)
+
+
+def suggest_dependency_node(flow_cls: type[Flow], error: FlowSettingsError) -> None:
+    """Suggest -s flows.<node>.key when an unknown root setting belongs to a dependency."""
+    dependencies = transitive_dependencies(flow_cls)
+    suggested = []
+    for location, message, context, kind in error.errors:
+        if kind == "extra_forbidden" and location and " -> " not in location:
+            owner = next(
+                (d for d in dependencies.values() if location in d.Settings.model_fields), None
+            )
+            if owner is not None:
+                message = f"{message}; did you mean -s flows.{owner.name}.{location}=...?"
+        suggested.append((location, message, context, kind))
+    error.errors = suggested
