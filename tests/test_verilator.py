@@ -242,6 +242,22 @@ def test_verilator_judges_the_designs_own_driver_by_its_exit(
     assert flow.succeeded is success
 
 
+@pytest.mark.parametrize("own_driver", [False, True], ids=["xeda_driver", "own_driver"])
+def test_a_failed_model_keeps_its_warning_evidence(tmp_path, own_driver):
+    """A failed model's log still supplies warnings to its failure document."""
+    require_verilator()
+    ending = "$finish" if own_driver else '$fatal(1, "failed")'
+    flow = _launch(
+        tmp_path,
+        f'initial begin #5 $warning("before failure"); #5 {ending}; end',
+        {"timing": True, "fail_severity": "warning"},
+        extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", "3")} if own_driver else None,
+    )
+    assert not flow.succeeded
+    assert flow.results["error"]["type"] == "NonZeroExitCode"
+    assert flow.results["sim.warnings"] == 1
+
+
 if __name__ == "__main__":
     test_verilator_sim_py()
 
