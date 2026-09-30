@@ -139,8 +139,10 @@ class _Deadline:
 
     Used as a context manager around everything that waits for `proc`: on leaving it, the timer
     is cancelled and its thread joined, so nothing signals afterwards; an exception (Ctrl-C
-    included) stops and reaps the process, and its group, before it propagates. `on_stop` then
-    runs, on the thread leaving the context, as `run_process` documents.
+    included) stops the process and reaps it -- it is our child -- and, with `group`, sends its
+    process group SIGKILL (the group's other members are not our children, so they cannot be
+    reaped here), before it propagates. `on_stop` then runs, on the thread leaving the context,
+    as `run_process` documents.
     """
 
     def __init__(
@@ -172,8 +174,9 @@ class _Deadline:
 
     def _stopped(self) -> None:
         """Run `on_stop`, once, in the calling thread, after the process was reaped. Nothing
-        bounds it here: it bounds itself. An `Exception` from it is logged and never replaces
-        the exception in flight; a `KeyboardInterrupt` (a second Ctrl-C) propagates."""
+        bounds it here: it bounds itself. A `KeyboardInterrupt` or `SystemExit` from it
+        propagates; any other `Exception` is logged and never replaces the exception in
+        flight."""
         if self._on_stop is None:
             return
         try:
@@ -318,10 +321,10 @@ def run_process(
     exception (Ctrl-C included) was raised while it still ran -- never for a process that ended
     by itself. It runs synchronously, on the thread that called `run_process`, after the
     process was stopped and reaped and, when it leads a process group of its own (POSIX, with a
-    `timeout`), that group was sent SIGKILL. An `Exception` it raises is logged and never
-    replaces the exception in flight, nor the `ProcessTimeout`; a `KeyboardInterrupt` during it
-    (a second Ctrl-C) still propagates. Nothing bounds its run time from outside, and the
-    caller waits for it: a hook that can block must carry its own time limit, such as a
+    `timeout`), that group was sent SIGKILL. A `KeyboardInterrupt` (a second Ctrl-C) or
+    `SystemExit` it raises propagates; any other `Exception` is logged and never replaces the
+    exception in flight, nor the `ProcessTimeout`. Nothing bounds its run time from outside,
+    and the caller waits for it: a hook that can block must carry its own time limit, such as a
     `run_process(..., timeout=...)` of its own (`Docker.run`'s `docker kill` is bounded by
     `tool.DOCKER_KILL_TIMEOUT`).
 
