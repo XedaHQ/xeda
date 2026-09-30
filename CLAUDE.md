@@ -383,9 +383,9 @@ or they won't ship in the wheel.
 
 ### Tool execution
 
-`run_process` and `Tool.run` take `timeout` (seconds; on expiry the whole process group is
-stopped and `ProcessTimeout` raised -- a Docker container is named and `docker kill`ed) and `tee`
-(a file the output is also copied to).
+`run_process` and `Tool.run` take `timeout` (seconds; on expiry the process -- on POSIX its whole
+process group -- is stopped and `ProcessTimeout` raised; a Docker container is named and
+`docker kill`ed) and `tee` (a file the output is also copied to).
 
 Instantiating `Tool(...)` inside a flow method auto-discovers the calling `Flow` via `inspect.stack`, so
 it inherits `dockerized`, `print_commands`, and console-color settings and appends its version info to
