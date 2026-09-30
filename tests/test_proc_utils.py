@@ -559,3 +559,47 @@ def test_a_docker_run_names_its_container_and_stops_it_when_stopped(monkeypatch,
     assert kill_args == ["kill", name]
     assert kill_kwargs.get("check") is False
     assert run_kwargs["timeout"] == 3
+
+
+# ---- fix round 2: the stop hook --------------------------------------------------------------
+_SLEEPER = ["-c", "import time; time.sleep(60)"]
+
+
+def test_a_timeout_calls_the_stop_hook_once():
+    calls = []
+    with pytest.raises(ProcessTimeout):
+        run_process(sys.executable, _SLEEPER, timeout=0.5, on_stop=lambda: calls.append(1))
+    assert calls == [1]
+
+
+def test_a_failing_stop_hook_does_not_replace_the_timeout():
+    def broken():
+        raise RuntimeError("docker is gone")
+
+    with pytest.raises(ProcessTimeout):
+        run_process(sys.executable, _SLEEPER, timeout=0.5, on_stop=broken)
+
+
+def test_a_failing_stop_hook_does_not_replace_an_interrupt(monkeypatch):
+    def broken():
+        raise RuntimeError("docker is gone")
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.print", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        run_process(
+            sys.executable,
+            ["-c", "import time; print('x', flush=True); time.sleep(60)"],
+            highlight_rules={"x": ""},
+            on_stop=broken,
+        )
+
+
+def test_a_stop_hook_that_hangs_is_not_waited_on_forever(monkeypatch):
+    monkeypatch.setattr("xeda.proc_utils.STOP_HOOK_BOUND", 0.5)
+    started = time.monotonic()
+    with pytest.raises(ProcessTimeout):
+        run_process(sys.executable, _SLEEPER, timeout=0.3, on_stop=lambda: time.sleep(30))
+    assert time.monotonic() - started < 15

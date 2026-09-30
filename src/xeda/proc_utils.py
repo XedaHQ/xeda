@@ -133,6 +133,10 @@ class ProcessTimeout(NonZeroExitCode):
         return f"{what} ran past its time limit of {self.timeout} s and was stopped"
 
 
+#: How long the `on_stop` hook of a stopped process is waited for, in seconds.
+STOP_HOOK_BOUND = 30.0
+
+
 class _Deadline:
     """Watches `proc`: once `timeout` seconds pass (`None`: never) while it still runs, stops it
     and, when it leads a session of its own (`group`, POSIX), every process it started.
@@ -170,11 +174,23 @@ class _Deadline:
             pass
 
     def _stopped(self) -> None:
-        if self._on_stop is not None:
+        """Run `on_stop` in a thread of its own, waited for at most `STOP_HOOK_BOUND` s: a hook
+        that hangs or fails neither holds up the clean-up nor replaces the exception."""
+        if self._on_stop is None:
+            return
+        hook = self._on_stop
+
+        def call() -> None:
             try:
-                self._on_stop()
+                hook()
             except Exception as e:  # stopping is best effort
                 log.warning("Stopping %s failed: %s", self.proc.args, e)
+
+        thread = threading.Thread(target=call, daemon=True)
+        thread.start()
+        thread.join(STOP_HOOK_BOUND)
+        if thread.is_alive():
+            log.warning("Stopping %s did not finish in %s s", self.proc.args, STOP_HOOK_BOUND)
 
     def _expire(self) -> None:
         with self._lock:
@@ -199,18 +215,21 @@ class _Deadline:
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         self.cancel()
-        if exc_type is not None and self.proc.poll() is None:
+        if exc_type is None:
+            return
+        was_running = self.proc.poll() is None
+        if was_running:
             log.debug("Stopping %s(pid=%s)", self.proc.args, self.proc.pid)
             self._signal(signal.SIGTERM)
-            self._stopped()
             try:
                 self.proc.wait(5)
             except subprocess.TimeoutExpired:
                 self._signal(signal.SIGKILL)
-        if exc_type is not None:
-            if self._group:  # what the leader started may outlive it
-                self._signal(signal.SIGKILL)
-            self.proc.wait()
+        if self._group:  # what the leader started may outlive it
+            self._signal(signal.SIGKILL)
+        self.proc.wait()
+        if was_running:
+            self._stopped()
 
 
 def _needs_line_copy(
