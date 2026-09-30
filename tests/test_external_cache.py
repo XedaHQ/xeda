@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from .test_bsc_external import _checked_out_sha, _fetch_pinned_commit
+from .test_bsc_external import HAVE_FCNTL, _checked_out_sha, _fetch_pinned_commit
 
 WORKERS = 6
 
@@ -45,6 +45,9 @@ def origin(tmp_path):
     return src, _git(src, "rev-parse", "HEAD")
 
 
+@pytest.mark.skipif(
+    not HAVE_FCNTL, reason="the external cache is locked with fcntl, which this platform lacks"
+)
 def test_concurrent_fetches_of_one_commit_all_get_the_finished_checkout(tmp_path, origin):
     src, sha = origin
     cache = tmp_path / "cache"
