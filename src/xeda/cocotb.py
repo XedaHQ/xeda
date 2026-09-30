@@ -235,8 +235,14 @@ class TestResults:
         return TestResults.from_test_suites(results)
 
 
+def cocotb_toplevel(design: Design) -> str | None:
+    """The HDL module cocotb drives (its `TOPLEVEL`): the testbench's `tb.cocotb.toplevel`, or
+    else the design's `rtl.top`. A simulator that names its top makes it this module."""
+    return (design.tb.cocotb.toplevel if design.tb.cocotb else None) or design.rtl.top
+
+
 def cocotb_verdict(
-    results: "TestResults", flow_results: Dict[str, Any], prefix: str = "cocotb."
+    results: "TestResults", flow_results: dict[str, Any], prefix: str = "cocotb."
 ) -> bool:
     """Record cocotb's counts in `flow_results`; pass only if at least one test ran (skipped
     tests do not count) and none failed or errored."""
@@ -446,11 +452,7 @@ class Cocotb(CocotbSettings, Tool):
                 coco_module = top_cocotb_source.stem
             if top_cocotb_source:
                 py_path.append(str(top_cocotb_source.parent))
-            toplevel = design.tb.cocotb.toplevel
-            if not toplevel:
-                toplevel = design.rtl.top
-            # if not toplevel and design.tb.top:
-            #     toplevel = design.tb.top if isinstance(design.tb.top, str) else design.tb.top[0]
+            toplevel = cocotb_toplevel(design)
             environ = {
                 "MODULE": coco_module,
                 "COCOTB_TEST_MODULES": coco_module,
