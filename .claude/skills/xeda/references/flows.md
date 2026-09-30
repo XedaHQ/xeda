@@ -15,7 +15,7 @@ xeda list-results <flow> --json      # every result key, with its meaning
 
 Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulator. Compiles the design's Bluespec sources, RTL then testbench, in order -- the package defining `tb.top` last -- and simulates `tb.top`, a module with an `Empty` interface (`rtl.top` when the design has no testbench). `simulator` picks Bluesim, bsc's own cycle-based simulator, or a Verilog simulator that bsc links the generated Verilog with (`bsc -vsim`), driving clock and reset from its `main.v`. The run fails when the simulation exits with an error status: a testbench fails with `$fatal` or a failing `dynamicAssert`. `$finish(n)` does not fail it (`n` is a verbosity level), and of Bluesim, Verilator and Icarus Verilog, `$error` fails it only under Verilator. The design's `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which BH (`.bs`) sources see only through the C preprocessor, with `cpp`.
 
-74 flow-specific settings (plus the common ones): `xeda list-settings bsc_sim --json`
+75 flow-specific settings (plus the common ones): `xeda list-settings bsc_sim --json`
 
 Reports: `simulator`
 
@@ -59,11 +59,11 @@ Reports no results beyond the keys every flow reports.
 
 *supports cocotb testbenches*
 
-Simulate a Verilog or SystemVerilog design with Verilator. Verilator compiles the design to C++ (or SystemC) and builds a native executable, which makes it the fastest open-source simulator for large designs. Supports cocotb testbenches, plain C++/SystemC harnesses, and VCD/FST waveform tracing.
+Simulate a Verilog or SystemVerilog design with Verilator. Verilator compiles the design to C++ (or SystemC) and builds a native executable, which makes it the fastest open-source simulator for large designs. Supports cocotb testbenches, plain C++/SystemC harnesses, and VCD/FST waveform tracing. The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (with cocotb, always `rtl.top`). Its parameters (`-G`) are `rtl.parameters` updated by `tb.parameters` when that is the RTL top (cocotb, or no testbench top), and `tb.parameters` alone for a testbench top. Without cocotb, a run passes only on evidence of how the simulation ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in `sim_dir`): xeda's own driver runs the model unless the design brings its own C++ driver, and the run passes when it ends by `$finish` or at the requested `stop_time` -- or, with the design's own driver, when that driver exits with status 0 -- and nothing reported reaches `fail_severity`. An event queue that runs empty without a `$finish` fails.
 
-32 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
+34 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
 
-Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`
+Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
 ### `vivado_postsynth_sim`
 

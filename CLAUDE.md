@@ -204,6 +204,12 @@ point on) -> **run** (`_launch` records every expected input as the run finds it
 `parse_reports()`, `check_results()`) -> **report** (`_report`: artifacts, `results.json`; `_launch` then writes a
 fresh `trace.json`, on success, once `_report` has returned).
 
+**Every failure path after a run starts leaves a failure document**: `results.json` with
+`success: false`, `error.type`, `error.message` and the run's identity -- a failing `run()`, and a
+failing dependency, which the depender's directory reports too. The previous `results.json` is
+removed before the run, so an earlier success never stands for a run that died
+(`tests/test_failure_results.py`).
+
 - **The input settings are never modified.** The launcher keeps them (they are what the run is
   hashed by and recorded as `settings.json`'s `flow_settings`); the flow gets a deep copy as
   `self.settings`, which `__init__`/`init()`/`run()` may complete with resolved paths, derived
@@ -213,9 +219,18 @@ fresh `trace.json`, on success, once `_report` has returned).
   does to it reaches anyone else (`tests/test_flow_design_isolation.py`). Still, a flow computes
   what it derives from the design where it uses it (a template global such as `top_is_vhdl()`)
   rather than editing it.
-- A flow's settings come from layers merged key by key (`flow_runner/settings_layers.py`):
-  defaults < project `flows.<flow>` < design `[flows.<flow>]` < `-s` < API overrides. Local runs,
-  remote runs and dependencies all use `merge_layers`. Under the field holding a declared
+- A flow's settings come from layers merged key by key (`flow_runner/settings_layers.py`),
+  **origin first**: defaults < project < design < command line < API, each origin composed on its
+  own and nesting (`nextpnr.yosys` over `[flows.yosys_fpga]`) applying only within one origin
+  (`compose_flow_settings`), so a design's `[flows.yosys_fpga] flatten` beats a project's
+  `[flows.nextpnr] yosys.flatten`. `-s flows.<flow>.key=value` sets any flow of the run (the
+  requested flow or one of its declared dependencies; an unknown flow is an error with
+  suggestions); `-s key` and `-s flows.<requested>.key` are one setting (two values for it are an
+  error); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
+  rules. `-s` takes space-separated KEY=VALUE items and ends at the next option or the first
+  token that is not KEY=VALUE (its key must look like a setting name), so it never swallows the
+  design file; `--` ends the options. Local runs, remote runs and dependencies all use
+  `merge_layers`. Under the field holding a declared
   dependency's settings (`nextpnr.yosys`), that dependency's own sections (`[flows.yosys_fpga]`)
   are the base (`settings_layers.flow_settings_from_sections`, used by the launcher and the
   remote runner alike): the depender resolves shared settings in `init()`, before the dependency
@@ -366,6 +381,10 @@ New template file extensions must be added to `[tool.setuptools.package-data]` i
 or they won't ship in the wheel.
 
 ### Tool execution
+
+`run_process` and `Tool.run` take `timeout` (seconds; on expiry the whole process group is
+stopped and `ProcessTimeout` raised -- a Docker container is named and `docker kill`ed) and `tee`
+(a file the output is also copied to).
 
 Instantiating `Tool(...)` inside a flow method auto-discovers the calling `Flow` via `inspect.stack`, so
 it inherits `dockerized`, `print_commands`, and console-color settings and appends its version info to
@@ -912,6 +931,17 @@ while it is open). A flow sharing
   return what a test says, by its leading words (`get_property STATUS impl_1`). To fake a new tool:
   add a symlink, add an entry to the `fake_tools` dict (the option or argument naming its script,
   for `RunTcl`), and use `use_fake_tools`.
+- **A simulation passes only on evidence that it ended.** `SimFlow.check_results` judges a run by
+  `SimEvidence` through `judge_evidence` (`flow/sim.py`), never by the tool's exit status alone:
+  what the simulator's own end record shows (`sim.ended_by`, `sim.time`, ... result keys), against
+  `fail_severity`. cocotb needs at least one test that ran and none that failed (an all-skipped
+  run fails). Verilator is driven by xeda's own C++ main, which installs Verilator's `VL_USER_*`
+  hooks and writes the end record; a design's own C++ driver, or cocotb, replaces it. Its
+  settings: `timeout`, `fail_severity` (`warning`/`error`/`failure`/`fatal`, default `error`),
+  `random_init` (default false), `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied when the
+  RTL top is the simulated top, `--top-module`, and `stop_time` (rejected with cocotb or a design's
+  own driver); minimum Verilator 5.024. `bsc_sim` has `timeout`. The other simulators are not
+  converted yet; `tests/test_sim_evidence.py` is the oracle and lists them.
 - **ModelSim exits 0 unless told otherwise.** Its `exit` takes the status as `exit -code N` (a
   plain `exit 1` exits 0, and the fake `vsim` mimics that); without `vsim -onfinish stop`, `$finish`
   exits vsim at once with status 0; and a testbench's `$error` or failed assertion never changes
