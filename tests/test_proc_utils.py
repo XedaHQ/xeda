@@ -449,7 +449,9 @@ def test_the_time_limit_stops_the_process_tree(tmp_path):
 
 # ---- fix round 1: the watchdog's lifecycle ---------------------------------------------------
 import subprocess  # noqa: E402
+import threading  # noqa: E402
 
+import xeda.tool as xeda_tool  # noqa: E402
 from xeda.proc_utils import _Deadline  # noqa: E402
 
 
@@ -597,9 +599,87 @@ def test_a_failing_stop_hook_does_not_replace_an_interrupt(monkeypatch):
         )
 
 
-def test_a_stop_hook_that_hangs_is_not_waited_on_forever(monkeypatch):
-    monkeypatch.setattr("xeda.proc_utils.STOP_HOOK_BOUND", 0.5)
-    started = time.monotonic()
+def test_the_stop_hook_runs_on_the_calling_thread_after_a_timeout():
+    seen = []
     with pytest.raises(ProcessTimeout):
-        run_process(sys.executable, _SLEEPER, timeout=0.3, on_stop=lambda: time.sleep(30))
-    assert time.monotonic() - started < 15
+        run_process(
+            sys.executable,
+            _SLEEPER,
+            timeout=0.5,
+            on_stop=lambda: seen.append(threading.current_thread()),
+        )
+    assert seen == [threading.main_thread()]
+
+
+def test_the_stop_hook_runs_on_the_calling_thread_after_an_interrupt(monkeypatch):
+    seen = []
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.print", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        run_process(
+            sys.executable,
+            ["-c", "import time; print('x', flush=True); time.sleep(60)"],
+            highlight_rules={"x": ""},
+            on_stop=lambda: seen.append(threading.current_thread()),
+        )
+    assert seen == [threading.main_thread()]
+
+
+def test_a_slow_stop_hook_never_delays_the_stopping_of_the_process():
+    """The timer thread only kills: the hook runs afterwards, so the process is gone by then."""
+    states = []
+    holder = {}
+
+    def hook():
+        states.append(holder["proc"].poll())
+
+    real_popen = subprocess.Popen
+
+    def recording_popen(*args, **kwargs):
+        holder["proc"] = real_popen(*args, **kwargs)
+        return holder["proc"]
+
+    import xeda.proc_utils as pu
+
+    pu.subprocess.Popen = recording_popen  # type: ignore[misc]
+    try:
+        with pytest.raises(ProcessTimeout):
+            run_process(sys.executable, _SLEEPER, timeout=0.3, on_stop=hook)
+    finally:
+        pu.subprocess.Popen = real_popen  # type: ignore[misc]
+    assert states and states[0] is not None  # reaped before the hook ran
+
+
+def test_the_docker_stop_hook_is_time_limited(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run_process(executable, args=None, **kwargs):
+        calls.append((list(args or []), kwargs))
+        if kwargs.get("on_stop"):
+            kwargs["on_stop"]()
+        return None
+
+    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.chdir(tmp_path)
+    tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
+    tool.run("arg", timeout=3)
+    kill_kwargs = calls[1][1]
+    assert calls[1][0][0] == "kill"
+    assert kill_kwargs["timeout"] == xeda_tool.DOCKER_KILL_TIMEOUT > 0
+    assert "on_stop" not in kill_kwargs
+
+
+def test_a_docker_stop_hook_that_times_out_is_only_logged(monkeypatch, tmp_path):
+    def fake_run_process(executable, args=None, **kwargs):
+        if kwargs.get("on_stop"):
+            kwargs["on_stop"]()
+            return None
+        raise ProcessTimeout(["docker", "kill"], kwargs["timeout"])
+
+    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.chdir(tmp_path)
+    tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
+    tool.run("arg", timeout=3)  # the hook's ProcessTimeout does not escape

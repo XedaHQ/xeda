@@ -133,10 +133,6 @@ class ProcessTimeout(NonZeroExitCode):
         return f"{what} ran past its time limit of {self.timeout} s and was stopped"
 
 
-#: How long the `on_stop` hook of a stopped process is waited for, in seconds.
-STOP_HOOK_BOUND = 30.0
-
-
 class _Deadline:
     """Watches `proc`: once `timeout` seconds pass (`None`: never) while it still runs, stops it
     and, when it leads a session of its own (`group`, POSIX), every process it started.
@@ -144,7 +140,8 @@ class _Deadline:
     Used as a context manager around everything that waits for `proc`: on leaving it, the timer
     is cancelled and its thread joined, so nothing signals afterwards; an exception (Ctrl-C
     included) stops and reaps the process, and its group, before it propagates. `on_stop` runs
-    after a process was stopped, for what killing the process does not reach (a container)."""
+    once the process was stopped and reaped (timeout or exception), from the thread that waited for it, for what killing the process does not reach (a container).
+    """
 
     def __init__(
         self,
@@ -174,23 +171,14 @@ class _Deadline:
             pass
 
     def _stopped(self) -> None:
-        """Run `on_stop` in a thread of its own, waited for at most `STOP_HOOK_BOUND` s: a hook
-        that hangs or fails neither holds up the clean-up nor replaces the exception."""
+        """Run `on_stop`, once, in the calling thread, after the process was reaped. It bounds
+        itself; a failure is logged and never replaces the exception in flight."""
         if self._on_stop is None:
             return
-        hook = self._on_stop
-
-        def call() -> None:
-            try:
-                hook()
-            except Exception as e:  # stopping is best effort
-                log.warning("Stopping %s failed: %s", self.proc.args, e)
-
-        thread = threading.Thread(target=call, daemon=True)
-        thread.start()
-        thread.join(STOP_HOOK_BOUND)
-        if thread.is_alive():
-            log.warning("Stopping %s did not finish in %s s", self.proc.args, STOP_HOOK_BOUND)
+        try:
+            self._on_stop()
+        except Exception as e:  # stopping is best effort
+            log.warning("Stopping %s failed: %s", self.proc.args, e)
 
     def _expire(self) -> None:
         with self._lock:
@@ -200,7 +188,6 @@ class _Deadline:
                 return
             self.expired = True
             self._signal(signal.SIGKILL)
-        self._stopped()
 
     def cancel(self) -> None:
         with self._lock:
@@ -215,9 +202,7 @@ class _Deadline:
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         self.cancel()
-        if exc_type is None:
-            return
-        was_running = self.proc.poll() is None
+        was_running = exc_type is not None and self.proc.poll() is None
         if was_running:
             log.debug("Stopping %s(pid=%s)", self.proc.args, self.proc.pid)
             self._signal(signal.SIGTERM)
@@ -225,10 +210,11 @@ class _Deadline:
                 self.proc.wait(5)
             except subprocess.TimeoutExpired:
                 self._signal(signal.SIGKILL)
-        if self._group:  # what the leader started may outlive it
-            self._signal(signal.SIGKILL)
-        self.proc.wait()
-        if was_running:
+        if exc_type is not None or self.expired:
+            if self._group:  # what the leader started may outlive it
+                self._signal(signal.SIGKILL)
+            self.proc.wait()
+        if was_running or self.expired:
             self._stopped()
 
 
