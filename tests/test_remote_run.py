@@ -28,7 +28,7 @@ from pydantic import ValidationError
 from xeda import Design
 from xeda.design import GitReference
 from xeda.deliver import DeliveryError
-from xeda.flow import FlowException
+from xeda.flow import FlowException, FlowSettingsError
 from xeda.flow_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteRunner
@@ -1133,3 +1133,41 @@ def test_a_refused_delivery_still_closes_the_gateway_and_the_connection(
             design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
         )
     assert sorted(closed) == ["connection", "gateway"]
+
+
+def _nextpnr_design(tmp_path: Path) -> Path:
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    design = tmp_path / "d.toml"
+    design.write_text(
+        'name = "d"\n[rtl]\nsources = ["top.v"]\ntop = "top"\n'
+        '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n'
+    )
+    return design
+
+
+def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(tmp_path, monkeypatch):
+    """`-s flows.<node>.key` reaches the remote as the requested flow's nested setting; a flow
+    outside the run is refused before connecting."""
+    connected_to = []
+
+    class _Unreachable(_LocalConnection):
+        def __init__(self, host, user=None, port=None):
+            connected_to.append(host)
+            raise ConnectionRefusedError(f"connected to {host}")
+
+    monkeypatch.setattr(remote_module, "Connection", _Unreachable)
+    monkeypatch.chdir(tmp_path)
+    design = _nextpnr_design(tmp_path)
+    runner = RemoteRunner(tmp_path / "xeda_run")
+
+    with pytest.raises(FlowSettingsError, match=r"yosys_fpg.*yosys_fpga"):
+        runner.run_remote(
+            design, "nextpnr", host="h", flow_settings=["flows.yosys_fpg.flatten=true"]
+        )
+    assert not connected_to
+
+    with pytest.raises(ConnectionRefusedError):
+        runner.run_remote(
+            design, "nextpnr", host="h", flow_settings=["flows.yosys_fpga.flatten=true"]
+        )
+    assert connected_to == ["h"]
