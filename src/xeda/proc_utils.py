@@ -11,6 +11,7 @@ import subprocess
 import sys
 import termios
 import threading
+import time
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -31,6 +32,9 @@ _tool_output: Optional[TextIO] = None
 
 #: A container image is recorded under this prefix, beside the programs `run_process` starts.
 DOCKER_IMAGE_PREFIX = "docker-image:"
+
+#: Seconds allowed for a tool to exit gracefully after an interrupt or another exception.
+PROCESS_STOP_GRACE = 5.0
 
 #: A program file's state: `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)`.
 ProgramState = Tuple[int, int, int, int, int]
@@ -139,10 +143,12 @@ class _Deadline:
 
     Used as a context manager around everything that waits for `proc`: on leaving it, the timer
     is cancelled and its thread joined, so nothing signals afterwards; an exception (Ctrl-C
-    included) stops the process and reaps it -- it is our child -- and, with `group`, sends its
-    process group SIGKILL (the group's other members are not our children, so they cannot be
-    reaped here), before it propagates. `on_stop` then runs, on the thread leaving the context,
-    as `run_process` documents.
+    included) stops the process and reaps it -- it is our child. With `group`, Ctrl-C forwards
+    SIGINT, other exceptions send SIGTERM, and the leader gets `PROCESS_STOP_GRACE` seconds to
+    exit without being reaped. The group is then sent SIGKILL before reaping the leader, so its
+    group id cannot be recycled (the group's other members are not our children, so they cannot
+    be reaped here). `on_stop` then runs, on the thread leaving the context, as `run_process`
+    documents.
     """
 
     def __init__(
@@ -163,12 +169,15 @@ class _Deadline:
             self._timer.daemon = True
             self._timer.start()
 
-    def _signal(self, sig: int) -> None:
+    def _stop(self, *, force: bool = False, interrupt: bool = False) -> None:
         try:
             if self._group:
+                sig = signal.SIGKILL if force else signal.SIGINT if interrupt else signal.SIGTERM
                 os.killpg(self.proc.pid, sig)
+            elif force:
+                self.proc.kill()
             else:
-                self.proc.send_signal(sig)
+                self.proc.terminate()
         except (ProcessLookupError, PermissionError):
             pass
 
@@ -186,12 +195,12 @@ class _Deadline:
 
     def _expire(self) -> None:
         with self._lock:
-            # a process that ended by itself is not a timeout; `poll` not `None` also means the
+            # a process that ended by itself is not a timeout; `poll` returning `None` means the
             # pid (and group) is not yet reaped, hence not recycled
             if self._cancelled or self.proc.poll() is not None:
                 return
             self.expired = True
-            self._signal(signal.SIGKILL)
+            self._stop(force=True)
 
     def cancel(self) -> None:
         with self._lock:
@@ -204,19 +213,38 @@ class _Deadline:
     def __enter__(self) -> "_Deadline":
         return self
 
+    def _wait_unreaped(self) -> None:
+        """Give the POSIX leader its grace period without releasing its pid or group id."""
+        end = time.monotonic() + PROCESS_STOP_GRACE
+        while True:
+            status = os.waitid(os.P_PID, self.proc.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+            if status is not None and status.si_pid:
+                return
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(0.01, remaining))
+
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         self.cancel()
         was_running = exc_type is not None and self.proc.poll() is None
         if was_running:
             log.debug("Stopping %s(pid=%s)", self.proc.args, self.proc.pid)
-            self._signal(signal.SIGTERM)
-            try:
-                self.proc.wait(5)
-            except subprocess.TimeoutExpired:
-                self._signal(signal.SIGKILL)
+            self._stop(interrupt=issubclass(exc_type, KeyboardInterrupt))
+            if self._group:
+                try:
+                    self._wait_unreaped()
+                finally:
+                    # The leader is still ours, running or a zombie: signal descendants before
+                    # wait() releases its pid. A second Ctrl-C still kills and reaps it.
+                    self._stop(force=True)
+                    self.proc.wait()
+            else:
+                try:
+                    self.proc.wait(PROCESS_STOP_GRACE)
+                except subprocess.TimeoutExpired:
+                    self._stop(force=True)
         if exc_type is not None or self.expired:
-            if self._group:  # what the leader started may outlive it
-                self._signal(signal.SIGKILL)
             self.proc.wait()
         if was_running or self.expired:
             self._stopped()
