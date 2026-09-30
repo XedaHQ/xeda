@@ -62,6 +62,8 @@ def test_verilator_cocotb_verdict(tmp_path: Path, expected: int, success: bool) 
     assert flow.succeeded is success
     assert flow.results["cocotb.tests"] == 1
     assert flow.results["cocotb.failures"] == (0 if success else 1)
+    # cocotb's output is not piped (it keeps its terminal and colors): its results decide
+    assert not (flow.run_path / flow.settings.sim_dir / "sim.log").exists()
 
 
 def _launch(
@@ -178,6 +180,24 @@ def test_verilator_ends_a_simulation_that_never_finishes(tmp_path, settings, end
     assert flow.results.get("sim.ended_by") == ended_by
     assert (flow.results.get("error") or {}).get("type") == error
     assert flow.succeeded is (error is None)
+
+
+@pytest.mark.parametrize("own_driver", [False, True], ids=["xeda_driver", "own_driver"])
+def test_a_timed_out_model_s_output_reaches_the_log(tmp_path, own_driver):
+    """The model's output is copied through a pipe, which would leave the C runtime's stdout
+    block-buffered: what a testbench printed before it hung would be lost when the time limit
+    kills it. xeda's hooks make it line-buffered, in its own driver and a design's alike."""
+    require_verilator()
+    flow = _launch(
+        tmp_path,
+        'reg clk = 0; always #5 clk = ~clk; initial $display("printed before the hang");',
+        {"timing": True, "timeout": 3},
+        extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", "0")} if own_driver else None,
+    )
+    assert (flow.results.get("error") or {}).get("type") == "ProcessTimeout"
+    assert not flow.succeeded
+    log = (flow.run_path / flow.settings.sim_dir / "sim.log").read_text()
+    assert "printed before the hang" in log
 
 
 OWN_DRIVER = """#include <memory>

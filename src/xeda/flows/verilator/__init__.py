@@ -584,18 +584,17 @@ class Verilator(SimFlow):
             else:  # a design's own driver takes no arguments of xeda's
                 env = {**(env or {}), "XEDA_END_RECORD": str(record)}
         model = verilator.derive(verilated_bin)
+        # the model's output, copied to `sim.log` (line-buffered by the hooks, so none is lost
+        # when the model is stopped); cocotb's goes straight to the terminal, keeping its colors,
+        # since its results decide the run and nothing reads its log
+        model_log = None if self.cocotb else self.run_directory.writable(sim_dir / "sim.log")
         try:
-            model.run(
-                *model_args,
-                env=env,
-                timeout=ss.timeout,
-                tee=self.run_directory.writable(sim_dir / "sim.log"),
-            )
+            model.run(*model_args, env=env, timeout=ss.timeout, tee=model_log)
         except NonZeroExitCode as e:
             self._driver_exit_code = e.exit_code
             raise
         self._driver_exit_code = 0
-        self._model_log = self.run_path / sim_dir / "sim.log"
+        self._model_log = model_log
 
     def rm_dep_files(self):
         """Remove the make dependency files in `sim_dir`, to trigger verilator (through the run
