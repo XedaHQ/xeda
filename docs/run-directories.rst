@@ -104,7 +104,11 @@ file a setting names: whether its content changed since the last run is the trac
 ``results.json``
 ----------------
 
-What the flow parsed out of the tool's reports. Every flow reports:
+What the flow parsed out of the tool's reports. A run that fails after it has started (a failing
+tool, or a failing dependency) still writes it, as a failure document: ``success`` is ``false``, and
+``error.type`` and ``error.message`` say what failed, beside the run's identity. The previous
+``results.json`` is removed before a run starts, so an earlier success never stands for a run that
+failed. Every flow reports:
 
 .. list-table::
    :header-rows: 1
@@ -293,7 +297,7 @@ Some runs can never be reused, and say why: they always run, keep no trace, and 
   "it programs a device" -- that changes the outside world. A non-programming ``open_xc7`` run is
   an ordinary node, reused when nothing changed.
 - A flow asked for a fresh random seed: "it draws a new random seed". Every seed is a setting with
-  a fixed default, so equal inputs give equal outputs: Verilator's random initialization uses
+  a fixed default, so equal inputs give equal outputs: Verilator's random initialization (off unless ``random_init`` is set) uses
   ``random_seed`` (default 1) and cocotb's ``random_seed`` defaults to 1. Ask for a new seed per
   run with ``random_seed = "random"``, or with ``randomize_seed = true`` for ``nextpnr`` and
   ``open_xc7`` (now off by default).

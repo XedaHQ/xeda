@@ -39,7 +39,7 @@ same flow. An unrecognized name suggests close matches.
 Settings
 ========
 
-Every flow declares its own settings. They can be given in three places, in increasing order of
+Every flow declares its own settings. They can be given in four places, in increasing order of
 precedence:
 
 1. the flow's own defaults
@@ -48,7 +48,19 @@ precedence:
 4. the command line, via ``-s``/``--settings``
 
 They merge key by key: ``-s yosys.flatten=true`` changes that one setting of a ``yosys`` section
-given in the design file, rather than replacing the whole section.
+given in the design file, rather than replacing the whole section. Precedence goes by where a
+setting was given first (project, design, command line, API); a nested section such as
+``nextpnr``'s ``yosys`` refines the dependency's own ``[flows.yosys_fpga]`` section only within
+one of these.
+
+``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
+of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are the same setting
+when ``nextpnr`` is the requested flow; giving both different values is an error. A flow that is
+not part of the run is an error too, with the close matches suggested.
+
+``-s`` takes space-separated ``KEY=VALUE`` items. It ends at the next option, or at the first
+token that is not ``KEY=VALUE``, so it never takes the design file for a setting; ``--`` ends the
+options.
 
 Command-line settings take dotted keys for nested values, and several can be given at once::
 
@@ -235,6 +247,19 @@ The original keys are kept, so nothing that already reads ``results.json`` break
 .. note::
    ``clock_frequency`` is deliberately *not* aliased to ``Fmax``. It is the frequency that was
    *constrained*, not the maximum that was *achieved*.
+
+Simulation results
+==================
+
+A simulation passes only on evidence that it ended, not on the simulator's exit status alone. A
+cocotb run needs at least one test that ran and none that failed; a run in which every test was
+skipped fails. Verilator is driven by Xeda's own C++ main, which records how the run ended: the
+``sim.ended_by`` and ``sim.time`` result keys, among others. ``fail_severity`` (``warning``,
+``error``, ``failure`` or ``fatal``; default ``error``) sets the severity at which the run fails,
+and ``timeout`` stops a run that does not end. Verilator also takes ``stop_time`` (not with cocotb
+or a design's own C++ driver), starts with no random initialization unless ``random_init`` is set,
+applies ``rtl.parameters`` when the RTL top is the simulated top, and needs Verilator 5.024 or
+newer. ``bsc_sim`` takes ``timeout`` as well. The other simulators are not converted yet.
 
 Writing a new flow
 ==================

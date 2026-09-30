@@ -35,6 +35,20 @@ and `true`/`false` are not text. The declared `Code` fields used for FPGA speed 
 generations are the exception: `speed = -1` is accepted and stored as text. A list setting also
 accepts comma-separated text (`-s xdc_files=a.xdc,b.xdc`).
 
+### A simulation fails with "no evidence" or an all-skipped cocotb run
+
+A simulation passes only when it shows how it ended. Read `results.json`: `error.message` and, for
+Verilator, `sim.ended_by` and `sim.time`. A cocotb run needs at least one test that ran and none
+that failed. Verilator fails at `fail_severity` (default `error`; `warning`, `error`, `failure` or
+`fatal`) and stops at `timeout`. Simulators other than Verilator, cocotb and `bsc_sim` are not
+converted to this rule yet.
+
+### `-s` took the design file, or a setting names the wrong flow
+
+`-s` ends at the next option or the first token that is not KEY=VALUE; put the design first, or end
+the options with `--`. To set a dependency's setting, use `-s flows.<flow>.key=value`; an unknown
+flow or a misdirected key is an error that suggests the right flow.
+
 ### `FlowNotFoundError`
 
 Unknown flow name. The message suggests close matches. Names are forgiving about separators and

@@ -87,8 +87,13 @@ See `references/design-file.md` for the full reference.
 ## Settings
 
 Precedence, lowest to highest: flow defaults -> `xedaproject.toml`'s `flows.<flow>` -> the
-design file's `[flows.<flow>]` section -> command-line `-s`. Layers merge key by key, so
-`-s yosys.flatten=true` refines a nested section instead of replacing it.
+design file's `[flows.<flow>]` section -> command-line `-s` -> the API. Layers merge key by key, so
+`-s yosys.flatten=true` refines a nested section instead of replacing it; nesting applies only
+within one origin. `-s flows.<flow>.key=value` sets a setting of any flow in the run (the
+requested flow or a declared dependency; a typo is an error with suggestions), and `-s key` and
+`-s flows.<requested>.key` are one setting. `-s` takes space-separated KEY=VALUE items and stops
+at the next option or the first token that is not KEY=VALUE, so put the design before it or end
+the options with `--`.
 
 ```bash
 # dotted keys reach nested settings; several can be given at once
@@ -157,7 +162,8 @@ scripts, the tool logs, `reports/`, `outputs/`, `checkpoints/`, plus:
 - `settings.json` - `flow_settings`, the run's input (every layer merged; re-runnable), and
   `effective_flow_settings`, what the flow made of it. Read the latter first when a run did
   something unexpected.
-- `results.json` - what was parsed back out.
+- `results.json` - what was parsed back out. A run that fails after it starts still writes one
+  with `success: false` and `error.type`/`error.message`; check `success` before reading numbers.
 - `trace.json` - what the run consumed and produced, present only after a successful run; it is
   what makes rebuilds make-like (see below).
 

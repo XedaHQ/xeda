@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Settings compose origin first** (project < design < command line < API); a nested section
+  such as `nextpnr`'s `yosys` refines the dependency's own `[flows.yosys_fpga]` section only
+  within one origin. Locally and with `--remote` alike.
+- **`-s flows.<flow>.key=value` sets a setting of any flow in the run** (the requested flow or a
+  declared dependency); `-s key` and `-s flows.<requested>.key` are one setting, two values for it
+  are an error, and a misdirected or mistyped flow name suggests the right one.
+- **`-s` ends at the first token that is not KEY=VALUE** (or at the next option), so it no longer
+  swallows the design file; `--` ends the options.
+- **A failed run leaves a failure document**: `results.json` with `success: false`, `error.type`,
+  `error.message` and the run's identity, also when a dependency fails; the previous
+  `results.json` is removed before a run starts.
+- **A simulation passes only on evidence that it ended.** cocotb needs at least one test that ran
+  and none that failed (an all-skipped run fails). Verilator runs under Xeda's own C++ main and
+  reports `sim.ended_by`, `sim.time` and related keys; it gains `timeout`, `fail_severity`
+  (default `error`), `stop_time`, `rtl.parameters` on the RTL top and `--top-module`, no longer
+  initializes randomly unless `random_init` is set (`x_initial`/`x_assign` default `"0"`), and
+  needs Verilator 5.024 or newer. `bsc_sim` gains `timeout`. Other simulators are not converted
+  yet.
+
+### Added
+- `run_process` and `Tool.run` take `timeout` (the process group, or a named Docker container, is
+  stopped; `ProcessTimeout`) and `tee`.
+
 ### Changed
 - **The run root is `--run-root`** (`XEDA_RUN_ROOT`; the API's `run_root`, the launchers' first
   argument and property; the key `run_root` of `xeda scrub --json`), for `run`, `dse` and
