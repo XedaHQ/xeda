@@ -20,7 +20,7 @@ NOT_YET_CONVERTED = {
     "vivado_postsynth_sim": "P1b: xsim's end (a vivado_sim on the netlist)",
     "vivado_power": "P1b: xsim's end (activity simulation)",
     "yosys_sim": "P1b: the CXXRTL driver reports no end",
-    "bsc_sim": "Task 9 converts its Verilator backend",
+    "bsc_sim": "P1b: its Verilator backend's hooks (a time limit exists)",
 }
 #: Converted for some backends only: the rest are P1b.
 PARTLY_CONVERTED: dict[str, str] = {}
