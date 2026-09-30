@@ -9,11 +9,30 @@ from xml.etree import ElementTree
 import colorama
 
 from ...dataclass import Field
+from ...design import DesignSource, SourceType
 from ...flow import Flow, SynthFlow
 from ...tool import Docker, Tool
 from ...utils import tcl_word
 
 log = logging.getLogger(__name__)
+
+SOURCE_FILE_TYPES = {
+    SourceType.Verilog: "Verilog",
+    SourceType.SystemVerilog: "SystemVerilog",
+    SourceType.Vhdl: "VHDL",
+    SourceType.VerilogHeader: "Verilog Header",
+    SourceType.SVHeader: "Verilog Header",
+    SourceType.MemoryFile: "Memory File",
+    SourceType.Xdc: "XDC",
+    SourceType.Sdc: "SDC",
+    SourceType.Tcl: "TCL",
+}
+
+
+def vivado_file_type(source: DesignSource) -> str:
+    """The project file type, independent of a source's filename extension."""
+    return SOURCE_FILE_TYPES[source.type]
+
 
 all = [
     "Vivado",
@@ -129,6 +148,7 @@ class Vivado(Flow, metaclass=ABCMeta):
 
     def init(self):
         super().init()
+        self.add_template_global_func(vivado_file_type)
         assert isinstance(self.settings, self.Settings)
         default_args = [
             "-nojournal",

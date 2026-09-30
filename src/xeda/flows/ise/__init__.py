@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from ...dataclass import Field
-from ...design import SourceType
+from ...design import SOURCE_SUFFIXES, SourceType
 from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
 from ...tool import Docker, OptionalBoolOrPath, Tool
-from ...utils import tcl_word, try_convert_to_primitives
+from ...utils import replacing_copy, tcl_word, try_convert_to_primitives
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,34 @@ class IseSynth(FpgaSynthFlow):
 
         self.add_template_global_func(format_value)
 
-        script_path = self.copy_from_template("ise_synth.tcl")
+        # xfile has no file-type override. Give a mistyped extension a run-local,
+        # typed copy; leave the original design and its source identities intact.
+        extensions = {
+            SourceType.Verilog: ".v",
+            SourceType.Vhdl: ".vhd",
+            SourceType.VerilogHeader: ".vh",
+            SourceType.Ucf: ".ucf",
+        }
+        source_files = []
+        include_dirs = []
+        for source in self.sources_read():
+            path = source.path
+            inferred = SOURCE_SUFFIXES.get(path.suffix.lstrip("."))
+            if inferred is None or inferred[0] is not source.type:
+                copied = self.run_directory.writable(
+                    Path("typed_sources")
+                    / self.design.source_artifact_name(source, extensions[source.type])
+                )
+                copied.parent.mkdir(parents=True, exist_ok=True)
+                replacing_copy(path, copied)
+                path = copied
+            source_files.append(path)
+            if source.type in (SourceType.Verilog, SourceType.VerilogHeader):
+                if source.path.parent not in include_dirs:
+                    include_dirs.append(source.path.parent)
+        script_path = self.copy_from_template(
+            "ise_synth.tcl", source_files=source_files, source_include_dirs=include_dirs
+        )
         xtclsh = XTclSh()  # type: ignore
         xtclsh.run(script_path)
         for label, path in self.project_outputs().items():
