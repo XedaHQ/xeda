@@ -192,29 +192,33 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
         )
 
 
-#: The oldest xeda a remote may run. The remote loads the design archive `send_design` builds
-#: with *its* xeda, which forbids unknown keys, so the archive must stay loadable by this release
-#: (`tests/test_remote_run.py` pins the keys it accepts).
-REMOTE_XEDA_MIN_VERSION = (0, 4, 3)
+#: The P2a release line, including its dev builds. The protocol marker also excludes earlier
+#: development checkouts on that line; tests pin the P2a archive keys and source types.
+REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
+REMOTE_PROTOCOL_MIN_VERSION = 1
 
-# Runs on the remote first, like `STREAM_OUTPUT_SETUP`: stdlib only, and it never imports xeda,
-# so a missing or broken install is reported rather than tripped over. `find_spec` locates the
-# package without executing it; the location names *which* install answered, which matters when
-# a stale checkout shadows the one the user upgraded.
+# Runs before shipping anything. Inspect the package this interpreter actually imports: installed
+# distribution metadata alone can describe a different xeda shadowed by a stale checkout. A
+# missing or broken import is reported as an incompatible install, not an execnet traceback.
 REMOTE_PROBE = """
 import sys
-from importlib import metadata, util
+installed = None
+location = None
+protocol = 0
 try:
-    installed = metadata.version("xeda")
-except metadata.PackageNotFoundError:
-    installed = None
-spec = util.find_spec("xeda")
+    import xeda
+    installed = xeda.__version__
+    location = xeda.__file__
+    protocol = getattr(xeda, "REMOTE_PROTOCOL_VERSION", 0)
+except Exception:
+    pass
 channel.send((
     sys.platform,
     tuple(sys.version_info),
     sys.executable,
     installed,
-    spec.origin if spec is not None else None,
+    location,
+    protocol,
 ))
 """
 
@@ -225,7 +229,9 @@ def release_tuple(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in match.group().split(".")) if match else ()
 
 
-def check_remote_xeda(found: Optional[str], location: Optional[str], python: str) -> None:
+def check_remote_xeda(
+    found: str | None, location: str | None, python: str, protocol: int = 0
+) -> None:
     """Fail early and clearly when the remote's xeda cannot run what this side sends.
 
     `found` is the version of the xeda that `python` on the remote imports (None when it imports
@@ -233,22 +239,29 @@ def check_remote_xeda(found: Optional[str], location: Optional[str], python: str
     surfaces as whatever the old loader happens to choke on first -- a 0.2 remote reported
     `rtl.sources: unhashable type: 'dict'`.
 
-    The floor is `REMOTE_XEDA_MIN_VERSION`, the oldest release that loads the archive. A remote
-    on another release line than this side is only warned about: it reads the design, but a
-    setting one side knows and the other does not is rejected there, with an error naming it.
+    P2a requires both its release line (`REMOTE_XEDA_MIN_VERSION`, including dev builds) and
+    its protocol capability. Version alone cannot distinguish pre-P2a development checkouts.
+    A compatible remote on another release line is warned about settings differences.
     """
     required = ".".join(str(part) for part in REMOTE_XEDA_MIN_VERSION)
     if found is None:
         raise RemoteIncompatible(
-            f"{python} on the remote imports no xeda: install xeda {required} or newer for that "
+            f"{python} on the remote imports no xeda that can be used: upgrade the remote xeda "
+            f"to a P2a build (xeda {required}, including dev builds, or newer; remote protocol "
+            f"{REMOTE_PROTOCOL_MIN_VERSION} or newer) for that "
             "interpreter (it is started by a non-login shell, so it may not be the one on your "
             "login PATH)"
         )
-    if release_tuple(found) < REMOTE_XEDA_MIN_VERSION:
+    if (
+        release_tuple(found) < REMOTE_XEDA_MIN_VERSION
+        or type(protocol) is not int
+        or protocol < REMOTE_PROTOCOL_MIN_VERSION
+    ):
         raise RemoteIncompatible(
-            f"{python} on the remote imports xeda {found} from {location}, which cannot read "
-            f"the design this xeda ({__version__}) sends: xeda {required} or newer is required "
-            "there. Upgrade that install -- or remove it, if it is a stale one shadowing a newer "
+            f"{python} on the remote imports xeda {found} from {location} (remote protocol "
+            f"{protocol}), which cannot run this xeda's P2a request: upgrade the remote xeda "
+            f"to a P2a build (xeda {required}, including dev builds, or newer; remote protocol "
+            f"{REMOTE_PROTOCOL_MIN_VERSION} or newer). Remove that install if it shadows a newer "
             "install (it is started by a non-login shell, so it may not be the one on your login "
             "PATH)"
         )
@@ -281,13 +294,6 @@ def send_design(
             **design.model_dump(mode="json"),
             "design_root": None,
         }
-        # A dependency as a released remote reads it (a loaded design has none left: it holds
-        # their sources itself). 0.4's `local_cache` is a `Path` with a default, which rejects
-        # the `null` an unset one dumps as; left out, the remote uses its default.
-        new_design["dependencies"] = [
-            {k: v for k, v in dependency.items() if k != "local_cache" or v is not None}
-            for dependency in new_design.get("dependencies", [])
-        ]
         rtl: Dict[str, Any] = {}
         tb: Dict[str, Any] = {}
         remote_sources_path = Path(design.name) / "sources"
@@ -341,8 +347,7 @@ def send_design(
                 else:
                     place = archived(src)
                 spec: Dict[str, Any] = {"file": place.as_posix()}
-                if src.type is not None:
-                    spec["type"] = str(src.type)
+                spec["type"] = str(src.type)
                 if src.standard is not None:
                     spec["standard"] = src.standard
                 if src.variant is not None:
@@ -448,8 +453,8 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
 
     # What the remote directory holds before the run -- every file's and directory's identity,
     # size and times, on the remote's own file system -- so that a failed run's artifacts can be
-    # told from files that were already here (below). The remote's xeda may be too old to tell
-    # them apart itself (`Flow.wrote_output`). The directory is fresh, so this is the design
+    # told from files that were already here if a worker lacks its write-reporting method
+    # (`Flow.wrote_output`). The directory is fresh, so this is the design
     # archive's files; one it could not read proves nothing about what lies under it.
     remote_root = os.path.realpath(remote_path)
     before: dict = {}
@@ -490,23 +495,18 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
 
     # a run root of its own: the directory the archive was unpacked into holds its files
     run_root = str(Path.cwd() / "xeda_run")
-    # Every run starts clean, in a directory named by its settings -- with whichever launcher
-    # settings the remote's xeda has for that.
-    fields = getattr(DefaultRunner.Settings, "model_fields", None) or getattr(
-        DefaultRunner.Settings, "__fields__", {}
-    )
-    if "hashed_run_dirs" in fields:  # `clean` implies `rebuild_all`
-        launcher_settings = dict(hashed_run_dirs=True, clean=True)
-    else:  # a remote xeda from before `hashed_run_dirs` (0.4.x)
-        launcher_settings = dict(
-            cached_dependencies=True, cleanup_before_run=True, incremental=False
-        )
+    # The P2a floor guarantees these settings: every run starts clean, in a directory named
+    # by its settings (`clean` implies `rebuild_all`).
     launcher = DefaultRunner(
-        run_root, backups=False, post_cleanup=False, display_results=False, **launcher_settings
+        run_root,
+        backups=False,
+        post_cleanup=False,
+        display_results=False,
+        hashed_run_dirs=True,
+        clean=True,
     )
     # NOTE: this function's *source* is shipped to the remote host and executed
-    # there against whatever xeda version is installed remotely, so it must not
-    # depend on APIs newer than that install. Live output streaming is set up
+    # there against a xeda satisfying the P2a protocol floor. Live output streaming is set up
     # separately, at the file-descriptor level, by `STREAM_OUTPUT_SETUP` (pure
     # stdlib, no xeda involvement) -- see `RemoteRunner.run_remote`.
     f = launcher.run(
@@ -974,17 +974,28 @@ class RemoteRunner(FlowLauncher):
             connected.callback(gw.exit)
             # `python` is resolved by the remote's *non-login* shell; `env:PATH` above is applied
             # only once that interpreter runs. So which xeda answers is not a given: ask.
-            platform, version_info, remote_python, remote_xeda, remote_xeda_at = gw.remote_exec(
-                REMOTE_PROBE
-            ).receive()
+            (
+                platform,
+                version_info,
+                remote_python,
+                remote_xeda,
+                remote_xeda_at,
+                remote_protocol,
+            ) = gw.remote_exec(REMOTE_PROBE).receive()
             version_info_str = ".".join(str(v) for v in version_info)
             log.info("Remote host:%s (%s python:%s)", host, platform, version_info_str)
-            log.info("Remote xeda: %s at %s (%s)", remote_xeda, remote_xeda_at, remote_python)
+            log.info(
+                "Remote xeda: %s at %s (%s), protocol %s",
+                remote_xeda,
+                remote_xeda_at,
+                remote_python,
+                remote_protocol,
+            )
             # The remotely executed worker is this installed xeda package, so its interpreter
             # must satisfy the same floor as pyproject.toml rather than a historical
             # transport-only floor.
             check_remote_python(version_info)
-            check_remote_xeda(remote_xeda, remote_xeda_at, remote_python)
+            check_remote_xeda(remote_xeda, remote_xeda_at, remote_python, remote_protocol)
 
             # Only now that the remote can read it.
             zip_file, design_file = send_design(

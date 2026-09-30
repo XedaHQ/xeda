@@ -31,7 +31,7 @@ from xeda.deliver import DeliveryError
 from xeda.flow import FlowException, FlowSettingsError
 from xeda.flow_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner import remote as remote_module
-from xeda.flow_runner.remote import RemoteRunner
+from xeda.flow_runner.remote import RemoteIncompatible, RemoteRunner
 from xeda.flow_runner.run_lock import lock_file
 from xeda.run_root import RunRootError, ensure_run_root, is_run_root
 
@@ -89,6 +89,9 @@ def remote_host(tmp_path, monkeypatch):
     in a process of its own, with `tests/fake_tools` on its PATH."""
     home = tmp_path / "remote_home"
     home.mkdir()
+    # The worker changes directory: a relative PYTHONPATH=src would instead find the venv's
+    # editable install, which may point at main rather than the checkout under test.
+    monkeypatch.setenv("PYTHONPATH", str(TESTS_DIR.parent / "src"))
     path = str(TESTS_DIR / "fake_tools") + os.pathsep + os.environ["PATH"]
     monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
     monkeypatch.setattr(remote_module, "Transfer", _LocalTransfer)
@@ -119,12 +122,55 @@ def _remote_run_dir(home: Path, flow_name: str) -> Path:
     return settings.parent
 
 
-#: What xeda 0.4.3, the oldest release a remote may run, accepts in a design's `rtl` and `tb`.
-#: Every test above runs the "remote" on this very xeda, so none of them can see version skew;
-#: but the archive is read by whatever xeda the remote host has, and that one forbids extra keys.
-#: A key outside these fails *every* remote run on that release ("Extra inputs are not
-#: permitted"); adding one means raising `REMOTE_XEDA_MIN_VERSION` on purpose.
-RELEASED_RTL_KEYS = {
+def test_a_remote_without_p2a_is_refused_before_anything_ships(tmp_path, remote_host, monkeypatch):
+    """The probe reports a 0.4.3 install without the P2a capability; no archive is shipped."""
+    monkeypatch.setattr(
+        remote_module,
+        "REMOTE_PROBE",
+        "import xeda\n"
+        "from importlib import metadata\n"
+        "xeda.__version__ = '0.4.3'\n"
+        "if hasattr(xeda, 'REMOTE_PROTOCOL_VERSION'):\n"
+        "    del xeda.REMOTE_PROTOCOL_VERSION\n"
+        "metadata.version = lambda name: '0.4.3'\n" + remote_module.REMOTE_PROBE,
+    )
+    shipped = []
+    closed = []
+    real_makegateway = remote_module.execnet.makegateway
+
+    def makegateway(spec):
+        gateway = real_makegateway(spec)
+        real_exit = gateway.exit
+
+        def exit():
+            closed.append("gateway")
+            real_exit()
+
+        gateway.exit = exit
+        return gateway
+
+    def ship(*args, **kwargs):
+        shipped.append(True)
+        raise AssertionError("the incompatible remote was sent a design")
+
+    monkeypatch.setattr(remote_module, "send_design", ship)
+    monkeypatch.setattr(remote_module.execnet, "makegateway", makegateway)
+    monkeypatch.setattr(_LocalConnection, "close", lambda self: closed.append("connection"))
+    design = _sqrt_design(tmp_path / "design")
+    with pytest.raises(RemoteIncompatible, match="upgrade the remote xeda") as raised:
+        RemoteRunner(tmp_path / "local").run_remote(
+            design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
+        )
+    assert "0.4.3" in str(raised.value)
+    assert "P2a" in str(raised.value)
+    assert not shipped
+    assert sorted(closed) == ["connection", "gateway"]
+
+
+#: The archive accepted by a P2a remote (protocol 1), including this branch's dev builds.
+#: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
+#: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
+P2A_RTL_KEYS = {
     "attributes",
     "clocks",
     "defines",
@@ -134,7 +180,7 @@ RELEASED_RTL_KEYS = {
     "sources",
     "top",
 }
-RELEASED_TB_KEYS = {"cocotb", "defines", "generics", "parameters", "sources", "top", "uut"}
+P2A_TB_KEYS = {"cocotb", "defines", "generics", "parameters", "sources", "top", "uut"}
 
 EXAMPLE_DESIGNS = sorted(
     p
@@ -146,8 +192,8 @@ EXAMPLE_DESIGNS = sorted(
 
 
 @pytest.mark.parametrize("design_file", EXAMPLE_DESIGNS, ids=lambda p: p.name)
-def test_the_design_archive_is_readable_by_a_released_remote(design_file, tmp_path, monkeypatch):
-    """The design archive is readable by a released remote."""
+def test_the_design_archive_is_readable_by_a_p2a_remote(design_file, tmp_path, monkeypatch):
+    """The design archive uses the keys accepted by a P2a remote."""
     design = Design.from_file(design_file)
     monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
     remote_dir = tmp_path / "remote"
@@ -158,13 +204,13 @@ def test_the_design_archive_is_readable_by_a_released_remote(design_file, tmp_pa
     with zipfile.ZipFile(remote_dir / zip_name) as archive:
         shipped = json.loads(archive.read(design_name))
 
-    assert set(shipped["rtl"]) <= RELEASED_RTL_KEYS
-    assert set(shipped["tb"]) <= RELEASED_TB_KEYS
+    assert set(shipped["rtl"]) <= P2A_RTL_KEYS
+    assert set(shipped["tb"]) <= P2A_TB_KEYS
 
 
-#: What xeda 0.4.3 accepts in a design dependency (`GitReference`), and the keys it accepts as
-#: `null`: its `local_cache` is a `Path` with a default, which rejects `null`.
-RELEASED_GIT_REFERENCE_KEYS = {
+#: A P2a design dependency (`GitReference`) and the keys it accepts as `null`.
+#: Unlike the old floor, P2a accepts an unset local_cache directly.
+P2A_GIT_REFERENCE_KEYS = {
     "uri",
     "rtl",
     "tb",
@@ -175,15 +221,13 @@ RELEASED_GIT_REFERENCE_KEYS = {
     "branch",
     "clone_dir",
 }
-RELEASED_NULLABLE_GIT_REFERENCE_KEYS = {"commit", "branch", "clone_dir"}
+P2A_NULLABLE_GIT_REFERENCE_KEYS = {"commit", "branch", "clone_dir", "local_cache"}
 
 
 @pytest.mark.parametrize("local_cache", [None, "deps"])
-def test_a_git_dependency_is_archived_as_a_released_remote_reads_it(
-    local_cache, tmp_path, monkeypatch
-):
+def test_a_git_dependency_is_archived_as_a_p2a_remote_reads_it(local_cache, tmp_path, monkeypatch):
     """A loaded design holds its dependencies' sources itself and ships no dependency; one
-    assigned afterwards is shipped for the remote to fetch, in the form 0.4 reads."""
+    assigned afterwards is shipped for the remote to fetch, in the form P2a reads."""
     monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
     design = Design.from_file(_sqrt_design(tmp_path / "design"))
     reference = {"uri": "https://example.com/org/repo.git?branch=dev#design.toml"}
@@ -198,8 +242,8 @@ def test_a_git_dependency_is_archived_as_a_released_remote_reads_it(
     with zipfile.ZipFile(remote_dir / zip_name) as archive:
         (shipped,) = json.loads(archive.read(design_name))["dependencies"]
 
-    assert set(shipped) <= RELEASED_GIT_REFERENCE_KEYS
-    assert {k for k, v in shipped.items() if v is None} <= RELEASED_NULLABLE_GIT_REFERENCE_KEYS
+    assert set(shipped) <= P2A_GIT_REFERENCE_KEYS
+    assert {k for k, v in shipped.items() if v is None} <= P2A_NULLABLE_GIT_REFERENCE_KEYS
     assert shipped.get("local_cache") == reference.get("local_cache")
     assert shipped["repo_url"] == "https://example.com/org/repo.git"
 
@@ -257,8 +301,8 @@ def test_plain_testbench_parameters_do_not_need_a_newer_remote(tmp_path, monkeyp
         shipped = json.loads(archive.read(design_name))
 
     assert shipped["tb"]["parameters"] == {"G_N": 8}
-    assert set(shipped["rtl"]) <= RELEASED_RTL_KEYS
-    assert set(shipped["tb"]) <= RELEASED_TB_KEYS
+    assert set(shipped["rtl"]) <= P2A_RTL_KEYS
+    assert set(shipped["tb"]) <= P2A_TB_KEYS
 
 
 def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remote_host):
@@ -385,10 +429,9 @@ def test_a_failed_remote_run_reports_its_failure(tmp_path, remote_host, monkeypa
     assert saved["success"] is False
 
 
-def _xeda_0_4_remote_runner(channel, **kwargs):
-    """`remote_runner` on a remote whose launcher still lists the artifacts a failed run did not
-    write, as xeda 0.4's does. execnet ships this function's source alone, so it imports what it
-    patches."""
+def _remote_runner_with_unwritten_artifacts(channel, **kwargs):
+    """Inject unfiltered artifact reporting into a supported worker to exercise transport
+    defenses. execnet ships this function's source alone, so it imports what it patches."""
     from xeda.flow_runner import default_runner
     from xeda.flow_runner.remote import remote_runner
 
@@ -397,13 +440,12 @@ def _xeda_0_4_remote_runner(channel, **kwargs):
 
 
 @pytest.mark.parametrize("fails", [True, False], ids=["failed", "succeeded"])
-def test_an_older_remote_lists_artifacts_its_run_did_not_write(
+def test_a_remote_listing_unwritten_artifacts_is_handled(
     fails, tmp_path, remote_host, monkeypatch, caplog
 ):
-    """A remote may run xeda 0.4, whose launcher reports every artifact a flow recorded. When the
-    run failed, this side drops what the remote did not write, as the launcher does, rather than
-    fail to fetch it; when the run succeeded, a missing artifact is still an error."""
-    monkeypatch.setattr(remote_module, "remote_runner", _xeda_0_4_remote_runner)
+    """A faulty worker reporting unwritten artifacts cannot make the transport fetch them
+    after failure; after success, a missing artifact is still an error."""
+    monkeypatch.setattr(remote_module, "remote_runner", _remote_runner_with_unwritten_artifacts)
     if not fails:
         with pytest.raises(FileNotFoundError, match=r"impl_funcsim\.v"):
             _run_vivado_alt_synth_with_netlist(tmp_path)
@@ -424,9 +466,9 @@ def test_an_older_remote_lists_artifacts_its_run_did_not_write(
         assert f"{label}: {path}" in warning
 
 
-def _xeda_0_4_remote_runner_without_wrote_output(channel, **kwargs):
-    """`remote_runner` on a remote with xeda 0.4's launcher, which lists every artifact a flow
-    recorded, and its `Flow`, which cannot tell what its run wrote (no `wrote_output`)."""
+def _remote_runner_without_wrote_output(channel, **kwargs):
+    """Inject a missing write-reporting API as well as unfiltered artifacts into the worker.
+    This exercises a defensive fallback, not acceptance of a pre-P2a remote."""
     from xeda.flow import Flow
     from xeda.flow_runner import default_runner
     from xeda.flow_runner.remote import remote_runner
@@ -438,8 +480,8 @@ def _xeda_0_4_remote_runner_without_wrote_output(channel, **kwargs):
 
 REMOTES = {
     "this xeda": None,
-    "xeda 0.4": _xeda_0_4_remote_runner,
-    "xeda 0.4 without wrote_output": _xeda_0_4_remote_runner_without_wrote_output,
+    "unfiltered artifacts": _remote_runner_with_unwritten_artifacts,
+    "missing wrote_output": _remote_runner_without_wrote_output,
 }
 
 
@@ -495,7 +537,7 @@ class _Channel:
         self.sent.append(value)
 
 
-@pytest.mark.parametrize("remote", ["this xeda", "xeda 0.4 without wrote_output"])
+@pytest.mark.parametrize("remote", ["this xeda", "missing wrote_output"])
 def test_the_remote_vouches_only_for_what_its_failed_run_wrote(remote, tmp_path, monkeypatch):
     """`remote_runner` itself, run here as the remote runs it: after a failed run it sends back
     which of the run's artifacts the run wrote, judged on the remote's own file system -- by the
@@ -848,25 +890,14 @@ def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch
     assert json.loads(written) is None  # the run succeeded
 
 
-@pytest.mark.parametrize(
-    "settings_fields, expected",
-    [
-        (["rebuild_all", "hashed_run_dirs", "clean"], dict(hashed_run_dirs=True, clean=True)),
-        # xeda 0.4.x, from before `hashed_run_dirs`: the same behavior, in its own settings
-        (
-            ["cached_dependencies", "cleanup_before_run", "incremental"],
-            dict(cached_dependencies=True, cleanup_before_run=True, incremental=False),
-        ),
-    ],
-    ids=["current", "0.4"],
-)
-def test_the_remote_runs_every_flow_clean_with_the_settings_its_xeda_has(
-    tmp_path, monkeypatch, settings_fields, expected
-):
-    """The remote's xeda may be older than this one: `remote_runner` asks its launcher which
-    settings it has, and runs every flow from a clean directory named by its settings."""
-    _, _, given, _ = _run_remote_runner(tmp_path, monkeypatch, dict(success=True), settings_fields)
-    assert given == dict(backups=False, post_cleanup=False, display_results=False, **expected)
+def test_the_remote_runs_every_flow_clean_with_p2a_settings(tmp_path, monkeypatch):
+    """The P2a floor guarantees a clean run in a directory named by its settings."""
+    _, _, given, _ = _run_remote_runner(
+        tmp_path, monkeypatch, dict(success=True), ["rebuild_all", "hashed_run_dirs", "clean"]
+    )
+    assert given == dict(
+        backups=False, post_cleanup=False, display_results=False, hashed_run_dirs=True, clean=True
+    )
 
 
 def test_the_remote_runs_in_a_run_root_of_its_own(tmp_path, monkeypatch):
@@ -1174,17 +1205,22 @@ def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(tmp_path, 
 
 
 def test_the_archive_names_every_source_s_type(tmp_path, monkeypatch):
-    """Every source travels with its canonical type name. This checks serialization only;
-    floor-version loading and execution semantics are covered separately under Q1."""
+    """A P2a remote reloads every new type, including Data on unknown and HDL suffixes."""
     root = tmp_path / "d"
     root.mkdir()
-    members = (SourceType.Verilog, SourceType.Lpf, SourceType.JsonNetlist, SourceType.Data)
+    members = list(SourceType)
     sources = []
     for member in members:
         name = f"{member.name.lower()}.src"
         (root / name).write_text("x\n")
         sources.append({"file": name, "type": member.name})
-    design = Design(name="d", design_root=root, rtl={"sources": sources, "top": "t"})
+    for name in ("notes.txt", "data.v"):
+        (root / name).write_text("x\n")
+        sources.append({"file": name, "type": "Data"})
+        members.append(SourceType.Data)
+    design = Design(
+        name="d", design_root=root, rtl={"sources": sources, "top": "t"}, tb={"sources": sources}
+    )
     monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
     remote_dir = tmp_path / "remote"
     remote_dir.mkdir()
@@ -1193,4 +1229,22 @@ def test_the_archive_names_every_source_s_type(tmp_path, monkeypatch):
     )
     with zipfile.ZipFile(remote_dir / zip_name) as archive:
         shipped = json.loads(archive.read(design_name))
-    assert [source["type"] for source in shipped["rtl"]["sources"]] == [m.name for m in members]
+        archive.extractall(remote_dir)
+    for part in ("rtl", "tb"):
+        assert [source["type"] for source in shipped[part]["sources"]] == [m.name for m in members]
+        assert all(
+            set(source) <= {"file", "type", "standard", "variant"}
+            for source in shipped[part]["sources"]
+        )
+    gw = execnet.makegateway(f"popen//python={sys.executable}")
+    try:
+        probe = gw.remote_exec(remote_module.REMOTE_PROBE).receive()
+        remote_module.check_remote_xeda(probe[3], probe[4], probe[2], probe[5])
+        restored = gw.remote_exec(
+            "from xeda import Design\n"
+            f"design = Design.from_file({str(remote_dir / design_name)!r})\n"
+            "channel.send([[s.type.name for s in part.sources] for part in (design.rtl, design.tb)])\n"
+        ).receive()
+        assert restored == [[m.name for m in members]] * 2
+    finally:
+        gw.exit()

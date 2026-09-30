@@ -6,6 +6,10 @@ from .flow_runner import DefaultRunner, Dse, FlowRunner
 from .tool import Tool
 from .version import __version__
 
+# P2a remote archive and launch contract. Keep this on the imported package so the probe
+# cannot mistake another distribution's version metadata for this checkout's capabilities.
+REMOTE_PROTOCOL_VERSION = 1
+
 __all__ = [
     "FPGA",
     "Cocotb",
@@ -14,6 +18,7 @@ __all__ = [
     "Dse",
     "Flow",
     "FlowRunner",
+    "REMOTE_PROTOCOL_VERSION",
     "SimFlow",
     "SynthFlow",
     "Tool",

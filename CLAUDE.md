@@ -666,17 +666,25 @@ and `test_nvc.py` simulate the examples in place.
   in `tests/test_remote_streaming.py`; the code injected into the remote (`STREAM_OUTPUT_SETUP`,
   `remote_runner`) must stay dependency-free and only use long-stable xeda API - a test asserts this.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
-  keys, so it must stay loadable by `REMOTE_XEDA_MIN_VERSION`. **Requirement: a remote runs the
-  latest published xeda or newer** (currently 0.4.3), and `check_remote_xeda` refuses anything
-  older. On each release, raise `REMOTE_XEDA_MIN_VERSION` and `test_remote_run.py`'s
-  `RELEASED_RTL_KEYS`/`RELEASED_TB_KEYS`/`RELEASED_GIT_REFERENCE_KEYS` (with the keys it takes as
-  `null`) to the new release; until then the archive and the
-  shipped `remote_runner` may rely on nothing newer than it (a newer API only behind a
-  `getattr` probe). `REMOTE_PROBE` reports
-  which xeda the remote interpreter imports (execnet starts `python3` from the *non-login* PATH).
+  keys. **Requirement: a remote runs a P2a build (this branch or newer)**: release line
+  `REMOTE_XEDA_MIN_VERSION = (0, 4, 4)` (including `0.4.4.devN+g...`) and
+  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 1).
+  `check_remote_xeda` refuses xeda 0.4.3 and development checkouts without the capability with an
+  "upgrade the remote xeda" error before anything ships. Version alone does not prove P2a support.
+  `REMOTE_PROBE` imports the remote interpreter's actual xeda and reports its version, location
+  and protocol marker; a missing or broken import is an incompatible install. The streaming setup
+  remains stdlib-only. execnet starts `python3` from the *non-login* PATH, so a shadowing checkout
+  must be upgraded or removed even if another installed distribution is current.
+  **On release**, raise `REMOTE_XEDA_MIN_VERSION` to the published P2a-or-newer release tuple and
+  retain its protocol marker. For an incompatible remote archive or launch-contract change,
+  increment the exposed `REMOTE_PROTOCOL_VERSION` and the required `REMOTE_PROTOCOL_MIN_VERSION`
+  together; update `test_remote_run.py`'s `P2A_RTL_KEYS`/`P2A_TB_KEYS`/`P2A_GIT_REFERENCE_KEYS`
+  and nullable-key pins and verify archive/source round trips plus the popen remote runs. The
+  archive and shipped worker may rely on the API guaranteed by that protocol floor; no 0.4.3
+  archive projection or compatibility policy is maintained.
   A failed remote run's artifacts are fetched only if the remote vouches its run wrote them:
   `remote_runner` sends its results, then that list, judged on the remote's own file system (the
-  remote flow's `wrote_output`, or, on an older xeda, the remote directory's state recorded
+  remote flow's `wrote_output`, or, if a worker lacks it, the remote directory's state recorded
   before the run: identity, size, times); `_transfer_artifacts` drops the rest. A file merely
   existing on the remote (an earlier run's) proves nothing, and no clock or file of this side is
   ever compared with the remote's.
