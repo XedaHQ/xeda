@@ -519,6 +519,17 @@ COMMON_RESULT_DESCRIPTIONS: Dict[str, str] = {
     "io": "Number of I/O buffers/pads used.",
     "timing_met": "Whether every constrained clock domain met its constraint.",
     "clock_domains": "Number of clock domains the timing analysis reported.",
+    # simulation: how it ended, from the simulator's end record (`SimFlow.simulation_evidence`)
+    "sim.ended_by": "What ended the simulation: `finish` ($finish), `stop_time` (the requested "
+    "stop time, reached), `max_cycles`, `exit` (the testbench's own driver exited), `drained` "
+    "(no event left, and no $finish), `error`, `fatal`, or `unknown`. Only `finish`, a "
+    "requested `stop_time` or `max_cycles`, and an `exit` with status 0 can pass.",
+    "sim.time": "Simulated time at the end, in `sim.time_unit`; null when the simulator did not "
+    "report it.",
+    "sim.time_unit": "The unit of `sim.time`, e.g. `1ps` (the model's time precision).",
+    "sim.errors": "Number of errors the simulation reported: $error, failed assertions, $stop "
+    "and $fatal.",
+    "sim.warnings": "Number of warnings the simulation reported.",
 }
 
 

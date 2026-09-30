@@ -103,6 +103,7 @@ namespaces = false
     "*.md",
     "*.dse",
     "*.fdc",
+    "*.h",
     "*.j2",
     "*.json",
     "*.ldc",
