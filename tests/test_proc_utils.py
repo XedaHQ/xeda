@@ -375,3 +375,73 @@ def test_run_process_pipes_output_when_the_redirect_has_no_file_descriptor():
         proc_utils.set_tool_output(previous)
 
     assert "hi" in buffer.getvalue()
+
+
+# ---- a time limit and an output copy ---------------------------------------------------------
+import time  # noqa: E402
+
+from xeda.proc_utils import ProcessTimeout  # noqa: E402
+
+
+def test_a_process_past_its_time_limit_is_stopped_and_reported():
+    started = time.monotonic()
+    with pytest.raises(ProcessTimeout) as info:
+        run_process(sys.executable, ["-c", "import time; time.sleep(60)"], timeout=0.5)
+    assert time.monotonic() - started < 20
+    assert info.value.timeout == 0.5
+    assert "0.5" in str(info.value)
+
+
+def test_a_process_within_its_time_limit_is_unaffected():
+    assert run_process(sys.executable, ["-c", "print('ok')"], stdout=True, timeout=30) == "ok"
+
+
+def test_a_captured_process_past_its_time_limit_is_stopped(tmp_path):
+    with pytest.raises(ProcessTimeout):
+        run_process(sys.executable, ["-c", "import time; time.sleep(60)"], stdout=True, timeout=0.5)
+    with pytest.raises(ProcessTimeout):
+        run_process(
+            sys.executable,
+            ["-c", "import time; time.sleep(60)"],
+            stdout=tmp_path / "out.txt",
+            timeout=0.5,
+        )
+
+
+def test_a_highlighted_process_past_its_time_limit_is_stopped():
+    with pytest.raises(ProcessTimeout):
+        run_process(
+            sys.executable,
+            ["-c", "import time; print('x', flush=True); time.sleep(60)"],
+            highlight_rules={"x": ""},
+            timeout=0.5,
+        )
+
+
+def test_tee_writes_the_output_to_a_file_and_still_shows_it(tmp_path, capsys):
+    log = tmp_path / "sim.log"
+    run_process(sys.executable, ["-c", "print('one'); print('two')"], tee=log)
+    assert log.read_text().splitlines() == ["one", "two"]
+    shown = capsys.readouterr().out
+    assert "one" in shown and "two" in shown
+
+
+def test_tee_keeps_the_output_of_a_failed_process(tmp_path):
+    log = tmp_path / "sim.log"
+    with pytest.raises(NonZeroExitCode):
+        run_process(sys.executable, ["-c", "print('why'); raise SystemExit(3)"], tee=log)
+    assert log.read_text().splitlines() == ["why"]
+
+
+@pytest.mark.skipif(
+    os.name != "posix", reason="POSIX stops the whole process group; Windows only the process"
+)
+def test_the_time_limit_stops_the_process_tree(tmp_path):
+    """A simulator started through a script: the child is stopped with it."""
+    marker = tmp_path / "late"
+    child = f"import time; time.sleep(3); open({str(marker)!r}, 'w').close()"
+    parent = f"import subprocess, sys; subprocess.run([sys.executable, '-c', {child!r}])"
+    with pytest.raises(ProcessTimeout):
+        run_process(sys.executable, ["-c", parent], timeout=0.5)
+    time.sleep(4)
+    assert not marker.exists()

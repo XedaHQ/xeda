@@ -32,6 +32,8 @@ class XTclSh(Tool):
             print_command: bool = True,
             highlight_rules: Optional[Dict[str, str]] = None,
             merge_stderr: bool = False,
+            timeout: Optional[float] = None,
+            tee: Optional[Path] = None,
         ) -> Union[None, str]:
             XILINX = "/opt/Xilinx/14.7/ISE_DS"
             args_str = " ".join(str(a) for a in args)
@@ -53,6 +55,8 @@ class XTclSh(Tool):
                 # on the way down is silently ignored at the call site. `merge_stderr` was, so a
                 # caller asking for stderr on the dockerized ISE path never got it.
                 merge_stderr=merge_stderr,
+                timeout=timeout,
+                tee=tee,
             )
 
     executable: str = "xtclsh"
