@@ -61,7 +61,7 @@ from .default_runner import (
     print_results,
 )
 from .run_lock import run_dir_lock
-from .settings_layers import compose_flow_settings, merge_flow_sections
+from .settings_layers import command_line_sections, compose_flow_settings, merge_flow_sections
 from .trace import remove_trace
 from .trace_inputs import design_files, register_read_settings
 
@@ -848,9 +848,13 @@ class RemoteRunner(FlowLauncher):
                 return None
 
         # The same layering as a local run: the command line wins over the design file.
+        cli_sections, flow_settings = command_line_sections(
+            flow_settings, flow_class, flow_class_for=flow_class_if_known
+        )
         origins = [
             merge_flow_sections(project_flow_settings, flow_class_for=flow_class_if_known),
             merge_flow_sections(design.flow, flow_class_for=flow_class_if_known),
+            cli_sections,
         ]
         sections = merge_flow_sections(*origins, flow_class_for=flow_class_if_known)
         flow_settings = compose_flow_settings(flow_class, origins, flow_settings)

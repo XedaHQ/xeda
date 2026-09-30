@@ -16,6 +16,7 @@ higher layer. Local and remote runs, and the settings a flow hands to a dependen
 through `merge_layers`, so they cannot disagree about precedence.
 """
 
+import difflib
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
@@ -31,6 +32,8 @@ __all__ = [
     "flow_settings_from_sections",
     "merge_flow_sections",
     "merge_layers",
+    "check_run_flows",
+    "command_line_sections",
     "split_flow_sections",
     "transitive_dependencies",
 ]
@@ -271,14 +274,26 @@ def compose_flow_settings(
     return merge_layers(*per_origin, *layers, settings_cls=flow_cls.Settings)
 
 
-def _leaves(mapping: Mapping[str, Any], prefix: tuple[str, ...] = ()) -> dict[tuple[str, ...], Any]:
-    """Every leaf of a nested mapping, keyed by its path."""
-    leaves: dict[tuple[str, ...], Any] = {}
+def _leaves(
+    mapping: Mapping[str, Any],
+    settings_cls: type[XedaBaseModel] | None = None,
+    prefix: tuple[str, ...] = (),
+    written: tuple[str, ...] = (),
+) -> dict[tuple[str, ...], tuple[str, Any]]:
+    """Every leaf of a nested mapping: its canonical path (each name as the model spells it, so
+    an alias and its setting are one leaf) -> (the path as written, its value)."""
+    leaves: dict[tuple[str, ...], tuple[str, Any]] = {}
     for key, value in mapping.items():
+        target = key
+        child_cls = None
+        if settings_cls is not None:
+            target = input_names(settings_cls).get(key, key)
+            info = settings_cls.model_fields.get(target)
+            child_cls = _nested_model(info.annotation) if info is not None else None
         if isinstance(value, Mapping) and value:
-            leaves.update(_leaves(value, (*prefix, key)))
+            leaves.update(_leaves(value, child_cls, (*prefix, target), (*written, key)))
         else:
-            leaves[(*prefix, key)] = value
+            leaves[(*prefix, target)] = (".".join((*written, key)), value)
     return leaves
 
 
@@ -288,31 +303,70 @@ def split_flow_sections(
     flow_class_for: Callable[[str], Any | None] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Split a command-line layer into its ``flows.<node>.*`` sections and the requested flow's
-    own settings. ``-s key`` and ``-s flows.<requested>.key`` name one leaf: the same value twice
-    is accepted, two different values are an error naming both spellings."""
+    own settings. ``-s key`` and ``-s flows.<requested>.key`` name one leaf (an alias of a
+    setting is that setting): the same value twice is accepted, two different values are an
+    error naming both spellings."""
     own = settings_to_dict(layer)  # type: ignore[arg-type]
     sections = merge_flow_sections(own.pop("flows", None) or {}, flow_class_for=flow_class_for)
-    requested_leaves = _leaves(sections.get(requested, {}))
+    flow_cls = flow_class_for(requested) if flow_class_for is not None else None
+    settings_cls = flow_cls.Settings if flow_cls is not None else None
+    requested_leaves = _leaves(sections.get(requested, {}), settings_cls)
     conflicts = [
-        (".".join(path), value, requested_leaves[path])
-        for path, value in _leaves(own).items()
-        if path in requested_leaves and requested_leaves[path] != value
+        (written, value, requested_leaves[path])
+        for path, (written, value) in _leaves(own, settings_cls).items()
+        if path in requested_leaves and requested_leaves[path][1] != value
     ]
     if conflicts:
-        flow_cls = flow_class_for(requested) if flow_class_for is not None else None
         raise FlowSettingsError(
             [
                 (
                     key,
-                    f"`-s {key}={a}` and `-s flows.{requested}.{key}={b}` set one setting to two "
-                    "values; give one",
+                    f"`-s {key}={a}` and `-s flows.{requested}.{other}={b}` set one setting to "
+                    "two values; give one",
                     None,
                     "conflicting_spellings",
                 )
-                for key, a, b in conflicts
+                for key, a, (other, b) in conflicts
             ],
-            flow_cls.Settings if flow_cls is not None else requested,
+            settings_cls if settings_cls is not None else requested,
         )
+    return sections, own
+
+
+def check_run_flows(sections: Mapping[str, Any], flow_cls: type[Flow]) -> None:
+    """The command line's `flows.<name>` sections may name only the flows of this run: the
+    requested flow and its transitive declared dependencies. Any other name is an error with the
+    close matches among them."""
+    run_flows = sorted({flow_cls.name, *transitive_dependencies(flow_cls)})
+    unknown = [name for name in sections if name not in run_flows]
+    if unknown:
+        raise FlowSettingsError(
+            [
+                (
+                    f"flows.{name}",
+                    f"`-s flows.{name}.*` names no flow of this run ({', '.join(run_flows)})"
+                    + "".join(
+                        f"; did you mean `flows.{m}`?"
+                        for m in difflib.get_close_matches(name, run_flows, n=3)
+                    ),
+                    None,
+                    "unknown_flow",
+                )
+                for name in unknown
+            ],
+            flow_cls.Settings,
+        )
+
+
+def command_line_sections(
+    layer: Mapping[str, Any],
+    flow_cls: type[Flow],
+    flow_class_for: Callable[[str], Any | None] | None = None,
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    """`(sections, own)` of the command line for a run of `flow_cls`: `split_flow_sections`,
+    then `check_run_flows`. Local and remote runs both take the command line through this."""
+    sections, own = split_flow_sections(layer, flow_cls.name, flow_class_for)
+    check_run_flows(sections, flow_cls)
     return sections, own
 
 

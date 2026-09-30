@@ -942,3 +942,14 @@ def test_a_misdirected_setting_suggests_the_node_it_belongs_to(tmp_path, monkeyp
     design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
     with pytest.raises(FlowSettingsError, match=r"-s flows\.yosys_fpga\.flatten"):
         DefaultRunner(tmp_path / "run").run("nextpnr", design, flow_settings=["flatten=true"])
+
+
+def test_an_alias_and_its_setting_are_one_leaf_across_the_two_spellings(
+    tmp_path, monkeypatch, launched
+):
+    monkeypatch.chdir(tmp_path)
+    design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
+    with pytest.raises(FlowSettingsError, match=r"ncpus.*flows\.nextpnr\.nthreads"):
+        DefaultRunner(tmp_path / "run").run(
+            "nextpnr", design, flow_settings=["ncpus=3", "flows.nextpnr.nthreads=4"]
+        )

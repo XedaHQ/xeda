@@ -66,7 +66,7 @@ from .settings_layers import (
     compose_flow_settings,
     merge_flow_sections,
     merge_layers,
-    split_flow_sections,
+    command_line_sections,
     transitive_dependencies,
 )
 from .trace import (
@@ -1413,28 +1413,9 @@ class FlowLauncher:
         design_sections = merge_flow_sections(design.flow, flow_class_for=_get_flow_class_if_known)
         # the command line's `-s flows.<node>.key` is the third origin; it may only name a flow
         # of this run, and `-s key` is the requested flow's own leaf
-        cli_sections, flow_settings = split_flow_sections(
-            flow_settings, flow_class.name, flow_class_for=_get_flow_class_if_known
+        cli_sections, flow_settings = command_line_sections(
+            flow_settings, flow_class, flow_class_for=_get_flow_class_if_known
         )
-        run_flows = {flow_class.name, *transitive_dependencies(flow_class)}
-        unknown = [name for name in cli_sections if name not in run_flows]
-        if unknown:
-            raise FlowSettingsError(
-                [
-                    (
-                        f"flows.{name}",
-                        f"`-s flows.{name}.*` names no flow of this run ({', '.join(sorted(run_flows))})"
-                        + "".join(
-                            f"; did you mean `flows.{m}`?"
-                            for m in difflib.get_close_matches(name, sorted(run_flows), n=3)
-                        ),
-                        None,
-                        "unknown_flow",
-                    )
-                    for name in unknown
-                ],
-                flow_class.Settings,
-            )
         origins = [project_sections, design_sections, cli_sections]  # the three origins, in order
         # dependencies read their own merged section (`dependency_settings`), under the
         # depender's resolved nested value
