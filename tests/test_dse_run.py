@@ -20,6 +20,7 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.flows import VivadoSynth
 from xeda.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
+from xeda.flow_runner.dse.fmax import FmaxOptimizer
 from xeda.flow_runner.settings_layers import merge_layers
 from xeda.dataclass import Field
 from .io_flows import _Place
@@ -327,3 +328,87 @@ print("done", flush=True)
             writer.wait(timeout=20)
             if writer.stdout:
                 writer.stdout.close()
+
+
+class _PromotingOptimizer(_DeclaredOptimizer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.round = 0
+
+    def next_batch(self):
+        from xeda.flow_runner.settings_layers import merge_layers
+
+        self.round += 1
+        if self.round > 2:
+            return None
+        delta = {"clocks": {"main_clock": {"period": 10.0 + 2.0 * self.round}}}
+        if self.round == 1:
+            delta["tag"] = "promoted"
+        return [
+            merge_layers(
+                self.base_settings.model_dump(),
+                delta,
+                settings_cls=self.flow_class.Settings,
+            )
+        ]
+
+    def process_outcome(self, outcome, idx):
+        self.outcomes.append(outcome)
+        self.best = outcome
+        self.base_settings = outcome.settings
+        return True
+
+
+def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
+    )
+    runner = Dse(_PromotingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
+    assert runner.run(
+        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}
+    )
+    assert len(runner.optimizer.outcomes) == 2
+    assert [o.results["producer_period"] for o in runner.optimizer.outcomes] == [12.0, 14.0]
+    assert [o.settings.tag for o in runner.optimizer.outcomes] == ["promoted", "promoted"]
+
+
+class _FmaxPlace(_DsePlace):
+    results_description = {}
+
+    def run(self):
+        super().run()
+        self.results["Fmax"] = 150.0
+
+
+class _ObservedFmax(FmaxOptimizer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.outcomes = []
+
+    def process_outcome(self, outcome, idx):
+        self.outcomes.append(outcome)
+        return super().process_outcome(outcome, idx)
+
+
+def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
+    )
+    runner = Dse(
+        _ObservedFmax,
+        optimizer_settings={
+            "init_freq_low": 100.0,
+            "init_freq_high": 300.0,
+            "stop_after_no_improves": 2,
+        },
+        run_root=tmp_path / "run",
+        variations={},
+        max_workers=1,
+        max_failed_iters_with_best=1,
+    )
+    assert runner.run(
+        _FmaxPlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}
+    )
+    assert len(runner.optimizer.outcomes) >= 2

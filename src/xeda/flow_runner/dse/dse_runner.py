@@ -55,6 +55,8 @@ class FlowOutcome:
     results: Flow.Results
     timestamp: Optional[str]
     run_path: Optional[Path]
+    # Worker provenance for promotion; excluded from the public best-run document.
+    variation: dict[str, Any] | None = None
 
     def as_json_value(self) -> Dict[str, Any]:
         """This outcome as JSON: what a design-space exploration records as its best run.
@@ -139,13 +141,19 @@ class Executioner:
         self.all_flows_settings = all_flows_settings
         self.candidate_base = candidate_base
         self.candidate_input = candidate_input
+        self.candidate_changes: dict[str, Any] = {}
 
     def __call__(self, args: Tuple[int, Dict[str, Any]]) -> Tuple[Optional[FlowOutcome], int]:
         idx, flow_settings = args
         try:
             plan = None
+            delta = None
             if is_declared(self.flow_class):
-                delta = _variation_delta(flow_settings, self.candidate_base or {})
+                delta = merge_layers(
+                    self.candidate_changes,
+                    _variation_delta(flow_settings, self.candidate_base or {}),
+                    settings_cls=self.flow_class.Settings,
+                )
                 flow_settings = merge_layers(
                     self.candidate_input or {}, delta, settings_cls=self.flow_class.Settings
                 )
@@ -175,6 +183,7 @@ class Executioner:
                     results=flow.results,
                     timestamp=flow.timestamp,
                     run_path=flow.run_path,
+                    variation=delta,
                 ),
                 idx,
             )
@@ -476,6 +485,8 @@ class Dse(FlowLauncher):
                             self.settings.max_runtime_minutes,
                         )
                         break
+                    # Compare with the current promoted baseline, not the initial plan.
+                    executioner.candidate_base = as_recorded(optimizer.base_settings)
                     batch_settings = optimizer.next_batch()
                     if not batch_settings:
                         break
@@ -530,6 +541,10 @@ class Dse(FlowLauncher):
                                     iterate = False
                                     continue
                                 improved = optimizer.process_outcome(outcome, idx)
+                                if optimizer.base_settings == outcome.settings:
+                                    executioner.candidate_changes = deepcopy(
+                                        outcome.variation or {}
+                                    )
                                 if improved:
                                     log.info("Writing improved result to %s", best_json_path)
                                     dump_json(
