@@ -649,7 +649,67 @@ FAKE_TOOLS_DIR = Path(__file__).parent / "fake_tools"
 
 def use_fake_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Put the fake tools first on PATH for the rest of the test."""
+    loader = FAKE_TOOLS_DIR / "openFPGALoader"
+    assert (
+        loader.is_file()
+        and loader.resolve() == FAKE_TOOLS_DIR / "fake_fpga_tool.py"
+        and os.access(loader, os.X_OK)
+    ), f"missing or incorrect fake openFPGALoader: {loader}; refusing real programmer fallback"
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ.get("PATH", ""))
+
+
+def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
+    """Install a tiny openXC7 prefix in test scratch space and select only fake FPGA tools.
+
+    Yosys is opt-in here so ordinary tests retain their real synthesis/tool probes.
+    The share layout and mappings match openXC7 1.0; the generator and assembler
+    model structural chipdb validation, not a routable device database.
+    """
+    use_fake_tools(monkeypatch)
+    dispatcher = FAKE_TOOLS_DIR / "fake_fpga_tool.py"
+    binary = prefix / "bin"
+    binary.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "yosys",
+        "nextpnr-himbaechel",
+        "nextpnr-ecp5",
+        "nextpnr-ice40",
+        "nextpnr-nexus",
+        "fpga-as",
+        "ecppack",
+        "icepack",
+        "openFPGALoader",
+        "bbasm",
+    ):
+        path = binary / name
+        if not path.exists():
+            # A copy preserves the fake installation prefix when the binary is resolved.
+            shutil.copyfile(dispatcher, path)
+            path.chmod(0o755)
+    share = prefix / "share/nextpnr"
+    generator = share / "himbaechel/uarch/xilinx/gen/xilinx_gen.py"
+    generator.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(dispatcher, generator)
+    files = {
+        "himbaechel/uarch/xilinx/constids.inc": "X(XEDA_FAKE)\n",
+        "himbaechel/uarch/xilinx/meta/artix7/site.json": "{}\n",
+        "himbaechel/himbaechel_dbgen/__init__.py": "# fake dbgen package\n",
+        "prjxray-db/artix7/mapping/parts.yaml": (
+            "xc7a100tcsg324-1:\n  device: xc7a100t\n  package: csg324\n  speedgrade: '1'\n"
+            "xc7a35tcsg324-1:\n  device: xc7a35t\n  package: csg324\n  speedgrade: '1'\n"
+        ),
+        "prjxray-db/artix7/mapping/devices.yaml": (
+            "xc7a100t:\n  fabric: xc7a100t\nxc7a35t:\n  fabric: xc7a50t\n"
+        ),
+        "prjxray-db/artix7/xc7a100t/tilegrid.json": "{}\n",
+        "prjxray-db/artix7/xc7a50t/tilegrid.json": "{}\n",
+    }
+    for name, content in files.items():
+        path = share / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ["PATH"])
+    return prefix
 
 
 def fake_returns(monkeypatch: pytest.MonkeyPatch, returns: dict[tuple[str, ...], str]) -> None:

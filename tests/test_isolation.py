@@ -51,7 +51,9 @@ SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
 PACKAGE = Path(xeda.__file__).parent
 
-#: The flows whose tools have a fake in tests/fake_tools (run under tclsh).
+#: FPGA flows use process fakes, including an opt-in fake synthesis executable.
+FPGA_FAKED = {"yosys_fpga", "nextpnr", "openfpgaloader"}
+#: The flows whose tools have a fake in tests/fake_tools.
 FAKED = {
     "vivado_synth",
     "vivado_alt_synth",
@@ -64,7 +66,7 @@ FAKED = {
     "dc",
     "diamond_synth",
     "modelsim",
-}
+} | FPGA_FAKED
 #: the design most flows run: sqrt, with its cocotb testbench
 SQRT_DESIGN = (
     {"sources": ["sqrt.vhdl"], "top": "sqrt", "clock": {"port": "clk"}},
@@ -95,6 +97,7 @@ DESIGNS.update(
 )
 #: settings that make a flow reach what it writes (bsc_sim: its Verilator `dump.vcd` handling)
 EXTRA_SETTINGS = {
+    "yosys_fpga": {"sta": True},
     "ghdl_sim": {"vcd": "dump.vcd"},
     "vivado_sim": {"saif": "sim.saif"},
     "bsc_sim": {"simulator": "verilator", "vcd": "bsc_sim.vcd"},
@@ -114,9 +117,7 @@ LOCATED = {
 }
 #: The flows the sweep does not bring to their `run()`, and why nothing is lost.
 UNREACHED = {
-    "nextpnr": "its yosys_fpga dependency writes no netlist",
     "open_xc7": "its yosys_fpga dependency writes no netlist",
-    "openfpgaloader": "its nextpnr dependency does not run",
     "openroad": "the asap7 platform's liberty files are not shipped",
     "vivado_power": "its vivado_postsynth_sim dependency finds no netlist",
 }
@@ -370,6 +371,11 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
     """Launch `flow_class` from the design's directory as `scenario` says; how each launch
     ended ("ok", "failed", or the exception's class name)."""
     use_fake_tools(monkeypatch)
+    if flow_class.name in FPGA_FAKED:
+        from .tool_utils import use_fake_fpga_tools
+
+        ensure_run_root(world.root)
+        use_fake_fpga_tools(monkeypatch, world.root / ".fake-toolchain")
     if flow_class.name not in FAKED:
         monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
         monkeypatch.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
@@ -395,12 +401,18 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
         for key, name in LOCATED.get(flow_class.name, {}).items():
             settings[key] = str(world.delivered / name)
     outcomes = []
+    errors = []
     for _ in range(2 if scenario == "twice" else 1):
         try:
             flow = DefaultRunner(world.root, **launcher).launch_flow(flow_class, design, settings)
             outcomes.append("ok" if flow.succeeded else "failed")
         except Exception as e:  # noqa: BLE001 - how it ends is compared, not judged
             outcomes.append(type(e).__name__)
+            errors.append(str(e))
+    if flow_class.name in FPGA_FAKED:
+        assert all(
+            outcome == "ok" for outcome in outcomes
+        ), f"{flow_class.name} lost positive isolation coverage: {outcomes}: {errors}"
     return ",".join(outcomes)
 
 
@@ -627,7 +639,22 @@ def test_ise_synth_from_the_design_directory_deletes_none_of_its_files(
 
 
 def test_fake_tools_are_where_the_sweep_expects_them():
-    for name in ("vivado", "xtclsh", "quartus_sh", "dc_shell", "diamondc", "vsim"):
+    for name in (
+        "vivado",
+        "xtclsh",
+        "quartus_sh",
+        "dc_shell",
+        "diamondc",
+        "vsim",
+        "nextpnr-himbaechel",
+        "nextpnr-ecp5",
+        "nextpnr-ice40",
+        "nextpnr-nexus",
+        "fpga-as",
+        "ecppack",
+        "icepack",
+        "openFPGALoader",
+    ):
         assert (FAKE_TOOLS_DIR / name).exists()
     assert FAKED <= {cls.name for cls, _ in flow_classes()}
 

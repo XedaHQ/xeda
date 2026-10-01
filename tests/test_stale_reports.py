@@ -30,8 +30,8 @@ from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
 
 from .settings_samples import flow_classes, minimal_settings
-from .test_isolation import EXTRA_SETTINGS, FAKED, SQRT
-from .tool_utils import use_fake_tools
+from .test_isolation import EXTRA_SETTINGS, FAKED, FPGA_FAKED, SQRT
+from .tool_utils import use_fake_fpga_tools, use_fake_tools
 
 #: the design's sources for a flow whose tool does not read VHDL
 SOURCES = {"bsc": (["Top.bsv"], "mkTop"), "bsc_sim": (["Top.bsv"], "mkTop")}
@@ -58,6 +58,7 @@ READERS = {
     "vivado_project",
     "vivado_synth",
     "yosys_fpga",
+    "nextpnr",
 }
 
 #: settings with which each flow whose fake tool writes its reports runs through to success
@@ -143,6 +144,8 @@ def _writes_nothing(monkeypatch) -> None:
 @pytest.mark.parametrize("flow_class", [cls for cls, _ in flow_classes()], ids=lambda c: c.name)
 def test_a_report_a_previous_run_left_is_never_read(flow_class, tmp_path, monkeypatch):
     use_fake_tools(monkeypatch)
+    if flow_class.name in FPGA_FAKED:
+        use_fake_fpga_tools(monkeypatch, tmp_path / "fake-toolchain")
     if flow_class.name not in FAKED:
         _writes_nothing(monkeypatch)
     reads: list[Path] = []
@@ -151,7 +154,9 @@ def test_a_report_a_previous_run_left_is_never_read(flow_class, tmp_path, monkey
     work = _design_directory(tmp_path / "design")
     monkeypatch.chdir(work)
     run_root = tmp_path / "xeda_run"
-    _launch(flow_class, work, run_root)
+    first = _launch(flow_class, work, run_root)
+    if flow_class.name in FPGA_FAKED:
+        assert first is not None and first.succeeded, "lost positive FPGA report coverage"
     looked_at = sorted({p for p in touched if not p.is_dir()})
     if not looked_at:
         assert flow_class.name not in READERS, "the sweep lost its teeth: no report was read"
