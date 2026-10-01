@@ -1005,7 +1005,11 @@ class FlowLauncher:
                     flow.stale_reason = always
                     log.info("Running %s: %s", flow.name, always)
                 elif (not self.settings.rebuild_all or revisit) and not policy.clean:
-                    freshness = check_trace(run_path, expected, locate_program)
+                    # A second consumer may be acquiring a lease on this same generation.
+                    # Reuse must not change its trace or directory through a clock marker.
+                    freshness = check_trace(
+                        run_path, expected, locate_program, refresh=depender is None
+                    )
                     if freshness.fresh and self._reuse_results(flow, results_json):
                         if freshness.refreshed is not None:
                             write_trace(run_path, freshness.refreshed)

@@ -134,6 +134,34 @@ def test_a_flow_without_declarations_holds_its_dependencies_too(tmp_path, monkey
     assert wrapper.succeeded and seen == ["blocked"]
 
 
+@pytest.mark.parametrize("consumer", [_Taker, _LegacyReader])
+def test_reusing_a_producer_in_the_acquisition_gap_keeps_its_completion_evidence(
+    tmp_path, monkeypatch, consumer
+):
+    from contextlib import contextmanager
+
+    root = tmp_path / "xeda_run"
+    runner = DefaultRunner(root, display_results=False)
+    design = _design(tmp_path, monkeypatch)
+    original = runner._producer_read_lease
+    reused = []
+
+    @contextmanager
+    def gap(producer):
+        another = DefaultRunner(root, display_results=False).launch_flow(
+            type(producer), design, producer.settings, depender=producer
+        )
+        assert another.reused and another.run_id == producer.run_id
+        reused.append(another.name)
+        with original(producer):
+            yield producer
+
+    monkeypatch.setattr(runner, "_producer_read_lease", gap)
+    outcome = runner.launch_flow(consumer, design, {})
+    assert outcome.succeeded and outcome.results["read"] == "made\n"
+    assert len(reused) == 1
+
+
 @pytest.mark.parametrize(
     "consumer,untraced",
     [
