@@ -52,7 +52,7 @@ def verilator_evidence(flow: Flow) -> SimEvidence | None:
         log.error("Invalid bsc Verilator end record: %s", exc)
         return None
     for line in text.splitlines():
-        warning = re.fullmatch(r"\[(\d+)\] %Warning(?:-[A-Z0-9_]+)?: (.*)", line)
+        warning = re.search(r"\[(\d+)\] %Warning(?:-[A-Z0-9_]+)?: (.*)", line)
         if warning:
             evidence.events.append(
                 SimEvent(kind="warning", time=int(warning[1]), message=warning[2])
@@ -77,7 +77,7 @@ def iverilog_evidence(flow: Flow) -> SimEvidence | None:
         return None
     runtime = text.split("XEDA_ICARUS_RUNTIME_START\n", 1)[1]
     for line in runtime.splitlines():
-        diagnostic = re.fullmatch(r"(WARNING|ERROR|FATAL): (.+):([0-9]+): ?(.*)", line)
+        diagnostic = re.search(r"(WARNING|ERROR|FATAL): (.+):([0-9]+): ?(.*)", line)
         if diagnostic:
             kind = {"WARNING": "warning", "ERROR": "error", "FATAL": "fatal"}[diagnostic[1]]
             evidence.events.append(
