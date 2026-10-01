@@ -19,7 +19,7 @@ import logging
 import re
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, Union, get_args
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union, get_args
 
 from importlib_resources import as_file, files
 from pydantic import BaseModel
@@ -32,6 +32,9 @@ from .flow_runner import get_flow_class
 from .flows import __builtin_flows__
 from .utils import json_encodable, toml_load, unique, with_json_keys
 
+if TYPE_CHECKING:
+    from .flow_runner.resolver import Plan
+
 log = logging.getLogger(__name__)
 
 __all__ = [
@@ -42,6 +45,7 @@ __all__ = [
     "flows_info",
     "json_safe",
     "optimizers_info",
+    "plan_info",
     "platforms_info",
     "results_info",
     "settings_info",
@@ -65,6 +69,39 @@ def json_safe(value: Any) -> Any:
     `--format yaml` renders as well. Keys go through `utils.with_json_keys` first, as they do for
     a file, so no key -- a `Path`, a tuple -- turns a document into an error."""
     return json.loads(json.dumps(with_json_keys(value), default=json_encodable))
+
+
+def plan_info(plan: Plan) -> dict[str, Any]:
+    """A resolved plan as plain data: producers first, directories, input origins, and
+    outputs switched on because a consumer reads them. Undeclared nodes have unknown
+    runtime dependencies, indicated by ``declared: false``.
+    """
+    return json_safe(
+        {
+            "requested": plan.requested,
+            "nodes": [
+                {
+                    "name": node.name,
+                    "flow": node.flow_class.name,
+                    "declared": node.declared,
+                    "run_path": str(node.run_path),
+                    "flowrun_hash": node.flowrun_hash,
+                    "inputs": [
+                        {
+                            "name": resolved.name,
+                            "origin": resolved.origin,
+                            "producer": resolved.producer,
+                            "output": resolved.output,
+                            "sources": [str(path) for path in resolved.sources],
+                        }
+                        for resolved in node.inputs
+                    ],
+                    "switched_on": list(node.switched_on),
+                }
+                for node in plan.nodes
+            ],
+        }
+    )
 
 
 def all_flow_classes() -> List[Type[Flow]]:
