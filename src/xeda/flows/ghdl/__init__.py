@@ -11,8 +11,19 @@ from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, deliverable, field_validator
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
-from ...flow import Flow, FlowException, FlowSettingsError, SimFlow, SynthFlow
+from ...flow import (
+    Flow,
+    FlowException,
+    FlowSettingsError,
+    FlowSettingsException,
+    SimFlow,
+    SynthFlow,
+    describe_results,
+)
+from ...flow.sim import SimEvidence
+from ...flow.sim_evidence import parse_ghdl_log
 from ...tool import Docker, Tool
+from ...units import convert_unit
 from ...utils import SDF, common_root, replacing_file, setting_flag
 
 log = logging.getLogger(__name__)
@@ -501,8 +512,24 @@ class GhdlSim(Ghdl, SimFlow):
 
     cocotb_sim_name = "ghdl"
     aliases = ["ghdl"]
+    results_description = describe_results(
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+    )
+    _sim_log: Path | None = None
 
     class Settings(Ghdl.Settings, SimFlow.Settings):
+        timeout: float | None = Field(
+            None,
+            gt=0,
+            description="Stop the simulation after this many seconds of wall-clock time and fail "
+            "the run. None (the default) sets no limit.",
+        )
+        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
+            "error",
+            description="The least severe runtime assertion or report that fails the run. "
+            "`fatal` uses GHDL's `failure` threshold. Assertions below this level run on "
+            "and are recorded; explicitly disabled assertions remain disabled.",
+        )
         run_flags: List[str] = Field(
             [], description="Extra flags passed to `ghdl run` (or the elaborated executable)."
         )
@@ -554,6 +581,26 @@ class GhdlSim(Ghdl, SimFlow):
         )
         # TODO workdir?
 
+        @field_validator("stop_time", mode="before")
+        @classmethod
+        def validate_stop_time(cls, value):
+            if value is not None:
+                if convert_unit(value, "fs", from_unit="ns") < 0:
+                    raise ValueError("stop_time must be nonnegative")
+            return value
+
+        def runtime_flags(self) -> list[str]:
+            """Copy extra flags and enforce the canonical runtime assertion threshold."""
+            threshold = "failure" if self.fail_severity == "fatal" else self.fail_severity
+            canonical = f"--assert-level={threshold}"
+            for flag in self.run_flags:
+                if flag.startswith("--assert-level") and flag != canonical:
+                    raise FlowSettingsException(
+                        f"run_flags {flag!r} conflicts with fail_severity={self.fail_severity}; "
+                        "set fail_severity instead"
+                    )
+            return [flag for flag in self.run_flags if flag != canonical] + [canonical]
+
         @field_validator("wave", "fst", mode="before")
         @classmethod
         def validate_wave(cls, value, info):  # pylint: disable=no-self-argument
@@ -564,6 +611,18 @@ class GhdlSim(Ghdl, SimFlow):
                     return "dump" + ext if value else None
             return value
 
+    def init(self) -> None:
+        super().init()
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        ss.runtime_flags()
+
+    def has_evidence_adapter(self) -> bool:
+        return not self.cocotb
+
+    def simulation_evidence(self) -> SimEvidence | None:
+        return parse_ghdl_log(self, self._sim_log) if self._sim_log is not None else None
+
     def run(self) -> None:
         """Compile and run the GHDL testbench."""
         design = self.design
@@ -571,7 +630,7 @@ class GhdlSim(Ghdl, SimFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         cf = ss.common_flags(design.language.vhdl)
-        run_flags = self.settings.run_flags
+        run_flags = ss.runtime_flags()
         sdf_root = ss.sdf.root if ss.sdf.root else design.tb.uut
         for delay_type, sdf_file in ss.sdf.delay_items():
             if sdf_file:
@@ -668,7 +727,9 @@ class GhdlSim(Ghdl, SimFlow):
                 ]
             )
 
-        run_flags += setting_flag(ss.stop_time, name="stop_time")
+        if ss.stop_time is not None:
+            stop_fs = round(convert_unit(ss.stop_time, "fs", from_unit="ns"))
+            run_flags.append(f"--stop-time={stop_fs}fs")
         run_flags += setting_flag(ss.stop_delta, name="stop_delta")
 
         run_flags.extend(ss.generics_flags(tb_generics))
@@ -676,10 +737,21 @@ class GhdlSim(Ghdl, SimFlow):
         tb_top = self.elaborate(design.sim_sources, tb_top, design.language.vhdl)
         # as `design.sim_tops`, with the top unit `elaborate` settled on
         sim_tops = (design.rtl.top,) if design.tb.cocotb and design.rtl.top else tb_top
-        self.ghdl.run(
+        runtime = self.ghdl
+        if not self.cocotb:
+            self._sim_log = self.run_directory.writable("sim.log")
+            self.run_directory.remove(self._sim_log)
+            run_flags.append("--unbuffered")
+            # The evidence tee shows native output and copies it into this invocation's log.
+            # A flow's general stdout redirection still applies to analysis/elaboration.
+            runtime = runtime.derive(runtime.executable, redirect_stdout=None)
+        runtime.run(
             "run",
             *cf,
             *sim_tops,
             *run_flags,
             env=self.cocotb.env(design) if self.cocotb else {},
+            timeout=ss.timeout,
+            tee=self._sim_log,
+            merge_stderr=not self.cocotb,
         )

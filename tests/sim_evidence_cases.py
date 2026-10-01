@@ -152,6 +152,8 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
                 activity.write_text("fake activity\n")
             if positive and record:
                 program += f"Path({record!r}).write_text({json.dumps({'ended_by': 'finish', 'time': 0, 'time_unit': '1ps', 'events': []})!r})\n"
+            if positive and case.flow == "ghdl_sim":
+                program += "print('simulation finished @0ms', flush=True)\n"
             return run_process(
                 sys.executable,
                 ["-c", program],

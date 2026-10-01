@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -35,7 +36,8 @@ def test_ghdl_sim_py(tmp_path: Path) -> None:
         settings_json = flow.run_path / "settings.json"
         results_json = flow.run_path / "results.json"
         assert settings_json.exists()
-        assert flow.succeeded
+        # This example stops its clock and drains the queue without std.env.finish/stop.
+        assert flow.succeeded is (design.name != "pipelined_adder.toml")
         assert isinstance(flow.settings, GhdlSim.Settings)
         assert results_json.exists()
 
@@ -160,3 +162,307 @@ def test_ghdl_synth_output_name_collision_is_reported_before_synthesis(
     assert "rtl/a/fifo.vhd" in message and "rtl/b/fifo.vhd" in message
     assert "same.v" in message
     assert ghdl_commands and "synth" not in ghdl_commands
+
+
+def _evidence_design(root: Path, body: str, *, clock: str = "") -> Design:
+    source = root / "tb.vhdl"
+    source.write_text(
+        "library ieee; use ieee.std_logic_1164.all;\n"
+        "entity tb is end; architecture rtl of tb is\n"
+        "signal clk : std_logic := '0'; begin\n"
+        + clock
+        + "process variable z : integer := 0; begin\n"
+        + body
+        + " wait; end process; end;\n"
+    )
+    return Design(
+        name="evidence",
+        design_root=root,
+        rtl={"sources": [source], "top": "tb"},
+        tb={"top": "tb"},
+        language={"vhdl": {"standard": "2008"}},
+    )
+
+
+@pytest.mark.parametrize(
+    "body,clock,settings,passes,ended,time",
+    [
+        ("", "", {}, False, "unknown", None),
+        ("wait for 5 ns;", "", {}, False, "unknown", None),
+        ("wait until rising_edge(clk); std.env.finish;", "", {}, False, "unknown", None),
+        ("std.env.finish;", "", {}, True, "finish", 0),
+        ("wait for 5 ns; std.env.finish;", "", {}, True, "finish", 5_000_000),
+        ("wait for 5 ns; std.env.finish(7);", "", {}, False, "error", 5_000_000),
+        ("wait for 5 ns; std.env.stop;", "", {}, True, "finish", 5_000_000),
+        (
+            'wait for 5 ns; assert false report "PROBE_error" severity error; std.env.finish;',
+            "",
+            {},
+            False,
+            "unknown",
+            None,
+        ),
+        (
+            'wait for 5 ns; assert false report "PROBE_error" severity error; std.env.finish;',
+            "",
+            {"fail_severity": "failure"},
+            True,
+            "finish",
+            5_000_000,
+        ),
+        (
+            'assert false report "PROBE_warning" severity warning; std.env.finish;',
+            "",
+            {},
+            True,
+            "finish",
+            0,
+        ),
+        (
+            'assert false report "PROBE_warning" severity warning; std.env.finish;',
+            "",
+            {"fail_severity": "warning"},
+            False,
+            "unknown",
+            None,
+        ),
+        (
+            'assert false report "PROBE_failure" severity failure; std.env.finish;',
+            "",
+            {},
+            False,
+            "unknown",
+            None,
+        ),
+        ("wait for 5 ns; z := 1 / z; std.env.finish;", "", {}, False, "unknown", None),
+        ("", "clk <= not clk after 1 ns;", {"stop_time": "10ns"}, True, "stop_time", 10_000_000),
+        ("", "clk <= not clk after 1 ns;", {"stop_time": 10}, True, "stop_time", 10_000_000),
+        ("", "clk <= not clk after 500 ps;", {"stop_time": 1.5}, True, "stop_time", 1_500_000),
+        ("", "", {"stop_time": "10ns"}, False, "unknown", None),
+        ("wait for 5 ns;", "", {"stop_time": "10ns"}, False, "unknown", None),
+        # GHDL builds have reported either 0 or the next event (15 ns); neither confirms 10 ns.
+        (
+            "",
+            "clk <= not clk after 15 ns;",
+            {"stop_time": "10ns"},
+            False,
+            "stop_time",
+            (0, 15_000_000),
+        ),
+        ("", "clk <= not clk after 15 ns;", {"stop_time": "17ns"}, False, "stop_time", 15_000_000),
+        ("wait for 5 ns; std.env.finish;", "", {"stop_time": "10ns"}, True, "finish", 5_000_000),
+    ],
+    ids=[
+        "empty",
+        "drain5",
+        "no-clock",
+        "finish0",
+        "finish5",
+        "finish7",
+        "stop5-QB1",
+        "error",
+        "error-at-failure",
+        "warning",
+        "warning-threshold",
+        "failure",
+        "division-zero",
+        "stop10",
+        "numeric-stop10",
+        "fractional-stop",
+        "empty-stop10",
+        "drain5-stop10",
+        "sparse-stop10",
+        "sparse-stop17",
+        "early-finish",
+    ],
+)
+def test_ghdl_runtime_evidence(tmp_path, body, clock, settings, passes, ended, time):
+    require_ghdl()
+    design = _evidence_design(tmp_path, body, clock=clock)
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        GhdlSim, design, {"timeout": 5, **settings}
+    )
+    assert flow is not None
+    assert flow.succeeded is passes
+    assert flow.results["sim.ended_by"] == ended
+    if isinstance(time, tuple):
+        assert flow.results["sim.time"] in time
+    else:
+        assert flow.results["sim.time"] == time
+    if time is not None:
+        assert flow.results["sim.time_unit"] == "1fs"
+    saved = json.loads((flow.run_path / "results.json").read_text())
+    assert saved["sim.evidence"] == flow.results["sim.evidence"]
+    assert (flow.run_path / "sim.log").exists()
+    if "PROBE_error" in body:
+        event = flow.results["sim.evidence"]["events"][0]
+        assert event["kind"] == "error" and event["time"] == 5_000_000
+        assert str(tmp_path / "tb.vhdl") in event["location"]
+
+
+def test_ghdl_time_limit_retains_runtime_diagnostics(tmp_path):
+    require_ghdl()
+    design = _evidence_design(tmp_path, 'report "BEFORE_TIMEOUT"; loop wait for 1 ns; end loop;')
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        GhdlSim, design, {"timeout": 0.5}
+    )
+    assert flow is not None and not flow.succeeded
+    saved = json.loads((flow.run_path / "results.json").read_text())
+    assert saved["error"]["type"] == "ProcessTimeout"
+    assert "0.5" in saved["error"]["message"]
+    assert "BEFORE_TIMEOUT" in (flow.run_path / "sim.log").read_text()
+
+
+@pytest.mark.parametrize("body", ["wait for 5 ns;", "assert false severity error; std.env.finish;"])
+def test_ghdl_default_evidence_rejects_drain_and_error(tmp_path, body):
+    require_ghdl()
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        GhdlSim, _evidence_design(tmp_path, body)
+    )
+    assert flow is not None and not flow.succeeded
+
+
+def test_ghdl_cocotb_time_limit(tmp_path):
+    from .test_cocotb import _inverter_design
+
+    design = _inverter_design(
+        tmp_path,
+        "ghdl_sim",
+        "import cocotb\nfrom cocotb.triggers import Timer\n"
+        "@cocotb.test()\nasync def forever(dut):\n"
+        "    while True:\n        await Timer(1, unit='ns')\n",
+    )
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        GhdlSim, design, {"timeout": 3}
+    )
+    assert flow is not None and not flow.succeeded
+    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert not (flow.run_path / "sim.log").exists()
+
+
+@pytest.mark.parametrize("flag", ["--assert-level=none", "--assert-level=failure"])
+def test_ghdl_rejects_conflicting_severity_flag(tmp_path, flag):
+    from xeda.flow import FlowSettingsException
+
+    design = _evidence_design(tmp_path, "std.env.finish;")
+    with pytest.raises(FlowSettingsException, match="fail_severity"):
+        DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+            GhdlSim, design, {"run_flags": [flag]}
+        )
+
+
+@pytest.mark.parametrize("redirect", [None, Path("tool.log")])
+def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch, redirect):
+    from xeda.proc_utils import run_process
+    import sys
+
+    design = _evidence_design(tmp_path, "std.env.finish;")
+    invocations = []
+
+    def run(self, *args, **kwargs):
+        invocations.append((args, kwargs))
+        if args[0] == "run":
+            assert self.redirect_stdout is None
+        text = "" if args[0] == "run" else "simulation finished @5ns\n"
+        return run_process(sys.executable, ["-c", f"print({text!r})"], tee=kwargs.get("tee"))
+
+    monkeypatch.setattr(GhdlTool, "run", run)
+    monkeypatch.setattr(
+        GhdlTool, "probe_stdout", lambda *args, **kwargs: "GHDL 6.0.0\nmcode code generator\n"
+    )
+    monkeypatch.setattr(GhdlSim, "ghdl", property(lambda flow: GhdlTool(redirect_stdout=redirect)))
+    flags = ["--assert-level=error"]
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        GhdlSim, design, {"run_flags": flags, "stop_time": 10}
+    )
+    assert flow is not None and not flow.succeeded
+    assert flags == flow.settings.run_flags == ["--assert-level=error"]
+    runtime, options = invocations[-1]
+    assert runtime.count("--assert-level=error") == 1
+    assert "--stop-time=10000000fs" in runtime
+    assert options["merge_stderr"] is True
+    assert flow.ghdl.redirect_stdout == redirect
+    assert "simulation finished" not in (flow.run_path / "sim.log").read_text()
+
+
+@pytest.mark.parametrize("severity", ["failure", "fatal"])
+def test_ghdl_severity_maps_fatal_to_failure(tmp_path, severity):
+    require_ghdl()
+    design = _evidence_design(
+        tmp_path, 'assert false report "DISABLED" severity failure; std.env.finish;'
+    )
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        GhdlSim,
+        design,
+        {
+            "timeout": 5,
+            "fail_severity": severity,
+            "run_flags": ["--assert-level=failure"],
+            "asserts": "disable",
+        },
+    )
+    assert flow is not None and flow.succeeded
+    assert flow.results["sim.errors"] == 0
+
+
+def test_ghdl_evidence_clears_previous_log_before_runtime(tmp_path, monkeypatch):
+    require_ghdl()
+    design = _evidence_design(tmp_path, "std.env.finish;")
+    runner = DefaultRunner(tmp_path / "runs", display_results=False, rebuild_all=True)
+    first = runner.run_flow(GhdlSim, design, {"timeout": 5})
+    assert first is not None and first.succeeded
+    path = first.run_path / "sim.log"
+    assert "simulation finished" in path.read_text()
+    original = GhdlTool.run
+
+    def no_runtime_log(self, *args, **kwargs):
+        if args[0] == "run":
+            assert not path.exists()
+            return ""
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(GhdlTool, "run", no_runtime_log)
+    second = runner.run_flow(GhdlSim, design, {"timeout": 5})
+    assert second is not None and not second.succeeded
+    assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    "text,ended,time,event",
+    [
+        ("simulation finished @0ms\n", "finish", 0, "finish"),
+        ("simulation stopped @5ns\n", "finish", 5_000_000, "finish"),
+        ("simulation finished @5ns with status 7\n", "error", 5_000_000, "finish"),
+        ("/tmp/tb:info: simulation stopped by --stop-time @15ns\n", "stop_time", 15_000_000, None),
+        (
+            "tb.vhd:4:8:@5ns:(assertion error): bad\nsimulation finished @5ns\n",
+            "finish",
+            5_000_000,
+            "error",
+        ),
+        (
+            "tb.vhd:4:8:@0ms:(report warning): bad\nsimulation finished @0ms\n",
+            "finish",
+            0,
+            "warning",
+        ),
+        ("tb.vhd:4:8:@5ns:(assertion failure): bad\n", "unknown", None, "fatal"),
+        ("tb.vhd:4:8:@5ns:(report note): simulation finished @5ns\n", "unknown", None, None),
+        ("simulation finished @garbage\n", "unknown", None, None),
+        ("simulation finished @5ns source echo\n", "unknown", None, None),
+        ("", "unknown", None, None),
+    ],
+)
+def test_ghdl_native_log_evidence(tmp_path, text, ended, time, event):
+    from xeda.flow.sim_evidence import parse_ghdl_log
+
+    design = _evidence_design(tmp_path, "")
+    flow = GhdlSim({}, design, tmp_path)
+    path = tmp_path / "sim.log"
+    path.write_text("simulation finished @5ns\n")
+    flow.start_run()
+    assert parse_ghdl_log(flow, path) is None  # earlier run's record
+    path.write_text(text)
+    evidence = parse_ghdl_log(flow, path)
+    assert evidence is not None and evidence.ended_by == ended and evidence.time == time
+    assert ([e.kind for e in evidence.events] or [None])[0] == event

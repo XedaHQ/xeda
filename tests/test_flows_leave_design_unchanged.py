@@ -41,7 +41,8 @@ VHDL_TB = (
     "  signal a, y: std_logic_vector(3 downto 0) := (others => '0');\n"
     "begin\n"
     "  uut: entity work.inv generic map(W => 4) port map(a, y);\n"
-    '  process begin wait for 1 ns; assert y = x"F" severity failure; wait; end process;\n'
+    '  process begin wait for 1 ns; assert y = x"F" severity failure; '
+    "std.env.finish; wait; end process;\n"
     "end;\n"
 )
 VERILOG_TOP = "module top(input [3:0] a, output [3:0] y); assign y = ~a + `INC; endmodule\n"
