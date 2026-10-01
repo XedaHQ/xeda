@@ -214,6 +214,93 @@ def test_verilator_iverilog_native_tasks(tmp_path, backend, body, ok):
     assert (flow.run_path / "sim.log").is_file()
 
 
+def test_verilator_warning_after_partial_line_fails_at_warning_threshold(tmp_path):
+    require_bsc_backend("verilator")
+    flow = launch_bsc(
+        tmp_path,
+        'rule done; $write("progress: "); $warning("PROBE_warning"); $finish(0); endrule',
+        simulator="verilator",
+        fail_severity="warning",
+    )
+    assert flow is not None and not flow.succeeded
+    assert flow.results["sim.warnings"] == 1
+
+
+def test_iverilog_partial_line_native_diagnostic_parser(tmp_path):
+    design = bsv_design(tmp_path / "design", "")
+    run = tmp_path / "run"
+    run.mkdir()
+    flow = BscSim({"simulator": "iverilog"}, design, run)
+    flow.start_run()
+    (run / "xeda_end.json").write_text(
+        json.dumps(
+            {
+                "ended_by": "finish",
+                "time": 5000,
+                "time_unit": "1ps",
+                "events": [{"kind": "finish", "time": 5000}],
+            }
+        )
+    )
+    (run / "sim.log").write_text(
+        "XEDA_ICARUS_RUNTIME_START\n"
+        "progress: ERROR: /tmp/source.v:42: runtime PROBE\n"
+        "       Time: 5000 Scope: main\n"
+    )
+    with WorkingDirectory(run):
+        assert flow.has_evidence_adapter()
+        assert not flow.check_results()
+        assert flow.results["sim.errors"] == 1
+
+
+def test_iverilog_parser_ignores_plain_warning_text(tmp_path):
+    design = bsv_design(tmp_path / "design", "")
+    run = tmp_path / "run"
+    run.mkdir()
+    flow = BscSim({"simulator": "iverilog"}, design, run)
+    flow.start_run()
+    (run / "xeda_end.json").write_text(
+        json.dumps(
+            {
+                "ended_by": "finish",
+                "time": 5000,
+                "time_unit": "1ps",
+                "events": [{"kind": "finish", "time": 5000}],
+            }
+        )
+    )
+    (run / "sim.log").write_text(
+        "XEDA_ICARUS_RUNTIME_START\nprogress: this text contains Warning only\n"
+    )
+    with WorkingDirectory(run):
+        assert flow.has_evidence_adapter()
+        assert flow.check_results()
+        assert flow.results["sim.warnings"] == 0
+
+
+def test_verilator_parser_ignores_plain_warning_text(tmp_path):
+    design = bsv_design(tmp_path / "design", "")
+    run = tmp_path / "run"
+    run.mkdir()
+    flow = BscSim({"simulator": "verilator"}, design, run)
+    flow.start_run()
+    (run / "xeda_end.json").write_text(
+        json.dumps(
+            {
+                "ended_by": "exit",
+                "time": None,
+                "time_unit": "1ps",
+                "events": [{"kind": "finish", "time": 5000}],
+            }
+        )
+    )
+    (run / "sim.log").write_text("progress: Warning is only ordinary text\n")
+    with WorkingDirectory(run):
+        assert flow.has_evidence_adapter()
+        assert flow.check_results()
+        assert flow.results["sim.warnings"] == 0
+
+
 @pytest.mark.parametrize("backend", ["verilator", "iverilog"])
 @pytest.mark.parametrize("severity", ["warning", "error", "failure", "fatal"])
 @pytest.mark.parametrize("task", ["warning", "error"])
