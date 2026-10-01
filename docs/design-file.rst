@@ -139,36 +139,63 @@ The aliases ``test`` and ``tests`` are also accepted. The section takes the same
 Source files
 ============
 
-The simplest form is a path string; the type is inferred from the extension:
+A path string suffices when its extension identifies a type:
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 70
+   :widths: 40 60
 
    * - Extension
      - Type
    * - ``.vhd``, ``.vhdl``
      - ``Vhdl``
-   * - ``.v``
-     - ``Verilog``
-   * - ``.sv``
-     - ``SystemVerilog``
+   * - ``.v`` / ``.sv``
+     - ``Verilog`` / ``SystemVerilog``
    * - ``.vh`` / ``.svh``
      - ``VerilogHeader`` / ``SVHeader``
    * - ``.bsv``, ``.bs``, ``.bh``
      - ``Bluespec``
    * - ``.py``
      - ``Cocotb``
-   * - ``.cc``, ``.cpp``, ``.cxx``
-     - ``Cpp``
+   * - ``.cc``, ``.cpp``, ``.cxx`` / ``.c`` / ``.h``, ``.hpp`` / ``.o``, ``.a``
+     - ``Cpp`` / ``C`` / ``CHeader`` / ``ObjectFile``
    * - ``.sc``
      - ``Chisel``
-   * - ``.xdc`` / ``.sdc``
-     - ``Xdc`` / ``Sdc``
+   * - ``.xdc`` / ``.sdc`` / ``.lpf`` / ``.pcf`` / ``.pdc``
+     - ``Xdc`` / ``Sdc`` / ``Lpf`` / ``Pcf`` / ``Pdc``
+   * - ``.ucf`` / ``.xcf`` / ``.qsf`` / ``.ldc`` / ``.fdc``
+     - ``Ucf`` / ``Xcf`` / ``Qsf`` / ``Ldc`` / ``Fdc``
    * - ``.tcl``
      - ``Tcl``
-   * - ``.mem``
+   * - ``.mem``, ``.init``, ``.hex``
      - ``MemoryFile``
+   * - ``.asc`` / ``.fasm`` / ``.bit``, ``.sof``
+     - ``IceAsc`` / ``Fasm`` / ``Bitstream``
+   * - ``.blif`` / ``.edf``, ``.edif``
+     - ``Blif`` / ``Edif``
+   * - ``.sdf`` / ``.spef`` / ``.saif``
+     - ``Sdf`` / ``Spef`` / ``Saif``
+   * - ``.vcd`` / ``.fst`` / ``.ghw`` / ``.vpd`` / ``.fsdb``
+     - ``Vcd`` / ``Fst`` / ``Ghw`` / ``Vpd`` / ``Fsdb``
+   * - ``.dcp`` / ``.lib`` / ``.def`` / ``.odb`` / ``.gds`` / ``.cdl`` / ``.vlt``
+     - ``Checkpoint`` / ``Liberty`` / ``Def`` / ``Odb`` / ``Gds`` / ``Cdl`` / ``Vlt``
+
+Every source has a type. A suffix is matched exactly as written: ``TOP.VHD`` is not inferred (the
+error names ``.vhd``). ``.json``, ``.bin``, ``.cfg`` and ``.config`` name several kinds of file,
+and a suffix not in the table names nothing xeda knows, so a source with one needs its ``type``;
+``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``, ``Chipdb`` and ``Data`` are
+only ever given that way. Explicit type names are case-tolerant; suffixes are not. ``Data``
+is for a file with no automatic HDL frontend (test vectors, a script's input); a flow or the
+design can still read it. An invalid explicit ``type`` is an error naming the closest types.
+A ``.v`` file is ``Verilog``; give a gate-level netlist explicitly as
+``{ file = "net.v", type = "VerilogNetlist" }``.
+
+Source-consumption contracts apply to ``vivado_synth``, ``vivado_alt_synth``, ``vivado_project``,
+``quartus``, ``diamond_synth``, ``ise_synth``, ``dc`` and ``yosys_fpga``. They read only the types
+they declare: ``vivado_synth`` passes over an ``Lpf`` source, for example. A source in an
+unsupported language (a Bluespec source for ``vivado_synth``) is an error naming it before the
+flow runs. Contracts cover ``rtl.sources``; ``vivado_project`` also checks ``tb.sources``.
+Headers reach include/search paths; no template turns a source type's name into a tool command.
 
 .. note::
    The ``bsc`` flow compiles BH (Bluespec Classic) only from ``.bs`` files; it rejects a ``.bh``
@@ -209,7 +236,7 @@ TCL-scripted tools are given every source and every constraint or script file yo
 literal word, so a space, ``[`` or ``$`` in it is never split, substituted or run. Such names are
 verified end to end with yosys, and with Vivado's ``read_verilog``, ``read_vhdl`` and
 ``read_xdc``. Vivado's ``add_files`` -- which ``vivado_project`` uses for every file, and
-``vivado_synth`` for memory files, sources of an unknown type, ``xdc_files`` and ``tcl_files`` --
+``vivado_synth`` for memory files, ``xdc_files`` and ``tcl_files`` --
 refuses a name containing ``[``, ``]`` or ``$``: rename such a file for Vivado.
 
 .. _language:

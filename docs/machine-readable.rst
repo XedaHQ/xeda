@@ -56,12 +56,20 @@ Discovering what to run
       "category": "simulation",
       "supports_cocotb": false,
       "dependencies": ["vivado_synth"],
+      "declared": false, "inputs": [], "outputs": [],
       "settings_class": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim.Settings"
     }
 
 ``name`` is the canonical name; ``aliases`` are the other accepted names. ``dependencies`` are
 detected statically, so treat them as a reliable hint rather than a guarantee - a flow may add
 dependencies conditionally at run time.
+
+``declared`` distinguishes flows with explicit file I/O. Their ``inputs`` and ``outputs`` list
+names, accepted source ``types``, ``cardinality`` (``one``, ``optional``, ``many``) and descriptions;
+inputs also name ``producer``, ``output`` and ``optional``, outputs their ``enabled_by`` setting.
+For example, ``nextpnr`` declares input ``netlist`` of type ``JsonNetlist``, default producer
+``yosys_fpga``, output ``netlist``. Sources of an accepted type displace that default producer.
+Use the resolved plan for the producers a particular request actually needs.
 
 Discovering what to set
 =======================
@@ -198,6 +206,19 @@ where you name them"): ``setting`` is the setting (or ``--outputs-to``) that ask
 that file). It is ``[]`` for a node with nothing to deliver, and a fresh node still lists its
 deliveries: delivery follows a node's outcome, not whether its tool ran.
 
+Declared output records appear as ``results.outputs`` in the CLI document and as the top-level
+``outputs`` key in ``results.json``.
+Each enabled output actually produced maps its name to ``{"path": ..., "sha": ...}``; a list
+output maps to an ordered list of those records. ``path`` is absolute, inside the producer's run
+directory; ``sha`` is its 32-character content digest, not a timestamp. Recording checks readable
+files, containment and current-run writes. Hand-over checks record schema, cardinality,
+containment and content under a verified producer read lease, whether the producer ran or was
+reused. Output-record validation failures use ``MissingOutput`` and the normal failure identity.
+Flow-specific checks can fail earlier: ``nextpnr`` raises ``FlowFatalError`` naming an enabled
+configuration setting/path that its tool did not write. Disabled outputs are omitted.
+``outputs`` is bookkeeping, like ``artifacts``, rather than a ``list-results`` metric; it is
+omitted from the printed result table.
+
 On failure the document carries an ``error`` object alongside any available results, and the exit
 status is non-zero. ``nodes`` still lists every node that ran before the failure, and the one that
 failed; it is ``[]`` when the error happened before any flow could run (a bad design file, an
@@ -242,6 +263,55 @@ Exit status
 ``0`` on success, non-zero on failure, for every command. ``xeda run`` fails when
 ``results.success`` is false; ``xeda dse`` fails when the exploration found no successful run.
 
+Planning a run
+==============
+
+``xeda run <flow> <design> --dry-run --json`` prints the resolved plan without running anything.
+For a design named ``blinky`` whose RTL top is ``blinky``, this command also demonstrates a
+consumer switching its producer's optional output on:
+
+.. code-block:: bash
+
+    xeda run nextpnr blinky.toml -s fpga.part=iCE40HX1K-TQ144 flows.yosys_fpga.netlist_json= --dry-run --json
+
+.. code-block:: json
+
+    {
+      "flow": "nextpnr", "design": "blinky.toml", "success": true, "dry_run": true,
+      "plan": {
+        "requested": "nextpnr",
+        "nodes": [
+          {"name": "yosys_fpga", "flow": "yosys_fpga", "declared": true,
+           "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",
+           "inputs": [], "switched_on": ["netlist"]},
+          {"name": "nextpnr", "flow": "nextpnr", "declared": true,
+           "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
+           "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
+                       "output": "netlist", "sources": []}],
+           "switched_on": []}
+        ]
+      }
+    }
+
+``nodes`` is ordered with producers before consumers and the requested flow last. ``run_path``
+and ``flowrun_hash`` identify each planned run; ``--hashed-run-dirs`` adds the usual 16-character
+hash suffix. Each input's ``origin`` is ``producer``, ``source`` or ``none``. ``producer`` and
+``output`` name another node's output, or are ``null`` for source/absent inputs; ``sources`` is
+an ordered list of source paths. ``switched_on`` names optional outputs enabled because a
+consumer needs them, not every output already enabled by its settings.
+
+An undeclared flow appears as a node with ``declared: false`` and unknown runtime dependencies:
+planning does not call its ``init()``. Freshness and always-run decisions are not evaluated.
+Invalid settings, shared-setting conflicts, missing required inputs and impossible targets
+produce the usual ``success: false`` / ``error`` document.
+
+Planning creates no new run roots, locks, results or deliveries and probes no tools.
+A current limitation: an existing empty custom run root or unmarked default ``xeda_run`` can
+receive ownership markers even when the plan fails. This dry-run side effect is pending a fix.
+Loading that needs a generator or a Git dependency fetch is refused before those side effects;
+materialize sources first, or pass an already materialized ``Design`` to ``DefaultRunner.plan``.
+``--dry-run --remote`` is refused.
+
 Using Xeda as a library
 =======================
 
@@ -270,6 +340,20 @@ To run a flow:
     flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5.0"])
     if flow and flow.results.success:
         print(flow.results.Fmax)
+
+To inspect a plan without constructing or running flows:
+
+.. code-block:: python
+
+    from xeda.introspect import plan_info
+
+    plan = runner.plan("nextpnr", design, flow_settings=["fpga.part=iCE40HX1K-TQ144"])
+    print(plan_info(plan))
+
+``plan_info`` returns the same plain data as ``--dry-run --json``'s ``plan`` key. Passing a
+materialized ``Design`` avoids loading/generation; the plan's settings snapshots are private
+copies and its captured request context is protected. Launchers validate their own internal
+plans; externally supplied plans are not a supported library interface.
 
 Notes for coding agents
 =======================

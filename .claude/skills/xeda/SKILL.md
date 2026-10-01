@@ -78,6 +78,10 @@ Key points that are easy to get wrong:
   `clocks`.
   Prefer `clock.period` or `clock.freq` in new files. Multiple: `[[rtl.clocks]]` entries plus a
   `clocks` mapping in the flow settings.
+- Every source needs a type: suffix inference is case-sensitive; unknown or ambiguous suffixes
+  (`.json`, `.bin`, `.cfg`, `.config`) need an explicit `type`. Use `Data` for files with no
+  automatic HDL frontend (a tool or the design can still read them). Invalid explicit types fail
+  with suggestions; type names themselves are case-tolerant.
 - Give a source a table instead of a string when inference is not enough:
   `{ file = "legacy.v", type = "SystemVerilog" }`. Use `path =` instead of `file =` for a source a
   generator will produce (it is not checked for existence).
@@ -122,11 +126,40 @@ Reach a dependency's settings through a nested key:
 xeda run openfpgaloader blinky.toml -s nextpnr.yosys.flatten=true
 ```
 
-Settings a flow shares with its dependency (`fpga`, `clocks`, `board`, ...) are set once, on the
-flow you run: its value is used for both, and a value given only in the nested settings is used
-when the flow leaves the setting unset.
+`yosys_fpga` and `nextpnr` declare file I/O. `nextpnr` takes its `netlist` from
+`yosys_fpga`'s checked output record, or from exactly one
+`{ file = "top.json", type = "JsonNetlist" }` in `rtl.sources` (which skips synthesis).
+`nextpnr.config` records the selected ECP5 `textcfg`, iCE40 `asc` or Nexus `fasm`; a missing or
+stale enabled configuration fails the run.
 
-`xeda list-flows --json` reports each flow's `dependencies`.
+Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, where both
+nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
+naming both origins. An explicit command-line leaf (`-s fpga.part=...` or
+`-s flows.yosys_fpga.fpga.part=...`) wins for the connected group, preserving other leaves.
+API overrides remain the highest-precedence origin. Undeclared edges (`openfpgaloader`, Vivado
+simulation/power) still use the depending flow's nonempty value, else its nested dependency's.
+A consumer holds each completed dependency for reading until its launch ends (POSIX only),
+so another Xeda process that would rebuild, clean or scrub that directory waits.
+
+`xeda list-flows --json` reports `dependencies`, `declared`, `inputs` and `outputs`.
+
+## Planning without running
+
+```bash
+xeda run nextpnr blinky.toml --dry-run --json
+```
+
+This prints `success: true`, `dry_run: true`, and a `plan` with `requested` and ordered `nodes`:
+producers first, run directories, hashes, declared input origins (`source`, `producer`, `none`)
+and `switched_on` optional outputs. It runs no tools and creates no new run root, lock or
+delivery. Existing empty custom run roots or an unmarked default `xeda_run` can currently
+receive ownership markers even on a failing plan; this dry-run side effect is pending a fix.
+Conflicting settings and impossible targets produce the usual failure document.
+
+A design that would run a generator or fetch a Git dependency while loading is refused before
+side effects. Materialize it first; the library can plan an already materialized `Design`.
+Undeclared flows' runtime dependencies are unknown in the plan; freshness is not evaluated.
+`--dry-run --remote` is refused.
 
 ## Reading results
 
@@ -145,6 +178,17 @@ which flow produced the file:
 
 **`clock_frequency` is not `Fmax`.** `clock_frequency` is the frequency that was *constrained*;
 `Fmax` is the maximum that was *achieved*. Reporting one as the other is a real error.
+
+Declared outputs appear under the CLI's `results.outputs` and `results.json`'s top-level `outputs`:
+each name maps to `{"path": ..., "sha": ...}`
+(or an ordered list of those). Only enabled outputs verified as readable files written by that
+run inside its directory are recorded. Consumers verify records and content under a read lease;
+a fresh producer uses its matching trace, not current-run write evidence. Output-record validation
+failures use `MissingOutput` with the normal `results.json` error and identity. `nextpnr` checks its
+enabled configuration earlier (`FlowFatalError` naming the setting/path if the tool did not
+write it). These records are bookkeeping, not result metrics. `trace.json` records ordered input
+names, source/producer origins and producer identities;
+changing a binding invalidates reuse even if the file set stays the same.
 
 Keys beginning with `_` are internal and may change.
 
@@ -206,6 +250,13 @@ then make"; it implies `--rebuild-all`). `--xeda-run-dir`, `--cached-dependencie
 `--incremental`/`--no-incremental` and `--cwd` were removed; giving them fails naming their
 replacement (`--run-root`, `--rebuild-all`, `--hashed-run-dirs`, `--clean`, `--outputs-to`).
 
+## Remote runs
+
+`--remote HOST` needs Xeda's 0.4.4 release line (including development builds) or newer and remote
+protocol 2 or newer on the host. Xeda probes the package the remote interpreter actually imports
+and refuses 0.4.3 or a build missing that capability before shipping, with an upgrade error.
+Until P2a is released, install this branch on the remote host.
+
 ## When something fails
 
 `error.type` in the `--json` output names the exception class:
@@ -217,6 +268,8 @@ replacement (`--run-root`, `--rebuild-all`, `--hashed-run-dirs`, `--clean`, `--o
 | `ExecutableNotFound` | The tool is not on `PATH` | Install it, or use `-s dockerized=true` |
 | `NonZeroExitCode` | The tool itself failed | Read the tool log in `run_path` |
 | `DesignValidationError` | The design file is invalid | Validate against `xeda design-schema` |
+| `MissingOutput` | A required or enabled declared output is absent, stale or unreadable | Read `results.json` and the tool log; confirm its output setting |
+| `FlowDependencyFailure` | A producer failed or its completed output could not be verified | Read the named producer's `results.json`; rebuild after correcting the cause |
 | `FlowFailed` | The flow ran but reported failure | Read `results` and the reports under `run_path` |
 | `NoSuccessfulRun` | A DSE search found no successful run | Inspect the attempted runs and relax or correct the search settings |
 | `RunRootError` | The run root holds files but no marker xeda created, or cannot be written | Move it aside, or create `<dir>/.xeda-run-root` to hand it to xeda |
