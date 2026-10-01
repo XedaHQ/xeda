@@ -122,7 +122,7 @@ namespaces = false
 ]
 "xeda.flow" = ["templates/*.h"]
 "xeda.flows.nvc" = ["templates/*.cpp"]
-"xeda.flows.bsc" = ["templates/*.h", "templates/*.tcl"]
+"xeda.flows.bsc" = ["templates/*.h", "templates/*.tcl", "templates/*.c"]
 # The agent skill's prose lives here; `references/` is not a package, so it is named explicitly.
 "xeda.data.agent" = [
     "SKILL.md",

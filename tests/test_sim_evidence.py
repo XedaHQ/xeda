@@ -21,8 +21,8 @@ NOT_YET_CONVERTED = {
 }
 #: Converted for some backends only: the rest are P1b.
 PARTLY_CONVERTED: dict[str, str] = {
-    "bsc_sim": "P1b: verilator, iverilog, modelsim, questa, vcs, vcsi, xsim dispatch and "
-    "cvc, cver, isim, ncverilog, veriwell rejection remain",
+    "bsc_sim": "P1b: modelsim, questa, vcs, vcsi, xsim dispatch and "
+    "cvc, cver, isim, ncverilog, veriwell rejection remain; Linux Icarus capability verification is pending",
 }
 
 

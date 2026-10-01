@@ -89,7 +89,7 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
         Tool,
         "probe_stdout",
         lambda self, *args, **kwargs: "GHDL 6.0.0\nCompiled with GNAT\nmcode code generator\n"
-        "Bluespec Compiler, version 2026.07.1\nVerilator 5.048\n",
+        "Bluespec Compiler, version 2026.07.1\nVerilator 5.048\nVERILATOR_ROOT = /oracle/verilator\n",
     )
     original = Tool.execute
     calls = []
@@ -128,6 +128,19 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
             or name in ("simv", "top", "mkTop", "tb")
             or (name == "vivado" and "-source" in words)
         )
+        if case.backend in ("verilator", "iverilog") and (name == "mkTop" or name == "vvp"):
+            if name == "vvp":
+                assert "-m" in words and Path(words[words.index("-m") + 1]).is_file()
+                binary = next(w for w in words if Path(w).name == "mkTop")
+                return run_process(
+                    sys.executable,
+                    [binary],
+                    env=kwargs.get("env"),
+                    tee=kwargs.get("tee"),
+                    timeout=10,
+                    merge_stderr=True,
+                )
+            return original(tool, executable, *args, **kwargs)
         if runtime:
             # Combined proprietary/NVC invocations also contain the successful build.
             build = cwd / "oracle.build"
@@ -156,7 +169,7 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
                 program += (
                     'Path(\'bluesim_events.jsonl\').write_text(\'{"kind":"finish","time":0}\\n\')\n'
                 )
-                program += 'Path(\'bluesim_end.json\').write_text(\'{"ended_by":"unknown","time":0,"time_unit":"1ns","cycles":1,"events":[]}\')\n'
+                program += 'Path(\'bluesim_end.json\').write_text(\'{"ended_by":"unknown","time":0,"time_unit":"1us","cycles":1,"events":[]}\')\n'
             if positive and case.flow == "ghdl_sim":
                 program += "print('simulation finished @0ms', flush=True)\n"
             if case.flow == "nvc":
@@ -174,7 +187,32 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
         (cwd / "oracle.build").write_text("analysis/elaboration succeeded\n")
         if name == "yosys-config":
             return str(work / "include")
-        if name in ("g++", "c++", "bsc") and "-o" in words:
+        if name == "bsc" and "-o" in words and case.backend in ("verilator", "iverilog"):
+            target = Path(words[words.index("-o") + 1])
+            if case.backend == "verilator":
+                from xeda.flows.verilator import HOOK_MACROS
+
+                assert all("-D" + macro in words for macro in HOOK_MACROS)
+                assert "-Xl" in words
+                assert Path(words[words.index("-Xl") + 1]).is_file()
+            program = "#!" + sys.executable + "\nimport json, os\nfrom pathlib import Path\n"
+            program += "Path('oracle.runtime').write_text('runtime executed')\n"
+            if case.backend == "iverilog":
+                program += "print('XEDA_ICARUS_RUNTIME_START', flush=True)\n"
+            if positive:
+                record = {
+                    "ended_by": "exit" if case.backend == "verilator" else "finish",
+                    "time": None if case.backend == "verilator" else 5,
+                    "time_unit": "1ps",
+                    "events": [{"kind": "finish", "time": 5}],
+                }
+                program += (
+                    f"Path(os.environ['XEDA_END_RECORD']).write_text({json.dumps(record)!r})\n"
+                )
+            target.write_text(program)
+            target.chmod(0o755)
+            return ""
+        if name in ("g++", "c++", "cc", "bsc") and "-o" in words:
             target = Path(words[words.index("-o") + 1])
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("fake build output\n")

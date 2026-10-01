@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
+from importlib.resources import files
 from abc import ABCMeta
 from collections.abc import Iterable, Sequence
 from functools import cached_property
@@ -22,8 +24,8 @@ from ...dataclass import WORKING, Field, field_validator
 from ...design import DesignSource, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
-from .sim_evidence import bluesim_evidence
-from ...tool import Docker, Tool
+from .sim_evidence import bluesim_evidence, iverilog_evidence, verilator_evidence
+from ...tool import Docker, Tool, ToolException
 from ...utils import replacing_copy, replacing_file, unique
 
 log = logging.getLogger(__name__)
@@ -1116,7 +1118,8 @@ class BscSim(BscFlow, SimFlow):
     the design has no testbench). `simulator` picks Bluesim, bsc's own cycle-based simulator, or
     a Verilog simulator that bsc links the generated Verilog with (`bsc -vsim`), driving clock
     and reset from its `main.v`. Bluesim records generated system-task calls and an owned
-    script measures clock cycles and time. It requires explicit finish or a confirmed cycle
+    script measures clock cycles and time; Verilator and Icarus record observed system tasks
+    in the linked runtime. These backends require explicit finish or a confirmed Bluesim cycle
     limit, with no event at or above `fail_severity`; a fatal error or nonzero exit always fails.
     `$finish(n)` uses `n` as a verbosity level. The design's
     `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which
@@ -1138,11 +1141,16 @@ class BscSim(BscFlow, SimFlow):
     def has_evidence_adapter(self) -> bool:
         """The converted backends supply current-run evidence; family dispatch follows later."""
         assert isinstance(self.settings, self.Settings)
-        return self.settings.simulator == "bluesim"
+        return self.settings.simulator in ("bluesim", "verilator", "iverilog")
 
     def simulation_evidence(self) -> SimEvidence | None:
         """Read the end checkpoint and generated system-task observations."""
-        return bluesim_evidence(self)
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.simulator == "bluesim":
+            return bluesim_evidence(self)
+        if self.settings.simulator == "verilator":
+            return verilator_evidence(self)
+        return iverilog_evidence(self)
 
     class Settings(BscFlow.Settings, SimFlow.Settings):
         fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
@@ -1276,6 +1284,8 @@ class BscSim(BscFlow, SimFlow):
                 "Verilator links imported C functions through the DPI only: set use_dpi = true"
             )
         _ = self.bsc  # constructing it checks its version: an old bsc fails before anything runs
+        if ss.simulator == "verilator":
+            _ = self._verilator()
 
     def _foreign_sources(self) -> list[Path]:
         """The design's C/C++ sources, objects and archives, which the link step compiles in
@@ -1352,6 +1362,10 @@ class BscSim(BscFlow, SimFlow):
             if directory is not None:
                 link_flags += ["-Xc++", "-I" + str(Path(directory[1]) / "Bluesim")]
             link_flags += ["-Xc++", "-include", "-Xc++", str(header.absolute())]
+        elif ss.simulator == "verilator":
+            link_flags += self._build_verilator_hooks()
+        elif ss.simulator == "iverilog":
+            self._build_iverilog_monitor()
         _check_link_paths([*path_flags, *link_flags, executable, *link_files])
         self._compile(backend, sources, tb_top, top_file, flags)
 
@@ -1379,7 +1393,9 @@ class BscSim(BscFlow, SimFlow):
             sim_args += ["-f", str(script)]
             if vcd:
                 sim_args += ["-V", str(vcd)]
-        elif vcd:
+        elif ss.simulator == "verilator" and ss.fail_severity in ("failure", "fatal"):
+            sim_args.append("+verilator+error+limit+2147483647")
+        if not bluesim and vcd:
             # bsc's Verilator driver writes `dump.vcd` on `+bscvcd`; its `main.v` takes a name
             sim_args.append("+bscvcd" if ss.simulator == "verilator" else f"+bscvcd={vcd}")
         # A failing run's waveform is the one most wanted, so it is recorded whether or not the
@@ -1392,6 +1408,10 @@ class BscSim(BscFlow, SimFlow):
             self.run_directory.remove(*unique([vcd, dump]))
         self.results["simulator"] = ss.simulator
         simulation = self.bsc.derive(str(executable), version_flag=None, minimum_version=None)
+        if ss.simulator == "iverilog":
+            # Load before the compiled VVP file loads its builtin task definitions.
+            simulation = self.bsc.derive("vvp", version_flag=None, minimum_version=None)
+            sim_args = ["-i", "-n", "-m", "./iverilog_evidence.vpi", str(executable), *sim_args]
         simulation.highlight_rules = None
         try:
             env = None
@@ -1400,6 +1420,9 @@ class BscSim(BscFlow, SimFlow):
                     "bluesim_events.jsonl", "bluesim_end.json", "bluesim_end.json.tmp"
                 )
                 env = {"XEDA_SIM_EVENTS": "bluesim_events.jsonl"}
+            elif ss.simulator in ("verilator", "iverilog"):
+                self.run_directory.remove("xeda_end.json", "xeda_end.json.tmp")
+                env = {"XEDA_END_RECORD": "xeda_end.json"}
             simulation.run(
                 *sim_args,
                 timeout=ss.timeout,
@@ -1415,6 +1438,83 @@ class BscSim(BscFlow, SimFlow):
                     replacing_copy(dump, self.run_directory.writable(vcd))
                     self.run_directory.remove(dump)
                 self.artifacts.vcd = str(vcd)
+
+    def _verilator(self) -> Tool:
+        """Require the same runtime-hook capability as standalone Verilator."""
+        from ..verilator import MIN_VERILATOR_VERSION
+
+        tool = self.bsc.derive(
+            "verilator",
+            version_flag=["--version"],
+            version_regexps=[r"Verilator (?P<version>\d+(?:\.\d+)+)"],
+            minimum_version=MIN_VERILATOR_VERSION,
+        )
+        # derive copies a model; it does not run Tool's constructor/version check.
+        if not tool.version_gte(*MIN_VERILATOR_VERSION):
+            log.error("Verilator %s is required; found %s", MIN_VERILATOR_VERSION, tool.version_str)
+            raise ToolException("Minimum version not met")
+        return tool
+
+    def _build_verilator_hooks(self) -> list[str]:
+        """Compile packaged hooks against the headers in the execution environment."""
+        from ..verilator import HOOK_MACROS
+
+        tool = self._verilator()
+        configuration = tool.probe_stdout("-V") or ""
+        roots = re.findall(r"^\s*VERILATOR_ROOT\s*=\s*(\S.*?)\s*$", configuration, re.MULTILINE)
+        if not roots:
+            raise FlowSettingsException("Cannot locate VERILATOR_ROOT from verilator -V")
+        for name in ("xeda_hooks.cpp", "xeda_hooks.h"):
+            with replacing_file(self.run_directory.writable(name)) as target:
+                target.write(
+                    files("xeda.flows.verilator").joinpath("templates/" + name).read_text()
+                )
+        obj = self.run_directory.writable("bsc_verilator_hooks.o")
+        self.run_directory.remove(obj)
+        self.bsc.derive("c++", version_flag=None, minimum_version=None, redirect_stdout=None).run(
+            "-std=c++14",
+            "-I",
+            str(Path(roots[-1]) / "include"),
+            "-c",
+            "xeda_hooks.cpp",
+            "-o",
+            obj,
+            timeout=120,
+        )
+        flags = ["-Xl", str(obj)]
+        for macro in HOOK_MACROS:
+            flags += ["-Xv", "-CFLAGS", "-Xv", "-D" + macro]
+        flags += ["-Xv", "-CFLAGS", "-Xv", "-include" + str(self.run_path / "xeda_hooks.h")]
+        return flags
+
+    def _build_iverilog_monitor(self) -> None:
+        """Build the VPI registration adapter locally or with the container's own headers."""
+        self.copy_from_template("sim_record.h")
+        source = self.copy_from_template("iverilog_evidence.c")
+        if self.bsc.dockerized:
+            executable = self.bsc.derive(
+                "sh", version_flag=None, minimum_version=None
+            ).run_get_stdout("-c", 'readlink -f "$(command -v iverilog)"')
+            prefix = Path(executable.strip()).parent.parent if executable else None
+            platform = "linux"
+        else:
+            executable_path = self.bsc.derive(
+                "iverilog", version_flag=None, minimum_version=None
+            ).executable_path()
+            prefix = executable_path.parent.parent if executable_path else None
+            platform = sys.platform
+        flags = (
+            ["-bundle", "-undefined", "dynamic_lookup"]
+            if platform == "darwin"
+            else ["-shared", "-fPIC"]
+        )
+        if prefix is not None:
+            flags += ["-I", str(prefix / "include" / "iverilog")]
+        target = self.run_directory.writable("iverilog_evidence.vpi")
+        self.run_directory.remove(target)
+        self.bsc.derive("cc", version_flag=None, minimum_version=None, redirect_stdout=None).run(
+            *flags, source, "-o", target, timeout=120
+        )
 
     def _link_flags(self, bluesim: bool) -> list[str]:
         """What the link step needs besides the paths: the simulator, the C/C++ compilation of
