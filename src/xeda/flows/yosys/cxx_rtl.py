@@ -65,6 +65,7 @@ class YosysSim(YosysBase, SimFlow):
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        self.prepare_output_parents()
         yosys = self.yosys
         cxxrtl_filename = ss.cxxrtl.filename or f"{self.design.rtl.top or self.design.name}.cpp"
         cxxrtl_cpp = Path(cxxrtl_filename)

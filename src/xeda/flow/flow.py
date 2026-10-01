@@ -649,6 +649,10 @@ class Flow(metaclass=ABCMeta):
             raise FlowSettingsException(f"{cls.name} needs " + "; and ".join(missing))
 
     @classmethod
+    def check_settings_supported(cls, settings: "Flow.Settings") -> None:
+        """Validate a target/configuration without constructing a flow or probing tools."""
+
+    @classmethod
     def check_design_supported(cls, design: Design) -> None:
         """Fail a launch on a design this flow cannot run, before anything is set up for the run
         or shipped to a remote; checked wherever `check_required_settings` is. A flow that reads

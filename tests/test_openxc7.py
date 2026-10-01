@@ -155,7 +155,8 @@ def test_openxc7_reuses_the_bitstream_its_previous_run_recorded(
         pytest.skip("open_xc7 depends on yosys_fpga, whose `init` asks the installed yosys")
 
     def fake_yosys_run(self) -> None:  # the netlist open_xc7 reads; no real synthesis
-        (self.run_path / "netlist.json").write_text("{}")
+        self.outputs.netlist = self.run_path / "netlist.json"
+        self.outputs.netlist.write_text("{}")
 
     monkeypatch.setattr(YosysFpga, "run", fake_yosys_run)
     monkeypatch.setattr(YosysFpga, "parse_reports", lambda self: True)

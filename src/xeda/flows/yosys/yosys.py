@@ -249,6 +249,7 @@ class Yosys(YosysBase, SynthFlow):
         assert isinstance(self.settings, self.Settings)
         # TODO factor out common code
         ss = self.settings
+        self.prepare_output_parents()
 
         if ss.platform:
             if not ss.liberty:

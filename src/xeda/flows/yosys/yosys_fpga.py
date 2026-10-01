@@ -5,7 +5,7 @@ from typing import Any, List, Literal, Optional
 
 from ...dataclass import Field, field_validator, input_names
 from ...design import SourceType
-from ...flow import FlowSettingsException, FpgaSynthFlow, describe_results
+from ...flow import FlowSettingsException, FpgaSynthFlow, Out, describe_results
 from ...flows.ghdl import GhdlSynth
 from ...utils import replacing_file
 from .common import MINIMUM_YOSYS, YosysBase, YosysRelease, process_parameters, yosys_release
@@ -372,10 +372,22 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 chosen = inferred
             return chosen
 
+    class Outputs(FpgaSynthFlow.Outputs):
+        netlist: Path | None = Out(
+            SourceType.JsonNetlist,
+            enabled_by="netlist_json",
+            description="The synthesized JSON netlist, written at `netlist_json`, for nextpnr.",
+        )
+
     def run(self) -> None:
         """Synthesize the design for the selected FPGA target."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        self.prepare_output_parents()
+        declared = self.outputs
+        assert isinstance(declared, self.Outputs)
+        if ss.netlist_json:
+            declared.netlist = self.run_path / ss.netlist_json
         assert ss.fpga is not None, "checked at launch (`required_settings`)"
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"

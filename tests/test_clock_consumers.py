@@ -6,6 +6,8 @@ from xeda.flows import Nextpnr, YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
 from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS
 
+from .test_nextpnr import write_nextpnr_config
+
 
 def _design() -> Design:
     return Design(
@@ -26,17 +28,17 @@ def test_nextpnr_uses_first_unnamed_clock_as_frequency_target(tmp_path, monkeypa
     )
     flow = Nextpnr(settings, design, tmp_path / "nextpnr")
 
-    dependency = YosysFpga(
-        YosysFpga.Settings(fpga=FPGA(family="ecp5", capacity="25k")),
-        design,
-        tmp_path / "yosys",
-    )
-    dependency.run_path.mkdir(parents=True)
-    (dependency.run_path / "netlist.json").write_text("{}")
-    flow.completed_dependencies = [dependency]
+    netlist = tmp_path / "yosys" / "netlist.json"
+    netlist.parent.mkdir(parents=True)
+    netlist.write_text("{}")
+    flow.inputs.netlist = netlist
 
     args = []
-    monkeypatch.setattr(NextpnrTool, "run", lambda _tool, *values: args.extend(values))
+    monkeypatch.setattr(
+        NextpnrTool,
+        "run",
+        lambda _tool, *values: (write_nextpnr_config(flow, values), args.extend(values)),
+    )
     flow.run()
 
     assert "--freq=200.0" in args
