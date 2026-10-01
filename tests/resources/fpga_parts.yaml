@@ -1,0 +1,33 @@
+# Selected installed openXC7 1.0 Project X-Ray mappings (CC0-1.0; https://github.com/f4pga/prjxray-db).
+xc7a100tcsg324-1:
+  device: xc7a100t
+  package: csg324
+  speedgrade: '1'
+xc7a35tcpg236-2L:
+  device: xc7a35t
+  package: cpg236
+  speedgrade: 2L
+xc7k70tfbg484-2:
+  device: xc7k70t
+  package: fbg484
+  speedgrade: '2'
+xc7s25csga225-1IL:
+  device: xc7s25
+  package: csga225
+  speedgrade: 1IL
+xc7s50ftgb196-1Q:
+  device: xc7s50
+  package: ftgb196
+  speedgrade: 1Q
+xc7z020clg400-1:
+  device: xc7z020
+  package: clg400
+  speedgrade: '1'
+xc7vx485tffg1157-2L:
+  device: xc7vx485t
+  package: ffg1157
+  speedgrade: 2L
+xc7vx485tffg1761-3:
+  device: xc7vx485t
+  package: ffg1761
+  speedgrade: '3'

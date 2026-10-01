@@ -169,10 +169,16 @@ def test_a_cocotb_testbench_asking_for_a_fresh_seed_always_runs(tmp_path):
 
 def test_a_board_constraint_file_fetched_from_a_url_always_runs(tmp_path, design):
     """Plan 3 fetches such a file once, pinned by hash; until then no trace can verify it."""
-    flow = _flow(Nextpnr, design, tmp_path, board="ULX3S_85F")
+    assert _flow(Nextpnr, design, tmp_path, board="ULX3S_85F").always_runs() is None
+    database = tmp_path / "boards.toml"
+    database.write_text(
+        '[REMOTE]\nfpga.part = "LFE5U-85F-6BG381C"\n' 'lpf = "https://example.invalid/pins.lpf"\n'
+    )
+    board = {"board": "REMOTE", "custom_boards_file": database}
+    flow = _flow(Nextpnr, design, tmp_path, **board)
     assert flow.always_runs() == "its constraints are fetched from a URL"
     explicit = tmp_path / "pins.lpf"
     explicit.write_text("\n")
-    pinned = _flow(Nextpnr, design, tmp_path, board="ULX3S_85F", lpf_cfg=str(explicit))
+    pinned = _flow(Nextpnr, design, tmp_path, **board, lpf_cfg=str(explicit))
     assert pinned.always_runs() is None
     assert Path(explicit).is_file()

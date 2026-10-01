@@ -2,4 +2,14 @@
 [ULX3S_85F]
 name = 'ulx3s'
 fpga.part = 'LFE5U-85F-6BG381C'
-lpf = 'https://raw.githubusercontent.com/emard/ulx3s/master/doc/constraints/ulx3s_v20.lpf'
+lpf = 'boards/ulx3s/board.lpf'
+
+[ARTY_A7_100T]
+name = 'arty_a7_100t'
+fpga.part = 'xc7a100tcsg324-1'
+xdc = 'boards/arty/arty_a7_100t.xdc'
+
+[ARTY_A7_35T]
+name = 'arty_a7_35t'
+fpga.part = 'xc7a35tcsg324-1'
+xdc = 'boards/arty/arty_a7_35t.xdc'
