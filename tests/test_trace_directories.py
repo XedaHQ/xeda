@@ -140,6 +140,7 @@ entity tb is end entity;
 architecture a of tb is begin
   process begin
     assert K = 1 report "K is not 1" severity failure;
+    std.env.finish;
     wait;
   end process;
 end architecture;

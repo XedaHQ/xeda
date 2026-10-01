@@ -70,3 +70,60 @@ def parse_sim_time(quantity: str) -> int | None:
         return None
     value = Decimal(match[1]) * time_in_fs(1, "1" + match[2])
     return int(value) if value == value.to_integral_value() else None
+
+
+def parse_ghdl_log(flow: Flow, path: str | Path) -> SimEvidence | None:
+    """Translate GHDL's native runtime end and assertion diagnostics into evidence.
+
+    Only anchored native end lines count. A report's message, echoed source and analysis
+    output cannot establish completion. GHDL reports no time for queue drain, so a silent
+    invocation remains unknown. VHDL std.env.stop is intentional batch completion (QB1).
+    """
+    text = read_sim_log(flow, path)
+    if text is None:
+        return None
+    evidence = SimEvidence(ended_by="unknown")
+    for line in text.splitlines():
+        end = re.fullmatch(
+            r"simulation (?:finished|stopped) @(?P<time>\S+)"
+            r"(?: with status (?P<status>-?\d+))?",
+            line,
+        )
+        limit = re.fullmatch(
+            r"(?:[^\n]+:info: )?simulation stopped by --stop-time @(?P<time>\S+)",
+            line,
+        )
+        if end or limit:
+            match = end or limit
+            assert match is not None
+            time = parse_sim_time(match["time"])
+            if time is None:
+                continue
+            evidence.time = time
+            evidence.time_unit = "1fs"
+            evidence.ended_by = "finish" if end else "stop_time"
+            if end:
+                evidence.events.append(SimEvent(kind="finish", time=time, message=line))
+                if end["status"] is not None and int(end["status"]) != 0:
+                    evidence.ended_by = "error"
+            continue
+        diagnostic = re.fullmatch(
+            r"(?P<location>.+:\d+:\d+):@(?P<time>[^:]+):"
+            r"\((?:assertion|report) (?P<severity>warning|error|failure)\): ?(?P<message>.*)",
+            line,
+        )
+        if diagnostic:
+            severity = diagnostic["severity"]
+            evidence.events.append(
+                SimEvent(
+                    kind=(
+                        "fatal"
+                        if severity == "failure"
+                        else "error" if severity == "error" else "warning"
+                    ),
+                    time=parse_sim_time(diagnostic["time"]),
+                    location=diagnostic["location"],
+                    message=diagnostic["message"],
+                )
+            )
+    return evidence
