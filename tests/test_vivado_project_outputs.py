@@ -434,6 +434,10 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
         flow.run_path.mkdir()
         monkeypatch.chdir(flow.run_path)  # where the runner runs a flow's tools
         flow.run()
+        if flow is post:
+            # Complete the activity verdict as the launcher does before handing it to power.
+            post.results.success = post.check_results()
+            assert post.succeeded
     assert ["open_saif", str(power.settings.saif)] in fake_calls(post.run_path)
     calls = fake_calls(power.run_path)
     assert ["open_checkpoint", str(synth.run_path / synth.artifacts[vs.CHECKPOINT_ROUTE])] in calls

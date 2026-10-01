@@ -1,30 +1,41 @@
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from ...dataclass import WORKING, Field, deliverable
 from ...design import DesignValidationError
-from ...flow import SimFlow
+from ...flow import FlowSettingsException, SimFlow, describe_results
+from ...flow.sim import SimEvidence
+from ...units import convert_unit
 from ...utils import SDF
 from ..vivado import Vivado
+from .sim_evidence import PROCESS_LOG, RUNTIME_LOG, parse_xsim_evidence
 
 log = logging.getLogger(__name__)
-
-
-# FIXME: Does not return error when simulation is finished with a failure assertion
 
 
 class VivadoSim(Vivado, SimFlow):
     """Simulate using Xilinx Vivado simulator (xsim) flow"""
 
-    # This flow reports no results beyond the keys every flow reports; declaring this
-    # explicitly keeps `xeda list-results` from guessing.
-    results_description: dict = {}
+    results_description = describe_results(
+        "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings", "sim.evidence"
+    )
 
     # TODO change this?
     # Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
 
     class Settings(Vivado.Settings, SimFlow.Settings):
+        timeout: float | None = Field(
+            None,
+            gt=0,
+            description="Stop the simulation-containing Vivado invocation after this many seconds "
+            "of wall-clock time, including analysis and elaboration. None sets no limit.",
+        )
+        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
+            "error",
+            description="Lowest runtime diagnostic severity that fails simulation. "
+            "Failure and fatal have the same rank.",
+        )
         saif: Optional[Path] = Field(
             None,
             description="Write switching activity to this SAIF file, for downstream power "
@@ -41,7 +52,7 @@ class VivadoSim(Vivado, SimFlow):
         elab_debug: Optional[str] = Field(
             None,
             description='Debug level passed to `xelab -debug`, e.g. "typical" or "all". Set '
-            "automatically when `debug`, `saif` or `vcd` is used.",
+            "to at least `typical` to retain native diagnostic source provenance.",
         )
         sdf: SDF = Field(
             SDF(),
@@ -80,13 +91,62 @@ class VivadoSim(Vivado, SimFlow):
             "Faster, but gives less precise error locations.",
         )
 
+    def has_evidence_adapter(self) -> bool:
+        return True
+
+    def simulation_evidence(self) -> SimEvidence | None:
+        return parse_xsim_evidence(self)
+
+    def init(self) -> None:
+        super().init()
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        if ss.elab_debug == "off":
+            raise FlowSettingsException(
+                "elab_debug=off disables source provenance required by xsim runtime evidence"
+            )
+        controlled = {
+            "-nolog",
+            "-onfinish",
+            "-onerror",
+            "-runall",
+            "-R",
+            "-tclbatch",
+            "-t",
+            "-quiet",
+            "-maxlogsize",
+            "-downgrade_severity",
+            "-scNoLogFile",
+        }
+        # Flags are rendered as Tcl words; existing settings allow several words in an
+        # entry. Check every option so grouping cannot hide a runtime evidence control.
+        for option in (word for flag in ss.sim_flags for word in flag.split()):
+            if option in controlled or option.startswith("-downgrade_"):
+                raise FlowSettingsException(
+                    f"sim_flags {option} conflicts with xsim runtime evidence"
+                )
+        for name in ("stop_time", "prerun_time"):
+            value = getattr(ss, name)
+            if value is not None:
+                try:
+                    if convert_unit(value, "fs", from_unit="ns") < 0:
+                        raise ValueError("negative duration")
+                except ValueError as exc:
+                    raise FlowSettingsException(
+                        f"{name} is not a nonnegative simulation time: {value}"
+                    ) from exc
+        # The owned native log is required even when ordinary Vivado logging was disabled.
+        self.vivado.default_args = [arg for arg in self.vivado.default_args if arg != "-nolog"]
+
     def run(self) -> None:
         ss = self.settings
         assert isinstance(ss, self.Settings)
         if ss.nthreads is not None:
             ss.elab_flags.append(f"-mt {ss.nthreads}")
         elab_debug = ss.elab_debug
-        if not elab_debug and (ss.debug or ss.saif or ss.vcd):
+        # Native $stop carries its HDL source only with elaboration debug. The adapter
+        # needs that provenance to distinguish VHDL std.env.stop from Verilog $stop.
+        if not elab_debug:
             elab_debug = "typical"
         if elab_debug:
             ss.elab_flags.append(f"-debug {elab_debug}")
@@ -129,11 +189,35 @@ class VivadoSim(Vivado, SimFlow):
         self.run_directory.remove("xsim.dir")
         if ss.saif:
             self.run_directory.remove(self.run_directory.writable(ss.saif))
-        script_path = self.copy_from_template("vivado_sim.tcl")
+        self.run_directory.remove(RUNTIME_LOG, PROCESS_LOG)
+        self.run_directory.writable(RUNTIME_LOG)
+        process_log = self.run_directory.writable(self.vivado.redirect_stdout or PROCESS_LOG)
+        self.vivado.redirect_stdout = None
+        stop_fs = (
+            int(round(convert_unit(ss.stop_time, "fs", from_unit="ns")))
+            if ss.stop_time is not None
+            else None
+        )
+        prerun_fs = (
+            int(round(convert_unit(ss.prerun_time, "fs", from_unit="ns")))
+            if ss.prerun_time is not None
+            else None
+        )
+        script_path = self.copy_from_template(
+            "vivado_sim.tcl", stop_fs=stop_fs, prerun_fs=prerun_fs, runtime_log=RUNTIME_LOG
+        )
         # `vivado_sim.tcl` writes these whenever the enabling setting is set; record them so
         # consumers (e.g. `vivado_power`) don't have to guess the path themselves.
         if ss.vcd:
             self.artifacts.vcd = ss.vcd
         if ss.saif:
             self.artifacts.saif = ss.saif
-        self.vivado.run("-source", script_path)
+        self.vivado.run(
+            "-log",
+            RUNTIME_LOG,
+            "-source",
+            script_path,
+            timeout=ss.timeout,
+            tee=process_log,
+            merge_stderr=True,
+        )

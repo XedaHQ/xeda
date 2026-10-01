@@ -5,6 +5,8 @@ from typing import Any, Dict
 from xml.etree import ElementTree
 
 from ...dataclass import Field, deliverable
+from ...flow import FlowFatalError
+from ...flow.sim import SimEvidence
 from .vivado_postsynthsim import VivadoPostsynthSim
 from .vivado_sim import VivadoSim
 from .vivado_synth import CHECKPOINT_ROUTE, VivadoSynth, artifact_path
@@ -24,6 +26,7 @@ class VivadoPower(VivadoSim):
     # Keys are taken verbatim from the labels in Vivado's XML power report, so the exact set
     # depends on the device and design. These are the ones Vivado always emits.
     results_description = {
+        **VivadoSim.results_description,
         "Total On-Chip Power (W)": "Total on-chip power in watts.",
         "Dynamic (W)": "Dynamic (switching) power in watts, driven by the SAIF activity.",
         "Device Static (W)": "Static (leakage) power in watts.",
@@ -53,7 +56,17 @@ class VivadoPower(VivadoSim):
             "switching activity. Its `synth.write_checkpoint` is forced on: power is reported "
             "against the routed checkpoint."
         )
-        dependency_settings = {"postsynthsim": ("timing_sim", "elab_debug", "saif")}
+        dependency_settings = {
+            "postsynthsim": (
+                "timing_sim",
+                "elab_debug",
+                "saif",
+                "stop_time",
+                "prerun_time",
+                "timeout",
+                "fail_severity",
+            )
+        }
         power_report_xml: Path = Field(
             Path("power_impl_timing.xml"),
             description="File the XML power report is written to.",
@@ -69,10 +82,28 @@ class VivadoPower(VivadoSim):
         postsynthsim.synth.write_checkpoint = True
         self.add_dependency(VivadoPostsynthSim, postsynthsim)
 
+    def simulation_evidence(self) -> SimEvidence | None:
+        return getattr(self, "_activity_evidence", None)
+
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
 
-        postsynth_sim_flow = self.pop_dependency(VivadoPostsynthSim)
+        postsynth_sim_flow = next(
+            dependency
+            for dependency in self.completed_dependencies
+            if isinstance(dependency, VivadoPostsynthSim)
+        )
+        if not postsynth_sim_flow.succeeded:
+            raise FlowFatalError("The activity simulation did not succeed")
+        try:
+            self._activity_evidence = SimEvidence.model_validate(
+                postsynth_sim_flow.results.get("sim.evidence")
+            )
+        except (ValueError, TypeError) as exc:
+            raise FlowFatalError(
+                "The completed activity simulation has no valid sim.evidence"
+            ) from exc
+        self.pop_dependency(VivadoPostsynthSim)
         synth_flow = postsynth_sim_flow.pop_dependency(VivadoSynth)
 
         checkpoint = artifact_path(synth_flow, CHECKPOINT_ROUTE)

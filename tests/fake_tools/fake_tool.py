@@ -477,6 +477,8 @@ TCL_TOOL_PROCS = {
     if {[lindex $args 0] in $::__fail} { error "[lindex $args 0] failed" }
     if {[lindex $args 0] in {xvhdl xvlog xelab}} {
         file mkdir xsim.dir/work
+        if {[lindex $args 0] eq "xvhdl"} {set ::__xsim_vhdl_file [lindex $args end]}
+        if {[lindex $args 0] eq "xelab"} {set ::__xsim_debug [expr {[__option $args -debug] ni {"" off}}]}
         set f [open xsim.dir/work/[lindex $args 0].log a]; puts $f $args; close $f
     }
     return ""
@@ -486,7 +488,95 @@ proc open_saif {path} {
     if {[file exists $path]} { error "open_saif: $path already exists" }
     set f [open $path w]; puts $f "(SAIFILE)"; close $f
     return 1
-}""",
+}
+# Synthetic xsim states using native Vivado 2024.2 forms measured in Task 8.
+# A fixed-duration run advances even an empty queue; run all drains at its last event.
+set __xsim_time 0
+set __xsim_emitted 0
+set __xsim_state [expr {[info exists ::env(XEDA_FAKE_XSIM_STATE)] ? $::env(XEDA_FAKE_XSIM_STATE) : "finish5"}]
+set __xsim_log [lindex $argv 0]
+if {$::__xsim_log ne ""} {
+    set __xsim_channel [open $::__xsim_log w]
+    rename puts __xsim_puts
+    proc puts {args} {
+        if {[llength $args] == 1} {
+            __xsim_puts $::__xsim_channel [lindex $args 0]
+            flush $::__xsim_channel
+        }
+        __xsim_puts {*}$args
+    }
+}
+proc xsim {args} {
+    __model 1 xsim {*}$args
+    __output fake_xsim.runtime
+    puts "Time resolution is 1 ps"
+    return simulation_1
+}
+proc current_sim {args} { return simulation_1 }
+proc current_time {args} { __model "$::__xsim_time fs" current_time {*}$args }
+rename get_property __xsim_get_property
+proc get_property {name object args} {
+    if {$name eq "PRECISION"} { return [__model "1 ps" get_property $name $object {*}$args] }
+    __xsim_get_property $name $object {*}$args
+}
+proc run {args} {
+    __model 1 run {*}$args
+    if {$::__xsim_state eq "timeout"} {
+        puts "Error: diagnostic before timeout"
+        puts "Time: 0 fs  Iteration: 0  Process: /tb/Initial0  Scope: tb  File: tb.sv Line: 1"
+        after 60000
+    }
+    set all [expr {[lindex $args 0] in {all -all}}]
+    set duration 0
+    if {!$all} {
+        regexp {^([0-9]+)(?:[ ]*(fs|ps|ns|us|ms|sec))?$} [join $args " "] -> value unit
+        if {$unit eq ""} {set unit ns}
+        set scale [dict get {fs 1 ps 1000 ns 1000000 us 1000000000 ms 1000000000000 sec 1000000000000000} $unit]
+        set duration [expr {$value * $scale}]
+    }
+    set ending 5000000
+    if {$::__xsim_state eq "finish0"} {set ending 0}
+    if {$::__xsim_state in {warning error assertion partial_error vhdl_warning vhdl_error}} {set ending 6000000}
+    if {!$::__xsim_emitted && ($all || $::__xsim_time + $duration >= $ending)} {
+        set ::__xsim_emitted 1
+        switch $::__xsim_state {
+            warning - error - assertion - partial_error - fatal {
+                set severity [expr {$::__xsim_state eq "warning" ? "Warning" : $::__xsim_state eq "fatal" ? "Fatal" : "Error"}]
+                set prefix [expr {$::__xsim_state eq "partial_error" ? "progress:" : ""}]
+                puts "$prefix$severity: native diagnostic"
+                puts "Time: 5 ns  Iteration: 0  Process: /tb/Initial0  Scope: tb  File: tb.sv Line: 1"
+            }
+            lookalike {puts {Vivado simulation finished at 5 ns}; puts {report "$finish called at time : 5 ns"}}
+        }
+        if {[string match vhdl_* $::__xsim_state]} {
+            set path $::__xsim_vhdl_file
+            if {$::__xsim_state in {vhdl_warning vhdl_error vhdl_failure}} {
+                set severity [dict get {vhdl_warning Warning vhdl_error Error vhdl_failure Failure} $::__xsim_state]
+                puts "$severity: native VHDL diagnostic"
+                puts "Time: 5 ns  Iteration: 0  Process: /tb/line__4  File: $path"
+            }
+            set task [expr {$::__xsim_state eq "vhdl_stop" ? "stop" : "finish"}]
+            set diagnostic "\$$task called at time : [expr {$ending / 1000000}] ns"
+            if {$::__xsim_debug} {append diagnostic " : File \"$path\" Line 1"}
+            puts $diagnostic
+            set ::__xsim_time $ending
+            return
+        }
+        if {$::__xsim_state in {finish0 finish5 warning error assertion fatal partial_error partial_finish}} {
+            set prefix [expr {$::__xsim_state eq "partial_finish" ? "progress:" : ""}]
+            puts "$prefix\$finish called at time : [expr {$ending / 1000000}] ns : File \"tb.sv\" Line 1"
+            set ::__xsim_time $ending
+            return
+        }
+        if {$::__xsim_state eq "stop"} {
+            puts {$stop called at time : 5 ns : File "tb.sv" Line 1}
+            set ::__xsim_time $ending
+            return
+        }
+    }
+    set ::__xsim_time [expr {$all ? ($::__xsim_state in {drain5 lookalike} ? 5000000 : 0) : $::__xsim_time + $duration}]
+}
+""",
     "quartus_sh": r"""proc project_new {args} {
     __record project_new {*}$args
     set name [lindex $args 0]
@@ -660,6 +750,7 @@ class FakeVivado(FakeTool):
         "-nojournal": None,
         "-notrace": None,
         "-nolog": None,
+        "-log": dict(type=click.Path()),
     }
     arguments: dict = {"project": dict(required=False)}
 
@@ -667,7 +758,7 @@ class FakeVivado(FakeTool):
         print("cwd =", Path.cwd())
         tcl = kwargs.get("source")
         if tcl:
-            status = run_tcl(tcl, "vivado")
+            status = run_tcl(tcl, "vivado", logfile=kwargs.get("log"))
             if status:
                 return status
             sleep(0.3)

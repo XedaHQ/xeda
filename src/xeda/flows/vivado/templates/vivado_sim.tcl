@@ -35,7 +35,7 @@ if { [catch {exec xelab -s ${snapshot_name} -L {{settings.work_lib|tcl_word}} {%
 }
 
 puts "\n===========================( Loading Simulation )==========================="
-if { [catch {xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} } error] } {
+if { [catch {xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} -onfinish stop -onerror stop } error] } {
     errorExit $error
 }
 
@@ -60,12 +60,49 @@ ltrace on
 ptrace on
 {%- endif %}
 
-puts "\n===========================( Running simulation )==========================="
-{%- if settings.prerun_time %}
-puts "Pre-run for {{settings.prerun_time}}"
-if { [catch {run {{settings.prerun_time}} } error]} {
+# The native Vivado log was opened before compilation. Only this bounded section is runtime.
+puts XEDA_XSIM_RUNTIME_START
+flush stdout
+set xeda_runtime_log {{runtime_log|tcl_word}}
+set xeda_stop_fs {{stop_fs if stop_fs is not none else -1}}
+
+proc xedaTimeFs {} {
+    if {![regexp {^([0-9.]+) *(fs|ps|ns|us|ms|sec)$} [current_time] -> value unit]} {
+        errorExit "Unrecognized xsim current_time"
+    }
+    set scale [dict get {fs 1 ps 1000 ns 1000000 us 1000000000 ms 1000000000000 sec 1000000000000000} $unit]
+    return [expr {wide(round($value * $scale))}]
+}
+proc xedaCheckpoint {stage} {
+    puts "XEDA_XSIM_CHECKPOINT=$stage|[current_time]|[get_property PRECISION [current_sim]]"
+    flush stdout
+}
+proc xedaRuntimeDone {} {
+    # Do not continue past HDL finish/stop/fatal during prerun. A Tcl return proves none of these.
+    if {[file type $::xeda_runtime_log] ne "file"} {errorExit "Unsafe xsim runtime log"}
+    set channel [open $::xeda_runtime_log r]
+    set text [read $channel]
+    close $channel
+    set marker "XEDA_XSIM_RUNTIME_START\n"
+    set start [string first $marker $text]
+    if {$start < 0} {errorExit "Missing xsim runtime boundary"}
+    set text [string range $text [expr {$start + [string length $marker]}] end]
+    return [regexp -line {\$(finish|stop) called at time : [0-9.]+ (fs|ps|ns|us|ms|sec)( : File ".+" Line [0-9]+)?$} $text]
+}
+
+set xeda_done 0
+{%- if prerun_fs is not none %}
+set xeda_prerun_fs {{prerun_fs}}
+if {$xeda_stop_fs >= 0 && $xeda_prerun_fs > $xeda_stop_fs} {
+    set xeda_prerun_fs $xeda_stop_fs
+}
+if {[catch {run $xeda_prerun_fs fs} error]} {
+    xedaCheckpoint prerun
     errorExit $error
 }
+xedaCheckpoint prerun
+set xeda_done [xedaRuntimeDone]
+if {$xeda_stop_fs >= 0 && [xedaTimeFs] >= $xeda_stop_fs} {set xeda_done 1}
 {%- endif %}
 
 {%- if settings.saif %}
@@ -75,11 +112,24 @@ describe $netlist_scope
 log_saif [get_objects -r -filter { type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } ${netlist_scope}/*]
 {%- endif %}
 
-if { [catch {run {%- if settings.stop_time %} {{settings.stop_time}} {%- else %} all {%- endif %} } error]} {
-    errorExit $error
+if {!$xeda_done} {
+    if {$xeda_stop_fs >= 0} {
+        set xeda_remaining [expr {$xeda_stop_fs - [xedaTimeFs]}]
+        if {[catch {run $xeda_remaining fs} error]} {
+            xedaCheckpoint main
+            errorExit $error
+        }
+    } else {
+        if {[catch {run all} error]} {
+            xedaCheckpoint main
+            errorExit $error
+        }
+    }
 }
-
-puts "Vivado simulation finished at [current_time]"
+xedaCheckpoint main
+if {$xeda_stop_fs >= 0 && [xedaTimeFs] == $xeda_stop_fs && ![xedaRuntimeDone]} {
+    puts "XEDA_XSIM_LIMIT=[current_time]"
+}
 
 {%- if settings.vcd %}
 puts "\n===========================( Closing VCD file )==========================="
@@ -91,3 +141,6 @@ close_vcd
 puts "\n===========================( Closing SAIF file )==========================="
 close_saif
 {%- endif %}
+
+puts XEDA_XSIM_RUNTIME_END
+flush stdout

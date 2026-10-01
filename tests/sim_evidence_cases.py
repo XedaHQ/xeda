@@ -11,7 +11,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from types import SimpleNamespace
+
 from xeda import Design
+from xeda.flow import FlowDependencyFailure
 from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.proc_utils import run_process
 from xeda.tool import Tool
@@ -159,6 +162,12 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
             assert (cwd / "fake_vsim.runtime").read_text().strip() == "runtime executed"
             (cwd / "oracle.runtime").write_text("runtime executed")
             return result
+        if name == "vivado" and "-source" in words and case.flow.startswith("vivado"):
+            monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish0" if positive else "silent")
+            result = original(tool, executable, *args, **kwargs)
+            assert (cwd / "fake_xsim.runtime").is_file()
+            (cwd / "oracle.runtime").write_text("runtime executed")
+            return result
         if runtime:
             # Combined proprietary/NVC invocations also contain the successful build.
             build = cwd / "oracle.build"
@@ -246,9 +255,18 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
         return ""
 
     monkeypatch.setattr(Tool, "execute", execute)
-    flow = DefaultRunner(work / "runs", display_results=False).run_flow(
-        flow_class, design, settings
-    )
+    try:
+        flow = DefaultRunner(work / "runs", display_results=False).run_flow(
+            flow_class, design, settings
+        )
+    except FlowDependencyFailure:
+        assert case.flow == "vivado_power" and not positive
+        # The actual launched activity flow failed before reporting power; read the launcher's
+        # failure document, without constructing a substitute passing flow.
+        results = json.loads(
+            (work / "runs" / "oracle" / "vivado_power" / "results.json").read_text()
+        )
+        flow = SimpleNamespace(succeeded=results["success"], results=results)
     markers = list((work / "runs").rglob("oracle.runtime"))
     assert markers, f"{case.name} never invoked a runtime; calls: {calls}"
     assert all(p.read_text() == "runtime executed" for p in markers)
