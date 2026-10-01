@@ -73,7 +73,7 @@ from ..utils import (
     unique,
 )
 
-from .io import FlowInputs, FlowOutputs, check_io_declarations
+from .io import FlowInputs, FlowOutputs, check_io_declarations, is_declared
 
 if TYPE_CHECKING:
     from ..deliver import Delivered
@@ -633,8 +633,9 @@ class Flow(metaclass=ABCMeta):
         """Fail a launch that lacks a `required_settings` entry, naming each and how to give it,
         before anything is set up for the run. A value given in a dependency's section counts
         when the flow shares that setting with the dependency (`dependency_settings`), since
-        `resolve_dependency` adopts it from there."""
-        dependency_settings = type(settings).dependency_settings
+        `resolve_dependency` adopts it from there. Declared flows use their final agreed values:
+        a source may displace the producer whose nested settings would otherwise count."""
+        dependency_settings = {} if is_declared(cls) else type(settings).dependency_settings
         missing = []
         for name, how in cls.required_settings.items():
             candidates = [getattr(settings, name, None)] + [
