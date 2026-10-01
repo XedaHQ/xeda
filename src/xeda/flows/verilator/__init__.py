@@ -115,7 +115,7 @@ class Verilator(SimFlow):
     cocotb_sim_name = "verilator"
 
     results_description = describe_results(
-        "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
     )
 
     #: the exit status of this run's model, once it has returned (0) or failed

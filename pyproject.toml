@@ -120,6 +120,7 @@ namespaces = false
     "*.ys",
     # "*/platforms/**",
 ]
+"xeda.flow" = ["templates/*.h"]
 # The agent skill's prose lives here; `references/` is not a package, so it is named explicitly.
 "xeda.data.agent" = [
     "SKILL.md",

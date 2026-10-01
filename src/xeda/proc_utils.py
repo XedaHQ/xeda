@@ -362,8 +362,8 @@ def run_process(
     `run_process(..., timeout=...)` of its own (`Docker.run`'s `docker kill` is bounded by
     `tool.DOCKER_KILL_TIMEOUT`).
 
-    `merge_stderr` folds the child's stderr into the captured stdout. Only meaningful while
-    capturing (`stdout=True`), and needed for tools that print their version banner to stderr.
+    `merge_stderr` folds the child's stderr into stdout while capturing (`stdout=True`)
+    or copying lines (tee/highlighting), so stderr diagnostics also reach the transcript.
     """
     if timeout is not None and not timeout > 0:
         raise ValueError(f"timeout must be a positive number of seconds, not {timeout!r}")
@@ -393,6 +393,7 @@ def run_process(
         with subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if merge_stderr else None,
             env=env,
             cwd=cwd,
             universal_newlines=True,

@@ -107,7 +107,12 @@ def test_a_requested_max_cycles_stop_counts():
     """R12: P1b's Bluesim adapter reports `max_cycles`; accepted only when it was asked for."""
     stub = _Stub()
     stub.settings.max_cycles = 100
-    assert judge_evidence(stub, SimEvidence(ended_by="max_cycles", time=100), "error") is True
+    assert (
+        judge_evidence(
+            stub, SimEvidence(ended_by="max_cycles", cycles=100, time=100, time_unit="1ns"), "error"
+        )
+        is True
+    )
     assert judge_evidence(_Stub(), SimEvidence(ended_by="max_cycles", time=100), "error") is False
 
 
@@ -209,3 +214,223 @@ def test_verilator_never_takes_a_previous_runs_end_record(tmp_path, monkeypatch)
             record.write_text(FINISHED)
         outcomes[age] = (flow.check_results(), flow.results.get("sim.ended_by"))
     assert outcomes == {"this run's": (True, "finish"), "a previous run's": (False, None)}
+
+
+@pytest.mark.parametrize(
+    "record,passes",
+    [
+        ({"time": 100, "time_unit": "1ns"}, False),
+        ({"cycles": 99, "time": 100, "time_unit": "1ns"}, False),
+        ({"cycles": 100, "time_unit": "1ns"}, False),
+        ({"cycles": 100, "time": 100}, False),
+        ({"cycles": 100, "time": 100, "time_unit": "bogus"}, False),
+        ({"cycles": 100, "time": -1, "time_unit": "1ns"}, False),
+        ({"cycles": 100, "time": 100, "time_unit": "1ns"}, True),
+    ],
+)
+def test_max_cycles_requires_measured_count_and_final_time(record, passes):
+    flow = _Stub()
+    flow.settings.max_cycles = 100
+    assert judge_evidence(flow, SimEvidence(ended_by="max_cycles", **record), "error") is passes
+
+
+def test_early_finish_with_max_cycles_passes():
+    flow = _Stub()
+    flow.settings.max_cycles = 100
+    assert judge_evidence(flow, SimEvidence(ended_by="finish", time=0), "error")
+
+
+@pytest.mark.parametrize("kind", ["error", "fatal"])
+def test_persisted_evidence_preserves_failing_events(kind):
+    flow = _Stub()
+    evidence = SimEvidence(
+        ended_by="finish",
+        time=10,
+        time_unit="1ns",
+        events=[SimEvent(kind=kind, time=5, location="tb:4", message="bad")],
+    )
+    assert not judge_evidence(flow, evidence, "error")
+    assert SimEvidence.model_validate(flow.results["sim.evidence"]) == evidence
+    assert flow.results["sim.evidence"]["events"][0]["kind"] == kind
+
+
+def _normalized_flow(tmp_path):
+    from xeda import Design
+    from xeda.flows import Verilator
+
+    return Verilator(
+        {}, Design(name="tb", design_root=tmp_path, rtl={"sources": [], "top": "tb"}), tmp_path
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        None,
+        "",
+        "{",
+        "[]",
+        "{}",
+        '{"ended_by":"bogus"}',
+        '{"ended_by":"finish","cycles":-1}',
+        '{"ended_by":"stop_time","time":5,"time_unit":"bogus"}',
+        '{"ended_by":"max_cycles","time":-1,"time_unit":"1ns"}',
+        '{"ended_by":"finish","events":[{"kind":"stop_maybe"}]}',
+        b"\xff",
+    ],
+)
+def test_normalized_record_missing_or_malformed_is_no_evidence(tmp_path, content):
+    from xeda.flow.sim_evidence import read_sim_evidence
+
+    flow = _normalized_flow(tmp_path)
+    path = tmp_path / "end.json"
+    flow.start_run()
+    if isinstance(content, bytes):
+        path.write_bytes(content)
+    elif content is not None:
+        path.write_text(content)
+    assert read_sim_evidence(flow, path) is None
+
+
+def test_normalized_reports_require_current_run_and_complete_events(tmp_path):
+    import json
+    from xeda.flow.sim_evidence import read_sim_evidence, read_sim_log
+
+    flow = _normalized_flow(tmp_path)
+    record, events, log = (tmp_path / name for name in ("end.json", "events.jsonl", "sim.log"))
+    record.write_text('{"ended_by":"finish","time":5,"time_unit":"1ns"}')
+    events.write_text('{"kind":"fatal","message":"bad"}\n')
+    log.write_text("FINISH\n")
+    flow.start_run()
+    assert read_sim_evidence(flow, record, events_path=events) is None
+    assert read_sim_log(flow, log) is None
+    record.write_text('{"ended_by":"finish","time":6,"time_unit":"1ns"}')
+    assert read_sim_evidence(flow, record, events_path=events) is None
+    events.write_text(json.dumps({"kind": "error", "message": "current"}) + "\n")
+    evidence = read_sim_evidence(flow, record, events_path=events)
+    assert evidence is not None and evidence.events[0].kind == "error"
+    events.write_text('{"kind":"fatal"}\n{')
+    assert read_sim_evidence(flow, record, events_path=events) is None
+    log.write_text("FINISH current\n")
+    assert read_sim_log(flow, log) == "FINISH current\n"
+    log.write_bytes(b"\xff")
+    assert read_sim_log(flow, log) is None
+
+
+@pytest.mark.parametrize(
+    "quantity,expected",
+    [
+        ("5ns", 5000000),
+        ("0ms+0", 0),
+        ("1.25 ps+17", 1250),
+        ("2 s", 2000000000000000),
+        ("1fs", 1),
+        ("1.1fs", None),
+        ("5ns+bogus", None),
+        ("nan ns", None),
+        ("5", None),
+        ("-1ns", None),
+        ("5NS", None),
+        ("time 5ns", None),
+    ],
+)
+def test_normalized_native_time_excludes_delta_cycles(quantity, expected):
+    from xeda.flow.sim_evidence import parse_sim_time
+
+    assert parse_sim_time(quantity) == expected
+
+
+@pytest.mark.parametrize("language", ["c", "cpp"])
+def test_normalized_native_writer_refuses_links_and_retains_events(tmp_path, language):
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+    from .tool_utils import require_c_toolchain, require_cxx_toolchain
+
+    (require_cxx_toolchain if language == "cpp" else require_c_toolchain)()
+    compiler = shutil.which("c++" if language == "cpp" else "cc")
+    assert compiler
+    header = Path(__file__).parents[1] / "src/xeda/flow/templates/sim_record.h"
+    src = tmp_path / f"writer.{language}"
+    src.write_text(
+        '#include "sim_record.h"\n'
+        "int main(int argc, char **argv) { (void)argc;\n"
+        'if (!xeda_sim_append_event(argv[2], "{\\"kind\\":\\"warning\\"}")) return 2;\n'
+        'return xeda_sim_write_record(argv[1], "{\\"ended_by\\":\\"finish\\"}") ? 0 : 3; }\n'
+    )
+    binary = tmp_path / "writer"
+    subprocess.run(
+        [compiler, "-Wall", "-Werror", "-I", str(header.parent), str(src), "-o", str(binary)],
+        check=True,
+        timeout=30,
+    )
+    canary = tmp_path / "canary"
+    canary.write_text("untouched")
+    record, events = tmp_path / "end.json", tmp_path / "events.jsonl"
+    temporary = tmp_path / "end.json.tmp"
+    temporary.symlink_to(canary)
+    result = subprocess.run([str(binary), str(record), str(events)], timeout=10)
+    assert result.returncode != 0 and canary.read_text() == "untouched"
+    temporary.unlink()
+    events.unlink()
+    events.symlink_to(canary)
+    assert subprocess.run([str(binary), str(record), str(events)], timeout=10).returncode != 0
+    assert canary.read_text() == "untouched"
+    events.unlink()
+    assert subprocess.run([str(binary), str(record), str(events)], timeout=10).returncode == 0
+    assert json.loads(record.read_text()) == {"ended_by": "finish"}
+    assert json.loads(events.read_text()) == {"kind": "warning"}
+
+
+def test_behavioral_manifest_covers_registry_and_backend_literal():
+    from typing import get_args
+    from xeda.flows.bsc import SimulatorName
+    from .sim_evidence_cases import BSC_BACKENDS, SIMULATORS
+
+    assert set(SIMULATORS) == _sim_flows()
+    assert set(BSC_BACKENDS) == set(get_args(SimulatorName))
+
+
+from .sim_evidence_cases import CASES
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
+def test_silent_runtime_requires_behavioral_evidence(case, tmp_path, monkeypatch):
+    from .sim_evidence_cases import launch_case
+
+    flow = launch_case(case, tmp_path / "case", monkeypatch)
+    reason = NOT_YET_CONVERTED.get(case.flow) or PARTLY_CONVERTED.get(case.flow)
+    if reason and flow.succeeded:
+        pytest.xfail(reason)
+    assert not flow.succeeded, f"{case.name} passed on silent exit 0"
+
+
+def test_behavioral_oracle_detects_suppressed_positive_record(tmp_path, monkeypatch):
+    from .sim_evidence_cases import SimCase, launch_case
+
+    with monkeypatch.context() as patch:
+        positive = launch_case(SimCase("verilator"), tmp_path / "positive", patch, positive=True)
+    assert positive.succeeded and positive.results["sim.ended_by"] == "finish"
+    with monkeypatch.context() as patch:
+        missing = launch_case(SimCase("verilator"), tmp_path / "missing", patch, positive=False)
+    assert not missing.succeeded
+
+
+def test_normalized_envelope_round_trip_and_unreadable_report(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+    from xeda.flow.sim_evidence import read_sim_evidence
+
+    flow = _normalized_flow(tmp_path)
+    record = tmp_path / "end.json"
+    flow.start_run()
+    evidence = SimEvidence(ended_by="max_cycles", cycles=100, time=10, time_unit="1ns")
+    record.write_text(json.dumps(evidence.model_dump(mode="json")))
+    assert read_sim_evidence(flow, record) == evidence
+
+    def unreadable(*args, **kwargs):
+        raise OSError("unreadable report")
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    assert read_sim_evidence(flow, record) is None

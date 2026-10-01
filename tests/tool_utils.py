@@ -31,6 +31,7 @@ __all__ = [
     "require_bluesim",
     "require_bsc",
     "require_c_toolchain",
+    "require_cxx_toolchain",
     "require_cocotb",
     "require_ghdl",
     "require_iverilog",
@@ -167,6 +168,26 @@ def _probe_c_toolchain() -> bool:
 def require_c_toolchain() -> None:
     """A working C compiler, needed by cocotb's C reference models and Verilator's models."""
     _require("a C toolchain", _probe_c_toolchain(), "compiling a trivial C file")
+
+
+@lru_cache(maxsize=None)
+def _probe_cxx_toolchain() -> bool:
+    """Compile and execute a native C++ helper, as simulator evidence monitors require."""
+    compiler = os.environ.get("CXX") or shutil.which("c++")
+    if not compiler:
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "probe.cpp"
+        binary = Path(tmp) / "probe"
+        source.write_text("int main() { return 0; }\n")
+        return _command_succeeds(
+            [compiler, str(source), "-o", str(binary)], cwd=tmp
+        ) and _command_succeeds([str(binary)], cwd=tmp)
+
+
+def require_cxx_toolchain() -> None:
+    """A working native C++ compiler and runtime for simulation evidence helpers."""
+    _require("a C++ toolchain", _probe_cxx_toolchain(), "compiling and executing a C++ helper")
 
 
 def require_cocotb() -> None:

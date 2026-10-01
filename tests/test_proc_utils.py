@@ -847,3 +847,20 @@ def test_a_docker_stop_hook_that_times_out_is_only_logged(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
     tool.run("arg", timeout=3)  # the hook's ProcessTimeout does not escape
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_tee_captures_stderr_only_diagnostics(tmp_path, capsys, fails):
+    transcript = tmp_path / "runtime.log"
+    command = (
+        "import sys; print('FINISH 5ns', file=sys.stderr); print('ERROR bad', file=sys.stderr); sys.exit("
+        + str(int(fails))
+        + ")"
+    )
+    if fails:
+        with pytest.raises(NonZeroExitCode):
+            run_process(sys.executable, ["-c", command], tee=transcript, merge_stderr=True)
+    else:
+        run_process(sys.executable, ["-c", command], tee=transcript, merge_stderr=True)
+    assert transcript.read_text() == "FINISH 5ns\nERROR bad\n"
+    assert "FINISH 5ns" in capsys.readouterr().out

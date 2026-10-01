@@ -48,6 +48,9 @@ class SimEvidence(XedaBaseModel):
     )
     time: int | None = Field(None, description="Simulated time at the end, in `time_unit`.")
     time_unit: str | None = Field(None, description="The unit of `time`, e.g. `1ps`.")
+    cycles: int | None = Field(
+        None, ge=0, description="Clock cycles actually reached, if observed."
+    )
     events: list[SimEvent] = Field([], description="Events recorded while the simulation ran.")
     exit_code: int | None = Field(None, description="The driver's exit status, for `exit`.")
 
@@ -74,6 +77,7 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     if evidence is None:
         log.error("The simulation left no end record: it did not report how it ended.")
         return False
+    flow.results["sim.evidence"] = evidence.model_dump(mode="json")
     flow.results["sim.ended_by"] = evidence.ended_by
     flow.results["sim.time"] = evidence.time
     flow.results["sim.time_unit"] = evidence.time_unit
@@ -92,10 +96,23 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         requested = int(round(convert_unit(stop_time, "fs", from_unit="ns")))
         tick = time_in_fs(1, evidence.time_unit)
         stop_reached = abs(time_in_fs(evidence.time, evidence.time_unit) - requested) < tick
+    max_cycles = getattr(flow.settings, "max_cycles", None)
+    cycles_reached = False
+    if (
+        max_cycles is not None
+        and evidence.cycles == max_cycles
+        and evidence.time is not None
+        and evidence.time >= 0
+        and evidence.time_unit is not None
+    ):
+        try:
+            cycles_reached = time_in_fs(1, evidence.time_unit) > 0
+        except ValueError:
+            pass
     ok = {
         "finish": True,
         "stop_time": stop_reached,
-        "max_cycles": getattr(flow.settings, "max_cycles", None) is not None,
+        "max_cycles": cycles_reached,
         "exit": evidence.exit_code == 0,
     }.get(evidence.ended_by, False)
     if not ok:
@@ -112,7 +129,12 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
                     else "it stopped at a stop_time nobody asked for"
                 )
             ),
-            "max_cycles": "it stopped at a max_cycles nobody asked for",
+            "max_cycles": (
+                f"the cycle stop could not be confirmed: observed {evidence.cycles} cycles "
+                f"(requested max_cycles {max_cycles}); a measured final time and unit are required"
+                if max_cycles is not None
+                else "it stopped at a max_cycles nobody asked for"
+            ),
             "exit": f"the testbench's driver exited with status {evidence.exit_code}",
             "error": "an error ended it",
             "fatal": "a fatal error ended it",

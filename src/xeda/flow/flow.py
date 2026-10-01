@@ -550,6 +550,8 @@ COMMON_RESULT_DESCRIPTIONS: Dict[str, str] = {
     "timing_met": "Whether every constrained clock domain met its constraint.",
     "clock_domains": "Number of clock domains the timing analysis reported.",
     # simulation: how it ended, from the simulator's end record (`SimFlow.simulation_evidence`)
+    "sim.evidence": "Normalized simulation end record, including measured cycles and events; "
+    "preserved even when the evidence fails the simulation verdict.",
     "sim.ended_by": "What ended the simulation: `finish` ($finish), `stop_time` (the requested "
     "stop time, reached), `max_cycles`, `exit` (the testbench's own driver exited), `drained` "
     "(no event left, and no $finish), `error`, `fatal`, or `unknown`. Only `finish`, a "
