@@ -16,7 +16,17 @@ from ..flow import Flow, FlowDependencyFailure
 from ..flow.io import declared_outputs, output_enabled
 from ..run_dir import RunDirectoryError
 
-__all__ = ["handed_over", "record_outputs"]
+__all__ = ["handed_over", "record_outputs", "declared_output_files"]
+
+
+def declared_output_files(results: dict[str, Any]) -> list[Path]:
+    """Only path leaves of output integrity records, for retention and delivery."""
+    files = []
+    for recorded in (results.get("outputs") or {}).values():
+        for entry in recorded if isinstance(recorded, list) else [recorded]:
+            if isinstance(entry, dict) and isinstance(entry.get("path"), str):
+                files.append(Path(entry["path"]))
+    return files
 
 
 def record_outputs(flow: Flow) -> list[str]:

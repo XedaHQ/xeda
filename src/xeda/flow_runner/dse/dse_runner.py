@@ -29,6 +29,9 @@ from ...utils import (
 )
 from ..default_runner import FlowLauncher, add_file_logger, get_flow_class, print_results
 from ..settings_layers import merge_layers
+from ..resolver import Plan
+from ..trace import as_recorded
+from ...flow.io import is_declared
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +94,21 @@ def deep_hash(s) -> str:
     return semantic_hash(s)
 
 
+def _variation_delta(candidate: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+    """The optimizer's changed leaves; unchanged model defaults are not contributions."""
+    candidate, base = as_recorded(candidate), as_recorded(base)
+    delta = {}
+    for key, value in candidate.items():
+        previous = base.get(key)
+        if isinstance(value, dict) and isinstance(previous, dict):
+            nested = _variation_delta(value, previous)
+            if nested:
+                delta[key] = nested
+        elif value != previous:
+            delta[key] = deepcopy(value)
+    return delta
+
+
 def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
     if n < 2:
         return [b], 0
@@ -105,20 +123,44 @@ class Executioner:
         design: Design,
         flow_class,
         all_flows_settings: Optional[Dict[str, Any]] = None,
+        candidate_base: dict[str, Any] | None = None,
+        candidate_input: dict[str, Any] | None = None,
     ):
         self.launcher = launcher
         self.design = design
         self.flow_class = flow_class
         self.all_flows_settings = all_flows_settings
+        self.candidate_base = candidate_base
+        self.candidate_input = candidate_input
 
     def __call__(self, args: Tuple[int, Dict[str, Any]]) -> Tuple[Optional[FlowOutcome], int]:
         idx, flow_settings = args
         try:
+            plan = None
+            if is_declared(self.flow_class):
+                delta = _variation_delta(flow_settings, self.candidate_base or {})
+                flow_settings = merge_layers(
+                    self.candidate_input or {}, delta, settings_cls=self.flow_class.Settings
+                )
+                request = self.launcher._request_context
+                api = merge_layers(
+                    request.api_overrides if request else {}, {self.flow_class.name: delta}
+                )
+                plan = self.launcher.resolve(
+                    self.flow_class,
+                    self.design,
+                    flow_settings,
+                    self.all_flows_settings,
+                    origins=request.origins if request else (),
+                    command_line=request.command_line if request else None,
+                    api_overrides=api,
+                )
             flow = self.launcher.launch_flow(
                 self.flow_class,
                 self.design,
                 flow_settings,
                 all_flows_settings=self.all_flows_settings,
+                plan=plan,
             )
             return (
                 FlowOutcome(
@@ -210,6 +252,8 @@ class Dse(FlowLauncher):
         depender: Optional[Flow] = None,
         copy_resources: List[str] = [],
         all_flows_settings: Optional[Dict[str, Any]] = None,
+        *,
+        plan: Plan | None = None,
     ):
         """Explore flow setting variations and return the best run."""
         assert isinstance(self.settings, self.Settings)
@@ -236,8 +280,6 @@ class Dse(FlowLauncher):
         ]
 
         successful_results: List[Dict[str, Any]] = []
-        executioner = Executioner(self, design, flow_class, all_flows_settings)
-
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
 
@@ -247,6 +289,8 @@ class Dse(FlowLauncher):
         if isinstance(flow_settings, Flow.Settings):
             flow_settings = flow_settings.model_dump()
         assert isinstance(flow_settings, dict)
+        if plan is not None:
+            self._validate_plan(plan, flow_class, design, flow_settings, all_flows_settings)
 
         if self.settings.variations is not None:
             optimizer.variations = self.settings.variations
@@ -270,11 +314,28 @@ class Dse(FlowLauncher):
             settings_cls=flow_class.Settings,
         )
 
-        base_settings = flow_class.Settings.from_input(
-            flow_settings,
-            design_root=design.root_path,
-            runner_cwd=Path.cwd(),
-        )
+        if is_declared(flow_class):
+            request = self._request_context
+            # Base agreement happens before Logs, best records or the process pool exist.
+            base_plan = self.resolve(
+                flow_class,
+                design,
+                flow_settings,
+                all_flows_settings,
+                origins=request.origins if request else (),
+                command_line=request.command_line if request else None,
+                api_overrides=merge_layers(
+                    request.api_overrides if request else {}, {flow_class.name: base_variation}
+                ),
+            )
+            base_settings = base_plan.node(flow_class.name).settings
+        else:
+            base_settings = flow_class.Settings.from_input(
+                flow_settings,
+                design_root=design.root_path,
+                runner_cwd=Path.cwd(),
+            )
+
         # Once, here: launched in each worker instead, a missing setting (or a design the flow
         # cannot run) failed every run of the search separately and was reported only as "no
         # successful run".
@@ -317,8 +378,46 @@ class Dse(FlowLauncher):
         ):
             base_settings.timeout_seconds = self.settings.timeout
 
+        adjustments = {
+            key: getattr(base_settings, key)
+            for key in (
+                "redirect_stdout",
+                "print_commands",
+                "nthreads",
+                "timeout_seconds",
+            )
+        }
+        candidate_input = merge_layers(flow_settings, adjustments, settings_cls=flow_class.Settings)
+        if is_declared(flow_class):
+            adjusted_plan = self.resolve(
+                flow_class,
+                design,
+                candidate_input,
+                all_flows_settings,
+                origins=request.origins if request else (),
+                command_line=request.command_line if request else None,
+                api_overrides=merge_layers(
+                    request.api_overrides if request else {},
+                    {flow_class.name: merge_layers(base_variation, adjustments)},
+                ),
+            )
+            base_settings = adjusted_plan.node(flow_class.name).settings
         optimizer.flow_class = flow_class
         optimizer.base_settings = base_settings
+        worker = FlowLauncher(
+            self._run_root,
+            **{name: getattr(self.settings, name) for name in FlowLauncher.Settings.model_fields},
+        )
+        worker._request_context = self._request_context
+        worker._launch_inputs = list(self._launch_inputs)
+        executioner = Executioner(
+            worker,
+            design,
+            flow_class,
+            all_flows_settings,
+            as_recorded(base_settings),
+            candidate_input,
+        )
 
         # The exploration's log and its best-run record go into the run root, which is made here,
         # once the settings have validated and no deliverable names a location: an exploration

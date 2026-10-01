@@ -13,7 +13,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel
@@ -48,7 +48,7 @@ class ResolvedInput:
     """An input's ordered sources, default producer, or permitted absence."""
 
     name: str
-    origin: str
+    origin: Literal["source", "producer", "none"]
     producer: str | None = None
     output: str | None = None
     sources: tuple[Path, ...] = ()

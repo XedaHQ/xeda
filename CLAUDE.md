@@ -664,11 +664,14 @@ and `test_nvc.py` simulate the examples in place.
 - `flow_runner/remote.py` - `RemoteRunner` ships the design over SSH via `execnet`, runs xeda remotely,
   and streams tool stdout/stderr back through a PTY pair. The streaming/PTY behavior is heavily tested
   in `tests/test_remote_streaming.py`; the code injected into the remote (`STREAM_OUTPUT_SETUP`,
-  `remote_runner`) must stay dependency-free and only use long-stable xeda API - a test asserts this.
+  `remote_runner`) must use only the API guaranteed by the checked protocol floor; the streaming
+  setup stays stdlib-only. A test pins the worker's xeda imports.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
   keys. **Requirement: a remote runs a P2a build (this branch or newer)**: release line
   `REMOTE_XEDA_MIN_VERSION = (0, 4, 4)` (including `0.4.4.devN+g...`) and
-  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 1).
+  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 2: canonical resolved
+  settings, relocated read inputs with their original path identities, declared output records
+  and checked hand-over).
   `check_remote_xeda` refuses xeda 0.4.3 and development checkouts without the capability with an
   "upgrade the remote xeda" error before anything ships. Version alone does not prove P2a support.
   `REMOTE_PROBE` imports the remote interpreter's actual xeda and reports its version, location

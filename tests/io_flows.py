@@ -46,6 +46,40 @@ class _Taker(Flow):
         self.results["read"] = self.inputs.made.read_text()
 
 
+class _InputMaker(_Maker):
+    """Makes its output from a file named only in settings."""
+
+    results_description = {}
+
+    class Settings(_Maker.Settings):
+        input_file: Path | None = Field(None, description="The file to copy into its output.")
+
+    def run(self):
+        assert self.settings.input_file is not None
+        self.settings.text = self.settings.input_file.read_text()
+        super().run()
+
+
+class _PartialMaker(_Maker):
+    """Writes one output but leaves another required output absent."""
+
+    results_description = {}
+
+    class Outputs(_Maker.Outputs):
+        missing: Path = Out(SourceType.Data, description="The absent required output.")
+
+
+class _InputTaker(_Taker):
+    """Reads the settings-file producer's declared output."""
+
+    results_description = {}
+
+    class Inputs(_Taker.Inputs):
+        made: Path = In(
+            SourceType.Data, producer="__input_maker", output="made", description="What it reads."
+        )
+
+
 class _Reader(Flow):
     """Reads a `Data` file the design must list: an input with no default producer."""
 

@@ -122,17 +122,205 @@ def _remote_run_dir(home: Path, flow_name: str) -> Path:
     return settings.parent
 
 
-def test_a_remote_without_p2a_is_refused_before_anything_ships(tmp_path, remote_host, monkeypatch):
+@pytest.mark.parametrize("location", ["design", "cwd", "external"])
+def test_declared_remote_ships_a_producers_settings_only_file(
+    tmp_path, remote_host, monkeypatch, location
+):
+    from .io_flows import _InputTaker
+
+    monkeypatch.setattr(
+        remote_module,
+        "REMOTE_PROBE",
+        f"import sys\nsys.path.insert(0, {str(TESTS_DIR.parent)!r})\nimport tests.io_flows\n"
+        + remote_module.REMOTE_PROBE,
+    )
+    root = tmp_path / "design"
+    root.mkdir()
+    input_path = {
+        "design": root / "input.txt",
+        "cwd": Path.cwd() / "input.txt",
+        "external": tmp_path / "input.txt",
+    }[location]
+    input_path.write_text("from settings\n")
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": [], "top": "t"},
+        flow={"__input_maker": {"input_file": str(input_path)}},
+    )
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    expected = runner.resolve(_InputTaker, design, {}, design.flow)
+    results = runner.run_remote(design, _InputTaker.name, "fake")
+    assert results and results["success"] and results["read"] == "from settings\n"
+    producer = _remote_run_dir(remote_host, "__input_maker")
+    settings = json.loads((producer / "settings.json").read_text())
+    input_file = Path(settings["flow_settings"]["input_file"])
+    assert input_file.is_relative_to(remote_host) and input_file.read_text() == "from settings\n"
+    assert settings["flowrun_hash"] == expected.node("__input_maker").flowrun_hash
+
+
+@pytest.mark.parametrize("source", [False, True])
+def test_remote_executes_a_declared_graph_with_the_same_input_origin(
+    tmp_path, remote_host, monkeypatch, source
+):
+    from .io_flows import _Taker
+
+    monkeypatch.setattr(
+        remote_module,
+        "REMOTE_PROBE",
+        f"import sys\nsys.path.insert(0, {str(TESTS_DIR.parent)!r})\nimport tests.io_flows\n"
+        + remote_module.REMOTE_PROBE,
+    )
+    root = tmp_path / "design"
+    root.mkdir()
+    entries = []
+    if source:
+        (root / "given.dat").write_text("given\n")
+        entries = [{"file": "given.dat", "type": "Data"}]
+    design = Design(name="d", design_root=root, rtl={"sources": entries, "top": "t"})
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    expected = runner.resolve(_Taker, design, {})
+    results = runner.run_remote(design, _Taker.name, "fake")
+    assert results["success"] and results["read"] == ("given\n" if source else "made\n")
+    remote_path = _remote_run_dir(remote_host, _Taker.name)
+    trace = json.loads((remote_path / "trace.json").read_text())
+    assert trace["declared_inputs"][0]["origin"] == expected.node(_Taker.name).inputs[0].origin
+    assert results["flow_hash"] == expected.node(_Taker.name).flowrun_hash
+
+
+def test_remote_mirrors_and_delivers_declared_outputs_without_artifact_labels(
+    tmp_path, remote_host, monkeypatch
+):
+    from .io_flows import _Maker
+    from xeda.digest import content_digest
+
+    monkeypatch.setattr(
+        remote_module,
+        "REMOTE_PROBE",
+        f"import sys\nsys.path.insert(0, {str(TESTS_DIR.parent)!r})\nimport tests.io_flows\n"
+        + remote_module.REMOTE_PROBE,
+    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False, outputs_to=tmp_path / "out")
+    results = runner.run_remote(design, _Maker.name, "fake")
+    recorded = results["outputs"]["made"]
+    mirrored = Path(recorded["path"])
+    assert mirrored.is_relative_to(tmp_path / "mirror")
+    assert content_digest(mirrored) == recorded["sha"]
+    assert mirrored.read_text() == (tmp_path / "out" / "made.txt").read_text() == "made\n"
+
+
+@pytest.mark.parametrize("stage", ["init", "producer"])
+def test_remote_declared_setup_failures_return_the_failure_document(
+    tmp_path, remote_host, monkeypatch, stage
+):
+    from .io_flows import _Taker
+
+    target = "_Taker.init" if stage == "init" else "_Maker.run"
+    monkeypatch.setattr(
+        remote_module,
+        "REMOTE_PROBE",
+        f"import sys\nsys.path.insert(0, {str(TESTS_DIR.parent)!r})\n"
+        "import tests.io_flows as io\nfrom xeda.flow import FlowFatalError\n"
+        "def broken(self):\n    raise FlowFatalError('broken setup')\n"
+        f"io.{target} = broken\n" + remote_module.REMOTE_PROBE,
+    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    results = RemoteRunner(tmp_path / "mirror", outputs_to=tmp_path / "out").run_remote(
+        design, _Taker.name, "fake"
+    )
+    assert results is not None and results["success"] is False
+    assert "broken setup" in results["error"]["message"]
+    assert results["error"]["type"] == (
+        "FlowFatalError" if stage == "init" else "FlowDependencyFailure"
+    )
+    for key in ("design", "design_hash", "flow", "flow_hash", "run_path", "timestamp"):
+        assert results[key]
+    assert not (tmp_path / "out").exists()
+
+
+def test_declared_remote_outputs_are_verified_before_delivery(tmp_path, remote_host, monkeypatch):
+    from .io_flows import _Maker
+
+    monkeypatch.setattr(
+        remote_module,
+        "REMOTE_PROBE",
+        f"import sys\nsys.path.insert(0, {str(TESTS_DIR.parent)!r})\nimport tests.io_flows\n"
+        + remote_module.REMOTE_PROBE,
+    )
+    get = _LocalConnection.get
+
+    def changed(self, remote, local):
+        result = get(self, remote, local)
+        if Path(remote).name == "made.txt":
+            Path(local).write_text("changed in transfer\n")
+        return result
+
+    monkeypatch.setattr(_LocalConnection, "get", changed)
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    with pytest.raises(DeliveryError, match="changed during transfer"):
+        RemoteRunner(tmp_path / "mirror", outputs_to=tmp_path / "out").run_remote(
+            design, _Maker.name, "fake"
+        )
+    assert not (tmp_path / "out").exists()
+
+
+def test_failed_remote_partial_outputs_are_not_handed_over(tmp_path, remote_host, monkeypatch):
+    from .io_flows import _PartialMaker
+
+    monkeypatch.setattr(
+        remote_module,
+        "REMOTE_PROBE",
+        f"import sys\nsys.path.insert(0, {str(TESTS_DIR.parent)!r})\nimport tests.io_flows\n"
+        + remote_module.REMOTE_PROBE,
+    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    results = RemoteRunner(tmp_path / "mirror", outputs_to=tmp_path / "out").run_remote(
+        design, _PartialMaker.name, "fake"
+    )
+    assert results is not None and results["success"] is False
+    assert results["error"]["type"] == "MissingOutput"
+    assert not results.get("outputs")
+    assert not (tmp_path / "out").exists()
+
+
+def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monkeypatch):
+    from .io_flows import _Place
+
+    connected = []
+
+    def connection(**kwargs):
+        connected.append(kwargs)
+        raise AssertionError("invalid graph connected to the remote")
+
+    monkeypatch.setattr(remote_module, "Connection", connection)
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": [], "top": "t"},
+        flow={
+            "__place": {"fpga": "LFE5U-25F-6BG256C"},
+            "__synth": {"fpga": "LFE5U-85F-6BG381C"},
+        },
+    )
+    with pytest.raises(FlowSettingsError, match="disagree"):
+        RemoteRunner(tmp_path / "mirror").run_remote(design, _Place.name, "fake")
+    assert not connected and not (tmp_path / "mirror").exists()
+
+
+@pytest.mark.parametrize("version,protocol", [("0.4.3", 0), ("0.4.4.dev1", 1)])
+def test_a_remote_without_p2a_is_refused_before_anything_ships(
+    tmp_path, remote_host, monkeypatch, version, protocol
+):
     """The probe reports a 0.4.3 install without the P2a capability; no archive is shipped."""
     monkeypatch.setattr(
         remote_module,
         "REMOTE_PROBE",
         "import xeda\n"
         "from importlib import metadata\n"
-        "xeda.__version__ = '0.4.3'\n"
-        "if hasattr(xeda, 'REMOTE_PROTOCOL_VERSION'):\n"
-        "    del xeda.REMOTE_PROTOCOL_VERSION\n"
-        "metadata.version = lambda name: '0.4.3'\n" + remote_module.REMOTE_PROBE,
+        f"xeda.__version__ = {version!r}\n"
+        f"xeda.REMOTE_PROTOCOL_VERSION = {protocol}\n"
+        f"metadata.version = lambda name: {version!r}\n" + remote_module.REMOTE_PROBE,
     )
     shipped = []
     closed = []
@@ -161,13 +349,13 @@ def test_a_remote_without_p2a_is_refused_before_anything_ships(tmp_path, remote_
         RemoteRunner(tmp_path / "local").run_remote(
             design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
         )
-    assert "0.4.3" in str(raised.value)
+    assert version in str(raised.value)
     assert "P2a" in str(raised.value)
     assert not shipped
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P2a remote (protocol 1), including this branch's dev builds.
+#: The archive accepted by a P2a remote (protocol 2), including this branch's dev builds.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {

@@ -13,11 +13,146 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from xeda import Design
 from xeda.cli import cli
 from xeda.flows import VivadoSynth
+from xeda.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
+from xeda.flow_runner.settings_layers import merge_layers
+from xeda.dataclass import Field
+from .io_flows import _Place
+
+
+class _DsePlace(_Place):
+    """A declared placer with one independent search setting."""
+
+    results_description = {}
+
+    class Settings(_Place.Settings):
+        tag: str = Field("base", description="The search variant.")
+
+    def run(self):
+        super().run()
+        (producer,) = self.completed_dependencies
+        self.results["producer"] = str(producer.run_path)
+        self.results["producer_period"] = producer.settings.main_clock.period
+        self.results["period"] = self.settings.main_clock.period
+        self.results["pid"] = os.getpid()
+
+
+class _DeclaredOptimizer(Optimizer):
+    """One deterministic worker batch, sufficient to observe candidate plans."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.started = False
+        self.outcomes = []
+
+    def next_batch(self):
+        if self.started:
+            return None
+        self.started = True
+        base = self.base_settings.model_dump()
+        return [
+            merge_layers(base, delta, settings_cls=self.flow_class.Settings)
+            for delta in (
+                {"tag": "one"},
+                {"tag": "two"},
+                {"tag": "clock", "clock_period": 12.0},
+            )
+        ]
+
+    def process_outcome(self, outcome, idx):
+        self.outcomes.append(outcome)
+        if self.best is None:
+            self.best = outcome
+            return True
+        return False
+
+
+def test_worker_deltas_do_not_replay_serialized_path_defaults():
+    assert _variation_delta(
+        {"custom_boards_file": Path("/boards.json"), "tag": "varied"},
+        {"custom_boards_file": "/boards.json", "tag": "base"},
+    ) == {"tag": "varied"}
+
+
+def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
+    )
+    runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
+    best = runner.run(
+        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}
+    )
+    assert best is not None
+    outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
+    assert set(outcomes) == {"one", "two", "clock"}
+    assert outcomes["one"].results["producer"] == outcomes["two"].results["producer"]
+    assert outcomes["clock"].results["producer"] != outcomes["one"].results["producer"]
+    for name, outcome in outcomes.items():
+        assert outcome.results["pid"] != os.getpid()
+        assert (
+            outcome.results["producer_period"]
+            == outcome.results["period"]
+            == (12.0 if name == "clock" else 10.0)
+        )
+
+
+def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, monkeypatch):
+    from xeda.flow import FlowSettingsError
+
+    monkeypatch.chdir(tmp_path)
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": [], "top": "t"},
+        flow={"__synth": {"fpga": "LFE5U-85F-6BG381C"}},
+    )
+    runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
+    with pytest.raises(FlowSettingsError, match="disagree"):
+        runner.run(
+            _DsePlace,
+            design,
+            flow_overrides={},
+            flow_settings={},
+            xedaproject=str(_write_dse_project(tmp_path)),
+        )
+    assert not (tmp_path / "run").exists()
+
+
+def test_declared_dse_adjustments_are_resolved_before_any_write(tmp_path, monkeypatch):
+    from xeda.flow_runner.dse import dse_runner
+
+    monkeypatch.chdir(tmp_path)
+    runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    plans = []
+    resolve = runner.resolve
+
+    def resolved(*args, **kwargs):
+        plan = resolve(*args, **kwargs)
+        plans.append(plan)
+        return plan
+
+    def before_logging(*args):
+        assert plans[-1].node(_DsePlace.name).settings == runner.optimizer.base_settings
+        raise RuntimeError("checked before writing logs")
+
+    monkeypatch.setattr(runner, "resolve", resolved)
+    monkeypatch.setattr(dse_runner, "add_file_logger", before_logging)
+    with pytest.raises(RuntimeError, match="checked before writing logs"):
+        runner.run_flow(_DsePlace, design, {"fpga": "LFE5U-25F-6BG256C"})
+
+
+def _write_dse_project(tmp_path):
+    path = tmp_path / "project.toml"
+    path.write_text('[flows.__dse_place]\nfpga.part = "LFE5U-25F-6BG256C"\n')
+    return path
+
 
 TESTS_DIR = Path(__file__).parent.absolute()
 SQRT = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
