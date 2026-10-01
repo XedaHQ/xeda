@@ -101,6 +101,8 @@ def test_shell_loads_completion_and_completes_commands(shell, setup, tmp_path):
     env["PATH"] = sysconfig.get_path("scripts") + os.pathsep + env.get("PATH", "")
     env.pop("_XEDA_COMPLETE", None)
     env.pop("_CLI_COMPLETE", None)
+    env.pop("FPATH", None)
+    env["HOME"] = str(tmp_path)
     env["NO_COLOR"] = "1"
     source_file = tmp_path / "completion"
     if setup == "file":
@@ -137,7 +139,12 @@ printf '%s\\n' "${COMPREPLY[@]}"
             str(source_file),
         ]
     elif shell == "zsh":
-        script = "autoload -Uz compinit; compinit -D\n" + initialize + """
+        # Ignore site/user completion files and dumps unrelated to Xeda. The directory
+        # containing compinit also supplies compdef and the other initialization helpers.
+        script = (
+            "fpath=(${^fpath}/compinit(N:h)); autoload -Uz compinit; compinit -D\n"
+            + initialize
+            + """
 [[ ${_comps[xeda]} == _xeda_completion ]] || exit 1
 # Capture the candidates passed to zsh's renderer without needing an interactive ZLE.
 _describe() { print -rl -- "${(@P)3}"; }
@@ -145,6 +152,7 @@ words=(xeda r)
 CURRENT=2
 _xeda_completion
 """
+        )
         arguments = [executable, "-f", "-c", script, "xeda-test", str(source_file)]
     else:
         script = initialize + "\ncomplete --do-complete 'xeda r'\n"
