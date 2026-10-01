@@ -142,6 +142,7 @@ TCL_EXIT = {
     "vsim": r"""proc exit {args} {
     set i [lsearch -exact $args -code]
     set code [expr {$i >= 0 ? [lindex $args [expr {$i + 1}]] : 0}]
+    if {$::__no_output && [file exists modelsim_end.txt]} {file delete modelsim_end.txt}
     flush $::__calls; __exit $code
 }""",
 }
@@ -151,6 +152,92 @@ TCL_EXIT_DEFAULT = "proc exit {{code 0}} { flush $::__calls; __exit $code }"
 # real ones write -- the project a tool creates by name among them, as the real one does. (Their
 # other effects on a project's files are `TCL_TOOL_PROCS`.)
 TCL_MODEL = {
+    # Synthetic ModelSim/Questa state, not measured vendor transcripts. The rendered script
+    # executes under tclsh; runtime invocation, native reason, transcript and checkpoint are
+    # independent. Ordinary fixtures finish; the behavioral oracle explicitly stays silent.
+    "vsim": r"""
+set __vsim_transcript {}
+set __vsim_state [expr {[info exists ::env(XEDA_FAKE_MODELSIM_STATE)] ? $::env(XEDA_FAKE_MODELSIM_STATE) : "finish0"}]
+set now {0 ps}
+set resolution 1ps
+set __vsim_status 0
+set __vsim_reason {ready end}
+rename puts __puts
+proc puts {args} {
+    if {[llength $args] == 1 && $::__vsim_transcript ne ""} {
+        __puts $::__vsim_transcript "# [lindex $args 0]"
+        flush $::__vsim_transcript
+    }
+    __puts {*}$args
+}
+proc transcript {sub args} {
+    __call transcript $sub {*}$args
+    if {$sub eq "file"} {
+        if {$::__vsim_transcript ne ""} {close $::__vsim_transcript; set ::__vsim_transcript {}}
+        if {[lindex $args 0] ne "" && !$::__no_output} {
+            set ::__vsim_transcript [open [lindex $args 0] w]
+        }
+    }
+}
+proc vsim {args} {
+    __call vsim {*}$args
+    if {[info exists ::env(XEDA_FAKE_MODELSIM_LOAD_STATUS)]} {
+        set ::__vsim_status $::env(XEDA_FAKE_MODELSIM_LOAD_STATUS)
+        puts {** Error: analysis/load diagnostic}
+    }
+}
+proc run {args} {
+    __call run {*}$args
+    set marker [open fake_vsim.runtime w]; puts $marker {runtime executed}; close $marker
+    set ::now {5 ns}
+    set ::__vsim_reason {break simulation_stop {$finish}}
+    switch -- $::__vsim_state {
+        finish0 {set ::now {0 ps}}
+        finish5 {}
+        vhdl_finish {puts {Break in Process line__1 at tb.vhd line 3}}
+        vhdl_stop {
+            set ::__vsim_reason {break simulation_stop {$stop}}
+            puts {Break in Process line__1 at uut.vhd line 3}
+        }
+        silent {set ::now {0 ps}; set ::__vsim_reason {ready end}}
+        drain5 {set ::__vsim_reason {ready end}}
+        error_finish {set ::__vsim_status 2; puts {** Error: Assertion error.}}
+        warning_finish {set ::__vsim_status 1; puts {** Warning: Assertion warning.}}
+        failure_finish {set ::__vsim_status 3; puts {** Failure: Assertion failure.}}
+        fatal {
+            set ::__vsim_status 3; set ::__vsim_reason {break simulation_stop unknown}
+            puts {** Fatal: fatal check}
+        }
+        verilog_stop {
+            set ::__vsim_reason {break simulation_stop {$stop}}
+            puts {** Note: $stop : tb.sv(3)}
+            puts {Break in Module tb at tb.sv line 3}
+        }
+        status2_finish {set ::__vsim_status 2}
+        limit10 {set ::now {10 ns}; set ::__vsim_reason {ready end}}
+        limit5 {set ::__vsim_reason {ready end}}
+        break10 {set ::now {10 ns}; set ::__vsim_reason {break user_break}}
+        lookalike {
+            set ::__vsim_reason {ready end}
+            puts {** Note: Calling 'finish'}
+            puts {** Note: body ** Error: fake}
+            puts {initial $finish;}
+            puts {puts "XEDA_MODELSIM_RUN_STATUS=break simulation_stop {$finish}"}
+        }
+        hang {puts {runtime waiting}; after 30000}
+        default {error "unknown fake ModelSim state $::__vsim_state"}
+    }
+    if {$::__vsim_status > 0 && $::__vsim_state ne "status2_finish"} {
+        puts {   Time: 5 ns  Iteration: 0  Instance: /tb}
+    }
+}
+proc runStatus {args} {__model $::__vsim_reason runStatus {*}$args}
+proc coverage {args} {
+    set value [__option $args -value]
+    if {$value ne ""} {set ::__vsim_status $value}
+    __model $::__vsim_status coverage {*}$args
+}
+""",
     # ISE's `process run` reports a failed process only by its result and the process status
     # (`process get <name> status`): it raises no TCL error. A process named in
     # `XEDA_FAKE_TOOL_FAIL` fails, as `XEDA_FAKE_ISE_FAILURE` says: `result` (it returns false),
@@ -516,6 +603,10 @@ class FakeTool(XedaBaseModel):
 
     @property
     def version_banner(self) -> str:
+        if self.version_template and "ModelSim" in self.version_template:
+            if os.environ.get("XEDA_FAKE_MODELSIM_EDITION") == "questa":
+                return "Questa Sim vsim 2024.2 Simulator (synthetic)"
+            return "Model Technology ModelSim vsim 2020.1 Simulator (synthetic)"
         if self.version_template:
             return inspect.cleandoc(self.version_template.format(**(asdict(self))))
         return "unknown"

@@ -12,7 +12,6 @@ from xeda.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
 
 #: Simulator flows not converted yet, and why. P1b removes every entry.
 NOT_YET_CONVERTED = {
-    "modelsim": "P1b: ModelSim's TESTSTATUS and end",
     "vcs": "P1b: VCS's end",
     "vivado_sim": "P1b: xsim's end",
     "vivado_postsynth_sim": "P1b: xsim's end (a vivado_sim on the netlist)",
@@ -35,7 +34,7 @@ def _sim_flows():
 
 
 def test_every_simulator_flow_is_converted_or_listed_with_a_reason():
-    converted = {"verilator", "ghdl_sim", "nvc", "yosys_sim"}
+    converted = {"verilator", "ghdl_sim", "nvc", "yosys_sim", "modelsim"}
     assert _sim_flows() == converted | set(NOT_YET_CONVERTED) | set(PARTLY_CONVERTED)
     # a converted flow reports evidence; a listed one does not (so the list cannot go stale)
     adapters = {
@@ -466,3 +465,14 @@ def test_normalized_envelope_round_trip_and_unreadable_report(tmp_path, monkeypa
 
     monkeypatch.setattr(Path, "read_text", unreadable)
     assert read_sim_evidence(flow, record) is None
+
+
+def test_modelsim_oracle_detects_suppressed_native_state(tmp_path, monkeypatch):
+    from .sim_evidence_cases import SimCase, launch_case
+
+    with monkeypatch.context() as patch:
+        positive = launch_case(SimCase("modelsim"), tmp_path / "positive", patch, positive=True)
+    assert positive.succeeded and positive.results["sim.ended_by"] == "finish"
+    with monkeypatch.context() as patch:
+        missing = launch_case(SimCase("modelsim"), tmp_path / "missing", patch)
+    assert not missing.succeeded

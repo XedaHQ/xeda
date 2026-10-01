@@ -1,0 +1,16 @@
+normal exit 0
+# ** Note: AFTER
+# Break in Process line__1 at tb.vhd line 3
+RUN_STATUS=break simulation_stop {$finish}
+TEST_STATUS=0
+failure exit 0
+# ** Failure: FAILED
+# ** Note: AFTER
+# Break in Process line__1 at tb.vhd line 4
+RUN_STATUS=break simulation_stop {$finish}
+TEST_STATUS=3
+fatal exit 0
+# ** Fatal: FATAL
+# Break in Module tb at tb.sv line 2
+RUN_STATUS=break simulation_stop unknown
+TEST_STATUS=3
