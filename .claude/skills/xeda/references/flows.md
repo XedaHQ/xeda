@@ -63,7 +63,7 @@ Simulate a Verilog or SystemVerilog design with Verilator. Verilator compiles th
 
 34 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
 
-Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
+Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
 ### `vivado_postsynth_sim`
 
