@@ -411,7 +411,12 @@ def _normalized_leaves(
                 else:
                     clock = PhysicalClock.model_validate({"period": 1, path[-1]: value})
                     value = getattr(clock, path[-1])
-            elif shared in ("board", "custom_boards_file"):
+            elif shared == "board":
+                # The board and database may come from different nodes. Lookup is valid
+                # only after they agree; here check the same strict name syntax as the field.
+                if value is not None and not isinstance(value, str):
+                    raise ValueError("board must be a string or None")
+            elif shared == "custom_boards_file":
                 board = WithFpgaBoardSettings.from_input({shared: value}, **context)
                 value = getattr(board, shared)
         except ValueError as error:
@@ -712,9 +717,6 @@ def resolve(
                 if key in request.raw.values
             }
             board = WithFpgaBoardSettings.from_input(raw_board, **context)
-            data = board.board_data()
-            if data is None:
-                raise _error(request.cls, "board", f"Unknown board {board.board!r}")
             if board.fpga:
                 location = request.raw.locations.get(("board",), _Location("the shared board"))
                 fpga = _explicit(board.fpga)

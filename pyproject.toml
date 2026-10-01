@@ -127,6 +127,12 @@ namespaces = false
 "xeda.flows.bsc" = ["templates/*.h", "templates/*.tcl", "templates/*.c"]
 "xeda.flows.yosys" = ["templates/*.h", "templates/*.cpp"]
 # The agent skill's prose lives here; `references/` is not a package, so it is named explicitly.
+"xeda.data" = [
+    "*.toml",
+    "boards/**/*.xdc",
+    "boards/**/*.lpf",
+    "boards/arty/*.md",
+]
 "xeda.data.agent" = [
     "SKILL.md",
     "references/*.md",

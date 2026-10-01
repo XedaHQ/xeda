@@ -1,6 +1,7 @@
 import logging
 import os
 from contextlib import AbstractContextManager, nullcontext
+from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -8,7 +9,7 @@ from importlib_resources import as_file, files
 
 from .dataclass import Field, model_validator
 from .flow import FPGA, FpgaSynthFlow
-from .utils import expand_env_vars, toml_load
+from .utils import expand_env_vars, toml_load, toml_loads
 
 __all__ = [
     "WithFpgaBoardSettings",
@@ -29,8 +30,7 @@ def get_board_data(
         boards_data = toml_load(custom_toml_file)
     else:
         res = files("xeda.data").joinpath("boards.toml")
-        with as_file(res) as p:
-            boards_data = toml_load(p)
+        boards_data = toml_loads(res.read_text())
         if boards_data and board in boards_data:
             log.info("Retrieved board data for %s", board)
         # else:
@@ -39,7 +39,16 @@ def get_board_data(
         #         "xeda.data",
         #         "boards.toml",
         #     )
-    return boards_data.get(board)
+    if board not in boards_data:
+        database = (
+            str(custom_toml_file)
+            if custom_toml_file
+            else "the bundled board database xeda/data/boards.toml"
+        )
+        suggestions = get_close_matches(board, boards_data)
+        hint = f". Did you mean {', '.join(map(repr, suggestions))}?" if suggestions else ""
+        raise ValueError(f"Unknown board {board!r} in {database}{hint}")
+    return boards_data[board]
 
 
 #: How to give a flow whose settings take a `board` its device, for `Flow.required_settings`.

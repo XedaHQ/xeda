@@ -94,19 +94,26 @@ def _settings(cls, field, **kwargs):
     for key in list(base):
         if key in kwargs or key in cls.Settings.dependency_settings.get(field, ()):
             base.pop(key)  # the test decides every shared setting itself
+    if kwargs.get("board") in SAMPLES["board"]:
+        base["custom_boards_file"] = SAMPLES["custom_boards_file"][0]
     return cls.Settings(**{**base, **kwargs})
 
 
 def _dependency_input(cls, field, **shared):
     """The dependency's own minimal settings plus `shared`, as given inside the flow's settings."""
     given = dict(minimal_settings(cls).get(field, {}))
+    if shared.get("board") in SAMPLES["board"]:
+        given["custom_boards_file"] = SAMPLES["custom_boards_file"][0]
     given.update(shared)
     return given
 
 
 def _value(cls, name, given):
     """`given` as the flow's settings hold it once validated (a mapping becomes a model, ...)."""
-    return getattr(cls.Settings(**{**minimal_settings(cls, clock_period=False), name: given}), name)
+    base = minimal_settings(cls, clock_period=False)
+    if name == "board":
+        base["custom_boards_file"] = SAMPLES["custom_boards_file"][0]
+    return getattr(cls.Settings(**{**base, name: given}), name)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -197,6 +204,8 @@ def test_a_given_settings_instance_is_copied_not_shared(cls, field):
     assert getattr(settings, field) is not theirs
     setattr(settings, field, theirs)
     assert getattr(settings, field) is not theirs, "assigning must copy it too"
+    if "board" in cls.Settings.dependency_settings[field]:
+        settings.custom_boards_file = SAMPLES["custom_boards_file"][0]
     for name in cls.Settings.dependency_settings[field]:
         setattr(settings, name, _samples(cls, name)[0])
     settings.resolve_dependency(field)

@@ -177,7 +177,8 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("speed", match_xc6.group("speed_grade"))
                 return values
             match_xc7 = re.match(
-                r"^(XC)(?P<g>\d)(?P<f>[A-Z]+)(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?",
+                r"^(?P<device>XC7(?P<f>[ASKZV])(?:[HX])?(?P<lc>\d+)T?)"
+                r"(?P<pkg>[A-Z]{2,})(?P<pins>\d+)(?P<speed>-\d(?:IL|L|Q)?)?$",
                 part,
                 flags=re.IGNORECASE,
             )
@@ -188,7 +189,7 @@ class FPGA(XedaBaseModel):
                     match_xc7.groupdict(),
                 )
                 set_if_not_exist("vendor", "xilinx")
-                set_if_not_exist("generation", match_xc7.group("g"))
+                set_if_not_exist("generation", "7")
                 fam = match_xc7.group("f")
                 family = set_xc_family(fam, "-7")
                 if family:
@@ -198,12 +199,16 @@ class FPGA(XedaBaseModel):
                 lc = match_xc7.group("lc")
                 set_if_not_exist(
                     "device",
-                    match_xc7.group(1) + match_xc7.group("g") + match_xc7.group("f") + lc,
+                    match_xc7.group("device").lower(),
                 )
                 set_if_not_exist("capacity", lc + "K")
-                set_if_not_exist("package", match_xc7.group("pkg"))
+                set_if_not_exist("package", match_xc7.group("pkg").lower())
                 set_if_not_exist("pins", try_convert(match_xc7.group("pins"), int))
-                set_if_not_exist("grade", match_xc7.group("gr"))
+                # Project X-Ray treats suffixes such as -1IL and -1Q as speed codes.
+                # They do not supply a separate temperature grade.
+                set_if_not_exist(
+                    "speed", match_xc7.group("speed").upper() if match_xc7.group("speed") else None
+                )
                 return values
             match_us = re.match(
                 r"^(XC)(?P<f>[A-Z])(?P<g>[A-Z]+)(?P<lc>\d+)-?(?P<s>L?\d)?(?P<pkg>[A-Z][A-Z][A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",

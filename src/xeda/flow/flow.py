@@ -10,7 +10,6 @@ from abc import ABCMeta, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from copy import deepcopy
 from pathlib import Path, PurePath
 from types import UnionType
 from typing import (
@@ -922,15 +921,30 @@ class Flow(metaclass=ABCMeta):
             dependency are left exactly as written, which is what keeps the outcome independent
             of the order settings were constructed and assigned in.
             """
-            dependency = getattr(self, field).model_copy(deep=True)
-            dependency.invalidate_cached_properties()
+            dependency = getattr(self, field)
+            shared = {}
+            adopted = {}
             for name in type(self).dependency_settings[field]:
                 ours, theirs = getattr(self, name), getattr(dependency, name)
                 if not is_unset(ours):
-                    setattr(dependency, name, deepcopy(ours))
+                    shared[name] = ours
                 elif not is_unset(theirs):
-                    setattr(self, name, deepcopy(theirs))
-            return dependency
+                    adopted[name] = theirs
+            # Coupled settings (especially board/database) must be validated together.
+            # Field-by-field assignment can reject an intermediate pair nobody requested.
+            resolved = type(dependency).from_input(
+                {**dependency.model_dump(), **shared}, **dependency.context
+            )
+            if adopted:
+                validated = type(self).from_input({**self.model_dump(), **adopted}, **self.context)
+                # Keep unrelated established objects, while applying all validator-derived
+                # changes as well as the adopted fields, only after complete validation.
+                for name in type(self).model_fields:
+                    if name in adopted or getattr(self, name) != getattr(validated, name):
+                        self.__dict__[name] = getattr(validated, name)
+                self.__pydantic_fields_set__.update(adopted)
+                self.invalidate_cached_properties()
+            return resolved
 
         @field_validator("verbose", mode="before")
         @classmethod

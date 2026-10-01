@@ -447,6 +447,112 @@ def test_board_part_mismatch_is_rejected_before_launch(tmp_path):
         )
 
 
+def _board_edge():
+    from xeda.board import WithFpgaBoardSettings
+    from xeda.design import SourceType
+    from xeda.flow import In, Out
+
+    class _BoardMaker(Flow):
+        """Board-aware producer for shared database contracts."""
+
+        Settings = WithFpgaBoardSettings
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Outputs(Flow.Outputs):
+            made: Path = Out(SourceType.Data, description="The produced file.")
+
+        def run(self):
+            pass
+
+    class _BoardTaker(Flow):
+        """Board-aware consumer for shared database contracts."""
+
+        Settings = WithFpgaBoardSettings
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Inputs(Flow.Inputs):
+            made: Path = In(SourceType.Data, producer="__board_maker", description="The file.")
+
+        def run(self):
+            pass
+
+    return _BoardTaker, _BoardMaker
+
+
+@pytest.mark.parametrize("placement", ["consumer", "producer", "split", "reverse_split"])
+def test_custom_board_and_database_agree_before_lookup(tmp_path, placement):
+    taker, maker = _board_edge()
+    root = tmp_path / "d"
+    root.mkdir()
+    database = root / "boards.toml"
+    database.write_text(f'[PRIVATE]\nfpga.part = "{PART}"\n')
+    board = {"board": "PRIVATE"}
+    custom = {"custom_boards_file": "boards.toml"}
+    values = {
+        "consumer": ({**board, **custom}, {}),
+        "producer": ({}, {**board, **custom}),
+        "split": (board, custom),
+        "reverse_split": (custom, board),
+    }
+    consumer, producer = values[placement]
+    plan = _plan(tmp_path, taker, consumer, {maker.name: producer})
+    for node in plan.nodes:
+        assert node.settings.board == "PRIVATE"
+        assert node.settings.custom_boards_file == database
+        assert node.settings.fpga.part == PART
+        assert (
+            node.settings.model_dump()
+            == node.flow_class.Settings.from_input(node.settings.model_dump()).model_dump()
+        )
+
+
+@pytest.mark.parametrize("leaf", ["board", "custom_boards_file"])
+def test_board_database_file_conflicts_and_cli_agreement(tmp_path, leaf):
+    taker, maker = _board_edge()
+    root = tmp_path / "d"
+    root.mkdir()
+    for filename in ("a.toml", "b.toml"):
+        (root / filename).write_text(
+            f'[PRIVATE]\nfpga.part = "{PART}"\n[OTHER]\nfpga.part = "{PART}"\n'
+        )
+    common = {"board": "PRIVATE", "custom_boards_file": "a.toml"}
+    alternative = "OTHER" if leaf == "board" else "b.toml"
+    files = {taker.name: common, maker.name: {**common, leaf: alternative}}
+    with pytest.raises(FlowSettingsError) as raised:
+        _plan(tmp_path, taker, origins=[("project.toml", files)])
+    message = str(raised.value)
+    assert leaf in message and "project.toml" in message
+    assert taker.name in message and maker.name in message
+    plan = _plan(
+        tmp_path,
+        taker,
+        origins=[("project.toml", files)],
+        command_line={taker.name: {leaf: alternative}},
+    )
+    for node in plan.nodes:
+        assert getattr(node.settings, leaf) == (
+            alternative if leaf == "board" else root / alternative
+        )
+
+
+def test_unknown_board_with_explicit_fpga_fails_after_database_agreement(tmp_path):
+    taker, maker = _board_edge()
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "boards.toml").write_text(f'[PRIVATE]\nfpga.part = "{PART}"\n')
+    with pytest.raises(FlowSettingsError) as raised:
+        _plan(
+            tmp_path,
+            taker,
+            {"board": "PRIVAT", "fpga": PART},
+            {maker.name: {"custom_boards_file": "boards.toml"}},
+        )
+    message = str(raised.value)
+    assert (
+        "Unknown board" in message and "PRIVATE" in message and str(root / "boards.toml") in message
+    )
+
+
 def test_displaced_producer_skips_launch_checks_but_checks_syntax(tmp_path, caplog):
     import logging
 

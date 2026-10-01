@@ -6,6 +6,7 @@ import pytest
 
 import xeda.board
 from xeda import Design
+from xeda.dataclass import ValidationError
 from xeda.flow import FlowSettingsError
 from xeda.flows import Nextpnr, Openfpgaloader, OpenXC7
 from xeda.flows.nextpnr import NextpnrTool
@@ -55,10 +56,8 @@ def test_custom_board_assignment_order_uses_design_root(tmp_path):
     file_first.board = "MY_BOARD"
     assert file_first.fpga.part == "LFE5U-25F-6BG381C"
 
-    board_first = Nextpnr.Settings.from_input({"board": "MY_BOARD"}, design_root=tmp_path)
-    board_first.custom_boards_file = "board files/boards.toml"
-    assert board_first.custom_boards_file == boards
-    assert board_first.fpga.part == "LFE5U-25F-6BG381C"
+    with pytest.raises(FlowSettingsError, match="Unknown board"):
+        Nextpnr.Settings.from_input({"board": "MY_BOARD"}, design_root=tmp_path)
 
 
 def test_changing_board_database_refreshes_only_a_board_derived_fpga():
@@ -73,7 +72,10 @@ def test_changing_board_database_refreshes_only_a_board_derived_fpga():
     assert settings.fpga.part == "LFE5U-25F-6BG381C"
     settings.custom_boards_file = second
     assert settings.fpga.part == "LFE5U-45F-6BG381C"
-    settings.board = "unknown"
+    with pytest.raises(ValidationError, match="Unknown board"):
+        settings.board = "unknown"
+    assert settings.board == "ulx3s"
+    settings.board = None
     assert settings.fpga is None
     settings.board = "ulx3s"
     assert settings.fpga.part == "LFE5U-45F-6BG381C"
@@ -109,6 +111,33 @@ def test_dependency_resolves_parent_board_and_database_together(tmp_path):
     assert dependency.board == "PARENT"
     assert dependency.custom_boards_file == parent_file
     assert dependency.fpga.part == "LFE5U-25F-6BG381C"
+
+
+def test_dependency_adopts_a_custom_board_pair_without_changing_the_given_settings(tmp_path):
+    boards = board_file(tmp_path)
+    settings = Openfpgaloader.Settings.from_input(
+        {"nextpnr": {"board": "MY_BOARD", "custom_boards_file": str(boards)}},
+        design_root=tmp_path,
+    )
+    given = settings.nextpnr.model_dump()
+    dependency = settings.resolve_dependency("nextpnr")
+    assert settings.board == dependency.board == "MY_BOARD"
+    assert settings.custom_boards_file == dependency.custom_boards_file == boards
+    assert settings.fpga == dependency.fpga
+    assert settings.nextpnr.model_dump() == given
+    assert dependency is not settings.nextpnr
+
+
+def test_invalid_combined_board_pair_leaves_dependency_settings_unchanged(tmp_path):
+    boards = board_file(tmp_path)
+    settings = Openfpgaloader.Settings.from_input(
+        {"board": "ULX3S_85F", "nextpnr": {"board": "MY_BOARD", "custom_boards_file": str(boards)}},
+        design_root=tmp_path,
+    )
+    before = settings.model_dump()
+    with pytest.raises(FlowSettingsError, match="Unknown board"):
+        settings.resolve_dependency("nextpnr")
+    assert settings.model_dump() == before
 
 
 def test_custom_board_path_variable_and_missing_file(tmp_path):
@@ -166,7 +195,7 @@ def test_unreadable_bundled_database_is_named(monkeypatch):
     def unreadable(path):
         raise OSError("unreadable")
 
-    monkeypatch.setattr(xeda.board, "toml_load", unreadable)
+    monkeypatch.setattr(xeda.board, "toml_loads", unreadable)
     with pytest.raises(FlowSettingsError, match="Cannot read the bundled board database"):
         Nextpnr.Settings.from_input({"board": "ULX3S_85F"})
 
