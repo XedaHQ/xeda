@@ -17,7 +17,6 @@ NOT_YET_CONVERTED = {
     "vivado_sim": "P1b: xsim's end",
     "vivado_postsynth_sim": "P1b: xsim's end (a vivado_sim on the netlist)",
     "vivado_power": "P1b: xsim's end (activity simulation)",
-    "yosys_sim": "P1b: the CXXRTL driver reports no end",
 }
 #: Converted for some backends only: the rest are P1b.
 PARTLY_CONVERTED: dict[str, str] = {
@@ -36,7 +35,7 @@ def _sim_flows():
 
 
 def test_every_simulator_flow_is_converted_or_listed_with_a_reason():
-    converted = {"verilator", "ghdl_sim", "nvc"}
+    converted = {"verilator", "ghdl_sim", "nvc", "yosys_sim"}
     assert _sim_flows() == converted | set(NOT_YET_CONVERTED) | set(PARTLY_CONVERTED)
     # a converted flow reports evidence; a listed one does not (so the list cannot go stale)
     adapters = {
@@ -436,6 +435,17 @@ def test_nvc_evidence_oracle_detects_suppressed_native_finish(tmp_path, monkeypa
     assert positive.succeeded and positive.results["sim.ended_by"] == "finish"
     with monkeypatch.context() as patch:
         missing = launch_case(SimCase("nvc"), tmp_path / "missing", patch)
+    assert not missing.succeeded
+
+
+def test_cxxrtl_driver_evidence_oracle_detects_suppressed_monitor(tmp_path, monkeypatch):
+    from .sim_evidence_cases import SimCase, launch_case
+
+    with monkeypatch.context() as patch:
+        positive = launch_case(SimCase("yosys_sim"), tmp_path / "positive", patch, positive=True)
+    assert positive.succeeded and positive.results["sim.ended_by"] == "exit"
+    with monkeypatch.context() as patch:
+        missing = launch_case(SimCase("yosys_sim"), tmp_path / "missing", patch)
     assert not missing.succeeded
 
 

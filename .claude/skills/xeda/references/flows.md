@@ -101,9 +101,9 @@ Reports no results beyond the keys every flow reports.
 
 Simulate with CXXRTL
 
-54 flow-specific settings (plus the common ones): `xeda list-settings yosys_sim --json`
+60 flow-specific settings (plus the common ones): `xeda list-settings yosys_sim --json`
 
-Reports no results beyond the keys every flow reports.
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
 ## FPGA synthesis / implementation
 

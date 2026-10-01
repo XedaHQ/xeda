@@ -33,6 +33,7 @@ __all__ = [
     "require_bsc",
     "require_c_toolchain",
     "require_cxx_toolchain",
+    "require_cxxrtl_evidence",
     "require_cocotb",
     "require_ghdl",
     "require_iverilog",
@@ -332,6 +333,107 @@ def require_verilator() -> None:
 
 def require_yosys() -> None:
     _require_command("yosys", ["yosys", "-V"])
+
+
+@lru_cache(maxsize=None)
+def _probe_cxxrtl_evidence() -> bool:
+    """Generate/link a real RTL assertion and execute the shipped monitor at both thresholds."""
+    import xeda
+
+    package = Path(xeda.__file__).parent
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        for relative in (
+            "flow/templates/sim_record.h",
+            "flows/yosys/templates/cxxrtl_evidence.h",
+            "flows/yosys/templates/cxxrtl_evidence.cpp",
+        ):
+            shutil.copyfile(package / relative, work / Path(relative).name)
+        (work / "dut.sv").write_text("module dut(input a); always @* assert(a); endmodule\n")
+        (work / "main.cpp").write_text(
+            '#include "model.h"\nint main() { cxxrtl_design::p_dut top; '
+            "top.p_a.set<bool>(false); top.step(); return 0; }\n"
+        )
+        if not _command_succeeds(
+            [
+                "yosys",
+                "-Q",
+                "-T",
+                "-p",
+                "read_verilog -formal -sv dut.sv; hierarchy -top dut; proc; "
+                "write_cxxrtl -header model.cpp",
+            ],
+            cwd=tmp,
+        ):
+            return False
+        try:
+            query = subprocess.run(
+                ["yosys-config", "--datdir/include"], capture_output=True, text=True, timeout=30
+            )
+            if query.returncode or not query.stdout.strip():
+                return False
+            include = Path(query.stdout.strip())
+            if not _command_succeeds(
+                [
+                    "g++",
+                    "-std=c++14",
+                    "-DNDEBUG",
+                    "-DCXXRTL_NDEBUG",
+                    "-I.",
+                    f"-I{include}",
+                    f"-I{include / 'backends/cxxrtl/runtime'}",
+                    "-include",
+                    "cxxrtl_evidence.h",
+                    "model.cpp",
+                    "main.cpp",
+                    "cxxrtl_evidence.cpp",
+                    "-o",
+                    "sim",
+                ],
+                cwd=tmp,
+            ):
+                return False
+            for severity, expected in (("error", 1), ("failure", 0)):
+                record, events = work / "end.json", work / "events.jsonl"
+                record.unlink(missing_ok=True)
+                events.unlink(missing_ok=True)
+                result = subprocess.run(
+                    [str(work / "sim")],
+                    cwd=tmp,
+                    capture_output=True,
+                    timeout=10,
+                    env={
+                        **os.environ,
+                        "XEDA_CXXRTL_END_RECORD": str(record),
+                        "XEDA_CXXRTL_EVENTS": str(events),
+                        "XEDA_CXXRTL_FAIL_SEVERITY": severity,
+                    },
+                )
+                if result.returncode != expected:
+                    return False
+                if json.loads(record.read_text())["ended_by"] != "exit":
+                    return False
+                if (
+                    not all(
+                        json.loads(line)["kind"] == "error"
+                        for line in events.read_text().splitlines()
+                    )
+                    or not events.stat().st_size
+                ):
+                    return False
+            return True
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            return False
+
+
+def require_cxxrtl_evidence() -> None:
+    """Yosys/C++ plus a working generated RTL-check and driver-execution monitor."""
+    require_yosys()
+    require_c_toolchain()
+    require_cxx_toolchain()
+    _require(
+        "CXXRTL evidence", _probe_cxxrtl_evidence(), "linking/running the shipped RTL-check monitor"
+    )
 
 
 def require_nextpnr_ecp5() -> None:
