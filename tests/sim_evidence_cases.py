@@ -6,6 +6,7 @@ conversion tasks extend these stand-ins with their native transcript/checkpoint 
 """
 
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,6 +92,8 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
         lambda self, *args, **kwargs: "GHDL 6.0.0\nCompiled with GNAT\nmcode code generator\n"
         "Bluespec Compiler, version 2026.07.1\nVerilator 5.048\nVERILATOR_ROOT = /oracle/verilator\n",
     )
+    if case.flow == "vcs":
+        use_fake_vcs(monkeypatch)
     original = Tool.execute
     calls = []
 
@@ -141,6 +144,15 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
                     merge_stderr=True,
                 )
             return original(tool, executable, *args, **kwargs)
+        if case.flow == "vcs" and name in ("vlogan", "vhdlan", "vcs", "simv"):
+            monkeypatch.setenv("XEDA_FAKE_VCS_STATE", "finish5" if positive else "silent")
+            result = original(tool, executable, *args, **kwargs)
+            if name == "simv" or name == "vcs" and "-R" in words:
+                assert (cwd / "fake_vcs.runtime").read_text() == "runtime executed"
+                (cwd / "oracle.runtime").write_text("runtime executed")
+            else:
+                (cwd / "oracle.build").write_text("analysis/elaboration succeeded")
+            return result
         if case.flow == "modelsim" and name == "vsim":
             monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "finish0" if positive else "silent")
             result = original(tool, executable, *args, **kwargs)
@@ -242,3 +254,30 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
     assert all(p.read_text() == "runtime executed" for p in markers)
     assert flow is not None
     return flow
+
+
+FAKE = Path(__file__).parent / "fake_tools" / "vcs_runtime.py"
+
+
+def use_fake_vcs(monkeypatch):
+    """Run real child processes, including Tcl scripts and both build/runtime phases."""
+    original = Tool.execute
+
+    def execute(tool, executable, *args, **kwargs):
+        name = Path(executable).name
+        if name not in ("vlogan", "vhdlan", "vcs", "simv"):
+            return original(tool, executable, *args, **kwargs)
+        # argv[0] selects the tool; the fake executable lives in this run directory.
+        target = Path.cwd() / (name + ".py")
+        if not target.exists():
+            target.symlink_to(FAKE.resolve())
+        return run_process(
+            sys.executable,
+            [str(target), *args],
+            env={**os.environ, **(kwargs.get("env") or {})},
+            tee=kwargs.get("tee"),
+            timeout=kwargs.get("timeout"),
+            merge_stderr=kwargs.get("merge_stderr", False),
+        )
+
+    monkeypatch.setattr(Tool, "execute", execute)

@@ -9,18 +9,32 @@ from colorama import Style as style
 from ..dataclass import WORKING, Field, deliverable
 from ..design import SourceType
 from ..flow import FlowSettingsException, SimFlow
+from ..flow.flow import describe_results
+from ..flow.sim import SimEvidence
 from ..tool import Tool
-from ..utils import replacing_file
+from ..units import convert_unit
+from ..utils import replacing_file, tcl_word
+from .vcs_evidence import RUNTIME_LOG, parse_vcs_evidence, prepare_vcs_runtime
 
 log = logging.getLogger(__name__)
 
 
 class Vcs(SimFlow):
-    """Synopsys VCS simulator"""
+    """Synopsys VCS simulator with runtime evidence in split and one-shot modes.
 
-    # This flow reports no results beyond the keys every flow reports; declaring this
-    # explicitly keeps `xeda list-results` from guessing.
-    results_description: dict = {}
+    Quiet $finish(0) and VHDL completion fail unless a native finish diagnostic is
+    observable. UCLI time checkpoints alone do not establish HDL completion.
+    """
+
+    results_description = describe_results(
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+    )
+
+    def has_evidence_adapter(self) -> bool:
+        return True
+
+    def simulation_evidence(self) -> SimEvidence | None:
+        return parse_vcs_evidence(self)
 
     highlight_rules = {
         r"^(Error:)(.+)$": fg.RED + style.BRIGHT + r"\g<0>",
@@ -53,6 +67,17 @@ class Vcs(SimFlow):
     simv = Tool("./simv", version_flag=None)
 
     class Settings(SimFlow.Settings):
+        timeout: float | None = Field(
+            None,
+            gt=0,
+            description="Fail and stop simv or the combined vcs -R invocation after this many "
+            "seconds of wall-clock time. None sets no limit.",
+        )
+        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
+            "error",
+            description="Lowest runtime diagnostic severity that fails simulation. "
+            "Failure and fatal have the same rank.",
+        )
         simv_flags: List[str] = Field(
             [],
             description="Extra arguments passed to the compiled simulator executable (simv). "
@@ -204,51 +229,45 @@ class Vcs(SimFlow):
         if ss.ucli_script:
             ss.ucli = True
             ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.design_root)
-        # a waveform named by a relative name is written in the run directory, where simv runs
-        elif ss.fsdb:
-            ss.ucli = True
-            ss.ucli_script = Path("dump_fsdb.do")
-        elif ss.vpd:
-            ss.ucli = True
-            ss.ucli_script = Path("dump_vpd.do")
-        elif ss.evcd:
-            ss.ucli = True
-            ss.ucli_script = Path("dump_evcd.do")
 
     def run(self):
         """Compile and simulate the design with VCS."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        if not os.environ.get("VCS_TARGET_ARCH"):
-            os.environ["VCS_TARGET_ARCH"] = "amd64"
-        if not os.environ.get("VCS_ARCH_OVERRIDE"):
-            os.environ["VCS_ARCH_OVERRIDE"] = "linux"
-        vlogan_args = ss.vlogan_flags
-        vhdlan_args = ss.vhdlan_flags
-        vcs_args = ss.vcs_flags
-        simv_args = ss.simv_flags
-        common_run_args: List[str] = []
-
-        if ss.fsdb or ss.vpd or ss.evcd:
-            assert ss.ucli_script
-            with replacing_file(self.run_directory.writable(ss.ucli_script), encoding="utf-8") as f:
-                if ss.fsdb:
-                    f.write(f"dump -file {ss.fsdb} -type FSDB\n")
-                    f.write("dump -add . -add / -aggregates -fid FSDB0\n")
-                    f.write("dump -enable -fid FSDB0\n")
-                elif ss.vpd:
-                    f.write(f"dump -file {ss.vpd} -type vpd\n")
-                    f.write("dump -add . -add / -aggregates -fid VPD0\n")
-                    f.write("dump -enable -fid VPD0\n")
-                elif ss.evcd:
-                    f.write(f"dump -file {ss.evcd} -type evcd\n")
-                    f.write("dump -add . -add / -aggregates -fid EVCD0\n")
-                    f.write("dump -enable -fid EVCD0\n")
-                if ss.stop_time is not None:
-                    f.write(f"run -absolute {ss.stop_time}\n")
-                else:
-                    f.write("run\n")
-                f.write("quit\n")
+        if ss.stop_time is not None and (ss.ucli_script or ss.gui):
+            raise FlowSettingsException(
+                "VCS stop_time cannot be enforced with a user ucli_script or GUI control; "
+                "use the owned batch script."
+            )
+        stop_time = None
+        if ss.stop_time is not None:
+            stop_fs = int(round(convert_unit(ss.stop_time, "fs", from_unit="ns")))
+            if stop_fs <= 0:
+                raise FlowSettingsException(
+                    "VCS stop_time must be positive after conversion to femtoseconds "
+                    "for an absolute UCLI breakpoint"
+                )
+            stop_time = f"{stop_fs}fs"
+        env = {
+            "VCS_TARGET_ARCH": os.environ.get("VCS_TARGET_ARCH", "amd64"),
+            "VCS_ARCH_OVERRIDE": os.environ.get("VCS_ARCH_OVERRIDE", "linux"),
+        }
+        vlogan_args = list(ss.vlogan_flags)
+        vhdlan_args = list(ss.vhdlan_flags)
+        vcs_args = list(ss.vcs_flags)
+        simv_args = list(ss.simv_flags)
+        common_run_args: list[str] = []
+        setup: list[str] = []
+        for kind in ("fsdb", "vpd", "evcd"):
+            waveform = getattr(ss, kind)
+            if waveform:
+                fid = "FSDB0" if kind == "fsdb" else "VPD0"
+                setup += [
+                    f"dump -file {tcl_word(waveform)} -type {kind.upper() if kind == 'fsdb' else kind}",
+                    f"dump -add . -add / -aggregates -fid {fid}",
+                    f"dump -enable -fid {fid}",
+                ]
+                break
         if ss.gui:
             ss.generate_kdb = True
         if ss.supress_banner:
@@ -295,15 +314,15 @@ class Vcs(SimFlow):
         vlog_files = self.design.sources_of_type(SourceType.Verilog, rtl=True, tb=True)
         if vlog_files:
             log.info("analyzing Verilog files")
-            self.vlogan.run(*vlogan_args, *(str(f) for f in vlog_files))
+            self.vlogan.run(*vlogan_args, *(str(f) for f in vlog_files), env=env)
         sv_files = self.design.sources_of_type(SourceType.SystemVerilog, rtl=True, tb=True)
         if sv_files:
             log.info("analyzing SystemVerilog files")
-            self.vlogan.run(*vlogan_args, "-sverilog", *(str(f) for f in sv_files))
+            self.vlogan.run(*vlogan_args, "-sverilog", *(str(f) for f in sv_files), env=env)
         vhdl_files = self.design.sources_of_type(SourceType.Vhdl, rtl=True, tb=True)
         if vhdl_files:
             log.info("analyzing VHDL files")
-            self.vhdlan.run(*vhdlan_args, *(str(f) for f in vhdl_files))
+            self.vhdlan.run(*vhdlan_args, *(str(f) for f in vhdl_files), env=env)
         top = self.design.tb.top[0]
         if ss.verbose:
             vlogan_args.append("-notice")
@@ -378,26 +397,40 @@ class Vcs(SimFlow):
             vcs_args.append("+vcs+initreg+random")
             simv_args.append(f"+vcs+initreg+{ss.initreg}")
 
-        if ss.ucli:
-            common_run_args.append("-ucli")
-            if ss.one_shot_run:
-                self.vcs.console_colors = False
-
-        if ss.ucli_script:
-            common_run_args += ["-do", str(ss.ucli_script)]
+        if not ss.one_shot_run:
+            self.vcs.run(*vcs_args, env=env)
+        script = prepare_vcs_runtime(
+            self, setup=setup, user_script=ss.ucli_script, stop_time=stop_time
+        )
+        common_run_args += ["-ucli", "-i", str(script)]
         if ss.gui:
             if isinstance(ss.gui, str) and ss.gui.lower() not in ("true", "false", "1", "0"):
                 common_run_args.append(f"-gui={ss.gui}")
             elif ss.gui is True:
                 common_run_args.append("-gui")
+        runtime_tool = self.vcs if ss.one_shot_run else self.simv
+        runtime_tool.redirect_stdout = None
         if ss.one_shot_run:
-            vcs_args.append("-R")
-            vcs_args += common_run_args
-        self.vcs.run(*vcs_args)
-        if ss.sim_no_save:
-            simv_args.append("-no_save")
-        if not ss.one_shot_run:
-            self.simv.run(*simv_args, *common_run_args)
+            self.vcs.run(
+                *vcs_args,
+                "-R",
+                *common_run_args,
+                env=env,
+                timeout=ss.timeout,
+                tee=self.run_directory.writable(RUNTIME_LOG),
+                merge_stderr=True,
+            )
+        else:
+            if ss.sim_no_save:
+                simv_args.append("-no_save")
+            self.simv.run(
+                *simv_args,
+                *common_run_args,
+                env=env,
+                timeout=ss.timeout,
+                tee=self.run_directory.writable(RUNTIME_LOG),
+                merge_stderr=True,
+            )
         if ss.to_vcd:
             if ss.fsdb:
                 if not ss.fsdb.exists():
