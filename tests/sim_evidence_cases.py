@@ -152,6 +152,11 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
                 activity.write_text("fake activity\n")
             if positive and record:
                 program += f"Path({record!r}).write_text({json.dumps({'ended_by': 'finish', 'time': 0, 'time_unit': '1ps', 'events': []})!r})\n"
+            if positive and case.backend == "bluesim":
+                program += (
+                    'Path(\'bluesim_events.jsonl\').write_text(\'{"kind":"finish","time":0}\\n\')\n'
+                )
+                program += 'Path(\'bluesim_end.json\').write_text(\'{"ended_by":"unknown","time":0,"time_unit":"1ns","cycles":1,"events":[]}\')\n'
             if positive and case.flow == "ghdl_sim":
                 program += "print('simulation finished @0ms', flush=True)\n"
             if case.flow == "nvc":
