@@ -191,7 +191,7 @@ Yosys Open SYnthesis Suite: FPGA synthesis
 
 70 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
-Reports: `LUT`, `lut`, `ff`, `LUT:RAM`, `FF`
+Reports: `LUT`, `lut`, `ff`, `LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`, `LUT:STAGE`, `LUT:METHOD`, `FF`
 
 ## ASIC synthesis
 

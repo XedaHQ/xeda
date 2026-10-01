@@ -27,6 +27,10 @@ yosys plugin -i systemverilog
 yosys plugin -i slang
 {% endif -%}
 
+{% for src in primitive_libraries|default([]) -%}
+yosys read_verilog -lib {{src|read_path}}
+{% endfor -%}
+
 {% for src in sources -%}
 {% if src.type is not none -%}
     {% if src.type.name == "Verilog" -%}
@@ -58,7 +62,7 @@ yosys read_liberty -lib {{lib|read_path}}
 {% endfor -%}
 {% endif -%}
 
-{% for src in settings.verilog_lib -%}
+{% for src in settings.verilog_lib if src|string not in primitive_libraries|default([]) -%}
 yosys read_verilog -lib {{src|read_path}}
 {% endfor -%}
 

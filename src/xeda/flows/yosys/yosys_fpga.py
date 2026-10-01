@@ -41,6 +41,28 @@ XILINX_FAMILY_NAMES = {
     "spartan3e": "xc3se",
 }
 
+# Mapped primitive footprints: logic LUT cells occupy one LUT, LUT6_2 can use both outputs,
+# RAM32M maps to four LUTs, and an SRL primitive uses one LUT. These are synthesis-stage estimates,
+# not placement occupancy or a claim of Vivado report equivalence.
+XILINX_LUT_FOOTPRINT = {
+    **{f"LUT{width}": ("logic", 1) for width in range(1, 7)},
+    "LUT6_2": ("logic", 2),
+    "RAM32M": ("ram", 4),
+    **{
+        cell: ("srl", 1)
+        for cell in (
+            "SRL16",
+            "SRL16E",
+            "SRLC16",
+            "SRLC16E",
+            "SRL32",
+            "SRL32E",
+            "SRLC32",
+            "SRLC32E",
+        )
+    },
+}
+
 
 def _abc9_mode(target: str, release: YosysRelease) -> Literal["opt-in", "default", "always"]:
     """How the `target`'s synthesis pass of yosys `release` uses ABC9.
@@ -66,7 +88,11 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         "lut",
         "ff",
         **{
-            "LUT:RAM": "Number of LUTs used as distributed RAM.",
+            "LUT:LOGIC": "Mapped Xilinx logic LUT footprint estimate at the synthesis stage.",
+            "LUT:RAM": "Mapped distributed RAM LUT footprint estimate at the synthesis stage.",
+            "LUT:SRL": "Mapped shift-register LUT footprint estimate at the synthesis stage.",
+            "LUT:STAGE": "Stage represented by the canonical LUT resource estimate.",
+            "LUT:METHOD": "Method used to estimate the canonical LUT resource units.",
             "FF": "Number of flip-flops (registers) used.",
         },
     )
@@ -82,6 +108,11 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     )
 
     class Settings(YosysBase.Settings, FpgaSynthFlow.Settings):
+        read_verilog_flags: list[str] = Field(
+            ["-sv"],
+            description="Flags passed to yosys' `read_verilog` for each Verilog source. Add "
+            "`-noautowire` explicitly if its stricter undeclared-net behavior is required.",
+        )
         abc9: bool = Field(
             True,
             description="Map LUTs with ABC9. False maps with classic ABC (`-noabc9`, or no "
@@ -173,6 +204,21 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 f"(vendor={vendor or None!r}); supported are Xilinx, Gowin, and the Lattice "
                 "families ecp5, ice40 and nexus."
             )
+
+        def primitive_libraries(self, release: YosysRelease) -> list[str]:
+            """Yosys pseudo-paths for primitive models needed before hierarchy checking."""
+            target = self.synthesis_target()
+            if target == "xilinx":
+                return ["+/xilinx/cells_sim.v", "+/xilinx/cells_xtra.v"]
+            if target == "nexus":
+                return ["+/lattice/cells_sim_nexus.v", "+/lattice/cells_bb_nexus.v"]
+            if target == "ecp5" and release >= (0, 69):
+                return ["+/lattice/cells_sim_ecp5.v", "+/lattice/cells_bb_ecp5.v"]
+            if target == "ecp5":
+                return ["+/ecp5/cells_sim.v"]
+            if target == "ice40":
+                return ["+/ice40/cells_sim.v"]
+            return []
 
         def synth_command(self, release: YosysRelease) -> List[str]:
             """The device synthesis command for yosys `release`, with its flags.
@@ -389,7 +435,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         if ss.netlist_json:
             declared.netlist = self.run_path / ss.netlist_json
         assert ss.fpga is not None, "checked at launch (`required_settings`)"
-        self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
+        self.artifacts.timing_report = ss.reports_dir / "timing.rpt" if ss.sta else None
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
         synth_command = ss.synth_command(yosys_release(self.yosys))
 
@@ -410,6 +456,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
             synth_command=synth_command,
+            primitive_libraries=ss.primitive_libraries(yosys_release(self.yosys)),
         )
         log.info("Yosys script: %s", script_path.absolute())
         args = [self.script_flag, script_path]
@@ -459,13 +506,18 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
 
                 assert self.settings.fpga
                 if self.settings.fpga.vendor == "xilinx":
-                    self.results["LUT"] = sum_all_resources(
-                        design_util, [f"LUT{i}" for i in range(2, 7)]
-                    )
-                    ram32m = sum_all_resources(design_util, ["RAM32M"])
-                    if ram32m:
-                        self.results["LUT"] += ram32m
-                        self.results["LUT:RAM"] = ram32m
+                    lut_footprint = {"logic": 0, "ram": 0, "srl": 0}
+                    for cell, (kind, units) in XILINX_LUT_FOOTPRINT.items():
+                        lut_footprint[kind] += units * int(design_util.get(cell, 0))
+                    logic_luts = lut_footprint["logic"]
+                    ram_luts = lut_footprint["ram"]
+                    srl_luts = lut_footprint["srl"]
+                    self.results["LUT"] = logic_luts + ram_luts + srl_luts
+                    self.results["LUT:LOGIC"] = logic_luts
+                    self.results["LUT:RAM"] = ram_luts
+                    self.results["LUT:SRL"] = srl_luts
+                    self.results["LUT:STAGE"] = "mapped"
+                    self.results["LUT:METHOD"] = "primitive-footprint estimate"
                     add_util_sum_if_nonzero(
                         "FF",
                         [

@@ -394,6 +394,9 @@ class YosysBase(Flow):
             design_root = context.get("design_root")
             for v in value:
                 try:
+                    if str(v).startswith("+/"):
+                        resolved.append(Path(v))
+                        continue
                     path = Path(v)
                     if not path.is_absolute() and design_root:
                         path = design_root / path

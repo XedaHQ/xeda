@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from xeda import Design
 from xeda.flow import FPGA
@@ -47,6 +48,7 @@ def _render(flow_cls, settings: dict[str, Any], tmp_path: Path) -> str:
     extra = {}
     if flow_cls is YosysFpga:
         extra["synth_command"] = flow.settings.synth_command(NEWEST_CHECKED_YOSYS)
+        extra["primitive_libraries"] = flow.settings.primitive_libraries(NEWEST_CHECKED_YOSYS)
     script = flow.copy_from_template(
         f"{stem}{flow.script_ext}",
         lstrip_blocks=True,
@@ -94,6 +96,62 @@ def test_ys_template_quotes_values_plainly(flow_cls, settings, tmp_path: Path) -
     assert "chparam -set G_IN_WIDTH 32" in script
     assert "chparam -set G_BITVECTOR 7'b0101001" in script
     assert "chparam -set G_ITERATIVE 1'b1" in script
+
+
+@pytest.mark.parametrize("flow_cls", [YosysFpga], ids=["yosys_fpga"])
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_fpga_primitive_libraries_precede_hierarchy(flow_cls, script_format, tmp_path):
+    script = _render(flow_cls, _fpga_settings(), tmp_path)
+    xtra = script.index("read_verilog -lib +/xilinx/cells_xtra.v")
+    sim = script.index("read_verilog -lib +/xilinx/cells_sim.v")
+    hierarchy = script.index("hierarchy -check")
+    assert xtra < hierarchy and sim < hierarchy
+    assert script.count("+/xilinx/cells_xtra.v") == 1
+    assert script.count("+/xilinx/cells_sim.v") == 1
+
+
+@pytest.mark.parametrize(
+    "fpga,release,expected",
+    [
+        (
+            {"part": "LFE5U-25F-6BG256C"},
+            (0, 69),
+            ["+/lattice/cells_sim_ecp5.v", "+/lattice/cells_bb_ecp5.v"],
+        ),
+        (
+            {"part": "iCE40HX1K-TQ144"},
+            (0, 69),
+            ["+/ice40/cells_sim.v"],
+        ),
+        (
+            {"part": "LIFCL-40-9BG400C"},
+            (0, 69),
+            ["+/lattice/cells_sim_nexus.v", "+/lattice/cells_bb_nexus.v"],
+        ),
+    ],
+)
+def test_fpga_primitive_libraries_follow_release_recipe(fpga, release, expected):
+    from xeda.flows.yosys.yosys_fpga import YosysFpga
+
+    settings = YosysFpga.Settings(fpga=fpga)
+    assert settings.primitive_libraries(release) == expected
+
+
+@pytest.mark.parametrize("flow_cls", [Yosys, YosysFpga], ids=["yosys", "yosys_fpga"])
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_yosys_library_pseudo_paths_keep_yosys_prefix(flow_cls, script_format, tmp_path):
+    settings = _asic_settings if flow_cls is Yosys else _fpga_settings
+    settings = settings(verilog_lib=["+/xilinx/cells_sim.v"], script_format=script_format)
+    script = _render(flow_cls, settings, tmp_path)
+    assert (
+        sum("read_verilog -lib" in line and "cells_sim.v" in line for line in script.splitlines())
+        == 1
+    )
+
+
+def test_yosys_verilog_library_still_rejects_missing_host_paths(tmp_path):
+    with pytest.raises(ValidationError, match="verilog_lib.*file not found"):
+        Yosys.Settings(verilog_lib=[tmp_path / "missing.v"])
 
 
 NETLIST_WRITERS = ("write_json", "write_verilog", "write_blif")

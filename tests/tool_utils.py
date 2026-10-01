@@ -708,6 +708,21 @@ def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
         path = share / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
+    yosys_share = prefix / "share/yosys"
+    yosys_files = {
+        "xilinx/cells_sim.v": "// fake Xilinx simulation primitives\n",
+        "xilinx/cells_xtra.v": "// fake Xilinx extra primitives\n",
+        "ecp5/cells_sim.v": "// fake ECP5 simulation primitives\n",
+        "ice40/cells_sim.v": "// fake iCE40 simulation primitives\n",
+        "lattice/cells_sim_ecp5.v": "// fake ECP5 simulation primitives\n",
+        "lattice/cells_bb_ecp5.v": "// fake ECP5 black boxes\n",
+        "lattice/cells_sim_nexus.v": "// fake Nexus simulation primitives\n",
+        "lattice/cells_bb_nexus.v": "// fake Nexus black boxes\n",
+    }
+    for name, content in yosys_files.items():
+        path = yosys_share / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
     monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ["PATH"])
     return prefix
 
