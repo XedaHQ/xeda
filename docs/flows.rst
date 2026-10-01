@@ -248,10 +248,12 @@ port with ``reset_prefix`` if a downstream flow expects one.
 
 ``bsc_sim`` runs the testbench with Bluesim (the default), bsc's own cycle-based simulator, or,
 through bsc's ``-vsim`` link step, a Verilog simulator: Verilator, Icarus Verilog, or another one
-bsc supports. The run fails when the simulation exits with a failure status -- a testbench's
-``$fatal`` or a failing ``dynamicAssert`` -- and passes otherwise; ``$finish(n)``'s argument is a
-verbosity level, not a status, and of Bluesim, Verilator and Icarus Verilog, ``$error`` fails
-the run only under Verilator.
+bsc supports. Bluesim, Verilator and Icarus require an observed ``$finish`` or a confirmed
+requested limit, with no runtime event reaching ``fail_severity`` (default ``error``).
+``$finish(n)``'s argument is a verbosity level, not an exit status. A requested Bluesim
+``max_cycles`` passes only with the measured cycle count and final simulated time; an early
+explicit finish remains valid. A silent exit 0 and a drained event queue fail. Other bsc
+backends still await evidence conversion.
 
 .. code-block:: bash
 
@@ -299,9 +301,23 @@ Simulation results
 
 A simulation passes only on evidence that it ended, not on the simulator's exit status alone. A
 cocotb run, on any simulator, needs at least one test that ran and none that failed; a run in
-which every test was skipped fails. Of the simulator flows, only ``verilator`` is converted so
-far. ``bsc_sim`` takes a ``timeout``, but is otherwise judged as before, by its exit status; so
-are the other simulators.
+which every test was skipped fails. Evidence handling is implemented for ``verilator``,
+``ghdl_sim``, ``nvc``, ``modelsim``, ``yosys_sim`` (CXXRTL), and ``bsc_sim``'s
+Bluesim/Verilator/Icarus backends. The new adapters persist ``sim.evidence`` alongside the
+summary keys, capture runtime diagnostics, default ``fail_severity`` to ``error`` and honor
+``timeout``. VCS, Vivado simulation/power and the remaining bsc backends retain their existing
+non-cocotb verdicts until their conversions are complete.
+
+GHDL and nvc require native finish/stop evidence or an observed requested stop time. VHDL
+``std.env.stop`` is accepted as completion. nvc's former ``exit_severity`` setting is removed;
+use ``fail_severity``. CXXRTL links an exit monitor and RTL assertion hook into the design's
+own C++ driver: an observed driver exit 0 is valid, but a missing record or abnormal exit
+fails. CXXRTL rejects ``stop_time`` because the driver controls scheduling.
+
+ModelSim requires matching native stop reason, time and TESTSTATUS observations from this
+run's checkpoint and bounded runtime logfile. Compilation/loading messages do not affect the
+runtime verdict. VHDL ``std.env.stop`` is accepted with native VHDL break evidence, while
+Verilog ``$stop`` fails. VHDL failure and SystemVerilog fatal share the native fatal rank.
 
 Verilator
 ---------

@@ -1017,13 +1017,21 @@ while it is open). A flow sharing
   (`warning`/`error`/`failure`/`fatal`, default `error`), `random_init` (default false),
   `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied only when the RTL top is the simulated
   top, and `stop_time` (rejected with cocotb or a design's own driver); minimum Verilator 5.024.
-  `bsc_sim` has `timeout` only and is not converted (P1b: its Verilator backend's hooks); neither
-  are the other simulators; `tests/test_sim_evidence.py` is the oracle and lists them.
+  GHDL, nvc, ModelSim, CXXRTL and `bsc_sim`'s Bluesim/Verilator/Icarus backends also use this
+  verdict, with `timeout`, default `fail_severity = "error"` and persisted `sim.evidence`.
+  GHDL/nvc read native end diagnostics (nvc adds a passive time monitor); Bluesim records
+  system tasks and measured cycles; bsc's Verilator/Icarus runtimes link end hooks; CXXRTL
+  links an exit/assertion monitor and rejects `stop_time`. VCS, Vivado simulation/power and
+  the remaining bsc backends await conversion; `tests/test_sim_evidence.py` lists the
+  transitional cases and exercises silent-runtime failures for converted families.
 - **ModelSim exits 0 unless told otherwise.** Its `exit` takes the status as `exit -code N` (a
   plain `exit 1` exits 0, and the fake `vsim` mimics that); without `vsim -onfinish stop`, `$finish`
   exits vsim at once with status 0; and a testbench's `$error` or failed assertion never changes
-  the status -- `run.tcl` reads `coverage attribute -name TESTSTATUS` instead and fails at
-  the `fail_severity` setting (default `failure`). `BreakOnAssertion` is set to 4 after loading
+  the status -- `run.tcl` reads `coverage attribute -name TESTSTATUS`, native `runStatus`,
+  `$now` ticks and `$resolution`. The adapter requires a matching checkpoint and the runtime
+  section of an owned batch `-logfile`, bounded by `echo` markers, and judges recorded events
+  at `fail_severity` (default `error`). VHDL `std.env.stop` is accepted with a native break
+  from a known VHDL source; a Verilog `$stop` Note fails. `BreakOnAssertion` is set to 4 after loading
   the design so VHDL `failure` does not stop the testbench before its finish. ModelSim reports
   VHDL `failure` and SystemVerilog `$fatal` as the same TESTSTATUS (3), so `fatal` and `failure`
   have the same status threshold. The flow's default image is `chaseruskin/modelsim-intel`

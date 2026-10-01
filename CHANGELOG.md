@@ -23,8 +23,15 @@ All notable changes to this project will be documented in this file.
   `fail_severity` (default `error`) and `stop_time`, simulates the testbench's top by name
   (`--top-module`: `tb.top`, else `rtl.top`; with cocotb, `tb.cocotb.toplevel`, else `rtl.top`),
   applies `rtl.parameters` only when the RTL top is the simulated top, and copies the model's output
-  to `sim.log` in `sim_dir` (not under cocotb). Only Verilator is converted: `bsc_sim` gains
-  `timeout` but is otherwise judged as before, by its exit status, and so are the other simulators.
+  to `sim.log` in `sim_dir` (not under cocotb). GHDL, nvc, ModelSim, CXXRTL and `bsc_sim`'s
+  Bluesim/Verilator/Icarus backends now use the same evidence verdict: a silent exit 0 or a
+  drained event queue fails. These adapters persist normalized `sim.evidence`, capture runtime
+  diagnostics and honor `timeout`. A requested Bluesim `max_cycles` requires the measured
+  cycle count and final simulated time. Icarus runs explicitly through `vvp`, avoiding the
+  generated executable's incompatible shebang on macOS.
+- ModelSim batch runs capture an owned logfile and require matching runtime stop reason,
+  time and TESTSTATUS evidence. VHDL `std.env.stop` is accepted as completion; Verilog `$stop`
+  fails. Compilation/loading diagnostics are excluded from the runtime verdict.
 - A failed dependency's `FlowDependencyFailure` names the dependency and its `results.json`.
 
 ### Added
@@ -42,6 +49,11 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- `fail_severity` defaults to `error` on the converted simulator families, including GHDL
+  and ModelSim (previously `failure`). nvc's `exit_severity` is removed in favor of
+  `fail_severity`. CXXRTL rejects `stop_time`, which its user-owned driver cannot enforce.
+- VCS, Vivado simulation/power and the remaining bsc backends still await evidence conversion;
+  their non-cocotb verdicts retain the existing behavior during this transition.
 - **Every design source has a type.** A suffix xeda cannot type -- unknown (`.txt`), ambiguous
   (`.json`, `.bin`, `.cfg`, `.config`) or in another letter case (`.VHD`) -- is a load error
   asking for `type = "..."`, with `Data` for a file with no automatic HDL frontend. An invalid
