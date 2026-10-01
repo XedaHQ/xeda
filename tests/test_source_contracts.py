@@ -220,6 +220,36 @@ def test_quartus_assigns_each_source_it_reads_by_the_assignment_quartus_has(tmp_
     assert not assigned & {"XDC_FILE", "MEMORYFILE_FILE", "TCL_FILE", "VERILOGHEADER_FILE"}
 
 
+@needs_tclsh
+@pytest.mark.parametrize("header_suffix", ["vh", "dat"])
+def test_ise_preserves_each_header_search_directory_as_a_list_element(
+    tmp_path, monkeypatch, header_suffix
+):
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "top.v").write_text('`include "defs.' + header_suffix + '"\nmodule top; endmodule\n')
+    include_dirs = [root / "shared headers", root / "board headers"]
+    headers = []
+    for directory in include_dirs:
+        directory.mkdir()
+        header = directory / f"defs.{header_suffix}"
+        header.write_text("`define WIDTH 8\n")
+        headers.append({"file": str(header), "type": "VerilogHeader"})
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": ["top.v", *headers], "top": "top", "clock_port": "clk"},
+    )
+    calls = _calls("ise_synth", design, _settings(root, "ise_synth"), tmp_path, monkeypatch)
+    (setting,) = [
+        call for call in calls if call[:3] == ["project", "set", "Verilog Include Directories"]
+    ]
+    # The Tcl recorder expands list-valued arguments using Tcl itself. A single joined string
+    # splits a directory containing spaces; each actual search path must be a complete element.
+    for directory in [root, *include_dirs]:
+        assert str(directory) in setting[3:], setting
+
+
 #: A template that iterates the design's sources, or pipes them into a filter, unfiltered.
 RAW_SOURCES = re.compile(
     r"for\s+\w+\s+in\s+design\.(rtl|tb)\.sources\b|design\.(rtl|tb)\.sources\s*\|"
