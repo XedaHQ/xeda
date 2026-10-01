@@ -27,7 +27,7 @@ puts "\n==============================( Adding RTL Sources )====================
 xfile add {{src|tcl_word}} -copy
 {%- endfor %}
 {% if source_include_dirs|default([]) %}
-project set "Verilog Include Directories" {{source_include_dirs|map('string')|join(' ')|tcl_word}} -process "Synthesize - XST"
+project set "Verilog Include Directories" {{source_include_dirs|tcl_list}} -process "Synthesize - XST"
 {% endif %}
 
 project set top {{design.rtl.top|tcl_word}}
