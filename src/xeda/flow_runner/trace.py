@@ -20,7 +20,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Literal, Mapping, Optional, Set, Tuple
 
 from pydantic import ValidationError
 
@@ -51,7 +51,8 @@ TRACE_FILE = "trace.json"
 #: trace's own names are reserved.
 #: 12: programs are file records; listings hold directory entries and follow directory links;
 #: the reports a run read are recorded.
-TRACE_FORMAT = 12
+#: 13: ordered declared-input bindings, including their source/producer provenance.
+TRACE_FORMAT = 13
 
 #: The names xeda reserves at the top of a run directory, never outputs: the trace and the trace
 #: being written -- and the clock markers, named `digest.TIME_MARKER_PREFIX` + a random suffix.
@@ -67,6 +68,18 @@ class ProgramRecord(XedaBaseModel):
 
     path: str
     file: Optional[FileRecord] = None
+
+
+class DeclaredInputRecord(XedaBaseModel):
+    """One ordered input binding, independent of the set of input files."""
+
+    name: str
+    origin: Literal["source", "producer", "none"]
+    producer: str | None = None
+    output: str | None = None
+    producer_hash: str | None = None
+    producer_path: str | None = None
+    paths: tuple[str, ...] = ()
 
 
 class Trace(XedaBaseModel):
@@ -107,6 +120,7 @@ class Trace(XedaBaseModel):
     #: the reports the run read inside its run directory (`Flow.report_file`), relative to it,
     #: in POSIX form: removed before the next run executes (R50 j)
     reports: List[str] = []
+    declared_inputs: list[DeclaredInputRecord] = []
 
 
 def run_directory_files(run_path: Path) -> list[Path]:
@@ -235,6 +249,7 @@ class Expectation:
     dependency_runs: Mapping[str, str]
     #: the flow of each dependency, by the same run directory, to name it in a reason
     dependency_flows: Mapping[str, str]
+    declared_inputs: tuple[DeclaredInputRecord, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -356,6 +371,8 @@ def check_trace(
         if reads[0] > reads_before:
             read.append(current)
         refreshed.programs[name] = ProgramRecord(path=program.path, file=current)
+    if trace.declared_inputs != list(expected.declared_inputs):
+        return Freshness(False, "declared input bindings changed (name, order or origin)")
     # A dependency that ran again may have changed files this run read without declaring them,
     # which the comparison of its declared outputs below cannot see.
     for run in sorted(trace.dependency_runs.keys() | expected.dependency_runs.keys()):

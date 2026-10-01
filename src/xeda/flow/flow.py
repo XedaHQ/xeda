@@ -7,6 +7,9 @@ import logging
 import os
 import re
 from abc import ABCMeta, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from pathlib import Path, PurePath
 from types import UnionType
@@ -444,6 +447,29 @@ def identity_settings(
     return copy
 
 
+_path_identities: ContextVar[Mapping[str, str]] = ContextVar("path_identities", default={})
+
+
+@contextmanager
+def using_path_identities(paths: Mapping[str, str]) -> Iterator[None]:
+    """Keep a shipped read path's original identity while tools use its relocated file."""
+    token = _path_identities.set(dict(paths))
+    try:
+        yield
+    finally:
+        _path_identities.reset(token)
+
+
+def _with_path_identities(value: Any, paths: Mapping[str, str]) -> Any:
+    if isinstance(value, dict):
+        return {key: _with_path_identities(item, paths) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return rebuild_like(value, [_with_path_identities(item, paths) for item in value])
+    if isinstance(value, (str, os.PathLike)):
+        return paths.get(os.fspath(value), value)
+    return value
+
+
 def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[str] = None) -> str:
     """What identifies a run of `flow_name` with `settings`: the key `--cached-dependencies`
     reuses a previous run by, and part of a hashed run directory's name.
@@ -466,9 +492,11 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[
     ]
     roots.sort(key=lambda var_root: len(var_root[1].parts), reverse=True)  # most specific first
     identity = identity_settings(settings, design_name)
-    return semantic_hash(
-        dict(flow_name=flow_name, flow_settings=location_free(identity.model_dump(), roots))
-    )
+    values = identity.model_dump()
+    paths = _path_identities.get()
+    if paths:
+        values = _with_path_identities(values, paths)
+    return semantic_hash(dict(flow_name=flow_name, flow_settings=location_free(values, roots)))
 
 
 #: Descriptions of result keys that several flows report with the same meaning. A flow declares
@@ -1060,6 +1088,7 @@ class Flow(metaclass=ABCMeta):
         self.timestamp: Optional[str] = None
         self.flow_hash: Optional[str] = None
         self.design_hash: Optional[str] = None
+        self.declared_input_records: tuple[Any, ...] = ()
 
         if isinstance(settings, dict):
             settings = self.Settings.from_input(

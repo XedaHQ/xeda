@@ -1436,6 +1436,18 @@ dependency_cache: ContextVar[Optional[Callable[[], Path]]] = ContextVar(
     "dependency_cache", default=None
 )
 
+_planning_load: ContextVar[bool] = ContextVar("planning_load", default=False)
+
+
+@contextmanager
+def refusing_load_side_effects() -> Iterator[None]:
+    """Refuse generation and Git fetching while loading a design for a pure plan."""
+    token = _planning_load.set(True)
+    try:
+        yield
+    finally:
+        _planning_load.reset(token)
+
 
 @contextmanager
 def cloning_dependencies_into(provider: Callable[[], Path]) -> Iterator[None]:
@@ -1594,6 +1606,8 @@ class GitReference(DesignReference):
         import git
         from git.repo import Repo
 
+        if _planning_load.get():
+            raise ValueError("Cannot plan a design that needs a Git dependency fetch")
         clone_dir = self.clone_dir
         if clone_dir is None:
             provider = dependency_cache.get()
@@ -1771,6 +1785,8 @@ class Design(XedaBaseModel):
                 # own paths: replacing whatever the shell exports, which is another directory's.
                 env = {**os.environ, "DESIGN_ROOT": str(design_root)}
                 if isinstance(generator, str):
+                    if _planning_load.get():
+                        raise ValueError("Cannot plan a design that needs a generator")
                     log.info("Running generator command: %s", generator)
                     exit_code = subprocess.call(
                         generator,
@@ -1831,9 +1847,13 @@ class Design(XedaBaseModel):
                                 generator.name,
                             )
                     if not skip_run:
+                        if _planning_load.get():
+                            raise ValueError("Cannot plan a design that needs a generator")
                         log.info("Running generator: %s", generator.name)
                         generator.run()
                 else:
+                    if _planning_load.get():
+                        raise ValueError("Cannot plan a design that needs a generator")
                     args = generator
                     # gen_script = Path(args[0])
                     # extension = gen_script.suffix

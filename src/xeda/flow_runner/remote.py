@@ -43,11 +43,15 @@ from ..design import (
 from ..flow import Flow, FlowSettingsError
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import written_path_problems
+from ..flow.flow import map_keyed_path_leaves
+from ..dataclass import BaseModel, written_role
+from ..listing import VCS_METADATA, directory_files
 from ..proc_utils import tool_output_stream
 from ..utils import (
     XedaException,
     dump_json,
     json_encodable,
+    location_free,
     semantic_hash,
     settings_to_dict,
 )
@@ -64,6 +68,10 @@ from .run_lock import run_dir_lock
 from .settings_layers import command_line_sections, compose_flow_settings, merge_flow_sections
 from .trace import remove_trace
 from .trace_inputs import design_files, register_read_settings
+from .outputs import declared_output_files
+from .trace import as_recorded
+from ..digest import content_digest
+from ..flow.io import is_declared
 
 log = logging.getLogger(__name__)
 
@@ -195,7 +203,7 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
 #: The P2a release line, including its dev builds. The protocol marker also excludes earlier
 #: development checkouts on that line; tests pin the P2a archive keys and source types.
 REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
-REMOTE_PROTOCOL_MIN_VERSION = 1
+REMOTE_PROTOCOL_MIN_VERSION = 2
 
 # Runs before shipping anything. Inspect the package this interpreter actually imports: installed
 # distribution metadata alone can describe a different xeda shadowed by a stale checkout. A
@@ -279,6 +287,9 @@ def send_design(
     conn,
     remote_path: str,
     all_flows_settings: Mapping[str, Any] | None = None,
+    *,
+    run_root: Path | None = None,
+    path_identities: dict[str, str] | None = None,
 ) -> Tuple[str, str]:
     """Archive the design and transfer it to the remote host."""
     assert isinstance(conn, Connection)
@@ -406,9 +417,73 @@ def send_design(
         # The remote does not receive the local project file. Materialize its merged flow
         # sections into the shipped design so dependency flows see exactly the same settings as
         # a local run; the explicit top-flow settings still take precedence on the remote CLI.
-        new_design["flow"] = (
-            dict(all_flows_settings) if all_flows_settings is not None else design.flow
-        )
+        sections = dict(all_flows_settings) if all_flows_settings is not None else design.flow
+
+        def packaged_path(value: Any) -> Any:
+            if not isinstance(value, (str, os.PathLike)) or not os.fspath(value):
+                return value
+            path = Path(value)
+            if not path.is_absolute():
+                choices = [design.root_path / path, Path.cwd() / path]
+                path = next((p for p in choices if p.exists()), choices[0])
+            local = path.resolve()
+            relative = design.relative_to_root(path)
+            if relative is None:
+                digest = hashlib.sha256(str(path).encode()).hexdigest()[:16]
+                relative = Path("_setting_inputs") / digest / local.name
+            if path_identities is not None:
+                roots = [("DESIGN_ROOT", design.root_path), ("PWD", Path.cwd())]
+                roots.sort(key=lambda item: len(item[1].parts), reverse=True)
+                path_identities[str(Path(remote_path) / relative)] = str(
+                    location_free(value, roots)
+                )
+            if local.is_file():
+                archive_entries.setdefault(relative, local)
+            elif local.is_dir():
+                archive_entries.setdefault(relative, local)
+                for entry in directory_files(
+                    local, [run_root] if run_root else [], VCS_METADATA, follow_links=True
+                ):
+                    archive_entries.setdefault(relative / entry.relative_to(local), entry)
+            return "$DESIGN_ROOT/" + relative.as_posix()
+
+        def packaged_value(value: Any) -> Any:
+            if isinstance(value, BaseModel):
+                values = {}
+                for name, field in type(value).model_fields.items():
+                    if name not in value.model_fields_set:
+                        continue
+                    item = getattr(value, name)
+                    if written_role(type(value), name) is None:
+                        item = map_keyed_path_leaves(
+                            item, field.annotation, lambda _key, leaf: packaged_path(leaf), name
+                        )
+                    values[name] = packaged_value(item)
+                return values
+            if isinstance(value, Mapping):
+                return {key: packaged_value(item) for key, item in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [packaged_value(item) for item in value]
+            return value
+
+        shipped_sections = {}
+        for name, section in sections.items():
+            cls = _get_flow_class_if_known(name)
+            if cls is None:
+                shipped_sections[name] = section
+                continue
+            try:
+                model = cls.Settings.from_input(
+                    section, design_root=design.root_path, runner_cwd=Path.cwd()
+                )
+            except FlowSettingsError:
+                shipped_sections[name] = section
+            else:
+                # Preserve explicitness: canonical declared sections are complete already;
+                # an undeclared section still contributes only its stated keys.
+                rewritten = packaged_value(model)
+                shipped_sections[name] = {key: rewritten[key] for key in model.model_fields_set}
+        new_design["flow"] = shipped_sections
         with open(design_file, "w") as f:
             # The same encoder `settings.json` uses: a pydantic model serializes through
             # pydantic so its fields' serializers run. The chain this replaced probed `obj.json`
@@ -427,7 +502,9 @@ def send_design(
         return zip_file.name, design_file.name
 
 
-def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settings, env=None):
+def remote_runner(
+    channel, remote_path, zip_file, flow, design_file, flow_settings, env=None, path_identities=None
+):
     # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
     """Unpack and execute a flow in the remote Python process."""
     import json
@@ -437,6 +514,8 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
 
     try:
         from xeda.flow_runner import DefaultRunner
+        from xeda.flow_runner.outputs import handed_over
+        from xeda.flow.flow import using_path_identities
     except ImportError:
         # FIXME: we need to be able to create/use virtual env or change our remote approach
         raise Exception("XEDA Python package not found. Please install it using pip.")
@@ -509,12 +588,24 @@ def remote_runner(channel, remote_path, zip_file, flow, design_file, flow_settin
     # there against a xeda satisfying the P2a protocol floor. Live output streaming is set up
     # separately, at the file-descriptor level, by `STREAM_OUTPUT_SETUP` (pure
     # stdlib, no xeda involvement) -- see `RemoteRunner.run_remote`.
-    f = launcher.run(
-        flow,
-        design=design_file,
-        design_allow_extra=True,
-        flow_settings=flow_settings,
-    )
+    try:
+        with using_path_identities(path_identities or {}):
+            f = launcher.run(
+                flow,
+                design=design_file,
+                design_allow_extra=True,
+                flow_settings=flow_settings,
+            )
+    except Exception:
+        # P1 records setup/dependency failures before re-raising. Return that document too;
+        # failures before a requested flow was constructed still surface as remote errors.
+        f = launcher.launched[-1] if launcher.launched else None
+        if f is None or f.name != flow or f.results.get("success") is not False:
+            raise
+    if f is not None and f.results.get("success"):
+        # Validate on the remote filesystem before any transfer can follow a tool's link.
+        for output in f.results.get("outputs", {}):
+            handed_over(f, output)
     # `json` raises on a key it cannot write (a tuple, a `Path`), which lost a run's results
     # entirely. This runs against the remote's xeda, which may predate `utils.with_json_keys`,
     # so the same rule is spelled out here: an enum key is its value, any other key json cannot
@@ -857,11 +948,35 @@ class RemoteRunner(FlowLauncher):
             cli_sections,
         ]
         sections = merge_flow_sections(*origins, flow_class_for=flow_class_if_known)
-        flow_settings = compose_flow_settings(flow_class, origins, flow_settings)
-        # Hashed exactly as a local run would be, from the validated settings.
-        input_settings = flow_class.Settings.from_input(
-            flow_settings, design_root=design.root_path, runner_cwd=Path.cwd()
+        command_line = merge_flow_sections(
+            cli_sections, {flow_name: flow_settings}, flow_class_for=flow_class_if_known
         )
+        flow_settings = compose_flow_settings(flow_class, origins, flow_settings)
+        plan = None
+        if is_declared(flow_class):
+            # Agree and validate before identity, input/delivery preflight and shipping.
+            plan = self.resolve(
+                flow_class,
+                design,
+                flow_settings,
+                sections,
+                origins=[
+                    (str(project_path.absolute()), origins[0]),
+                    (str(given_file.absolute()) if given_file else "the design", origins[1]),
+                ],
+                command_line=command_line,
+            )
+            input_settings = plan.node(flow_name).settings
+            sections = {
+                **sections,
+                **{node.name: as_recorded(node.settings) for node in plan.nodes},
+            }
+            flow_settings = as_recorded(input_settings)
+        else:
+            input_settings = flow_class.Settings.from_input(
+                flow_settings, design_root=design.root_path, runner_cwd=Path.cwd()
+            )
+        # Hashed exactly as a local run would be, from the validated settings.
         # Here, not on the remote: a path the flow writes that leads out of its run directory, a
         # missing setting, and a design the flow cannot run are known before anything is
         # shipped -- and a remote on an older release may not check them.
@@ -998,8 +1113,15 @@ class RemoteRunner(FlowLauncher):
             check_remote_xeda(remote_xeda, remote_xeda_at, remote_python, remote_protocol)
 
             # Only now that the remote can read it.
+            sections = {**sections, flow_name: as_recorded(input_settings)}
+            path_identities: dict[str, str] = {}
             zip_file, design_file = send_design(
-                design, conn, remote_path, all_flows_settings=sections
+                design,
+                conn,
+                remote_path,
+                all_flows_settings=sections,
+                run_root=self._run_root,
+                path_identities=path_identities,
             )
 
             # From the first write to the mirror to its delivery, the mirror is this run's
@@ -1048,7 +1170,8 @@ class RemoteRunner(FlowLauncher):
                     zip_file=zip_file,
                     flow=flow_name,
                     design_file=design_file,
-                    flow_settings=flow_settings,
+                    flow_settings={},
+                    path_identities=path_identities,
                 )
                 if not results_channel.isclosed():
                     results_str = results_channel.receive()
@@ -1073,6 +1196,12 @@ class RemoteRunner(FlowLauncher):
                     log.debug("Could not cleanly stop remote output streaming: %s", e)
 
             if results:
+                if (
+                    is_declared(flow_class)
+                    and results.get("success")
+                    and (results.get("flow_hash") != flowrun_hash)
+                ):
+                    raise RemoteIncompatible("The remote resolved a different request identity")
                 print_results(
                     results=results,
                     title=f"Results of flow:{flow_name} design:{design.name}",
@@ -1081,6 +1210,29 @@ class RemoteRunner(FlowLauncher):
 
                 artifacts = results.get("artifacts")
                 remote_run_path = results.get("run_path")
+                if not results.get("success"):
+                    # Partial records from MissingOutput are not a successful hand-over.
+                    # Failed-run diagnostics still travel through the vouched artifact path.
+                    results.pop("outputs", None)
+                declared = results.get("outputs") or {}
+                output_paths = [str(path) for path in declared_output_files(results)]
+                remote_deliverables = (
+                    {"artifacts": artifacts or {}, "outputs": output_paths}
+                    if output_paths
+                    else artifacts
+                )
+                for recorded in declared.values():
+                    for entry in recorded if isinstance(recorded, list) else [recorded]:
+                        remote_output = Path(entry["path"])
+                        if (
+                            not remote_run_path
+                            or not remote_output.is_absolute()
+                            or ".." in remote_output.parts
+                            or not remote_output.is_relative_to(Path(remote_run_path))
+                        ):
+                            raise DeliveryError(
+                                "A declared remote output is outside its run directory"
+                            )
 
                 # Keep the local settings document in the same shape as a local run. Its input
                 # and design stay local (and therefore re-runnable here); only the effective
@@ -1107,17 +1259,28 @@ class RemoteRunner(FlowLauncher):
 
                 local_artifacts_dir = run_path / "artifacts"
 
-                if remote_run_path and artifacts:
+                if remote_run_path and (artifacts or output_paths):
                     assert isinstance(remote_run_path, str)
-                    results["artifacts"] = _transfer_artifacts(
+                    fetched = _transfer_artifacts(
                         conn,
-                        artifacts,
+                        remote_deliverables,
                         remote_run_path,
                         local_artifacts_dir,
                         succeeded=bool(results.get("success")),
                         flow_name=flow_name,
                         written_on_remote=written_on_remote,
                     )
+                    results["artifacts"] = fetched["artifacts"] if output_paths else fetched
+                    rewrites = dict(zip(output_paths, fetched["outputs"])) if output_paths else {}
+                    for recorded in declared.values():
+                        for entry in recorded if isinstance(recorded, list) else [recorded]:
+                            remote_output = Path(entry["path"])
+                            local_output = Path(rewrites[entry["path"]])
+                            if content_digest(local_output) != entry["sha"]:
+                                raise DeliveryError(
+                                    f"Declared remote output {remote_output} changed during transfer"
+                                )
+                            entry["path"] = str(local_output)
 
                 # the remote run_path no longer exists locally; report the local copy's path instead
                 if "run_path" in results:
@@ -1127,7 +1290,7 @@ class RemoteRunner(FlowLauncher):
                 log.info("Results written to %s", results_json_path)
                 # after the mirror's records are whole: a refused delivery leaves them as they are
                 self._deliver_fetched(
-                    delivery, results, artifacts, remote_run_path, local_artifacts_dir
+                    delivery, results, remote_deliverables, remote_run_path, local_artifacts_dir
                 )
             return results
 

@@ -35,6 +35,7 @@ RUNS: List[str] = []
 DURING_RUN: List[Callable[[], object]] = []
 #: what a test does while the wrapper runs, its dependency completed
 DURING_WRAPPER: List[Callable[["_Wrapper"], object]] = []
+_registration_before = registered_flows.copy()
 
 
 class _Deliverer(Flow):
@@ -130,7 +131,10 @@ class _Twice(Flow):
 # them.
 for _cls in (_Deliverer, _Wrapper, _Twice):
     for _name in (_cls.name, _cls.__name__):
-        registered_flows.pop(_name, None)
+        if _name in _registration_before:
+            registered_flows[_name] = _registration_before[_name]
+        else:
+            registered_flows.pop(_name, None)
 
 
 @pytest.fixture

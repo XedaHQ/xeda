@@ -45,9 +45,14 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
     shell), and an old one fails on the design archive with whatever its loader chokes on first
     -- a 0.2 checkout said `rtl.sources: unhashable type: 'dict'`. The check names the version,
     the interpreter and *where* that xeda lives, which is what finds a shadowing install."""
-    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 1)
-    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 1)
-    for version, protocol in (("0.4.3", 0), ("0.4.3", 1), ("0.4.4.dev42+gabc", 0)):
+    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 2)
+    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 2)
+    for version, protocol in (
+        ("0.4.3", 0),
+        ("0.4.3", 2),
+        ("0.4.4.dev42+gabc", 0),
+        ("0.4.4.dev42+gabc", 1),
+    ):
         with pytest.raises(RemoteIncompatible, match="upgrade the remote xeda"):
             check_remote_xeda(version, "/site/xeda/__init__.py", "/usr/bin/python3", protocol)
 
@@ -239,7 +244,12 @@ def test_shipped_remote_code_only_uses_long_stable_xeda_api():
     stop needing the new API, or remote xeda installs now have a hard minimum
     version that has to be checked and documented.
     """
-    allowed = {("xeda.flow_runner", "DefaultRunner")}
+    # Protocol 2 guarantees declared output verification before transport.
+    allowed = {
+        ("xeda.flow_runner", "DefaultRunner"),
+        ("xeda.flow_runner.outputs", "handed_over"),
+        ("xeda.flow.flow", "using_path_identities"),
+    }
 
     tree = ast.parse(textwrap.dedent(inspect.getsource(remote_runner)))
     imported = {

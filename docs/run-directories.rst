@@ -341,7 +341,7 @@ marker touched to read the file system's clock, removed at once). A flow must no
 these names.
 
 A remote host must run a P2a xeda build: the 0.4.4 release line (including development builds)
-or newer, with remote protocol 1 or newer. Xeda checks the package the remote interpreter
+or newer, with remote protocol 2 or newer. Xeda checks the package the remote interpreter
 actually imports before shipping the design. A 0.4.3 install or a build without P2a support
 is refused with an "upgrade the remote xeda" error. Until P2a is released, install this P2a
 branch on the remote host.

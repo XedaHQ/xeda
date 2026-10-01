@@ -49,6 +49,7 @@ from ..digest import (
     written_since,
 )
 from ..flow import Flow
+from ..flow.io import declared_inputs
 from ..dataclass import written_role
 from ..deliver import ReadInputs
 from ..flow.flow import _annotation_contains_path, map_keyed_path_leaves
@@ -542,8 +543,18 @@ def candidate_inputs(
         *setting_directory_files(input_settings, flow.run_path, run_root),
         *dependency_outputs(flow),
         *registered_input_files(flow),
+        *declared_input_files(flow),
     }
     return sorted(files - bookkeeping)
+
+
+def declared_input_files(flow: Flow) -> list[Path]:
+    """The selected declared paths, in declaration and list order."""
+    files = []
+    for name in declared_inputs(type(flow)):
+        value = getattr(flow.inputs, name)
+        files.extend(value if isinstance(value, list) else ([] if value is None else [value]))
+    return files
 
 
 def expectation(
@@ -574,6 +585,7 @@ def expectation(
         dependency_flows={
             run_dir_key(dep.run_path, run_root): dep.name for dep in flow.completed_dependencies
         },
+        declared_inputs=getattr(flow, "declared_input_records", ()),
     )
 
 
@@ -812,4 +824,5 @@ def build_trace(
         implicit_inputs=implicit,
         outputs=outputs,
         reports=run_reports(flow),
+        declared_inputs=list(expected.declared_inputs),
     )

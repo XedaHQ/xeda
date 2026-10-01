@@ -8,7 +8,7 @@ from .version import __version__
 
 # P2a remote archive and launch contract. Keep this on the imported package so the probe
 # cannot mistake another distribution's version metadata for this checkout's capabilities.
-REMOTE_PROTOCOL_VERSION = 1
+REMOTE_PROTOCOL_VERSION = 2
 
 __all__ = [
     "FPGA",

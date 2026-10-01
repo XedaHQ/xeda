@@ -266,7 +266,7 @@ def launched(monkeypatch):
     """What `DefaultRunner.run` would launch, without launching it."""
     calls = {}
 
-    def run_flow(self, flow_class, design, flow_settings, all_flows_settings=None):
+    def run_flow(self, flow_class, design, flow_settings, all_flows_settings=None, **kwargs):
         calls.update(flow=flow_class.name, settings=flow_settings, all_flows=all_flows_settings)
         raise _Launched
 

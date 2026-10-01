@@ -11,6 +11,8 @@ import re
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import ExitStack, contextmanager, nullcontext
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from glob import glob
@@ -38,8 +40,15 @@ from ..deliver import (
     recorded_artifacts,
     split_deliveries,
 )
-from ..design import DESIGN_NAME, Design, cloning_dependencies_into, names_a_design_file
-from ..flow import Flow, FlowDependencyFailure, FlowSettingsError, registered_flows
+from ..design import (
+    DESIGN_NAME,
+    Design,
+    cloning_dependencies_into,
+    names_a_design_file,
+    refusing_load_side_effects,
+)
+from ..flow import Flow, FlowDependencyFailure, FlowFatalError, FlowSettingsError, registered_flows
+from ..flow.io import declared_inputs, is_declared
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout, recording_programs
@@ -61,8 +70,8 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import XedaProject
-from .outputs import record_outputs
-from .resolver import check_launchable
+from .outputs import declared_output_files, handed_over, record_outputs
+from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
 from .run_lock import lock_file, run_dir_lock
 from .settings_layers import (
     command_line_sections,
@@ -71,9 +80,11 @@ from .settings_layers import (
     merge_flow_sections,
     settings_in_context,
     suggest_dependency_node,
+    transitive_dependencies,
 )
 from .trace import (
     as_recorded,
+    DeclaredInputRecord,
     check_trace,
     locate_program,
     previous_trace,
@@ -84,6 +95,7 @@ from .trace import (
 from .trace_inputs import (
     build_trace,
     design_files,
+    declared_input_files,
     expectation,
     register_read_settings,
     setting_files,
@@ -222,6 +234,19 @@ class RunDirPolicy:
     scrub_old_runs: bool
     post_cleanup: bool
     post_cleanup_purge: bool
+
+
+@dataclass(frozen=True)
+class _Request:
+    """Captured request layers. Workers transport these contributions, not model defaults."""
+
+    flow_class: type[Flow]
+    design: Design
+    settings: dict[str, Any]
+    sections: dict[str, Any]
+    origins: tuple[tuple[str, Mapping[str, Any]], ...]
+    command_line: dict[str, Any]
+    api_overrides: dict[str, Any]
 
 
 def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
@@ -495,6 +520,9 @@ class FlowLauncher:
         self._read_inputs = ReadInputs()
         #: the deliveries of the current launch's flows, made when it has finished
         self._pending_deliveries: List[Tuple[Flow, Deliveries]] = []
+        self._request_context: _Request | None = None
+        self._plans: dict[int, tuple[Plan, Any, Any]] = {}
+        self._planned_completed: dict[tuple[int, str], Flow] = {}
 
     @property
     def run_root(self) -> Path:
@@ -510,9 +538,7 @@ class FlowLauncher:
         """Removed: the run root is `run_root`."""
         raise AttributeError("`xeda_run_dir` was removed: use run_root")
 
-    def get_flow_run_path(
-        self, design_name: str, node_name: str, identity: Optional[str] = None
-    ) -> Path:
+    def run_path_of(self, design_name: str, node_name: str, identity: Optional[str] = None) -> Path:
         """`<run root>/<design>/<node>`, or `<node>_<identity>` with hashed run directories:
         strictly inside the run root, resolved -- a `RunDirectoryError` otherwise, before anything
         (the lock beside it included) is written."""
@@ -521,13 +547,110 @@ class FlowLauncher:
             subdir += f"_{identity[:DIR_NAME_HASH_LEN]}"
         if not DESIGN_NAME.fullmatch(design_name):
             raise RunDirectoryError(f"{design_name!r} is not a design name")
-        run_path = self.run_root / design_name / subdir
-        if not RunDirectory.lies_under(run_path, self.run_root):
+        ensure_run_root(self._run_root, start=self._start, create=False)
+        run_path = self._run_root / design_name / subdir
+        if not RunDirectory.lies_under(run_path, self._run_root):
             raise RunDirectoryError(
-                f"{run_path} leads out of the run root {self.run_root} (through a symbolic "
+                f"{run_path} leads out of the run root {self._run_root} (through a symbolic "
                 "link): xeda runs only inside its run root; remove the link"
             )
         return run_path
+
+    def get_flow_run_path(
+        self, design_name: str, node_name: str, identity: str | None = None
+    ) -> Path:
+        """Create/mark the root, then revalidate the execution path at operation time."""
+        self.run_root
+        return self.run_path_of(design_name, node_name, identity)
+
+    def resolve(
+        self,
+        flow_class: type[Flow],
+        design: Design,
+        flow_settings: Mapping[str, Any] | Flow.Settings | None,
+        all_flows_settings: Mapping[str, Any] | None = None,
+        *,
+        origins: Sequence[tuple[str, Mapping[str, Any]]] = (),
+        command_line: Mapping[str, Mapping[str, Any]] | None = None,
+        api_overrides: Mapping[str, Mapping[str, Any]] | None = None,
+    ) -> Plan:
+        """Resolve one request without constructing a flow, probing tools or writing files."""
+        plan = resolve_plan(
+            flow_class,
+            design,
+            flow_settings,
+            all_flows_settings,
+            runner_cwd=Path.cwd(),
+            run_root=self._run_root,
+            hashed_run_dirs=self.settings.hashed_run_dirs,
+            run_path=self.run_path_of,
+            origins=origins,
+            command_line=command_line,
+            api_overrides=api_overrides,
+            debug=self.settings.debug,
+        )
+        given = settings_in_context(flow_class, flow_settings, design.root_path, Path.cwd())
+        self._plans[id(plan)] = (plan, as_recorded(given), as_recorded(all_flows_settings or {}))
+        return plan
+
+    def _resolve_request(self, request: _Request) -> Plan:
+        return self.resolve(
+            request.flow_class,
+            request.design,
+            request.settings,
+            request.sections,
+            origins=request.origins,
+            command_line=request.command_line,
+            api_overrides=request.api_overrides,
+        )
+
+    def _validate_plan(
+        self,
+        plan: Plan,
+        flow_class: type[Flow],
+        design: Design,
+        settings: Mapping[str, Any] | Flow.Settings | None,
+        sections: Mapping[str, Any] | None,
+    ) -> PlanNode:
+        """Validate a plan minted by this launcher; external plans are deferred (R3)."""
+        captured = self._plans.get(id(plan))
+        context = plan.context
+        design_hash = semantic_hash(dict(rtl_hash=design.rtl_hash, tb_hash=design.tb_hash))
+        if (
+            captured is None
+            or captured[0] is not plan
+            or (
+                context.design_hash != design_hash
+                or context.design_root != design.root_path
+                or context.runner_cwd != Path.cwd()
+                or context.run_root != self._run_root
+                or context.hashed_run_dirs != self.settings.hashed_run_dirs
+                or context.debug != self.settings.debug
+            )
+        ):
+            raise FlowFatalError("The plan does not match this request's context")
+        if flow_class.name not in plan:
+            raise FlowFatalError(f"The plan has no node for this request: {flow_class.name}")
+        node = plan.node(flow_class.name)
+        supplied = settings_in_context(flow_class, settings, design.root_path, Path.cwd())
+        if (
+            node.flow_class is not flow_class
+            or any(
+                value is not None and node.settings.context.get(key) != value
+                for key, value in supplied.context.items()
+            )
+            or (
+                as_recorded(supplied) != as_recorded(node.settings)
+                and (node.name != plan.requested or as_recorded(supplied) != captured[1])
+            )
+            or as_recorded(sections or {}) != captured[2]
+        ):
+            raise FlowFatalError("The plan does not match this request's settings")
+        if node.flowrun_hash != flow_run_hash(node.name, node.settings, design.name) or (
+            node.run_path != self.run_path_of(design.name, node.name, node.flowrun_hash)
+        ):
+            raise FlowFatalError("The plan does not match this request's identity or path")
+        return node
 
     def launch_flow(
         self,
@@ -537,6 +660,8 @@ class FlowLauncher:
         depender: Optional[Flow] = None,
         copy_resources: List[str] = [],
         all_flows_settings: Union[Dict, None] = None,
+        *,
+        plan: Plan | None = None,
     ) -> Flow:
         """Launch `flow_class` on `design`: the one procedure every flow run, and every
         dependency run, goes through -- make's order: bring every prerequisite up to date, then
@@ -590,6 +715,7 @@ class FlowLauncher:
         top_level = self._launch_depth == 0
         if top_level:
             self._claims = {}
+            self._planned_completed = {}
             # every file a flow of this launch reads, registered as each flow is launched
             self._read_inputs = ReadInputs(self._launch_inputs)
             self._pending_deliveries = []
@@ -602,7 +728,10 @@ class FlowLauncher:
                 depender,
                 copy_resources,
                 all_flows_settings,
+                plan=plan,
             )
+            if plan is not None:
+                self._planned_completed[(id(plan), flow.name)] = flow
         except BaseException:
             self._launch_depth -= 1
             if top_level:
@@ -695,6 +824,8 @@ class FlowLauncher:
         depender: Optional[Flow],
         copy_resources: List[str],
         all_flows_settings: Union[Dict, None],
+        *,
+        plan: Plan | None = None,
     ) -> Flow:
         """`launch_flow`'s stages, for one flow."""
         self.debug |= self.settings.debug
@@ -702,6 +833,30 @@ class FlowLauncher:
             flow_class = get_flow_class(flow_class)
         flow_name = flow_class.name
         runner_cwd = Path.cwd()
+        node = None
+        if plan is None and is_declared(flow_class):
+            request = self._request_context
+            run_flows = {flow_name, *transitive_dependencies(flow_class)}
+            plan = self.resolve(
+                flow_class,
+                design,
+                flow_settings,
+                all_flows_settings,
+                origins=request.origins if request else (),
+                command_line=(
+                    {
+                        name: values
+                        for name, values in request.command_line.items()
+                        if name in run_flows
+                    }
+                    if request
+                    else None
+                ),
+                api_overrides=request.api_overrides if request else None,
+            )
+        if plan is not None:
+            node = self._validate_plan(plan, flow_class, design, flow_settings, all_flows_settings)
+            flow_settings = node.settings
         input_settings = self._input_settings(
             flow_class, flow_settings, design, runner_cwd, depender
         )
@@ -726,7 +881,7 @@ class FlowLauncher:
             policy = replace(policy, clean=False, scrub_old_runs=False)
         settings_json = run_path / "settings.json"
         results_json = run_path / "results.json"
-        with run_dir_lock(run_path):
+        with run_dir_lock(run_path), ExitStack() as read_leases:
             if policy.scrub_old_runs:
                 scrub_runs(flow_name, run_path.parent, [run_path], run_root=self.run_root)
             run_path.mkdir(parents=True, exist_ok=True)
@@ -774,10 +929,20 @@ class FlowLauncher:
                 flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
                 # the flow's run time includes init() and the execution of its dependencies
                 flow.init_time = time.monotonic()
-                with WorkingDirectory(run_path):
-                    flow.init()
                 try:
-                    self._run_dependencies(flow, design, all_flows_settings)
+                    with WorkingDirectory(run_path):
+                        flow.init()
+                    if node is not None and node.declared:
+                        if flow.dependencies:
+                            raise FlowFatalError(
+                                f"Declared flow {flow.name} may not add a dependency in init()"
+                            )
+                        assert plan is not None
+                        self._run_producers(
+                            flow, design, node, plan, all_flows_settings, read_leases
+                        )
+                    else:
+                        self._run_dependencies(flow, design, all_flows_settings, read_leases)
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
                     # a dependency failed or raised: this flow did not run: its directory no longer vouches for a success
                     remove_trace(run_path)
@@ -911,7 +1076,10 @@ class FlowLauncher:
         file by file as its run left them (`Deliveries.collect`, under its run directory's lock).
         The copies are made when the launch has finished (`_finish_launch`), once every flow of
         it has read its inputs."""
-        artifacts = flow.results.get("artifacts") or flow.artifacts
+        artifacts = [
+            flow.results.get("artifacts") or flow.artifacts,
+            declared_output_files(flow.results),
+        ]
         delivery.collect(flow.run_path, outputs_to_deliveries(artifacts, flow.run_path, outputs_to))
         if not delivery.pending:
             return
@@ -1005,6 +1173,7 @@ class FlowLauncher:
         flow: Flow,
         design: Design,
         all_flows_settings: Dict | None,
+        read_leases: ExitStack,
     ) -> None:
         """Stage 4: launch every dependency `flow.init()` registered, through `launch_flow`, each
         in its own run directory beside `flow`'s."""
@@ -1040,6 +1209,88 @@ class FlowLauncher:
                     f"{completed_dep.run_path.absolute() / 'results.json'}"
                 )
             flow.completed_dependencies.append(completed_dep)
+            read_leases.enter_context(self._producer_read_lease(completed_dep))
+
+    @contextmanager
+    def _producer_read_lease(self, producer: Flow):
+        """Task 7 installs the shared lease and acquisition-gap verification here."""
+        yield producer
+
+    def _run_producers(
+        self,
+        flow: Flow,
+        design: Design,
+        node: PlanNode,
+        plan: Plan,
+        sections: dict[str, Any] | None,
+        read_leases: ExitStack,
+    ) -> None:
+        """Materialize exactly the planned inputs; never choose another producer here."""
+        records = []
+        declarations = declared_inputs(type(flow))
+        for selected in node.inputs:
+            declaration = declarations[selected.name]
+            producer = None
+            paths = list(selected.sources)
+            if selected.origin == "producer":
+                assert selected.producer is not None and selected.output is not None
+                producer_node = plan.node(selected.producer)
+                key = (id(plan), producer_node.name)
+                producer = self._planned_completed.get(key)
+                if producer is None:
+                    try:
+                        producer = self.launch_flow(
+                            producer_node.flow_class,
+                            design,
+                            producer_node.settings,
+                            depender=flow,
+                            all_flows_settings=sections,
+                            plan=plan,
+                        )
+                    except Exception as error:
+                        raise FlowDependencyFailure(
+                            f"dependency {producer_node.name} failed: {error}; see "
+                            f"{producer_node.run_path / 'results.json'}"
+                        ) from error
+                    self._planned_completed[key] = producer
+                if not producer.succeeded:
+                    raise FlowDependencyFailure(
+                        f"dependency {producer.name} failed: {producer.results.get('error', '')}; "
+                        f"see {producer.run_path / 'results.json'}"
+                    )
+                if producer not in flow.completed_dependencies:
+                    read_leases.enter_context(self._producer_read_lease(producer))
+                    flow.completed_dependencies.append(producer)
+                paths = handed_over(producer, selected.output)
+            if (declaration.required and not paths) or (
+                declaration.cardinality != "many" and len(paths) > 1
+            ):
+                raise FlowDependencyFailure(
+                    f"{flow.name}'s input `{selected.name}` has {len(paths)} paths; "
+                    f"expected {declaration.cardinality}"
+                )
+            for path in paths:
+                if not path.is_file():
+                    raise FlowDependencyFailure(
+                        f"{flow.name}'s input `{selected.name}` is missing: {path}"
+                    )
+            value = paths if declaration.cardinality == "many" else (paths[0] if paths else None)
+            setattr(flow.inputs, selected.name, value)
+            records.append(
+                DeclaredInputRecord(
+                    name=selected.name,
+                    origin=selected.origin,
+                    producer=selected.producer,
+                    output=selected.output,
+                    producer_hash=producer.flow_hash if producer else None,
+                    producer_path=str(producer.run_path) if producer else None,
+                    paths=tuple(map(str, paths)),
+                )
+            )
+        flow.declared_input_records = tuple(records)
+        selected_files = declared_input_files(flow)
+        self._read_inputs.add(selected_files)
+        _refuse_inputs_inside(flow.run_path, flow.name, selected_files)
 
     @staticmethod
     def _record_identity(flow: Flow, run_path: Path) -> None:
@@ -1165,6 +1416,7 @@ class FlowLauncher:
                     settings_json,
                     results_json,
                     *iter_artifact_paths(flow.results.artifacts),
+                    *declared_output_files(flow.results),
                 ):
                     path = Path(os.path.abspath(named_run_path / raw_path))
                     if path.is_relative_to(named_run_path):
@@ -1209,11 +1461,18 @@ class FlowLauncher:
         depender: Optional[Flow] = None,
         copy_resources: List[str] = [],
         all_flows_settings: Union[Dict, None] = None,
+        *,
+        plan: Plan | None = None,
     ) -> Optional[Flow]:
         """Launch `flow_class` on `design`. `all_flows_settings` (`flows` sections) are composed
         into `flow_settings` exactly as `run()` composes the design's and project's sections
         (`compose_flow_settings`); a `Flow.Settings` instance is taken as final."""
-        if all_flows_settings and depender is None and not isinstance(flow_settings, Flow.Settings):
+        if (
+            plan is None
+            and all_flows_settings
+            and depender is None
+            and not isinstance(flow_settings, Flow.Settings)
+        ):
             flow_cls = get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class
             sections = merge_flow_sections(
                 all_flows_settings, flow_class_for=_get_flow_class_if_known
@@ -1227,6 +1486,7 @@ class FlowLauncher:
             depender=depender,
             copy_resources=copy_resources,
             all_flows_settings=all_flows_settings,
+            plan=plan,
         )
 
     @staticmethod
@@ -1290,6 +1550,73 @@ class FlowLauncher:
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
     ) -> Optional[Flow]:
+        """Load and compose a request, then execute its resolved declared graph."""
+        request = self._request(
+            flow,
+            design,
+            xedaproject,
+            flow_settings,
+            flow_overrides,
+            select_design_in_project,
+            design_overrides,
+            design_allow_extra,
+            design_remove_fields,
+        )
+        plan = self._resolve_request(request) if is_declared(request.flow_class) else None
+        previous, self._request_context = self._request_context, request
+        try:
+            return self.run_flow(
+                request.flow_class,
+                request.design,
+                request.settings,
+                all_flows_settings=request.sections,
+                plan=plan,
+            )
+        finally:
+            self._request_context = previous
+
+    def plan(
+        self,
+        flow: type[Flow] | str,
+        design: str | Path | Design | dict[str, Any] | None = None,
+        xedaproject: str | None = None,
+        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
+        flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
+        select_design_in_project=None,
+        design_overrides: Iterable[str] | dict[str, Any] | None = None,
+        design_allow_extra: bool = False,
+        design_remove_fields: list[str] = [],
+    ) -> Plan:
+        """Plan what run() would execute, refusing side-effecting design loading (R2)."""
+        return self._resolve_request(
+            self._request(
+                flow,
+                design,
+                xedaproject,
+                flow_settings,
+                flow_overrides,
+                select_design_in_project,
+                design_overrides,
+                design_allow_extra,
+                design_remove_fields,
+                _planning=True,
+            )
+        )
+
+    def _request(
+        self,
+        flow: type[Flow] | str,
+        design: str | Path | Design | dict[str, Any] | None = None,
+        xedaproject: str | None = None,
+        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
+        flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
+        select_design_in_project=None,
+        design_overrides: Iterable[str] | dict[str, Any] | None = None,
+        design_allow_extra: bool = False,
+        design_remove_fields: list[str] = [],
+        *,
+        _planning: bool = False,
+    ) -> _Request:
         """
         Flexible API for launching flows.
         """
@@ -1322,7 +1649,10 @@ class FlowLauncher:
                 design = Path(design)
         # A git dependency without a directory of its own is cloned into the run root, which
         # is asked for only then: a design that fails to load leaves no run root behind.
-        with cloning_dependencies_into(lambda: self.run_root / ".dependencies"):
+        with (
+            cloning_dependencies_into(lambda: self.run_root / ".dependencies"),
+            refusing_load_side_effects() if _planning else nullcontext(),
+        ):
             if Path(xedaproject).exists():
                 try:
                     xeda_project = XedaProject.from_file(
@@ -1417,11 +1747,27 @@ class FlowLauncher:
             for path in (given_file, Path(xedaproject))
             if path is not None and path.is_file()
         ]
-        return self.run_flow(
+        return _Request(
             flow_class,
             design,
-            final_flow_settings,
-            all_flows_settings=all_sections,
+            deepcopy(final_flow_settings),
+            deepcopy(all_sections),
+            tuple(
+                (label, deepcopy(section))
+                for label, section in (
+                    (str(Path(xedaproject).absolute()), project_sections),
+                    (
+                        str(given_file.absolute()) if given_file else f"the design {design.name}",
+                        design_sections,
+                    ),
+                )
+            ),
+            merge_flow_sections(
+                cli_sections,
+                {flow_class.name: flow_settings},
+                flow_class_for=_get_flow_class_if_known,
+            ),
+            {flow_class.name: deepcopy(flow_overrides)},
         )
 
 
