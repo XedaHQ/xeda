@@ -70,6 +70,10 @@ SAMPLES: Dict[str, Tuple[Any, Any]] = {
     "timing_sim": (True, False),
     "elab_debug": ("all", "off"),
     "saif": ("flow.saif", "dependency.saif"),
+    "stop_time": ("20ns", "30ns"),
+    "prerun_time": ("5ns", "10ns"),
+    "timeout": (10.0, 20.0),
+    "fail_severity": ("warning", "fatal"),
 }
 SAMPLES_BY_FLOW = {
     ("open_xc7", "fpga"): ({"part": "xc7a100tftg256-2L"}, {"part": "xc7a35tcpg236-1"})

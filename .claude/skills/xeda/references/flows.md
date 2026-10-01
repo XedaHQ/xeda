@@ -73,9 +73,9 @@ Simulate the testbench on the routed netlist `vivado_synth` writes. Runs `vivado
 
 Required settings: `synth`
 
-23 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
+25 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
 
-Reports no results beyond the keys every flow reports.
+Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `sim.evidence`
 
 ### `vivado_power`
 
@@ -85,17 +85,17 @@ Estimate post-implementation power from real switching activity. Runs `vivado_po
 
 Required settings: `postsynthsim`
 
-24 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
+26 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
 
-Reports: `Total On-Chip Power (W)`, `Dynamic (W)`, `Device Static (W)`, `Effective TJA (C/W)`, `Junction Temperature (C)`, `Thermal Margin (C)`, `Confidence Level`, `Component Power: <component>`
+Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `sim.evidence`, `Total On-Chip Power (W)`, `Dynamic (W)`, `Device Static (W)`, `Effective TJA (C/W)`, `Junction Temperature (C)`, `Thermal Margin (C)`, `Confidence Level`, `Component Power: <component>`
 
 ### `vivado_sim`
 
 Simulate using Xilinx Vivado simulator (xsim) flow
 
-21 flow-specific settings (plus the common ones): `xeda list-settings vivado_sim --json`
+23 flow-specific settings (plus the common ones): `xeda list-settings vivado_sim --json`
 
-Reports no results beyond the keys every flow reports.
+Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `sim.evidence`
 
 ### `yosys_sim`
 
@@ -173,7 +173,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 Create a Xilinx Vivado project for the design, to work on in Vivado. The project holds the design's sources and testbench, its constraints, the synthesis and implementation strategies and step settings, and the hooks that write `vivado_synth`'s reports after each step. Nothing is run: open the project (`artifacts.project`) in Vivado, or set `gui` to have the flow open it. For synthesis and implementation in batch, use `vivado_synth`.
 
-48 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
+50 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
 
 Reports no results beyond the keys every flow reports.
 

@@ -179,13 +179,14 @@ begin
   process begin
     a <= '0'; wait for 1 ns; assert y = '1' report "inverter failed" severity failure;
     a <= '1'; wait for 1 ns; assert y = '0' report "inverter failed" severity failure;
-    report "tb done"; wait;
+    report "tb done"; std.env.finish; wait;
   end process;
 end;
 """,
     )
     design = Design(
         name="sim",
+        language={"vhdl": {"standard": "2008"}},
         design_root=root,
         rtl={"sources": ["inv.v"], "top": "inv"},
         tb={"sources": ["tb [x] $v.vhd"], "top": "tb"},
@@ -193,3 +194,183 @@ end;
     flow = DefaultRunner(work_dir / "run").run_flow(VivadoSim, design, {})
     assert flow is not None and flow.succeeded
     assert _logged(flow.run_path, "tb done")
+
+
+@pytest.mark.parametrize(
+    "body,settings,passes,ending,errors,warnings",
+    [
+        ("$finish(0);", {}, True, "finish", 0, 0),
+        ("#5; $finish;", {}, True, "finish", 0, 0),
+        ("#5;", {}, False, "unknown", 0, 0),
+        ('#5; $warning("warning"); #1; $finish;', {}, True, "finish", 0, 1),
+        ('#5; $error("error"); #1; $finish;', {}, False, "finish", 1, 0),
+        ('#5; assert(0) else $error("assertion"); #1; $finish;', {}, False, "finish", 1, 0),
+        ('#5; $fatal(1,"fatal");', {}, False, "fatal", 1, 0),
+        ("#5; $stop;", {"fail_severity": "fatal"}, False, "error", 1, 0),
+        ("forever #1 a=~a;", {"prerun_time": "10ns", "stop_time": "20ns"}, True, "stop_time", 0, 0),
+        ("#5; $finish;", {"prerun_time": "10ns", "stop_time": "20ns"}, True, "finish", 0, 0),
+        ("#5;", {"stop_time": "20ns"}, True, "stop_time", 0, 0),
+    ],
+    ids=[
+        "finish0",
+        "finish5",
+        "drain",
+        "warning",
+        "error",
+        "assertion",
+        "fatal",
+        "stop",
+        "prerun_limit",
+        "prerun_finish",
+        "empty_limit",
+    ],
+)
+def test_xsim_native_sv_evidence(work_dir, body, settings, passes, ending, errors, warnings):
+    root = work_dir / "design"
+    _write(root / "inv.v", INVERTER_V)
+    _write(
+        root / "tb.sv",
+        "`timescale 1ns/1ps\nmodule tb; reg a=0; wire y; inv dut(a,y); initial begin "
+        + body
+        + " end endmodule\n",
+    )
+    design = Design(
+        name="native",
+        design_root=root,
+        rtl={"sources": ["inv.v"], "top": "inv"},
+        tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
+    )
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        VivadoSim, design, {"timeout": 180.0, **settings}
+    )
+    assert flow.succeeded is passes
+    assert flow.results["sim.ended_by"] == ending
+    assert flow.results["sim.errors"] == errors
+    assert flow.results["sim.warnings"] == warnings
+    if ending == "stop_time":
+        assert flow.results["sim.time"] == 20000
+        assert flow.results["sim.time_unit"] == "1000fs"
+
+
+@pytest.mark.parametrize(
+    "body,passes,ending,errors,warnings",
+    [
+        ("finish;", True, "finish", 0, 0),
+        ("stop;", True, "finish", 0, 0),
+        ('report "warning" severity warning; wait for 1 ns; finish;', True, "finish", 0, 1),
+        (
+            'assert false report "error" severity error; wait for 1 ns; finish;',
+            False,
+            "finish",
+            1,
+            0,
+        ),
+        ('assert false report "failure" severity failure;', False, "fatal", 1, 0),
+    ],
+    ids=["finish", "stop", "warning", "assertion_error", "assertion_failure"],
+)
+def test_xsim_native_vhdl_evidence(work_dir, body, passes, ending, errors, warnings):
+    root = work_dir / "design"
+    _write(
+        root / "tb.vhd",
+        "library std; use std.env.all; entity tb is end; architecture sim of tb is begin process begin wait for 5 ns; "
+        + body
+        + " wait; end process; end;\n",
+    )
+    design = Design(
+        name="native",
+        design_root=root,
+        rtl={"sources": ["tb.vhd"], "top": "tb"},
+        tb={"top": "tb"},
+        language={"vhdl": {"standard": "2008"}},
+    )
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        VivadoSim, design, {"timeout": 180.0, "prerun_time": "10ns", "stop_time": "20ns"}
+    )
+    assert flow.succeeded is passes
+    assert flow.results["sim.ended_by"] == ending
+    assert flow.results["sim.errors"] == errors
+    assert flow.results["sim.warnings"] == warnings
+
+
+def test_xsim_native_power_delegates_netlist_evidence(work_dir):
+    """A real routed netlist supplies activity and the same verdict to the power reporter."""
+    from xeda.flows import VivadoPower
+
+    root = work_dir / "design"
+    _write(root / "inv.v", INVERTER_V)
+    _write(root / "top.vhd", TOP_VHD)
+    _write(
+        root / "tb.sv",
+        "`timescale 1ns/1ps\nmodule tb; reg clk=0,a=0; wire y; top dut(clk,a,y); always #1 clk=~clk; always #3 a=~a; endmodule\n",
+    )
+    design = Design(
+        name="power",
+        design_root=root,
+        rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clock_port": "clk"},
+        tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
+    )
+    settings = {
+        "timing_sim": False,
+        "timeout": 240.0,
+        "prerun_time": "10ns",
+        "stop_time": "20ns",
+        "postsynthsim": {"synth": {"fpga": PART, "clock_period": 10.0, "ncpus": 2}},
+    }
+    flow = DefaultRunner(work_dir / "run").run_flow(VivadoPower, design, settings)
+    assert flow.succeeded
+    assert flow.results["sim.ended_by"] == "stop_time"
+    assert flow.results["sim.time"] == 20000
+    assert "Total On-Chip Power (W)" in flow.results
+    assert not (flow.run_path / "xsim_runtime.log").exists()
+    simulation = flow.run_path.parent / "vivado_postsynth_sim"
+    import json
+
+    assert (
+        json.loads((simulation / "results.json").read_text())["sim.evidence"]
+        == flow.results["sim.evidence"]
+    )
+
+
+def test_xsim_native_partial_line_diagnostic(work_dir):
+    test_xsim_native_sv_evidence(
+        work_dir,
+        '#5; $write("progress:"); $error("partial"); #1; $finish;',
+        {},
+        False,
+        "finish",
+        1,
+        0,
+    )
+
+
+def test_xsim_native_timeout_stops_the_container(work_dir):
+    """Use Xeda's named-container runtime so its bounded stop hook is exercised too."""
+    from .tool_utils import require_docker_image
+
+    require_docker_image("axemsolutions/vivado:2024.2")
+    root = work_dir / "design"
+    _write(
+        root / "tb.sv", "`timescale 1ns/1ps\nmodule tb; reg clk=0; always #1 clk=~clk; endmodule\n"
+    )
+    design = Design(
+        name="timeout", design_root=root, rtl={"sources": ["tb.sv"], "top": "tb"}, tb={"top": "tb"}
+    )
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        VivadoSim, design, {"dockerized": True, "timeout": 90.0}
+    )
+    assert not flow.succeeded
+    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert "XEDA_XSIM_RUNTIME_START" in (flow.run_path / "xsim_runtime.log").read_text()
+
+
+def test_xsim_native_partial_line_finish_during_prerun(work_dir):
+    test_xsim_native_sv_evidence(
+        work_dir,
+        '#5; $write("progress:"); $finish;',
+        {"prerun_time": "10ns", "stop_time": "20ns"},
+        True,
+        "finish",
+        0,
+        0,
+    )

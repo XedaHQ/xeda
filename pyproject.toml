@@ -122,6 +122,7 @@ namespaces = false
 ]
 "xeda.flow" = ["templates/*.h"]
 "xeda.flows.modelsim" = ["templates/*.tcl"]
+"xeda.flows.vivado" = ["templates/*.tcl"]
 "xeda.flows.nvc" = ["templates/*.cpp"]
 "xeda.flows.bsc" = ["templates/*.h", "templates/*.tcl", "templates/*.c"]
 "xeda.flows.yosys" = ["templates/*.h", "templates/*.cpp"]
