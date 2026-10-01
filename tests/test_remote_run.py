@@ -859,12 +859,13 @@ def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remo
         "    file_open(f, ROM, read_mode); readline(f, l); read(l, s);\n"
         '    assert s = "00 11" report "unexpected ROM: " & s severity failure;\n'
         '    file_open(o, TRACE, write_mode); write(l, string\'("seen ") & s); writeline(o, l);\n'
+        "    std.env.finish;\n"
         "    wait;\n"
         "  end process;\n"
         "end;\n"
     )
     (design_root / "d.toml").write_text(
-        'name = "d"\n'
+        'name = "d"\nlanguage.vhdl.standard = "2008"\n'
         '[rtl]\nsources = ["dut.vhd"]\ntop = "dut"\n'
         '[tb]\nsources = ["tb.vhd"]\ntop = "tb"\n'
         '[tb.parameters]\nROM = { file = "rom.mem" }\nTRACE = { path = "trace.txt" }\n'
