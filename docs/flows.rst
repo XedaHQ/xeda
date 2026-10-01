@@ -112,10 +112,57 @@ settings are reachable from the parent as a nested settings key. For example, to
 
     xeda run openfpgaloader blinky.toml -s nextpnr.yosys.flatten=true
 
-Settings a flow shares with its dependency -- ``fpga``, ``clocks`` and ``board`` for the FPGA
-flows -- are resolved when the dependency is launched: the flow's own value is used for both, and
-if the flow leaves a shared setting unset, the value given in the dependency's nested settings is
-used instead.
+Some flows declare inputs and outputs (``xeda list-flows --json`` exposes them). ``nextpnr``
+reads a ``netlist``, by default the one ``yosys_fpga`` writes. A source of type ``JsonNetlist``
+in ``rtl.sources`` supplies that input instead and skips synthesis:
+
+.. code-block:: toml
+
+    [rtl]
+    sources = [{ file = "top.json", type = "JsonNetlist" }]
+    top = "top"
+
+Xeda resolves the declared producers and their settings before anything runs. A scalar input
+requires exactly one matching source. Settings for a producer displaced by sources are unused
+and logged. The first declared outputs are ``yosys_fpga.netlist`` (enabled by ``netlist_json``)
+and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or Nexus ``fasm``).
+An enabled configuration that is missing or stale fails the run; disabled outputs are omitted.
+Output paths are set by the flow, verified and recorded with content digests in ``results.json``.
+Consumers get only those checked records, for newly run and reused producers alike.
+
+Along a declared edge, shared settings -- ``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
+where both endpoints declare them -- must agree. Leaves given on one node apply to both; disjoint
+leaves combine. Different values for the same leaf, for example ``[flows.nextpnr] fpga.part`` in a
+project and ``[flows.yosys_fpga] fpga.part`` in a design, fail before anything runs, naming both
+files and sections. A command-line leaf (``-s fpga.part=...`` or
+``-s flows.yosys_fpga.fpga.part=...``) wins for the connected group, preserving unrelated leaves.
+API overrides retain their separate highest-precedence origin. Normal origin-first precedence
+still applies within each node.
+
+Undeclared edges (``openfpgaloader`` to ``nextpnr``, the Vivado simulation/power flows) keep the
+legacy rule: the depending flow's nonempty value, else its dependency's nested value.
+Undeclared flows may launch declared ones.
+
+While a flow reads any completed dependency's outputs, it holds a verified shared lease on that
+run directory until its own launch ends. Another Xeda process cleaning, rebuilding or scrubbing
+the producer waits (POSIX only). Missing or changed completion evidence refuses hand-over.
+
+Planning without running
+------------------------
+
+``xeda run nextpnr blinky.toml --dry-run`` prints the immutable plan the launcher would execute:
+producers first, directories, hashes, each declared input's source/producer origin and optional
+outputs switched on for consumers. Add ``--json`` for a document (see :doc:`machine-readable`).
+It runs no tools and creates no new run roots, locks or deliveries. An existing empty custom
+run root or unmarked default ``xeda_run`` can currently receive ownership markers during
+planning, including on failure; this side effect is pending a fix. Invalid settings, unsupported
+targets and shared-setting conflicts fail during planning.
+
+Loading that needs a generator or a Git dependency fetch is refused before those side effects;
+materialize the sources first, or pass an already materialized ``Design`` to the library's
+``DefaultRunner.plan``. An undeclared node's runtime dependencies are unknown: its ``init()``
+is not called while planning. Freshness and always-run decisions are not evaluated, and
+``--dry-run --remote`` is refused.
 
 Runs are make-like by default: a dependency whose trace still matches what it would consume now
 is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.

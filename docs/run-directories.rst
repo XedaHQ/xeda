@@ -133,6 +133,12 @@ failed. Every flow reports:
    * - ``timestamp``
      - When the run finished, as ``YYYY-MM-DD-HHMMSS``.
 
+Flows with declared outputs also record ``outputs``: each enabled output's absolute path and
+content digest (an ordered list for list outputs). Consumers receive those checked records under
+a verified read lease; see :doc:`machine-readable`. Output-record validation failures use
+``MissingOutput`` and the normal failure document; nextpnr checks its enabled configuration
+earlier and raises ``FlowFatalError`` if the tool did not write it.
+
 On top of that each flow reports its own keys - ``xeda list-results <flow>`` lists them. Keys
 beginning with ``_`` are internal detail and may change without notice.
 
@@ -243,6 +249,8 @@ records:
   tree whose design file reads the same -- it has the same identity; a setting that names a
   directory (a compiled library) is bound by nothing else, and pointing elsewhere makes the run
   stale ("``lib_paths[0][1]`` now names ``<B>/libs`` (was ``<A>/libs``)");
+- ordered declared-input bindings: name, source/producer/none origin, producer identity and
+  consumed paths. A changed binding invalidates reuse even if the file set is unchanged;
 - a ``run_id`` for this run, and the ``run_id`` of each dependency's run it consumed, keyed by
   that dependency's run directory.
 
@@ -330,10 +338,20 @@ always runs (`Flows that always run`_).
 Locking
 --------
 
-A lock file, ``<run dir>.lock`` beside the run directory -- never inside it -- serializes
-concurrent launches of the same flow directory (POSIX only; there is no lock on Windows) -- so two
-overlapping ``xeda run`` invocations that share a dependency take turns with it instead of one
-clobbering the other's output. ``xeda scrub`` removes the lock file along with the directory.
+A durable lock file, ``<run dir>.lock`` beside the run directory -- never inside it --
+serializes writers to the same directory (POSIX only; there is no lock on Windows). A consumer
+holds each completed dependency's lock *shared*, after verifying completion evidence under the
+acquired lease, until its own launch ends, including results and trace writing. This protects
+declared and legacy dependencies, including producers without a trace. A change in the gap
+between producer completion and shared-lock acquisition refuses hand-over; matching declared
+output bytes alone do not prove the rest of the completed run is unchanged.
+
+Compatible readers overlap. Rebuild, cleanup, scrub and DSE purge take the same lock exclusively
+and wait for readers. Within one process, same-mode and exclusive-to-shared reentry keep the OS
+lock; shared-to-exclusive reentry is refused before writes. ``xeda scrub`` retains the lock file
+when deleting a run directory so waiting processes continue to use the same lock identity.
+Sibling scrub happens before the current run lock is taken, avoiding deadlocks between settings
+variants. Lock acquisition failures name the producer, path, shared mode and OS error.
 
 Xeda reserves these names at the top of a run directory, and never counts them as a run's
 outputs: ``trace.json``, ``trace.json.tmp`` (a trace being written), and ``.xeda-time-*`` (a

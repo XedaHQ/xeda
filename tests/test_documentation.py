@@ -6,13 +6,16 @@ coverage that has been reached so it cannot silently regress.
 """
 
 import enum
+import json
 import re
+import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Set, Tuple, get_args, get_origin
 
 import pytest
 
 from xeda.dataclass import annotation_args
+from xeda.design import SOURCE_SUFFIXES
 from xeda.flow import Flow, describe_results
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
 from xeda.introspect import all_flow_classes, flow_info, results_info, settings_info
@@ -227,3 +230,62 @@ def test_every_declared_input_and_output_is_documented(flow_class):
     info = flow_info(flow_class)
     undocumented = [d["name"] for d in info["inputs"] + info["outputs"] if not d["description"]]
     assert not undocumented, f"{flow_class.name}: {undocumented}"
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["docs/design-file.rst", "src/xeda/data/agent/references/design-file.md"],
+)
+def test_documented_source_suffixes_match_the_loader(relative):
+    """Both human and agent tables must give the loader's exact suffix-to-type mapping."""
+    text = (README.parent / relative).read_text(encoding="utf-8")
+    section = text.split("Source files\n", 1)[1]
+    if relative.endswith(".rst"):
+        table = section.split(".. list-table::", 1)[1].split("\n\n", 1)[1].split("\n\n", 1)[0]
+        rows = re.findall(r"   \* - (.+)\n     - (.+)", table)
+    else:
+        table = section.split("| Extension | Type |", 1)[1].split("\n\n", 1)[0]
+        rows = re.findall(r"^\| (.+) \| (.+) \|$", table, re.M)[1:]
+    documented = {}
+    for extensions, types in rows:
+        extension_groups = extensions.split(" / ")
+        type_groups = types.split(" / ")
+        assert len(extension_groups) == len(type_groups)
+        for group, type_group in zip(extension_groups, type_groups):
+            names = re.findall(r"`+([A-Za-z]+)`+", type_group)
+            if not names:
+                continue  # header
+            assert len(names) == 1
+            for suffix in re.findall(r"`+\.([a-z]+)`+", group):
+                assert suffix not in documented
+                documented[suffix] = names[0]
+    assert documented == {suffix: member.name for suffix, (member, _) in SOURCE_SUFFIXES.items()}
+
+
+def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
+    """Run the published planning command and check its JSON example, including switched outputs."""
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "blinky.v").write_text("module blinky(); endmodule\n", encoding="utf-8")
+    (tmp_path / "blinky.toml").write_text(
+        'name = "blinky"\n[rtl]\nsources = ["blinky.v"]\ntop = "blinky"\n', encoding="utf-8"
+    )
+    doc = (README.parent / "docs/machine-readable.rst").read_text(encoding="utf-8")
+    assert "Planning a run\n" in doc, "the planning command needs a JSON reference"
+    section = doc.split("Planning a run\n", 1)[1]
+    command = re.search(r"    xeda run (.+)\n", section)
+    assert command, "the planning example needs a runnable command"
+    result = CliRunner().invoke(cli, ["run", *command.group(1).split()])
+    assert result.exit_code == 0, result.output
+    actual = json.loads(result.stdout)
+    example = re.search(r"    \{\n.*?\n    \}", section, re.S)
+    assert example, "the planning example needs a complete JSON document"
+    expected = json.loads(textwrap.dedent(example.group()))
+    for node in actual["plan"]["nodes"]:
+        node["run_path"] = node["run_path"].replace(str(tmp_path), "/path/to")
+        node["flowrun_hash"] = "..."
+    assert actual == expected
+    assert not (tmp_path / "xeda_run").exists()

@@ -193,9 +193,10 @@ through, make's order: bring every prerequisite up to date, then judge this flow
 stages (each a method; the docstring lists them): **input** (`_input_settings`: validate in
 context, apply `--debug`) -> **identity** (`_run_identity`: design hash + `flowrun_hash`, run dir,
 locked via `run_lock` until the trace is written) -> **prepare** (construct the flow with its own
-*copy* of the input, `init()`, which registers dependencies -- runs even for a flow that turns out
+*copy* of the input, `init()` (registers legacy dependencies only) -- runs even for a flow that turns out
 fresh, so it must not change a file in its run directory, all of which are outputs) ->
-**dependencies** (`_run_dependencies`, recursing, each in a sibling run directory) ->
+**dependencies** (`_run_producers` for declared flows, following the plan; `_run_dependencies`
+for others; each in a sibling run directory held for reading until the launch ends) ->
 **freshness** (without `rebuild_all`, the default: `trace.check_trace` against what the flow
 would consume now; a match reuses the recorded results and skips **run** entirely; `_launch`
 itself removes the trace here, before **run**, so nothing vouches for the directory from this
@@ -234,17 +235,18 @@ removed before the run, so an earlier success never stands for a run that died
   `merge_layers`. Under the field holding a declared
   dependency's settings (`nextpnr.yosys`), that dependency's own sections (`[flows.yosys_fpga]`)
   are the base (`settings_layers.flow_settings_from_sections`, used by the launcher and the
-  remote runner alike): the depender resolves shared settings in `init()`, before the dependency
-  launches, so it must see them up front -- `fpga` given only for `yosys_fpga` reaches `nextpnr`.
+  remote runner alike). Declared edges agree shared leaves in the resolver; undeclared edges
+  resolve them in `init()` before launching dependencies.
 - A dependency's launch settings are composed in `default_runner.dependency_settings`: the
   design's/project's own section for the dependency's flow, refined by what the depending flow
-  passed to `add_dependency` (for a declared dependency, `resolve_dependency`'s result); then the
+  passed to `add_dependency` (for an undeclared edge, `resolve_dependency`'s result); then the
   depender's `debug`, and a `verbose` level above 1, carry over.
 
-- `init()` (not `__init__`) is where a flow registers dependencies via
-  `self.add_dependency(DepFlowClass, dep_settings, copy_resources=[...])`. Deps run in nested run dirs
+- An undeclared flow registers dependencies in `init()` (not `__init__`) via
+  `self.add_dependency(DepFlowClass, dep_settings, copy_resources=[...])`. Deps run in sibling run dirs
   and completed instances are available as `self.completed_dependencies` / `self.pop_dependency(Cls)`.
-  Example: `VivadoPostsynthSim` depends on `VivadoSynth`; `Nextpnr` depends on `YosysFpga`.
+  Example: `VivadoPostsynthSim` depends on `VivadoSynth`. Declared producers are launched by the
+  launcher, not registered by `init()`.
 - `run()` generates scripts and invokes tools. `parse_reports()` populates `self.results`;
   `self.results.success` decides pass/fail. Helpers: `parse_report_regex()`, `parse_regex()`,
   `parse_xml()` (`utils.py`). **Every report (or log, results file, bitstream) a flow reads by
@@ -284,6 +286,49 @@ For a single physical clock, use `clock.period` or `clock.freq`; `clock_period` 
 spelling only. Supplying it together with `clock` or `clocks` is an error. Multi-clock constraints
 use the `clocks.<name>.period`/`freq` mappings.
 
+### Declared inputs and outputs, and the resolver
+
+Declare files in nested `Inputs(Flow.Inputs)` / `Outputs(Flow.Outputs)` models with `In` / `Out`
+(`xeda.flow`, implemented in `flow/io.py`); every field needs a `description`. The annotation is
+cardinality: `Path` one, `Path | None` optional, `list[Path]` an ordered nonempty list (an input
+list with `In(optional=True)` may be empty). `In` names accepted `SourceType`s and optionally a
+canonical default `producer` and its `output`; `Out(enabled_by=...)` names a setting that enables
+an optional output. A consumer switches a Boolean setting on; other settings need a valid
+nonempty default or an explicit value. The flow chooses its output paths inside its run directory.
+
+- **One plan drives execution.** `flow_runner/resolver.py` resolves effective settings, input
+  origins, switched-on outputs, hashes and paths before constructing flows. Settings access gives
+  private copies; request context is protected. The launcher checks its internal plan against the
+  design, original request and run-root policy, then executes producers first without resolving
+  inputs again. External supplied plans are not a supported API. Declared `init()` adds no
+  dependencies, reads no inputs and writes no files; pure `check_settings_supported` validates
+  targets in planning. `yosys_fpga` declares `netlist` (`netlist_json`); `nextpnr` declares input
+  `netlist` and optional output `config` (ECP5 textcfg, iCE40 asc or Nexus fasm).
+- **Sources displace default producers.** An accepted type in `rtl.sources` supplies the input,
+  in source order; a `JsonNetlist` skips `yosys_fpga` for `nextpnr`. Cardinality is checked.
+  Settings for a displaced producer are unused and logged at info level.
+- **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`
+  apply where both endpoints declare them. Disjoint leaves combine; conflicting values fail with
+  both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
+  `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
+  leaves; API contributions remain a separate highest-precedence origin. Undeclared edges keep
+  `resolve_dependency` until conversion.
+- **Outputs are checked records.** `flow_runner/outputs.py` records enabled outputs in
+  `results.json`'s `outputs` as `{path, sha}` (ordered lists for list outputs), after checking
+  containment, readable files and `wrote_output`; failed output validation uses `MissingOutput`
+  and the usual failure identity. An enabled nextpnr config missing after the tool exits raises
+  `FlowFatalError` naming its setting/path. Hand-over validates schema, cardinality,
+  containment and digest under a verified read lease for new and reused producers alike; reuse
+  uses the producer's trace, not current-run write evidence. Declared flow code reads only
+  `self.inputs`, never producer settings, directories or artifacts. Traces also record ordered
+  declared input names, origins, producer identities and paths; a changed binding invalidates reuse.
+- **Planning is read-only.** `FlowLauncher.plan` / `xeda run --dry-run` prints this plan (or JSON
+  via `introspect.plan_info`) without tools, new run roots, locks or deliveries. Known pending
+  fix (F5): existing empty/unmarked run roots can receive ownership markers during planning;
+  remove this limitation from the docs when the read-only validation fix lands. Loading that needs a
+  generator or Git fetch is refused before side effects; a materialized `Design` is plannable.
+  Undeclared runtime dependencies are unknown, freshness is not evaluated, and `--remote` is refused.
+
 ### Settings
 
 Every flow declares a nested `class Settings(<Base>.Settings)`. Settings are pydantic models
@@ -308,16 +353,12 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
    `lib_paths` only the path half of each tuple, never the library name.
 3. A dependency's settings given as an instance are deep-copied, on construction and assignment.
 
-**Dependencies share settings declaratively, and resolve them at launch.** A flow that launches
-another declares which settings they share, keyed by the field holding the dependency's settings:
-`dependency_settings = {"yosys": ("fpga", "clocks")}`. Settings only ever hold what was written --
-validation copies nothing between a flow's settings and its dependency's, so the result never
-depends on the order settings were given in. `init()` launches the dependency with
-`self.add_dependency(YosysFpga, ss.resolve_dependency("yosys"))`: each shared setting comes from
-the flow unless it `is_unset` there (`None` or empty), otherwise from the dependency, and the flow
-adopts the resolved value too. The result is a private deep copy; the dependency settings as given
-stay untouched. Every nested `Flow.Settings` field must be declared; `tests/test_dependency_settings.py`
-enforces that and derives all its checks from the declarations.
+**Undeclared dependencies resolve shared settings at launch.** `dependency_settings` names each
+nested `Flow.Settings` field and its shared settings; every nested field must be declared
+(`tests/test_dependency_settings.py`). Validation copies nothing between nodes. An undeclared
+flow calls `ss.resolve_dependency(field)` in `init()` and passes the private result to
+`add_dependency`: its own nonempty value wins, otherwise it adopts the dependency's. Declared
+edges instead use the resolver's agreement rule above.
 
 **Values derived from settings are computed where they are used, not stored in settings.** Yosys's
 `write_verilog_flags()` / `attributes_to_unset()` read the `netlist_*` switches when the script is
@@ -367,6 +408,9 @@ names per `Flow.results_canonical_aliases` (`Fmax` <- `f_max`/`maximum_frequency
 `ff` <- `FF`). Nothing is renamed or removed.
 Note `clock_frequency` is deliberately *not* aliased to `Fmax` - it is the constrained frequency,
 not the achieved one.
+
+Declared output records are bookkeeping, like `artifacts`, not `COMMON_RESULT_DESCRIPTIONS`
+keys; they are omitted from the printed result table. See `docs/machine-readable.rst`.
 
 ### Templates
 
@@ -537,7 +581,13 @@ make"; it implies `--rebuild-all`). `--post-cleanup`/`--post-cleanup-purge` clea
 read a dependency's files; pruning removes the trace first, so a pruned run is not reused. A
 POSIX lock file (`<run dir>.lock`, `run_lock.py`, beside the run directory, never inside it; none
 on Windows) serializes concurrent launches of the same run directory; `xeda scrub`
-removes it with the directory. `--remote` always mirrors into the hashed layout
+takes the same exclusive lock and retains the durable lock file. Consumers hold verified
+shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
+writing, including legacy dependencies; changed or uncertain completion evidence in the
+exclusive-to-shared acquisition gap refuses hand-over. Same-mode and exclusive-to-shared reentry
+retain protection; shared-to-exclusive reentry is refused. Scrub siblings before taking the
+current run lock to avoid cross-variant deadlocks. DSE purge also takes the exclusive lock.
+`--remote` always mirrors into the hashed layout
 (`<flow>_<flowrun_hash>`, `RemoteRunner.Settings.hashed_run_dirs`, `Literal[True]` as `Dse`'s), so
 remote runs of different settings never share a directory, and refuses `--rebuild-all`, `--clean`
 and `--hashed-run-dirs` alike (a remote run always runs fresh); it also refuses a deliverable
@@ -900,6 +950,14 @@ while it is open). A flow sharing
   boundary to protect. `tests/test_isolation.py` is the current oracle (see "Caching and
   run directories" above; it replaced `test_run_dir_ownership.py`'s `--cwd` sweep, which is gone
   with `--cwd` itself).
+- **Every design source is typed.** `design.SOURCE_SUFFIXES` is the case-sensitive inference
+  table. Unknown, ambiguous (`.json`, `.bin`, `.cfg`, `.config`) or mis-cased suffixes need an
+  explicit `type`; invalid explicit types fail with suggestions (`source_type_named`). `Data`
+  has no automatic HDL frontend; a flow or design may still read it. Append `SourceType` members,
+  never reorder the historical ordinals. Script flows declare `reads_sources` and
+  `reads_source_parts`, then iterate `sources_read()` in code/templates. Every consumed part
+  rejects unsupported `LANGUAGE_TYPES`; other types are deliberately skipped. Headers need an
+  actual include/search path, and source type names must never become tool commands.
 - **Compare a source's type with `SourceType`, never with free text**: `src.type is
   SourceType.Xdc` in Python, `src.type.name == "Vhdl"` in a template. A `SourceType` equals only
   its own name, so `src.type == 'verilog'` is silently never true -- ModelSim compiled no source
@@ -985,10 +1043,9 @@ while it is open). A flow sharing
   `tests/test_yosys_fpga_flags.py`, read from the passes' sources for every supported release
   from 0.63:
   on a new yosys release, add its option changes there and raise `NEWEST_CHECKED_YOSYS`.
-- **A flow rejects a target it cannot handle in `init()`, before its dependencies run** --
-  after `resolve_dependency`, which may be what supplies `fpga`. `nextpnr` checks its device
-  mapping and settings of other architectures (`_target`), `openfpgaloader` its packer, so an
-  unsupported family never costs a synthesis or place-and-route run.
+- **Reject unsupported targets before producers run.** Declared flows use the pure class-level
+  `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers).
+  Undeclared flows validate in `init()` after `resolve_dependency` (`openfpgaloader`'s packer).
 - **Real proprietary tools and containers are opt-in layers**, skipped unless their variable is set
   (and then failing on what they need): `XEDA_TESTS_VIVADO=1` runs Vivado flows on tiny designs
   (`tests/test_vivado_real.py`, `vivado` on PATH); `XEDA_TESTS_DOCKER=1` runs flows `dockerized`

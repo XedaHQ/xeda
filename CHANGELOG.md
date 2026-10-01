@@ -28,10 +28,46 @@ All notable changes to this project will be documented in this file.
 - A failed dependency's `FlowDependencyFailure` names the dependency and its `results.json`.
 
 ### Added
+- `xeda run --dry-run` prints the plan in producer order, with run directories, hashes,
+  declared input origins and optional outputs switched on for consumers; `--json` emits one
+  document. It creates no new run root or lock and probes no tools. Existing empty or unmarked
+  run roots can currently receive ownership markers during dry-run; correcting this is pending.
+  Loading that needs a generator
+  or Git dependency fetch is refused before side effects; undeclared runtime dependencies are
+  unknown, freshness is not evaluated, and `--remote` is refused.
+- `In` / `Out` declarations, exposed by `xeda list-flows --json` as `declared`, `inputs` and
+  `outputs`. A declared flow's `results.json` records enabled outputs as path/content-digest
+  records; output-record validation failures use `MissingOutput` and the usual run identity.
+  Traces record ordered declared input bindings.
 - `run_process` and `Tool.run` take `timeout` (the process group, or a named Docker container, is
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **Every design source has a type.** A suffix xeda cannot type -- unknown (`.txt`), ambiguous
+  (`.json`, `.bin`, `.cfg`, `.config`) or in another letter case (`.VHD`) -- is a load error
+  asking for `type = "..."`, with `Data` for a file with no automatic HDL frontend. An invalid
+  explicit `type` is an error naming the closest ones (it used to fall back to the suffix
+  silently). New types: `Lpf`, `Pcf`, `Pdc`, `JsonNetlist`, `EcpConfig`, `IceAsc`, `Fasm`, `Bitstream`,
+  `VerilogNetlist`, `VhdlNetlist`, `Blif`, `Edif`, `Ucf`, `Xcf`, `Qsf`, `Ldc`, `Fdc`, `Sdf`,
+  `Spef`, `Saif`, `Vcd`, `Fst`, `Ghw`, `Vpd`, `Fsdb`, `Checkpoint`, `Liberty`, `Def`, `Odb`,
+  `Gds`, `Cdl`, `Chipdb`, `C`, `CHeader`, `ObjectFile`, `Vlt`, `Data`; `.init` and `.hex` are
+  `MemoryFile`. A design listing a newly typed file (a `.c` source) re-runs once.
+- A flow hands its tool only the source types it reads: Quartus no longer writes `XDC_FILE` or
+  `MEMORYFILE_FILE` assignments, Vivado, Diamond, ISE and DC no longer add a source of a type
+  they cannot use, and a language a flow cannot read is an error naming the source.
+- **Settings connected flows share (`fpga`, `board`, `custom_boards_file`, `clocks`) must agree**
+  between `nextpnr` and `yosys_fpga`: different values in two places are an error naming both
+  (the depending flow's value used to win silently); an explicit CLI leaf wins for
+  both, preserving unrelated leaves. API overrides keep their highest-precedence origin.
+- `nextpnr` records the selected ECP5, iCE40 or Nexus configuration; an enabled output that is
+  missing or stale fails, while disabled/out-of-context outputs remain absent.
+- `nextpnr` takes its netlist from `yosys_fpga`'s recorded output, checked by content, or from a
+  `JsonNetlist` among the design's sources (synthesis is then skipped); it no longer reads
+  `yosys_fpga`'s settings or run directory. A flow reading a dependency's outputs holds that
+  dependency's run directory for reading, so a concurrent xeda process that would rebuild it
+  waits (POSIX only). Scrub and DSE purge use the same exclusive lock, and scrub
+  retains durable lock files.
+
 - **Verilator simulation**: `random_init` now defaults to false, as in Verilator, and
   `random_seed` is used only with it; `x_initial`/`x_assign` default to `"0"` (were `"unique"`);
   `stop_time` with cocotb or with a design's own C++ driver is an error (only Xeda's own driver
@@ -99,7 +135,7 @@ All notable changes to this project will be documented in this file.
   system its clock still decides, but on another one nothing does, so the next launch runs once
   more, saying so ("input first read by the last run, on another file system").
 - `--remote` needs a P2a xeda build on the remote host: the 0.4.4 release line (including dev
-  builds) or newer, with remote protocol 1 or newer. A 0.4.3 host is refused before anything
+  builds) or newer, with remote protocol 2 or newer. A 0.4.3 host is refused before anything
   ships, with an error asking to upgrade the remote xeda.
 
 ### Removed

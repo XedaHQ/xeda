@@ -95,21 +95,40 @@ that names `MHz`. It also takes `rise`, `duty_cycle`, `uncertainty`, `skew` and 
 
 ## Source files
 
-A path string is enough; the type comes from the extension:
+A path string suffices when its extension identifies a type:
 
 | Extension | Type |
 | --- | --- |
 | `.vhd`, `.vhdl` | `Vhdl` |
-| `.v` | `Verilog` |
-| `.sv` | `SystemVerilog` |
+| `.v` / `.sv` | `Verilog` / `SystemVerilog` |
 | `.vh` / `.svh` | `VerilogHeader` / `SVHeader` |
 | `.bsv`, `.bs`, `.bh` | `Bluespec` |
 | `.py` | `Cocotb` |
-| `.cc`, `.cpp`, `.cxx` | `Cpp` |
+| `.cc`, `.cpp`, `.cxx` / `.c` / `.h`, `.hpp` / `.o`, `.a` | `Cpp` / `C` / `CHeader` / `ObjectFile` |
 | `.sc` | `Chisel` |
-| `.xdc` / `.sdc` | `Xdc` / `Sdc` |
+| `.xdc` / `.sdc` / `.lpf` / `.pcf` / `.pdc` | `Xdc` / `Sdc` / `Lpf` / `Pcf` / `Pdc` |
+| `.ucf` / `.xcf` / `.qsf` / `.ldc` / `.fdc` | `Ucf` / `Xcf` / `Qsf` / `Ldc` / `Fdc` |
 | `.tcl` | `Tcl` |
-| `.mem` | `MemoryFile` |
+| `.mem`, `.init`, `.hex` | `MemoryFile` |
+| `.asc` / `.fasm` / `.bit`, `.sof` | `IceAsc` / `Fasm` / `Bitstream` |
+| `.blif` / `.edf`, `.edif` | `Blif` / `Edif` |
+| `.sdf` / `.spef` / `.saif` | `Sdf` / `Spef` / `Saif` |
+| `.vcd` / `.fst` / `.ghw` / `.vpd` / `.fsdb` | `Vcd` / `Fst` / `Ghw` / `Vpd` / `Fsdb` |
+| `.dcp` / `.lib` / `.def` / `.odb` / `.gds` / `.cdl` / `.vlt` | `Checkpoint` / `Liberty` / `Def` / `Odb` / `Gds` / `Cdl` / `Vlt` |
+
+Every source has a type. Suffixes match as written (`TOP.VHD` is an error naming `.vhd`).
+`.json`, `.bin`, `.cfg`, `.config` and any suffix not in the table need `type = "..."`;
+`JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `Chipdb` and `Data` are only given
+that way. `Data` has no automatic HDL frontend; a flow or the design can still read it.
+An invalid explicit `type` is an error naming the closest types. Explicit type names are
+case-tolerant; suffixes are not. Give a gate-level `.v` netlist `type = "VerilogNetlist"`;
+otherwise its inferred type is `Verilog`.
+
+Source-consumption contracts apply to `vivado_synth`, `vivado_alt_synth`, `vivado_project`,
+`quartus`, `diamond_synth`, `ise_synth`, `dc` and `yosys_fpga`: other non-language types are
+skipped (an `Lpf` in a Vivado design), but an unsupported language fails before the flow runs
+(a Bluespec source for `vivado_synth`). Contracts check `rtl.sources`; `vivado_project` also
+checks `tb.sources`. Headers reach include/search paths; no source type name becomes a tool command.
 
 The `bsc` flow compiles BH (Bluespec Classic) only from `.bs` files; it rejects a `.bh` source
 with a settings error naming the file to rename.
@@ -119,7 +138,7 @@ and a pattern matching no file is an error. `*` is the only pattern character: `
 part of a file name, so `"rtl/fifo[1].v"` names exactly that file (never `fifo1.v`), and
 `"rtl/fifo[1]_*.v"` matches `fifo[1]_a.v`. Never escape them. Xeda passes such names to yosys and
 to TCL-scripted tools intact, but Vivado's `add_files` (every file in `vivado_project`; memory
-files, sources of an unknown type, `xdc_files` and `tcl_files` in `vivado_synth`) refuses a name
+files, `xdc_files` and `tcl_files` in `vivado_synth`) refuses a name
 containing `[`, `]` or `$`: rename those for Vivado.
 
 When inference is not enough, use a table:
