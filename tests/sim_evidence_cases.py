@@ -141,6 +141,12 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
                     merge_stderr=True,
                 )
             return original(tool, executable, *args, **kwargs)
+        if case.flow == "modelsim" and name == "vsim":
+            monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "finish0" if positive else "silent")
+            result = original(tool, executable, *args, **kwargs)
+            assert (cwd / "fake_vsim.runtime").read_text().strip() == "runtime executed"
+            (cwd / "oracle.runtime").write_text("runtime executed")
+            return result
         if runtime:
             # Combined proprietary/NVC invocations also contain the successful build.
             build = cwd / "oracle.build"

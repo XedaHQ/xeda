@@ -1,3 +1,4 @@
+onerror {exit -code 1}
 {#- ModelSim's `exit` takes its status as `-code N`: a plain `exit 1` exits vsim with status 0 #}
 puts "\n===========================( Compiling HDL Sources )==========================="
 {%- for src in design.sim_sources if src.type %}
@@ -31,19 +32,46 @@ if { [catch {vsim -t ps -onfinish stop {{design.sim_tops|map("tcl_word")|join(' 
     Leave lower-severity assertions running so the testbench reaches its finish and status check.
     Fatal is the highest supported break level; a fatal break still returns to this script. #}
 set BreakOnAssertion 4
+# A builtin break returns to our script; it must not skip the status/time checkpoint.
+onbreak {resume}
 vcd add -r {% if not settings.debug and design.tb.uut %} {{(design.tb.uut ~ "/*")|tcl_word}} {% else %} * {% endif %}
-#run_wave
-run {% if settings.stop_time is not none %} {{settings.stop_time}} {%- else %} -all {%- endif %}
-puts "\n===========================( *DISABLE ECHO* )==========================="
-
+# Runtime-only transcript. Macro echo is disabled; source/script text is never an end token.
+transcript off
+if {![catch {file lstat modelsim_runtime.log existing}]} {
+    error "Refusing an existing ModelSim runtime transcript path"
+}
+transcript file modelsim_runtime.log
+coverage attribute -name TESTSTATUS -value 0
+# Exclude analysis/elaboration diagnostics; runtime messages raise this native attribute again.
+puts "XEDA_MODELSIM_RUNTIME_START"
+if {[catch {run {% if stop_time is not none %} {{stop_time}} {% else %} -all {% endif %}} error]} {
+    puts $error
+    transcript file ""
+    exit -code 1
+}
+# These are native observations, not completion tokens invented from a returned run command.
+set run_state [runStatus -full]
+set test_status [lindex [coverage attribute -name TESTSTATUS -concise] 0]
+if {![string is integer -strict $test_status] || $test_status < 0 || $test_status > 3} {
+    error "Invalid ModelSim TESTSTATUS"
+}
+puts "XEDA_MODELSIM_RUN_STATUS=$run_state"
+set fd [open modelsim_end.txt {WRONLY CREAT EXCL}]
+puts $fd "XEDA_MODELSIM_V1"
+puts $fd $now
+puts $fd $resolution
+puts $fd $test_status
+puts $fd $run_state
+close $fd
 {% if settings.vcd %}
 vcd flush
 {% endif %}
+# Closing the file flushes the runtime transcript, including returned assertion/finish breaks.
+transcript file ""
 
 {#- TESTSTATUS is 0 OK, 1 warning, 2 error, 3 fatal. ModelSim groups VHDL severity failure
     and SystemVerilog $fatal at 3, unlike BreakOnAssertion's separate 3 and 4 levels.
     A testbench signals a failed test with one of these, and vsim exits with status 0 regardless. #}
-set test_status [lindex [coverage attribute -name TESTSTATUS -concise] 0]
 if { $test_status >= {{fail_status}} } {
     puts "ERROR: simulation TESTSTATUS=$test_status reached threshold {{fail_status}} (fail_severity={{settings.fail_severity}})"
     exit -code 1

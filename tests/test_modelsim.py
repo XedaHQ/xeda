@@ -31,13 +31,13 @@ def _design(root: Path, tb_top: Optional[str] = "tb") -> Design:
     return Design(name="d", design_root=root, rtl={"sources": ["uut.vhd"], "top": "uut"}, tb=tb)
 
 
-def _run(tmp_path: Path, monkeypatch, settings=None, design=None):
+def _run(tmp_path: Path, monkeypatch, settings=None, design=None, *, record_calls=True):
     """Run the flow on the fake tools; the flow and every tool command its script ran."""
     use_fake_tools(monkeypatch)
     run_dir = tmp_path / "run"
     design = design or _design(tmp_path / "design")
     flow = DefaultRunner(run_dir).run_flow(Modelsim, design, settings or {})
-    return flow, fake_calls(run_dir)
+    return flow, fake_calls(run_dir) if record_calls else []
 
 
 @needs_tclsh
@@ -120,3 +120,227 @@ def test_the_default_image_runs_vsim_on_amd64(monkeypatch, tmp_path) -> None:
     assert command[command.index("--platform") + 1] == "linux/amd64"
     image = "chaseruskin/modelsim-intel:20.1.1-ubuntu-22.04"
     assert command[command.index(image) + 1 :] == ["vsim", "-batch", "-do", "do run.tcl"]
+
+
+@needs_tclsh
+@pytest.mark.parametrize("edition", ["modelsim", "questa"])
+@pytest.mark.parametrize(
+    "state, settings, passes, ending, errors, warnings",
+    [
+        ("finish0", {}, True, "finish", 0, 0),
+        ("finish5", {}, True, "finish", 0, 0),
+        ("vhdl_finish", {}, True, "finish", 0, 0),
+        ("vhdl_stop", {}, True, "finish", 0, 0),
+        ("silent", {}, False, "unknown", 0, 0),
+        ("drain5", {}, False, "unknown", 0, 0),
+        ("error_finish", {}, False, "finish", 1, 0),
+        ("error_finish", {"fail_severity": "failure"}, True, "finish", 1, 0),
+        ("warning_finish", {}, True, "finish", 0, 1),
+        ("warning_finish", {"fail_severity": "warning"}, False, "finish", 0, 1),
+        ("failure_finish", {"fail_severity": "fatal"}, False, "finish", 1, 0),
+        ("fatal", {}, False, "fatal", 1, 0),
+        ("verilog_stop", {"fail_severity": "fatal"}, False, "error", 1, 0),
+        ("status2_finish", {}, False, "finish", 1, 0),
+        ("limit10", {"stop_time": "10ns"}, True, "stop_time", 0, 0),
+        ("limit5", {"stop_time": "10ns"}, False, "stop_time", 0, 0),
+        ("break10", {"stop_time": "10ns"}, False, "unknown", 0, 0),
+        ("drain5", {"stop_time": "10ns"}, False, "stop_time", 0, 0),
+        ("finish0", {"stop_time": "10ns"}, True, "finish", 0, 0),
+        ("lookalike", {}, False, "unknown", 0, 0),
+    ],
+)
+def test_modelsim_questa_runtime_evidence(
+    edition, state, settings, passes, ending, errors, warnings, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", state)
+    monkeypatch.setenv("XEDA_FAKE_MODELSIM_EDITION", edition)
+    flow, calls = _run(tmp_path, monkeypatch, settings)
+    assert flow is not None and flow.succeeded is passes
+    assert flow.results["sim.ended_by"] == ending
+    assert flow.results["sim.errors"] == errors
+    assert flow.results["sim.warnings"] == warnings
+    assert ["runStatus", "-full"] in calls
+    assert (flow.run_path / "modelsim_runtime.log").exists()
+    assert flow.results["sim.time"] == (
+        0
+        if state in ("finish0", "silent")
+        else 5000 if state == "limit5" else 10000 if state in ("limit10", "break10") else 5000
+    )
+    assert flow.results["sim.time_unit"] == "1ps"
+
+
+@needs_tclsh
+@pytest.mark.parametrize("missing", ["modelsim_runtime.log", "modelsim_end.txt"])
+def test_modelsim_requires_both_current_outputs(missing, tmp_path, monkeypatch):
+    original = xeda.tool.Tool.execute
+
+    def execute(tool, executable, *args, **kwargs):
+        result = original(tool, executable, *args, **kwargs)
+        if "-do" in args:
+            Path(missing).unlink(missing_ok=True)
+        return result
+
+    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    flow, _ = _run(tmp_path, monkeypatch)
+    assert flow is not None and not flow.succeeded
+
+
+@needs_tclsh
+@pytest.mark.parametrize(
+    "checkpoint",
+    [
+        "",
+        "partial\n",
+        "XEDA_MODELSIM_V1\n5 ns\n1ps\n-1\nbreak simulation_stop {$finish}\n",
+        "XEDA_MODELSIM_V1\n-5 ns\n1ps\n0\nbreak simulation_stop {$finish}\n",
+    ],
+)
+def test_modelsim_rejects_malformed_checkpoints(checkpoint, tmp_path, monkeypatch):
+    original = xeda.tool.Tool.execute
+
+    def execute(tool, executable, *args, **kwargs):
+        result = original(tool, executable, *args, **kwargs)
+        if "-do" in args:
+            Path("modelsim_end.txt").write_text(checkpoint)
+        return result
+
+    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    flow, _ = _run(tmp_path, monkeypatch)
+    assert flow is not None and not flow.succeeded
+
+
+@needs_tclsh
+@pytest.mark.parametrize("command", ["run", "coverage", "runStatus", "transcript"])
+def test_modelsim_late_tcl_failure_overrides_finish(command, tmp_path, monkeypatch):
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", command)
+    flow, _ = _run(tmp_path, monkeypatch, record_calls=False)
+    assert flow is not None and not flow.succeeded
+
+
+@needs_tclsh
+def test_modelsim_timeout_bounds_the_runtime(tmp_path, monkeypatch):
+    monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "hang")
+    flow, _ = _run(tmp_path, monkeypatch, {"timeout": 5})
+    assert flow is not None and not flow.succeeded
+    assert flow.results["error"]["type"] == "ProcessTimeout"
+
+
+@needs_tclsh
+def test_modelsim_a_reused_directory_cannot_supply_finish(tmp_path, monkeypatch):
+    flow, _ = _run(tmp_path, monkeypatch)
+    assert flow is not None and flow.succeeded
+    monkeypatch.setenv("XEDA_FAKE_TOOL_NO_OUTPUT", "1")
+    runner = DefaultRunner(tmp_path / "run", rebuild_all=True)
+    flow = runner.run_flow(Modelsim, _design(tmp_path / "design"), {})
+    assert flow is not None and not flow.succeeded
+
+
+def test_modelsim_defaults_require_error_level_evidence():
+    settings = Modelsim.Settings()
+    assert settings.fail_severity == "error"
+    assert settings.timeout is None
+
+
+@needs_tclsh
+@pytest.mark.parametrize("mode", ["checkpoint_reason", "transcript_reason", "precision", "time"])
+def test_modelsim_checkpoint_must_match_native_observations(mode, tmp_path, monkeypatch):
+    original = xeda.tool.Tool.execute
+
+    def execute(tool, executable, *args, **kwargs):
+        result = original(tool, executable, *args, **kwargs)
+        if "-do" in args:
+            record = Path("modelsim_end.txt")
+            transcript = Path("modelsim_runtime.log")
+            if mode == "checkpoint_reason":
+                record.write_text(record.read_text().replace("{$finish}", "unknown"))
+            elif mode == "transcript_reason":
+                transcript.write_text(transcript.read_text().replace("{$finish}", "unknown"))
+            elif mode == "precision":
+                record.write_text(record.read_text().replace("1ps", "0ps"))
+            else:
+                record.write_text(record.read_text().replace("0 ps", "nonsense"))
+        return result
+
+    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    flow, _ = _run(tmp_path, monkeypatch)
+    assert flow is not None and not flow.succeeded
+
+
+def test_modelsim_has_an_opt_in_functional_capability_probe():
+    from . import tool_utils
+
+    assert callable(tool_utils.require_modelsim)
+
+
+@needs_tclsh
+def test_modelsim_excludes_compile_and_load_diagnostics(tmp_path, monkeypatch):
+    monkeypatch.setenv("XEDA_FAKE_MODELSIM_LOAD_STATUS", "2")
+    flow, _ = _run(tmp_path, monkeypatch, {"redirect_stdout": True})
+    assert flow is not None and flow.succeeded
+    assert flow.results["sim.errors"] == 0 and flow.results["sim.warnings"] == 0
+    assert "analysis/load diagnostic" not in (flow.run_path / "modelsim_runtime.log").read_text()
+    assert "analysis/load diagnostic" in (flow.run_path / "modelsim_process.log").read_text()
+
+
+@needs_tclsh
+def test_modelsim_timeout_retains_current_diagnostics(tmp_path, monkeypatch):
+    monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "hang")
+    flow, _ = _run(tmp_path, monkeypatch, {"timeout": 5})
+    assert flow is not None and not flow.succeeded
+    assert "runtime waiting" in (flow.run_path / "modelsim_process.log").read_text()
+    assert "runtime waiting" in (flow.run_path / "modelsim_runtime.log").read_text()
+
+
+@needs_tclsh
+@pytest.mark.parametrize("case, passes", [("normal", True), ("failure", False), ("fatal", False)])
+def test_modelsim_measured_2020_1_status_spellings(case, passes, tmp_path, monkeypatch):
+    """Replay an older measured reason/status; times and execution here remain synthetic."""
+    fixture = (Path(__file__).parent / "resources/modelsim/status-2020.1.txt").read_text()
+    excerpt = fixture.split(case + " exit 0\n", 1)[1].split("exit 0\n", 1)[0]
+    state = next(
+        line.removeprefix("RUN_STATUS=")
+        for line in excerpt.splitlines()
+        if line.startswith("RUN_STATUS=")
+    )
+    status = next(
+        line.removeprefix("TEST_STATUS=")
+        for line in excerpt.splitlines()
+        if line.startswith("TEST_STATUS=")
+    )
+    # Tcl list quoting preserves the nested native {$finish} reason.
+    monkeypatch.setenv(
+        "XEDA_FAKE_TOOL_RETURNS",
+        "{runStatus -full} {"
+        + state
+        + "} {coverage attribute -name TESTSTATUS -concise} "
+        + status,
+    )
+    flow, _ = _run(tmp_path, monkeypatch)
+    assert flow is not None and flow.succeeded is passes
+
+
+@needs_tclsh
+@pytest.mark.parametrize("path", ["modelsim_runtime.log", "modelsim_end.txt"])
+def test_modelsim_refuses_links_created_by_analysis(path, tmp_path, monkeypatch):
+    from xeda.utils import tcl_word
+
+    outside = tmp_path / "outside.log"
+    outside.write_text("keep this data\n")
+    original = xeda.tool.Tool.execute
+
+    def execute(tool, executable, *args, **kwargs):
+        if "-do" in args:
+            script = Path(args[args.index("-do") + 1].split(None, 1)[1])
+            text = script.read_text()
+            script.write_text(
+                text.replace(
+                    "transcript off",
+                    f"file link -symbolic {path} {tcl_word(str(outside))}\ntranscript off",
+                )
+            )
+        return original(tool, executable, *args, **kwargs)
+
+    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    flow, _ = _run(tmp_path, monkeypatch, record_calls=False)
+    assert flow is not None and not flow.succeeded
+    assert outside.read_text() == "keep this data\n"

@@ -49,6 +49,7 @@ __all__ = [
     "checkout_work_dir",
     "require_docker",
     "require_docker_image",
+    "require_modelsim",
 ]
 
 REQUIRE_TOOLS = os.environ.get("XEDA_TESTS_REQUIRE_TOOLS", "").lower() in ("1", "true", "yes", "on")
@@ -726,6 +727,42 @@ def require_docker_image(image: str) -> None:
     require_docker()
     if not _command_succeeds(["docker", "image", "inspect", image]):
         pytest.skip(f"{image} is not present: `docker pull {image}` to run this test")
+
+
+@lru_cache(maxsize=None)
+def require_modelsim() -> None:
+    """Opt-in Docker capability check: compile/run quiet finish and read native proof.
+
+    A version banner is insufficient. Never start Docker or pull an image here; a caller
+    explicitly enables the proprietary layer, and an incompatible installed image fails.
+    """
+    from xeda import Design
+    from xeda.flow_runner import DefaultRunner
+    from xeda.flows.modelsim import Modelsim, ModelsimTool
+
+    docker = ModelsimTool.model_fields["docker"].default
+    assert docker is not None
+    image = docker.image if ":" in docker.image else f"{docker.image}:{docker.tag or 'latest'}"
+    require_docker_image(image)
+    work = checkout_work_dir("modelsim_capability_")
+    try:
+        source = work / "probe.sv"
+        source.write_text("module probe; initial $finish(0); endmodule\n")
+        design = Design(
+            name="probe",
+            design_root=work,
+            rtl={"sources": [source], "top": "probe"},
+            tb={"top": "probe"},
+        )
+        flow = DefaultRunner(work / "runs", display_results=False).run_flow(
+            Modelsim, design, {"dockerized": True, "timeout": 60}
+        )
+        if flow is None or not flow.succeeded or flow.results.get("sim.ended_by") != "finish":
+            pytest.fail(f"{image} did not provide native quiet-finish runtime evidence")
+        if flow.results.get("sim.time") != 0 or flow.results.get("sim.time_unit") is None:
+            pytest.fail(f"{image} did not provide native time/precision")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def checkout_work_dir(prefix: str) -> Path:

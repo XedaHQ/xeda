@@ -5,6 +5,10 @@ from typing import Dict, List, Literal, Optional, Union
 from ...dataclass import Field
 from ...design import DesignValidationError
 from ...flow import SimFlow
+from ...flow.flow import describe_results
+from ...flow.sim import SimEvidence
+from ...units import convert_unit
+from .sim_evidence import parse_modelsim_evidence
 from ...tool import Docker, Tool
 from ...utils import SDF
 
@@ -37,11 +41,23 @@ class Modelsim(SimFlow):
     with timing from an SDF file via the `sdf` setting.
     """
 
-    # This flow reports no results beyond the keys every flow reports; declaring this
-    # explicitly keeps `xeda list-results` from guessing.
-    results_description: dict = {}
+    results_description = describe_results(
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+    )
+
+    def has_evidence_adapter(self) -> bool:
+        return True
+
+    def simulation_evidence(self) -> SimEvidence | None:
+        return parse_modelsim_evidence(self)
 
     class Settings(SimFlow.Settings):
+        timeout: float | None = Field(
+            None,
+            gt=0,
+            description="Stop the simulation-containing vsim invocation after this many seconds "
+            "of wall-clock time and fail. None (the default) sets no limit.",
+        )
         sdf: SDF = Field(
             SDF(),
             description="SDF timing-annotation files to back-annotate onto the netlist, per delay "
@@ -66,7 +82,7 @@ class Modelsim(SimFlow):
             [], description="Extra flags passed to `vsim` when it loads the simulation tops."
         )
         fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
-            "failure",
+            "error",
             description="Fail the run when the simulation reports a message of this severity or "
             "higher: a failed VHDL assertion or the SystemVerilog `$warning`, `$error` or "
             "`$fatal` task. ModelSim reports VHDL `failure` and SystemVerilog `$fatal` with the "
@@ -96,16 +112,37 @@ class Modelsim(SimFlow):
             vsim_opts.extend([f"-sdf{dt}", f"{sdf_root}={f}"])
         vsim_opts += [f"-g{k}={v}" for k, v in tb.parameters.items()]
 
+        # Only runtime diagnostics enter the owned transcript. Clear both proof inputs before
+        # compilation too: a compile/load failure cannot reuse a preceding successful run.
+        self.run_directory.remove(
+            "modelsim_runtime.log", "modelsim_end.txt", "modelsim_process.log"
+        )
+        self.run_directory.writable("modelsim_runtime.log")
+        self.run_directory.writable("modelsim_end.txt")
+        stop_time = (
+            str(convert_unit(ss.stop_time, "ps", from_unit="ns")) + "ps"
+            if ss.stop_time is not None
+            else None
+        )
         script_path = self.copy_from_template(
             "run.tcl",
             vcom_opts=ss.vcom_flags,
             vlog_opts=ss.vlog_flags,
             vsim_opts=vsim_opts,
             fail_status=TEST_STATUS[ss.fail_severity],
+            stop_time=stop_time,
         )
 
         modelsim_opts = ["-batch", "-do", f"do {script_path}"]
         if ss.modelsimini:
             modelsim_opts.extend(["-modelsimini", str(ss.modelsimini)])
         vsim = ModelsimTool()
-        vsim.run(*modelsim_opts)
+        # vsim contains both build and runtime. Keep all output on failure/timeout, but only
+        # the runtime transcript supplies evidence; a general stdout redirect cannot hide it.
+        runtime = vsim.derive(vsim.executable, redirect_stdout=None)
+        runtime.run(
+            *modelsim_opts,
+            timeout=ss.timeout,
+            tee=self.run_directory.writable("modelsim_process.log"),
+            merge_stderr=True,
+        )

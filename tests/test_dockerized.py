@@ -16,13 +16,12 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Modelsim, VivadoSynth, Yosys
 from xeda.flows.ghdl import GhdlTool
-from xeda.flows.modelsim import ModelsimTool
 from xeda.flows.vivado import VivadoTool
 from xeda.flows.yosys.common import YOSYS_DOCKER_IMAGE
 import xeda.tool
 from xeda.tool import Docker, Tool
 
-from .tool_utils import checkout_work_dir, require_docker, require_docker_image
+from .tool_utils import checkout_work_dir, require_docker, require_docker_image, require_modelsim
 
 INVERTER_V = (
     "module inv(input clk, input a, output reg y); always @(posedge clk) y <= ~a; endmodule\n"
@@ -138,7 +137,7 @@ def _modelsim_run(
     work_dir: Path, tb: str, sv: str = MODELSIM_SV, check_post_assertion: bool = False, **settings
 ) -> bool:
     """Whether the flow succeeds on a mixed-language design in the default ModelSim image."""
-    require_docker_image(_image(ModelsimTool.model_fields["docker"].default))
+    require_modelsim()
     root = work_dir / "design"
     root.mkdir()
     (root / "inv.sv").write_text(sv)
@@ -167,7 +166,7 @@ def test_modelsim_runs_in_its_default_image(work_dir) -> None:
 @pytest.mark.parametrize(
     "severity, fail_severity, fails",
     [
-        ("error", None, False),
+        ("error", None, True),
         ("failure", None, True),
         ("error", "error", True),
         ("failure", "fatal", True),
@@ -177,7 +176,7 @@ def test_modelsim_fails_a_testbench_at_its_fail_severity(
     work_dir, severity, fail_severity, fails
 ) -> None:
     """vsim exits 0 whatever the testbench reports; the flow reads its test status and fails at
-    `fail_severity`, by default `failure`."""
+    `fail_severity`, by default `error`."""
     tb = MODELSIM_TB.format(expect="0", severity=severity)
     settings = {"fail_severity": fail_severity} if fail_severity else {}
     assert _modelsim_run(work_dir, tb, check_post_assertion=True, **settings) is not fails
@@ -207,3 +206,50 @@ def test_a_containerized_tool_gets_its_default_arguments_once(monkeypatch, tmp_p
     tool.run("-s", "script.ys")
     (command,) = ran
     assert command[command.index("hdlc/impl:latest") + 1 :] == ["yosys", "-q", "-s", "script.ys"]
+
+
+@pytest.mark.parametrize(
+    "language, body, settings, passes",
+    [
+        ("sv", "initial $finish(0);", {}, True),
+        ("sv", "initial begin #5; $finish; end", {}, True),
+        ("sv", 'initial begin #5; $error("check"); $finish; end', {}, False),
+        ("sv", 'initial begin #5; $fatal(1, "check"); end', {}, False),
+        ("sv", "initial begin #5; end", {}, False),
+        ("sv", "reg clk=0; always #1 clk=~clk;", {"stop_time": "10ns"}, True),
+        ("sv", "reg clk=0; always #1 clk=~clk;", {"timeout": 2}, False),
+        ("vhdl", "std.env.finish;", {}, True),
+        ("vhdl", "wait for 5 ns; std.env.stop;", {}, True),
+        ("vhdl", "assert false severity error; std.env.finish;", {}, False),
+        ("vhdl", "assert false severity failure; std.env.finish;", {}, False),
+    ],
+)
+def test_modelsim_native_runtime_contract(language, body, settings, passes, work_dir):
+    require_modelsim()
+    root = work_dir / "native"
+    root.mkdir()
+    if language == "sv":
+        source = root / "tb.sv"
+        source.write_text("`timescale 1ns/1ps\nmodule tb; " + body + " endmodule\n")
+    else:
+        source = root / "tb.vhd"
+        source.write_text(
+            "entity tb is end; architecture a of tb is begin process begin "
+            + body
+            + " wait; end process; end;\n"
+        )
+    design = Design(
+        name="native",
+        design_root=root,
+        rtl={"sources": [source], "top": "tb"},
+        tb={"top": "tb"},
+        language={"vhdl": {"standard": "2008"}},
+    )
+    flow = DefaultRunner(work_dir / "runs").run_flow(
+        Modelsim, design, {"dockerized": True, "timeout": 60, **settings}
+    )
+    assert flow is not None and flow.succeeded is passes
+    if passes:
+        assert flow.results["sim.time_unit"] == "1ps"
+    if "timeout" in settings:
+        assert flow.results["error"]["type"] == "ProcessTimeout"
