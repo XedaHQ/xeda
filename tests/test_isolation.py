@@ -696,10 +696,6 @@ REVIEWED_PY_DELETIONS = {
         "a link or leftover at trace.json.tmp, xeda's reserved name, as itself",
     ),
     ("flow_runner/trace.py", "os.replace(temporary, path)"): (1, "trace.json.tmp over trace.json"),
-    ("flow_runner/default_runner.py", "lock_file(p).unlink(missing_ok=True)"): (
-        1,
-        "the lock beside a run directory xeda has just removed",
-    ),
     ("utils.py", "return path.rename(backup_path)"): (1, "a backup, to a name nothing has yet"),
     ("utils.py", "os.replace(temporary, target)"): (
         2,

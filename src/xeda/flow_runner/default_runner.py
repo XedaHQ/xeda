@@ -12,7 +12,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
-from copy import deepcopy
+from copy import copy, deepcopy
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from glob import glob
@@ -72,7 +72,7 @@ from ..version import __version__
 from ..xedaproject import XedaProject
 from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
-from .run_lock import lock_file, run_dir_lock
+from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
 from .settings_layers import (
     command_line_sections,
     compose_flow_settings,
@@ -93,6 +93,7 @@ from .trace import (
     write_trace,
 )
 from .trace_inputs import (
+    artifact_files,
     build_trace,
     design_files,
     declared_input_files,
@@ -340,11 +341,10 @@ def scrub_runs(
                 "Removing the following directories: %s", " ".join(str(p) for p in dirs_to_rm)
             )
             for p in dirs_to_rm:
-                RunDirectory.claimed(p, run_root).delete()
-                if p.is_symlink():  # a run directory reached through a link in the run root
-                    p.unlink()  # the link itself, whose target, xeda's, is gone
-                if not p.exists():  # its lock, beside it, only once it is gone
-                    lock_file(p).unlink(missing_ok=True)
+                with run_dir_lock(p):
+                    RunDirectory.claimed(p, run_root).delete()
+                    if p.is_symlink():  # a run directory reached through a link in the run root
+                        p.unlink()  # the link itself, whose target, xeda's, is gone
             console.print(f"{len(dirs_to_rm)} folders removed.")
             return True
         else:
@@ -523,6 +523,7 @@ class FlowLauncher:
         self._request_context: _Request | None = None
         self._plans: dict[int, tuple[Plan, Any, Any]] = {}
         self._planned_completed: dict[tuple[int, str], Flow] = {}
+        self._completed_runs: dict[Path, tuple[Flow, CompletedRun]] = {}
 
     @property
     def run_root(self) -> Path:
@@ -716,6 +717,7 @@ class FlowLauncher:
         if top_level:
             self._claims = {}
             self._planned_completed = {}
+            self._completed_runs = {}
             # every file a flow of this launch reads, registered as each flow is launched
             self._read_inputs = ReadInputs(self._launch_inputs)
             self._pending_deliveries = []
@@ -877,6 +879,37 @@ class FlowLauncher:
         policy = self._run_dir_policy()
         revisit = self._claim_run_dir(flow_class, run_path, flowrun_hash, input_settings, depender)
         if revisit:
+            completed = self._completed_runs.get(run_path.resolve())
+            if completed is not None:
+                producer, _token = completed
+                if producer.design_hash != design_hash or producer.flow_hash != flowrun_hash:
+                    raise FlowDependencyFailure(f"{flow_name} has a conflicting completed run")
+                with self._producer_read_lease(producer):
+                    reused = copy(producer)
+                    reused.settings = producer.settings.model_copy(deep=True)
+                    reused.design = producer.design.model_copy(deep=True)
+                    reused.results = deepcopy(producer.results)
+                    reused.completed_dependencies = list(producer.completed_dependencies)
+                    reused.reused = True
+                    reused.stale_reason = None
+                    outputs_to = self.settings.outputs_to if depender is None else None
+                    delivery = Deliveries(
+                        run_path,
+                        self.run_root,
+                        deliveries,
+                        inputs=self._read_inputs,
+                        overwrite=self.settings.overwrite_outputs,
+                        confirm=self.confirm_overwrite,
+                    )
+                    delivery.check_outputs_to(outputs_to)
+                    delivery.check(
+                        outputs_to_deliveries(
+                            recorded_artifacts(run_path / "results.json"), run_path, outputs_to
+                        )
+                    )
+                    self._defer_delivery(reused, delivery, outputs_to)
+                    self.launched.append(reused)
+                    return reused
             # already run in this launch, with these settings: reused, not emptied again
             policy = replace(policy, clean=False, scrub_old_runs=False)
         settings_json = run_path / "settings.json"
@@ -1068,6 +1101,21 @@ class FlowLauncher:
                 if policy.post_cleanup:
                     self._pending_clean_ups.append((flow, settings_json, results_json, policy))
             finally:
+                if flow.succeeded and depender is not None:
+                    # Only producers need a hand-over token. A requested run may succeed with
+                    # unknown output evidence, whose trace correctly requires another run.
+                    recorded = previous_trace(run_path, flow.name)
+                    token = CompletedRun.capture(
+                        run_path,
+                        [
+                            p
+                            for p in artifact_files(flow)
+                            if not p.is_relative_to(run_path.resolve())
+                        ],
+                        recorded.outputs if recorded else None,
+                        recorded.outputs_recorded_ns if recorded else None,
+                    )
+                    self._completed_runs[run_path.resolve()] = (flow, token)
                 self.launched.append(flow)
         return flow
 
@@ -1208,13 +1256,21 @@ class FlowLauncher:
                     f"dependency {dep_cls.name} failed: see "
                     f"{completed_dep.run_path.absolute() / 'results.json'}"
                 )
-            flow.completed_dependencies.append(completed_dep)
             read_leases.enter_context(self._producer_read_lease(completed_dep))
+            flow.completed_dependencies.append(completed_dep)
 
     @contextmanager
     def _producer_read_lease(self, producer: Flow):
-        """Task 7 installs the shared lease and acquisition-gap verification here."""
-        yield producer
+        """Verify the completed generation under SH before any consumer can read its files."""
+        with run_dir_read_lock(producer.run_path):
+            try:
+                _completed, token = self._completed_runs[producer.run_path.resolve()]
+                token.verify()
+            except (KeyError, OSError, ValueError, RunDirectoryError) as error:
+                raise FlowDependencyFailure(
+                    f"{producer.name} changed before acquiring its read lease: {error}"
+                ) from error
+            yield producer
 
     def _run_producers(
         self,

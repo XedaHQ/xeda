@@ -278,3 +278,52 @@ def test_a_search_without_a_device_says_so_before_starting_any_run(tmp_path):
     assert document["error"]["type"] == "FlowSettingsException"
     assert "`fpga`" in document["error"]["message"]
     assert not list(tmp_path.glob("xeda_run/**/settings.json")), "no run was started"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no run-directory locks")
+def test_coordinator_purge_waits_for_a_worker_directory_reader(tmp_path):
+    import select
+
+    from xeda.flow_runner.run_lock import lock_file, run_dir_read_lock
+    from .test_read_locks import _environment, _message
+
+    path = tmp_path / "run" / "d" / "worker"
+    path.mkdir(parents=True)
+    (path / "result.txt").write_text("read by another consumer")
+    code = """
+import sys
+from pathlib import Path
+from xeda.flow_runner import run_lock
+from xeda.flow_runner.dse.dse_runner import _purge_run
+original = run_lock.fcntl.flock
+def flock(fd, mode):
+    if mode == run_lock.fcntl.LOCK_EX:
+        print("waiting", flush=True)
+    return original(fd, mode)
+run_lock.fcntl.flock = flock
+_purge_run(Path(sys.argv[1]), Path(sys.argv[2]))
+print("done", flush=True)
+"""
+    writer = None
+    try:
+        with run_dir_read_lock(path):
+            inode = lock_file(path).stat().st_ino
+            writer = subprocess.Popen(
+                [sys.executable, "-c", code, str(path), str(tmp_path / "run")],
+                env=_environment(),
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            _message(writer, "waiting")
+            assert not select.select([writer.stdout], [], [], 0.2)[0]
+            assert path.is_dir()
+        _message(writer, "done")
+        assert writer.wait(timeout=20) == 0
+        assert not path.exists() and lock_file(path).stat().st_ino == inode
+    finally:
+        if writer is not None:
+            if writer.poll() is None:
+                writer.kill()
+            writer.wait(timeout=20)
+            if writer.stdout:
+                writer.stdout.close()

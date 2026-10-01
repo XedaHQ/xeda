@@ -561,15 +561,15 @@ def test_a_failed_clean_up_does_not_stop_the_others(tmp_path, toys, design, monk
         _unregister(ToyFailingConsumer)
 
 
-def test_scrubbing_a_run_directory_removes_its_lock(tmp_path, toys, design, monkeypatch):
-    """A lock file sits beside its run directory; scrubbing the directory removes both."""
+def test_scrubbing_a_run_directory_retains_its_lock(tmp_path, toys, design, monkeypatch):
+    """A durable lock remains after scrub, so waiting writers keep contending on one inode."""
     producer, _ = toys
     old, _ = _run(tmp_path, producer, design, hashed_run_dirs=True)
     lock = lock_file(old.run_path)
     assert lock.is_file()
     monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
     assert scrub_runs(producer.name, old.run_path.parent)
-    assert not old.run_path.exists() and not lock.exists()
+    assert not old.run_path.exists() and lock.is_file()
     kept, _ = _run(tmp_path, producer, design, hashed_run_dirs=True)
     monkeypatch.setattr(console, "input", lambda *a, **kw: "no")  # declined: nothing removed
     assert not scrub_runs(producer.name, kept.run_path.parent)
