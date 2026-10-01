@@ -46,6 +46,7 @@ from .flow_runner import (
     scrub_runs,
 )
 from .flow_runner.dse import Dse
+from .flow_runner.resolver import Plan
 from .flows import __builtin_flows__
 from .introspect import (
     boards_info,
@@ -53,6 +54,7 @@ from .introspect import (
     flows_info,
     json_safe,
     optimizers_info,
+    plan_info,
     platforms_info,
     results_info,
 )
@@ -483,6 +485,19 @@ def _run_document(
     return document
 
 
+def _print_plan(plan: Plan) -> None:
+    """Print each planned flow, its directory, input origins and switched-on outputs."""
+    click.echo(f"Plan for {plan.requested} (a dry run: nothing runs)")
+    for node in plan.nodes:
+        click.echo(f"  {node.name}  {node.run_path}")
+        if not node.declared:
+            click.echo("      runtime dependencies are unknown: init() registers them when it runs")
+        for resolved in node.inputs:
+            click.echo(f"      {resolved.describe()}")
+        for output in node.switched_on:
+            click.echo(f"      output {output} switched on: a consumer reads it")
+
+
 @cli.command(
     # Naming the class is also what lets cloup's `command()` overloads accept the
     # `excluded_keywords` keyword below.
@@ -706,6 +721,14 @@ def _run_document(
     "source or input, never a directory, never anything else.",
 )
 @click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print the resolved plan: each flow in execution order, its run directory, input "
+    "origins and outputs switched on for consumers. Run nothing. Designs needing a generator "
+    "or Git dependency fetch are refused; runtime dependencies of undeclared flows are unknown.",
+)
+@click.option(
     "--json",
     "json_flag",
     is_flag=True,
@@ -741,6 +764,7 @@ def run(
     help_settings: bool = False,
     outputs_to: Optional[Path] = None,
     overwrite_outputs: bool = False,
+    dry_run: bool = False,
     json_flag: bool = False,
 ):
     """`run` command"""
@@ -786,6 +810,9 @@ def run(
                 "json",
             )
         sys.exit(1)
+
+    if dry_run and remote:
+        raise click.UsageError("`--dry-run` is not supported with --remote", ctx=ctx)
 
     if remote:
         from .flow_runner import remote as remote_runner
@@ -864,6 +891,41 @@ def run(
         if debug:
             raise exc
         sys.exit(1)
+
+    if dry_run:
+        try:
+            launcher = DefaultRunner(run_root, hashed_run_dirs=hashed_run_dirs, debug=debug)
+            plan = launcher.plan(
+                flow,
+                xedaproject=xedaproject,
+                design=design,
+                flow_settings=flow_settings,
+                select_design_in_project=select_design_in_project,
+                design_overrides=design_overrides,
+                design_allow_extra=design_allow_extra,
+            )
+        except XedaException as e:
+            emit_failure(type(e).__name__, _error_message(e), e)
+            raise
+        except Exception as e:
+            if not json_flag:
+                raise
+            emit_failure(type(e).__name__, _error_message(e), e)
+            raise
+        if json_flag:
+            emit_structured(
+                {
+                    "flow": flow,
+                    "design": str(design),
+                    "success": True,
+                    "dry_run": True,
+                    "plan": plan_info(plan),
+                },
+                "json",
+            )
+        else:
+            _print_plan(plan)
+        sys.exit(0)
 
     try:
         launcher = DefaultRunner(
