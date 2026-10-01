@@ -172,6 +172,11 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
                 program += 'Path(\'bluesim_end.json\').write_text(\'{"ended_by":"unknown","time":0,"time_unit":"1us","cycles":1,"events":[]}\')\n'
             if positive and case.flow == "ghdl_sim":
                 program += "print('simulation finished @0ms', flush=True)\n"
+            if positive and case.flow == "yosys_sim":
+                program += "Path('cxxrtl_events.jsonl').write_text('')\n"
+                program += (
+                    'Path(\'cxxrtl_end.json\').write_text(\'{"ended_by":"exit","events":[]}\')\n'
+                )
             if case.flow == "nvc":
                 program += "print('XEDA_NVC_RUNTIME_START', flush=True)\n"
                 if positive:
@@ -213,6 +218,10 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
             target.chmod(0o755)
             return ""
         if name in ("g++", "c++", "cc", "bsc") and "-o" in words:
+            if case.flow == "yosys_sim":
+                assert "cxxrtl_evidence.cpp" in words
+                assert "-include" in words and "cxxrtl_evidence.h" in words
+                assert Path("cxxrtl_evidence.cpp").is_file()
             target = Path(words[words.index("-o") + 1])
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("fake build output\n")

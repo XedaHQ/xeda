@@ -4,8 +4,11 @@ from typing import Any, List, Literal, Optional
 
 from ...dataclass import Field, XedaBaseModel, deliverable
 from ...design import SourceType
-from ...flow import FlowFatalError, SimFlow
+from ...flow import FlowFatalError, FlowSettingsException, SimFlow, describe_results
+from ...flow.sim import SimEvidence
+from ...flow.sim_evidence import read_sim_evidence
 from ...flows.ghdl import GhdlSynth
+from ...tool import NonZeroExitCode
 from .common import YosysBase, process_parameters
 
 log = logging.getLogger(__name__)
@@ -34,11 +37,26 @@ class YosysSim(YosysBase, SimFlow):
     # Before this flow used the shared tool, its direct Yosys invocation had no version floor.
     minimum_yosys = None
 
-    # This flow reports no results beyond the keys every flow reports; declaring this
-    # explicitly keeps `xeda list-results` from guessing.
-    results_description: dict = {}
+    results_description = describe_results(
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+    )
+    _end_record: Path | None = None
+    _events_record: Path | None = None
+    _driver_exit_code: int | None = None
 
-    class Settings(YosysBase.Settings):
+    class Settings(YosysBase.Settings, SimFlow.Settings):
+        timeout: float | None = Field(
+            None,
+            gt=0,
+            description="Fail after this many seconds of wall-clock time in the C++ driver. "
+            "None sets no limit.",
+        )
+        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
+            "error",
+            description="The least severe runtime RTL check that fails the run. RTL assertion "
+            "violations are errors; failure/fatal records them and continues. C++ asserts "
+            "and abnormal driver exits always fail.",
+        )
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
             "default",
             description="SystemVerilog reader for CXXRTL; the built-in reader generates cells "
@@ -61,6 +79,36 @@ class YosysSim(YosysBase, SimFlow):
         cxxrtl: CxxRtl = Field(
             CxxRtl(), description="Options for the generated CXXRTL C++ simulation model."
         )
+
+    def init(self):
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.stop_time is not None:
+            raise FlowSettingsException(
+                "yosys_sim cannot enforce stop_time: the user-owned C++ driver controls scheduling."
+            )
+        super().init()
+
+    def has_evidence_adapter(self) -> bool:
+        return True
+
+    def simulation_evidence(self) -> SimEvidence | None:
+        if self._end_record is None or self._driver_exit_code is None:
+            return None
+        evidence = read_sim_evidence(self, self._end_record, events_path=self._events_record)
+        if evidence is None:
+            return None
+        # The atexit callback observes execution, but cannot know main's return value.
+        # Only an exit envelope with unknown scheduling belongs to this monitor protocol.
+        if evidence.ended_by != "exit" or any(
+            value is not None
+            for value in (evidence.time, evidence.time_unit, evidence.cycles, evidence.exit_code)
+        ):
+            log.error(
+                "Invalid CXXRTL driver end record: expected an exit with unknown time/status."
+            )
+            return None
+        evidence.exit_code = self._driver_exit_code
+        return evidence
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -102,12 +150,12 @@ class YosysSim(YosysBase, SimFlow):
         self.results["_tool"] = yosys.info  # TODO where should this go?
         yosys.run(*args)
 
-        yosys_config = yosys.derive("yosys-config")
+        yosys_config = yosys.derive("yosys-config", redirect_stdout=None)
         yosys_include_dir = yosys_config.run_get_stdout("--datdir/include")
         if not yosys_include_dir:
             raise FlowFatalError("yosys-config did not report its include directory.")
         runtime_include = Path(yosys_include_dir) / "backends" / "cxxrtl" / "runtime"
-        cxx = yosys.derive("g++")
+        cxx = yosys.derive("g++", redirect_stdout=None)
         self.artifacts["cxxrtl_cpp"] = cxxrtl_cpp
         if ss.cxxrtl.header:
             self.artifacts["cxxrtl_header"] = cxxrtl_cpp.with_suffix(".h")
@@ -123,10 +171,39 @@ class YosysSim(YosysBase, SimFlow):
         if ss.cxxrtl.header:
             cxx_args += [f"-I{cxxrtl_cpp.parent}"]
         cxx_args += ss.cxxrtl.ccflags
+        self.copy_from_template("sim_record.h")
+        monitor_header = self.copy_from_template("cxxrtl_evidence.h")
+        monitor = self.copy_from_template("cxxrtl_evidence.cpp")
+        # Force the RTL hook into both generated code and drivers including its header.
+        # The include remains run-relative under Docker; runtime headers are queried there.
+        cxx_args += ["-include", monitor_header, monitor]
         cxx.run(*cxx_args)
         self.artifacts["simulator"] = sim_bin_file
-        sim_bin = yosys.derive(executable=str(Path.cwd() / sim_bin_file))
-        sim_bin.run()
+        sim_bin = yosys.derive(executable=str(Path.cwd() / sim_bin_file), redirect_stdout=None)
+        self._driver_exit_code = None
+        self._end_record = Path("cxxrtl_end.json")
+        self._events_record = Path("cxxrtl_events.jsonl")
+        self.run_directory.remove(
+            self._end_record, str(self._end_record) + ".tmp", self._events_record
+        )
+        self.run_directory.writable(self._end_record)
+        self.run_directory.writable(self._events_record)
+        sim_log = self.run_directory.writable("cxxrtl_sim.log")
+        try:
+            sim_bin.run(
+                env={
+                    "XEDA_CXXRTL_END_RECORD": str(self._end_record),
+                    "XEDA_CXXRTL_EVENTS": str(self._events_record),
+                    "XEDA_CXXRTL_FAIL_SEVERITY": ss.fail_severity,
+                },
+                timeout=ss.timeout,
+                tee=sim_log,
+                merge_stderr=True,
+            )
+        except NonZeroExitCode as exc:
+            self._driver_exit_code = exc.exit_code
+            raise
+        self._driver_exit_code = 0
 
     def parse_reports(self) -> bool:
         return True
