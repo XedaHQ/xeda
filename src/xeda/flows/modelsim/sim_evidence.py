@@ -3,7 +3,8 @@
 runStatus's stop reason distinguishes quiet HDL finish from a returned Tcl command.
 The command/status contract is documented in the vendor command reference (v2024.2,
 runStatus and transcript file); ModelSim-Intel 2020.1's `simulation_stop {$finish}`
-was measured in the PR #85 probes. Synthetic tests do not certify another vendor version.
+was measured in the PR #85 probes. Batch logfile capture and the unknown stop reason
+were measured on ModelSim-Intel 2020.1 for FB2. Synthetic tests do not certify another version.
 """
 
 import re
@@ -43,17 +44,24 @@ def parse_modelsim_evidence(
         return None
     unit = resolution if resolution[0].isdigit() else "1" + resolution
     tick = time_in_fs(1, unit)
-    actual = parse_sim_time(now)
+    # Native $now is an integer tick count at $resolution, not a unit-bearing time.
+    actual = int(now) * tick if re.fullmatch(r"\d+", now) else parse_sim_time(now)
     if actual is None or tick <= 0 or actual % tick:
         return None
-    observations = [line for line in lines if line.startswith("XEDA_MODELSIM_RUN_STATUS=")]
-    if lines.count("XEDA_MODELSIM_RUNTIME_START") != 1 or observations != [
-        "XEDA_MODELSIM_RUN_STATUS=" + state
-    ]:
+    if lines.count("XEDA_MODELSIM_RUNTIME_START") != 1:
         return None
     start = lines.index("XEDA_MODELSIM_RUNTIME_START")
-    finish = lines.index(observations[0])
-    if finish <= start:
+    # -logfile also captures compilation/loading. Only the first status after our start
+    # closes the runtime section; observations outside that section are not evidence.
+    finish = next(
+        (
+            index
+            for index in range(start + 1, len(lines))
+            if lines[index].startswith("XEDA_MODELSIM_RUN_STATUS=")
+        ),
+        None,
+    )
+    if finish is None or lines[finish] != "XEDA_MODELSIM_RUN_STATUS=" + state:
         return None
     lines = lines[start + 1 : finish]
     evidence = SimEvidence(ended_by="unknown", time=actual // tick, time_unit=unit)
@@ -86,9 +94,10 @@ def parse_modelsim_evidence(
     if state == "break simulation_stop {$finish}":
         evidence.ended_by = "finish"
         evidence.events.append(SimEvent(kind="finish", time=evidence.time))
-    elif state == "break simulation_stop {$stop}":
-        # QB1: std.env.stop is a VHDL batch completion. A Verilog $stop remains an error.
-        # Require a native break naming a VHDL source, not a user's Note with similar text.
+    elif state in ("break simulation_stop {$stop}", "break simulation_stop unknown"):
+        # QB1: std.env.stop is a VHDL batch completion. Intel 2020.1 reports unknown
+        # for both stop forms; the native Note distinguishes Verilog $stop in mixed HDL.
+        verilog_stop = any(re.fullmatch(r"\*\* Note: \$stop(?:\s*:\s*.+)?", line) for line in lines)
         vhdl_names = {
             source.file.name for source in flow.design.sim_sources if source.type is SourceType.Vhdl
         }
@@ -97,12 +106,14 @@ def parse_modelsim_evidence(
             native_break = re.fullmatch(r"(?:\*\* )?Break in Process .+ at (.+) line \d+", line)
             if native_break and Path(native_break[1]).name in vhdl_names:
                 vhdl_break = True
-        if vhdl_break:
-            evidence.ended_by = "finish"
-            evidence.events.append(SimEvent(kind="finish", time=evidence.time))
-        else:
+        if status == 3:
+            evidence.ended_by = "fatal"
+        elif verilog_stop or (state == "break simulation_stop {$stop}" and not vhdl_break):
             evidence.ended_by = "error"
             evidence.events.append(SimEvent(kind="stop", time=evidence.time, message="$stop"))
+        elif vhdl_break:
+            evidence.ended_by = "finish"
+            evidence.events.append(SimEvent(kind="finish", time=evidence.time))
     elif state == "ready end" and getattr(flow.settings, "stop_time", None) is not None:
         evidence.ended_by = "stop_time"
     elif "fatal_error" in state.split() or status == 3:

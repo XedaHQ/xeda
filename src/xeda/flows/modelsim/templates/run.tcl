@@ -35,15 +35,16 @@ set BreakOnAssertion 4
 # A builtin break returns to our script; it must not skip the status/time checkpoint.
 onbreak {resume}
 vcd add -r {% if not settings.debug and design.tb.uut %} {{(design.tb.uut ~ "/*")|tcl_word}} {% else %} * {% endif %}
-# Runtime-only transcript. Macro echo is disabled; source/script text is never an end token.
+# Launch -logfile enables transcript capture in batch mode. Disable macro echo;
+# the adapter bounds runtime evidence with the markers below.
 transcript off
-if {![catch {file lstat modelsim_runtime.log existing}]} {
-    error "Refusing an existing ModelSim runtime transcript path"
+if {![catch {file lstat modelsim_runtime.log existing}] && $existing(type) ne "file"} {
+    error "Refusing a nonregular ModelSim runtime transcript path"
 }
-transcript file modelsim_runtime.log
 coverage attribute -name TESTSTATUS -value 0
 # Exclude analysis/elaboration diagnostics; runtime messages raise this native attribute again.
-puts "XEDA_MODELSIM_RUNTIME_START"
+# ModelSim echo reaches the transcript; Tcl puts only reaches process stdout.
+echo "XEDA_MODELSIM_RUNTIME_START"
 if {[catch {run {% if stop_time is not none %} {{stop_time}} {% else %} -all {% endif %}} error]} {
     puts $error
     transcript file ""
@@ -55,7 +56,7 @@ set test_status [lindex [coverage attribute -name TESTSTATUS -concise] 0]
 if {![string is integer -strict $test_status] || $test_status < 0 || $test_status > 3} {
     error "Invalid ModelSim TESTSTATUS"
 }
-puts "XEDA_MODELSIM_RUN_STATUS=$run_state"
+echo "XEDA_MODELSIM_RUN_STATUS=$run_state"
 set fd [open modelsim_end.txt {WRONLY CREAT EXCL}]
 puts $fd "XEDA_MODELSIM_V1"
 puts $fd $now

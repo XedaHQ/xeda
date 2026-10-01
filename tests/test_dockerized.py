@@ -215,11 +215,14 @@ def test_a_containerized_tool_gets_its_default_arguments_once(monkeypatch, tmp_p
         ("sv", "initial begin #5; $finish; end", {}, True),
         ("sv", 'initial begin #5; $error("check"); $finish; end', {}, False),
         ("sv", 'initial begin #5; $fatal(1, "check"); end', {}, False),
+        ("sv", "initial begin #5; $stop; end", {"fail_severity": "fatal"}, False),
+        ("sv", 'initial begin #5; $warning("check"); $finish; end', {}, True),
         ("sv", "initial begin #5; end", {}, False),
         ("sv", "reg clk=0; always #1 clk=~clk;", {"stop_time": "10ns"}, True),
-        ("sv", "reg clk=0; always #1 clk=~clk;", {"timeout": 2}, False),
+        ("sv", "reg clk=0; always #1 clk=~clk;", {"timeout": 20}, False),
         ("vhdl", "std.env.finish;", {}, True),
         ("vhdl", "wait for 5 ns; std.env.stop;", {}, True),
+        ("vhdl", "assert false severity warning; std.env.finish;", {}, True),
         ("vhdl", "assert false severity error; std.env.finish;", {}, False),
         ("vhdl", "assert false severity failure; std.env.finish;", {}, False),
     ],
@@ -253,3 +256,14 @@ def test_modelsim_native_runtime_contract(language, body, settings, passes, work
         assert flow.results["sim.time_unit"] == "1ps"
     if "timeout" in settings:
         assert flow.results["error"]["type"] == "ProcessTimeout"
+        assert "XEDA_MODELSIM_RUNTIME_START" in (flow.run_path / "modelsim_process.log").read_text()
+    elif "$stop" in body:
+        assert flow.results["sim.ended_by"] == "error"
+        assert flow.results["sim.errors"] == 1
+    elif passes:
+        assert flow.results["sim.ended_by"] == (
+            "stop_time" if "stop_time" in settings else "finish"
+        )
+        assert flow.results["sim.warnings"] == (1 if "warning" in body else 0)
+    elif body == "initial begin #5; end":
+        assert flow.results["sim.ended_by"] == "unknown"
