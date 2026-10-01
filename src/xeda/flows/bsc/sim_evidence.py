@@ -90,3 +90,24 @@ def iverilog_evidence(flow: Flow) -> SimEvidence | None:
                 )
             )
     return evidence
+
+
+def modelsim_evidence(flow: Flow) -> SimEvidence | None:
+    """Use ModelSim's native runtime transcript and status checkpoint."""
+    from ..modelsim.sim_evidence import parse_modelsim_evidence
+
+    return parse_modelsim_evidence(flow)
+
+
+def vcs_evidence(flow: Flow) -> SimEvidence | None:
+    """Use VCS native diagnostics and the owned UCLI runtime checkpoint."""
+    from ..vcs_evidence import parse_vcs_evidence
+
+    return parse_vcs_evidence(flow)
+
+
+def xsim_evidence(flow: Flow) -> SimEvidence | None:
+    """Use xsim native diagnostics and the owned runtime checkpoint."""
+    from ..vivado.sim_evidence import parse_xsim_evidence
+
+    return parse_xsim_evidence(flow)
