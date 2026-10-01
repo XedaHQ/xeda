@@ -21,6 +21,8 @@ import colorama
 from ...dataclass import WORKING, Field, field_validator
 from ...design import DesignSource, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
+from ...flow.sim import SimEvidence
+from .sim_evidence import bluesim_evidence
 from ...tool import Docker, Tool
 from ...utils import replacing_copy, replacing_file, unique
 
@@ -1113,21 +1115,41 @@ class BscSim(BscFlow, SimFlow):
     `tb.top` last -- and simulates `tb.top`, a module with an `Empty` interface (`rtl.top` when
     the design has no testbench). `simulator` picks Bluesim, bsc's own cycle-based simulator, or
     a Verilog simulator that bsc links the generated Verilog with (`bsc -vsim`), driving clock
-    and reset from its `main.v`. The run fails when the simulation exits with an error status:
-    a testbench fails with `$fatal` or a failing `dynamicAssert`. `$finish(n)` does not fail it
-    (`n` is a verbosity level), and of Bluesim, Verilator and Icarus Verilog, `$error` fails it
-    only under Verilator. The design's
+    and reset from its `main.v`. Bluesim records generated system-task calls and an owned
+    script measures clock cycles and time. It requires explicit finish or a confirmed cycle
+    limit, with no event at or above `fail_severity`; a fatal error or nonzero exit always fails.
+    `$finish(n)` uses `n` as a verbosity level. The design's
     `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which
     BH (`.bs`) sources see only through the C preprocessor, with `cpp`.
     """
 
     results_description = describe_results(
+        "sim.evidence",
+        "sim.ended_by",
+        "sim.time",
+        "sim.time_unit",
+        "sim.errors",
+        "sim.warnings",
         simulator="The simulator that ran the testbench.",
     )
 
     output_dir_setting = "sim_dir"
 
+    def has_evidence_adapter(self) -> bool:
+        """The converted backends supply current-run evidence; family dispatch follows later."""
+        assert isinstance(self.settings, self.Settings)
+        return self.settings.simulator == "bluesim"
+
+    def simulation_evidence(self) -> SimEvidence | None:
+        """Read the end checkpoint and generated system-task observations."""
+        return bluesim_evidence(self)
+
     class Settings(BscFlow.Settings, SimFlow.Settings):
+        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
+            "error",
+            description="The least severe observed runtime diagnostic that fails the run. "
+            "Bluesim and the converted Verilog backends honor this setting; fatal is failure rank.",
+        )
         timeout: float | None = Field(
             None,
             gt=0,
@@ -1156,9 +1178,8 @@ class BscSim(BscFlow, SimFlow):
         max_cycles: int | None = Field(
             None,
             gt=0,
-            description="Stop a Bluesim simulation after this many clock cycles (`-m`), even if "
-            "the testbench has not finished. Bluesim only. A run stopped there passes, since "
-            "Bluesim exits with status 0: a testbench must report its own success.",
+            description="Stop a Bluesim simulation after this many measured rising clock edges. "
+            "The owned script confirms the count and final time; an earlier finish is also valid.",
         )
         system_verilog_tasks: bool = Field(
             True,
@@ -1234,6 +1255,13 @@ class BscSim(BscFlow, SimFlow):
             raise FlowSettingsException(
                 "bsc_sim simulates one top module; `tb.top` names " + ", ".join(self.design.tb.top)
             )
+        if ss.simulator == "bluesim" and any(
+            arg.startswith(("-m", "-c", "-f")) for arg in ss.sim_args
+        ):
+            raise FlowSettingsException(
+                "Bluesim sim_args cannot override the owned -m/-c/-f execution protocol; "
+                "use max_cycles for a cycle limit"
+            )
         if ss.stop_time is not None:
             raise FlowSettingsException(
                 "bsc_sim cannot stop at a simulated time: the testbench ends the simulation "
@@ -1282,6 +1310,14 @@ class BscSim(BscFlow, SimFlow):
         # bsc's Verilog link searches `sim_dir` first, so a module generated there by an earlier
         # run must not outlive it
         self._prepare_dirs(sim_dir)
+        if bluesim:
+            # bsc otherwise reuses C++ objects built with an earlier configuration's flags.
+            self.run_directory.remove(
+                *sim_dir.glob("*.o"),
+                *sim_dir.glob("*.so"),
+                *Path(ss.bobj_dir).glob("*.bo"),
+                *Path(ss.bobj_dir).glob("*.ba"),
+            )
 
         path_flags = self._path_flags(backend, sim_dir, sources)
         macros = self._macros(tb=True)
@@ -1307,6 +1343,15 @@ class BscSim(BscFlow, SimFlow):
                 )
             ]
         link_flags = self._link_flags(bluesim)
+        if bluesim:
+            self.copy_from_template("sim_record.h", script_filename="sim_record.h")
+            header = self.copy_from_template("bluesim_hooks.h")
+            # Foreign C++ compilation lacks the model's native header include directory.
+            help_text = self.bsc.probe_stdout("-help")
+            directory = re.search(r"^Bluespec directory: (.+)$", help_text or "", re.MULTILINE)
+            if directory is not None:
+                link_flags += ["-Xc++", "-I" + str(Path(directory[1]) / "Bluesim")]
+            link_flags += ["-Xc++", "-include", "-Xc++", str(header.absolute())]
         _check_link_paths([*path_flags, *link_flags, executable, *link_files])
         self._compile(backend, sources, tb_top, top_file, flags)
 
@@ -1330,8 +1375,8 @@ class BscSim(BscFlow, SimFlow):
         if vcd:
             vcd.parent.mkdir(parents=True, exist_ok=True)  # no simulator creates it
         if bluesim:
-            if ss.max_cycles is not None:
-                sim_args += ["-m", str(ss.max_cycles)]
+            script = self.copy_from_template("bluesim_run.tcl")
+            sim_args += ["-f", str(script)]
             if vcd:
                 sim_args += ["-V", str(vcd)]
         elif vcd:
@@ -1349,7 +1394,19 @@ class BscSim(BscFlow, SimFlow):
         simulation = self.bsc.derive(str(executable), version_flag=None, minimum_version=None)
         simulation.highlight_rules = None
         try:
-            simulation.run(*sim_args, timeout=ss.timeout)
+            env = None
+            if bluesim:
+                self.run_directory.remove(
+                    "bluesim_events.jsonl", "bluesim_end.json", "bluesim_end.json.tmp"
+                )
+                env = {"XEDA_SIM_EVENTS": "bluesim_events.jsonl"}
+            simulation.run(
+                *sim_args,
+                timeout=ss.timeout,
+                env=env,
+                tee=self.run_directory.writable("sim.log"),
+                merge_stderr=True,
+            )
         finally:
             if vcd and dump and self.wrote_output(dump):
                 if dump != vcd:

@@ -29,6 +29,7 @@ __all__ = [
     "fake_calls",
     "fake_returns",
     "require_bluesim",
+    "require_bluesim_evidence",
     "require_bsc",
     "require_c_toolchain",
     "require_cxx_toolchain",
@@ -449,6 +450,71 @@ def require_bluesim() -> None:
         "Bluesim",
         _probe_bluesim(),
         "compiling, linking (`bsc -sim -e ...`) and running a trivial Bluesim testbench",
+    )
+
+
+@lru_cache(maxsize=None)
+def _probe_bluesim_evidence() -> bool:
+    """Link the shipped generated-call monitor and observe an otherwise quiet finish."""
+    from importlib.resources import files
+
+    if not _probe_bluesim():
+        return False
+    with tempfile.TemporaryDirectory(prefix="xeda-bluesim-evidence-") as tmp:
+        root = Path(tmp)
+        (root / "XedaProbe.bsv").write_text(
+            "package XedaProbe; (* synthesize *) module mkXedaProbe(Empty); "
+            "rule done; $finish(0); endrule endmodule endpackage"
+        )
+        for package, name in (("xeda.flow", "sim_record.h"), ("xeda.flows.bsc", "bluesim_hooks.h")):
+            (root / name).write_text(files(package).joinpath("templates/" + name).read_text())
+        if not _command_succeeds(
+            ["bsc", "-sim", "-g", "mkXedaProbe", "-bdir", ".", "-simdir", ".", "XedaProbe.bsv"],
+            cwd=tmp,
+        ):
+            return False
+        if not _command_succeeds(
+            [
+                "bsc",
+                "-sim",
+                "-e",
+                "mkXedaProbe",
+                "-bdir",
+                ".",
+                "-simdir",
+                ".",
+                "-o",
+                "probe",
+                "-Xc++",
+                "-include",
+                "-Xc++",
+                str(root / "bluesim_hooks.h"),
+            ],
+            cwd=tmp,
+            timeout=300,
+        ):
+            return False
+        try:
+            result = subprocess.run(
+                [str(root / "probe")],
+                cwd=tmp,
+                capture_output=True,
+                timeout=10,
+                env={**os.environ, "XEDA_SIM_EVENTS": str(root / "events.jsonl")},
+            )
+            events = [json.loads(line) for line in (root / "events.jsonl").read_text().splitlines()]
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return False
+        return result.returncode == 0 and events == [{"kind": "finish", "time": 0}]
+
+
+def require_bluesim_evidence() -> None:
+    """Bluesim with functional generated-call hooks, also required by Linux CI."""
+    require_bluesim()
+    _require(
+        "Bluesim evidence",
+        _probe_bluesim_evidence(),
+        "linking system-task hooks and observing quiet finish",
     )
 
 
