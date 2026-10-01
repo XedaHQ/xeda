@@ -321,6 +321,19 @@ def test_yosys_fpga_xilinx_primitive_frontends(tmp_path):
     assert flow is not None and flow.succeeded
 
 
+def test_yosys_fpga_xilinx_library_does_not_hide_unknown_modules(tmp_path):
+    require_yosys()
+    root = tmp_path / "unknown-xilinx-primitive"
+    _write(root / "top.v", "module top; XEDA_UNKNOWN_PRIMITIVE missing(); endmodule\n")
+    design = Design(
+        name="unknown-xilinx-primitive", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
+    )
+    flow = DefaultRunner(tmp_path / "run").run_flow(
+        YosysFpga, design, {"fpga": {"part": "xc7a35tcpg236-1"}}
+    )
+    assert flow is not None and not flow.succeeded
+
+
 def test_yosys_fpga_default_flags_drop_noautowire_only_for_fpga():
     assert YosysFpga.Settings().read_verilog_flags == ["-sv"]
     assert Yosys.Settings().read_verilog_flags == ["-noautowire", "-sv"]
