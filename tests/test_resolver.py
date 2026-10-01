@@ -793,3 +793,59 @@ def test_direct_entry_points_share_context_and_alias_validation(tmp_path, monkey
         assert flow.settings.nthreads == 2
         assert flow.settings.lib_paths == plan.node(_Maker.name).settings.lib_paths
     assert values["lib_paths"] == [("work", "$DESIGN_ROOT/lib")]
+
+
+def test_cli_clock_rename_preserves_file_leaves(tmp_path):
+    design = {
+        "__place": {
+            "fpga": PART,
+            "clocks": {"core": {"period": 10, "port": "clk", "uncertainty": "100ps"}},
+        }
+    }
+    cli = {"__place": {"clock": {"name": "renamed", "period": 4}}}
+    given = compose_flow_settings(_Place, [design], cli["__place"])
+    plan = _plan(tmp_path, _Place, given, origins=[("design.toml", design)], command_line=cli)
+    for node in plan.nodes:
+        assert node.settings.clocks["renamed"].port == "clk"
+        assert node.settings.clocks["renamed"].uncertainty == pytest.approx(0.1)
+
+
+def test_cli_shorthand_targets_named_clock_supplied_by_producer(tmp_path):
+    design = {
+        "__place": {"fpga": PART},
+        "__synth": {"clocks": {"core": {"period": 10, "port": "clk"}}},
+    }
+    cli = {"__synth": {"clock_period": 4}}
+    plan = _plan(tmp_path, _Place, origins=[("design.toml", design)], command_line=cli)
+    for node in plan.nodes:
+        assert list(node.settings.clocks) == ["core"]
+        assert node.settings.clocks["core"].period == 4
+        assert node.settings.clocks["core"].port == "clk"
+
+
+def test_displaced_producer_cannot_satisfy_consumer_required_setting(tmp_path):
+    with pytest.raises(FlowSettingsException, match="__place needs `fpga`"):
+        _plan(
+            tmp_path,
+            _Place,
+            sections={"__synth": {"fpga": PART}},
+            sources=[{"file": "net.json", "type": "JsonNetlist"}],
+        )
+
+
+@pytest.mark.parametrize("bad_clock", [5, "5ns"])
+def test_bad_individual_clock_is_a_settings_error(tmp_path, bad_clock):
+    with pytest.raises(FlowSettingsError):
+        _plan(tmp_path, _Place, {"fpga": PART, "clocks": {"core": bad_clock}})
+
+
+def test_api_can_clear_a_nullable_clock_leaf_across_the_edge(tmp_path):
+    design = {
+        "__place": {"fpga": PART},
+        "__synth": {"clocks": {"main_clock": {"period": 10, "port": "clk", "uncertainty": 0.1}}},
+    }
+    api = {"__place": {"clocks": {"main_clock": {"port": None, "uncertainty": None}}}}
+    plan = _plan(tmp_path, _Place, origins=[("design.toml", design)], api_overrides=api)
+    for node in plan.nodes:
+        assert node.settings.clock.port is None
+        assert node.settings.clock.uncertainty is None

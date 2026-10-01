@@ -224,6 +224,7 @@ def _overlay(base: _Located, layer: _Located, cls: type[Flow]) -> _Located:
     values = deepcopy(layer.values)
     incoming = dict(layer.locations)
     clock_inputs = dict(base.clock_inputs)
+    retained = dict(base.locations)
     for path, clock_input in layer.clock_inputs.items():
         subtree = _at(values, path)
         subtree.pop("clocks", None)
@@ -235,6 +236,16 @@ def _overlay(base: _Located, layer: _Located, cls: type[Flow]) -> _Located:
         if existing and name not in existing:
             if name == "main_clock":
                 destination = next(iter(existing))
+            elif len(existing) == 1:
+                old_name = next(iter(existing))
+                retained = {
+                    (
+                        (*path, "clocks", name, *key[len(path) + 2 :])
+                        if key[: len(path) + 2] == (*path, "clocks", old_name)
+                        else key
+                    ): loc
+                    for key, loc in retained.items()
+                }
         incoming = {
             (
                 (*path, "clocks", destination, *key[len(path) + 2 :])
@@ -249,7 +260,7 @@ def _overlay(base: _Located, layer: _Located, cls: type[Flow]) -> _Located:
             clock_inputs[path] = clock_input
     merged = merge_layers(base.values, values, settings_cls=cls.Settings)
     leaves = _leaves(merged)
-    locations = {path: loc for path, loc in base.locations.items() if path in leaves}
+    locations = {path: loc for path, loc in retained.items() if path in leaves}
     locations.update({path: loc for path, loc in incoming.items() if path in leaves})
     return _Located(merged, locations, clock_inputs)
 
@@ -376,6 +387,8 @@ def _normalized_leaves(
         if not isinstance(clocks, Mapping):
             settings_in_context(request.cls, {"clocks": clocks}, **context)
         for name, raw_clock in clocks.items():
+            if not isinstance(raw_clock, Mapping):
+                raise _error(request.cls, f"clocks.{name}", "a clock must be a mapping")
             if isinstance(raw_clock, Mapping) and ("period" in raw_clock or "freq" in raw_clock):
                 try:
                     PhysicalClock.model_validate(raw_clock)
@@ -385,7 +398,7 @@ def _normalized_leaves(
         if not path or path[0] != shared:
             continue
         value = _leaves(request.raw.values).get(path)
-        if value is None or value == {}:
+        if value == {}:
             continue
         target = path
         try:
@@ -470,7 +483,7 @@ def _agree(requests: list[_Request], shared: str, context: dict[str, Any]) -> No
             _put(agreed, path[1:], value) if len(path) > 1 else agreed.update({shared: value})
         if not agreed:
             continue
-        value = agreed.get(shared) if shared in ("board", "custom_boards_file") else agreed
+        value = agreed[shared] if shared in agreed else agreed
         if shared == "clocks":
             for name, clock in agreed.items():
                 if "name" not in clock:
@@ -642,17 +655,15 @@ def resolve(
                 ),
                 None,
             )
-            child_raw = _Located()
-            for label, values, kind in layers:
-                contribution = _compose(producer, values, label, kind)
-                if key:
-                    # Same-origin nesting refines the producer section before origins are stacked.
-                    nested = _compose(cls, values, label, kind).child(key)
-                    contribution = _overlay(contribution, nested, producer)
-                child_raw = _overlay(child_raw, contribution, producer)
             if key:
-                # Parent raw already preserves origin-first nesting (including direct edits).
-                child_raw = _overlay(child_raw, raw.child(key), producer)
+                # Already composed once, including producer sections and direct nested edits.
+                child_raw = raw.child(key)
+            else:
+                child_raw = _Located()
+                for label, values, kind in layers:
+                    child_raw = _overlay(
+                        child_raw, _compose(producer, values, label, kind), producer
+                    )
             child = discover(producer, child_raw, f"{cls.name}.{declaration.name}")
             child.needed.add(output.name)
             request.children.append((key, child))
