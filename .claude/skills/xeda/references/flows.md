@@ -49,11 +49,11 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 ### `vcs`
 
-Synopsys VCS simulator
+Synopsys VCS simulator with runtime evidence in split and one-shot modes. Quiet $finish(0) and VHDL completion fail unless a native finish diagnostic is observable. UCLI time checkpoints alone do not establish HDL completion.
 
-41 flow-specific settings (plus the common ones): `xeda list-settings vcs --json`
+43 flow-specific settings (plus the common ones): `xeda list-settings vcs --json`
 
-Reports no results beyond the keys every flow reports.
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
 ### `verilator`
 
