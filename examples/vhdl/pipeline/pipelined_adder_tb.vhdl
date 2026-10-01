@@ -130,6 +130,7 @@ begin
     end loop;
     report "full_adder_tb finished!";
     stop_clock <= TRUE;
+    std.env.finish;
     wait;
   end process;
 end;

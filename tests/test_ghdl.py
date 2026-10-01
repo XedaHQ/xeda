@@ -36,8 +36,7 @@ def test_ghdl_sim_py(tmp_path: Path) -> None:
         settings_json = flow.run_path / "settings.json"
         results_json = flow.run_path / "results.json"
         assert settings_json.exists()
-        # This example stops its clock and drains the queue without std.env.finish/stop.
-        assert flow.succeeded is (design.name != "pipelined_adder.toml")
+        assert flow.succeeded
         assert isinstance(flow.settings, GhdlSim.Settings)
         assert results_json.exists()
 
