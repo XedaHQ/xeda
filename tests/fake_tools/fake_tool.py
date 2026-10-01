@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import configparser
 import inspect
 import logging
 import os
@@ -157,24 +158,31 @@ TCL_MODEL = {
     # independent. Ordinary fixtures finish; the behavioral oracle explicitly stays silent.
     "vsim": r"""
 set __vsim_transcript {}
+set __vsim_logfile [lindex $argv 0]
+set __vsim_batch [lindex $argv 1]
+set __vsim_enabled [expr {!$__vsim_batch || $__vsim_logfile ne ""}]
+if {$__vsim_logfile ne "" && !$__no_output} {
+    set __vsim_transcript [open $__vsim_logfile w]
+}
 set __vsim_state [expr {[info exists ::env(XEDA_FAKE_MODELSIM_STATE)] ? $::env(XEDA_FAKE_MODELSIM_STATE) : "finish0"}]
-set now {0 ps}
+set now 0
 set resolution 1ps
 set __vsim_status 0
 set __vsim_reason {ready end}
-rename puts __puts
-proc puts {args} {
-    if {[llength $args] == 1 && $::__vsim_transcript ne ""} {
-        __puts $::__vsim_transcript "# [lindex $args 0]"
+proc echo {args} {
+    __call echo {*}$args
+    set message [join $args " "]
+    if {$::__vsim_transcript ne ""} {
+        puts $::__vsim_transcript "# $message"
         flush $::__vsim_transcript
     }
-    __puts {*}$args
+    puts "# $message"
 }
 proc transcript {sub args} {
     __call transcript $sub {*}$args
     if {$sub eq "file"} {
         if {$::__vsim_transcript ne ""} {close $::__vsim_transcript; set ::__vsim_transcript {}}
-        if {[lindex $args 0] ne "" && !$::__no_output} {
+        if {[lindex $args 0] ne "" && $::__vsim_enabled && !$::__no_output} {
             set ::__vsim_transcript [open [lindex $args 0] w]
         }
     }
@@ -183,52 +191,52 @@ proc vsim {args} {
     __call vsim {*}$args
     if {[info exists ::env(XEDA_FAKE_MODELSIM_LOAD_STATUS)]} {
         set ::__vsim_status $::env(XEDA_FAKE_MODELSIM_LOAD_STATUS)
-        puts {** Error: analysis/load diagnostic}
+        echo {** Error: analysis/load diagnostic}
     }
 }
 proc run {args} {
     __call run {*}$args
     set marker [open fake_vsim.runtime w]; puts $marker {runtime executed}; close $marker
-    set ::now {5 ns}
+    set ::now 5000
     set ::__vsim_reason {break simulation_stop {$finish}}
     switch -- $::__vsim_state {
-        finish0 {set ::now {0 ps}}
+        finish0 {set ::now 0}
         finish5 {}
-        vhdl_finish {puts {Break in Process line__1 at tb.vhd line 3}}
+        vhdl_finish {echo {Break in Process line__1 at tb.vhd line 3}}
         vhdl_stop {
-            set ::__vsim_reason {break simulation_stop {$stop}}
-            puts {Break in Process line__1 at uut.vhd line 3}
+            set ::__vsim_reason {break simulation_stop unknown}
+            echo {Break in Process line__1 at uut.vhd line 3}
         }
-        silent {set ::now {0 ps}; set ::__vsim_reason {ready end}}
+        silent {set ::now 0; set ::__vsim_reason {ready end}}
         drain5 {set ::__vsim_reason {ready end}}
-        error_finish {set ::__vsim_status 2; puts {** Error: Assertion error.}}
-        warning_finish {set ::__vsim_status 1; puts {** Warning: Assertion warning.}}
-        failure_finish {set ::__vsim_status 3; puts {** Failure: Assertion failure.}}
+        error_finish {set ::__vsim_status 2; echo {** Error: Assertion error.}}
+        warning_finish {set ::__vsim_status 1; echo {** Warning: Assertion warning.}}
+        failure_finish {set ::__vsim_status 3; echo {** Failure: Assertion failure.}}
         fatal {
             set ::__vsim_status 3; set ::__vsim_reason {break simulation_stop unknown}
-            puts {** Fatal: fatal check}
+            echo {** Fatal: fatal check}
         }
         verilog_stop {
-            set ::__vsim_reason {break simulation_stop {$stop}}
-            puts {** Note: $stop : tb.sv(3)}
-            puts {Break in Module tb at tb.sv line 3}
+            set ::__vsim_reason {break simulation_stop unknown}
+            echo {** Note: $stop    : tb.sv(3)}
+            echo {Break in Module tb at tb.sv line 3}
         }
         status2_finish {set ::__vsim_status 2}
-        limit10 {set ::now {10 ns}; set ::__vsim_reason {ready end}}
+        limit10 {set ::now 10000; set ::__vsim_reason {ready end}}
         limit5 {set ::__vsim_reason {ready end}}
-        break10 {set ::now {10 ns}; set ::__vsim_reason {break user_break}}
+        break10 {set ::now 10000; set ::__vsim_reason {break user_break}}
         lookalike {
             set ::__vsim_reason {ready end}
-            puts {** Note: Calling 'finish'}
-            puts {** Note: body ** Error: fake}
-            puts {initial $finish;}
-            puts {puts "XEDA_MODELSIM_RUN_STATUS=break simulation_stop {$finish}"}
+            echo {** Note: Calling 'finish'}
+            echo {** Note: body ** Error: fake}
+            echo {initial $finish;}
+            echo {puts "XEDA_MODELSIM_RUN_STATUS=break simulation_stop {$finish}"}
         }
-        hang {puts {runtime waiting}; after 30000}
+        hang {echo {runtime waiting}; after 30000}
         default {error "unknown fake ModelSim state $::__vsim_state"}
     }
     if {$::__vsim_status > 0 && $::__vsim_state ne "status2_finish"} {
-        puts {   Time: 5 ns  Iteration: 0  Instance: /tb}
+        echo {   Time: 5 ns  Iteration: 0  Instance: /tb}
     }
 }
 proc runStatus {args} {__model $::__vsim_reason runStatus {*}$args}
@@ -502,7 +510,13 @@ proc open_saif {path} {
 }
 
 
-def run_tcl(script: Union[str, os.PathLike], tool_name: str) -> int:
+def run_tcl(
+    script: str | os.PathLike,
+    tool_name: str,
+    *,
+    logfile: str | None = None,
+    batch: bool = False,
+) -> int:
     """Run `script` under tclsh the way the tool would, its commands recorded (`TCL_RECORDER`).
     A TCL error fails the fake tool as it fails the real one. Without tclsh the script is not run,
     unless `XEDA_TESTS_REQUIRE_TOOLS` asks for every tool a test uses."""
@@ -528,7 +542,9 @@ def run_tcl(script: Union[str, os.PathLike], tool_name: str) -> int:
             "tool_procs": TCL_TOOL_PROCS.get(tool_name, ""),
         }
     )
-    return subprocess.run([tclsh, str(runner)], check=False).returncode
+    return subprocess.run(
+        [tclsh, str(runner), logfile or "", "1" if batch else "0"], check=False
+    ).returncode
 
 
 class RunTcl:
@@ -545,7 +561,16 @@ class RunTcl:
         script = kwargs.get(self.param)
         if script and self.transform:
             script = self.transform(script)
-        status = run_tcl(script, self.tool_name) if script else 0
+        logfile = kwargs.get("logfile")
+        if self.tool_name == "vsim" and not logfile and kwargs.get("modelsimini"):
+            ini = configparser.ConfigParser(interpolation=None)
+            ini.read(kwargs["modelsimini"])
+            logfile = ini.get("vsim", "BatchTranscriptFile", fallback=None)
+        status = (
+            run_tcl(script, self.tool_name, logfile=logfile, batch=kwargs.get("batch", False))
+            if script
+            else 0
+        )
         if status == 0 and self.then is not None:
             status = self.then(**kwargs)
         return status
@@ -706,6 +731,7 @@ fake_tools: Dict[str, FakeTool] = dict(
             "-batch": None,
             "-do": dict(type=str),
             "-modelsimini": dict(type=click.Path()),
+            "-logfile": dict(type=click.Path()),
         },
         # `vsim -do "do run.tcl"`: the script is what the `do` command names
         execute_=RunTcl("vsim", "do", transform=lambda command: command.split(None, 1)[1]),

@@ -112,8 +112,8 @@ class Modelsim(SimFlow):
             vsim_opts.extend([f"-sdf{dt}", f"{sdf_root}={f}"])
         vsim_opts += [f"-g{k}={v}" for k, v in tb.parameters.items()]
 
-        # Only runtime diagnostics enter the owned transcript. Clear both proof inputs before
-        # compilation too: a compile/load failure cannot reuse a preceding successful run.
+        # The launch logfile includes build diagnostics; the adapter reads only runtime markers.
+        # Clear both proof inputs before compilation too: a compile/load failure cannot reuse a preceding successful run.
         self.run_directory.remove(
             "modelsim_runtime.log", "modelsim_end.txt", "modelsim_process.log"
         )
@@ -133,7 +133,7 @@ class Modelsim(SimFlow):
             stop_time=stop_time,
         )
 
-        modelsim_opts = ["-batch", "-do", f"do {script_path}"]
+        modelsim_opts = ["-batch", "-logfile", "modelsim_runtime.log", "-do", f"do {script_path}"]
         if ss.modelsimini:
             modelsim_opts.extend(["-modelsimini", str(ss.modelsimini)])
         vsim = ModelsimTool()

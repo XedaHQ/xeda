@@ -3,6 +3,7 @@ tool's commands recorded and exits as vsim does: only `exit -code N` sets the st
 
 import logging
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -258,7 +259,7 @@ def test_modelsim_checkpoint_must_match_native_observations(mode, tmp_path, monk
             elif mode == "precision":
                 record.write_text(record.read_text().replace("1ps", "0ps"))
             else:
-                record.write_text(record.read_text().replace("0 ps", "nonsense"))
+                record.write_text(record.read_text().replace("\n0\n", "\nnonsense\n", 1))
         return result
 
     monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
@@ -278,7 +279,7 @@ def test_modelsim_excludes_compile_and_load_diagnostics(tmp_path, monkeypatch):
     flow, _ = _run(tmp_path, monkeypatch, {"redirect_stdout": True})
     assert flow is not None and flow.succeeded
     assert flow.results["sim.errors"] == 0 and flow.results["sim.warnings"] == 0
-    assert "analysis/load diagnostic" not in (flow.run_path / "modelsim_runtime.log").read_text()
+    assert "analysis/load diagnostic" in (flow.run_path / "modelsim_runtime.log").read_text()
     assert "analysis/load diagnostic" in (flow.run_path / "modelsim_process.log").read_text()
 
 
@@ -344,3 +345,102 @@ def test_modelsim_refuses_links_created_by_analysis(path, tmp_path, monkeypatch)
     flow, _ = _run(tmp_path, monkeypatch, record_calls=False)
     assert flow is not None and not flow.succeeded
     assert outside.read_text() == "keep this data\n"
+
+
+@needs_tclsh
+@pytest.mark.parametrize("capture", ["none", "logfile", "ini"])
+def test_fake_vsim_batch_requires_explicit_transcript(capture, tmp_path, monkeypatch):
+    """Batch mode disables automatic transcript files, as ModelSim-Intel 2020.1 does."""
+    use_fake_tools(monkeypatch)
+    script = tmp_path / "batch.tcl"
+    script.write_text(
+        'transcript file runtime.log\necho "captured"\nputs "stdout only"\ntranscript file ""\nexit\n'
+    )
+    args = ["vsim", "-batch", "-do", "do " + str(script)]
+    if capture == "logfile":
+        args += ["-logfile", "runtime.log"]
+    elif capture == "ini":
+        ini = tmp_path / "modelsim.ini"
+        ini.write_text("[vsim]\nBatchTranscriptFile = runtime.log\n")
+        args += ["-modelsimini", str(ini)]
+    result = subprocess.run(
+        args, cwd=tmp_path, capture_output=True, text=True, timeout=30, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    log = tmp_path / "runtime.log"
+    assert log.exists() is (capture != "none")
+    if log.exists():
+        assert "captured" in log.read_text()
+        assert "stdout only" not in log.read_text()
+
+
+@needs_tclsh
+@pytest.mark.parametrize("state", ["vhdl_stop", "verilog_stop", "fatal"])
+def test_modelsim_launches_batch_with_a_logfile(state, tmp_path, monkeypatch):
+    monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", state)
+    original = xeda.tool.Tool.execute
+    launched = []
+
+    def execute(tool, executable, *args, **kwargs):
+        if "-do" in args:
+            launched.append(args)
+        return original(tool, executable, *args, **kwargs)
+
+    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    flow, _ = _run(tmp_path, monkeypatch)
+    assert flow is not None
+    (args,) = launched
+    assert args[args.index("-logfile") + 1] == "modelsim_runtime.log"
+    assert "break simulation_stop unknown" in (flow.run_path / "modelsim_end.txt").read_text()
+    assert flow.succeeded is (state == "vhdl_stop")
+
+
+@needs_tclsh
+@pytest.mark.parametrize("state", ["vhdl_stop", "verilog_stop", "silent"])
+def test_modelsim_bounds_native_stop_evidence(state, tmp_path, monkeypatch):
+    """Load/after-runtime stops cannot classify a runtime break or manufacture an end."""
+    monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", state)
+    original = xeda.tool.Tool.execute
+
+    def execute(tool, executable, *args, **kwargs):
+        result = original(tool, executable, *args, **kwargs)
+        if "-do" in args:
+            log = Path("modelsim_runtime.log")
+            outside = (
+                "# ** Note: $stop    : tb.v(3)\n"
+                "# Break in Process line__1 at uut.vhd line 3\n"
+                "# ** Error: outside runtime\n"
+                "# XEDA_MODELSIM_RUN_STATUS=break simulation_stop {$finish}\n"
+            )
+            log.write_text(outside + log.read_text() + outside)
+        return result
+
+    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    flow, _ = _run(tmp_path, monkeypatch)
+    assert flow is not None and flow.succeeded is (state == "vhdl_stop")
+    assert flow.results["sim.errors"] == (1 if state == "verilog_stop" else 0)
+
+
+@needs_tclsh
+@pytest.mark.parametrize("replacement", ["other.vhd", "tb.v", None])
+def test_modelsim_unknown_stop_requires_a_known_vhdl_break(replacement, tmp_path, monkeypatch):
+    monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "vhdl_stop")
+    original = xeda.tool.Tool.execute
+
+    def execute(tool, executable, *args, **kwargs):
+        result = original(tool, executable, *args, **kwargs)
+        if "-do" in args:
+            log = Path("modelsim_runtime.log")
+            text = log.read_text()
+            text = (
+                text.replace("at uut.vhd", "at " + replacement)
+                if replacement
+                else text.replace("# Break in Process line__1 at uut.vhd line 3\n", "")
+            )
+            log.write_text(text)
+        return result
+
+    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    flow, _ = _run(tmp_path, monkeypatch)
+    assert flow is not None and not flow.succeeded
+    assert flow.results["sim.ended_by"] == "unknown"
