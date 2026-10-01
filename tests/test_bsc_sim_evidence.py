@@ -375,6 +375,129 @@ def require_bsc_backend(backend):
         require_verilator()
 
 
+@pytest.mark.parametrize("backend", ["cvc", "cver", "isim", "ncverilog", "veriwell"])
+def test_uncertified_legacy_backend_is_rejected_before_compilation(tmp_path, monkeypatch, backend):
+    from xeda.tool import Tool
+
+    design = bsv_design(tmp_path / "design", "")
+    flow = BscSim({"simulator": backend}, design, tmp_path / "run")
+    calls = []
+
+    def no_tool(*args, **kwargs):
+        calls.append((args, kwargs))
+        pytest.fail("legacy backend queried or launched a tool before rejection")
+
+    def no_compile(*args, **kwargs):
+        pytest.fail("legacy backend reached compilation")
+
+    monkeypatch.setattr(flow, "_compile", no_compile)
+    monkeypatch.setattr(Tool, "execute", no_tool)
+    with pytest.raises(
+        FlowSettingsException, match="uncertified.*bluesim.*modelsim.*questa.*vcs.*vcsi.*xsim"
+    ):
+        flow.init()
+    assert calls == []
+
+
+def test_bsc_simulator_adapter_manifest_covers_every_declared_backend(tmp_path):
+    from typing import get_args
+
+    from xeda.flows.bsc import SimulatorName
+
+    design = bsv_design(tmp_path / "design", "")
+    for backend in get_args(SimulatorName):
+        flow = BscSim({"simulator": backend}, design, tmp_path / backend)
+        assert flow.has_evidence_adapter() is (
+            backend not in {"cvc", "cver", "isim", "ncverilog", "veriwell"}
+        )
+
+
+@pytest.mark.parametrize(
+    "backend,option",
+    [
+        ("modelsim", "-do"),
+        ("questa", "-do"),
+        ("vcs", "-ucli"),
+        ("vcsi", "-i"),
+        ("xsim", "-tclbatch"),
+    ],
+)
+def test_bsc_proprietary_sim_args_cannot_replace_owned_scripts(tmp_path, backend, option):
+    design = bsv_design(tmp_path / "design", "")
+    flow = BscSim({"simulator": backend, "sim_args": [option]}, design, tmp_path / "run")
+    with pytest.raises(FlowSettingsException, match="owned runtime evidence protocol"):
+        flow.init()
+
+
+@pytest.mark.parametrize("backend", ["modelsim", "questa", "vcs", "vcsi", "xsim"])
+def test_certified_proprietary_backends_have_evidence_adapters(tmp_path, backend):
+    design = bsv_design(tmp_path / "design", "")
+    flow = BscSim({"simulator": backend}, design, tmp_path / "run")
+    assert flow.has_evidence_adapter()
+
+
+@pytest.mark.parametrize("backend", ["modelsim", "questa", "vcs", "vcsi", "xsim"])
+def test_bsc_proprietary_runtime_uses_family_evidence_adapter(tmp_path, monkeypatch, backend):
+    from .sim_evidence_cases import SimCase, launch_case
+
+    flow = launch_case(
+        SimCase("bsc_sim", backend),
+        tmp_path / backend,
+        monkeypatch,
+        positive=True,
+        settings_overrides={"sim_args": ["+proof"]},
+    )
+    assert flow.succeeded, flow.results.error if flow.results.error else flow.results
+    assert flow.results["simulator"] == backend
+    assert flow.results["sim.ended_by"] == "finish"
+    assert flow.results["sim.evidence"]["ended_by"] == "finish"
+    assert (flow.run_path / "oracle.runtime").read_text() == "runtime executed"
+    assert (flow.run_path / "sim_build").is_dir()
+    if backend in ("modelsim", "questa"):
+        runtime_script = (flow.run_path / "bsc_modelsim_runtime.tcl").read_text()
+        assert "-lib work_mkTop" in runtime_script
+        assert '"-c" "main_opt"' in runtime_script and "+proof" in runtime_script
+        assert (flow.run_path / "work_mkTop" / "library.dat").is_file()
+    elif backend in ("vcs", "vcsi"):
+        import json
+
+        invocation = json.loads(
+            (flow.run_path / "fake_vcs.invocations").read_text().splitlines()[0]
+        )
+        assert "+proof" in invocation[1] and "-i" in invocation[1]
+    else:
+        import json
+
+        invocation = json.loads((flow.run_path / "fake_xsim.args.json").read_text())
+        assert "+proof" in invocation and "-tclbatch" in invocation
+        assert invocation[0] == str(flow.run_path / "sim_build" / "mkTop.xsim")
+
+
+@pytest.mark.parametrize(
+    "use_dpi,expected",
+    [
+        (False, '"-pli" "./directc_mkTop.so"'),
+        (True, '"-sv_lib" "directc_mkTop"'),
+    ],
+)
+def test_bsc_modelsim_runtime_preserves_foreign_function_loader(
+    tmp_path, monkeypatch, use_dpi, expected
+):
+    from .sim_evidence_cases import SimCase, launch_case
+
+    flow = launch_case(
+        SimCase("bsc_sim", "modelsim"),
+        tmp_path / str(use_dpi),
+        monkeypatch,
+        positive=True,
+        foreign_source=True,
+        settings_overrides={"sim_args": ["+proof"], "use_dpi": use_dpi},
+    )
+    assert flow.succeeded
+    runtime_script = (flow.run_path / "bsc_modelsim_runtime.tcl").read_text()
+    assert expected in runtime_script and "+proof" in runtime_script
+
+
 @pytest.mark.parametrize(
     "kind,severity,ok",
     [

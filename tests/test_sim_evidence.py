@@ -14,8 +14,7 @@ from xeda.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
 NOT_YET_CONVERTED: dict[str, str] = {}
 #: Converted for some backends only: the rest are P1b.
 PARTLY_CONVERTED: dict[str, str] = {
-    "bsc_sim": "P1b: modelsim, questa, vcs, vcsi, xsim dispatch and "
-    "cvc, cver, isim, ncverilog, veriwell rejection remain; Linux Icarus capability verification is pending",
+    "bsc_sim": "P1b: Linux Icarus builtin-task capability verification is still required",
 }
 
 

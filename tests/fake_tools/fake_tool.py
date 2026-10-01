@@ -825,7 +825,11 @@ fake_tools: Dict[str, FakeTool] = dict(
             "-logfile": dict(type=click.Path()),
         },
         # `vsim -do "do run.tcl"`: the script is what the `do` command names
-        execute_=RunTcl("vsim", "do", transform=lambda command: command.split(None, 1)[1]),
+        execute_=RunTcl(
+            "vsim",
+            "do",
+            transform=lambda command: command.split(None, 1)[1].strip("{}"),
+        ),
     ),
 )
 

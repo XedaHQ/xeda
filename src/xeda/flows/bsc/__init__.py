@@ -24,11 +24,30 @@ from ...dataclass import WORKING, Field, field_validator
 from ...design import DesignSource, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
-from .sim_evidence import bluesim_evidence, iverilog_evidence, verilator_evidence
+from .sim_evidence import (
+    bluesim_evidence,
+    iverilog_evidence,
+    modelsim_evidence,
+    vcs_evidence,
+    verilator_evidence,
+    xsim_evidence,
+)
 from ...tool import Docker, Tool, ToolException
-from ...utils import replacing_copy, replacing_file, unique
+from ...utils import replacing_copy, replacing_file, tcl_word, unique
 
 log = logging.getLogger(__name__)
+
+_UNCERTIFIED_SIMULATORS = {"cvc", "cver", "isim", "ncverilog", "veriwell"}
+_SUPPORTED_SIMULATORS = (
+    "bluesim",
+    "verilator",
+    "iverilog",
+    "modelsim",
+    "questa",
+    "vcs",
+    "vcsi",
+    "xsim",
+)
 
 __all__ = [
     "MIN_BSC_VERSION",
@@ -1139,9 +1158,9 @@ class BscSim(BscFlow, SimFlow):
     output_dir_setting = "sim_dir"
 
     def has_evidence_adapter(self) -> bool:
-        """The converted backends supply current-run evidence; family dispatch follows later."""
+        """Every accepted simulator has a family-specific current-run evidence adapter."""
         assert isinstance(self.settings, self.Settings)
-        return self.settings.simulator in ("bluesim", "verilator", "iverilog")
+        return self.settings.simulator not in _UNCERTIFIED_SIMULATORS
 
     def simulation_evidence(self) -> SimEvidence | None:
         """Read the end checkpoint and generated system-task observations."""
@@ -1150,7 +1169,13 @@ class BscSim(BscFlow, SimFlow):
             return bluesim_evidence(self)
         if self.settings.simulator == "verilator":
             return verilator_evidence(self)
-        return iverilog_evidence(self)
+        if self.settings.simulator == "iverilog":
+            return iverilog_evidence(self)
+        if self.settings.simulator in ("modelsim", "questa"):
+            return modelsim_evidence(self)
+        if self.settings.simulator in ("vcs", "vcsi"):
+            return vcs_evidence(self)
+        return xsim_evidence(self)
 
     class Settings(BscFlow.Settings, SimFlow.Settings):
         fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
@@ -1166,10 +1191,10 @@ class BscSim(BscFlow, SimFlow):
         )
         simulator: SimulatorName = Field(
             "bluesim",
-            description='The simulator: "bluesim", or a Verilog simulator bsc links the '
-            'generated Verilog for (`-vsim`): "verilator", "iverilog", "cvc", "cver", "isim", '
-            '"modelsim", "ncverilog", "questa", "vcs", "vcsi", "veriwell" or "xsim". Xeda is '
-            "tested with bluesim, verilator and iverilog.",
+            description='The simulator: "bluesim", or a supported Verilog simulator bsc links '
+            'the generated Verilog for (`-vsim`): "verilator", "iverilog", "modelsim", '
+            '"questa", "vcs", "vcsi" or "xsim". Xeda rejects uncertified legacy engines '
+            '"cvc", "cver", "isim", "ncverilog" and "veriwell" before compilation.',
         )
         sim_dir: Path = Field(
             Path("sim_build"),
@@ -1248,6 +1273,12 @@ class BscSim(BscFlow, SimFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
         backend = "sim" if ss.simulator == "bluesim" else "verilog"
+        if ss.simulator in _UNCERTIFIED_SIMULATORS:
+            supported = ", ".join(f'"{name}"' for name in _SUPPORTED_SIMULATORS)
+            raise FlowSettingsException(
+                f"bsc_sim simulator {ss.simulator!r} is uncertified for simulation evidence; "
+                f"choose a supported alternative: {supported}"
+            )
         self._check_settings(backend)
         if self.design.tb.cocotb:
             raise FlowSettingsException(
@@ -1269,6 +1300,19 @@ class BscSim(BscFlow, SimFlow):
             raise FlowSettingsException(
                 "Bluesim sim_args cannot override the owned -m/-c/-f execution protocol; "
                 "use max_cycles for a cycle limit"
+            )
+        owned_options = {
+            "modelsim": {"-do", "-logfile"},
+            "questa": {"-do", "-logfile"},
+            "vcs": {"-ucli", "-i"},
+            "vcsi": {"-ucli", "-i"},
+            "xsim": {"-tclbatch", "-onfinish", "-onerror", "-log", "-runall", "-R"},
+        }.get(ss.simulator, set())
+        conflict = next((arg for arg in ss.sim_args if arg in owned_options), None)
+        if conflict:
+            raise FlowSettingsException(
+                f"{ss.simulator} sim_args cannot override the owned runtime evidence protocol "
+                f"with {conflict}; pass runtime data as plusargs instead"
             )
         if ss.stop_time is not None:
             raise FlowSettingsException(
@@ -1423,13 +1467,20 @@ class BscSim(BscFlow, SimFlow):
             elif ss.simulator in ("verilator", "iverilog"):
                 self.run_directory.remove("xeda_end.json", "xeda_end.json.tmp")
                 env = {"XEDA_END_RECORD": "xeda_end.json"}
-            simulation.run(
-                *sim_args,
-                timeout=ss.timeout,
-                env=env,
-                tee=self.run_directory.writable("sim.log"),
-                merge_stderr=True,
-            )
+            if ss.simulator in ("modelsim", "questa"):
+                self._run_modelsim(tb_top, sim_args)
+            elif ss.simulator in ("vcs", "vcsi"):
+                self._run_vcs(simulation, sim_args)
+            elif ss.simulator == "xsim":
+                self._run_xsim(executable, sim_args)
+            else:
+                simulation.run(
+                    *sim_args,
+                    timeout=ss.timeout,
+                    env=env,
+                    tee=self.run_directory.writable("sim.log"),
+                    merge_stderr=True,
+                )
         finally:
             if vcd and dump and self.wrote_output(dump):
                 if dump != vcd:
@@ -1438,6 +1489,124 @@ class BscSim(BscFlow, SimFlow):
                     replacing_copy(dump, self.run_directory.writable(vcd))
                     self.run_directory.remove(dump)
                 self.artifacts.vcd = str(vcd)
+
+    def _run_modelsim(self, top: str, plusargs: list[str]) -> None:
+        """Load bsc's compiled work library with the owned ModelSim evidence script."""
+        from ..modelsim import ModelsimTool
+
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        self.run_directory.remove(
+            "modelsim_runtime.log", "modelsim_end.txt", "modelsim_process.log"
+        )
+        script = self.run_directory.writable("bsc_modelsim_runtime.tcl")
+        severity = {"warning": 1, "error": 2, "failure": 3, "fatal": 3}[ss.fail_severity]
+        foreign_args = []
+        if self._foreign_sources():
+            foreign_args = (
+                ["-sv_lib", "directc_" + top]
+                if ss.use_dpi
+                else ["-pli", "./directc_" + top + ".so"]
+            )
+        text = "\n".join(
+            [
+                "onerror {exit -code 1}",
+                f"vsim -t ps -onfinish stop -lib work_{top} "
+                + " ".join(tcl_word(arg) for arg in [*foreign_args, "-c", "main_opt", *plusargs]),
+                "set BreakOnAssertion 4",
+                "onbreak {resume}",
+                "coverage attribute -name TESTSTATUS -value 0",
+                "transcript off",
+                'echo "XEDA_MODELSIM_RUNTIME_START"',
+                "if {[catch {run -all} error]} {puts $error; transcript file {}; exit -code 1}",
+                "set run_state [runStatus -full]",
+                "set test_status [lindex [coverage attribute -name TESTSTATUS -concise] 0]",
+                'echo "XEDA_MODELSIM_RUN_STATUS=$run_state"',
+                "set fd [open modelsim_end.txt {WRONLY CREAT EXCL}]",
+                'puts $fd "XEDA_MODELSIM_V1"',
+                "puts $fd $now",
+                "puts $fd $resolution",
+                "puts $fd $test_status",
+                "puts $fd $run_state",
+                "close $fd",
+                "transcript file {}",
+                f"if {{$test_status >= {severity}}} {{exit -code 1}}",
+                "exit",
+                "",
+            ]
+        )
+        with replacing_file(script, encoding="utf-8") as stream:
+            stream.write(text)
+        tool = ModelsimTool().derive("vsim", redirect_stdout=None)
+        tool.run(
+            "-batch",
+            "-logfile",
+            "modelsim_runtime.log",
+            "-do",
+            "do " + script.name,
+            timeout=ss.timeout,
+            tee=self.run_directory.writable("modelsim_process.log"),
+            merge_stderr=True,
+        )
+
+    def _run_vcs(self, simulation: Tool, sim_args: list[str]) -> None:
+        """Run the linked bsc VCS executable under Task 7's owned UCLI adapter."""
+        from ..vcs_evidence import RUNTIME_LOG, prepare_vcs_runtime
+
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        self.run_directory.remove(RUNTIME_LOG)
+        script = prepare_vcs_runtime(self, setup=[], user_script=None, stop_time=None)
+        simulation.redirect_stdout = None
+        simulation.run(
+            *sim_args,
+            "-ucli",
+            "-i",
+            str(script),
+            timeout=ss.timeout,
+            tee=self.run_directory.writable(RUNTIME_LOG),
+            merge_stderr=True,
+        )
+
+    def _run_xsim(self, executable: Path, sim_args: list[str]) -> None:
+        """Load bsc's retained xsim snapshot through the owned xsim runtime script."""
+        from ..vivado.sim_evidence import PROCESS_LOG, RUNTIME_LOG
+
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        self.run_directory.remove(RUNTIME_LOG, PROCESS_LOG)
+        script = self.run_directory.writable("bsc_xsim_runtime.tcl")
+        with replacing_file(script, encoding="utf-8") as stream:
+            stream.write(
+                "puts XEDA_XSIM_RUNTIME_START\n"
+                "flush stdout\n"
+                "proc xedaCheckpoint {} {\n"
+                '    puts "XEDA_XSIM_CHECKPOINT=main|[current_time]|[get_property PRECISION [current_sim]]"\n'
+                "    flush stdout\n"
+                "}\n"
+                "if {[catch {run all} error]} {xedaCheckpoint; error $error}\n"
+                "xedaCheckpoint\n"
+                "puts XEDA_XSIM_RUNTIME_END\n"
+                "flush stdout\n"
+            )
+        self.run_directory.writable(RUNTIME_LOG)
+        tool = self.bsc.derive("xsim", version_flag=None, minimum_version=None)
+        tool.redirect_stdout = None
+        tool.run(
+            str(executable) + ".xsim",
+            "-log",
+            str(RUNTIME_LOG),
+            "-tclbatch",
+            script.name,
+            *sim_args,
+            "-onfinish",
+            "stop",
+            "-onerror",
+            "stop",
+            timeout=ss.timeout,
+            tee=self.run_directory.writable(PROCESS_LOG),
+            merge_stderr=True,
+        )
 
     def _verilator(self) -> Tool:
         """Require the same runtime-hook capability as standalone Verilator."""

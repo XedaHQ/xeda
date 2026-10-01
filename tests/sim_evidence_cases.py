@@ -7,6 +7,7 @@ conversion tasks extend these stand-ins with their native transcript/checkpoint 
 
 import json
 import os
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,11 +62,21 @@ BSC_BACKENDS = (
     "xsim",
 )
 CASES = [SimCase(name) for name in SIMULATORS if name != "bsc_sim"] + [
-    SimCase("bsc_sim", backend) for backend in BSC_BACKENDS
+    SimCase("bsc_sim", backend)
+    for backend in BSC_BACKENDS
+    if backend not in {"cvc", "cver", "isim", "ncverilog", "veriwell"}
 ]
 
 
-def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = False):
+def launch_case(
+    case: SimCase,
+    work: Path,
+    monkeypatch,
+    *,
+    positive: bool = False,
+    settings_overrides=None,
+    foreign_source: bool = False,
+):
     """Launch a real flow against successful build and silent/positive runtime stand-ins."""
     work.mkdir(parents=True)
     source = work / ("Top.bsv" if case.backend else "tb.sv")
@@ -83,10 +94,15 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
         tb={"sources": [source], "top": top, "uut": "dut"},
         language={"vhdl": {"standard": "2008"}},
     )
+    if foreign_source:
+        foreign = work / "foreign.c"
+        foreign.write_text("int foreign(void) { return 1; }\n")
+        design.rtl.sources = [*design.rtl.sources, foreign]
     flow_class = get_flow_class(case.flow)
     settings = minimal_settings(flow_class)
     if case.backend:
         settings["simulator"] = case.backend
+    settings.update(settings_overrides or {})
     use_fake_tools(monkeypatch)
     monkeypatch.setattr(Tool, "version_gte", lambda self, *args: True)
     monkeypatch.setattr(
@@ -95,7 +111,7 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
         lambda self, *args, **kwargs: "GHDL 6.0.0\nCompiled with GNAT\nmcode code generator\n"
         "Bluespec Compiler, version 2026.07.1\nVerilator 5.048\nVERILATOR_ROOT = /oracle/verilator\n",
     )
-    if case.flow == "vcs":
+    if case.flow == "vcs" or case.backend in ("vcs", "vcsi"):
         use_fake_vcs(monkeypatch)
     original = Tool.execute
     calls = []
@@ -156,12 +172,43 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
             else:
                 (cwd / "oracle.build").write_text("analysis/elaboration succeeded")
             return result
-        if case.flow == "modelsim" and name == "vsim":
+        if case.backend in ("vcs", "vcsi") and Path(executable).parent.name == "sim_build":
+            Path(executable).unlink(missing_ok=True)
+            Path(executable).symlink_to(FAKE.resolve())
+            monkeypatch.setenv("XEDA_FAKE_VCS_STATE", "finish5" if positive else "silent")
+            return use_fake_vcs_execute(original, tool, executable, args, kwargs)
+        if (case.flow == "modelsim" or case.backend in ("modelsim", "questa")) and name == "vsim":
             monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "finish0" if positive else "silent")
             result = original(tool, executable, *args, **kwargs)
             assert (cwd / "fake_vsim.runtime").read_text().strip() == "runtime executed"
             (cwd / "oracle.runtime").write_text("runtime executed")
             return result
+        if case.backend == "xsim" and name == "xsim":
+            script = Path(words[words.index("-tclbatch") + 1])
+            (cwd / "fake_xsim.args.json").write_text(json.dumps(words))
+            log_path = Path(words[words.index("-log") + 1])
+            if "+proof" in (settings_overrides or {}).get("sim_args", []):
+                assert "+proof" in words
+            model = cwd / "fake_xsim_runner.tcl"
+            finish = (
+                'puts {$finish called at time : 5 ns : File "Top.v" Line 1}' if positive else ""
+            )
+            model.write_text(
+                f"set xeda_channel [open {{{log_path}}} w]\n"
+                "rename puts __xsim_puts\n"
+                "proc puts {args} {__xsim_puts $::xeda_channel [lindex $args end]; flush $::xeda_channel}\n"
+                "proc current_time {} {return {5 ns}}\n"
+                "proc current_sim {} {return simulation}\n"
+                "proc get_property {name sim} {return {1 ps}}\n"
+                f"proc run {{args}} {{{finish}}}\n"
+                f"source {{{script}}}\n"
+                "close $xeda_channel\n"
+            )
+            if subprocess.run(["tclsh", str(model)], cwd=cwd, timeout=10).returncode:
+                return 1
+            (cwd / "fake_xsim.runtime").write_text("runtime executed")
+            (cwd / "oracle.runtime").write_text("runtime executed")
+            return ""
         if name == "vivado" and "-source" in words and case.flow.startswith("vivado"):
             monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish0" if positive else "silent")
             result = original(tool, executable, *args, **kwargs)
@@ -252,6 +299,12 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
             target = Path(words[words.index("-o") + 1])
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("fake build output\n")
+            if name == "bsc" and case.backend in ("modelsim", "questa"):
+                library = cwd / f"work_{top}"
+                library.mkdir(exist_ok=True)
+                (library / "library.dat").write_text("fake compiled library\n")
+            if name == "bsc" and case.backend == "xsim":
+                (target.parent / (target.name + ".xsim")).write_text("fake linked snapshot\n")
         return ""
 
     monkeypatch.setattr(Tool, "execute", execute)
@@ -272,6 +325,24 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
     assert all(p.read_text() == "runtime executed" for p in markers)
     assert flow is not None
     return flow
+
+
+def use_fake_vcs_execute(original, tool, executable, args, kwargs):
+    """Route bsc's linked VCS image through the same executable UCLI stand-in as VCSFlow."""
+    fake = FAKE
+    target = Path.cwd() / (Path(executable).name + ".py")
+    if not target.exists():
+        target.symlink_to(fake.resolve())
+    result = run_process(
+        sys.executable,
+        [str(target), *args],
+        env={**os.environ, **(kwargs.get("env") or {})},
+        tee=kwargs.get("tee"),
+        timeout=kwargs.get("timeout"),
+        merge_stderr=kwargs.get("merge_stderr", False),
+    )
+    Path("oracle.runtime").write_text("runtime executed")
+    return result
 
 
 FAKE = Path(__file__).parent / "fake_tools" / "vcs_runtime.py"
