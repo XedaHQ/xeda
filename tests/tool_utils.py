@@ -37,6 +37,7 @@ __all__ = [
     "require_iverilog",
     "require_nextpnr_ecp5",
     "require_nvc",
+    "require_nvc_evidence",
     "require_verilator",
     "require_vivado",
     "require_yosys",
@@ -219,6 +220,88 @@ def require_nvc() -> None:
     _require("nvc", _probe_nvc(), "`nvc -a` + `-e` of a trivial entity")
     # the Trivium example drives a C reference model through cocotb
     require_c_toolchain()
+
+
+@lru_cache(maxsize=None)
+def _probe_nvc_evidence() -> bool:
+    """Build/load the shipped passive monitor and distinguish equal-time drain/cutoff."""
+    from importlib.resources import files
+
+    executable = shutil.which("nvc")
+    compiler = shutil.which("c++")
+    if executable is None or compiler is None:
+        return False
+    prefix = Path(executable).resolve().parent.parent
+    flags = (
+        ["-dynamiclib", "-undefined", "dynamic_lookup"]
+        if sys.platform == "darwin"
+        else ["-shared", "-fPIC"]
+    )
+    with tempfile.TemporaryDirectory(prefix="xeda-nvc-evidence-") as tmp:
+        root = Path(tmp)
+        (root / "nvc_end.cpp").write_text(
+            files("xeda.flows.nvc").joinpath("templates/nvc_end.cpp").read_text()
+        )
+        (root / "sim_record.h").write_text(
+            files("xeda.flow").joinpath("templates/sim_record.h").read_text()
+        )
+        if not _command_succeeds(
+            [compiler, *flags, "-I", str(prefix / "include"), "nvc_end.cpp", "-o", "nvc_end.so"],
+            cwd=tmp,
+        ):
+            return False
+        for clock, body, time, pending in (
+            ("", "wait;", 0, None),
+            ("", "wait for 5 ns; wait;", 5_000_000, None),
+            ("clk <= not clk after 1 ns;", "wait;", 5_000_000, 6_000_000),
+        ):
+            (root / "tb.vhdl").write_text(
+                "entity tb is end; architecture rtl of tb is signal clk: bit := '0'; begin "
+                + clock
+                + " process begin "
+                + body
+                + " end process; end;"
+            )
+            command = [
+                executable,
+                "--std=08",
+                "-a",
+                "tb.vhdl",
+                "-e",
+                "tb",
+                "-r",
+                "--load=./nvc_end.so",
+                "--stop-time=5ns",
+            ]
+            try:
+                result = subprocess.run(
+                    command,
+                    cwd=tmp,
+                    capture_output=True,
+                    timeout=10,
+                    env={**os.environ, "XEDA_NVC_END_RECORD": "nvc_end.json"},
+                )
+                record = json.loads((root / "nvc_end.json").read_text())
+            except (OSError, ValueError, subprocess.SubprocessError):
+                return False
+            if (
+                result.returncode != 0
+                or b"XEDA_NVC_RUNTIME_START\n" not in result.stderr
+                or record != {"time": time, "time_unit": "1fs", "next_time": pending}
+            ):
+                return False
+        return True
+
+
+def require_nvc_evidence() -> None:
+    """NVC plus a working C++/VHPI passive end and pending-activity monitor."""
+    require_nvc()
+    require_cxx_toolchain()
+    _require(
+        "nvc simulation evidence",
+        _probe_nvc_evidence(),
+        "building/loading vhpi_user.h monitor and observing drain/cutoff",
+    )
 
 
 @lru_cache(maxsize=None)
