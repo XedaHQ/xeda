@@ -242,9 +242,17 @@ def outputs_to_deliveries(
 
 
 def recorded_artifacts(results_json: Path) -> Any:
-    """The artifacts the last run recorded in `results_json` (nothing, if none)."""
+    """The last run's artifact and declared-output paths, for delivery preflight."""
     try:
-        return json.loads(results_json.read_text()).get("artifacts") or {}
+        results = json.loads(results_json.read_text())
+        artifacts = results.get("artifacts") or {}
+        outputs = [
+            entry["path"]
+            for recorded in (results.get("outputs") or {}).values()
+            for entry in (recorded if isinstance(recorded, list) else [recorded])
+            if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+        ]
+        return {"artifacts": artifacts, "outputs": outputs} if outputs else artifacts
     except (OSError, ValueError, AttributeError):
         return {}
 

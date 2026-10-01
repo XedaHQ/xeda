@@ -210,6 +210,35 @@ def test_remote_mirrors_and_delivers_declared_outputs_without_artifact_labels(
     assert mirrored.read_text() == (tmp_path / "out" / "made.txt").read_text() == "made\n"
 
 
+def test_remote_declared_output_collision_is_refused_before_connecting(
+    tmp_path, remote_host, monkeypatch
+):
+    from .io_flows import _Maker
+    from xeda.deliver import OutputExistsError
+
+    monkeypatch.setattr(
+        remote_module,
+        "REMOTE_PROBE",
+        f"import sys\nsys.path.insert(0, {str(TESTS_DIR.parent)!r})\nimport tests.io_flows\n"
+        + remote_module.REMOTE_PROBE,
+    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    root = tmp_path / "mirror"
+    first = RemoteRunner(root, display_results=False).run_remote(design, _Maker.name, "fake")
+    assert first and first["success"] and first["outputs"] and not first.get("artifacts")
+    destination = tmp_path / "out"
+    destination.mkdir()
+    conflict = destination / "made.txt"
+    conflict.write_text("user's file\n")
+    monkeypatch.setattr(remote_module, "Connection", lambda *a, **k: pytest.fail("it connected"))
+
+    with pytest.raises(OutputExistsError, match="made.txt"):
+        RemoteRunner(root, display_results=False, outputs_to=destination).run_remote(
+            design, _Maker.name, "fake"
+        )
+    assert conflict.read_text() == "user's file\n"
+
+
 @pytest.mark.parametrize("stage", ["init", "producer"])
 def test_remote_declared_setup_failures_return_the_failure_document(
     tmp_path, remote_host, monkeypatch, stage
