@@ -459,3 +459,95 @@ def test_uncertain_completion_evidence_refuses_a_consumer_before_it_runs(tmp_pat
         locked = tmp_path / "run" / "d" / _LegacyMaker.name / "locked"
         if locked.exists():
             locked.chmod(0o755)
+
+
+SCRUB_VARIANT = """
+import sys
+from pathlib import Path
+from xeda import Design
+from xeda.console import console
+from xeda.flow_runner import DefaultRunner, default_runner
+from tests.io_flows import _Maker
+root = Path(sys.argv[1])
+console.input = lambda *a, **kw: "yes"
+console.print = lambda *a, **kw: None
+original = default_runner.scrub_runs
+def scrub(*args, **kwargs):
+    print("scrubbing", flush=True)
+    sys.stdin.readline()
+    return original(*args, **kwargs)
+original_run = _Maker.run
+def checked_run(self):
+    original_run(self)
+    assert self.outputs.made.read_text() == sys.argv[2]
+_Maker.run = checked_run
+default_runner.scrub_runs = scrub
+flow = DefaultRunner(root / "run", hashed_run_dirs=True, scrub_old_runs=True,
+                     display_results=False).launch_flow(
+    _Maker, Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}),
+    {"text": sys.argv[2]})
+assert flow.succeeded
+print("done", flush=True)
+"""
+
+
+def test_concurrent_hashed_launches_scrub_without_holding_their_own_locks(tmp_path):
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    runner = DefaultRunner(tmp_path / "run", hashed_run_dirs=True, display_results=False)
+    for text in ("one", "two"):
+        assert runner.launch_flow(_Maker, design, {"text": text}).succeeded
+    children = []
+    try:
+        for text in ("one", "two"):
+            child = subprocess.Popen(
+                [sys.executable, "-c", SCRUB_VARIANT, str(tmp_path), text],
+                cwd=tmp_path,
+                env=_environment(),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            children.append(child)
+            _message(child, "scrubbing")
+        for child in children:
+            child.stdin.write("go\n")
+            child.stdin.flush()
+        for child in children:
+            try:
+                stdout, stderr = child.communicate(timeout=20)
+            except subprocess.TimeoutExpired:
+                pytest.fail("concurrent variants deadlocked while scrubbing each other")
+            assert child.returncode == 0, stderr
+            assert stdout.strip() == "done"
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+            child.communicate(timeout=10)
+
+
+def test_shared_lock_acquisition_failure_is_a_clear_non_json_cli_error(tmp_path, monkeypatch):
+    import errno
+    from click.testing import CliRunner
+    from xeda.cli import cli
+    from xeda.flow_runner import run_lock
+
+    monkeypatch.chdir(tmp_path)
+    design = tmp_path / "d.toml"
+    design.write_text('name="d"\n[rtl]\nsources=[]\ntop="t"\n')
+    original = run_lock.fcntl.flock
+
+    def no_shared_locks(fd, mode):
+        if mode == run_lock.fcntl.LOCK_SH:
+            raise OSError(errno.ENOLCK, "No locks available")
+        return original(fd, mode)
+
+    monkeypatch.setattr(run_lock.fcntl, "flock", no_shared_locks)
+    result = CliRunner().invoke(cli, ["run", _Taker.name, str(design)])
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit), repr(result.exception)
+    assert "__maker" in result.output
+    assert str(tmp_path / "xeda_run" / "d" / "__maker") in result.output
+    assert "shared" in result.output and "No locks available" in result.output
+    assert "Traceback" not in result.output

@@ -920,9 +920,11 @@ class FlowLauncher:
             policy = replace(policy, clean=False, scrub_old_runs=False)
         settings_json = run_path / "settings.json"
         results_json = run_path / "results.json"
+        # Scrub siblings before taking our own lock: concurrent hashed variants must not
+        # each hold their directory while waiting to delete the other one.
+        if policy.scrub_old_runs:
+            scrub_runs(flow_name, run_path.parent, [run_path], run_root=self.run_root)
         with run_dir_lock(run_path), ExitStack() as read_leases:
-            if policy.scrub_old_runs:
-                scrub_runs(flow_name, run_path.parent, [run_path], run_root=self.run_root)
             run_path.mkdir(parents=True, exist_ok=True)
             run_directory = RunDirectory.claimed(run_path, self.run_root)
             # the deliveries, checked before `--clean` and before any tool of this flow runs
@@ -1268,7 +1270,14 @@ class FlowLauncher:
     @contextmanager
     def _producer_read_lease(self, producer: Flow):
         """Verify the completed generation under SH before any consumer can read its files."""
-        with run_dir_read_lock(producer.run_path):
+        with ExitStack() as lease:
+            try:
+                lease.enter_context(run_dir_read_lock(producer.run_path))
+            except (OSError, RunDirectoryError) as error:
+                raise FlowDependencyFailure(
+                    f"Cannot acquire shared read lock for producer {producer.name} "
+                    f"at {producer.run_path}: {error}"
+                ) from error
             try:
                 _completed, token = self._completed_runs[producer.run_path.resolve()]
                 token.verify()
