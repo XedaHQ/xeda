@@ -154,6 +154,11 @@ def launch_case(case: SimCase, work: Path, monkeypatch, *, positive: bool = Fals
                 program += f"Path({record!r}).write_text({json.dumps({'ended_by': 'finish', 'time': 0, 'time_unit': '1ps', 'events': []})!r})\n"
             if positive and case.flow == "ghdl_sim":
                 program += "print('simulation finished @0ms', flush=True)\n"
+            if case.flow == "nvc":
+                program += "print('XEDA_NVC_RUNTIME_START', flush=True)\n"
+                if positive:
+                    program += "print('lib/std.08/env-body.vhd:42:9: note: 0ms+0: FINISH called', flush=True)\n"
+                    program += 'Path(\'nvc_end.json\').write_text(\'{"time": 0, "time_unit": "1fs", "next_time": null}\')\n'
             return run_process(
                 sys.executable,
                 ["-c", program],

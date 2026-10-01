@@ -7,6 +7,7 @@ import logging
 import re
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 from .flow import Flow
 from .sim import SimEvent, SimEvidence, time_in_fs
@@ -126,4 +127,87 @@ def parse_ghdl_log(flow: Flow, path: str | Path) -> SimEvidence | None:
                     message=diagnostic["message"],
                 )
             )
+    return evidence
+
+
+def parse_nvc_log(flow: Flow, path: str | Path) -> SimEvidence | None:
+    """Read full/compact runtime diagnostics after the passive monitor's start marker.
+
+    Only the standard ENV procedure's FINISH/STOP diagnostic establishes completion.
+    A user's similarly worded report or a compiler's source echo is not an end event.
+    """
+    text = read_sim_log(flow, path)
+    if text is None or "XEDA_NVC_RUNTIME_START\n" not in text:
+        return None
+    text = text.split("XEDA_NVC_RUNTIME_START\n", 1)[1]
+    evidence = SimEvidence(ended_by="unknown")
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        compact = re.fullmatch(
+            r"(?P<location>.+:\d+:\d+): (?P<severity>note|warning|error|failure|fatal): "
+            r"(?P<time>\S+): (?P<message>.*)",
+            line,
+        )
+        full = re.fullmatch(
+            r"\*\* (?P<severity>Note|Warning|Error|Failure|Fatal): "
+            r"(?P<time>\S+): (?P<message>.*)",
+            line,
+        )
+        match = compact or full
+        if match is None:
+            continue
+        time = parse_sim_time(match["time"])
+        if time is None:
+            continue
+        severity, message = match["severity"].lower(), match["message"]
+        stack = []
+        for following_index in range(index + 1, len(lines)):
+            following = lines[following_index]
+            if not following.startswith("   "):
+                break
+            stack.append(following)
+        location = (
+            compact["location"]
+            if compact
+            else next((entry.rsplit(" at ", 1)[1] for entry in stack if " at " in entry), None)
+        )
+        if severity == "note":
+            end = re.fullmatch(r"(FINISH|STOP) called(?: with status (-?\d+))?", message)
+            if end is None:
+                continue
+            native = (
+                bool(re.search(r"(?:^|/)std(?:\.\d+)?/env-body\.vhd:\d+:\d+$", location or ""))
+                if compact
+                else any(
+                    re.fullmatch(
+                        r"   Procedure " + end[1] + r" \[.*\] at .*/env-body\.vhd:\d+",
+                        entry,
+                    )
+                    for entry in stack
+                )
+            )
+            if native:
+                evidence.ended_by = "error" if end[2] and int(end[2]) != 0 else "finish"
+                evidence.time, evidence.time_unit = time, "1fs"
+                evidence.events.append(
+                    SimEvent(kind="finish", time=time, location=location, message=message)
+                )
+        else:
+            kind: Literal["fatal", "error", "warning"] = (
+                "fatal"
+                if severity in ("failure", "fatal")
+                else "error" if severity == "error" else "warning"
+            )
+            evidence.events.append(
+                SimEvent(kind=kind, time=time, location=location, message=message)
+            )
+            terminated_error = (
+                kind == "error"
+                and (flow.results.get("error") or {}).get("type") == "NonZeroExitCode"
+            )
+            # An error below the native threshold may have continued. It remains an event;
+            # the failed invocation distinguishes an error that actually ended execution.
+            if kind == "fatal" or terminated_error and evidence.ended_by != "finish":
+                evidence.ended_by = "fatal" if kind == "fatal" else "error"
+                evidence.time, evidence.time_unit = time, "1fs"
     return evidence

@@ -1,16 +1,31 @@
 from __future__ import annotations
 
+import json
 import logging
+import sys
 from functools import cached_property
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import ClassVar, List, Literal, Optional, Union
 
-from ...dataclass import Field, deliverable
+from ...dataclass import Field, XedaBaseModel, deliverable, field_validator
 from ...design import DesignSource, SourceType, VhdlSettings
-from ...flow import SimFlow
+from ...flow import FlowSettingsException, SimFlow, describe_results
+from ...flow.sim import SimEvidence
+from ...flow.sim_evidence import parse_nvc_log, read_sim_log
 from ...tool import Tool
+from ...units import convert_unit
 
 log = logging.getLogger(__name__)
+
+
+class NvcEnd(XedaBaseModel):
+    """Passive VHPI checkpoint; pending activity is distinct from an HDL finish."""
+
+    time: int = Field(ge=0, strict=True, description="Actual end time in femtoseconds.")
+    time_unit: Literal["1fs"] = Field(description="NVC's native VHPI time unit.")
+    next_time: int | None = Field(
+        ge=0, strict=True, description="Next pending event in femtoseconds, or no activity."
+    )
 
 
 class NvcTool(Tool):
@@ -21,11 +36,35 @@ class NvcTool(Tool):
 
 
 class Nvc(SimFlow):
-    """Simulate a VHDL design using NVC"""
+    """Simulate VHDL using NVC, with native diagnostics and a passive VHPI end monitor.
+
+    Non-cocotb runs require a C++ compiler and NVC's vhpi_user.h, installed under its prefix
+    or on the compiler's include search path. The monitor schedules no simulation events.
+    """
 
     cocotb_sim_name = "nvc"
+    results_description = describe_results(
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+    )
+    _sim_log: Path | None = None
+    _end_record: Path | None = None
 
     class Settings(SimFlow.Settings):
+        removed_settings: ClassVar[dict[str, str]] = {
+            **SimFlow.Settings.removed_settings,
+            "exit_severity": "fail_severity",
+        }
+        timeout: float | None = Field(
+            None,
+            gt=0,
+            description="Fail after this many seconds of wall-clock time in each invocation "
+            "containing simulation; one_shot includes analysis and elaboration. None sets no limit.",
+        )
+        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
+            "error",
+            description="The least severe runtime assertion or report that fails the run. "
+            "fatal uses NVC's failure threshold; diagnostics below it are recorded and run on.",
+        )
         one_shot: bool = Field(
             True,
             description="Run the analysis, elaboration, and execution in a single command. Set to False to run each step separately, which might be helpful in.",
@@ -133,10 +172,6 @@ class Nvc(SimFlow):
             Examples: ':top:*:x', '*:x', ':top:sub:*'
             See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.""",
         )
-        exit_severity: Optional[Literal["note", "warning", "error", "failure"]] = Field(
-            None,
-            description="Terminate the simulation after an assertion failures of severity greater than or equal to level.",
-        )
         stop_delta: Optional[int] = Field(
             None,
             description="Stop the simulation after N delta cycles in the same current time.",
@@ -154,13 +189,38 @@ class Nvc(SimFlow):
             description="Print a summary of the time taken and memory used at the end of the run.",
         )
 
+        @field_validator("stop_time", mode="before")
+        @classmethod
+        def validate_stop_time(cls, value):
+            if value is not None and convert_unit(value, "fs", from_unit="ns") < 0:
+                raise ValueError("stop_time must be nonnegative")
+            return value
+
+        def runtime_flags(self) -> list[str]:
+            """Copy flags and reject competing severity/time-limit controls."""
+            threshold = "failure" if self.fail_severity == "fatal" else self.fail_severity
+            canonical = f"--exit-severity={threshold}"
+            for flag in self.run_flags:
+                if flag.startswith("--exit-severity") and flag != canonical:
+                    raise FlowSettingsException(
+                        f"run_flags {flag!r} conflicts with fail_severity={self.fail_severity}; "
+                        "set fail_severity instead"
+                    )
+                if flag.startswith("--stop-time"):
+                    raise FlowSettingsException(
+                        f"run_flags {flag!r} bypasses stop_time; set stop_time instead"
+                    )
+            return [flag for flag in self.run_flags if flag != canonical] + [canonical]
+
     @cached_property
     def nvc(self):
         return NvcTool()  # pyright: ignore[reportCallIssue]
 
     def init(self) -> None:
+        super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
+        ss.runtime_flags()
         if ss.wave and isinstance(ss.wave, (str, Path)):
             ss.wave = self.process_path(ss.wave)
 
@@ -176,29 +236,22 @@ class Nvc(SimFlow):
         if ss.messages:
             cf.append(f"--messages={ss.messages}")
         if ss.std_error:
-            cf.append(f"--std-error={ss.std_error}")
+            cf.append(f"--stderr={ss.std_error}")
 
         # The default standard revision is VHDL-2008
-        vhdl = self.design.language.vhdl
-        if vhdl.standard:
-            if vhdl.standard == "93":
-                vhdl.standard = "1993"
-            elif vhdl.standard == "00":
-                vhdl.standard = "2000"
-            elif vhdl.standard == "02":
-                vhdl.standard = "2002"
-            elif vhdl.standard == "08":
-                vhdl.standard = "2008"
-            elif vhdl.standard == "19":
-                vhdl.standard = "2019"
-            assert vhdl.standard in (
+        standard = self.design.language.vhdl.standard
+        if standard:
+            standard = {"93": "1993", "00": "2000", "02": "2002", "08": "2008", "19": "2019"}.get(
+                standard, standard
+            )
+            assert standard in (
                 "1993",
                 "2000",
                 "2002",
                 "2008",
                 "2019",
-            ), f"Invalid VHDL standard: {vhdl.standard}"
-            cf.append(f"--std={vhdl.standard}")
+            ), f"Invalid VHDL standard: {standard}"
+            cf.append(f"--std={standard}")
         if ss.work:
             cf.append(f"--work={ss.work}")
         return cf
@@ -213,7 +266,7 @@ class Nvc(SimFlow):
     def analyze_flags(self) -> list:
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        flags = ss.analysis_flags
+        flags = list(ss.analysis_flags)
         if ss.psl_in_comments:
             flags.append("--psl")
         if ss.relaxed:
@@ -238,10 +291,11 @@ class Nvc(SimFlow):
     def elaborate_flags(self) -> List[str]:
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        flags = ss.elab_flags
+        flags = list(ss.elab_flags)
 
         # Note: Generics in internal instances can be overridden by giving the full dotted path to the generic.
-        for k, v in self.design.tb.parameters.items():
+        parameters = self.design.rtl.parameters if self.cocotb else self.design.tb.parameters
+        for k, v in parameters.items():
             assert v is not None
             flags += ["-g", f"{k}={v}"]
 
@@ -261,6 +315,81 @@ class Nvc(SimFlow):
             flags += ["--cover-spec", str(ss.cover_spec)]
         return flags
 
+    def build_end_monitor(self) -> str:
+        """Build in the run directory, discovering headers in the execution environment."""
+        self.copy_from_template("sim_record.h")
+        source = self.copy_from_template("nvc_end.cpp")
+        if self.nvc.dockerized:
+            # Container paths must come from the container, never a host installation.
+            executable = self.nvc.derive("sh", redirect_stdout=None).run_get_stdout(
+                "-c", 'readlink -f "$(command -v nvc)"'
+            )
+            prefix = Path(executable.strip()).parent.parent if executable else None
+            platform = "linux"
+        else:
+            executable_path = self.nvc.executable_path()
+            prefix = executable_path.parent.parent if executable_path else None
+            platform = sys.platform
+        flags = (
+            ["-dynamiclib", "-undefined", "dynamic_lookup"]
+            if platform == "darwin"
+            else ["-shared", "-fPIC"]
+        )
+        if prefix is not None:
+            flags += ["-I", str(prefix / "include")]
+        target = "nvc_end.so"
+        self.run_directory.remove(target)
+        self.run_directory.writable(target)
+        self.nvc.derive("c++", redirect_stdout=None).run(*flags, source, "-o", target, timeout=120)
+        return "./" + target
+
+    def has_evidence_adapter(self) -> bool:
+        return not self.cocotb
+
+    def simulation_evidence(self) -> SimEvidence | None:
+        if self._sim_log is None:
+            return None
+        evidence = parse_nvc_log(self, self._sim_log)
+        if evidence is None:
+            return None
+        report = self.report_file(self._end_record) if self._end_record is not None else None
+        if report is None:
+            # A native FINISH/STOP still proves an end if its optional checkpoint is absent.
+            return evidence
+        text = read_sim_log(self, report)
+        try:
+            if text is None:
+                return None
+            end = NvcEnd.model_validate(json.loads(text))
+            if evidence.time is not None and evidence.time != end.time:
+                raise ValueError("native diagnostic and VHPI end times disagree")
+            if end.next_time is not None and end.next_time <= end.time:
+                raise ValueError("pending event is not after the end time")
+        except (ValueError, TypeError) as exc:
+            log.error("Invalid NVC end checkpoint %s: %s", report, exc)
+            return None
+        evidence.time, evidence.time_unit = end.time, end.time_unit
+        if evidence.ended_by == "unknown":
+            ss = self.settings
+            assert isinstance(ss, self.Settings)
+            stop = (
+                round(convert_unit(ss.stop_time, "fs", from_unit="ns"))
+                if ss.stop_time is not None
+                else None
+            )
+            # A queue with an event beyond the bound confirms a native cutoff. Equality of
+            # end time alone proves nothing; judge_evidence separately enforces exact time.
+            if (
+                stop is not None
+                and end.next_time is not None
+                and end.next_time > stop
+                and end.time <= stop
+            ):
+                evidence.ended_by = "stop_time"
+            elif end.next_time is None:
+                evidence.ended_by = "drained"
+        return evidence
+
     def elaborate(self):
         """
         Elaborate a previously analysed top level design unit.
@@ -271,7 +400,7 @@ class Nvc(SimFlow):
         """Run the simulation"""
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        run_flags = ss.run_flags
+        run_flags = ss.runtime_flags()
 
         if ss.wave:
             if isinstance(ss.wave, bool):
@@ -294,14 +423,13 @@ class Nvc(SimFlow):
                     if ss.wave_arrays > 0:
                         run_flags.append(f"--dump-arrays={ss.wave_arrays}")
 
-        if ss.exit_severity:
-            run_flags.append(f"--exit-severity={ss.exit_severity}")
         if ss.ieee_warnings is not None:
             run_flags.append("--ieee-warnings=" + ("on" if ss.ieee_warnings else "off"))
         if ss.stop_delta is not None:
             run_flags.append(f"--stop-delta={ss.stop_delta}")
         if ss.stop_time is not None:
-            run_flags.append(f"--stop-time={ss.stop_time}")
+            stop_fs = convert_unit(ss.stop_time, "fs", from_unit="ns")
+            run_flags.append(f"--stop-time={stop_fs:.0f}fs")
         if ss.stats:
             run_flags.append("--stats")
         if ss.shuffle:
@@ -313,33 +441,43 @@ class Nvc(SimFlow):
             vpi_path = self.cocotb.lib_path(interface="vhpi")
             assert vpi_path, "cocotb VHPI library for NVC was not found"
             vhpi.append(Path(vpi_path))
-            self.design.tb.generics = self.design.rtl.generics
-            if not self.design.tb.top and self.design.rtl.top:
-                self.design.tb.top = (self.design.rtl.top,)
-
-        run_flags += [f"--load={p}" for p in vhpi]
-
+        loads = [str(path) for path in vhpi]
+        if not self.cocotb:
+            loads.insert(0, self.build_end_monitor())
+        if loads:
+            # NVC keeps only the last --load option; its argument is a comma-separated list.
+            run_flags.append("--load=" + ",".join(loads))
+        tops = self.design.sim_tops
+        env = self.cocotb.env(self.design) if self.cocotb else {}
+        runtime = self.nvc
+        if not self.cocotb:
+            self.run_directory.remove("sim.log", "nvc_end.json", "nvc_end.json.tmp")
+            self._sim_log = self.run_directory.writable("sim.log")
+            self._end_record = self.run_directory.writable("nvc_end.json")
+            env["XEDA_NVC_END_RECORD"] = "nvc_end.json"
+            runtime = self.nvc.derive(self.nvc.executable, redirect_stdout=None)
+        options = dict(env=env, timeout=ss.timeout, tee=self._sim_log, merge_stderr=True)
         if one_shot:
             sources = self.design.sim_sources_of_type(SourceType.Vhdl)
-            self.nvc.run(
+            runtime.run(
                 *self.global_options(),
                 "-a",
                 *sources,
                 *self.analyze_flags(),
                 "-e",
-                *self.design.sim_tops,
+                *tops,
                 *self.elaborate_flags(),
                 "-r",
                 *run_flags,
-                env=self.cocotb.env(self.design) if self.cocotb else {},
+                **options,
             )
         else:
-            self.nvc.run(
+            runtime.run(
                 *self.global_options(),
                 "-r",
-                *self.design.sim_tops,
+                *tops,
                 *run_flags,
-                env=self.cocotb.env(self.design) if self.cocotb else {},
+                **options,
             )
 
     def gen_makefile(self, units: List[str]) -> None:
