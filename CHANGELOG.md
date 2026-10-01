@@ -2,6 +2,13 @@
 All notable changes to this project will be documented in this file.
 
 
+## [0.4.4]
+
+### Fixed
+- Shell completion for zsh, bash and fish (backport of #94): `_XEDA_COMPLETE=zsh_source xeda` returned the
+  CLI help instead of the completion script, which broke zsh startup when evaluated. The CLI is now
+  named `xeda` explicitly, and an unknown or missing `SHELL` gives an actionable usage error.
+
 ## [Unreleased]
 
 ### Fixed

@@ -69,7 +69,7 @@ def test_completion_stdout_matches_environment_source(shell):
     [
         ("xeda r", "run"),
         ("xeda list-settings vivado_", "vivado_synth"),
-        ("xeda run --json --run-r", "--run-root"),
+        ("xeda run --json --xeda-run-d", "--xeda-run-dir"),
     ],
 )
 def test_completion_requests_return_candidates(shell, words, candidate):
