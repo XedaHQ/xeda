@@ -51,7 +51,7 @@ jobs:
           BSC_SHA256: "4e69030f3a28cb819192a3780e20fd174ff7caf30cacf1cdbf2195cce913a933"
         run: |
           sudo apt-get update
-          sudo apt-get install -y tcl8.6
+          sudo apt-get install -y tcl8.6 bash zsh fish
           curl -fsSL -o bsc.tar.gz \
             "https://github.com/B-Lang-org/bsc/releases/download/${BSC_VERSION}/bsc-${BSC_VERSION}-ubuntu-24.04.tar.gz"
           echo "${BSC_SHA256}  bsc.tar.gz" | sha256sum -c -
