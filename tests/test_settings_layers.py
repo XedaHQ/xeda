@@ -371,6 +371,7 @@ def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monk
         sources = ["top.v"]
         top = "top"
         [design.flows.nextpnr]
+        fpga.part = "LFE5U-25F-6BG381C"
         seed = 2
         yosys.flatten = false
         """,
@@ -383,6 +384,7 @@ def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monk
         DefaultRunner(tmp_path / "run").run("nextpnr", "d", xedaproject=str(project))
 
     assert launched["settings"] == {
+        "fpga": {"part": "LFE5U-25F-6BG381C"},
         "seed": 2,
         "yosys": {"abc9": True, "flatten": False},
     }
@@ -598,7 +600,7 @@ def test_dse_candidates_keep_all_flow_sections_for_dependencies(tmp_path):
     from xeda.flow import Flow
     from xeda.flow_runner.dse.dse_runner import Executioner
 
-    class Launcher:
+    class Launcher(DefaultRunner):
         def launch_flow(self, flow_class, design, flow_settings, **kwargs):
             assert kwargs["all_flows_settings"] == {"yosys_fpga": {"flatten": False, "abc9": True}}
             return SimpleNamespace(
@@ -610,7 +612,7 @@ def test_dse_candidates_keep_all_flow_sections_for_dependencies(tmp_path):
 
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "top"})
     outcome, index = Executioner(
-        Launcher(),
+        Launcher(tmp_path / "run"),
         design,
         Nextpnr,
         {"yosys_fpga": {"flatten": False, "abc9": True}},

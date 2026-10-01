@@ -590,8 +590,13 @@ class FlowLauncher:
             api_overrides=api_overrides,
             debug=self.settings.debug,
         )
-        given = settings_in_context(flow_class, flow_settings, design.root_path, Path.cwd())
-        self._plans[id(plan)] = (plan, as_recorded(given), as_recorded(all_flows_settings or {}))
+        # The resolver validates final agreed settings. The original request may contain
+        # partial shared values that become valid only along a declared edge.
+        self._plans[id(plan)] = (
+            plan,
+            as_recorded(flow_settings or {}),
+            as_recorded(all_flows_settings or {}),
+        )
         return plan
 
     def _resolve_request(self, request: _Request) -> Plan:
@@ -633,16 +638,17 @@ class FlowLauncher:
         if flow_class.name not in plan:
             raise FlowFatalError(f"The plan has no node for this request: {flow_class.name}")
         node = plan.node(flow_class.name)
-        supplied = settings_in_context(flow_class, settings, design.root_path, Path.cwd())
+        supplied = as_recorded(settings or {})
+        supplied_context = settings.context if isinstance(settings, Flow.Settings) else {}
         if (
             node.flow_class is not flow_class
             or any(
                 value is not None and node.settings.context.get(key) != value
-                for key, value in supplied.context.items()
+                for key, value in supplied_context.items()
             )
             or (
-                as_recorded(supplied) != as_recorded(node.settings)
-                and (node.name != plan.requested or as_recorded(supplied) != captured[1])
+                supplied != as_recorded(node.settings)
+                and (node.name != plan.requested or supplied != captured[1])
             )
             or as_recorded(sections or {}) != captured[2]
         ):

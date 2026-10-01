@@ -34,6 +34,7 @@ from .settings_layers import (
     merge_layers,
     registered_flow,
     settings_in_context,
+    suggest_dependency_node,
     transitive_dependencies,
 )
 from .trace import as_recorded, settings_difference
@@ -124,9 +125,7 @@ def check_launchable(flow_cls: type[Flow], settings: Flow.Settings, design: Desi
         )
     flow_cls.check_required_settings(settings)
     flow_cls.check_design_supported(design)
-    hook = getattr(flow_cls, "check_settings_supported", None)
-    if hook is not None:
-        hook(settings)
+    flow_cls.check_settings_supported(settings)
 
 
 def _explicit(value: Any) -> Any:
@@ -441,7 +440,11 @@ def _shared_locations(
     raw: _Located, cls: type[Flow], context: dict[str, Any]
 ) -> dict[tuple[str, ...], tuple[Any, _Location]]:
     """Compare composed mappings with validated models without inventing API overrides."""
-    settings_in_context(cls, _nonshared_input(cls, raw.values), **context)
+    try:
+        settings_in_context(cls, _nonshared_input(cls, raw.values), **context)
+    except FlowSettingsError as error:
+        suggest_dependency_node(cls, error)
+        raise
     request = _Request(cls, raw, cls.name)
     result = {}
     for shared in SHARED_SETTINGS:
@@ -658,6 +661,22 @@ def resolve(
             if key:
                 # Already composed once, including producer sections and direct nested edits.
                 child_raw = raw.child(key)
+                # A consumer can refine its producer's defaults (e.g. keeping source
+                # attributes for placement). Retain nonshared defaults below all input
+                # origins, without turning shared defaults into explicit contributions.
+                default = cls.Settings.model_fields[key].get_default(call_default_factory=True)
+                defaults = (
+                    {
+                        name: value
+                        for name, value in _explicit(default).items()
+                        if name not in SHARED_SETTINGS
+                    }
+                    if isinstance(default, Flow.Settings)
+                    else {}
+                )
+                child_raw.values = merge_layers(
+                    defaults, child_raw.values, settings_cls=producer.Settings
+                )
             else:
                 child_raw = _Located()
                 for label, values, kind in layers:
@@ -715,7 +734,11 @@ def resolve(
             if key:
                 request.raw.values[key] = deepcopy(child.raw.values)
     for request in requests:
-        request.settings = settings_in_context(request.cls, request.raw.values, **context)
+        try:
+            request.settings = settings_in_context(request.cls, request.raw.values, **context)
+        except FlowSettingsError as error:
+            suggest_dependency_node(request.cls, error)
+            raise
         switched = []
         for name, output in declared_outputs(request.cls).items():
             if name in required[request.cls.name] and not output_enabled(request.settings, output):

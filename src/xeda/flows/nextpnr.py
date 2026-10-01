@@ -11,10 +11,14 @@ from urllib.request import urlretrieve
 
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
 from ..dataclass import WORKING, Field, XedaBaseModel, deliverable, field_validator
+from ..design import SourceType
 from ..flow import (
+    Flow,
     FlowFatalError,
     FlowSettingsException,
     FpgaSynthFlow,
+    In,
+    Out,
     describe_results,
 )
 from ..tool import Tool
@@ -182,8 +186,9 @@ class EcpPLL(Tool):
 class Nextpnr(FpgaSynthFlow):
     """Place and route an FPGA design with nextpnr, the portable open-source PnR tool.
 
-    Synthesis is delegated to the `yosys_fpga` dependency flow; this flow places and routes the
-    resulting JSON netlist with the nextpnr variant matching `fpga.family`, then parses nextpnr's
+    Its `netlist` input is a `JsonNetlist` design source or, by default, the recorded netlist
+    synthesized by `yosys_fpga`. This flow places and routes that input with the nextpnr
+    variant matching `fpga.family`, then parses nextpnr's
     JSON report for achieved frequency, slack and resource utilization. Use the `openfpgaloader`
     flow to pack and program the result onto a board.
 
@@ -396,12 +401,30 @@ class Nextpnr(FpgaSynthFlow):
             """nextpnr places the netlist: keep `src` unless told otherwise."""
             return keeping_src_by_default(value)
 
+    class Inputs(FpgaSynthFlow.Inputs):
+        netlist: Path = In(
+            SourceType.JsonNetlist,
+            producer="yosys_fpga",
+            output="netlist",
+            description="The JSON netlist to place: a design source or yosys_fpga's netlist.",
+        )
+
+    class Outputs(FpgaSynthFlow.Outputs):
+        config: Path | None = Out(
+            (SourceType.EcpConfig, SourceType.IceAsc, SourceType.Fasm),
+            description="The routed configuration: ECP5 textcfg, iCE40 asc, or Nexus fasm.",
+        )
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Reject unsupported targets before any producer runs."""
+        assert isinstance(settings, cls.Settings)
+        cls.target_for_settings(settings)
+        cls.config_for_settings(settings)
+
     def init(self) -> None:
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        yosys = ss.resolve_dependency("yosys")  # adopts an `fpga` given only for yosys_fpga
-        self._target()  # rejects an unsupported target before its synthesis runs
-        self.add_dependency(YosysFpga, yosys)
+        """Validate the target; the launcher supplies the declared netlist input."""
+        self._target()
 
     def always_runs(self) -> Optional[str]:
         """A fresh random seed, or pin constraints fetched from a URL -- which no trace can
@@ -434,14 +457,14 @@ class Nextpnr(FpgaSynthFlow):
         parsed = urlparse(uri)
         return uri if parsed.scheme and parsed.netloc else None
 
-    def _target(self) -> Tuple[str, List[str]]:
-        """The nextpnr architecture for `fpga`, and the arguments selecting its device.
-
-        Rejects a target this flow has no tested device, constraint and output mapping for, and
-        a setting only another architecture takes.
-        """
+    def _target(self) -> tuple[str, list[str]]:
+        """The validated architecture and device arguments for this instance."""
         assert isinstance(self.settings, self.Settings)
-        ss = self.settings
+        return self.target_for_settings(self.settings)
+
+    @classmethod
+    def target_for_settings(cls, ss: Settings) -> tuple[str, list[str]]:
+        """Select a supported architecture and device without tools or filesystem writes."""
         fpga = ss.fpga
         assert fpga is not None, "checked at launch (`required_settings`)"
         family = (fpga.family or "").lower()
@@ -504,15 +527,26 @@ class Nextpnr(FpgaSynthFlow):
             )
         return family, [f"--device={device.upper()}"]
 
+    @classmethod
+    def config_for_settings(cls, ss: Settings) -> tuple[str, Path] | None:
+        """Select an enabled family configuration, including ECP5 out-of-context runs."""
+        family = ((ss.fpga.family if ss.fpga else None) or "").lower()
+        if family == "ecp5" and ss.out_of_context:
+            return None
+        name = {"ecp5": "textcfg", "ice40": "asc", "nexus": "fasm"}.get(family)
+        path = getattr(ss, name) if name else None
+        return (name, path) if name and path else None
+
     def run(self) -> None:
-        """Place and route the netlist produced by Yosys."""
+        """Place and route the netlist handed over as the input `netlist`."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        yosys_flow = self.completed_dependencies[0]
-        assert isinstance(yosys_flow, YosysFpga)
-        assert isinstance(yosys_flow.settings, YosysFpga.Settings)
-        assert yosys_flow.settings.netlist_json
-        netlist_json = yosys_flow.run_path / yosys_flow.settings.netlist_json
+        inputs, declared = self.inputs, self.outputs
+        assert isinstance(inputs, self.Inputs) and isinstance(declared, self.Outputs)
+        netlist_json = inputs.netlist
+        config = self.config_for_settings(ss)
+        if config:
+            declared.config = self.run_path / config[1]
         fpga_family, target_args = self._target()
         next_pnr = NextpnrTool(executable=f"nextpnr-{fpga_family}")
 
@@ -539,12 +573,8 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.timing_allow_fail)
         args += setting_flag(ss.ignore_loops)
         outputs: Tuple[str, ...] = ("write", "sdf", "log", "report", "placed_svg", "routed_svg")
-        if fpga_family == "ecp5" and not ss.out_of_context:
-            outputs = ("textcfg", *outputs)
-        elif fpga_family == "ice40":
-            outputs = ("asc", *outputs)
-        elif fpga_family == "nexus":
-            outputs = ("fasm", *outputs)
+        if config:
+            outputs = (config[0], *outputs)
         for name in outputs:
             args += setting_flag(getattr(ss, name), name=name)
         args += setting_flag(ss.nthreads, name="threads")
@@ -577,6 +607,10 @@ class Nextpnr(FpgaSynthFlow):
         constraint_name = {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc"}[fpga_family]
         with self._constraint_file(constraint_name) as constraint:
             next_pnr.run(*setting_flag(constraint, name=constraint_name), *args)
+        if config and (declared.config is None or not self.wrote_output(declared.config)):
+            raise FlowFatalError(
+                f"nextpnr did not write enabled {config[0]} configuration {declared.config}."
+            )
         for name in outputs:
             path = getattr(ss, name)
             if name != "report" and path:

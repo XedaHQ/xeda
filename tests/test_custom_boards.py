@@ -9,8 +9,9 @@ from xeda import Design
 from xeda.flow import FlowSettingsError
 from xeda.flows import Nextpnr, Openfpgaloader, OpenXC7
 from xeda.flows.nextpnr import NextpnrTool
-from xeda.flows.yosys import YosysFpga
 from xeda.tool import Tool
+
+from .test_nextpnr import write_nextpnr_config
 
 
 def board_file(tmp_path: Path) -> Path:
@@ -174,15 +175,16 @@ def nextpnr_args(tmp_path: Path, settings: Nextpnr.Settings, monkeypatch) -> lis
     """Run nextpnr with its tool stubbed; return its arguments, checking its LPF exists."""
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
     flow = Nextpnr(settings, design, tmp_path / "nextpnr")
-    yosys = YosysFpga(YosysFpga.Settings(fpga=settings.fpga), design, tmp_path / "yosys")
-    yosys.run_path.mkdir()
-    (yosys.run_path / yosys.settings.netlist_json).write_text("{}")
-    flow.completed_dependencies.append(yosys)
+    netlist = tmp_path / "yosys" / "netlist.json"
+    netlist.parent.mkdir()
+    netlist.write_text("{}")
+    flow.inputs.netlist = netlist
     calls = []
 
     def run(self, *args):
         lpfs = [arg.removeprefix("--lpf=") for arg in map(str, args) if arg.startswith("--lpf=")]
         assert all(Path(lpf).is_file() for lpf in lpfs)
+        write_nextpnr_config(flow, args)
         calls.append(list(map(str, args)))
 
     monkeypatch.setattr(NextpnrTool, "run", run)

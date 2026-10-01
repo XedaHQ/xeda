@@ -523,17 +523,21 @@ class YosysBase(Flow):
         ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)
 
         if ss.rtl_json:
-            ss.rtl_json.parent.mkdir(parents=True, exist_ok=True)
             self.artifacts.rtl_json = ss.rtl_json
         if ss.rtl_verilog:
-            ss.rtl_verilog.parent.mkdir(parents=True, exist_ok=True)
             self.artifacts.rtl_verilog = ss.rtl_verilog
         if ss.netlist_verilog:
-            ss.netlist_verilog.parent.mkdir(parents=True, exist_ok=True)
             self.artifacts.netlist_verilog = ss.netlist_verilog
         if ss.netlist_json:
-            ss.netlist_json.parent.mkdir(parents=True, exist_ok=True)
             self.artifacts.netlist_json = ss.netlist_json
+
+    def prepare_output_parents(self) -> None:
+        """Create output parents only when executing, leaving reused init write-free."""
+        assert isinstance(self.settings, self.Settings)
+        for name in ("rtl_json", "rtl_verilog", "netlist_verilog", "netlist_json"):
+            path = getattr(self.settings, name)
+            if path:
+                self.run_directory.inside(path).parent.mkdir(parents=True, exist_ok=True)
 
     def top_is_vhdl(self) -> bool:
         """Whether the top unit is VHDL: `top_is_vhdl`, or else whether the last source is.

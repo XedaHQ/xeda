@@ -16,7 +16,7 @@ from typing import Any, Dict
 import pytest
 
 from xeda import Design
-from xeda.flow import FPGA, FlowSettingsException
+from xeda.flow import FPGA, FlowDependencyFailure, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr, YosysFpga
 from xeda.flows.nextpnr import ECP5_RESOURCES, EcpPLL, NextpnrTool
@@ -49,6 +49,24 @@ def make_flow(tmp_path: Path, report: Any, family: str = "ecp5") -> Nextpnr:
 
 def load_ecp5_report() -> Dict[str, Any]:
     return json.loads(ECP5_REPORT.read_text())
+
+
+def _netlist(tmp_path: Path) -> Path:
+    netlist = tmp_path / "synth" / "netlist.json"
+    netlist.parent.mkdir(exist_ok=True)
+    netlist.write_text("{}")
+    return netlist
+
+
+def write_nextpnr_config(flow: Nextpnr, args) -> None:
+    """A successful nextpnr stand-in writes each enabled family configuration."""
+    flow.run_path.mkdir(parents=True, exist_ok=True)
+    for arg in map(str, args):
+        name, _, value = arg.partition("=")
+        if name in ("--textcfg", "--asc", "--fasm"):
+            path = flow.run_path / value
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("config\n")
 
 
 # --------------------------------------------------------------------------- the captured report
@@ -296,13 +314,15 @@ def test_target_specific_nextpnr_arguments(tmp_path, monkeypatch, fpga, expected
     design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
     settings = Nextpnr.Settings(fpga=fpga)
     flow = Nextpnr(settings, design, tmp_path / "pnr")
-    yosys = YosysFpga(YosysFpga.Settings(fpga=fpga), design, tmp_path / "synth")
-    yosys.run_path.mkdir()
-    (yosys.run_path / "netlist.json").write_text("{}")
-    flow.completed_dependencies.append(yosys)
+    flow.inputs.netlist = _netlist(tmp_path)
     calls = []
     monkeypatch.setattr(
-        NextpnrTool, "run", lambda self, *args: calls.append((self.executable, args))
+        NextpnrTool,
+        "run",
+        lambda self, *args: (
+            write_nextpnr_config(flow, args),
+            calls.append((self.executable, args)),
+        ),
     )
     flow.run()
     executable, args = calls[0]
@@ -330,12 +350,13 @@ def test_ice40_part_identifies_synthesis_and_pnr_device(
     assert fpga.device == device
     design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
     flow = Nextpnr(Nextpnr.Settings(fpga=fpga), design, tmp_path / "pnr")
-    yosys = YosysFpga(YosysFpga.Settings(fpga=fpga), design, tmp_path / "synth")
-    yosys.run_path.mkdir()
-    (yosys.run_path / "netlist.json").write_text("{}")
-    flow.completed_dependencies.append(yosys)
+    flow.inputs.netlist = _netlist(tmp_path)
     calls = []
-    monkeypatch.setattr(NextpnrTool, "run", lambda self, *args: calls.append(args))
+    monkeypatch.setattr(
+        NextpnrTool,
+        "run",
+        lambda self, *args: (write_nextpnr_config(flow, args), calls.append(args)),
+    )
     flow.run()
     assert device_flag in calls[0]
 
@@ -350,12 +371,13 @@ def test_nextpnr_resolves_explicit_constraint_paths_against_design_root(tmp_path
         design,
         tmp_path / "pnr",
     )
-    yosys = YosysFpga(YosysFpga.Settings(fpga=fpga), design, tmp_path / "synth")
-    yosys.run_path.mkdir()
-    (yosys.run_path / "netlist.json").write_text("{}")
-    flow.completed_dependencies.append(yosys)
+    flow.inputs.netlist = _netlist(tmp_path)
     calls = []
-    monkeypatch.setattr(NextpnrTool, "run", lambda self, *args: calls.append(args))
+    monkeypatch.setattr(
+        NextpnrTool,
+        "run",
+        lambda self, *args: (write_nextpnr_config(flow, args), calls.append(args)),
+    )
     flow.run()
     assert f"--lpf={tmp_path / 'pins.lpf'}" in calls[0]
     assert f"--sdc={tmp_path / 'timing.sdc'}" in calls[0]
@@ -369,12 +391,13 @@ def _nextpnr_args(tmp_path, monkeypatch, **settings):
         design,
         tmp_path / "pnr",
     )
-    yosys = YosysFpga(YosysFpga.Settings(fpga=flow.settings.fpga), design, tmp_path / "synth")
-    yosys.run_path.mkdir()
-    (yosys.run_path / "netlist.json").write_text("{}")
-    flow.completed_dependencies.append(yosys)
+    flow.inputs.netlist = _netlist(tmp_path)
     calls = []
-    monkeypatch.setattr(NextpnrTool, "run", lambda self, *args: calls.append(args))
+    monkeypatch.setattr(
+        NextpnrTool,
+        "run",
+        lambda self, *args: (write_nextpnr_config(flow, args), calls.append(args)),
+    )
     flow.run()
     return calls[0]
 
@@ -618,18 +641,21 @@ def _yosys_launch_settings(tmp_path, monkeypatch, flow_cls, flows=None, cli=(), 
     `xeda run <flow_cls> -s fpga=... <cli>` on a design with `flows` sections. The launch stops
     there, so no tool runs."""
 
+    captured = {}
+
     def stop(self):
+        captured["settings"] = self.settings
         raise _YosysLaunched(self.settings)
 
     monkeypatch.setattr(YosysFpga, "init", stop)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(_YosysLaunched) as launched:
+    with pytest.raises((_YosysLaunched, FlowDependencyFailure)):
         DefaultRunner(tmp_path / "xeda_run").run(
             flow_cls,
             _blink(tmp_path, flows or {}),
             flow_settings=[f"fpga={part or ICE40_PART}", *cli],
         )
-    settings = launched.value.args[0]
+    settings = captured["settings"]
     assert isinstance(settings, YosysFpga.Settings)
     return settings
 
