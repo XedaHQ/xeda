@@ -108,7 +108,9 @@ def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
         add_file_logger(log_to_file)
 
 
-@click.group(cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
+# click-extra uses the command name as prog_name, including for Click's completion protocol.
+# Keep it aligned with the console entry point and its _XEDA_COMPLETE environment variable.
+@click.group("xeda", cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
 @click.option("--verbose", "-v", is_flag=True, help="Enables verbose mode.")
 @click.option("--quiet", "-q", is_flag=True, help="Enable quiet mode.")
 @click.option("--debug", "-d", show_envvar=True, is_flag=True)
@@ -1247,27 +1249,30 @@ SHELLS: Dict[str, Dict[str, Any]] = {
     """,
 )
 @click.pass_context
-def completion(_ctx: click.Context, stdout, shell=None):
+def completion(_ctx: click.Context, stdout: bool, shell: Optional[str] = None):
     """Xeda shell auto-completion"""
     os_default_shell_name = None
     os_default_shell = os.environ.get("SHELL")
     if os_default_shell:
         os_default_shell_name = os_default_shell.split(os.sep)[-1]
-    if os_default_shell_name:
-        if not shell:
-            shell = os_default_shell_name
-        elif os_default_shell_name != shell and not stdout:
-            console.print(
-                f"[yellow]WARNING:[/] Current default shell ([bold]{os_default_shell}[/]) is different from the specified shell [bold]{shell}[/b]"
-            )
-    assert shell is not None
+    if not shell:
+        if not os_default_shell_name:
+            raise click.UsageError("Specify a shell (bash, zsh, fish), or set SHELL.", ctx=_ctx)
+        shell = click.Choice(list(SHELLS), case_sensitive=False).convert(
+            os_default_shell_name, None, _ctx
+        )
+    elif os_default_shell_name and os_default_shell_name != shell and not stdout:
+        console.print(
+            f"[yellow]WARNING:[/] Current default shell ([bold]{os_default_shell}[/]) is different from the specified shell [bold]{shell}[/b]"
+        )
     if stdout:
         completion_class = get_completion_class(shell)
-        if completion_class:
-            complete = completion_class(
-                cli=cli, ctx_args={}, prog_name=__package__ or "xeda", complete_var="source_xeda"
-            )
-            print(complete.source())
+        if completion_class is None:
+            raise click.ClickException(f"No completion support registered for {shell}.")
+        complete = completion_class(
+            cli=cli, ctx_args={}, prog_name="xeda", complete_var="_XEDA_COMPLETE"
+        )
+        click.echo(complete.source(), nl=False)
     else:
         shell_desc = SHELLS.get(shell, {})
         console.print(
@@ -1278,4 +1283,5 @@ def completion(_ctx: click.Context, stdout, shell=None):
         {shell_desc.get('eval')}
             """,
             highlight=False,
+            soft_wrap=True,
         )
