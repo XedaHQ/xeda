@@ -38,6 +38,26 @@ DURING_WRAPPER: List[Callable[["_Wrapper"], object]] = []
 _registration_before = registered_flows.copy()
 
 
+def test_declared_output_collision_is_refused_before_rebuilding(tmp_path, monkeypatch):
+    from .io_flows import _Maker
+
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    root = tmp_path / "runs"
+    first = DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {})
+    assert first.succeeded and first.results["outputs"] and not first.results.get("artifacts")
+    destination = tmp_path / "out"
+    destination.mkdir()
+    conflict = destination / "made.txt"
+    conflict.write_text("user's file\n")
+    monkeypatch.setattr(_Maker, "run", lambda self: pytest.fail("it ran"))
+
+    with pytest.raises(OutputExistsError, match="made.txt"):
+        DefaultRunner(
+            root, display_results=False, outputs_to=destination, rebuild_all=True
+        ).launch_flow(_Maker, design, {})
+    assert conflict.read_text() == "user's file\n"
+
+
 class _Deliverer(Flow):
     """Writes the netlist its setting names, and reports it."""
 
