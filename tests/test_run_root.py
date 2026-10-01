@@ -124,6 +124,24 @@ def test_an_absent_root_is_not_created_when_asked_not_to(tmp_path):
     assert not (tmp_path / "runs").exists()
 
 
+@pytest.mark.parametrize("name", ["runs", "xeda_run"])
+def test_read_only_validation_leaves_adoptable_roots_unready(tmp_path, monkeypatch, name):
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / name
+    root.mkdir()
+    if name == "xeda_run":
+        (root / "old").mkdir()
+        (root / "old" / "results.json").write_text("{}")
+    before = _entries(root)
+    assert ensure_run_root(root, create=False) is None
+    runner = DefaultRunner(root)
+    assert _entries(root) == before
+    assert runner.run_root == root
+    assert is_run_root(root)
+    assert (root / ".gitignore").is_file()
+    assert (root / "CACHEDIR.TAG").is_file()
+
+
 @pytest.fixture
 def sqrt(tmp_path, monkeypatch):
     """A copy of the example design; xeda started in its directory, with the fake tools."""

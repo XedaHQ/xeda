@@ -96,10 +96,12 @@ def ensure_run_root(
     start: Optional[Path] = None,
     create: bool = True,
 ) -> Optional[Path]:
-    """The run root `path`, resolved, made ready for xeda (see the module): created and marked if
-    absent (None instead, without `create`), marked if empty or at the default location of the
-    start directory `start` (the current directory by default), used as it is if marked; a
-    `RunRootError` otherwise, before anything is written."""
+    """Validate the resolved run root and, with `create`, make it ready for xeda.
+
+    An absent, empty or unmarked default root is created/marked only with `create`; otherwise
+    return None so the launcher still prepares it on first actual use. An already marked root
+    is returned unchanged. Refuse other unmarked roots before anything is written.
+    """
     root = Path(path).resolve()
     start = Path.cwd() if start is None else Path(start)
     if root.exists() and not root.is_dir():
@@ -115,9 +117,13 @@ def ensure_run_root(
     if is_run_root(root):
         return root
     if not any(root.iterdir()):
+        if not create:
+            return None
         _mark(root)
         return root
     if is_default_location(root, start):
+        if not create:
+            return None
         _mark(root)
         log.info(
             "xeda now keeps its runs in %s, which an earlier xeda made: it is marked as xeda's "

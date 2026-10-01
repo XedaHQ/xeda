@@ -153,10 +153,8 @@ Planning without running
 ``xeda run nextpnr blinky.toml --dry-run`` prints the immutable plan the launcher would execute:
 producers first, directories, hashes, each declared input's source/producer origin and optional
 outputs switched on for consumers. Add ``--json`` for a document (see :doc:`machine-readable`).
-It runs no tools and creates no new run roots, locks or deliveries. An existing empty custom
-run root or unmarked default ``xeda_run`` can currently receive ownership markers during
-planning, including on failure; this side effect is pending a fix. Invalid settings, unsupported
-targets and shared-setting conflicts fail during planning.
+It runs no tools and changes no run roots, markers, locks or deliveries. Invalid settings,
+unsupported targets and shared-setting conflicts fail during planning.
 
 Loading that needs a generator or a Git dependency fetch is refused before those side effects;
 materialize the sources first, or pass an already materialized ``Design`` to the library's

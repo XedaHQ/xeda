@@ -154,6 +154,36 @@ def test_an_impossible_plan_is_a_failure_document(tmp_path):
     assert not (tmp_path / "xeda_run").exists()
 
 
+@pytest.mark.parametrize("root_kind", ["empty_custom", "unmarked_default"])
+@pytest.mark.parametrize("valid_plan", [True, False], ids=["success", "failure"])
+def test_dry_run_leaves_existing_unmarked_roots_unchanged(tmp_path, root_kind, valid_plan):
+    from .test_isolation import _state
+
+    design = _design_file(tmp_path / "d", yosys_part=None if valid_plan else OTHER_PART)
+    run_root = tmp_path / ("runs" if root_kind == "empty_custom" else "xeda_run")
+    run_root.mkdir()
+    if root_kind == "unmarked_default":
+        (run_root / "old_run").mkdir()
+        (run_root / "old_run" / "results.json").write_text('{"success": true}\n')
+    before = _state(tmp_path, exclude=[])
+    proc = run_xeda(
+        "run",
+        "nextpnr",
+        str(design),
+        "--dry-run",
+        "--json",
+        "--run-root",
+        str(run_root),
+        cwd=tmp_path,
+    )
+    document = json_stdout(proc)
+    assert proc.returncode == (0 if valid_plan else 1), proc.stderr
+    assert document["success"] is valid_plan
+    if not valid_plan:
+        assert document["error"]["type"] == "FlowSettingsError"
+    assert _state(tmp_path, exclude=[]) == before
+
+
 @pytest.mark.parametrize("json_flag", [False, True])
 def test_a_dry_run_is_refused_for_a_remote(tmp_path, json_flag):
     design = _design_file(tmp_path / "d")

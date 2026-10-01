@@ -323,10 +323,9 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   `self.inputs`, never producer settings, directories or artifacts. Traces also record ordered
   declared input names, origins, producer identities and paths; a changed binding invalidates reuse.
 - **Planning is read-only.** `FlowLauncher.plan` / `xeda run --dry-run` prints this plan (or JSON
-  via `introspect.plan_info`) without tools, new run roots, locks or deliveries. Known pending
-  fix (F5): existing empty/unmarked run roots can receive ownership markers during planning;
-  remove this limitation from the docs when the read-only validation fix lands. Loading that needs a
-  generator or Git fetch is refused before side effects; a materialized `Design` is plannable.
+  via `introspect.plan_info`) without tools, run-root changes, markers, locks or deliveries.
+  Loading that needs a generator or Git fetch is refused before side effects; a materialized
+  `Design` is plannable.
   Undeclared runtime dependencies are unknown, freshness is not evaluated, and `--remote` is refused.
 
 ### Settings

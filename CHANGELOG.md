@@ -30,8 +30,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - `xeda run --dry-run` prints the plan in producer order, with run directories, hashes,
   declared input origins and optional outputs switched on for consumers; `--json` emits one
-  document. It creates no new run root or lock and probes no tools. Existing empty or unmarked
-  run roots can currently receive ownership markers during dry-run; correcting this is pending.
+  document. It changes no run root, writes no markers or locks and probes no tools.
   Loading that needs a generator
   or Git dependency fetch is refused before side effects; undeclared runtime dependencies are
   unknown, freshness is not evaluated, and `--remote` is refused.

@@ -305,9 +305,7 @@ planning does not call its ``init()``. Freshness and always-run decisions are no
 Invalid settings, shared-setting conflicts, missing required inputs and impossible targets
 produce the usual ``success: false`` / ``error`` document.
 
-Planning creates no new run roots, locks, results or deliveries and probes no tools.
-A current limitation: an existing empty custom run root or unmarked default ``xeda_run`` can
-receive ownership markers even when the plan fails. This dry-run side effect is pending a fix.
+Planning changes no run roots, markers, locks, results or deliveries and probes no tools.
 Loading that needs a generator or a Git dependency fetch is refused before those side effects;
 materialize sources first, or pass an already materialized ``Design`` to ``DefaultRunner.plan``.
 ``--dry-run --remote`` is refused.

@@ -151,10 +151,8 @@ xeda run nextpnr blinky.toml --dry-run --json
 
 This prints `success: true`, `dry_run: true`, and a `plan` with `requested` and ordered `nodes`:
 producers first, run directories, hashes, declared input origins (`source`, `producer`, `none`)
-and `switched_on` optional outputs. It runs no tools and creates no new run root, lock or
-delivery. Existing empty custom run roots or an unmarked default `xeda_run` can currently
-receive ownership markers even on a failing plan; this dry-run side effect is pending a fix.
-Conflicting settings and impossible targets produce the usual failure document.
+and `switched_on` optional outputs. It runs no tools and changes no run root, marker, lock or
+delivery. Conflicting settings and impossible targets produce the usual failure document.
 
 A design that would run a generator or fetch a Git dependency while loading is refused before
 side effects. Materialize it first; the library can plan an already materialized `Design`.
