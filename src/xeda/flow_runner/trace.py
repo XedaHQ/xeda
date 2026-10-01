@@ -299,6 +299,8 @@ def check_trace(
     run_dir: Path,
     expected: Expectation,
     locate: Callable[[str], Optional[str]],
+    *,
+    refresh: bool = True,
 ) -> Freshness:
     """Re-verify the trace in `run_dir` against `expected`; the first failing check is the
     reason. Files count as unchanged by their metadata when `FileRecord.trusted` says it is
@@ -310,7 +312,8 @@ def check_trace(
     is read from the file-system clock of `run_dir`, by writing a marker, just before. If no
     marker can be written there (a read-only run directory), the check goes on and refreshes
     nothing: a refresh only spares later checks a hash, and without one they read the file
-    again."""
+    again. With `refresh=False`, validation is read-only, including the clock probe, so reusing
+    a producer does not invalidate another consumer's pending completion evidence."""
     found = read_trace(run_dir)
     if found is None:
         recorded = _recorded_format(run_dir)
@@ -341,6 +344,9 @@ def check_trace(
     def before_reading() -> None:
         reads[0] += 1
         if not clock:
+            if not refresh:
+                clock.append(None)
+                return
             try:
                 clock.append(filesystem_time_ns(run_dir))
             except OSError:
