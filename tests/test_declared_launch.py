@@ -163,7 +163,7 @@ def test_an_output_changed_after_its_run_recorded_it_is_never_handed_over(
         return flow
 
     monkeypatch.setattr(DefaultRunner, "launch_flow", launch_then_rewrite)
-    with pytest.raises(FlowDependencyFailure, match="changed since its run recorded it"):
+    with pytest.raises(FlowDependencyFailure, match="changed before acquiring its read lease"):
         _runner(tmp_path).launch_flow(_Taker, design, {})
     results = json.loads((tmp_path / "xeda_run" / "d" / "__taker" / "results.json").read_text())
     assert results["success"] is False

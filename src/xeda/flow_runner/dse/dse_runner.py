@@ -30,10 +30,17 @@ from ...utils import (
 from ..default_runner import FlowLauncher, add_file_logger, get_flow_class, print_results
 from ..settings_layers import merge_layers
 from ..resolver import Plan
+from ..run_lock import run_dir_lock
 from ..trace import as_recorded
 from ...flow.io import is_declared
 
 log = logging.getLogger(__name__)
+
+
+def _purge_run(run_path: Path, run_root: Path) -> None:
+    """Delete a non-improved worker outcome only after readers finish, checking ownership."""
+    with run_dir_lock(run_path):
+        RunDirectory.claimed(run_path, run_root).delete()
 
 
 # Slotted, the `attrs` default: an outcome crosses a process boundary (the worker builds it,
@@ -554,7 +561,7 @@ class Dse(FlowLauncher):
                                             p,
                                         )
                                         try:
-                                            RunDirectory.claimed(p, self.run_root).delete()
+                                            _purge_run(p, self.run_root)
                                         except (OSError, ValueError) as e:
                                             log.warning("Could not delete %s: %s", p, e)
                                         outcome.run_path = None
