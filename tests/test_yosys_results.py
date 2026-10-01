@@ -66,3 +66,58 @@ def test_per_cell_type_counts_are_reported(parsed_flow: Yosys):
     by_type = json.loads(STAT_REPORT.read_text())["design"]["num_cells_by_type"]
     for cell, count in by_type.items():
         assert parsed_flow.results.get(cell) == count, cell
+
+
+@pytest.mark.parametrize(
+    "counts,expected",
+    [
+        ({"LUT1": 2, "LUT2": 3, "LUT6": 5, "LUT6_2": 7}, (24, 24, 0, 0)),
+        ({"RAM32M": 2, "SRL16E": 3, "SRLC32E": 4}, (15, 0, 8, 7)),
+        ({}, (0, 0, 0, 0)),
+    ],
+)
+def test_xilinx_lut_resource_footprint(counts, expected, tmp_path):
+    """Yosys reports mapped primitive LUT-equivalent units, including dual-output and memories."""
+    from xeda.flow import FPGA
+    from xeda.flows import YosysFpga
+
+    report = tmp_path / "utilization.json"
+    report.write_text(json.dumps({"design": {"num_cells_by_type": counts}, "modules": {}}))
+    design = Design.from_toml(RESOURCES_DIR / "design0" / "design0.toml")
+    flow = YosysFpga(YosysFpga.Settings(fpga=FPGA(part="xc7a35tcpg236-1")), design, tmp_path)
+    flow.init()
+    flow.artifacts.utilization_report = report
+    assert flow.parse_reports()
+    lut, logic, ram, srl = expected
+    assert flow.results.get("LUT") == lut
+    assert flow.results.get("LUT:LOGIC", 0) == logic
+    assert flow.results.get("LUT:RAM", 0) == ram
+    assert flow.results.get("LUT:SRL", 0) == srl
+    assert flow.results.get("LUT:STAGE") == "mapped"
+    assert flow.results.get("LUT:METHOD") == "primitive-footprint estimate"
+
+
+def test_xilinx_lut_footprint_uses_design_totals_once_with_hierarchy(tmp_path):
+    from xeda.flow import FPGA
+    from xeda.flows import YosysFpga
+
+    report = tmp_path / "utilization.json"
+    report.write_text(
+        json.dumps(
+            {
+                "design": {"num_cells_by_type": {"LUT1": 3, "RAM32M": 1}},
+                "modules": {
+                    "top": {"num_cells_by_type": {"LUT1": 3, "RAM32M": 1}},
+                    "child": {"num_cells_by_type": {"LUT1": 3, "RAM32M": 1}},
+                },
+            }
+        )
+    )
+    design = Design.from_toml(RESOURCES_DIR / "design0" / "design0.toml")
+    flow = YosysFpga(YosysFpga.Settings(fpga=FPGA(part="xc7a35tcpg236-1")), design, tmp_path)
+    flow.init()
+    flow.artifacts.utilization_report = report
+    assert flow.parse_reports()
+    assert flow.results["LUT"] == 7
+    assert flow.results["LUT:LOGIC"] == 3
+    assert flow.results["LUT:RAM"] == 4

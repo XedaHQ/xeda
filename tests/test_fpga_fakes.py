@@ -53,6 +53,32 @@ def _inputs(root):
     return netlist, chipdb
 
 
+def test_fake_yosys_resolves_library_pseudo_paths_from_install_prefix(tmp_path, monkeypatch):
+    prefix = tool_utils.use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
+    source = tmp_path / "top.v"
+    source.write_text("module top(); endmodule\n")
+    script = tmp_path / "build.ys"
+    script.write_text(
+        "read_verilog -lib +/xilinx/cells_sim.v\n"
+        "read_verilog -defer top.v\n"
+        "hierarchy -check -top top\n"
+        "write_json netlist.json\n"
+    )
+    result = subprocess.run(
+        [str(prefix / "bin/yosys"), "-s", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    (call,) = _calls(tmp_path)
+    assert call["inputs"] == [
+        str(script),
+        str(prefix / "share/yosys/xilinx/cells_sim.v"),
+        source.name,
+    ]
+
+
 @pytest.mark.parametrize("name", TOOLS)
 @pytest.mark.parametrize("probe", ["--version", "--help"])
 def test_probes_do_not_build_or_record_an_action(name, probe, tmp_path):

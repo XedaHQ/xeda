@@ -319,7 +319,12 @@ def yosys(tool, args):
     paths = [script]
     for words in lines:
         if words[0] in ("read_verilog", "read_vhdl"):
-            paths.extend(Path(word) for word in words[1:] if not word.startswith("-"))
+            for word in words[1:]:
+                if word.startswith("+/"):
+                    prefix = Path(sys.argv[0]).resolve().parent.parent
+                    paths.append(prefix / "share/yosys" / word[2:])
+                elif not word.startswith("-"):
+                    paths.append(Path(word))
         elif words[0] == "ghdl":
             paths.extend(Path(word) for word in words[1:] if Path(word).suffix in (".vhd", ".vhdl"))
     contents = read_inputs(paths)

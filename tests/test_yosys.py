@@ -262,6 +262,76 @@ def test_yosys_fpga_json_netlist_follows_netlist_src_attrs(keep_src, script_form
         assert holders == []
 
 
+@pytest.mark.parametrize("flags", [[], ["-sv"], ["-noautowire"], ["-noautowire", "-sv"]])
+def test_yosys_fpga_default_nettype_none_frontend_matrix(flags, tmp_path):
+    """The legal deferred output reference works unless noautowire is explicitly requested."""
+    require_yosys()
+    source = TESTS_DIR / "resources" / "yosys" / "ps7.v"
+    design = Design(
+        name="deferred-primitive",
+        design_root=source.parent,
+        rtl={"sources": [source.name], "top": "ps7_axi_blinky"},
+    )
+    flow = DefaultRunner(tmp_path / "run").run_flow(
+        YosysFpga,
+        design,
+        {"fpga": {"part": "xc7a35tcpg236-1"}, "read_verilog_flags": flags},
+    )
+    assert flow is not None
+    assert flow.succeeded is ("-noautowire" not in flags)
+
+
+def test_yosys_fpga_default_nettype_none_rejects_undeclared_wire(tmp_path):
+    require_yosys()
+    root = tmp_path / "undeclared-wire"
+    _write(
+        root / "top.v",
+        "`default_nettype none\n"
+        "module top(input I, output O); assign O = genuinely_undeclared; endmodule\n",
+    )
+    design = Design(
+        name="undeclared-wire", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
+    )
+    flow = DefaultRunner(tmp_path / "run").run_flow(
+        YosysFpga, design, {"fpga": {"part": "xc7a35tcpg236-1"}}
+    )
+    assert flow is not None and not flow.succeeded
+
+
+def test_yosys_fpga_xilinx_primitive_frontends(tmp_path):
+    """All device library modules are known at hierarchy check, including the PS7 model."""
+    require_yosys()
+    root = tmp_path / "xilinx-primitives"
+    _write(
+        root / "top.v",
+        "module top;\n"
+        "  BUFG bufg();\n"
+        "  IBUFDS ibufds();\n"
+        "  PLLE2_ADV pll();\n"
+        "  MMCME2_ADV mmcm();\n"
+        "  PS7 ps7();\n"
+        "endmodule\n",
+    )
+    design = Design(
+        name="xilinx-primitives", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
+    )
+    flow = DefaultRunner(tmp_path / "run").run_flow(
+        YosysFpga, design, {"fpga": {"part": "xc7a35tcpg236-1"}}
+    )
+    assert flow is not None and flow.succeeded
+
+
+def test_yosys_fpga_default_flags_drop_noautowire_only_for_fpga():
+    assert YosysFpga.Settings().read_verilog_flags == ["-sv"]
+    assert Yosys.Settings().read_verilog_flags == ["-noautowire", "-sv"]
+
+
+def test_yosys_fpga_does_not_register_disabled_timing_report(tmp_path):
+    flow = _synthesize_src_design(YosysFpga, "ys", tmp_path, fpga="iCE40HX1K-TQ144")
+    assert flow.settings.sta is False
+    assert flow.artifacts.timing_report is None
+
+
 @pytest.mark.parametrize("script_format", ["ys", "tcl"])
 def test_yosys_reads_every_input_by_its_own_name(script_format, tmp_path):
     """yosys' own frontends -- `read_verilog`, `read_liberty`, `techmap -map` -- expand glob
