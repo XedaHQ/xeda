@@ -301,23 +301,55 @@ Simulation results
 
 A simulation passes only on evidence that it ended, not on the simulator's exit status alone. A
 cocotb run, on any simulator, needs at least one test that ran and none that failed; a run in
-which every test was skipped fails. Evidence handling is implemented for ``verilator``,
-``ghdl_sim``, ``nvc``, ``modelsim``, ``yosys_sim`` (CXXRTL), and ``bsc_sim``'s
-Bluesim/Verilator/Icarus backends. The new adapters persist ``sim.evidence`` alongside the
-summary keys, capture runtime diagnostics, default ``fail_severity`` to ``error`` and honor
-``timeout``. VCS, Vivado simulation/power and the remaining bsc backends retain their existing
-non-cocotb verdicts until their conversions are complete.
+which every test was skipped fails. Each non-cocotb simulator must report a recognized end:
+``$finish`` (including VHDL ``std.env.finish`` or ``std.env.stop``), a requested and confirmed
+``stop_time``, a measured requested ``max_cycles``, or a user-owned C++ driver's observed exit
+status 0 where that driver contract is supported. A missing or malformed record, unknown end,
+silent exit 0, unrequested stop, or event queue that drains without a finish fails. A nonzero
+tool/driver exit always fails, even after a finish. The normalized record is saved as
+``sim.evidence`` alongside ``sim.ended_by``, ``sim.time``, ``sim.time_unit``, ``sim.errors`` and
+``sim.warnings``.
 
-GHDL and nvc require native finish/stop evidence or an observed requested stop time. VHDL
-``std.env.stop`` is accepted as completion. nvc's former ``exit_severity`` setting is removed;
-use ``fail_severity``. CXXRTL links an exit monitor and RTL assertion hook into the design's
-own C++ driver: an observed driver exit 0 is valid, but a missing record or abnormal exit
-fails. CXXRTL rejects ``stop_time`` because the driver controls scheduling.
+Every ``SimFlow`` exposes ``timeout`` and ``fail_severity``. The default severity is ``error``;
+the choices are ``warning``, ``error``, ``failure`` and ``fatal`` (``failure`` and ``fatal`` have
+the same rank). Any observed event at or above the selected threshold fails. ``timeout`` bounds
+each subprocess invocation that contains simulation, including analysis and elaboration when
+they share that invocation; it is not a cumulative dependency deadline. An unset timeout adds no
+wall-clock limit. Verilog ``$stop`` is an error-rank event and fails at the default threshold. VHDL
+``std.env.stop`` is accepted as completion.
 
-ModelSim requires matching native stop reason, time and TESTSTATUS observations from this
-run's checkpoint and bounded runtime logfile. Compilation/loading messages do not affect the
-runtime verdict. VHDL ``std.env.stop`` is accepted with native VHDL break evidence, while
-Verilog ``$stop`` fails. VHDL failure and SystemVerilog fatal share the native fatal rank.
+GHDL and nvc retain the simulator's actual end time. For their sparse-clock behavior, a stop
+whose observed time differs from the requested ``stop_time`` fails; Xeda does not rewrite the
+reported time to the request. NVC uses a passive VHPI end-time helper, so a C++ compiler is required
+when that helper must be built. Its former ``exit_severity`` setting is removed; use
+``fail_severity``. Bluesim's ``max_cycles`` passes only when the recorded cycle count equals the
+request and the record includes a measured final time and unit. CXXRTL links an exit monitor and
+RTL assertion hook into a user-owned C++ driver: an observed driver exit 0 is valid evidence even
+when simulated time is unknown, but missing records or abnormal exits fail. CXXRTL rejects
+``stop_time`` because the driver controls scheduling.
+
+ModelSim batch runs require matching native end reason, time and TESTSTATUS observations from
+this run's checkpoint and bounded runtime logfile. Compilation and loading messages do not
+affect the runtime verdict. VHDL ``std.env.stop`` is accepted with native VHDL break evidence,
+while Verilog ``$stop`` fails. VHDL failure and SystemVerilog fatal share the native fatal rank.
+This contract was verified with ModelSim-Intel Starter 2020.1. Vivado 2024.2 was used to verify
+xsim completion, severity, source-qualified VHDL stop and absolute ``stop_time`` behavior across
+prerun and runtime. The requested bound is measured against the actual current time, and further
+execution is skipped after finish or after the bound. Its ``elab_debug`` must preserve source
+information; explicitly disabling it is rejected because VHDL-stop evidence would otherwise be
+ambiguous.
+
+VCS and Questa adapters are documentation-only and have not been verified against licensed real tools.
+They fail closed when native evidence is not recognizable: VCS quiet ``$finish(0)`` and VHDL
+completion fail without a native finish diagnostic, and a UCLI time checkpoint alone does not
+prove HDL completion. Questa requires the ModelSim-style owned runtime transcript and checkpoint;
+an unrecognized native stop reason or missing source-qualified VHDL evidence fails. Do not treat
+their synthetic-tool coverage as real-tool certification.
+The accepted ``bsc_sim`` backends are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi
+and xsim. The legacy ``cvc``, ``cver``, ``isim``, ``ncverilog`` and ``veriwell`` engines are
+rejected before compilation because they lack a certified evidence adapter. Icarus's real
+runtime evidence and builtin-task capability checks remain mandatory Linux CI gates; they were
+not run on macOS.
 
 Verilator
 ---------
@@ -348,6 +380,11 @@ Changed behavior:
 
 Writing a new flow
 ==================
+
+Every new simulator flow must inherit ``SimFlow`` and translate that simulator's current-run
+records into ``SimEvidence`` for the shared ``judge_evidence`` verdict. Add its accepted backend
+to the behavioral oracle and test positive completion, silent/drained failure, severity,
+requested limits, timeout and stale or malformed evidence. Never add an exit-only exemption.
 
 Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Flow``, ``SimFlow``,
 ``SynthFlow``, ``FpgaSynthFlow`` or ``AsicSynthFlow`` and implements:

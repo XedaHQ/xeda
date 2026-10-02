@@ -37,12 +37,39 @@ accepts comma-separated text (`-s xdc_files=a.xdc,b.xdc`).
 
 ### A simulation fails with "no evidence" or an all-skipped cocotb run
 
-A simulation passes only when it shows how it ended. Read `results.json`: `error.message` and, for
-Verilator, `sim.ended_by` and `sim.time`. A cocotb run, on any simulator, needs at least one test
-that ran and none that failed. Verilator fails at `fail_severity` (default `error`; `warning`,
-`error`, `failure` or `fatal`) and stops at `timeout`. Simulators other than Verilator (and
-cocotb's verdict on every simulator) are not converted to this rule yet and are judged as before:
-`bsc_sim` only gained `timeout`.
+A simulation passes only on recognized evidence that it ended, not on exit status alone. Read
+`results.json`: `sim.evidence` is the normalized record; `sim.ended_by`, `sim.time`,
+`sim.time_unit`, `sim.errors` and `sim.warnings` summarize it. A silent exit 0, missing or
+malformed record, unknown end, or event queue that drained without a finish fails. `$finish`
+(including VHDL `std.env.finish` and `std.env.stop`) is accepted; Verilog `$stop` is an error-rank
+event and fails at the default threshold.
+A requested `stop_time` needs a matching observed time. Bluesim `max_cycles` needs the exact
+measured cycle count and final time. A supported user-owned C++ driver may pass on observed exit
+0. Nonzero execution always fails, even after finish.
+
+Every simulator flow uses shared `timeout` and `fail_severity` settings. The default severity is
+`error`; choices are `warning`, `error`, `failure` and `fatal` (`failure` and `fatal` have the
+same rank). Timeout bounds each subprocess invocation containing simulation, including analysis
+and elaboration when combined; it is not a dependency-wide deadline. For GHDL and nvc, sparse
+clock stops that miss the requested time fail at their actual reported time. NVC builds a
+passive VHPI monitor and needs a C++ compiler for non-cocotb runs; its removed `exit_severity`
+setting must be replaced with `fail_severity`. CXXRTL accepts an observed exit 0 from its linked
+user-owned driver even if simulated time is unknown; it rejects `stop_time` because that driver
+controls scheduling.
+
+ModelSim batch evidence requires a matching runtime checkpoint, native stop reason/time,
+TESTSTATUS and the bounded runtime section of its owned logfile. VHDL `std.env.stop` is accepted
+with source-qualified native evidence; Verilog `$stop` fails. ModelSim-Intel Starter 2020.1 and
+Vivado 2024.2 are the real releases verified for these contracts. Vivado xsim requires
+source-preserving `elab_debug`; setting it to `off` is rejected so VHDL `std.env.stop` can be
+distinguished from `$stop`.
+
+VCS and Questa adapters are documentation-only and have not been verified against licensed real
+tools; unknown native evidence fails closed. VCS quiet `$finish(0)` and VHDL completion fail
+unless a native finish diagnostic is visible. UCLI time checkpoints alone do not prove HDL
+completion. `bsc_sim` rejects legacy `cvc`, `cver`, `isim`, `ncverilog` and `veriwell` before
+compilation. Real Icarus evidence and builtin-task capability checks remain mandatory Linux CI
+gates; macOS skips them.
 
 ### `-s` took the design file, or a setting names the wrong flow
 

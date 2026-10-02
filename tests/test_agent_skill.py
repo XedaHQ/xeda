@@ -60,6 +60,14 @@ def test_generated_reference_reports_dependencies():
     assert "runs first" in reference
 
 
+def test_generated_reference_documents_simulator_verification_limits():
+    reference = generate_flows_reference()
+    assert "documentation-only" in reference
+    assert "UCLI time checkpoints alone do not establish HDL completion" in reference
+    assert "``elab_debug`` must preserve source information" in reference
+    assert "rejected before compilation" in reference
+
+
 def test_install_skill_writes_prose_and_generated_reference(tmp_path):
     written = install_skill(tmp_path)
     target = tmp_path / SKILL_NAME

@@ -13,7 +13,7 @@ xeda list-results <flow> --json      # every result key, with its meaning
 
 ### `bsc_sim`
 
-Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulator. Compiles the design's Bluespec sources, RTL then testbench, in order -- the package defining `tb.top` last -- and simulates `tb.top`, a module with an `Empty` interface (`rtl.top` when the design has no testbench). `simulator` picks Bluesim, bsc's own cycle-based simulator, or a Verilog simulator that bsc links the generated Verilog with (`bsc -vsim`), driving clock and reset from its `main.v`. Bluesim records generated system-task calls and an owned script measures clock cycles and time; Verilator and Icarus record observed system tasks in the linked runtime. These backends require explicit finish or a confirmed Bluesim cycle limit, with no event at or above `fail_severity`; a fatal error or nonzero exit always fails. `$finish(n)` uses `n` as a verbosity level. The design's `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which BH (`.bs`) sources see only through the C preprocessor, with `cpp`.
+Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulator. Compiles the design's Bluespec sources, RTL then testbench, in order -- the package defining `tb.top` last -- and simulates `tb.top`, a module with an `Empty` interface (`rtl.top` when the design has no testbench). `simulator` picks Bluesim, bsc's own cycle-based simulator, or a Verilog simulator that bsc links the generated Verilog with (`bsc -vsim`), driving clock and reset from its `main.v`. Bluesim records generated system-task calls and an owned script measures clock cycles and time; Verilator and Icarus record observed system tasks in the linked runtime. These backends require explicit finish or a confirmed Bluesim cycle limit, with no event at or above `fail_severity`; a fatal error or nonzero exit always fails. `$finish(n)` uses `n` as a verbosity level. The design's `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which BH (`.bs`) sources see only through the C preprocessor, with `cpp`. Supported simulator backends are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and xsim. Legacy cvc, cver, isim, ncverilog and veriwell are rejected before compilation. Real Icarus evidence and builtin-task registration are required on Linux CI.
 
 76 flow-specific settings (plus the common ones): `xeda list-settings bsc_sim --json`
 
@@ -31,7 +31,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 ### `modelsim`
 
-Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens ModelSim. Handles both RTL and gate-level netlist simulation; a netlist simulation can be annotated with timing from an SDF file via the `sdf` setting.
+Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens ModelSim. Handles both RTL and gate-level netlist simulation; a netlist simulation can be annotated with timing from an SDF file via the `sdf` setting. Batch evidence requires this run's native stop reason, time and TESTSTATUS checkpoint plus its bounded runtime logfile. VHDL ``std.env.stop`` is accepted with source-qualified evidence; Verilog ``$stop`` fails at the default severity. Verified with ModelSim-Intel Starter 2020.1.
 
 11 flow-specific settings (plus the common ones): `xeda list-settings modelsim --json`
 
@@ -49,7 +49,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 ### `vcs`
 
-Synopsys VCS simulator with runtime evidence in split and one-shot modes. Quiet $finish(0) and VHDL completion fail unless a native finish diagnostic is observable. UCLI time checkpoints alone do not establish HDL completion.
+Synopsys VCS simulator with runtime evidence in split and one-shot modes. This adapter is documentation-only and is not verified against a licensed VCS release. Quiet $finish(0) and VHDL completion fail unless a native finish diagnostic is observable. UCLI time checkpoints alone do not establish HDL completion.
 
 43 flow-specific settings (plus the common ones): `xeda list-settings vcs --json`
 
@@ -91,7 +91,7 @@ Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warning
 
 ### `vivado_sim`
 
-Simulate using Xilinx Vivado simulator (xsim) flow
+Simulate using Xilinx Vivado simulator (xsim). ``elab_debug`` must preserve source information so VHDL ``std.env.stop`` can be distinguished from Verilog ``$stop``; explicitly disabling it is rejected. ``stop_time`` is an absolute bound across prerun and runtime, measured from xsim's actual current time. Verified with Vivado 2024.2.
 
 23 flow-specific settings (plus the common ones): `xeda list-settings vivado_sim --json`
 

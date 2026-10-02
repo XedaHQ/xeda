@@ -22,8 +22,9 @@ log = logging.getLogger(__name__)
 class Vcs(SimFlow):
     """Synopsys VCS simulator with runtime evidence in split and one-shot modes.
 
-    Quiet $finish(0) and VHDL completion fail unless a native finish diagnostic is
-    observable. UCLI time checkpoints alone do not establish HDL completion.
+    This adapter is documentation-only and is not verified against a licensed VCS release.
+    Quiet $finish(0) and VHDL completion fail unless a native finish diagnostic is observable.
+    UCLI time checkpoints alone do not establish HDL completion.
     """
 
     results_description = describe_results(

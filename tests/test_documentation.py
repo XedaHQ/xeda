@@ -17,6 +17,7 @@ import pytest
 from xeda.dataclass import annotation_args
 from xeda.design import SOURCE_SUFFIXES
 from xeda.flow import Flow, describe_results
+from xeda.flow.sim import SimFlow
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
 from xeda.introspect import all_flow_classes, flow_info, results_info, settings_info
 
@@ -230,6 +231,36 @@ def test_every_declared_input_and_output_is_documented(flow_class):
     info = flow_info(flow_class)
     undocumented = [d["name"] for d in info["inputs"] + info["outputs"] if not d["description"]]
     assert not undocumented, f"{flow_class.name}: {undocumented}"
+
+
+def test_every_simulator_exposes_shared_settings_and_evidence_results():
+    """The public catalog must expose the common simulator contract on every sim flow."""
+    required_results = {
+        "sim.evidence",
+        "sim.ended_by",
+        "sim.time",
+        "sim.time_unit",
+        "sim.errors",
+        "sim.warnings",
+    }
+    simulator_flows = [cls for cls in FLOW_CLASSES if issubclass(cls, SimFlow)]
+    assert simulator_flows
+    for flow_class in simulator_flows:
+        settings = {field["name"] for field in settings_info(flow_class)["fields"]}
+        assert {"timeout", "fail_severity"} <= settings, flow_class.name
+        results = {item["name"] for item in results_info(flow_class)["keys"]}
+        assert required_results <= results, (flow_class.name, required_results - results)
+
+
+def test_simulation_contract_docs_describe_the_final_oracle():
+    docs = (README.parent / "docs/flows.rst").read_text(encoding="utf-8")
+    assert "fail closed" in docs
+    assert "VCS and Questa adapters are documentation-only" in docs
+    assert "only Verilator" not in docs
+    assert (
+        "VCS, Vivado simulation/power and the remaining bsc backends retain their existing"
+        not in docs
+    )
 
 
 @pytest.mark.parametrize(

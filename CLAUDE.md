@@ -1017,13 +1017,28 @@ while it is open). A flow sharing
   (`warning`/`error`/`failure`/`fatal`, default `error`), `random_init` (default false),
   `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied only when the RTL top is the simulated
   top, and `stop_time` (rejected with cocotb or a design's own driver); minimum Verilator 5.024.
-  GHDL, nvc, ModelSim, CXXRTL and `bsc_sim`'s Bluesim/Verilator/Icarus backends also use this
-  verdict, with `timeout`, default `fail_severity = "error"` and persisted `sim.evidence`.
-  GHDL/nvc read native end diagnostics (nvc adds a passive time monitor); Bluesim records
-  system tasks and measured cycles; bsc's Verilator/Icarus runtimes link end hooks; CXXRTL
-  links an exit/assertion monitor and rejects `stop_time`. VCS, Vivado simulation/power and
-  the remaining bsc backends await conversion; `tests/test_sim_evidence.py` lists the
-  transitional cases and exercises silent-runtime failures for converted families.
+  Every `SimFlow` shares `timeout` (per subprocess invocation containing simulation) and
+  `fail_severity` (`warning`/`error`/`failure`/`fatal`, default `error`; `failure` and `fatal`
+  share a rank). GHDL, nvc, ModelSim, VCS, Vivado simulation/power, CXXRTL and every accepted
+  `bsc_sim` backend use the same verdict and persist `sim.evidence` plus `sim.ended_by`,
+  `sim.time`, `sim.time_unit`, `sim.errors` and `sim.warnings`. A recognized `$finish` (including
+  VHDL `std.env.finish` and `std.env.stop`), a confirmed requested stop/cycle limit, or a
+  supported user-owned C++ driver exit 0 can pass if no event reaches the severity threshold.
+  Missing/unknown evidence, silent exit 0 and a drained event queue fail; a nonzero process
+  status always fails. GHDL/nvc retain actual stop time, so a sparse stop that misses the
+  requested time fails; nvc uses a passive VHPI monitor and requires a C++ compiler for its helper.
+  Bluesim `max_cycles` requires the exact measured count and final time. CXXRTL observes a
+  user-owned driver's return and RTL assertions; exit 0 is valid even if simulated time is
+  unknown, and it rejects `stop_time`. NVC's old
+  `exit_severity` was removed; use `fail_severity`. VCS and Questa adapters fail closed when
+  native evidence is unrecognized and have not been verified on licensed tools. VCS quiet
+  `$finish(0)` and VHDL completion need a native finish diagnostic; a UCLI time checkpoint alone
+  does not prove HDL completion. Vivado 2024.2 `xsim` requires source-preserving `elab_debug`;
+  explicitly disabling it is rejected so VHDL `std.env.stop` can be distinguished from
+  Verilog `$stop`, an error-rank event that fails at the default threshold. The accepted bsc
+  backends are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and xsim; `cvc`, `cver`,
+  `isim`, `ncverilog` and `veriwell` fail before compilation.
+  Icarus's runtime evidence remains a Linux CI gate.
 - **ModelSim exits 0 unless told otherwise.** Its `exit` takes the status as `exit -code N` (a
   plain `exit 1` exits 0, and the fake `vsim` mimics that); without `vsim -onfinish stop`, `$finish`
   exits vsim at once with status 0; and a testbench's `$error` or failed assertion never changes
@@ -1035,7 +1050,7 @@ while it is open). A flow sharing
   the design so VHDL `failure` does not stop the testbench before its finish. ModelSim reports
   VHDL `failure` and SystemVerilog `$fatal` as the same TESTSTATUS (3), so `fatal` and `failure`
   have the same status threshold. The flow's default image is `chaseruskin/modelsim-intel`
-  (ModelSim-Intel Starter 2020.1, amd64, no license).
+  (ModelSim-Intel Starter 2020.1, amd64, no license), verified against that release.
 - **A Vivado project run's outcome is in its properties alone.** `wait_on_run` returns normally
   when the run failed in Vivado 2021.1 and raises an error in 2024.2, so `vivado_synth.tcl`'s
   `xedaWaitOnRun` waits either way, then requires `STATUS` "<step> Complete!" and `PROGRESS`

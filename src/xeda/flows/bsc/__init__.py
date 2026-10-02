@@ -1142,7 +1142,10 @@ class BscSim(BscFlow, SimFlow):
     limit, with no event at or above `fail_severity`; a fatal error or nonzero exit always fails.
     `$finish(n)` uses `n` as a verbosity level. The design's
     `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which
-    BH (`.bs`) sources see only through the C preprocessor, with `cpp`.
+    BH (`.bs`) sources see only through the C preprocessor, with `cpp`. Supported simulator
+    backends are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and xsim. Legacy cvc,
+    cver, isim, ncverilog and veriwell are rejected before compilation. Real Icarus evidence and
+    builtin-task registration are required on Linux CI.
     """
 
     results_description = describe_results(
