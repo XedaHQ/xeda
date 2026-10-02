@@ -1,8 +1,8 @@
 """A simulation passes only on evidence that it ended as intended (the M1 class).
 
-Oracle: every registered simulator flow is either converted (it reports evidence, and a run
-without evidence fails) or listed below, with the reason it is not converted yet. P1b empties
-the list; an entry cannot hide a flow, since the two sets must equal the registered flows.
+Oracle: every registered simulator flow reports evidence, and a run without evidence fails.
+Every supported bsc backend participates, including fake Icarus runtime coverage; real Icarus
+builtin-task capability verification remains a separate mandatory Linux CI gate.
 """
 
 import pytest
@@ -10,12 +10,9 @@ import pytest
 from xeda.flow import registered_flows
 from xeda.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
 
-#: Simulator flows not converted yet, and why. P1b removes every entry.
+#: These transitional inventories must stay empty; they cannot exempt behavioral cases.
 NOT_YET_CONVERTED: dict[str, str] = {}
-#: Converted for some backends only: the rest are P1b.
-PARTLY_CONVERTED: dict[str, str] = {
-    "bsc_sim": "P1b: Linux Icarus builtin-task capability verification is still required",
-}
+PARTLY_CONVERTED: dict[str, str] = {}
 
 
 def _sim_flows():
@@ -27,7 +24,9 @@ def _sim_flows():
     }
 
 
-def test_every_simulator_flow_is_converted_or_listed_with_a_reason():
+def test_every_simulator_flow_requires_evidence_without_an_exemption():
+    assert not NOT_YET_CONVERTED
+    assert not PARTLY_CONVERTED
     converted = {
         "verilator",
         "ghdl_sim",
@@ -38,9 +37,10 @@ def test_every_simulator_flow_is_converted_or_listed_with_a_reason():
         "vivado_sim",
         "vivado_postsynth_sim",
         "vivado_power",
+        "bsc_sim",
     }
-    assert _sim_flows() == converted | set(NOT_YET_CONVERTED) | set(PARTLY_CONVERTED)
-    # a converted flow reports evidence; a listed one does not (so the list cannot go stale)
+    assert _sim_flows() == converted
+    # Every built-in family declares its capability, in addition to behavioral coverage below.
     adapters = {
         cls.name
         for _, cls in registered_flows.values()
@@ -48,7 +48,7 @@ def test_every_simulator_flow_is_converted_or_listed_with_a_reason():
         and cls.__module__.startswith("xeda.flows")
         and cls.has_evidence_adapter is not SimFlow.has_evidence_adapter
     }
-    assert adapters == converted | set(PARTLY_CONVERTED)
+    assert adapters == converted
 
 
 class _Stub:
@@ -388,13 +388,169 @@ def test_normalized_native_writer_refuses_links_and_retains_events(tmp_path, lan
 def test_behavioral_manifest_covers_registry_and_backend_literal():
     from typing import get_args
     from xeda.flows.bsc import SimulatorName
-    from .sim_evidence_cases import BSC_BACKENDS, SIMULATORS
+    from .sim_evidence_cases import BSC_BACKENDS, CASES, REJECTED_BSC_BACKENDS, SIMULATORS
 
     assert set(SIMULATORS) == _sim_flows()
     assert set(BSC_BACKENDS) == set(get_args(SimulatorName))
+    assert {case.backend for case in CASES if case.flow == "bsc_sim"} == (
+        set(BSC_BACKENDS) - REJECTED_BSC_BACKENDS
+    )
 
 
 from .sim_evidence_cases import CASES
+
+
+def test_a_new_unadapted_simulator_cannot_pass_on_silent_exit_zero(tmp_path, monkeypatch):
+    import sys
+    import xeda.flow.flow as flow_module
+    from xeda import Design, DefaultRunner
+    from xeda.tool import Tool
+
+    # Registration belongs to the test alone, including canonical and class-name aliases.
+    monkeypatch.setattr(flow_module, "registered_flows", dict(registered_flows))
+
+    class UnadaptedSimulator(SimFlow):
+        """A new simulator that has not implemented an evidence adapter."""
+
+        def run(self):
+            Tool(sys.executable, version_flag=None).run(
+                "-c", "from pathlib import Path; Path('runtime').write_text('executed')"
+            )
+
+        def parse_reports(self):
+            return True
+
+    design = Design(name="silent", design_root=tmp_path, rtl={"sources": [], "top": "tb"})
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        UnadaptedSimulator, design
+    )
+    assert flow is not None
+    assert (flow.run_path / "runtime").read_text() == "executed"
+    assert not flow.has_evidence_adapter()
+    assert not flow.succeeded
+    assert "unadapted_simulator" not in registered_flows
+
+
+def test_the_capability_hook_cannot_bypass_evidence_judgment(tmp_path, monkeypatch):
+    flow = _normalized_flow(tmp_path)
+    monkeypatch.setattr(flow, "has_evidence_adapter", lambda: False)
+    monkeypatch.setattr(
+        flow,
+        "simulation_evidence",
+        lambda: SimEvidence(ended_by="finish", events=[SimEvent(kind="error")]),
+    )
+    assert not flow.check_results()
+    assert flow.results["sim.errors"] == 1
+
+
+@pytest.mark.parametrize("flow_name", ["ghdl_sim", "nvc", "verilator"])
+@pytest.mark.parametrize(
+    "content,passes",
+    [
+        (None, False),
+        ("bad XML", False),
+        (ALL_SKIPPED, False),
+        (
+            '<testsuites><testsuite name="t" tests="1"><testcase name="passed"/></testsuite></testsuites>',
+            True,
+        ),
+    ],
+)
+def test_cocotb_keeps_priority_over_hdl_evidence(flow_name, content, passes, tmp_path, monkeypatch):
+    from xeda import Design
+    from xeda.flow_runner import get_flow_class
+    from .settings_samples import minimal_settings
+
+    monkeypatch.chdir(tmp_path)
+    cls = get_flow_class(flow_name)
+    design = Design(
+        name="coco",
+        design_root=tmp_path,
+        rtl={"sources": [], "top": "tb"},
+        tb={"sources": [], "cocotb": True},
+    )
+    flow = cls(minimal_settings(cls), design, tmp_path)
+    assert flow.cocotb is not None
+
+    def no_hdl_evidence():
+        pytest.fail("a cocotb run consulted the HDL evidence adapter")
+
+    monkeypatch.setattr(flow, "simulation_evidence", no_hdl_evidence)
+    flow.start_run()
+    if content is not None:
+        (tmp_path / flow.cocotb.results_xml).write_text(content)
+    assert flow.check_results() is passes
+
+
+@pytest.mark.parametrize("flow_name", sorted(_sim_flows()))
+def test_simulation_controls_are_inherited_unchanged(flow_name):
+    from xeda.flow_runner import get_flow_class
+    from .settings_samples import minimal_settings
+
+    cls = get_flow_class(flow_name)
+    settings = cls.Settings(**minimal_settings(cls))
+    for name, default in (("timeout", None), ("fail_severity", "error")):
+        common = SimFlow.Settings.model_fields[name]
+        inherited = cls.Settings.model_fields[name]
+        assert inherited.annotation == common.annotation
+        assert inherited.default == common.default == default
+        assert inherited.description == common.description
+        assert inherited.metadata == common.metadata
+        assert all(
+            name not in parent.__annotations__
+            for parent in cls.Settings.__mro__[:-1]
+            if parent is not SimFlow.Settings
+        )
+        assert getattr(settings, name) == default
+    settings.timeout = 2.5
+    settings.fail_severity = "warning"
+    restored = cls.Settings.model_validate_json(settings.model_dump_json())
+    assert restored.timeout == 2.5 and restored.fail_severity == "warning"
+    assert restored.model_dump() == settings.model_dump()
+
+
+@pytest.mark.parametrize("flow_name", sorted(_sim_flows()))
+def test_every_simulator_documents_the_shared_evidence(flow_name):
+    from xeda.flow import describe_results
+    from xeda.flow_runner import get_flow_class
+
+    expected = describe_results(
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+    )
+    assert get_flow_class(flow_name).results_description.items() >= expected.items()
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
+def test_positive_runtime_then_silent_rerun_cannot_reuse_evidence(case, tmp_path, monkeypatch):
+    from .sim_evidence_cases import launch_case
+
+    work = tmp_path / "case"
+    # This checks forwarding, not expiration; allow the combined fake tool to start under load.
+    settings = {"timeout": 30.0}
+    with monkeypatch.context() as patch:
+        positive = launch_case(case, work, patch, positive=True, settings_overrides=settings)
+    assert positive.succeeded, f"{case.name} did not produce positive evidence"
+    assert positive.results["sim.ended_by"] == ("exit" if case.flow == "yosys_sim" else "finish")
+    with monkeypatch.context() as patch:
+        silent = launch_case(case, work, patch, settings_overrides=settings)
+    assert silent.run_path == positive.run_path
+    assert not silent.succeeded, f"{case.name} reused a preceding run's evidence"
+
+
+@pytest.mark.parametrize(
+    "family,settings", [("nvc", {"one_shot": False}), ("vcs", {"one_shot_run": True})]
+)
+def test_alternate_runtime_modes_receive_timeout(family, settings, tmp_path, monkeypatch):
+    from .sim_evidence_cases import SimCase, launch_case
+
+    positive = launch_case(
+        SimCase(family),
+        tmp_path / "case",
+        monkeypatch,
+        positive=True,
+        settings_overrides={"timeout": 30.0, **settings},
+    )
+    assert positive.succeeded
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
@@ -402,9 +558,6 @@ def test_silent_runtime_requires_behavioral_evidence(case, tmp_path, monkeypatch
     from .sim_evidence_cases import launch_case
 
     flow = launch_case(case, tmp_path / "case", monkeypatch)
-    reason = NOT_YET_CONVERTED.get(case.flow) or PARTLY_CONVERTED.get(case.flow)
-    if reason and flow.succeeded:
-        pytest.xfail(reason)
     assert not flow.succeeded, f"{case.name} passed on silent exit 0"
 
 

@@ -253,19 +253,6 @@ class Verilator(SimFlow):
         trace_max_array: Optional[int] = Field(
             2048, description="Do not trace arrays with more than this many elements."
         )
-        timeout: float | None = Field(
-            None,
-            gt=0,
-            description="Stop the simulation after this many seconds of wall-clock time and fail "
-            "the run. None (the default) sets no limit.",
-        )
-        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
-            "error",
-            description="The least severe report that fails the run: `warning` ($warning), "
-            "`error` ($error, a failed assertion, $stop), `failure` or `fatal` ($fatal). Below "
-            "`error`, the simulation runs on past errors (`+verilator+error+limit`), and each is "
-            "recorded.",
-        )
 
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,

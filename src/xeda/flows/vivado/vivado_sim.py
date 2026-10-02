@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from ...dataclass import WORKING, Field, deliverable
 from ...design import DesignValidationError
@@ -25,17 +25,6 @@ class VivadoSim(Vivado, SimFlow):
     # Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
 
     class Settings(Vivado.Settings, SimFlow.Settings):
-        timeout: float | None = Field(
-            None,
-            gt=0,
-            description="Stop the simulation-containing Vivado invocation after this many seconds "
-            "of wall-clock time, including analysis and elaboration. None sets no limit.",
-        )
-        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
-            "error",
-            description="Lowest runtime diagnostic severity that fails simulation. "
-            "Failure and fatal have the same rank.",
-        )
         saif: Optional[Path] = Field(
             None,
             description="Write switching activity to this SAIF file, for downstream power "

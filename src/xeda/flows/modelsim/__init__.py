@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from ...dataclass import Field
 from ...design import DesignValidationError
@@ -52,12 +52,6 @@ class Modelsim(SimFlow):
         return parse_modelsim_evidence(self)
 
     class Settings(SimFlow.Settings):
-        timeout: float | None = Field(
-            None,
-            gt=0,
-            description="Stop the simulation-containing vsim invocation after this many seconds "
-            "of wall-clock time and fail. None (the default) sets no limit.",
-        )
         sdf: SDF = Field(
             SDF(),
             description="SDF timing-annotation files to back-annotate onto the netlist, per delay "
@@ -80,13 +74,6 @@ class Modelsim(SimFlow):
         )
         vsim_flags: List[str] = Field(
             [], description="Extra flags passed to `vsim` when it loads the simulation tops."
-        )
-        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
-            "error",
-            description="Fail the run when the simulation reports a message of this severity or "
-            "higher: a failed VHDL assertion or the SystemVerilog `$warning`, `$error` or "
-            "`$fatal` task. ModelSim reports VHDL `failure` and SystemVerilog `$fatal` with the "
-            "same TESTSTATUS, so `fatal` uses the same threshold as `failure`.",
         )
 
     def run(self) -> None:
