@@ -36,3 +36,13 @@ def test_ghdl_clean_names_both_replacements(flow_name, tmp_path):
 @pytest.mark.parametrize("flow", FLOWS, ids=lambda c: c.name)
 def test_no_flow_overrides_clean(flow):
     assert "clean" not in vars(flow), f"{flow.name} still defines clean()"
+
+
+@pytest.mark.parametrize("kind", ["lpf", "pcf", "pdc"])
+def test_nextpnr_pin_settings_name_typed_source_replacement(kind, tmp_path):
+    flow = registered_flows["nextpnr"][1]
+    with pytest.raises(FlowSettingsError) as exc:
+        flow.Settings.from_input({f"{kind}_cfg": f"pins.{kind}"}, design_root=tmp_path)
+    message = str(exc.value)
+    assert "was removed" in message and "rtl.sources" in message
+    assert f'type = "{kind.capitalize()}"' in message

@@ -141,6 +141,15 @@ xeda run openfpgaloader blinky.yaml -s nextpnr.yosys.flatten=true
 `nextpnr.config` records the selected ECP5 `textcfg`, iCE40 `asc` or Nexus `fasm`; a missing or
 stale enabled configuration fails the run.
 
+Put pin constraints in `rtl.sources` as typed `Lpf`, `Pcf`, `Pdc` or `Xdc` files. nextpnr
+merges the selected family's files in source order, falling back to its board's file when
+none are supplied. The former `lpf_cfg`, `pcf_cfg` and `pdc_cfg` settings are removed.
+Typed `Sdc` sources are merged in source order, followed by the optional `sdc` setting's
+file; the combined timing file reaches `--sdc` once. A clock must have one timing authority
+across pin files, SDC files and settings: duplicates name the original files/lines and
+clock setting/period. File-only clocks suppress generated frequency hints. A clock port
+without a period is a declaration; it does not supply a physical timing constraint.
+
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, where both
 nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
 naming both origins. An explicit command-line leaf (`-s fpga.part=...` or

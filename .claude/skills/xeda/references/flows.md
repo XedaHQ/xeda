@@ -129,7 +129,7 @@ Reports: `minimum_period`, `maximum_frequency`, `Fmax`, `wns`, `lut`, `ff`, `sli
 
 Place and route an FPGA design with nextpnr, the portable open-source PnR tool. Its `netlist` input is a `JsonNetlist` design source or, by default, the recorded netlist synthesized by `yosys_fpga`. This flow places and routes that input with the nextpnr variant matching `fpga.family`, then parses nextpnr's JSON report for achieved frequency, slack and resource utilization. Use the `openfpgaloader` flow to pack and program the result onto a board. ECP5 and iCE40 are exercised by real-tool tests; Nexus has verified command construction. The report parser works across architectures, but canonical resource names (`lut`, `ff`, ...) are currently mapped from ECP5 bel types only. Other families report raw bel-type counts. A target without a tested device/constraint/output mapping is rejected before synthesis.
 
-60 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
+57 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
 
 Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`
 

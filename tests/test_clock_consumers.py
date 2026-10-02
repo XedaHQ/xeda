@@ -39,6 +39,7 @@ def test_nextpnr_uses_first_unnamed_clock_as_frequency_target(tmp_path, monkeypa
         "run",
         lambda _tool, *values: (write_nextpnr_config(flow, values), args.extend(values)),
     )
+    flow.prepare_inputs()
     flow.run()
 
     assert "--freq=200.0" in args

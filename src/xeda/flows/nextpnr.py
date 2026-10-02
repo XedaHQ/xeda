@@ -1,13 +1,14 @@
+import hashlib
 import json
 import logging
 import re
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
-from urllib.error import HTTPError
+from urllib.error import URLError
 from urllib.parse import urlparse
-from urllib.request import urlretrieve
+from urllib.request import urlopen
+
+from importlib_resources import files
 
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
 from ..dataclass import WORKING, Field, XedaBaseModel, deliverable, field_validator
@@ -21,8 +22,10 @@ from ..flow import (
     Out,
     describe_results,
 )
-from ..tool import Tool
-from ..utils import setting_flag
+from ..tool import NonZeroExitCode, Tool
+from ..run_dir import RunDirectory
+from ..utils import replacing_file, setting_flag
+from .nextpnr_constraints import Constraints, merge_constraints, reconcile_clocks
 from .yosys import YosysFpga
 from .yosys.yosys_fpga import NEXTPNR_KEEPS_SRC, keeping_src_by_default, yosys_fpga_keeping_src
 
@@ -84,19 +87,16 @@ NEXUS_DEVICE = re.compile(r"(LIFCL|LFD2NX)-\d+-\d[A-Z]+\d+[CI](ES2?)?", re.IGNOR
 
 #: Settings that are options of only some nextpnr architectures, and of which.
 FAMILY_SETTINGS: Dict[str, Tuple[str, ...]] = {
-    "lpf_cfg": ("ecp5",),
     "lpf_allow_unconstrained": ("ecp5",),
     "out_of_context": ("ecp5",),
     "disable_router_lutperm": ("ecp5",),
     "override_basecfg": ("ecp5",),
     "allow_fabric_eclk": ("ecp5",),
     "no_promote_globals": ("ecp5", "ice40"),
-    "pcf_cfg": ("ice40",),
     "pcf_allow_unconstrained": ("ice40",),
     "opt_timing": ("ice40",),
     "promote_logic": ("ice40",),
     "no_promote_ce": ("ice40",),
-    "pdc_cfg": ("nexus",),
     "no_pack_lutff": ("nexus",),
     "no_post_place_opt": ("nexus",),
     "carry_lutff_ratio": ("nexus",),
@@ -216,19 +216,13 @@ class Nextpnr(FpgaSynthFlow):
     )
 
     class Settings(WithFpgaBoardSettings):
-        lpf_cfg: Optional[Path] = Field(
-            None,
-            description="Lattice LPF pin-constraint file. Taken from the board database when "
-            "`board` is set and this is unset.",
-        )
-        pcf_cfg: Optional[Path] = Field(
-            None, description="iCE40 PCF pin-constraint file, or the board's `pcf` when unset."
-        )
-        pdc_cfg: Optional[Path] = Field(
-            None,
-            description="Nexus PDC pin-constraint file, or the board's `pdc` when unset. "
-            "nextpnr-nexus requires every IO to be constrained.",
-        )
+        removed_settings = {
+            **WithFpgaBoardSettings.removed_settings,
+            **{
+                f"{kind}_cfg": f'rtl.sources with a typed pin file: {{ file = "pins.{kind}", type = "{kind.capitalize()}" }}'
+                for kind in ("lpf", "pcf", "pdc")
+            },
+        }
         seed: Optional[int] = Field(
             None,
             description="Seed for nextpnr's placer. Different seeds give different results; "
@@ -295,7 +289,11 @@ class Nextpnr(FpgaSynthFlow):
         )
         no_tmdriv: bool = Field(False, description="Disable timing-driven placement.")
         ignore_rel_clk: bool = Field(False, description="Ignore clock-to-clock timing relations.")
-        sdc: Optional[Path] = Field(None, description="Generic SDC timing constraints file.")
+        sdc: Optional[Path] = Field(
+            None,
+            description="SDC timing file appended after typed Sdc design sources. "
+            "Clocks must not duplicate those in pin files, other SDC files, or flow settings.",
+        )
         pre_pack: Optional[Path] = Field(None, description="Python hook before packing.")
         pre_place: Optional[Path] = Field(None, description="Python hook before placement.")
         pre_route: Optional[Path] = Field(None, description="Python hook before routing.")
@@ -495,18 +493,20 @@ class Nextpnr(FpgaSynthFlow):
         return super().always_runs()
 
     def _constraint_kind(self) -> Optional[str]:
-        """The kind of pin constraint file this flow's FPGA family takes: lpf, pcf or pdc."""
+        """The selected family's pin format, independent of launch support."""
         assert isinstance(self.settings, self.Settings)
-        fpga = self.settings.fpga
-        family = ((fpga.family if fpga is not None else None) or "").lower()
-        return {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc"}.get(family)
+        return {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc", "xilinx": "xdc"}.get(
+            self.io_family(self.settings)
+        )
 
     def _constraint_url(self) -> Optional[str]:
-        """The URL the board database gives for this flow's pin constraints, when no setting
-        names a file instead."""
+        """The board URL, selected only when no typed family pin source is supplied."""
         assert isinstance(self.settings, self.Settings)
+        assert isinstance(self.inputs, self.Inputs)
+        if hasattr(self, "_board_url"):
+            return self._board_url
         kind = self._constraint_kind()
-        if kind is None or getattr(self.settings, f"{kind}_cfg"):
+        if kind is None or self.inputs.constraints:
             return None
         board_data = self.settings.board_data()
         uri = board_data.get(kind) if board_data else None
@@ -514,6 +514,151 @@ class Nextpnr(FpgaSynthFlow):
             return None
         parsed = urlparse(uri)
         return uri if parsed.scheme and parsed.netloc else None
+
+    def prepare_inputs(self) -> None:
+        """Select board fallback paths before freshness, without writing the run directory."""
+        assert isinstance(self.settings, self.Settings)
+        assert isinstance(self.inputs, self.Inputs)
+        self._pin_inputs = list(self.inputs.constraints or [])
+        self._board_url = None
+        kind = self._constraint_kind()
+        if self._pin_inputs or kind is None:
+            return
+        board_data = self.settings.board_data()
+        name = board_data.get(kind) if board_data else None
+        if not isinstance(name, str) or not name:
+            if kind == "xdc":
+                raise FlowFatalError(
+                    "Xilinx nextpnr needs typed Xdc files in rtl.sources or a board with an xdc fallback."
+                )
+            return
+        parsed = urlparse(name)
+        if parsed.scheme and parsed.netloc:
+            self._board_url = name
+            return  # always-run; fetch only after freshness/snapshot, inside run-local scratch
+        if self.settings.custom_boards_file:
+            path = self.settings.custom_boards_file.parent / name
+        else:
+            resource = files("xeda.data").joinpath(name)
+            if isinstance(resource, Path):
+                path = resource
+            else:
+                content = resource.read_bytes()
+                digest = hashlib.sha3_256(content).hexdigest()[:32]
+                root = self.run_directory.run_root
+                if root is None:
+                    raise FlowFatalError(
+                        "An archive board fallback needs an owned run root; supply a claimed scratch RunDirectory when constructing a flow directly."
+                    )
+                cache = RunDirectory.claimed(root / ".cache" / "board-files" / digest, root)
+                cache.path.mkdir(parents=True, exist_ok=True)
+                path = cache.writable(Path(name).name)
+                if path.is_file():
+                    if path.read_bytes() != content:
+                        raise FlowFatalError(
+                            f"Corrupt board file cache entry {path}; remove it and rerun."
+                        )
+                else:
+                    with replacing_file(path, "wb") as stream:
+                        stream.write(content)
+        if not path.is_file():
+            raise FlowFatalError(
+                f"Board {self.settings.board!r} {kind} fallback does not exist: {path}"
+            )
+        self._pin_inputs = [path]
+        self.implicit_inputs.append(path)
+
+    def _merged_constraints(self) -> tuple[Path | None, Path | None, float | None]:
+        """Write ordered pin and SDC merges after the launch snapshot, reconciling clocks."""
+        assert isinstance(self.settings, self.Settings)
+        assert isinstance(self.inputs, self.Inputs)
+        if not hasattr(self, "_pin_inputs"):
+            raise FlowFatalError(
+                "Call prepare_inputs() after assigning inputs and before running nextpnr."
+            )
+        paths = self._pin_inputs
+        if self._board_url:
+            scratch = self.run_directory.writable("board-download.constraints")
+            try:
+                # Fetch into our atomic guarded output, never a system temporary.
+                with urlopen(self._board_url) as response, replacing_file(scratch, "wb") as stream:
+                    stream.write(response.read())
+            except (OSError, URLError) as e:
+                raise FlowFatalError(
+                    f"Unable to retrieve constraints from {self._board_url}: {e}"
+                ) from e
+            paths = [scratch]
+        pins = merge_constraints(paths)
+        if self._board_url:
+            pins = Constraints().append(pins.text, self._board_url)
+        timing_paths = list(self.inputs.sdc or [])
+        if self.settings.sdc:
+            timing_paths.append(self.normalize_path_to_design_root(self.settings.sdc))
+        sdc = merge_constraints(timing_paths)
+        pins, frequency, timed = reconcile_clocks(
+            pins,
+            sdc,
+            self.settings.clocks,
+            family=self.io_family(self.settings),
+            netlist=self.inputs.netlist,
+            top=self.design.rtl.top or "",
+            main_clock=self.settings.main_clock,
+        )
+        if not timed:
+            log.warning(
+                "No physical clock period/frequency in flow settings or constraint files; nextpnr uses its 12 MHz default."
+            )
+        self._pin_constraints, self._sdc_constraints = pins, sdc
+
+        def write(merged: Constraints, name: str) -> Path | None:
+            if not merged.text:
+                return None
+            path = self.run_directory.writable(name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with replacing_file(path) as stream:
+                stream.write(merged.text)
+            return path
+
+        return (
+            write(pins, f"constraints.{self._constraint_kind()}"),
+            write(sdc, "constraints.sdc"),
+            frequency,
+        )
+
+    def _constraint_diagnostic(self) -> str | None:
+        """Translate constraint lines from a log written by this execution only."""
+        assert isinstance(self.settings, self.Settings)
+        path = self.settings.log
+        if path is None:
+            return None
+        path = self.report_file(path if path.is_absolute() else self.run_path / path)
+        if path is None:
+            return None
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            return None  # preserve the tool failure when its log cannot be read
+        messages = []
+        current = None
+        for line in lines:
+            if "constraints.sdc" in line:
+                current = self._sdc_constraints
+            elif f"constraints.{self._constraint_kind()}" in line:
+                current = self._pin_constraints
+            # nextpnr's constraint parsers also emit an unqualified '(on line N)'.
+            # Without a named file or a unique input, its origin is ambiguous. Python hook
+            # tracebacks ('File ... line N') are never constraint-file diagnostics.
+            parser_line = re.search(r"\(on line\s+\d+\)", line, re.IGNORECASE)
+            if parser_line and current is None:
+                candidates = [m for m in (self._pin_constraints, self._sdc_constraints) if m.text]
+                if len(candidates) == 1:
+                    current = candidates[0]
+            named = "constraints.sdc" in line or f"constraints.{self._constraint_kind()}" in line
+            if current is not None and (named or parser_line):
+                translated = current.diagnostic(line)
+                if translated != line:
+                    messages.append(translated)
+        return "\n".join(messages) if messages else None
 
     def _target(self) -> tuple[str, list[str]]:
         """The validated architecture and device arguments for this instance."""
@@ -611,16 +756,16 @@ class Nextpnr(FpgaSynthFlow):
         if not netlist_json.exists():
             raise FlowFatalError(f"netlist json file {netlist_json} does not exist!")
 
+        pin_file, sdc_file, frequency = self._merged_constraints()
         args = setting_flag(netlist_json, name="json")
-        args += setting_flag(ss.clock_period and (1000 / ss.clock_period), name="freq")
+        args += setting_flag(frequency, name="freq")
+        args += setting_flag(sdc_file, name="sdc")
         args += setting_flag(self.design.rtl.top)
         args += setting_flag(ss.seed)
         args += target_args
         # Settings of another architecture were rejected by `_target`.
         for name in FAMILY_SETTINGS:
             value = getattr(ss, name)
-            if name in ("lpf_cfg", "pcf_cfg", "pdc_cfg"):
-                continue  # the constraint file is passed below
             if isinstance(value, Path):
                 value = self.normalize_path_to_design_root(value)
             args += setting_flag(value, name=name)
@@ -650,7 +795,7 @@ class Nextpnr(FpgaSynthFlow):
         ):
             args += setting_flag(getattr(ss, name), name=name)
         # Input files are named relative to the design root.
-        for name in ("sdc", "pre_pack", "pre_place", "pre_route", "post_route", "py_script"):
+        for name in ("pre_pack", "pre_place", "pre_route", "post_route", "py_script"):
             value = getattr(ss, name)
             if value:
                 flag = "run" if name == "py_script" else name
@@ -663,8 +808,13 @@ class Nextpnr(FpgaSynthFlow):
         if ss.extra_args:
             args += ss.extra_args
         constraint_name = {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc"}[fpga_family]
-        with self._constraint_file(constraint_name) as constraint:
-            next_pnr.run(*setting_flag(constraint, name=constraint_name), *args)
+        try:
+            next_pnr.run(*setting_flag(pin_file, name=constraint_name), *args)
+        except NonZeroExitCode as e:
+            diagnostic = self._constraint_diagnostic()
+            if diagnostic:
+                raise FlowFatalError(f"nextpnr constraint error: {diagnostic}") from e
+            raise
         if config and (declared.config is None or not self.wrote_output(declared.config)):
             raise FlowFatalError(
                 f"nextpnr did not write enabled {config[0]} configuration {declared.config}."
@@ -675,31 +825,6 @@ class Nextpnr(FpgaSynthFlow):
                 path = path if path.is_absolute() else self.run_path / path
                 if path.is_file():
                     self.artifacts[name] = path
-
-    @contextmanager
-    def _constraint_file(self, kind: str) -> Iterator[Path | str | None]:
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        explicit = getattr(ss, f"{kind}_cfg")
-        board_data = None if explicit else ss.board_data()
-        if not board_data or kind not in board_data:
-            yield self.normalize_path_to_design_root(explicit) if explicit else None
-            return
-        uri = board_data[kind]
-        r = urlparse(uri)
-        if r.scheme and r.netloc:
-            try:
-                lpf, _ = urlretrieve(uri)
-            except HTTPError as e:
-                log.critical("Unable to retrieve file from %s (HTTP Error %d)", uri, e.code)
-                raise FlowFatalError("Unable to retrieve LPF file") from None
-            yield lpf
-        else:
-            with ss.board_file(uri) as lpf_path:
-                # no setting names it: the trace learns of it here (the bundled files are part
-                # of xeda's code digest as well)
-                self.implicit_inputs.append(Path(lpf_path))
-                yield lpf_path
 
     # ------------------------------------------------------------------ report parsing
 

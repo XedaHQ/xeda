@@ -99,6 +99,7 @@ from .trace_inputs import (
     declared_input_files,
     expectation,
     register_read_settings,
+    registered_input_files,
     setting_files,
     snapshot_inputs,
 )
@@ -980,6 +981,10 @@ class FlowLauncher:
                         )
                     else:
                         self._run_dependencies(flow, design, all_flows_settings, read_leases)
+                    flow.prepare_inputs()
+                    prepared = registered_input_files(flow)
+                    self._read_inputs.add(prepared)
+                    _refuse_inputs_inside(flow.run_path, flow.name, prepared)
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
                     # a dependency failed or raised: this flow did not run: its directory no longer vouches for a success
                     remove_trace(run_path)

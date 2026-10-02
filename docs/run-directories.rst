@@ -310,8 +310,10 @@ Some runs can never be reused, and say why: they always run, keep no trace, and 
   run with ``random_seed: random``, or with ``randomize_seed: true`` for ``nextpnr`` and
   ``open_xc7`` (now off by default).
 - ``nextpnr`` when a board's pin constraints are fetched from a URL: "its constraints are fetched
-  from a URL" -- no trace can verify a file on the network. A local constraints file (``lpf_cfg``,
-  or a board from ``custom_boards_file``) is tracked as usual.
+  from a URL" -- no trace can verify a file on the network. It is fetched into guarded scratch
+  in the run directory only when the flow executes. Local typed constraint sources and local
+  board fallbacks are tracked before freshness is checked. Bundled archive board files are
+  materialized under the run root's content-keyed ``.cache/board-files/`` directory.
 
 What is not tracked
 ---------------------
