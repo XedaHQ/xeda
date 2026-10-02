@@ -21,7 +21,7 @@ from ..design import Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from ..flow.flow import written_path_problems
 from ..flow.fpga import FPGA
-from ..flow.io import declared_inputs, declared_outputs, is_declared, output_enabled, switch_on
+from ..flow.io import declared_inputs, declared_outputs, is_declared, selected_types
 from ..flow.synth import PhysicalClock
 from ..utils import semantic_hash
 from .settings_layers import (
@@ -39,7 +39,7 @@ from .settings_layers import (
 )
 from .trace import as_recorded, settings_difference
 
-SHARED_SETTINGS = ("fpga", "board", "custom_boards_file", "clocks")
+SHARED_SETTINGS = ("fpga", "board", "custom_boards_file", "clocks", "prjxray_db")
 ORIGIN_NAMES = ("the project file", "the design file", "the command line")
 log = logging.getLogger(__name__)
 
@@ -340,6 +340,7 @@ class _Request:
     requester: str
     inputs: list[ResolvedInput] = field(default_factory=list)
     children: list[tuple[str | None, _Request]] = field(default_factory=list)
+    producers: dict[str, _Request] = field(default_factory=dict)
     needed: set[str] = field(default_factory=set)
     switched: tuple[str, ...] = ()
     settings: Flow.Settings | None = None
@@ -416,6 +417,11 @@ def _normalized_leaves(
                 # only after they agree; here check the same strict name syntax as the field.
                 if value is not None and not isinstance(value, str):
                     raise ValueError("board must be a string or None")
+            elif shared == "prjxray_db":
+                model = settings_in_context(request.cls, {shared: value}, **context)
+                value = getattr(model, shared)
+                if value is not None:
+                    value = (context["design_root"] / value).resolve()
             elif shared == "custom_boards_file":
                 board = WithFpgaBoardSettings.from_input({shared: value}, **context)
                 value = getattr(board, shared)
@@ -467,7 +473,9 @@ def _shared_locations(
     return result
 
 
-def _agree(requests: list[_Request], shared: str, context: dict[str, Any]) -> None:
+def _agree(
+    requests: list[_Request], shared: str, context: dict[str, Any], *, provisional: bool = False
+) -> None:
     for group in _components(requests, shared):
         candidates: dict[tuple[str, ...], list[tuple[_Request, Any, _Location]]] = {}
         for request in group:
@@ -480,7 +488,7 @@ def _agree(requests: list[_Request], shared: str, context: dict[str, Any]) -> No
             winners = [c for c in contributions if rank[c[2].kind] == highest]
             first, value, location = winners[0]
             for other, alternative, other_location in winners[1:]:
-                if value != alternative:
+                if value != alternative and not provisional:
                     leaf = ".".join(path)
                     raise _error(
                         first.cls,
@@ -604,7 +612,10 @@ def resolve(
             sources = tuple(
                 source.path for source in design.rtl.sources if source.type in declaration.types
             )
-            if sources:
+            specialized = getattr(cls.input_types, "__func__") is not getattr(
+                Flow.input_types, "__func__"
+            )
+            if sources and not specialized:
                 if declaration.cardinality != "many" and len(sources) != 1:
                     kinds = "/".join(t.name for t in declaration.types)
                     raise FlowSettingsException(
@@ -621,7 +632,7 @@ def resolve(
                     )
                 continue
             if declaration.producer is None:
-                if declaration.required:
+                if declaration.required and not specialized:
                     raise FlowSettingsException(
                         f"{cls.name} needs its input `{declaration.name}` ({', '.join(t.name for t in declaration.types)}); list a source or declare a producer"
                     )
@@ -633,27 +644,19 @@ def resolve(
                     f"{cls.name}.{declaration.name} names unknown producer {declaration.producer!r}"
                 )
             outputs = declared_outputs(producer)
-            matching = [out for out in outputs.values() if set(out.types) <= set(declaration.types)]
+            matching = [out for out in outputs.values() if set(out.types) & set(declaration.types)]
             output = (
                 outputs.get(declaration.output)
                 if declaration.output
                 else (matching[0] if len(matching) == 1 else None)
             )
-            if output is None or not set(output.types) <= set(declaration.types):
+            if output is None:
                 raise FlowSettingsException(
                     f"{cls.name}.{declaration.name}: {producer.name} has no unambiguous compatible output {declaration.output or ''!r}"
                 )
             if output.cardinality == "many" and declaration.cardinality != "many":
                 raise FlowSettingsException(
                     f"{cls.name}.{declaration.name} takes one file, but {producer.name}.{output.name} produces many"
-                )
-            if (
-                declaration.required
-                and output.cardinality == "optional"
-                and output.enabled_by is None
-            ):
-                raise FlowSettingsException(
-                    f"{cls.name}.{declaration.name} requires {producer.name}.{output.name}, which may be absent and cannot be switched on"
                 )
             key = next(
                 (
@@ -690,6 +693,7 @@ def resolve(
                     )
             child = discover(producer, child_raw, f"{cls.name}.{declaration.name}")
             child.needed.add(output.name)
+            request.producers[declaration.name] = child
             request.children.append((key, child))
             request.inputs.append(
                 ResolvedInput(declaration.name, "producer", producer.name, output.name)
@@ -699,32 +703,94 @@ def resolve(
         return request
 
     root = discover(flow_cls, root_raw, flow_cls.name)
+
+    def agree_targets(candidates: list[_Request], *, provisional: bool = False) -> None:
+        # Board/database agreement precedes expansion into explicit FPGA contributions.
+        for shared in ("board", "custom_boards_file"):
+            _agree(candidates, shared, context, provisional=provisional)
+        for request in candidates:
+            if issubclass(request.cls.Settings, WithFpgaBoardSettings) and request.raw.values.get(
+                "board"
+            ):
+                raw_board: dict[str, Any] = {
+                    key: request.raw.values[key]
+                    for key in ("board", "custom_boards_file")
+                    if key in request.raw.values
+                }
+                board = WithFpgaBoardSettings.from_input(raw_board, **context)
+                if board.fpga:
+                    location = request.raw.locations.get(("board",), _Location("the shared board"))
+                    fpga = _explicit(board.fpga)
+                    request.raw.values["fpga"] = merge_layers(fpga, request.raw.values.get("fpga"))
+                    for path in _leaves(fpga, ("fpga",)):
+                        request.raw.locations.setdefault(path, location)
+        for shared in SHARED_SETTINGS:
+            if shared not in ("board", "custom_boards_file") and (
+                not provisional or shared == "fpga"
+            ):
+                _agree(candidates, shared, context, provisional=provisional)
+
+    if any(
+        getattr(r.cls.input_types, "__func__") is not getattr(Flow.input_types, "__func__")
+        for r in requests
+    ):
+        # A bounded selection pass on copies: a consumer's target breaks provisional ties.
+        # Strict agreement below applies only to edges that survive source displacement.
+        proposals = deepcopy(requests)
+        agree_targets(proposals, provisional=True)
+        for request, proposal in zip(requests, proposals):
+            values = _nonshared_input(proposal.cls, proposal.raw.values)
+            for shared in ("fpga", "board", "custom_boards_file"):
+                if shared in proposal.raw.values:
+                    values[shared] = proposal.raw.values[shared]
+            settings = settings_in_context(proposal.cls, values, **context)
+            bindings = []
+            for declaration in declared_inputs(request.cls).values():
+                types = selected_types(request.cls, settings, declaration.name)
+                sources = tuple(
+                    source.path for source in design.rtl.sources if source.type in types
+                )
+                old = next(item for item in request.inputs if item.name == declaration.name)
+                if sources:
+                    bindings.append(ResolvedInput(declaration.name, "source", sources=sources))
+                    child = request.producers.pop(declaration.name, None)
+                    if child is not None:
+                        request.children = [
+                            (key, edge) for key, edge in request.children if edge is not child
+                        ]
+                        log.info(
+                            "%s.%s uses design sources; settings for displaced producer %s are unused",
+                            request.cls.name,
+                            declaration.name,
+                            child.cls.name,
+                        )
+                else:
+                    bindings.append(
+                        old if old.origin == "producer" else ResolvedInput(declaration.name, "none")
+                    )
+            request.inputs = bindings
+        requests, order = [], []
+
+        def retain(request: _Request) -> None:
+            requests.append(request)
+            request.needed.clear()
+            for _key, child in request.children:
+                retain(child)
+            order.append(request)
+
+        retain(root)
+        for request in requests:
+            for selected in request.inputs:
+                if selected.origin == "producer":
+                    assert selected.output is not None
+                    request.producers[selected.name].needed.add(selected.output)
+
     active = {request.cls.name for request in requests}
     for name, cls in transitive_dependencies(flow_cls).items():
         if name not in active:
             unused = compose_flow_settings(cls, [values for _label, values, _kind in layers])
             settings_in_context(cls, unused, **context)  # syntax only, no launch requirements
-    # Board and database agreement must precede expansion to FPGA contributions.
-    for shared in ("board", "custom_boards_file"):
-        _agree(requests, shared, context)
-    for request in requests:
-        if issubclass(request.cls.Settings, WithFpgaBoardSettings) and request.raw.values.get(
-            "board"
-        ):
-            raw_board: dict[str, Any] = {
-                key: request.raw.values[key]
-                for key in ("board", "custom_boards_file")
-                if key in request.raw.values
-            }
-            board = WithFpgaBoardSettings.from_input(raw_board, **context)
-            if board.fpga:
-                location = request.raw.locations.get(("board",), _Location("the shared board"))
-                fpga = _explicit(board.fpga)
-                request.raw.values["fpga"] = merge_layers(fpga, request.raw.values.get("fpga"))
-                for path in _leaves(fpga, ("fpga",)):
-                    request.raw.locations.setdefault(path, location)
-    for shared in ("fpga", "clocks"):
-        _agree(requests, shared, context)
+    agree_targets(requests)
 
     required: dict[str, set[str]] = {}
     for request in requests:
@@ -742,15 +808,17 @@ def resolve(
             suggest_dependency_node(request.cls, error)
             raise
         switched = []
-        for name, output in declared_outputs(request.cls).items():
-            if name in required[request.cls.name] and not output_enabled(request.settings, output):
+        for name in declared_outputs(request.cls):
+            if name in required[request.cls.name]:
+                before = request.settings.model_dump()
                 try:
-                    switch_on(request.settings, output)
+                    request.cls.enable_output(request.settings, name)
                 except ValueError as error:
                     raise FlowSettingsException(
                         f"{request.cls.name}.{name} is required by a consumer: {error}"
                     ) from error
-                switched.append(name)
+                if request.settings.model_dump() != before:
+                    switched.append(name)
         request.switched = tuple(switched)
         # Assignment validators may change other fields; validate the final snapshot together.
         request.settings = settings_in_context(
@@ -792,6 +860,43 @@ def resolve(
     for request in [root, *(r for r in requests if r is not root)]:
         assert request.settings is not None
         check_launchable(request.cls, request.settings, design)
+
+    # The final settings select the very same sources and producer formats as discovery.
+    for request in requests:
+        assert request.settings is not None
+        for binding in request.inputs:
+            declaration = declared_inputs(request.cls)[binding.name]
+            types = selected_types(request.cls, request.settings, binding.name)
+            sources = tuple(source.path for source in design.rtl.sources if source.type in types)
+            if binding.origin == "source" and sources != binding.sources:
+                raise FlowSettingsException(
+                    f"{request.cls.name}.{binding.name} source selection changed after target agreement"
+                )
+            if binding.origin != "source" and sources:
+                raise FlowSettingsException(
+                    f"{request.cls.name}.{binding.name} source selection changed after target agreement"
+                )
+            if binding.origin == "none" and declaration.required:
+                raise FlowSettingsException(
+                    f"{request.cls.name} needs its input `{binding.name}` ({', '.join(t.name for t in types)}); list a source or declare a producer"
+                )
+            if (
+                binding.origin == "source"
+                and declaration.cardinality != "many"
+                and len(sources) != 1
+            ):
+                raise FlowSettingsException(
+                    f"{request.cls.name}.{binding.name} takes one {'/'.join(t.name for t in types)} file; found "
+                    + ", ".join(map(str, sources))
+                )
+            if binding.origin == "producer":
+                child = request.producers[binding.name]
+                assert child.settings is not None and binding.output is not None
+                produced = selected_types(child.cls, child.settings, binding.output, output=True)
+                if not produced or not set(produced) <= set(types):
+                    raise FlowSettingsException(
+                        f"{request.cls.name}.{binding.name}: {child.cls.name}.{binding.output} has no compatible output for the selected target"
+                    )
 
     nodes: dict[str, PlanNode] = {}
     first_requests: dict[str, str] = {}

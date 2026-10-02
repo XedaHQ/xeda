@@ -72,7 +72,16 @@ from ..utils import (
     unique,
 )
 
-from .io import FlowInputs, FlowOutputs, check_io_declarations, is_declared
+from .io import (
+    FlowInputs,
+    FlowOutputs,
+    check_io_declarations,
+    declared_inputs,
+    declared_outputs,
+    is_declared,
+    output_enabled,
+    switch_on,
+)
 
 if TYPE_CHECKING:
     from ..deliver import Delivered
@@ -652,6 +661,25 @@ class Flow(metaclass=ABCMeta):
     @classmethod
     def check_settings_supported(cls, settings: "Flow.Settings") -> None:
         """Validate a target/configuration without constructing a flow or probing tools."""
+
+    @classmethod
+    def input_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
+        """Narrow an input's vocabulary using settings alone, without probes or writes."""
+        return declared_inputs(cls)[name].types
+
+    @classmethod
+    def output_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
+        """Narrow an output's vocabulary using settings alone, without probes or writes."""
+        return declared_outputs(cls)[name].types
+
+    @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str) -> None:
+        """Enable a demanded output on the resolver's mutable settings proposal."""
+        declaration = declared_outputs(cls)[name]
+        if declaration.cardinality == "optional" and declaration.enabled_by is None:
+            raise ValueError(f"{cls.name}.{name} cannot be switched on")
+        if not output_enabled(settings, declaration):
+            switch_on(settings, declaration)
 
     @classmethod
     def check_design_supported(cls, design: Design) -> None:

@@ -395,6 +395,8 @@ class Nextpnr(FpgaSynthFlow):
 
         dependency_settings = {"yosys": ("fpga", "clocks")}
 
+        prjxray_db: Path | None = Field(None, description="Project X-Ray database root override.")
+
         @field_validator("yosys", mode="before")
         @classmethod
         def _yosys_keeps_src_by_default(cls, value):
@@ -408,12 +410,68 @@ class Nextpnr(FpgaSynthFlow):
             output="netlist",
             description="The JSON netlist to place: a design source or yosys_fpga's netlist.",
         )
+        constraints: list[Path] = In(
+            (SourceType.Lpf, SourceType.Pcf, SourceType.Pdc, SourceType.Xdc),
+            optional=True,
+            description="Family pin constraints in design-source order.",
+        )
+        sdc: list[Path] = In(
+            SourceType.Sdc,
+            optional=True,
+            description="SDC timing constraints in design-source order.",
+        )
 
     class Outputs(FpgaSynthFlow.Outputs):
         config: Path | None = Out(
             (SourceType.EcpConfig, SourceType.IceAsc, SourceType.Fasm),
-            description="The routed configuration: ECP5 textcfg, iCE40 asc, or Nexus fasm.",
+            description="The routed configuration: ECP5 textcfg, iCE40 asc, or Nexus/Xilinx fasm.",
         )
+
+    @staticmethod
+    def io_family(settings: Flow.Settings) -> str:
+        """Classify formats independently of which targets can currently be launched."""
+        fpga = getattr(settings, "fpga", None)
+        family = ((fpga.family if fpga else None) or "").lower()
+        if family in ("artix-7", "kintex-7", "spartan-7", "virtex-7", "zynq-7"):
+            return "xilinx"
+        return family
+
+    @classmethod
+    def input_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
+        if name == "constraints":
+            kind = {
+                "ecp5": SourceType.Lpf,
+                "ice40": SourceType.Pcf,
+                "nexus": SourceType.Pdc,
+                "xilinx": SourceType.Xdc,
+            }.get(cls.io_family(settings))
+            return (kind,) if kind else ()
+        return super().input_types(settings, name)
+
+    @classmethod
+    def output_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
+        if name == "config":
+            kind = {
+                "ecp5": SourceType.EcpConfig,
+                "ice40": SourceType.IceAsc,
+                "nexus": SourceType.Fasm,
+                "xilinx": SourceType.Fasm,
+            }.get(cls.io_family(settings))
+            return (kind,) if kind else ()
+        return super().output_types(settings, name)
+
+    @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str) -> None:
+        if name != "config":
+            return super().enable_output(settings, name)
+        family = cls.io_family(settings)
+        if family == "ecp5" and getattr(settings, "out_of_context", False):
+            raise ValueError("ECP5 out_of_context produces no configuration")
+        setting = {"ecp5": "textcfg", "ice40": "asc", "nexus": "fasm", "xilinx": "fasm"}.get(family)
+        if setting is None:
+            raise ValueError(f"no configuration format for FPGA family {family!r}")
+        if not getattr(settings, setting):
+            setattr(settings, setting, cls.Settings.model_fields[setting].get_default())
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:

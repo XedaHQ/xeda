@@ -48,7 +48,7 @@ from ..design import (
     refusing_load_side_effects,
 )
 from ..flow import Flow, FlowDependencyFailure, FlowFatalError, FlowSettingsError, registered_flows
-from ..flow.io import declared_inputs, is_declared
+from ..flow.io import declared_inputs, is_declared, selected_types
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout, recording_programs
@@ -1332,6 +1332,15 @@ class FlowLauncher:
                 if producer not in flow.completed_dependencies:
                     read_leases.enter_context(self._producer_read_lease(producer))
                     flow.completed_dependencies.append(producer)
+                accepted = selected_types(type(flow), node.settings, selected.name)
+                produced = selected_types(
+                    producer_node.flow_class, producer_node.settings, selected.output, output=True
+                )
+                if not produced or not set(produced) <= set(accepted):
+                    raise FlowDependencyFailure(
+                        f"{flow.name}.{selected.name}: {producer.name}.{selected.output} "
+                        "has no compatible output for the selected target"
+                    )
                 paths = handed_over(producer, selected.output)
             if (declaration.required and not paths) or (
                 declaration.cardinality != "many" and len(paths) > 1

@@ -34,6 +34,7 @@ __all__ = [
     "declared_outputs",
     "is_declared",
     "output_enabled",
+    "selected_types",
     "switch_on",
 ]
 
@@ -196,6 +197,22 @@ def is_declared(flow_cls: Any) -> bool:
     """Whether `flow_cls` declares any input or output: the launcher then launches its
     producers (`resolver`), and its `init()` registers none."""
     return bool(declared_inputs(flow_cls) or declared_outputs(flow_cls))
+
+
+def selected_types(
+    flow_cls: Any, settings: Any, name: str, *, output: bool = False
+) -> tuple[SourceType, ...]:
+    """Check that a pure specialization only narrows its static declaration vocabulary."""
+    declarations = declared_outputs(flow_cls) if output else declared_inputs(flow_cls)
+    hook = flow_cls.output_types if output else flow_cls.input_types
+    types = hook(settings, name)
+    if (
+        not isinstance(types, tuple)
+        or not all(isinstance(t, SourceType) for t in types)
+        or not set(types) <= set(declarations[name].types)
+    ):
+        raise ValueError(f"{flow_cls.name}.{name} types must narrow the declared vocabulary")
+    return types
 
 
 def check_io_declarations(flow_cls: Any) -> None:

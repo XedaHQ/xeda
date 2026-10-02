@@ -22,6 +22,7 @@ from xeda.flow.io import (
     declared_outputs,
     is_declared,
     output_enabled,
+    selected_types,
     switch_on,
 )
 from xeda.introspect import flow_info
@@ -80,6 +81,63 @@ def test_the_declarations_are_read_from_the_nested_models():
 def test_a_flow_with_no_declaration_is_undeclared():
     assert is_declared(_Maker) and is_declared(_Taker) and is_declared(_Place)
     assert not is_declared(_Wrapper)
+
+
+def test_default_pure_hooks_preserve_the_declared_types_and_enablement():
+    settings = _Maker.Settings(write=False)
+    assert _Maker.output_types(settings, "made") == (SourceType.Data,)
+    assert _Taker.input_types(_Taker.Settings(), "made") == (SourceType.Data,)
+    _Maker.enable_output(settings, "made")
+    assert settings.write is True
+    assert selected_types(_Maker, settings, "made", output=True) == (SourceType.Data,)
+
+
+def test_default_hook_refuses_an_optional_output_without_a_switch():
+    flow_cls = _flow_with_model("Outputs", Path | None, Out(SourceType.Data, description="File."))
+    with pytest.raises(ValueError, match="cannot be switched on"):
+        flow_cls.enable_output(flow_cls.Settings(), "file")
+
+
+def test_a_specialization_cannot_expand_the_declared_vocabulary():
+    class _Expanded(_Maker):
+        """An invalid output specialization."""
+
+        results_description = {}
+
+        @classmethod
+        def output_types(cls, settings, name):
+            return (SourceType.Data, SourceType.Bitstream)
+
+    with pytest.raises(ValueError, match="must narrow"):
+        selected_types(_Expanded, _Expanded.Settings(), "made", output=True)
+
+
+def test_a_required_specialized_input_can_be_supplied_without_a_default_producer(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+
+    class _SourceOnly(Flow):
+        """Read an explicitly supplied source of the selected type."""
+
+        results_description = {}
+
+        class Inputs(Flow.Inputs):
+            file: Path = In((SourceType.Data, SourceType.Bitstream), description="Selected data.")
+
+        @classmethod
+        def input_types(cls, settings, name):
+            return (SourceType.Data,)
+
+        def run(self):
+            pass
+
+    (tmp_path / "data").write_text("given\n")
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": [{"file": "data", "type": "Data"}], "top": "t"},
+    )
+    plan = DefaultRunner(tmp_path / "run").plan(_SourceOnly, design)
+    assert plan.nodes[0].inputs[0].sources == (tmp_path / "data",)
 
 
 def test_inputs_and_outputs_are_unset_until_set_and_validated_when_set(tmp_path):
