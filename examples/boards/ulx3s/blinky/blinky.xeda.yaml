@@ -1,4 +1,4 @@
-sources: ["blinky.v"]
+sources: ["blinky.v", {file: "blinky.lpf", type: Lpf}]
 top: blinky
 clock:
   port: "clk_25mhz"

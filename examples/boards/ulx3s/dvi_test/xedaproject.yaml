@@ -11,6 +11,8 @@ design:
       - 'tmds_encoder.vhd'
       - 'ecp5pll.vhdl'
       - 'top_vgatest.vhd'
+      - file: 'dvi_test.lpf'
+        type: 'Lpf'
     top: 'top_vgatest'
     clock:
       port: 'clk_25mhz'

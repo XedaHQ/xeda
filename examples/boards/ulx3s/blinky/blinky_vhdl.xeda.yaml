@@ -1,6 +1,6 @@
 hdl.vhdl.standard: "2008"
 
-sources: ["ecp5pll.vhdl", "blinky.vhdl"]
+sources: ["ecp5pll.vhdl", "blinky.vhdl", {file: "blinky-vhdl.lpf", type: Lpf}]
 top: blinky
 clock:
   port: "clk_25mhz"

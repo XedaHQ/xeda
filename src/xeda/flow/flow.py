@@ -1026,6 +1026,14 @@ class Flow(metaclass=ABCMeta):
         Any dependent flows should be registered here by using add_dependency
         """
 
+    def prepare_inputs(self) -> None:
+        """Prepare managed inputs after hand-over, before freshness is judged.
+
+        Producer inputs are filled and held for reading. This stage runs even on a fresh
+        launch; it must not write the flow's run directory. Register resolved files in
+        ``implicit_inputs`` so freshness and delivery reservations see them before execution.
+        """
+
     def add_dependency(
         self,
         dep_flow_class: Union[Type[Flow], str],

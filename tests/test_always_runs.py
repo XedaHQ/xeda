@@ -179,6 +179,7 @@ def test_a_board_constraint_file_fetched_from_a_url_always_runs(tmp_path, design
     assert flow.always_runs() == "its constraints are fetched from a URL"
     explicit = tmp_path / "pins.lpf"
     explicit.write_text("\n")
-    pinned = _flow(Nextpnr, design, tmp_path, **board, lpf_cfg=str(explicit))
+    pinned = _flow(Nextpnr, design, tmp_path, **board)
+    pinned.inputs.constraints = [explicit]
     assert pinned.always_runs() is None
     assert Path(explicit).is_file()

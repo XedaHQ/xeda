@@ -324,6 +324,7 @@ def test_target_specific_nextpnr_arguments(tmp_path, monkeypatch, fpga, expected
             calls.append((self.executable, args)),
         ),
     )
+    flow.prepare_inputs()
     flow.run()
     executable, args = calls[0]
     assert executable == f"nextpnr-{fpga['family']}"
@@ -357,6 +358,7 @@ def test_ice40_part_identifies_synthesis_and_pnr_device(
         "run",
         lambda self, *args: (write_nextpnr_config(flow, args), calls.append(args)),
     )
+    flow.prepare_inputs()
     flow.run()
     assert device_flag in calls[0]
 
@@ -364,23 +366,25 @@ def test_ice40_part_identifies_synthesis_and_pnr_device(
 def test_nextpnr_resolves_explicit_constraint_paths_against_design_root(tmp_path, monkeypatch):
     (tmp_path / "pins.lpf").write_text('LOCATE COMP "clk" SITE "A1";\n')
     (tmp_path / "timing.sdc").write_text("# timing\n")
-    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    design = Design(name="d", rtl={"sources": ["pins.lpf"], "top": "d"}, design_root=tmp_path)
     fpga = FPGA(part="LFE5U-25F-6BG381C")
     flow = Nextpnr(
-        Nextpnr.Settings(fpga=fpga, lpf_cfg="pins.lpf", sdc="timing.sdc"),
+        Nextpnr.Settings(fpga=fpga, sdc="timing.sdc"),
         design,
         tmp_path / "pnr",
     )
     flow.inputs.netlist = _netlist(tmp_path)
+    flow.inputs.constraints = [tmp_path / "pins.lpf"]
     calls = []
     monkeypatch.setattr(
         NextpnrTool,
         "run",
         lambda self, *args: (write_nextpnr_config(flow, args), calls.append(args)),
     )
+    flow.prepare_inputs()
     flow.run()
-    assert f"--lpf={tmp_path / 'pins.lpf'}" in calls[0]
-    assert f"--sdc={tmp_path / 'timing.sdc'}" in calls[0]
+    assert f"--lpf={flow.run_path / 'constraints.lpf'}" in calls[0]
+    assert f"--sdc={flow.run_path / 'constraints.sdc'}" in calls[0]
 
 
 def _nextpnr_args(tmp_path, monkeypatch, **settings):
@@ -398,22 +402,22 @@ def _nextpnr_args(tmp_path, monkeypatch, **settings):
         "run",
         lambda self, *args: (write_nextpnr_config(flow, args), calls.append(args)),
     )
+    flow.prepare_inputs()
     flow.run()
     return calls[0]
 
 
 def test_nextpnr_expands_design_root_in_file_settings(tmp_path, monkeypatch):
+    (tmp_path / "timing.sdc").write_text("# timing\n")
     args = _nextpnr_args(
         tmp_path,
         monkeypatch,
         fpga="LFE5U-25F-6BG381C",
-        lpf_cfg="$DESIGN_ROOT/pins.lpf",
         sdc="$DESIGN_ROOT/timing.sdc",
         pre_route="hooks/pre_route.py",
         py_script="report.py",
     )
-    assert f"--lpf={tmp_path / 'pins.lpf'}" in args
-    assert f"--sdc={tmp_path / 'timing.sdc'}" in args
+    assert f"--sdc={tmp_path / 'pnr' / 'constraints.sdc'}" in args
     assert f"--pre-route={tmp_path / 'hooks/pre_route.py'}" in args
     assert f"--run={tmp_path / 'report.py'}" in args
 
@@ -438,10 +442,13 @@ def test_nextpnr_names_the_device_and_package_its_own_way(tmp_path, monkeypatch,
     [
         ({"fpga": {"vendor": "gowin", "family": "gowin", "device": "GW1N-9"}}, "no tested"),
         ({"fpga": "xc7a35tcpg236-1"}, "no tested"),
-        ({"fpga": "iCE40HX1K-TQ144", "lpf_cfg": "pins.lpf"}, "does not take lpf_cfg"),
         (
-            {"fpga": "LFE5U-25F-6BG381C", "opt_timing": True, "pdc_cfg": "p.pdc"},
-            "does not take opt_timing, pdc_cfg",
+            {"fpga": "iCE40HX1K-TQ144", "lpf_allow_unconstrained": True},
+            "does not take lpf_allow_unconstrained",
+        ),
+        (
+            {"fpga": "LFE5U-25F-6BG381C", "opt_timing": True, "no_pack_lutff": True},
+            "does not take opt_timing, no_pack_lutff",
         ),
         ({"fpga": {"family": "nexus", "device": "LIFCL-40"}}, "LIFCL-40-9BG400C"),
         ({"fpga": {"family": "ice40", "device": "iCE40UL1K"}}, "no device 'ul1k'"),

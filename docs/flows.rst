@@ -194,19 +194,26 @@ names, ``LIFCL-40-9BG400C`` (``nextpnr-nexus --list-devices``).
 
 nextpnr uses each backend's own default timing-driven placer and router. Specify the actual
 part, package, speed grade and timing constraints before comparing results. ``clock.period``
-sets the target frequency; ``lpf_cfg`` (ECP5), ``pcf_cfg`` (iCE40), ``pdc_cfg`` (Nexus),
-``sdc``, the hooks and ``py_script`` name files relative to the design root (or with
+sets the target frequency. Put pin files in ``rtl.sources`` with types ``Lpf`` (ECP5),
+``Pcf`` (iCE40), ``Pdc`` (Nexus), or ``Xdc`` (Xilinx). Files of the selected family are
+concatenated in source order; when none are supplied, the selected board's pin file is used.
+Typed ``Sdc`` sources are concatenated separately, followed by the optional ``sdc`` setting's
+file, and passed once through ``--sdc``. A clock may have only one timing constraint across
+pin files, SDC files and flow settings: duplicates name both original paths/lines or the
+clock setting and its period. File-only clocks supply timing without a generated frequency.
+The removed ``lpf_cfg``, ``pcf_cfg`` and ``pdc_cfg`` settings give a typed-source migration error.
+The ``sdc`` setting, hooks and ``py_script`` name files relative to the design root (or with
 ``$DESIGN_ROOT``). A setting of another architecture is an error. A fixed ``seed`` makes comparisons
 reproducible; try several fixed seeds when optimizing a particular design. The common
 ``placer``, ``router``, HeAP weights and hook settings allow measured experiments. Experimental
 ``tmg_ripup``, ``parallel_refine`` and iCE40 ``opt_timing`` stay opt-in. A faster or smaller
 Yosys netlist alone does not establish an improvement in routed Fmax.
 
-For example::
+For example, include ``{ file = "pins.pcf", type = "Pcf" }`` in ``rtl.sources``, then::
 
-    xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
-      -s clock.period=20 -s pcf_cfg=pins.pcf -s seed=2
-    xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
+        xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
+          -s clock.period=20 -s seed=2
+        xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
 
 Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
 ``openfpgaloader --json`` to inspect all named settings. ``synth_flags``, ``extra_args`` and

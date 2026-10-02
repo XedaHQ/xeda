@@ -423,7 +423,7 @@ def _existing_files(paths: Sequence[Path], run_path: Path) -> list[Path]:
 
 def registered_input_files(flow: Flow) -> list[Path]:
     """Every existing file `flow` has registered in `Flow.implicit_inputs` so far. Called before
-    the run, these are the files its `init()` resolved (an ABC script, expanded against the start
+    the run, these are the files its `init()` or `prepare_inputs()` resolved (an ABC script, expanded against the start
     directory or the environment): known before the run, they are expected inputs like a
     setting's files, so a launch that resolves another file finds a new input, not a match."""
     return _existing_files(flow.implicit_inputs, flow.run_path)
@@ -534,7 +534,7 @@ def candidate_inputs(
     """Every existing file the run would consume that can be named before it runs: the
     design's files, the files its settings name and every file under a directory they name
     (`setting_directory_files`), its dependencies' outputs, and the files the flow registered in
-    `init()` (`registered_input_files`) -- xeda's own bookkeeping files in its run directory
+    `init()` or `prepare_inputs()` (`registered_input_files`) -- xeda's own bookkeeping files in its run directory
     excepted."""
     bookkeeping = bookkeeping_files(flow.run_path)
     files = {
@@ -568,7 +568,7 @@ def expectation(
     stable once `flow`'s dependencies have completed (`flow.completed_dependencies` populated)
     -- call this after they have run, as the launcher does -- and the files `flow` registered
     (`registered_input_files`), so call it before `flow` runs, while those are what its `init()`
-    registered.
+    registered, including those resolved by `prepare_inputs` after hand-over.
     """
     assert flow.flow_hash is not None and flow.design_hash is not None
     return Expectation(

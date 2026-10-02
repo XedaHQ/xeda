@@ -218,6 +218,7 @@ def nextpnr_args(tmp_path: Path, settings: Nextpnr.Settings, monkeypatch) -> lis
 
     monkeypatch.setattr(NextpnrTool, "run", run)
 
+    flow.prepare_inputs()
     flow.run()
 
     assert len(calls) == 1
@@ -231,7 +232,9 @@ def test_nextpnr_uses_custom_board_lpf(tmp_path, monkeypatch):
         design_root=tmp_path,
     )
     args = nextpnr_args(tmp_path, settings, monkeypatch)
-    assert f"--lpf={tmp_path / 'board files' / 'pins.lpf'}" in args
+    merged = tmp_path / "nextpnr" / "constraints.lpf"
+    assert f"--lpf={merged}" in args
+    assert merged.read_text() == (tmp_path / "board files" / "pins.lpf").read_text()
 
 
 def test_nextpnr_records_the_board_lpf_it_reads_as_an_implicit_input(tmp_path, monkeypatch):
@@ -244,8 +247,7 @@ def test_nextpnr_records_the_board_lpf_it_reads_as_an_implicit_input(tmp_path, m
         design_root=tmp_path,
     )
     flow = Nextpnr(settings, design, tmp_path / "nextpnr")
-    with flow._constraint_file("lpf") as lpf:
-        assert lpf == tmp_path / "board files" / "pins.lpf"
+    flow.prepare_inputs()
     assert flow.implicit_inputs == [tmp_path / "board files" / "pins.lpf"]
     assert flow.always_runs() is None  # a local file: the trace can verify it
 
@@ -259,11 +261,9 @@ def test_nextpnr_resolves_bundled_board_lpf_against_bundled_database(tmp_path, m
 
     lpfs = [arg for arg in args if arg.startswith("--lpf=")]
     assert len(lpfs) == 1
-    assert Path(lpfs[0].removeprefix("--lpf=")).parts[-4:] == (
-        "data",
-        "boards",
-        "ulx3s",
-        "board.lpf",
+    assert (
+        Path(lpfs[0].removeprefix("--lpf=")).read_text()
+        == (Path(xeda.board.__file__).parent / "data/boards/ulx3s/board.lpf").read_text()
     )
 
 
