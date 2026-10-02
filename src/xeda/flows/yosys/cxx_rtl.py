@@ -45,18 +45,6 @@ class YosysSim(YosysBase, SimFlow):
     _driver_exit_code: int | None = None
 
     class Settings(YosysBase.Settings, SimFlow.Settings):
-        timeout: float | None = Field(
-            None,
-            gt=0,
-            description="Fail after this many seconds of wall-clock time in the C++ driver. "
-            "None sets no limit.",
-        )
-        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
-            "error",
-            description="The least severe runtime RTL check that fails the run. RTL assertion "
-            "violations are errors; failure/fatal records them and continues. C++ asserts "
-            "and abnormal driver exits always fail.",
-        )
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
             "default",
             description="SystemVerilog reader for CXXRTL; the built-in reader generates cells "

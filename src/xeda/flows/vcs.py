@@ -67,17 +67,6 @@ class Vcs(SimFlow):
     simv = Tool("./simv", version_flag=None)
 
     class Settings(SimFlow.Settings):
-        timeout: float | None = Field(
-            None,
-            gt=0,
-            description="Fail and stop simv or the combined vcs -R invocation after this many "
-            "seconds of wall-clock time. None sets no limit.",
-        )
-        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
-            "error",
-            description="Lowest runtime diagnostic severity that fails simulation. "
-            "Failure and fatal have the same rank.",
-        )
         simv_flags: List[str] = Field(
             [],
             description="Extra arguments passed to the compiled simulator executable (simv). "

@@ -518,18 +518,6 @@ class GhdlSim(Ghdl, SimFlow):
     _sim_log: Path | None = None
 
     class Settings(Ghdl.Settings, SimFlow.Settings):
-        timeout: float | None = Field(
-            None,
-            gt=0,
-            description="Stop the simulation after this many seconds of wall-clock time and fail "
-            "the run. None (the default) sets no limit.",
-        )
-        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
-            "error",
-            description="The least severe runtime assertion or report that fails the run. "
-            "`fatal` uses GHDL's `failure` threshold. Assertions below this level run on "
-            "and are recorded; explicitly disabled assertions remain disabled.",
-        )
         run_flags: List[str] = Field(
             [], description="Extra flags passed to `ghdl run` (or the elaborated executable)."
         )

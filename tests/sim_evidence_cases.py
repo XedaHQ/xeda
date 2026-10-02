@@ -61,10 +61,9 @@ BSC_BACKENDS = (
     "veriwell",
     "xsim",
 )
+REJECTED_BSC_BACKENDS = {"cvc", "cver", "isim", "ncverilog", "veriwell"}
 CASES = [SimCase(name) for name in SIMULATORS if name != "bsc_sim"] + [
-    SimCase("bsc_sim", backend)
-    for backend in BSC_BACKENDS
-    if backend not in {"cvc", "cver", "isim", "ncverilog", "veriwell"}
+    SimCase("bsc_sim", backend) for backend in BSC_BACKENDS if backend not in REJECTED_BSC_BACKENDS
 ]
 
 
@@ -78,7 +77,7 @@ def launch_case(
     foreign_source: bool = False,
 ):
     """Launch a real flow against successful build and silent/positive runtime stand-ins."""
-    work.mkdir(parents=True)
+    work.mkdir(parents=True, exist_ok=True)
     source = work / ("Top.bsv" if case.backend else "tb.sv")
     source.write_text(
         "module mkTop(Empty); endmodule\n" if case.backend else "module tb; endmodule\n"
@@ -103,6 +102,9 @@ def launch_case(
     if case.backend:
         settings["simulator"] = case.backend
     settings.update(settings_overrides or {})
+    # Clear invocation proof too: a build failure on a rerun must not inherit the old marker.
+    for marker in (work / "runs").rglob("oracle.runtime"):
+        marker.unlink()
     use_fake_tools(monkeypatch)
     monkeypatch.setattr(Tool, "version_gte", lambda self, *args: True)
     monkeypatch.setattr(
@@ -115,6 +117,7 @@ def launch_case(
         use_fake_vcs(monkeypatch)
     original = Tool.execute
     calls = []
+    runtime_options = []
 
     def execute(tool, executable, *args, **kwargs):
         words = [str(a) for a in args]
@@ -147,9 +150,12 @@ def launch_case(
             or (name == "nvc" and "-r" in words)
             or name == "vsim"
             or (name == "vcs" and "-R" in words)
-            or name in ("simv", "top", "mkTop", "tb")
+            or name in ("simv", "top", "mkTop", "tb", "vvp", "xsim")
             or (name == "vivado" and "-source" in words)
         )
+        if runtime:
+            runtime_options.append(kwargs)
+            (cwd / "oracle.runtime").unlink(missing_ok=True)
         if case.backend in ("verilator", "iverilog") and (name == "mkTop" or name == "vvp"):
             if name == "vvp":
                 assert "-m" in words and Path(words[words.index("-m") + 1]).is_file()
@@ -298,6 +304,9 @@ def launch_case(
                 assert Path("cxxrtl_evidence.cpp").is_file()
             target = Path(words[words.index("-o") + 1])
             target.parent.mkdir(parents=True, exist_ok=True)
+            # A preceding fake runtime linked this build output to its shared executable.
+            # Rebuild the output itself, never overwrite the fixture through that link.
+            target.unlink(missing_ok=True)
             target.write_text("fake build output\n")
             if name == "bsc" and case.backend in ("modelsim", "questa"):
                 library = cwd / f"work_{top}"
@@ -309,7 +318,7 @@ def launch_case(
 
     monkeypatch.setattr(Tool, "execute", execute)
     try:
-        flow = DefaultRunner(work / "runs", display_results=False).run_flow(
+        flow = DefaultRunner(work / "runs", display_results=False, rebuild_all=True).run_flow(
             flow_class, design, settings
         )
     except FlowDependencyFailure:
@@ -319,11 +328,17 @@ def launch_case(
         results = json.loads(
             (work / "runs" / "oracle" / "vivado_power" / "results.json").read_text()
         )
-        flow = SimpleNamespace(succeeded=results["success"], results=results)
+        flow = SimpleNamespace(
+            succeeded=results["success"],
+            results=results,
+            run_path=work / "runs" / "oracle" / "vivado_power",
+        )
     markers = list((work / "runs").rglob("oracle.runtime"))
     assert markers, f"{case.name} never invoked a runtime; calls: {calls}"
     assert all(p.read_text() == "runtime executed" for p in markers)
     assert flow is not None
+    assert runtime_options, f"{case.name} has no observed runtime invocation"
+    assert all(options.get("timeout") == settings.get("timeout") for options in runtime_options)
     return flow
 
 

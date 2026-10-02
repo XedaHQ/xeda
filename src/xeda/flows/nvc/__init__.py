@@ -54,17 +54,6 @@ class Nvc(SimFlow):
             **SimFlow.Settings.removed_settings,
             "exit_severity": "fail_severity",
         }
-        timeout: float | None = Field(
-            None,
-            gt=0,
-            description="Fail after this many seconds of wall-clock time in each invocation "
-            "containing simulation; one_shot includes analysis and elaboration. None sets no limit.",
-        )
-        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
-            "error",
-            description="The least severe runtime assertion or report that fails the run. "
-            "fatal uses NVC's failure threshold; diagnostics below it are recorded and run on.",
-        )
         one_shot: bool = Field(
             True,
             description="Run the analysis, elaboration, and execution in a single command. Set to False to run each step separately, which might be helpful in.",

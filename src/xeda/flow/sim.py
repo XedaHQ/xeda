@@ -167,6 +167,20 @@ class SimFlow(Flow, metaclass=ABCMeta):
     cocotb_sim_name: Optional[str] = None
 
     class Settings(Flow.Settings):
+        timeout: float | None = Field(
+            None,
+            gt=0,
+            description="Stop and fail each subprocess invocation containing simulation after "
+            "this many seconds of wall-clock time. Combined invocations include analysis and "
+            "elaboration; this is not a cumulative dependency deadline. None sets no limit.",
+        )
+        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
+            "error",
+            description="The least severe observed runtime diagnostic that fails simulation: "
+            "warning, error, failure or fatal. Failure and fatal have the same rank; "
+            "diagnostics below the threshold are recorded. Explicitly disabled assertions "
+            "retain the simulator's documented behavior. Nonzero execution always fails.",
+        )
         vcd: Union[str, Path, None] = Field(
             None,
             alias="waveform",
@@ -242,8 +256,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
         )
 
     def has_evidence_adapter(self) -> bool:
-        """Whether this run's simulator reports how it ended (`simulation_evidence`). A flow is
-        converted when it returns True for every backend it runs (tests/test_sim_evidence.py)."""
+        """Whether this run's simulator can report how it ended (`simulation_evidence`).
+        This capability hook never exempts a run from evidence judgment."""
         return False
 
     def simulation_evidence(self) -> SimEvidence | None:
@@ -252,16 +266,13 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     def check_results(self) -> bool:
         """cocotb's verdict for a cocotb testbench (on every simulator); otherwise the evidence
-        rule for a flow that reports evidence; otherwise, until P1b converts the flow, the exit
-        status alone (listed in tests/test_sim_evidence.py)."""
+        rule. Missing evidence fails, including a flow without an adapter."""
         if self.cocotb:
             return self.cocotb.add_results(
                 self.results, results_file=self.report_file(self.cocotb.results_xml)
             )
-        if self.has_evidence_adapter():
-            severity = getattr(self.settings, "fail_severity", "error")
-            return judge_evidence(self, self.simulation_evidence(), severity)
-        return True
+        assert isinstance(self.settings, self.Settings)
+        return judge_evidence(self, self.simulation_evidence(), self.settings.fail_severity)
 
     def always_runs(self) -> Optional[str]:
         if self.cocotb is not None and self.cocotb.random_seed == "random":

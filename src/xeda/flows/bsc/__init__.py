@@ -1178,17 +1178,6 @@ class BscSim(BscFlow, SimFlow):
         return xsim_evidence(self)
 
     class Settings(BscFlow.Settings, SimFlow.Settings):
-        fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
-            "error",
-            description="The least severe observed runtime diagnostic that fails the run. "
-            "Bluesim and the converted Verilog backends honor this setting; fatal is failure rank.",
-        )
-        timeout: float | None = Field(
-            None,
-            gt=0,
-            description="Stop the simulation after this many seconds of wall-clock time and fail "
-            "the run. None (the default) sets no limit.",
-        )
         simulator: SimulatorName = Field(
             "bluesim",
             description='The simulator: "bluesim", or a supported Verilog simulator bsc links '
