@@ -6,9 +6,9 @@ from .flow_runner import DefaultRunner, Dse, FlowRunner
 from .tool import Tool
 from .version import __version__
 
-# P2a remote archive and launch contract. Keep this on the imported package so the probe
+# P2a remote archive and P1b launch contract. Keep this on the imported package so the probe
 # cannot mistake another distribution's version metadata for this checkout's capabilities.
-REMOTE_PROTOCOL_VERSION = 2
+REMOTE_PROTOCOL_VERSION = 3
 
 __all__ = [
     "FPGA",

@@ -251,9 +251,10 @@ replacement (`--run-root`, `--rebuild-all`, `--hashed-run-dirs`, `--clean`, `--o
 ## Remote runs
 
 `--remote HOST` needs Xeda's 0.4.4 release line (including development builds) or newer and remote
-protocol 2 or newer on the host. Xeda probes the package the remote interpreter actually imports
-and refuses 0.4.3 or a build missing that capability before shipping, with an upgrade error.
-Until P2a is released, install this branch on the remote host.
+protocol 3 or newer on the host. Protocol 3 adds P1b's remote simulation evidence rule. Xeda
+probes the package the remote interpreter actually imports and refuses an older or protocol-2
+build before shipping, with an upgrade error. Until a protocol-3 release is available, install
+this branch on the remote host.
 
 ## When something fails
 

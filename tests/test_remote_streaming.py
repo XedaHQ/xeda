@@ -45,13 +45,14 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
     shell), and an old one fails on the design archive with whatever its loader chokes on first
     -- a 0.2 checkout said `rtl.sources: unhashable type: 'dict'`. The check names the version,
     the interpreter and *where* that xeda lives, which is what finds a shadowing install."""
-    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 2)
-    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 2)
+    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 3)
+    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 3)
     for version, protocol in (
         ("0.4.3", 0),
         ("0.4.3", 2),
         ("0.4.4.dev42+gabc", 0),
         ("0.4.4.dev42+gabc", 1),
+        ("0.4.4.dev42+gabc", 2),
     ):
         with pytest.raises(RemoteIncompatible, match="upgrade the remote xeda"):
             check_remote_xeda(version, "/site/xeda/__init__.py", "/usr/bin/python3", protocol)
@@ -60,7 +61,7 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
         check_remote_xeda(
             "0.2.13.dev1+g13970c24c", "/home/u/src/xeda/src/xeda/__init__.py", "/usr/bin/python3"
         )
-    for part in ("0.2.13.dev1", "/home/u/src/xeda/src/xeda", "/usr/bin/python3", "P2a"):
+    for part in ("0.2.13.dev1", "/home/u/src/xeda/src/xeda", "/usr/bin/python3", "P1b"):
         assert part in str(old.value)
 
     with pytest.raises(RemoteIncompatible, match="/usr/bin/python3.*no xeda"):
@@ -75,12 +76,12 @@ def test_the_probe_reports_the_imported_packages_version_and_capability():
             "import xeda\n"
             "from importlib import metadata\n"
             "xeda.__version__ = '0.4.4.dev99+gprobe'\n"
-            "xeda.REMOTE_PROTOCOL_VERSION = 1\n"
+            "xeda.REMOTE_PROTOCOL_VERSION = 3\n"
             "metadata.version = lambda name: '0.4.3'\n" + REMOTE_PROBE
         ).receive()
         assert reply[3] == "0.4.4.dev99+gprobe"
         assert reply[4].endswith("xeda/__init__.py")
-        assert reply[5] == 1
+        assert reply[5] == 3
     finally:
         gw.exit()
 

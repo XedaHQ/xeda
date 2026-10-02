@@ -52,6 +52,9 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **Breaking: `--remote` requires protocol 3.** P1b remotes apply the shared simulation evidence
+  rule and fail simulations that exit successfully without confirmed completion evidence. A P2a
+  protocol-2 remote is refused before the design is shipped; upgrade its xeda installation.
 - All `SimFlow` families now share `timeout` and `fail_severity` (`warning`, `error`, `failure`
   or `fatal`; default `error`). Failure and fatal have the same rank. `timeout` bounds each
   subprocess invocation containing simulation, including analysis/elaboration in a combined
@@ -163,9 +166,9 @@ All notable changes to this project will be documented in this file.
   entry, such as yosys's own library files) has no such record: on the run directory's file
   system its clock still decides, but on another one nothing does, so the next launch runs once
   more, saying so ("input first read by the last run, on another file system").
-- `--remote` needs a P2a xeda build on the remote host: the 0.4.4 release line (including dev
-  builds) or newer, with remote protocol 2 or newer. A 0.4.3 host is refused before anything
-  ships, with an error asking to upgrade the remote xeda.
+- `--remote` needs a P1b-capable xeda build on the remote host: the 0.4.4 release line (including
+  dev builds) or newer, with remote protocol 3 or newer. An older or protocol-2 host is refused
+  before anything ships, with an error asking to upgrade the remote xeda.
 
 ### Removed
 - **The `<design>_<design_hash>/` run-directory layer.** It only ever appeared with
