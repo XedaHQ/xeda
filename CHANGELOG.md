@@ -23,15 +23,18 @@ All notable changes to this project will be documented in this file.
   `fail_severity` (default `error`) and `stop_time`, simulates the testbench's top by name
   (`--top-module`: `tb.top`, else `rtl.top`; with cocotb, `tb.cocotb.toplevel`, else `rtl.top`),
   applies `rtl.parameters` only when the RTL top is the simulated top, and copies the model's output
-  to `sim.log` in `sim_dir` (not under cocotb). GHDL, nvc, ModelSim, CXXRTL and `bsc_sim`'s
-  Bluesim/Verilator/Icarus backends now use the same evidence verdict: a silent exit 0 or a
-  drained event queue fails. These adapters persist normalized `sim.evidence`, capture runtime
-  diagnostics and honor `timeout`. A requested Bluesim `max_cycles` requires the measured
-  cycle count and final simulated time. Icarus runs explicitly through `vvp`, avoiding the
-  generated executable's incompatible shebang on macOS.
+  to `sim.log` in `sim_dir` (not under cocotb). Every simulator family, including VCS, xsim,
+  postsynthesis simulation, delegated Vivado power activity, and all accepted `bsc_sim`
+  backends, now uses the same evidence verdict: a silent exit 0 or a drained event queue fails.
+  Each flow persists normalized `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`,
+  `sim.errors` and `sim.warnings`, captures runtime diagnostics and honors the shared
+  `timeout` and `fail_severity` settings. A requested stop or Bluesim `max_cycles` must be
+  confirmed by the observed time or measured cycle count and final simulated time. Icarus runs
+  explicitly through `vvp`, avoiding the generated executable's incompatible shebang on macOS.
 - ModelSim batch runs capture an owned logfile and require matching runtime stop reason,
   time and TESTSTATUS evidence. VHDL `std.env.stop` is accepted as completion; Verilog `$stop`
-  fails. Compilation/loading diagnostics are excluded from the runtime verdict.
+  is an error-rank event and fails at the default threshold. Compilation/loading diagnostics
+  are excluded from the runtime verdict.
 - A failed dependency's `FlowDependencyFailure` names the dependency and its `results.json`.
 
 ### Added
@@ -49,11 +52,26 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
-- `fail_severity` defaults to `error` on the converted simulator families, including GHDL
-  and ModelSim (previously `failure`). nvc's `exit_severity` is removed in favor of
-  `fail_severity`. CXXRTL rejects `stop_time`, which its user-owned driver cannot enforce.
-- VCS, Vivado simulation/power and the remaining bsc backends still await evidence conversion;
-  their non-cocotb verdicts retain the existing behavior during this transition.
+- All `SimFlow` families now share `timeout` and `fail_severity` (`warning`, `error`, `failure`
+  or `fatal`; default `error`). Failure and fatal have the same rank. `timeout` bounds each
+  subprocess invocation containing simulation, including analysis/elaboration in a combined
+  invocation; it is not a cumulative dependency deadline. Nonzero process exit always fails.
+- Breaking: nvc's `exit_severity` setting was removed; use `fail_severity`. VHDL
+  `std.env.stop` is accepted as completion, while Verilog `$stop` remains an error. Breaking:
+  bsc's uncertified legacy `cvc`, `cver`, `isim`, `ncverilog` and `veriwell` backends are now
+  rejected before compilation; supported choices include Bluesim, Verilator, Icarus, ModelSim,
+  Questa, VCS, vcsi and xsim.
+- CXXRTL accepts an observed exit 0 from a linked user-owned C++ driver even when simulated time
+  is unknown, but rejects `stop_time`. xsim requires source-preserving `elab_debug`; explicitly
+  setting it to `off` is rejected so the adapter can identify VHDL `std.env.stop` separately
+  from Verilog `$stop`.
+  xsim's requested `stop_time` is an absolute bound across prerun and runtime, measured from its
+  actual current time.
+- Real-tool verification: ModelSim-Intel Starter 2020.1 and Vivado 2024.2 were verified.
+  VCS and Questa were not verified against licensed tools; they fail closed when recognizable
+  native evidence is absent. VCS quiet `$finish(0)` and VHDL completion fail without a native
+  finish diagnostic, and UCLI time checkpoints alone do not prove HDL completion. Real Icarus
+  evidence and builtin-task registration remain mandatory Linux CI gates; M3 remains deferred.
 - **Every design source has a type.** A suffix xeda cannot type -- unknown (`.txt`), ambiguous
   (`.json`, `.bin`, `.cfg`, `.config`) or in another letter case (`.VHD`) -- is a load error
   asking for `type = "..."`, with `Data` for a file with no automatic HDL frontend. An invalid

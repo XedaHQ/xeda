@@ -15,7 +15,13 @@ log = logging.getLogger(__name__)
 
 
 class VivadoSim(Vivado, SimFlow):
-    """Simulate using Xilinx Vivado simulator (xsim) flow"""
+    """Simulate using Xilinx Vivado simulator (xsim).
+
+    ``elab_debug`` must preserve source information so VHDL ``std.env.stop`` can be distinguished
+    from Verilog ``$stop``; explicitly disabling it is rejected. ``stop_time`` is an absolute
+    bound across prerun and runtime, measured from xsim's actual current time. Verified with
+    Vivado 2024.2.
+    """
 
     results_description = describe_results(
         "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings", "sim.evidence"

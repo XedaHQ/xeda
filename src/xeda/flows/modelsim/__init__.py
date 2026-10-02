@@ -38,7 +38,10 @@ class Modelsim(SimFlow):
     """Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens ModelSim.
 
     Handles both RTL and gate-level netlist simulation; a netlist simulation can be annotated
-    with timing from an SDF file via the `sdf` setting.
+    with timing from an SDF file via the `sdf` setting. Batch evidence requires this run's native
+    stop reason, time and TESTSTATUS checkpoint plus its bounded runtime logfile. VHDL
+    ``std.env.stop`` is accepted with source-qualified evidence; Verilog ``$stop`` fails at the
+    default severity. Verified with ModelSim-Intel Starter 2020.1.
     """
 
     results_description = describe_results(
