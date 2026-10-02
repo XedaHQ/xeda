@@ -337,11 +337,17 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
     assert not connected and not (tmp_path / "mirror").exists()
 
 
-@pytest.mark.parametrize("version,protocol", [("0.4.3", 0), ("0.4.4.dev1", 1)])
-def test_a_remote_without_p2a_is_refused_before_anything_ships(
-    tmp_path, remote_host, monkeypatch, version, protocol
+@pytest.mark.parametrize(
+    "version,protocol,flow_name,flow_settings",
+    [
+        ("0.4.3", 0, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
+        ("0.4.4.dev1", 2, "ghdl_sim", None),
+    ],
+)
+def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
+    tmp_path, remote_host, monkeypatch, version, protocol, flow_name, flow_settings
 ):
-    """The probe reports a 0.4.3 install without the P2a capability; no archive is shipped."""
+    """Reject a pre-P2a release or protocol-2 remote before shipping the design."""
     monkeypatch.setattr(
         remote_module,
         "REMOTE_PROBE",
@@ -376,15 +382,15 @@ def test_a_remote_without_p2a_is_refused_before_anything_ships(
     design = _sqrt_design(tmp_path / "design")
     with pytest.raises(RemoteIncompatible, match="upgrade the remote xeda") as raised:
         RemoteRunner(tmp_path / "local").run_remote(
-            design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
+            design, flow_name, host="somewhere", flow_settings=flow_settings
         )
     assert version in str(raised.value)
-    assert "P2a" in str(raised.value)
+    assert "P1b" in str(raised.value)
     assert not shipped
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P2a remote (protocol 2), including this branch's dev builds.
+#: The archive accepted by a P1b remote (protocol 3), including this branch's dev builds.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {
@@ -876,6 +882,14 @@ def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remo
     )
 
     assert results and results["success"], results
+    evidence = results["sim.evidence"]
+    assert evidence["ended_by"] == "finish"
+    assert results["sim.ended_by"] == "finish"
+    remote_results = json.loads(
+        (_remote_run_dir(remote_host, "ghdl_sim") / "results.json").read_text()
+    )
+    assert remote_results["sim.evidence"] == evidence
+    assert remote_results["sim.ended_by"] == "finish"
     remote_settings = json.loads(
         (_remote_run_dir(remote_host, "ghdl_sim") / "settings.json").read_text()
     )

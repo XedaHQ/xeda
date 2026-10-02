@@ -716,13 +716,15 @@ and `test_nvc.py` simulate the examples in place.
   `remote_runner`) must use only the API guaranteed by the checked protocol floor; the streaming
   setup stays stdlib-only. A test pins the worker's xeda imports.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
-  keys. **Requirement: a remote runs a P2a build (this branch or newer)**: release line
+  keys. **Requirement: a remote runs a P1b-capable build (this branch or newer)**: release line
   `REMOTE_XEDA_MIN_VERSION = (0, 4, 4)` (including `0.4.4.devN+g...`) and
-  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 2: canonical resolved
-  settings, relocated read inputs with their original path identities, declared output records
-  and checked hand-over).
+  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 3: protocol 2 adds
+  canonical resolved settings, relocated read inputs with their original path identities, declared
+  output records and checked hand-over; protocol 3 requires remote simulations to satisfy P1b's
+  current-run evidence rule).
   `check_remote_xeda` refuses xeda 0.4.3 and development checkouts without the capability with an
-  "upgrade the remote xeda" error before anything ships. Version alone does not prove P2a support.
+  "upgrade the remote xeda" error before anything ships. Version alone does not prove protocol
+  support.
   `REMOTE_PROBE` imports the remote interpreter's actual xeda and reports its version, location
   and protocol marker; a missing or broken import is an incompatible install. The streaming setup
   remains stdlib-only. execnet starts `python3` from the *non-login* PATH, so a shadowing checkout
