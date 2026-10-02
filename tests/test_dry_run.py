@@ -109,7 +109,9 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
             "producer": "yosys_fpga",
             "output": "netlist",
             "sources": [],
-        }
+        },
+        {"name": "constraints", "origin": "none", "producer": None, "output": None, "sources": []},
+        {"name": "sdc", "origin": "none", "producer": None, "output": None, "sources": []},
     ]
     assert all(node["declared"] for node in nodes)
     for node in nodes:
@@ -138,7 +140,9 @@ def test_a_source_supplies_the_input_and_displaces_the_producer(tmp_path):
             "producer": None,
             "output": None,
             "sources": [str(tmp_path / "netlist.json")],
-        }
+        },
+        {"name": "constraints", "origin": "none", "producer": None, "output": None, "sources": []},
+        {"name": "sdc", "origin": "none", "producer": None, "output": None, "sources": []},
     ]
     assert not (tmp_path / "xeda_run").exists()
 

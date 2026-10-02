@@ -283,12 +283,19 @@ consumer switching its producer's optional output on:
         "nodes": [
           {"name": "yosys_fpga", "flow": "yosys_fpga", "declared": true,
            "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",
-           "inputs": [], "switched_on": ["netlist"]},
+           "inputs": [], "switched_on": ["netlist"],
+           "input_types": {}, "output_types": {"netlist": ["JsonNetlist"]}},
           {"name": "nextpnr", "flow": "nextpnr", "declared": true,
            "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
            "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
-                       "output": "netlist", "sources": []}],
-           "switched_on": []}
+                       "output": "netlist", "sources": []},
+                      {"name": "constraints", "origin": "none", "producer": null,
+                       "output": null, "sources": []},
+                      {"name": "sdc", "origin": "none", "producer": null,
+                       "output": null, "sources": []}],
+           "switched_on": [],
+           "input_types": {"netlist": ["JsonNetlist"], "constraints": ["Pcf"], "sdc": ["Sdc"]},
+           "output_types": {"config": ["IceAsc"]}}
         ]
       }
     }
@@ -298,7 +305,10 @@ and ``flowrun_hash`` identify each planned run; ``--hashed-run-dirs`` adds the u
 hash suffix. Each input's ``origin`` is ``producer``, ``source`` or ``none``. ``producer`` and
 ``output`` name another node's output, or are ``null`` for source/absent inputs; ``sources`` is
 an ordered list of source paths. ``switched_on`` names optional outputs enabled because a
-consumer needs them, not every output already enabled by its settings.
+consumer needs them, not every output already enabled by its settings. ``input_types`` and
+``output_types`` report each declaration's effective types after target agreement; for example,
+iCE40 selects ``Pcf`` pin constraints and ``IceAsc`` configuration. The static flow catalog
+reports the full declared type vocabulary.
 
 An undeclared flow appears as a node with ``declared: false`` and unknown runtime dependencies:
 planning does not call its ``init()``. Freshness and always-run decisions are not evaluated.

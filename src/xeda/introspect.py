@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from .dataclass import PydanticUndefined, input_names, written_role
 from .design import Design
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
-from .flow.io import declared_inputs, declared_outputs, is_declared
+from .flow.io import declared_inputs, declared_outputs, is_declared, selected_types
 from .flow_runner import get_flow_class
 from .flows import __builtin_flows__
 from .utils import json_encodable, toml_load, unique, with_json_keys
@@ -97,6 +97,19 @@ def plan_info(plan: Plan) -> dict[str, Any]:
                         for resolved in node.inputs
                     ],
                     "switched_on": list(node.switched_on),
+                    "input_types": {
+                        name: [t.name for t in selected_types(node.flow_class, node.settings, name)]
+                        for name in declared_inputs(node.flow_class)
+                    },
+                    "output_types": {
+                        name: [
+                            t.name
+                            for t in selected_types(
+                                node.flow_class, node.settings, name, output=True
+                            )
+                        ]
+                        for name in declared_outputs(node.flow_class)
+                    },
                 }
                 for node in plan.nodes
             ],
