@@ -8,7 +8,7 @@ target-selected type matching and edge discovery remain the resolver's responsib
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Hashable, Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -20,10 +20,28 @@ from .settings_layers import _flow_of, merge_flow_sections, registered_flow
 
 
 @dataclass(frozen=True)
+class NodeKey:
+    """The identity of one node of a request: a canonical flow name and an optional instance.
+
+    ``instance`` tells apart several nodes of one flow. Chains, design files and the command
+    line each name a flow once, so they all produce the default ``None`` instance; a key with
+    an instance only matches entries made for that same instance.
+    """
+
+    flow: str
+    instance: Hashable | None = None
+
+    @property
+    def label(self) -> str:
+        """The flow name, with the instance when there is one (for messages)."""
+        return self.flow if self.instance is None else f"{self.flow}[{self.instance}]"
+
+
+@dataclass(frozen=True)
 class ProducerRef:
     """A canonical producer node and an exact, optional output key."""
 
-    node: str
+    node: NodeKey
     output: str | None = None
 
 
@@ -31,7 +49,7 @@ class ProducerRef:
 class BindingEntry:
     """One unvalidated contribution; lower overridden values need not be valid references."""
 
-    node: str
+    node: NodeKey
     name: str
     value: Any
     is_list: bool
@@ -57,18 +75,18 @@ class InputBinding:
 
 
 @dataclass(frozen=True, eq=False)
-class _FrozenMapping(Mapping[str, Any]):
+class _FrozenMapping(Mapping[Any, Any]):
     """An immutable, pickleable request snapshot for existing worker transport."""
 
-    _items: tuple[tuple[str, Any], ...]
+    _items: tuple[tuple[Any, Any], ...]
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: Any) -> Any:
         for name, value in self._items:
             if name == key:
                 return value
         raise KeyError(key)
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self) -> Iterator[Any]:
         return (name for name, _value in self._items)
 
     def __len__(self) -> int:
@@ -114,7 +132,7 @@ def split_bindings(
         for name, value in inputs.items():
             entries.append(
                 BindingEntry(
-                    node,
+                    NodeKey(node),
                     name,
                     _freeze(value),
                     isinstance(value, list),
@@ -149,7 +167,7 @@ def _reference(value: Any, location: str) -> ProducerRef:
         raise FlowSettingsException(
             f"{location}: producer {producer.name!r} has no output {output!r}."
         )
-    return ProducerRef(producer.name, output)
+    return ProducerRef(NodeKey(producer.name), output)
 
 
 def check_chain_collisions(layers: Sequence[BindingLayer], request: FlowRequest | None) -> None:
@@ -162,7 +180,7 @@ def check_chain_collisions(layers: Sequence[BindingLayer], request: FlowRequest 
         )
         for layer in layers:
             for entry in layer.entries:
-                if entry.node == consumer.node and entry.name in adjacent:
+                if entry.node == NodeKey(consumer.node) and entry.name in adjacent:
                     raise FlowSettingsException(
                         f"The chain position {position} ({producer.node}) -> {position + 1} "
                         f"({consumer.node}) binds input {entry.name!r}; {entry.location} also "
@@ -182,7 +200,7 @@ def _check_nested_default(
     default_output = declaration.output or (matching[0] if len(matching) == 1 else None)
     if len(binding.references) == 1:
         reference = binding.references[0]
-        if reference.node == default.name and (
+        if reference.node == NodeKey(default.name) and (
             reference.output is None or reference.output == default_output
         ):
             return
@@ -201,34 +219,39 @@ def _check_nested_default(
 
 def effective_bindings(
     layers: Sequence[BindingLayer],
-    reached: Sequence[type[Flow]],
+    reached: Sequence[tuple[NodeKey, type[Flow]]],
     *,
     request: FlowRequest | None = None,
-) -> Mapping[str, Mapping[str, InputBinding]]:
+) -> Mapping[NodeKey, Mapping[str, InputBinding]]:
     """Validate reached input names in every layer, then only the winning reference values.
 
     Origins must be supplied in increasing precedence (project, design, CLI, API).
-    Ordered lists replace whole; input names merge keywise. This does not select edges,
-    append design sources, compose producer settings or validate target-dependent types.
+    Ordered lists replace whole; input names merge keywise. Nodes are told apart by
+    ``NodeKey``, never by flow name. This does not select edges, append design sources,
+    compose producer settings or validate target-dependent types.
     """
     check_chain_collisions(layers, request)
-    classes = {cls.name: cls for cls in reached}
-    winners: dict[tuple[str, str], BindingEntry] = {}
+    classes: dict[NodeKey, type[Flow]] = {}
+    for key, cls in reached:
+        if key in classes:
+            raise ValueError(f"The node {key.label!r} is reached twice.")
+        classes[key] = cls
+    winners: dict[tuple[NodeKey, str], BindingEntry] = {}
     for layer in layers:
-        for node in layer.invalid_inputs:
-            if node in classes:
+        for flow in layer.invalid_inputs:
+            if NodeKey(flow) in classes:
                 raise FlowSettingsException(
-                    f"{layer.location}: flows.{node}.inputs must be a mapping."
+                    f"{layer.location}: flows.{flow}.inputs must be a mapping."
                 )
         for entry in layer.entries:
             if entry.node not in classes:
                 continue
             if entry.name not in declared_inputs(classes[entry.node]):
                 raise FlowSettingsException(
-                    f"{entry.location}: unknown input {entry.name!r} of {entry.node!r}."
+                    f"{entry.location}: unknown input {entry.name!r} of {entry.node.label!r}."
                 )
             winners[entry.node, entry.name] = entry
-    selected: dict[str, dict[str, InputBinding]] = {}
+    selected: dict[NodeKey, dict[str, InputBinding]] = {}
     for (node, name), entry in winners.items():
         cls = classes[node]
         declaration = declared_inputs(cls)[name]
@@ -250,13 +273,18 @@ def effective_bindings(
     return _freeze(selected)
 
 
+def default_nodes(classes: Sequence[type[Flow]]) -> list[tuple[NodeKey, type[Flow]]]:
+    """The reached nodes of a request that names each flow once (instance ``None``)."""
+    return [(NodeKey(cls.name), cls) for cls in classes]
+
+
 def require_resolver_integration(
     layers: Sequence[BindingLayer],
     reached: Sequence[type[Flow]],
     request: FlowRequest | None = None,
 ) -> None:
     """Keep captured wiring from being silently ignored until Task 3 integrates the resolver."""
-    bindings = effective_bindings(layers, reached, request=request)
+    bindings = effective_bindings(layers, default_nodes(reached), request=request)
     if bindings or (request is not None and len(request.elements) > 1):
         raise FlowSettingsException(PENDING_INTEGRATION)
 

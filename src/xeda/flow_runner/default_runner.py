@@ -70,7 +70,13 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, ProjectFileError, XedaProject, resolve_project_file
-from .bindings import BindingLayer, effective_bindings, require_resolver_integration, split_bindings
+from .bindings import (
+    BindingLayer,
+    default_nodes,
+    effective_bindings,
+    require_resolver_integration,
+    split_bindings,
+)
 from .chains import ChainElement, FlowRequest
 from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
@@ -1897,7 +1903,7 @@ class FlowLauncher:
             {flow_class.name: flow_overrides}, location="the API"
         )
         binding_layers = (project_bindings, design_bindings, cli_bindings, api_bindings)
-        effective_bindings(binding_layers, [flow_class], request=flow_request)
+        effective_bindings(binding_layers, default_nodes([flow_class]), request=flow_request)
         # Ordinary calls keep P1's early CLI addressing check. Bound requests need Task 3's
         # active graph check, since an alternate producer can be outside the default graph.
         if (
