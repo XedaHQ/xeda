@@ -495,10 +495,15 @@ def prepare_chipdb(
         # Recheck authority after waiting, before reading or writing the entry.
         _cache_path(owner, entry)
         _cache_path(owner, lock_file(entry))
-        if chipdb_identity(layout, selection) != identity:
-            raise FlowFatalError(f"Xilinx chipdb inputs changed while waiting for {entry}; rerun.")
         if entry.exists():
             return _cached_chipdb(owner, entry, selection, identity)
+        # Hash the installation again only when about to generate: a hit hashed it once.
+        if chipdb_identity(layout, selection) != identity:
+            raise FlowFatalError(f"Xilinx chipdb inputs changed while waiting for {entry}; rerun.")
+        # Holding the entry's exclusive lock, no process is generating this key, so any
+        # scratch directory of it is the remains of a killed generation (multi-GB).
+        for interrupted in sorted(cache.glob(f"{identity.key}.tmp-*")):
+            owner.remove(_cache_path(owner, interrupted))
         temporary = Path(tempfile.mkdtemp(prefix=f"{identity.key}.tmp-", dir=cache))
         scratch = RunDirectory.claimed(_cache_path(owner, temporary), root)
         try:

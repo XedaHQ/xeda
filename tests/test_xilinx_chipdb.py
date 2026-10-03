@@ -326,11 +326,45 @@ def test_generation_logs_resource_cost_before_start(api, generation, monkeypatch
 def test_stale_temporary_is_not_a_published_cache_entry(api, generation):
     layout, selection = _selection(api, generation[0])
     identity = api.chipdb_identity(layout, selection)
-    stale = generation[1].run_root / ".cache/xilinx-chipdb" / f"{identity.key}.tmp-interrupted"
+    cache = generation[1].run_root / ".cache/xilinx-chipdb"
+    stale = cache / f"{identity.key}.tmp-interrupted"
     stale.mkdir(parents=True)
     (stale / "xc7a100t.bin").write_bytes(b"partial")
-    assert _prepare(api, generation).is_file()
-    assert (stale / "xc7a100t.bin").read_bytes() == b"partial"
+    other = cache / f"{'0' * len(identity.key)}.tmp-other-identity"
+    other.mkdir()
+    (other / "xc7a100t.bin").write_bytes(b"another build")
+    chipdb = _prepare(api, generation)
+    assert chipdb.is_file() and chipdb.parent == cache / identity.key
+    assert chipdb.read_bytes() != b"partial"
+    assert not stale.exists()
+    assert (other / "xc7a100t.bin").read_bytes() == b"another build"
+
+
+def test_interrupted_scratch_is_reclaimed_without_following_links(api, generation, tmp_path):
+    layout, selection = _selection(api, generation[0])
+    identity = api.chipdb_identity(layout, selection)
+    cache = generation[1].run_root / ".cache/xilinx-chipdb"
+    cache.mkdir(parents=True)
+    external = tmp_path / "outside"
+    external.mkdir()
+    canary = _write(external / "canary", "untouched")
+    (cache / f"{identity.key}.tmp-linked").symlink_to(external)
+    with pytest.raises((FlowFatalError, RunDirectoryError)):
+        _prepare(api, generation)
+    assert canary.read_text() == "untouched"
+
+
+def test_cache_hit_hashes_the_installation_once(api, generation, monkeypatch):
+    _prepare(api, generation)
+    hashed = []
+    original = api._tree_contents
+    monkeypatch.setattr(
+        api, "_tree_contents", lambda root, *a, **k: hashed.append(root) or original(root, *a, **k)
+    )
+    layout, selection = _selection(api, generation[0])
+    _prepare(api, generation)
+    assert hashed.count(layout.himbaechel) == 1
+    assert hashed.count(selection.database / selection.family) == 1
 
 
 def test_layout_resolves_executable_links_before_finding_prefix(api, prefix, tmp_path):

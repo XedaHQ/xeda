@@ -720,6 +720,11 @@ REVIEWED_PY_DELETIONS = {
         1,
         "RunDirectory.remove on the generator's own BBA in guarded cache scratch",
     ),
+    ("flows/xilinx.py", "owner.remove(_cache_path(owner, interrupted))"): (
+        1,
+        "RunDirectory.remove of a killed generation's scratch for this key, under its "
+        "exclusive entry lock, through the link-refusing cache path guard",
+    ),
     ("flows/xilinx.py", "owner.remove(temporary)"): (
         1,
         "RunDirectory.remove on the managed cache's temporary entry after failure/publication",
