@@ -361,6 +361,24 @@ def split_flow_sections(
     sections = merge_flow_sections(own.pop("flows", None) or {}, flow_class_for=flow_class_for)
     flow_cls = flow_class_for(requested) if flow_class_for is not None else None
     settings_cls = flow_cls.Settings if flow_cls is not None else None
+    own_inputs = own.get("inputs")
+    section_inputs = sections.get(requested, {}).get("inputs")
+    if isinstance(own_inputs, Mapping) and isinstance(section_inputs, Mapping):
+        duplicate_inputs = own_inputs.keys() & section_inputs.keys()
+        if duplicate_inputs:
+            raise FlowSettingsError(
+                [
+                    (
+                        f"inputs.{name}",
+                        f"`-s inputs.{name}` and `-s flows.{requested}.inputs.{name}` "
+                        "bind one input twice; give one, even when equal",
+                        None,
+                        "conflicting_bindings",
+                    )
+                    for name in sorted(duplicate_inputs)
+                ],
+                settings_cls if settings_cls is not None else requested,
+            )
     requested_leaves = _leaves(sections.get(requested, {}), settings_cls)
     conflicts = [
         (written, value, requested_leaves[path])

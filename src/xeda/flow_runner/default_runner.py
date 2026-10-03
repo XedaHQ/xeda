@@ -70,6 +70,8 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, ProjectFileError, XedaProject, resolve_project_file
+from .bindings import BindingLayer, effective_bindings, require_resolver_integration, split_bindings
+from .chains import ChainElement, FlowRequest
 from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
@@ -81,6 +83,7 @@ from .settings_layers import (
     dependency_settings,
     merge_flow_sections,
     settings_in_context,
+    split_flow_sections,
     suggest_dependency_node,
     transitive_dependencies,
 )
@@ -236,6 +239,8 @@ class _Request:
     origins: tuple[tuple[str, Mapping[str, Any]], ...]
     command_line: dict[str, Any]
     api_overrides: dict[str, Any]
+    flow_request: FlowRequest
+    binding_layers: tuple[BindingLayer, ...]
 
 
 def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
@@ -564,8 +569,37 @@ class FlowLauncher:
         origins: Sequence[tuple[str, Mapping[str, Any]]] = (),
         command_line: Mapping[str, Mapping[str, Any]] | None = None,
         api_overrides: Mapping[str, Mapping[str, Any]] | None = None,
+        flow_request: FlowRequest | None = None,
+        binding_layers: Sequence[BindingLayer] = (),
     ) -> Plan:
         """Resolve one request without constructing a flow, probing tools or writing files."""
+        recorded_settings = as_recorded(flow_settings or {})
+        recorded_sections = as_recorded(all_flows_settings or {})
+        # Capture reserved keys before the resolver's existing settings composition. Do not
+        # integrate edge discovery here while P2b owns the resolver (PC3).
+        layers = list(binding_layers)
+        clean_origins = []
+        for location, values in origins:
+            clean, bindings = split_bindings(values, location=location)
+            clean_origins.append((location, clean))
+            layers.append(bindings)
+        all_flows_settings, bindings = split_bindings(
+            all_flows_settings or {}, location="the supplied API flow sections"
+        )
+        if bindings.entries or bindings.invalid_inputs or (not origins and not binding_layers):
+            layers.append(bindings)
+        clean_cli, bindings = split_bindings(command_line or {}, location="the command line")
+        layers.append(bindings)
+        clean_api, bindings = split_bindings(api_overrides or {}, location="the API")
+        layers.append(bindings)
+        clean_root, bindings = split_bindings(
+            {flow_class.name: flow_settings or {}}, location="the API"
+        )
+        layers.append(bindings)
+        require_resolver_integration(layers, [flow_class], flow_request)
+        # Preserve the context/full value of a Settings instance on ordinary direct calls.
+        if not isinstance(flow_settings, Flow.Settings):
+            flow_settings = clean_root[flow_class.name]
         plan = resolve_plan(
             flow_class,
             design,
@@ -575,17 +609,18 @@ class FlowLauncher:
             run_root=self._run_root,
             hashed_run_dirs=self.settings.hashed_run_dirs,
             run_path=self.run_path_of,
-            origins=origins,
-            command_line=command_line,
-            api_overrides=api_overrides,
+            origins=clean_origins,
+            command_line=clean_cli,
+            api_overrides=clean_api,
             debug=self.settings.debug,
         )
+        require_resolver_integration(layers, [node.flow_class for node in plan.nodes], flow_request)
         # The resolver validates final agreed settings. The original request may contain
         # partial shared values that become valid only along a declared edge.
         self._plans[id(plan)] = (
             plan,
-            as_recorded(flow_settings or {}),
-            as_recorded(all_flows_settings or {}),
+            recorded_settings,
+            recorded_sections,
         )
         return plan
 
@@ -598,6 +633,8 @@ class FlowLauncher:
             origins=request.origins,
             command_line=request.command_line,
             api_overrides=request.api_overrides,
+            flow_request=request.flow_request,
+            binding_layers=request.binding_layers,
         )
 
     def _validate_plan(
@@ -1553,6 +1590,25 @@ class FlowLauncher:
         """Launch `flow_class` on `design`. `all_flows_settings` (`flows` sections) are composed
         into `flow_settings` exactly as `run()` composes the design's and project's sections
         (`compose_flow_settings`); a `Flow.Settings` instance is taken as final."""
+        if plan is None and depender is None:
+            flow_cls = get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class
+            sections, section_bindings = split_bindings(
+                all_flows_settings or {}, location="the supplied API flow sections"
+            )
+            own, own_bindings = split_bindings(
+                {flow_cls.name: flow_settings or {}}, location="the API"
+            )
+            layers = (section_bindings, own_bindings)
+            require_resolver_integration(layers, [flow_cls])
+            all_flows_settings = sections
+            if not isinstance(flow_settings, Flow.Settings):
+                flow_settings = own[flow_cls.name]
+            if any(layer.entries or layer.invalid_inputs for layer in layers) and is_declared(
+                flow_cls
+            ):
+                plan = self.resolve(
+                    flow_cls, design, flow_settings, sections, binding_layers=layers
+                )
         if (
             plan is None
             and all_flows_settings
@@ -1649,6 +1705,9 @@ class FlowLauncher:
             design_allow_extra,
             design_remove_fields,
         )
+        require_resolver_integration(
+            request.binding_layers, [request.flow_class], request.flow_request
+        )
         plan = self._resolve_request(request) if is_declared(request.flow_class) else None
         previous, self._request_context = self._request_context, request
         try:
@@ -1692,7 +1751,7 @@ class FlowLauncher:
 
     def _request(
         self,
-        flow: type[Flow] | str,
+        flow: type[Flow] | str | FlowRequest,
         design: str | Path | Design | dict[str, Any] | None = None,
         xedaproject: str | None = None,
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
@@ -1774,13 +1833,20 @@ class FlowLauncher:
                 design = self._design_from_project(
                     xeda_project, xedaproject, design, select_design_in_project
                 )
+        # Recover supplied contributions without treating model-created nested defaults as
+        # explicit producer settings. Actual nested edits still count.
+        from .resolver import _explicit
+
+        settings_instance = isinstance(flow_settings, Flow.Settings)
         if isinstance(flow_settings, Flow.Settings):
+            explicit_flow_settings = _explicit(flow_settings)
             flow_settings = flow_settings.model_dump()
         else:
             assert isinstance(
                 flow_settings, (list, tuple, Mapping)
             ), "flow_settings should be a list, tuple or dict"
             flow_settings = settings_to_dict(flow_settings)
+            explicit_flow_settings = flow_settings
         if not isinstance(flow_overrides, dict):
             flow_overrides = settings_to_dict(flow_overrides)
         assert isinstance(
@@ -1789,11 +1855,16 @@ class FlowLauncher:
         assert isinstance(
             flow_overrides, dict
         ), f"flow_overrides should be a dict at this stage, but was {type(flow_overrides)}"
-        if isinstance(flow, str):
+        if isinstance(flow, FlowRequest):
+            flow_request = flow
+            flow_class = flow.requested
+        elif isinstance(flow, str):
             flow = flow.replace("-", "_")
             flow_class = get_flow_class(flow)
+            flow_request = FlowRequest((ChainElement(flow_class),))
         else:
             flow_class = flow
+            flow_request = FlowRequest((ChainElement(flow_class),))
 
         if not design or not flow_class:
             log.critical("Failed to parse design and/or flow")
@@ -1807,23 +1878,47 @@ class FlowLauncher:
         # `[design.flows.*]` inside xedaproject.toml was silently ignored.
         # One origin per file, each normalized on its own: origin decides first, nesting only
         # within one origin (`compose_flow_settings`).
-        project_sections = merge_flow_sections(
-            flows_settings, flow_class_for=_get_flow_class_if_known
-        )
-        design_sections = merge_flow_sections(design.flow, flow_class_for=_get_flow_class_if_known)
+        project_label = str(Path(xedaproject).absolute())
+        design_label = str(given_file.absolute()) if given_file else f"the design {design.name}"
+        if xeda_project is not None and not design_not_in_project:
+            design_label = f"{project_label}: design {design.name}"
+        project_sections, project_bindings = split_bindings(flows_settings, location=project_label)
+        design_sections, design_bindings = split_bindings(design.flow, location=design_label)
         # the command line's `-s flows.<node>.key` is the third origin; it may only name a flow
         # of this run, and `-s key` is the requested flow's own leaf
-        cli_sections, flow_settings = command_line_sections(
-            flow_settings, flow_class, flow_class_for=_get_flow_class_if_known
+        cli_sections, cli_own = split_flow_sections(
+            explicit_flow_settings, flow_class.name, flow_class_for=_get_flow_class_if_known
         )
-        origins = [project_sections, design_sections, cli_sections]  # the three origins, in order
+        cli_sections = merge_flow_sections(
+            cli_sections, {flow_class.name: cli_own}, flow_class_for=_get_flow_class_if_known
+        )
+        cli_sections, cli_bindings = split_bindings(cli_sections, location="the command line")
+        api_sections, api_bindings = split_bindings(
+            {flow_class.name: flow_overrides}, location="the API"
+        )
+        binding_layers = (project_bindings, design_bindings, cli_bindings, api_bindings)
+        effective_bindings(binding_layers, [flow_class], request=flow_request)
+        # Ordinary calls keep P1's early CLI addressing check. Bound requests need Task 3's
+        # active graph check, since an alternate producer can be outside the default graph.
+        if (
+            not any(layer.entries or layer.invalid_inputs for layer in binding_layers)
+            and len(flow_request.elements) == 1
+        ):
+            command_line_sections(
+                explicit_flow_settings, flow_class, flow_class_for=_get_flow_class_if_known
+            )
+        origins = [project_sections, design_sections, cli_sections, api_sections]
         # dependencies read their own merged section (`dependency_settings`), under the
         # depender's resolved nested value
         all_sections = merge_flow_sections(*origins, flow_class_for=_get_flow_class_if_known)
         # `-s` wins over the design and project files, as documented; see `settings_layers`.
-        final_flow_settings = compose_flow_settings(
-            flow_class, origins, flow_settings, flow_overrides
-        )
+        final_flow_settings = compose_flow_settings(flow_class, origins)
+        if settings_instance:
+            # Preserve P1's final-value model API while the captured CLI origin records only
+            # supplied contributions for nested-default diagnostics and shared agreement.
+            final_flow_settings = compose_flow_settings(
+                flow_class, origins[:2], flow_settings, api_sections[flow_class.name]
+            )
         if self.settings.debug:
             log.info("design: %s" % PrettyPrinter().pformat(design.model_dump()))
         # the files this launch was given: never an output's destination
@@ -1840,19 +1935,14 @@ class FlowLauncher:
             tuple(
                 (label, deepcopy(section))
                 for label, section in (
-                    (str(Path(xedaproject).absolute()), project_sections),
-                    (
-                        str(given_file.absolute()) if given_file else f"the design {design.name}",
-                        design_sections,
-                    ),
+                    (project_label, project_sections),
+                    (design_label, design_sections),
                 )
             ),
-            merge_flow_sections(
-                cli_sections,
-                {flow_class.name: flow_settings},
-                flow_class_for=_get_flow_class_if_known,
-            ),
-            {flow_class.name: deepcopy(flow_overrides)},
+            deepcopy(cli_sections),
+            deepcopy(api_sections),
+            flow_request,
+            binding_layers,
         )
 
 
