@@ -981,7 +981,10 @@ class FlowLauncher:
                         )
                     else:
                         self._run_dependencies(flow, design, all_flows_settings, read_leases)
-                    flow.prepare_inputs()
+                    # Producers have their own program records. Preparation belongs to this
+                    # consumer and happens before its execution recording scope/snapshot.
+                    with recording_programs() as programs:
+                        flow.prepare_inputs()
                     prepared = registered_input_files(flow)
                     self._read_inputs.add(prepared)
                     _refuse_inputs_inside(flow.run_path, flow.name, prepared)
@@ -1080,8 +1083,13 @@ class FlowLauncher:
                 # previous run's (`Flow.report_file`).
                 flow.start_run()
                 try:
-                    with recording_programs() as programs:
+                    with recording_programs() as execution_programs:
                         self._execute(flow, run_path, input_settings)
+                    for name in execution_programs:
+                        if name not in programs:
+                            programs.append(name)
+                            if name in execution_programs.before:
+                                programs.before[name] = execution_programs.before[name]
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
                     flow.results.success = False
                     flow.results["error"] = {"type": type(e).__name__, "message": str(e)}

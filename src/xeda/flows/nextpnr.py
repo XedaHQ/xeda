@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from shutil import which
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.error import URLError
 from urllib.parse import urlparse
@@ -26,6 +27,7 @@ from ..tool import NonZeroExitCode, Tool
 from ..run_dir import RunDirectory
 from ..utils import replacing_file, setting_flag
 from .nextpnr_constraints import Constraints, merge_constraints, reconcile_clocks
+from .xilinx import find_xilinx_layout, prepare_chipdb, select_xilinx
 from .yosys import YosysFpga
 from .yosys.yosys_fpga import NEXTPNR_KEEPS_SRC, keeping_src_by_default, yosys_fpga_keeping_src
 
@@ -394,6 +396,11 @@ class Nextpnr(FpgaSynthFlow):
         dependency_settings = {"yosys": ("fpga", "clocks")}
 
         prjxray_db: Path | None = Field(None, description="Project X-Ray database root override.")
+        chipdb: Path | None = Field(
+            None,
+            description="An existing Himbaechel Xilinx chip database file; otherwise prepare "
+            "a content-identified shared cache under the run root.",
+        )
 
         @field_validator("yosys", mode="before")
         @classmethod
@@ -516,6 +523,37 @@ class Nextpnr(FpgaSynthFlow):
         return uri if parsed.scheme and parsed.netloc else None
 
     def prepare_inputs(self) -> None:
+        """Prepare stable board/chipdb inputs before freshness, outside the run directory."""
+        self._prepare_board_inputs()
+        if self.io_family(self.settings) == "xilinx":
+            self._prepare_chipdb()
+
+    def _prepare_chipdb(self) -> None:
+        assert isinstance(self.settings, self.Settings)
+        assert self.settings.fpga is not None
+        executable = which("nextpnr-himbaechel")
+        if executable is None:
+            raise FlowFatalError("nextpnr-himbaechel is missing on PATH; install openXC7 1.0.")
+        layout = find_xilinx_layout(
+            Path(executable),
+            prjxray_db=(
+                self.normalize_path_to_design_root(self.settings.prjxray_db)
+                if self.settings.prjxray_db is not None
+                else None
+            ),
+            chipdb=(
+                self.normalize_path_to_design_root(self.settings.chipdb)
+                if self.settings.chipdb is not None
+                else None
+            ),
+        )
+        selection = select_xilinx(self.settings.fpga.part or "", layout)
+        self._xilinx_layout = layout
+        self._xilinx_selection = selection
+        self._chipdb = prepare_chipdb(layout, selection, self.run_directory)
+        self.implicit_inputs.append(self._chipdb)
+
+    def _prepare_board_inputs(self) -> None:
         """Select board fallback paths before freshness, without writing the run directory."""
         assert isinstance(self.settings, self.Settings)
         assert isinstance(self.inputs, self.Inputs)
@@ -809,7 +847,11 @@ class Nextpnr(FpgaSynthFlow):
             args += ss.extra_args
         constraint_name = {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc"}[fpga_family]
         try:
-            next_pnr.run(*setting_flag(pin_file, name=constraint_name), *args)
+            next_pnr.run(
+                *setting_flag(pin_file, name=constraint_name),
+                *args,
+                env={"PYTHONDONTWRITEBYTECODE": "1"},
+            )
         except NonZeroExitCode as e:
             diagnostic = self._constraint_diagnostic()
             if diagnostic:

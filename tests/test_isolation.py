@@ -716,6 +716,19 @@ def _python_deletions(package: Path) -> Counter:
 #: Every deletion in xeda's Python code outside `RunDirectory`, reviewed: what it removes, and
 #: why that is only ever xeda's own. A new one, or a second copy of one, fails the oracle.
 REVIEWED_PY_DELETIONS = {
+    ("flows/xilinx.py", "temporary.remove(bba)"): (
+        1,
+        "RunDirectory.remove on the generator's own BBA in guarded cache scratch",
+    ),
+    ("flows/xilinx.py", "owner.remove(temporary)"): (
+        1,
+        "RunDirectory.remove on the managed cache's temporary entry after failure/publication",
+    ),
+    ("flows/xilinx.py", "temporary.rename(entry)"): (
+        1,
+        "publish a validated temporary entry under its identity lock, with source/destination "
+        "checked against the marked run root and linked cache paths refused",
+    ),
     ("digest.py", "marker.unlink(missing_ok=True)"): (1, "the clock marker it has just created"),
     ("flow_runner/trace.py", "(run_dir / TRACE_FILE).unlink(missing_ok=True)"): (1, "a trace"),
     ("flow_runner/trace.py", "temporary.unlink(missing_ok=True)"): (
@@ -1120,6 +1133,12 @@ _OUTSIDE_RUNS = "not a run directory's"
 #: Every raw write by name, why it cannot write through a link into a file of the user's:
 #: `(file, line, reason)`. Everything else xeda writes goes through `replacing_file`.
 REVIEWED_WRITES = [
+    (
+        "flows/xilinx.py",
+        "temporary.rename(entry)",
+        "a complete validated chipdb entry, in guarded managed cache space under the marked "
+        "run root; published under its durable identity lock, never through linked parents",
+    ),
     ("utils.py", "os.replace(temporary, target)", "`replacing_file`: its complete temporary"),
     (
         "utils.py",

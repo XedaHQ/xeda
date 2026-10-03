@@ -41,7 +41,8 @@ def make_flow(tmp_path, monkeypatch, *, sources=(), settings=None, top="d"):
     flow.inputs.sdc = [s.path for s in design.rtl.sources if s.type is SourceType.Sdc]
     calls = []
 
-    def run(self, *args):
+    def run(self, *args, env=None):
+        assert env == {"PYTHONDONTWRITEBYTECODE": "1"}
         calls.append(list(map(str, args)))
         write_nextpnr_config(flow, args)
 
@@ -181,6 +182,8 @@ def test_xilinx_clocks_are_literal_and_merged_line_errors_keep_origins(tmp_path,
             },
         },
     )
+    # This oracle covers literal constraint rendering, independent of cache/tool setup.
+    monkeypatch.setattr(Nextpnr, "_prepare_chipdb", lambda self: None)
     flow.prepare_inputs()
     pins, sdc, freq = flow._merged_constraints()
     assert sdc is None and freq is None
@@ -380,7 +383,7 @@ def test_tool_constraint_lines_are_translated_using_current_run_log(tmp_path, mo
     flow.prepare_inputs()
     flow.run_path.mkdir()
 
-    def fail(self, *args):
+    def fail(self, *args, env=None):
         (flow.run_path / "nextpnr.log").write_text(
             "ERROR: constraints.sdc line 2 has an invalid constraint\n"
         )
@@ -399,7 +402,7 @@ def test_hook_failure_lines_are_not_attributed_to_pin_constraints(tmp_path, monk
     flow.prepare_inputs()
     flow.run_path.mkdir()
 
-    def fail(self, *args):
+    def fail(self, *args, env=None):
         (flow.run_path / "nextpnr.log").write_text('File "pre_route.py", line 2, in hook\n')
         raise NonZeroExitCode(args, 1)
 

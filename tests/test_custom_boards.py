@@ -210,7 +210,7 @@ def nextpnr_args(tmp_path: Path, settings: Nextpnr.Settings, monkeypatch) -> lis
     flow.inputs.netlist = netlist
     calls = []
 
-    def run(self, *args):
+    def run(self, *args, env=None):
         lpfs = [arg.removeprefix("--lpf=") for arg in map(str, args) if arg.startswith("--lpf=")]
         assert all(Path(lpf).is_file() for lpf in lpfs)
         write_nextpnr_config(flow, args)

@@ -319,7 +319,7 @@ def test_target_specific_nextpnr_arguments(tmp_path, monkeypatch, fpga, expected
     monkeypatch.setattr(
         NextpnrTool,
         "run",
-        lambda self, *args: (
+        lambda self, *args, env=None: (
             write_nextpnr_config(flow, args),
             calls.append((self.executable, args)),
         ),
@@ -356,7 +356,7 @@ def test_ice40_part_identifies_synthesis_and_pnr_device(
     monkeypatch.setattr(
         NextpnrTool,
         "run",
-        lambda self, *args: (write_nextpnr_config(flow, args), calls.append(args)),
+        lambda self, *args, env=None: (write_nextpnr_config(flow, args), calls.append(args)),
     )
     flow.prepare_inputs()
     flow.run()
@@ -379,7 +379,7 @@ def test_nextpnr_resolves_explicit_constraint_paths_against_design_root(tmp_path
     monkeypatch.setattr(
         NextpnrTool,
         "run",
-        lambda self, *args: (write_nextpnr_config(flow, args), calls.append(args)),
+        lambda self, *args, env=None: (write_nextpnr_config(flow, args), calls.append(args)),
     )
     flow.prepare_inputs()
     flow.run()
@@ -400,7 +400,7 @@ def _nextpnr_args(tmp_path, monkeypatch, **settings):
     monkeypatch.setattr(
         NextpnrTool,
         "run",
-        lambda self, *args: (write_nextpnr_config(flow, args), calls.append(args)),
+        lambda self, *args, env=None: (write_nextpnr_config(flow, args), calls.append(args)),
     )
     flow.prepare_inputs()
     flow.run()

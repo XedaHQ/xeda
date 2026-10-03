@@ -65,7 +65,7 @@ def tools(monkeypatch):
         (self.run_path / "decoy.json").write_text(NETLIST)
         self.outputs.netlist = netlist
 
-    def nextpnr_run(tool, *args):
+    def nextpnr_run(tool, *args, env=None):
         calls.append([str(arg) for arg in args])
         for arg in map(str, args):
             name, _, value = arg.partition("=")
@@ -324,7 +324,7 @@ def test_missing_or_stale_configuration_fails(
     if stale:
         assert runner.run_flow(Nextpnr, design, {"fpga": part}).succeeded
 
-    def no_config(self, *args):
+    def no_config(self, *args, env=None):
         for arg in map(str, args):
             if arg.startswith("--report="):
                 Path(arg.partition("=")[2]).write_text(REPORT)
@@ -482,8 +482,8 @@ def test_nextpnr_subprocess_reads_only_the_selected_netlist(
         design = _design(design.root_path, sources=({"file": "input.json", "type": "JsonNetlist"},))
     (tmp_path / "canary.json").write_text("outside canary")
 
-    def run(self, *args):
-        return self.execute(sys.executable, script, *args)
+    def run(self, *args, env=None):
+        return self.execute(sys.executable, script, *args, env=env)
 
     monkeypatch.setattr(NextpnrTool, "run", run)
     runner = _runner(tmp_path, monkeypatch)
@@ -514,7 +514,7 @@ from xeda.cli import cli
 def synth(self):
     self.outputs.netlist = self.run_path / self.settings.netlist_json
     self.outputs.netlist.write_text('{}\\n')
-def place(self, *args):
+def place(self, *args, env=None):
     for arg in map(str, args):
         name, _, value = arg.partition('=')
         if name == '--report':
