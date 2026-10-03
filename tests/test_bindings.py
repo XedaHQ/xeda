@@ -11,7 +11,15 @@ import yaml
 from xeda import Design
 from xeda.flow import FlowSettingsError, FlowSettingsException, registered_flows
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.bindings import ProducerRef, effective_bindings, split_bindings
+from xeda.flow_runner.bindings import (
+    BindingEntry,
+    BindingLayer,
+    NodeKey,
+    ProducerRef,
+    default_nodes,
+    effective_bindings,
+    split_bindings,
+)
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.settings_layers import split_flow_sections
 
@@ -47,14 +55,14 @@ def test_split_copies_settings_and_captures_immutable_binding_data():
 
     assert settings == {_ChainConsumer.name: {"quiet": True}}
     assert before[_ChainConsumer.name]["inputs"]["files"] == ["chain_source.files"]
-    selected = effective_bindings([bindings], [_ChainConsumer])
-    binding = selected[_ChainConsumer.name]["files"]
-    assert binding.references == (ProducerRef(_ChainProducer.name, "files"),)
+    selected = effective_bindings([bindings], default_nodes([_ChainConsumer]))
+    binding = selected[NodeKey(_ChainConsumer.name)]["files"]
+    assert binding.references == (ProducerRef(NodeKey(_ChainProducer.name), "files"),)
     assert binding.location == f"project.yaml: flows.{_ChainConsumer.name}.inputs.files"
     with pytest.raises(FrozenInstanceError):
         binding.references[0].node = "other"
     with pytest.raises(TypeError):
-        selected[_ChainConsumer.name]["files"] = binding
+        selected[NodeKey(_ChainConsumer.name)]["files"] = binding
 
 
 def test_binding_precedence_merges_input_names_and_replaces_ordered_lists():
@@ -70,12 +78,14 @@ def test_binding_precedence_merges_input_names_and_replaces_ordered_lists():
         layer(_ChainConsumer, {"left": "chain_source.json_b"}, "CLI"),
         layer(_ChainConsumer, {"files": ["chain_source.data", "chain_source.files"]}, "API"),
     ]
-    bindings = effective_bindings(layers, [_ChainConsumer])[_ChainConsumer.name]
-    assert bindings["left"].references == (ProducerRef(_ChainProducer.name, "json_b"),)
-    assert bindings["right"].references == (ProducerRef(_ChainProducer.name, "json_b"),)
+    bindings = effective_bindings(layers, default_nodes([_ChainConsumer]))[
+        NodeKey(_ChainConsumer.name)
+    ]
+    assert bindings["left"].references == (ProducerRef(NodeKey(_ChainProducer.name), "json_b"),)
+    assert bindings["right"].references == (ProducerRef(NodeKey(_ChainProducer.name), "json_b"),)
     assert bindings["files"].references == (
-        ProducerRef(_ChainProducer.name, "data"),
-        ProducerRef(_ChainProducer.name, "files"),
+        ProducerRef(NodeKey(_ChainProducer.name), "data"),
+        ProducerRef(NodeKey(_ChainProducer.name), "files"),
     )
     assert bindings["files"].location.startswith("API:")
 
@@ -96,14 +106,14 @@ def test_binding_precedence_merges_input_names_and_replaces_ordered_lists():
 )
 def test_winning_invalid_reference_is_rejected_at_its_location(value):
     with pytest.raises(FlowSettingsException, match=r"design.yaml.*inputs.made"):
-        effective_bindings([layer(_Taker, {"made": value}, "design.yaml")], [_Taker])
+        effective_bindings([layer(_Taker, {"made": value}, "design.yaml")], default_nodes([_Taker]))
 
 
 @pytest.mark.parametrize("value", [True, [], None, "__maker"])
 def test_inputs_requires_a_mapping(value):
     _, bindings = split_bindings({_Taker.name: {"inputs": value}}, location="project.yaml")
     with pytest.raises(FlowSettingsException, match="project.yaml.*inputs.*mapping"):
-        effective_bindings([bindings], [_Taker])
+        effective_bindings([bindings], default_nodes([_Taker]))
 
 
 @pytest.mark.parametrize(
@@ -116,29 +126,31 @@ def test_inputs_requires_a_mapping(value):
 )
 def test_strict_reference_names_and_scalar_cardinality(value, message):
     with pytest.raises(FlowSettingsException, match=message):
-        effective_bindings([layer(_Taker, {"made": value})], [_Taker])
+        effective_bindings([layer(_Taker, {"made": value})], default_nodes([_Taker]))
 
 
 def test_replaced_bad_value_is_not_validated_but_lower_input_names_are():
     bindings = effective_bindings(
         [layer(_Taker, {"made": False}), layer(_Taker, {"made": "__maker.made"}, "API")],
-        [_Taker],
+        default_nodes([_Taker]),
     )
-    assert bindings[_Taker.name]["made"].references == (ProducerRef(_Maker.name, "made"),)
+    assert bindings[NodeKey(_Taker.name)]["made"].references == (
+        ProducerRef(NodeKey(_Maker.name), "made"),
+    )
     with pytest.raises(FlowSettingsException, match="the design file.*Made.*input"):
         effective_bindings(
             [layer(_Taker, {"Made": False}), layer(_Taker, {"made": "__maker.made"}, "API")],
-            [_Taker],
+            default_nodes([_Taker]),
         )
 
 
 def test_required_and_optional_empty_many_bindings():
     with pytest.raises(FlowSettingsException, match="files.*empty"):
-        effective_bindings([layer(_ChainConsumer, {"files": []})], [_ChainConsumer])
+        effective_bindings([layer(_ChainConsumer, {"files": []})], default_nodes([_ChainConsumer]))
     selected = effective_bindings(
-        [layer(_ChainOptionalConsumer, {"files": []})], [_ChainOptionalConsumer]
+        [layer(_ChainOptionalConsumer, {"files": []})], default_nodes([_ChainOptionalConsumer])
     )
-    assert selected[_ChainOptionalConsumer.name]["files"].references == ()
+    assert selected[NodeKey(_ChainOptionalConsumer.name)]["files"].references == ()
 
 
 def test_unreached_plugin_sections_remain_tolerant():
@@ -146,15 +158,15 @@ def test_unreached_plugin_sections_remain_tolerant():
         {"unavailable_plugin": {"inputs": {"unknown": False}, "custom": 8}}, location="design.yaml"
     )
     assert settings == {"unavailable_plugin": {"custom": 8}}
-    assert effective_bindings([bindings], [_Taker]) == {}
+    assert effective_bindings([bindings], default_nodes([_Taker])) == {}
 
 
 def test_unreached_inputs_shape_is_tolerated_until_its_consumer_is_reached():
     settings, bindings = split_bindings({_Taker.name: {"inputs": False}}, location="design.yaml")
     assert settings == {_Taker.name: {}}
-    assert effective_bindings([bindings], [_Maker]) == {}
+    assert effective_bindings([bindings], default_nodes([_Maker])) == {}
     with pytest.raises(FlowSettingsException, match="design.yaml.*inputs.*mapping"):
-        effective_bindings([bindings], [_Taker])
+        effective_bindings([bindings], default_nodes([_Taker]))
 
 
 @pytest.mark.parametrize("origin", ["CLI", "design.yaml", "project.yaml", "API"])
@@ -166,7 +178,7 @@ def test_pc1_collisions_precede_precedence_for_all_origins(origin, reference):
         layer(_ChainSimpleConsumer, {"netlist": False}, "higher API"),
     ]
     with pytest.raises(FlowSettingsException) as error:
-        effective_bindings(layers, [_ChainSimpleConsumer], request=request)
+        effective_bindings(layers, default_nodes([_ChainSimpleConsumer]), request=request)
     message = str(error.value)
     assert "chain position 1" in message and "2" in message
     assert origin in message and "inputs.netlist" in message
@@ -177,7 +189,7 @@ def test_aliases_are_canonicalized_and_duplicate_sections_still_fail():
         {"_Taker": {"inputs": {"made": "__maker.made"}}}, location="API"
     )
     assert settings == {_Taker.name: {}}
-    assert _Taker.name in effective_bindings([bindings], [_Taker])
+    assert NodeKey(_Taker.name) in effective_bindings([bindings], default_nodes([_Taker]))
     with pytest.raises(ValueError, match="twice"):
         split_bindings({"chain_source": {}, "_ChainProducer": {}}, location="design.yaml")
 
@@ -213,7 +225,9 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
     assert "inputs" not in request.settings
     assert all("inputs" not in section for section in request.sections.values())
     assert len(request.binding_layers) == 4
-    binding = effective_bindings(request.binding_layers, [_Taker])[_Taker.name]["made"]
+    binding = effective_bindings(request.binding_layers, default_nodes([_Taker]))[
+        NodeKey(_Taker.name)
+    ]["made"]
     assert binding.location.startswith("the API:")
     assert str(project) in request.binding_layers[0].location
     assert str(design) in request.binding_layers[1].location
@@ -264,7 +278,7 @@ def test_nested_default_settings_are_allowed_only_for_a_default_equivalent_bindi
         location="design.yaml",
     )
     assert settings[_Place.name]["synth"] == {"quiet": True}
-    effective_bindings([default], [_Place])
+    effective_bindings([default], default_nodes([_Place]))
     _, alternate = split_bindings(
         {
             _Place.name: {
@@ -275,18 +289,18 @@ def test_nested_default_settings_are_allowed_only_for_a_default_equivalent_bindi
         location="design.yaml",
     )
     with pytest.raises(FlowSettingsException, match="design.yaml.*synth.*default producer"):
-        effective_bindings([alternate], [_Place])
+        effective_bindings([alternate], default_nodes([_Place]))
 
 
 def test_model_defaults_and_separate_producer_sections_are_not_explicit_nested_settings():
     model = _Place.Settings()
     _, defaults = split_bindings({_Place.name: model, _Synth.name: {"quiet": True}}, location="API")
     alternate = layer(_Place, {"netlist": "__chain_simple_producer.netlist"})
-    effective_bindings([defaults, alternate], [_Place])
+    effective_bindings([defaults, alternate], default_nodes([_Place]))
     model.synth.quiet = True
     _, edited = split_bindings({_Place.name: model}, location="API")
     with pytest.raises(FlowSettingsException, match="API.*synth.*default producer"):
-        effective_bindings([edited, alternate], [_Place])
+        effective_bindings([edited, alternate], default_nodes([_Place]))
 
 
 def test_captured_layers_can_be_transported_to_existing_dse_workers(tmp_path):
@@ -319,7 +333,9 @@ def test_embedded_yaml_design_binding_names_its_project_file_and_design(tmp_path
         )
     )
     request = DefaultRunner(tmp_path / "runs")._request(_Taker, "embedded", str(project))
-    binding = effective_bindings(request.binding_layers, [_Taker])[_Taker.name]["made"]
+    binding = effective_bindings(request.binding_layers, default_nodes([_Taker]))[
+        NodeKey(_Taker.name)
+    ]["made"]
     assert str(project) in binding.location and "design embedded" in binding.location
 
 
@@ -331,8 +347,10 @@ def test_binding_capture_keeps_sources_and_design_hash_unchanged(tmp_path):
     request = DefaultRunner(tmp_path / "runs")._request(
         _Taker, design, flow_settings={"inputs.made": "__maker.made"}
     )
-    assert effective_bindings(request.binding_layers, [_Taker])[_Taker.name]["made"].references == (
-        ProducerRef(_Maker.name, "made"),
+    assert effective_bindings(request.binding_layers, default_nodes([_Taker]))[
+        NodeKey(_Taker.name)
+    ]["made"].references == (
+        ProducerRef(NodeKey(_Maker.name), "made"),
     )
     assert request.design.rtl.sources[0].path == source
     assert request.design.rtl_hash == before == design.rtl_hash
@@ -356,3 +374,42 @@ def test_request_checks_edited_nested_model_defaults_as_supplied_settings(tmp_pa
             flow_settings=model,
             flow_overrides={"inputs.netlist": "__chain_simple_producer.netlist"},
         )
+
+
+def test_node_keys_are_immutable_hashable_and_pickle_for_dse_transport():
+    plain = NodeKey(_Taker.name)
+    assert plain.instance is None
+    assert plain == NodeKey(_Taker.name) and hash(plain) == hash(NodeKey(_Taker.name))
+    assert plain != NodeKey(_Taker.name, "second")
+    assert len({plain, NodeKey(_Taker.name), NodeKey(_Taker.name, "second")}) == 2
+    with pytest.raises(FrozenInstanceError):
+        plain.instance = "other"
+    keyed = NodeKey(_Taker.name, "second")
+    assert pickle.loads(pickle.dumps(keyed)) == keyed
+    ref = ProducerRef(NodeKey(_Maker.name, 1), "made")
+    assert pickle.loads(pickle.dumps(ref)) == ref
+
+
+def test_two_reached_instances_of_one_flow_keep_distinct_bindings():
+    first, second = NodeKey(_Taker.name, "first"), NodeKey(_Taker.name, "second")
+
+    def entry(node, reference, location):
+        return BindingEntry(node, "made", reference, False, location)
+
+    layers = [
+        BindingLayer("design", (entry(first, "__maker.made", "design: first"),), {}),
+        BindingLayer("CLI", (entry(second, "__maker.made", "CLI: second"),), {}),
+        BindingLayer("API", (entry(second, "__maker", "API: second"),), {}),
+    ]
+    selected = effective_bindings(layers, [(first, _Taker), (second, _Taker)])
+    assert set(selected) == {first, second}
+    assert selected[first]["made"].references == (ProducerRef(NodeKey(_Maker.name), "made"),)
+    assert selected[first]["made"].location == "design: first"
+    assert selected[second]["made"].references == (ProducerRef(NodeKey(_Maker.name), None),)
+    assert selected[second]["made"].location == "API: second"
+
+    # An entry for the default (None) node does not bind an instance of that flow.
+    plain = BindingLayer("design", (entry(NodeKey(_Taker.name), "__maker.made", "plain"),), {})
+    assert effective_bindings([plain], [(first, _Taker), (second, _Taker)]) == {}
+    with pytest.raises(ValueError, match="twice"):
+        effective_bindings([plain], [(first, _Taker), (first, _Taker)])
