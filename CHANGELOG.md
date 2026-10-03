@@ -38,6 +38,8 @@ All notable changes to this project will be documented in this file.
 - A failed dependency's `FlowDependencyFailure` names the dependency and its `results.json`.
 
 ### Added
+- Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or
+  `xedaproject.toml`; multiple matches report the conflicting files and ask to keep one.
 - `xeda run --dry-run` prints the plan in producer order, with run directories, hashes,
   declared input origins and optional outputs switched on for consumers; `--json` emits one
   document. It changes no run root, writes no markers or locks and probes no tools.

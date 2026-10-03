@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from xeda.xedaproject import XedaProject
+from xeda.xedaproject import XedaProject, find_default_xedaproject
 
 DESIGN = """
 [design]
@@ -118,3 +118,30 @@ def test_a_project_file_suffix_is_read_as_strictly_as_a_design_file_s(tmp_path):
     shouting = _write(tmp_path, "xedaproject.TOML", "[flows.ghdl_sim]\nwarn_error = true\n")
     with pytest.raises(ValueError, match=r"case-sensitive.*'\.toml'"):
         XedaProject.from_file(shouting, skip_designs=True)
+
+
+def test_default_project_discovery_rejects_multiple_formats(tmp_path, monkeypatch):
+    from xeda.design import Design
+    from xeda.flow_runner import DefaultRunner
+    from xeda.flow_runner.default_runner import ProjectFileError
+
+    (tmp_path / "xedaproject.yaml").write_text("flows: {}\n")
+    (tmp_path / "xedaproject.toml").write_text("workspace = {}\n")
+    monkeypatch.chdir(tmp_path)
+    runner = DefaultRunner(tmp_path / "run")
+
+    with pytest.raises(ProjectFileError) as raised:
+        runner._request("ghdl_sim", Design(name="d"))
+
+    message = str(raised.value)
+    assert "xedaproject.yaml" in message
+    assert "xedaproject.toml" in message
+    assert "keep one" in message
+
+
+@pytest.mark.parametrize("name", ["xedaproject.yaml", "xedaproject.yml", "xedaproject.toml"])
+def test_default_project_discovery_accepts_each_supported_suffix(tmp_path, name):
+    path = tmp_path / name
+    path.write_text("flows: {}\n" if path.suffix != ".toml" else "workspace = {}\n")
+
+    assert find_default_xedaproject(tmp_path) == path

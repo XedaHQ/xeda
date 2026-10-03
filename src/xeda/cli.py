@@ -598,7 +598,7 @@ def _print_plan(plan: Plan) -> None:
         allow_dash=False,
         path_type=Path,
     ),
-    help="Path to Xeda project file.",
+    help="Path to Xeda project file. By default, discover one xedaproject.yaml, .yml or .toml.",
 )
 @click.option(
     "--design-file",
@@ -1058,7 +1058,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
         allow_dash=False,
         path_type=Path,
     ),
-    help="Path to Xeda project file.",
+    help="Path to Xeda project file. By default, discover one xedaproject.yaml, .yml or .toml.",
 )
 @click.option(
     "--design-name",

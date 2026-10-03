@@ -294,5 +294,7 @@ Design sources expand environment variables too, except ``$PWD``. There ``$DESIG
 Multiple designs in one project
 ===============================
 
-A ``xedaproject.toml`` can hold several designs, plus top-level ``flows`` settings that are merged
-into each. Select one with ``--design-name``, or let Xeda prompt you interactively.
+A ``xedaproject.yaml`` can hold several designs, plus top-level ``flows`` settings that are merged
+into each. ``xedaproject.yml`` and ``xedaproject.toml`` are also accepted; automatic discovery
+requires exactly one of these names in the directory. Select a design with ``--design-name``, or
+let Xeda prompt you interactively.
