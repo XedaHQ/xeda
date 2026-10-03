@@ -1,8 +1,11 @@
 """Read-only openXC7 layout, mapped fabric, content identity and binary-header contracts."""
 
 import builtins
+import json
 import shutil
 import struct
+import subprocess
+import sys
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -10,6 +13,8 @@ import pytest
 import yaml
 
 from xeda.flow import FlowFatalError
+from xeda.run_dir import RunDirectory, RunDirectoryError
+from xeda.run_root import ensure_run_root
 
 
 @pytest.fixture
@@ -86,6 +91,246 @@ def _binary(fabric="xc7a100t", *, offset=32):
     return bytearray(
         struct.pack("<i", offset) + bytes(offset - 4) + header + b"\0".join(strings) + b"\0"
     )
+
+
+@pytest.fixture
+def generation(prefix, tmp_path):
+    """Real subprocess fakes: the installation is read-only during generation."""
+    mode = _write(tmp_path / "mode", "ok")
+    calls = tmp_path / "generation-calls.jsonl"
+    generator = prefix / "share/nextpnr/himbaechel/uarch/xilinx/gen/xilinx_gen.py"
+    _write(generator.parent / "support.py", "VALUE = 'complete bba'\n")
+    generator.write_text(
+        "import argparse, json, os, signal, time\n"
+        "from pathlib import Path\n"
+        "from support import VALUE\n"
+        "p = argparse.ArgumentParser()\n"
+        "for name in ('xray', 'device', 'bba'): p.add_argument('--' + name, required=True)\n"
+        "a = p.parse_args()\n"
+        f"mode = Path({str(mode)!r}).read_text()\n"
+        f"with Path({str(calls)!r}).open('a') as f:\n"
+        " f.write(json.dumps({'cwd': os.getcwd(), 'args': vars(a), "
+        "'bytecode': os.environ.get('PYTHONDONTWRITEBYTECODE')}) + '\\n')\n"
+        "Path(a.bba).write_text(VALUE)\n"
+        "time.sleep(0.2)\n"
+        "if mode == 'partial': raise SystemExit(9)\n"
+        "if mode == 'signal': os.kill(os.getpid(), signal.SIGKILL)\n"
+    )
+    assembler = prefix / "bin/bbasm"
+    assembler.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\nfrom pathlib import Path\n"
+        f"mode = Path({str(mode)!r}).read_text()\n"
+        "assert sys.argv[1] == '-l'\n"
+        "assert Path(sys.argv[2]).read_text() == 'complete bba'\n"
+        "if mode == 'assembler': raise SystemExit(8)\n"
+        f"data = bytes.fromhex({bytes(_binary()).hex()!r})\n"
+        "if mode == 'header': data = b'bad header'\n"
+        "if mode != 'missing': Path(sys.argv[3]).write_bytes(data)\n"
+    )
+    assembler.chmod(0o755)
+    root = ensure_run_root(tmp_path / "run")
+    owned = RunDirectory.claimed(root / "d/consumer", root)
+    return prefix, owned, mode, calls
+
+
+def _prepare(api, generation):
+    prefix, owned, _mode, _calls = generation
+    layout, selection = _selection(api, prefix)
+    return api.prepare_chipdb(layout, selection, owned)
+
+
+def test_generated_cache_is_atomic_immutable_and_shared(api, generation):
+    prefix, owned, _mode, calls = generation
+    before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in prefix.rglob("*") if p.is_file()}
+    chipdb = _prepare(api, generation)
+    layout, selection = _selection(api, prefix)
+    identity = api.chipdb_identity(layout, selection)
+    assert chipdb == owned.run_root / ".cache/xilinx-chipdb" / identity.key / "xc7a100t.bin"
+    manifest = yaml.safe_load((chipdb.parent / "manifest.yaml").read_text())
+    assert manifest["identity"] == identity.key
+    assert manifest["fabric"] == selection.fabric
+    assert manifest["sha"] == api.record_file(chipdb).sha
+    assert manifest["inputs"]["bbasm_digest"] == identity.bbasm_digest
+    states = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in chipdb.parent.iterdir()}
+    other = RunDirectory.claimed(owned.run_root / "other/consumer", owned.run_root)
+    assert api.prepare_chipdb(layout, selection, other) == chipdb
+    assert states == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in states}
+    assert before == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}
+    assert not list(prefix.rglob("__pycache__"))
+    assert not owned.path.exists()
+    records = [json.loads(line) for line in calls.read_text().splitlines()]
+    assert len(records) == 1 and records[0]["bytecode"] == "1"
+    assert Path(records[0]["cwd"]).parent == chipdb.parent.parent
+    assert records[0]["args"]["xray"] == str(layout.database / selection.family)
+    assert not list(chipdb.parent.parent.glob("*.tmp-*"))
+
+
+@pytest.mark.parametrize("mode", ["partial", "signal", "assembler", "missing", "header"])
+def test_failed_generation_publishes_nothing_and_allows_retry(api, generation, mode):
+    _prefix, owned, mode_file, _calls = generation
+    mode_file.write_text(mode)
+    with pytest.raises(FlowFatalError) as error:
+        _prepare(api, generation)
+    assert "xc7a100t" in str(error.value)
+    if mode == "signal":
+        assert "memory pressure" in str(error.value) and "generator" in str(error.value)
+    cache = owned.run_root / ".cache/xilinx-chipdb"
+    assert not list(cache.glob("*/manifest.yaml"))
+    assert not list(cache.glob("*.tmp-*"))
+    mode_file.write_text("ok")
+    assert _prepare(api, generation).is_file()
+
+
+@pytest.mark.parametrize("damage", ["header", "digest", "manifest"])
+def test_corrupt_published_entry_is_an_error_without_replacement(api, generation, damage):
+    chipdb = _prepare(api, generation)
+    if damage == "header":
+        chipdb.write_bytes(b"broken")
+    elif damage == "digest":
+        content = bytearray(chipdb.read_bytes())
+        content[8] ^= 1  # outside the bounded structural header
+        chipdb.write_bytes(content)
+    else:
+        (chipdb.parent / "manifest.yaml").unlink()
+    before = chipdb.read_bytes()
+    with pytest.raises(FlowFatalError, match="remove.*rerun") as error:
+        _prepare(api, generation)
+    assert str(chipdb.parent) in str(error.value)
+    assert chipdb.read_bytes() == before
+    assert len(generation[3].read_text().splitlines()) == 1
+
+
+@pytest.mark.parametrize("component", [".cache", ".cache/xilinx-chipdb", "entry", "lock"])
+def test_cache_links_never_authorize_external_writes(api, generation, tmp_path, component):
+    prefix, owned, _mode, _calls = generation
+    layout, selection = _selection(api, prefix)
+    identity = api.chipdb_identity(layout, selection)
+    relative = {
+        "entry": f".cache/xilinx-chipdb/{identity.key}",
+        "lock": f".cache/xilinx-chipdb/{identity.key}.lock",
+    }.get(component, component)
+    external = tmp_path / "outside"
+    external.mkdir()
+    canary = _write(external / "canary", "untouched")
+    link = owned.run_root / relative
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(canary if component == "lock" else external)
+    with pytest.raises((FlowFatalError, RunDirectoryError, ValueError)):
+        _prepare(api, generation)
+    assert {p.name: p.read_text() for p in external.iterdir()} == {"canary": "untouched"}
+    assert link.is_symlink()
+
+
+def test_explicit_read_only_chipdb_needs_no_owned_cache(api, prefix, tmp_path):
+    chipdb = tmp_path / "supplied.bin"
+    chipdb.write_bytes(_binary())
+    chipdb.chmod(0o444)
+    before = chipdb.stat()
+    layout, selection = _selection(api, prefix, chipdb=chipdb)
+    owned = RunDirectory.unlaunched(tmp_path / "unlaunched")
+    assert api.prepare_chipdb(layout, selection, owned) == chipdb
+    assert chipdb.stat() == before
+    assert not owned.path.exists()
+
+
+def test_automatic_generation_requires_a_marked_claimed_root(api, generation, tmp_path):
+    layout, selection = _selection(api, generation[0])
+    for owned in (
+        RunDirectory.unlaunched(tmp_path),
+        RunDirectory.claimed(tmp_path / "d", tmp_path),
+    ):
+        with pytest.raises(FlowFatalError, match="claimed|marked"):
+            api.prepare_chipdb(layout, selection, owned)
+
+
+def test_inputs_changed_during_generation_are_not_published(api, generation, monkeypatch):
+    original = api.run_process
+    layout, selection = _selection(api, generation[0])
+
+    def mutate(executable, *args, **kwargs):
+        result = original(executable, *args, **kwargs)
+        if executable == str(layout.bbasm):
+            (layout.himbaechel / "uarch/xilinx/constids.inc").write_text("changed")
+        return result
+
+    monkeypatch.setattr(api, "run_process", mutate)
+    with pytest.raises(FlowFatalError, match="changed.*generation"):
+        _prepare(api, generation)
+    assert not list((generation[1].run_root / ".cache/xilinx-chipdb").glob("*/manifest.yaml"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX cache process locks")
+def test_two_processes_share_one_generation(api, generation):
+    prefix, owned, _mode, calls = generation
+    script = (
+        "import sys\nfrom pathlib import Path\n"
+        "from xeda.flows.xilinx import find_xilinx_layout, select_xilinx, prepare_chipdb\n"
+        "from xeda.run_dir import RunDirectory\n"
+        "layout = find_xilinx_layout(Path(sys.argv[1]))\n"
+        "selection = select_xilinx('xc7a100tcsg324-1', layout)\n"
+        "root = Path(sys.argv[2])\n"
+        "print(prepare_chipdb(layout, selection, RunDirectory.claimed(root / sys.argv[3], root)))\n"
+    )
+    processes = [
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(prefix / "bin/nextpnr-himbaechel"),
+                str(owned.run_root),
+                name,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for name in ("design_a/consumer", "design_b/consumer")
+    ]
+    try:
+        outputs = [process.communicate(timeout=30) for process in processes]
+        assert [process.returncode for process in processes] == [0, 0], outputs
+        assert outputs[0][0] == outputs[1][0]
+        assert len(calls.read_text().splitlines()) == 1
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+
+
+def test_generation_timeout_leaves_no_entry_and_releases_lock(api, generation, monkeypatch):
+    monkeypatch.setattr(api, "CHIPDB_GENERATION_TIMEOUT", 0.05)
+    with pytest.raises(FlowFatalError, match="time limit") as error:
+        _prepare(api, generation)
+    assert "OOM" not in str(error.value)
+    cache = generation[1].run_root / ".cache/xilinx-chipdb"
+    assert not list(cache.glob("*/manifest.yaml"))
+    monkeypatch.setattr(api, "CHIPDB_GENERATION_TIMEOUT", 30)
+    assert _prepare(api, generation).is_file()
+
+
+def test_generation_logs_resource_cost_before_start(api, generation, monkeypatch, caplog):
+    original = api.run_process
+
+    def check_log(*args, **kwargs):
+        assert "about a minute" in caplog.text and "4.8 GB" in caplog.text
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(api, "run_process", check_log)
+    with caplog.at_level("INFO", logger="xeda.flows.xilinx"):
+        _prepare(api, generation)
+
+
+def test_stale_temporary_is_not_a_published_cache_entry(api, generation):
+    layout, selection = _selection(api, generation[0])
+    identity = api.chipdb_identity(layout, selection)
+    stale = generation[1].run_root / ".cache/xilinx-chipdb" / f"{identity.key}.tmp-interrupted"
+    stale.mkdir(parents=True)
+    (stale / "xc7a100t.bin").write_bytes(b"partial")
+    assert _prepare(api, generation).is_file()
+    assert (stale / "xc7a100t.bin").read_bytes() == b"partial"
 
 
 def test_layout_resolves_executable_links_before_finding_prefix(api, prefix, tmp_path):

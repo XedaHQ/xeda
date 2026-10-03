@@ -1,4 +1,4 @@
-"""Read-only selection and validation of openXC7 1.0 Himbaechel chip databases.
+"""Selection, validation and owned cache preparation of openXC7 chip databases.
 
 An installation is located through the resolved nextpnr executable, never environment
 variables or directory globs. Generation identities describe content and a fixed recipe,
@@ -10,15 +10,28 @@ from __future__ import annotations
 
 import re
 import struct
-from dataclasses import dataclass
+import logging
+import os
+import sys
+import tempfile
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import yaml
 
 from ..digest import DIRECTORY_DIGEST, record_file
 from ..flow import FPGA, FlowFatalError
+from ..flow_runner.run_lock import lock_file, run_dir_lock
 from ..listing import directory_files
-from ..utils import semantic_hash
+from ..proc_utils import ProcessTimeout, run_process
+from ..run_dir import RunDirectory, RunDirectoryError
+from ..run_root import is_run_root
+from ..utils import NonZeroExitCode, replacing_file, semantic_hash
+
+log = logging.getLogger(__name__)
+
+# Generating unmeasured larger dies may take much longer than the measured a100t.
+CHIPDB_GENERATION_TIMEOUT = 1800.0
 
 CHIPDB_MAGIC = 0x00CA7CA7
 CHIPDB_VERSION = 6
@@ -341,3 +354,172 @@ def validate_chipdb(path: Path, selection: XilinxSelection) -> XilinxChipdbHeade
             f"Invalid Xilinx chipdb {path} for part {selection.part} "
             f"(fabric {selection.fabric}): {error}"
         ) from error
+
+
+def _cache_path(owner: RunDirectory, path: Path) -> Path:
+    """Guard the lexical namespace before locks, reads, creates or publication.
+
+    Cache entries and durable locks never use links, including links within the root:
+    replacing a lock's name would split process coordination between different inodes.
+    """
+    located = owner.inside(path)
+    current = owner.path
+    for part in path.relative_to(owner.path).parts:
+        current = current / part
+        if current.is_symlink():
+            raise RunDirectoryError(
+                f"Linked Xilinx cache path {current}; remove the link and rerun."
+            )
+    return located
+
+
+def _cached_chipdb(
+    owner: RunDirectory,
+    entry: Path,
+    selection: XilinxSelection,
+    identity: XilinxChipdbIdentity,
+) -> Path:
+    """Read an immutable entry; corruption is a repairable error, never a cache miss."""
+    try:
+        chipdb = _cache_path(owner, entry / f"{selection.fabric}.bin")
+        manifest = _cache_path(owner, entry / "manifest.yaml")
+        validate_chipdb(chipdb, selection)
+        data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+        if (
+            not isinstance(data, dict)
+            or data.get("identity") != identity.key
+            or data.get("fabric") != selection.fabric
+            or data.get("sha") != record_file(chipdb).sha
+            or semantic_hash(data.get("inputs")) != semantic_hash(asdict(identity))
+        ):
+            raise ValueError("manifest identity/fabric or binary digest does not match")
+        return chipdb
+    except (OSError, ValueError, FlowFatalError, yaml.YAMLError) as error:
+        raise FlowFatalError(
+            f"Corrupt Xilinx chipdb cache entry {entry}: {error}; remove this entry and rerun."
+        ) from error
+
+
+def _generate_chipdb(
+    layout: XilinxLayout, selection: XilinxSelection, temporary: RunDirectory, entry: Path
+) -> Path:
+    """Run bounded native generator/assembler processes without flow-directory writes."""
+    assert layout.generator is not None and layout.bbasm is not None
+    if selection.fabric == "xc7a100t":
+        log.info(
+            "generating the xc7a100t chip database: about a minute and up to about 4.8 GB "
+            "of memory, once per run root"
+        )
+    else:
+        log.info(
+            "generating the %s chip database in %s; time and memory for this fabric are "
+            "unmeasured (xc7a100t takes about a minute and up to about 4.8 GB)",
+            selection.fabric,
+            entry,
+        )
+    bba = temporary.writable(f"{selection.fabric}.bba")
+    binary = temporary.writable(f"{selection.fabric}.bin")
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    commands = (
+        (
+            "generator",
+            sys.executable,
+            [
+                layout.generator,
+                "--xray",
+                selection.database / selection.family,
+                "--device",
+                selection.fabric,
+                "--bba",
+                bba,
+            ],
+        ),
+        ("assembler", str(layout.bbasm), [*BBASM_ARGS, bba, binary]),
+    )
+    for stage, executable, args in commands:
+        try:
+            run_process(
+                executable,
+                args,
+                cwd=temporary.path,
+                env=env,
+                timeout=CHIPDB_GENERATION_TIMEOUT,
+            )
+        except (OSError, NonZeroExitCode) as error:
+            killed = (
+                isinstance(error, NonZeroExitCode)
+                and not isinstance(error, ProcessTimeout)
+                and error.exit_code < 0
+            )
+            hint = (
+                " A signal kill can indicate memory pressure; this does not establish an OOM kill."
+                if killed
+                else ""
+            )
+            raise FlowFatalError(
+                f"Xilinx chipdb {selection.fabric} {stage} failed for cache {entry}: {error}.{hint}"
+            ) from error
+    _cache_path(temporary, binary)
+    validate_chipdb(binary, selection)
+    temporary.remove(bba)
+    return binary
+
+
+def prepare_chipdb(
+    layout: XilinxLayout, selection: XilinxSelection, run_directory: RunDirectory
+) -> Path:
+    """Validate an explicit chipdb or prepare a shared content-keyed immutable entry.
+
+    Generation requires a claimed, marked root, never one reconstructed from a flow
+    directory. A sibling durable lock coordinates POSIX processes using the existing
+    lock machinery; Windows retains its existing absence of process locking. Scrubbing
+    ordinary flow directories leaves this cache and its locks alone. A cache hit starts
+    no program: the manifest is its generator provenance.
+    """
+    if layout.chipdb is not None:
+        validate_chipdb(layout.chipdb, selection)
+        return layout.chipdb
+    root = run_directory.run_root
+    if root is None or not is_run_root(root):
+        raise FlowFatalError(
+            "Automatic Xilinx chipdb generation needs a claimed RunDirectory under a marked "
+            "run root; supply a validated explicit chipdb when constructing a flow directly."
+        )
+    owner = RunDirectory(root, root)
+    identity = chipdb_identity(layout, selection)
+    cache = _cache_path(owner, root / ".cache/xilinx-chipdb")
+    entry = _cache_path(owner, cache / identity.key)
+    _cache_path(owner, lock_file(entry))
+    cache.mkdir(parents=True, exist_ok=True)
+    with run_dir_lock(entry):
+        # Recheck authority after waiting, before reading or writing the entry.
+        _cache_path(owner, entry)
+        _cache_path(owner, lock_file(entry))
+        if chipdb_identity(layout, selection) != identity:
+            raise FlowFatalError(f"Xilinx chipdb inputs changed while waiting for {entry}; rerun.")
+        if entry.exists():
+            return _cached_chipdb(owner, entry, selection, identity)
+        temporary = Path(tempfile.mkdtemp(prefix=f"{identity.key}.tmp-", dir=cache))
+        scratch = RunDirectory.claimed(_cache_path(owner, temporary), root)
+        try:
+            binary = _generate_chipdb(layout, selection, scratch, entry)
+            manifest = {
+                "identity": identity.key,
+                "fabric": selection.fabric,
+                "sha": record_file(binary).sha,
+                "inputs": asdict(identity),
+                "generator": str(layout.generator),
+                "assembler": str(layout.bbasm),
+            }
+            with replacing_file(scratch.writable("manifest.yaml")) as stream:
+                yaml.safe_dump(manifest, stream, sort_keys=True)
+            if chipdb_identity(layout, selection) != identity:
+                raise FlowFatalError(
+                    f"Xilinx chipdb inputs changed during generation for {entry}; rerun."
+                )
+            _cache_path(owner, entry)
+            _cache_path(owner, temporary)
+            temporary.rename(entry)
+            return entry / binary.name
+        finally:
+            owner.remove(temporary)

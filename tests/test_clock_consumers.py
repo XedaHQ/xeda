@@ -37,7 +37,7 @@ def test_nextpnr_uses_first_unnamed_clock_as_frequency_target(tmp_path, monkeypa
     monkeypatch.setattr(
         NextpnrTool,
         "run",
-        lambda _tool, *values: (write_nextpnr_config(flow, values), args.extend(values)),
+        lambda _tool, *values, env=None: (write_nextpnr_config(flow, values), args.extend(values)),
     )
     flow.prepare_inputs()
     flow.run()
