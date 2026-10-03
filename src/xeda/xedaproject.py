@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Type, Union
 
 import attrs
-import yaml
 
 from .dataclass import model_with_allow_extra
 from .design import DESIGN_FILE_FORMATS, Design
 from .utils import WorkingDirectory, hierarchical_merge, tomllib
+from .yaml_loader import load_yaml
 
 log = logging.getLogger(__name__)
 
@@ -66,13 +66,14 @@ class XedaProject:
                 f"({', '.join(repr(s) for s in DESIGN_FILE_FORMATS)})"
             )
             raise ValueError(f"project file {file}: file suffix {file.suffix!r}: {hint}")
-        with open(file, "rb" if fmt == "toml" else "r") as f:
-            if fmt == "toml":
-                data = tomllib.load(f)
-            elif fmt == "json":
-                data = json.load(f)
-            else:
-                data = yaml.safe_load(f)
+        if fmt == "yaml":
+            data = load_yaml(file)
+        else:
+            with open(file, "rb" if fmt == "toml" else "r") as f:
+                if fmt == "toml":
+                    data = tomllib.load(f)
+                else:
+                    data = json.load(f)
         if not isinstance(data, dict) or not data:
             raise ValueError("Invalid xedaproject!")
         designs = None
