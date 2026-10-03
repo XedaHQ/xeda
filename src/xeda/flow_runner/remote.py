@@ -57,6 +57,7 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, XedaProject, resolve_project_file
+from .bindings import require_no_bindings, split_bindings
 from .default_runner import (
     FlowLauncher,
     FlowNotFoundError,
@@ -950,6 +951,15 @@ class RemoteRunner(FlowLauncher):
         sections = merge_flow_sections(*origins, flow_class_for=flow_class_if_known)
         command_line = merge_flow_sections(
             cli_sections, {flow_name: flow_settings}, flow_class_for=flow_class_if_known
+        )
+        # Bindings are taken out of every origin exactly as a local run does, before Settings
+        # sees them; a remote run cannot carry them yet.
+        require_no_bindings(
+            [
+                split_bindings(project_flow_settings or {}, location="the project file")[1],
+                split_bindings(design.flow, location="the design")[1],
+                split_bindings(command_line, location="the command line")[1],
+            ]
         )
         flow_settings = compose_flow_settings(flow_class, origins, flow_settings)
         plan = None

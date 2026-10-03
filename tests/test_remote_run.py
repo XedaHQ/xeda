@@ -28,7 +28,7 @@ from pydantic import ValidationError
 from xeda import Design
 from xeda.design import GitReference, SourceType
 from xeda.deliver import DeliveryError
-from xeda.flow import FlowException, FlowSettingsError
+from xeda.flow import FlowException, FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DIR_NAME_HASH_LEN, get_flow_class
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteIncompatible, RemoteRunner
@@ -1654,3 +1654,28 @@ def test_a_remote_run_finds_a_lone_project_file_by_any_accepted_name(tmp_path, m
     with pytest.raises(ConnectionRefusedError):
         RemoteRunner(tmp_path / "xeda_run").run_remote(design, "nextpnr", host="h")
     assert connected_to == ["h"]
+
+
+@pytest.mark.parametrize("flow_name", ["_taker", "ghdl_sim"])
+@pytest.mark.parametrize("origin", ["design", "command_line", "command_line_flow_section"])
+def test_remote_input_bindings_are_refused_before_connecting(
+    tmp_path, monkeypatch, origin, flow_name
+):
+    from .io_flows import _Taker
+
+    flow_name = _Taker.name if flow_name == "_taker" else flow_name
+    connected = []
+    monkeypatch.setattr(remote_module, "Connection", lambda **kwargs: connected.append(kwargs))
+    binding = "__maker.made"
+    flow = {flow_name: {"inputs": {"made": binding}}} if origin == "design" else {}
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"}, flow=flow)
+    settings = {
+        "design": None,
+        "command_line": {"inputs.made": binding},
+        "command_line_flow_section": {f"flows.{flow_name}.inputs.made": binding},
+    }[origin]
+    with pytest.raises(FlowSettingsException, match="resolver integration"):
+        RemoteRunner(tmp_path / "mirror").run_remote(
+            design, flow_name, "fake", flow_settings=settings
+        )
+    assert not connected and not (tmp_path / "mirror").exists()

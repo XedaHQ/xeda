@@ -126,6 +126,8 @@ def split_bindings(
     )
 
 
+PENDING_INTEGRATION = "Input binding requests require resolver integration after P2b (PC3)."
+
 _REFERENCE = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?\Z")
 
 
@@ -256,6 +258,10 @@ def require_resolver_integration(
     """Keep captured wiring from being silently ignored until Task 3 integrates the resolver."""
     bindings = effective_bindings(layers, reached, request=request)
     if bindings or (request is not None and len(request.elements) > 1):
-        raise FlowSettingsException(
-            "Input binding requests require resolver integration after P2b (PC3)."
-        )
+        raise FlowSettingsException(PENDING_INTEGRATION)
+
+
+def require_no_bindings(layers: Sequence[BindingLayer]) -> None:
+    """Refuse any binding where the request is not yet wired to the resolver (``--remote``)."""
+    if any(layer.entries or layer.invalid_inputs for layer in layers):
+        raise FlowSettingsException(PENDING_INTEGRATION)
