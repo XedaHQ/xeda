@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- FPGA board lookup rejects unknown names after resolving the selected custom database;
+  7-series part parsing preserves device, package and speed suffix boundaries. Bundled Arty
+  pin constraints and a local ULX3S fallback are available without network access.
+- Yosys FPGA synthesis loads release- and family-specific primitive libraries, defaults to
+  `-sv` with opt-in `-noautowire`, and reports mapped LUT resource estimates with method detail.
 - **Settings compose origin first** (project < design < command line < API); a nested section
   such as `nextpnr`'s `yosys` refines the dependency's own `[flows.yosys_fpga]` section only
   within one origin. Locally and with `--remote` alike.
@@ -40,6 +45,11 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or
   `xedaproject.toml`; multiple matches report the conflicting files and ask to keep one.
+- `Flow.prepare_inputs()` registers implicit inputs after producer hand-over and before
+  freshness, under the producer's read lease. Prepared inputs are reserved against delivery.
+- Declared FPGA I/O specializes types by target family and enables demanded configurations;
+  dry-run plans expose effective input/output types. `prjxray_db` agrees across edges whose
+  endpoints declare it.
 - `xeda run --dry-run` prints the plan in producer order, with run directories, hashes,
   declared input origins and optional outputs switched on for consumers; `--json` emits one
   document. It changes no run root, writes no markers or locks and probes no tools.
@@ -80,6 +90,10 @@ All notable changes to this project will be documented in this file.
   platform databases stay TOML. Trivium keeps its former TOML configuration in `trivium.yaml`
   and its distinct DC-capable configuration in `trivium-dc.xeda.yaml` (formerly
   `trivium.xeda.yaml`).
+- nextpnr takes pin constraints from typed design sources in source order, then falls back
+  to the board file when none are supplied. Typed SDC sources precede the `sdc` setting's file;
+  duplicate clock constraints fail with their original locations. The `lpf_cfg`, `pcf_cfg`
+  and `pdc_cfg` settings are removed with typed-source migration messages.
 - **Breaking: `--remote` requires protocol 3.** P1b remotes apply the shared simulation evidence
   rule and fail simulations that exit successfully without confirmed completion evidence. A P2a
   protocol-2 remote is refused before the design is shipped; upgrade its xeda installation.

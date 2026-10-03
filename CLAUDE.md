@@ -202,6 +202,9 @@ locked via `run_lock` until the trace is written) -> **prepare** (construct the 
 fresh, so it must not change a file in its run directory, all of which are outputs) ->
 **dependencies** (`_run_producers` for declared flows, following the plan; `_run_dependencies`
 for others; each in a sibling run directory held for reading until the launch ends) ->
+**prepare inputs** (`Flow.prepare_inputs`, after hand-over under producer read leases: register
+implicit inputs before freshness and reserve them against delivery; preparation may materialize
+board files in managed cache space, never write the flow's run directory) ->
 **freshness** (without `rebuild_all`, the default: `trace.check_trace` against what the flow
 would consume now; a match reuses the recorded results and skips **run** entirely; `_launch`
 itself removes the trace here, before **run**, so nothing vouches for the directory from this
@@ -332,6 +335,14 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   Loading that needs a generator or Git fetch is refused before side effects; a materialized
   `Design` is plannable.
   Undeclared runtime dependencies are unknown, freshness is not evaluated, and `--remote` is refused.
+
+Declared flows may narrow input/output types by effective target settings and enable a selected
+optional output when a consumer requires it. nextpnr selects typed pin constraints by family and
+merges typed SDC sources before its `sdc` setting's file. Board fallback is prepared before
+freshness; duplicate clock constraints across files and settings fail with their origins.
+
+Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
+database's YAML migration and suffix-based custom YAML/TOML loading are P2b follow-up work (PB6).
 
 ### Settings
 
