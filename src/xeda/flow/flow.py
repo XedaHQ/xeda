@@ -638,6 +638,10 @@ class Flow(metaclass=ABCMeta):
     reads_sources: ClassVar[frozenset[SourceType] | None] = None
     reads_source_parts: ClassVar[tuple[str, ...]] = ("rtl",)
 
+    #: A static explanation for flows that must not appear before the end of a chain, such as a
+    #: programmer. Dynamic `always_runs()` remains the launcher's runtime freshness decision.
+    action_reason: ClassVar[str | None] = None
+
     @classmethod
     def check_required_settings(cls, settings: "Flow.Settings") -> None:
         """Fail a launch that lacks a `required_settings` entry, naming each and how to give it,

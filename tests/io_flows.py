@@ -143,3 +143,133 @@ class _Place(FpgaSynthFlow):
 
     def run(self) -> None:
         self.results["placed"] = str(self.inputs.netlist)
+
+
+class _ChainProducer(Flow):
+    """Test producer with compatible, ambiguous, optional and many outputs."""
+
+    aliases = ["chain_source"]
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Settings(Flow.Settings):
+        first: bool = Field(False, description="Enable the first optional output.")
+        second: bool = Field(False, description="Enable the second optional output.")
+
+    class Outputs(Flow.Outputs):
+        json_a: Path | None = Out(
+            SourceType.JsonNetlist, enabled_by="first", description="First netlist."
+        )
+        json_b: Path | None = Out(
+            SourceType.JsonNetlist, enabled_by="second", description="Second netlist."
+        )
+        many_json: list[Path] = Out(SourceType.JsonNetlist, description="A list of netlists.")
+        data: Path = Out(SourceType.Data, description="A scalar data file.")
+        files: list[Path] = Out(SourceType.Data, description="An ordered list of files.")
+
+    def run(self) -> None:
+        pass
+
+
+class _ChainConsumer(Flow):
+    """Test consumer whose required inputs exercise all-compatible matching."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        left: Path = In(SourceType.JsonNetlist, description="The left netlist.")
+        right: Path = In(SourceType.JsonNetlist, description="The right netlist.")
+        files: list[Path] = In(SourceType.Data, description="An ordered file list.")
+        maybe: Path | None = In(SourceType.Data, description="An optional file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _ChainSimpleProducer(Flow):
+    """Test producer with one unambiguous output for each required input."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Outputs(Flow.Outputs):
+        netlist: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+        data: Path = Out(SourceType.Data, description="The data.")
+
+    def run(self) -> None:
+        pass
+
+
+class _ChainSimpleConsumer(Flow):
+    """Two required inputs must both bind from one adjacency."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        netlist: Path = In(SourceType.JsonNetlist, description="The required netlist.")
+        data: Path = In(SourceType.Data, description="The required data.")
+
+    def run(self) -> None:
+        pass
+
+
+class _ChainOptionalConsumer(Flow):
+    """Only optional inputs, which adjacency must not bind automatically."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        maybe: Path | None = In(SourceType.Data, description="An optional scalar.")
+        files: list[Path] = In(SourceType.Data, optional=True, description="Optional files.")
+
+    def run(self) -> None:
+        pass
+
+
+class _ChainAmbiguousDefault(Flow):
+    """A default edge explicitly selects one of two compatible outputs."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        netlist: Path = In(
+            SourceType.JsonNetlist,
+            producer="__chain_producer",
+            output="json_b",
+            description="The selected netlist.",
+        )
+
+    def run(self) -> None:
+        pass
+
+
+class _ChainAmbiguousConsumer(Flow):
+    """An unqualified required input that sees both producer outputs."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        netlist: Path = In(SourceType.JsonNetlist, description="The ambiguous netlist.")
+
+    def run(self) -> None:
+        pass
+
+
+class _ChainUndeclared(Flow):
+    """A flow without a declared graph contract."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    def run(self) -> None:
+        pass
+
+
+class _ChainAction(Flow):
+    """An action that may only be the final chain element."""
+
+    action_reason: ClassVar[str] = "performs a test action"
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        data: Path = In(SourceType.Data, description="The data consumed by this action.")
+
+    def run(self) -> None:
+        pass
