@@ -54,6 +54,14 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- YAML design and project files now use the YAML 1.2 core schema: `yes/no/on/off/y/n`
+  remain strings, `010` is decimal 10, `0o17` is octal 15, `0x1F` is hexadecimal 31,
+  and scientific notation such as `1e3` is a float. Sexagesimal (`1:30`), timestamps
+  (`2026-10-03`) and underscore-separated numbers (`1_000`) remain strings. Quote
+  values intended as text; use `true`/`false` for booleans and `0o` for octal.
+  Duplicate mapping keys and non-string keys fail with file/line diagnostics. Core
+  explicit tags and ordinary aliases are supported; non-core tags, merge keys and
+  recursive aliases are rejected. TOML and JSON input remain supported.
 - **Breaking: `--remote` requires protocol 3.** P1b remotes apply the shared simulation evidence
   rule and fail simulations that exit successfully without confirmed completion evidence. A P2a
   protocol-2 remote is refused before the design is shipped; upgrade its xeda installation.

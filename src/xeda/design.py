@@ -64,6 +64,7 @@ from .utils import (
     toml_load,
     unique,
 )
+from .yaml_loader import load_yaml
 
 log = logging.getLogger(__name__)
 
@@ -256,7 +257,7 @@ def _read_design_file(path: Path) -> dict[str, Any]:
         elif fmt == "json":
             data = json.loads(path.read_bytes())
         else:
-            data = yaml.safe_load(path.read_bytes())
+            data = load_yaml(path)
     except OSError as e:
         raise DesignFileParseError(path, e.strerror or str(e)) from None
     except UnicodeDecodeError as e:
