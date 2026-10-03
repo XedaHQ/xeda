@@ -69,7 +69,7 @@ from ..utils import (
     with_json_keys,
 )
 from ..version import __version__
-from ..xedaproject import XedaProject
+from ..xedaproject import XedaProject, find_default_xedaproject
 from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
@@ -1708,7 +1708,13 @@ class FlowLauncher:
             if not Path(xedaproject).exists():
                 raise ProjectFileError(f'Cannot open project file "{xedaproject}": no such file')
         else:
-            xedaproject = "xedaproject.toml"
+            try:
+                default_project = find_default_xedaproject()
+            except ValueError as e:
+                raise ProjectFileError(str(e)) from e
+            xedaproject = (
+                str(default_project) if default_project is not None else "xedaproject.toml"
+            )
         given_file = (
             Path(design)
             if isinstance(design, (str, Path)) and names_a_design_file(design)

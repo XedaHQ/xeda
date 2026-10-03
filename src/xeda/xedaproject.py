@@ -15,6 +15,21 @@ from .utils import WorkingDirectory, hierarchical_merge, tomllib
 log = logging.getLogger(__name__)
 
 
+PROJECT_FILE_NAMES = ("xedaproject.yaml", "xedaproject.yml", "xedaproject.toml")
+
+
+def find_default_xedaproject(directory: str | Path = ".") -> Path | None:
+    """Return the sole conventional project file in *directory*, if present."""
+    directory = Path(directory)
+    found = [directory / name for name in PROJECT_FILE_NAMES if (directory / name).exists()]
+    if len(found) > 1:
+        names = ", ".join(path.name for path in found)
+        raise ValueError(
+            f"Multiple project files found in {directory}: {names}; keep one project file"
+        )
+    return found[0] if found else None
+
+
 @attrs.define
 class XedaProject:
     # TODO: workspace options

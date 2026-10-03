@@ -183,8 +183,9 @@ Four orthogonal abstractions, deliberately decoupled:
 - **`FlowLauncher`/`FlowRunner`** (`flow_runner/default_runner.py`) - orchestrates instantiation,
   dependency resolution, run-dir management, caching, and result reporting.
 
-`xedaproject.py` handles multi-design project files (`xedaproject.toml`), including top-level `flows`
-settings that get merged into dependency flows.
+`xedaproject.py` handles multi-design project files (`xedaproject.yaml`, also accepted as
+`xedaproject.yml` or `xedaproject.toml`), including top-level `flows` settings that get merged into
+dependency flows.
 
 ### Flow lifecycle
 
