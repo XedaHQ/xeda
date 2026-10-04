@@ -265,10 +265,10 @@ def strict_getopt(args):
 def pack_or_load(tool, args):
     opts, positional = options(args)
     if tool == "icepack":
-        # `icepack [options] [input-file [output-file]]`: a third operand is a mistake
-        flags, positional = strict_getopt(args)
-        if not set(flags) <= set("uvsbfcrn"):
-            raise ValueError(f"icepack: unknown option in {flags}")
+        # `icepack [options] [input-file [output-file]]`, parsed as a strict getopt does, so an
+        # option placed after an operand becomes a third operand and the operand count below
+        # rejects it. Which option letters icepack accepts is its business, not this fake's.
+        _flags, positional = strict_getopt(args)
     if tool == "openFPGALoader":
         paths = [opts.get("bitstream") or (positional[0] if positional else "")]
     elif tool == "fpga-as":
