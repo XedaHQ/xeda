@@ -155,6 +155,22 @@ def test_the_default_graph_synthesizes_places_and_packs(
     assert len(_tools(tmp_path)) == 3
 
 
+def test_scratch_a_killed_run_left_is_removed_and_never_recorded(tmp_path, toolchain):
+    """A run killed while packing leaves its `.xeda-pack-*` directory: nothing else removes it,
+    and what is in a run directory after a run is recorded as that run's output."""
+    design = _design(tmp_path)
+    runner = _runner(tmp_path)
+    flow = runner.run("fpga_pack", design, flow_settings={"fpga": ECP5})
+    left = flow.run_path / ".xeda-pack-killed0"
+    left.mkdir()
+    (left / "top.bit").write_bytes(PARTIAL)
+    again = runner.run("fpga_pack", design, flow_settings={"fpga": ECP5})
+    assert again is not None and again.succeeded and not again.reused
+    assert not list(again.run_path.glob(".xeda-pack-*"))
+    assert ".xeda-pack" not in (again.run_path / "trace.json").read_text()
+    assert again.outputs.bitstream.read_bytes() == BITSTREAM
+
+
 def test_ecppack_and_icepack_are_given_the_configuration_then_a_scratch_output(tmp_path, toolchain):
     design = _design(tmp_path)
     settings = {"fpga": ECP5, "packer_args": ["--compress", "--freq", "38.8"]}

@@ -42,7 +42,6 @@ from .flow_runner import (
     DefaultRunner,
     XedaOptions,
     add_file_logger,
-    get_flow_class,
     scrub_runs,
 )
 from .flow_runner.dse import Dse
@@ -1292,7 +1291,8 @@ def dse(
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=FlowChoice(all_flow_names),
+    # canonical already; a removed flow's name too, whose run directories are still there
+    type=FlowChoice(all_flow_names, removed=True),
     required=True,
 )
 @click.argument(
@@ -1325,8 +1325,6 @@ def scrub(ctx: click.Context, flow, design_name, run_root, json_flag):
     """Remove FLOW_NAME's previous run directories for DESIGN_NAME, under <run-root>/<design_name>."""
     if json_flag:
         machine_readable_mode()
-    # just to make sure flow exists and name is canonical
-    flow_class = get_flow_class(flow)
     if not DESIGN_NAME.fullmatch(design_name):
         message = f"{design_name!r} is not a design name"
         if json_flag:
@@ -1352,14 +1350,14 @@ def scrub(ctx: click.Context, flow, design_name, run_root, json_flag):
     design_dirs = [design_dir] if design_dir.exists() else []
 
     try:
-        scrubbed = [dd for dd in design_dirs if scrub_runs(flow_class.name, dd, run_root=run_root)]
+        scrubbed = [dd for dd in design_dirs if scrub_runs(flow, dd, run_root=run_root)]
     except RunDirectoryError as e:  # a run directory xeda cannot remove
         log.critical("%s", _error_message(e))
         if json_flag:
             emit_structured(
                 {
                     "success": False,
-                    "flow": flow_class.name,
+                    "flow": flow,
                     "design": design_name,
                     "error": {"type": type(e).__name__, "message": _error_message(e)},
                 },
@@ -1370,7 +1368,7 @@ def scrub(ctx: click.Context, flow, design_name, run_root, json_flag):
         emit_structured(
             {
                 "success": True,
-                "flow": flow_class.name,
+                "flow": flow,
                 "design": design_name,
                 "run_root": str(run_root),
                 "scanned": [str(d) for d in design_dirs],

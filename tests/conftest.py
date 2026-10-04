@@ -1,10 +1,12 @@
 """The suite's own isolation (D21): a test works under `tmp_path`, never in the checkout."""
 
+import os
+import shutil
 from pathlib import Path
 
 import pytest
 
-from .tool_utils import _opted_in
+from .tool_utils import FAKE_TOOLS_DIR, _opted_in
 
 CHECKOUT = Path(__file__).parent.parent
 
@@ -47,3 +49,63 @@ def _nothing_is_written_into_the_checkout():
     if any(_opted_in(layer) for layer in OPT_IN_LAYERS):
         new.discard(OPT_IN_WORK_DIR)
     assert not new, f"tests wrote into the checkout: {sorted(new)}"
+
+
+# ----------------------------------------------------------------- no test programs a device
+
+#: Stands first on every test's `PATH` under the programmer's name: a launch that reaches
+#: `openFPGALoader` without the fake toolchain in front of it starts this, never a programmer
+#: installed on the machine. It says so, leaves a marker and fails.
+SENTINEL = """#!/bin/sh
+echo "a test started openFPGALoader without the fake: no test programs a device" >&2
+: > "$(dirname "$0")/REACHED"
+exit 97
+"""
+
+
+class ProgrammerGuard:
+    """The sentinel `openFPGALoader` of this test process, and what became of it."""
+
+    def __init__(self, directory: Path) -> None:
+        self.directory = directory
+        self.sentinel = directory / "openFPGALoader"
+        self.marker = directory / "REACHED"
+
+    def reached(self) -> bool:
+        """Whether the sentinel was started since the last call."""
+        if not self.marker.exists():
+            return False
+        self.marker.unlink()
+        return True
+
+    def check(self, path: str | None = None) -> None:
+        """Fail unless the `openFPGALoader` that `path` (default: `PATH` now) selects is the
+        sentinel or the fake -- in this process and whatever it starts with this `PATH`."""
+        resolved = shutil.which("openFPGALoader", path=path)
+        if resolved is None:
+            return
+        allowed = (self.sentinel.read_bytes(), (FAKE_TOOLS_DIR / "fake_fpga_tool.py").read_bytes())
+        assert (
+            Path(resolved).read_bytes() in allowed
+        ), f"openFPGALoader resolves to {resolved}, which is neither the fake nor the sentinel"
+
+
+@pytest.fixture(scope="session")
+def _programmer_sentinel(tmp_path_factory) -> ProgrammerGuard:
+    guard = ProgrammerGuard(tmp_path_factory.mktemp("no-programmer"))
+    guard.sentinel.write_text(SENTINEL)
+    guard.sentinel.chmod(0o755)
+    return guard
+
+
+@pytest.fixture(autouse=True)
+def programmer_guard(_programmer_sentinel: ProgrammerGuard, monkeypatch):
+    """Every test, whether or not it remembers the fake: the sentinel is first on `PATH` before
+    any of the test's own fixtures (the fake toolchain goes in front of it), a child process or
+    remote worker given this `PATH` inherits it, and the test fails if the sentinel was
+    started or if its final `PATH` selects any other `openFPGALoader`."""
+    guard = _programmer_sentinel
+    monkeypatch.setenv("PATH", str(guard.directory) + os.pathsep + os.environ.get("PATH", ""))
+    yield guard
+    guard.check()
+    assert not guard.reached(), "the test started openFPGALoader without the fake toolchain"
