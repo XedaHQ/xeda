@@ -396,3 +396,56 @@ def test_the_toml_header_oracle_sees_prose_and_spares_toml_snippets():
         ".. code-block:: yaml\n\n   [tb]\n\nback to ``[tb]`` prose\n"
     )
     assert flagged(rst, rst=True) == [1, 10, 12]
+
+
+# ------------------------------------------------- removed names are documented only as removed
+
+#: names that no longer exist: a maintained document may mention one only where it says so
+REMOVED_NAMES = ("open_xc7", "openxc7", "lpf_cfg", "pcf_cfg", "pdc_cfg", "bitstream_file")
+
+
+def _maintained_documents() -> list[Path]:
+    root = Path(__file__).parent.parent
+    return [
+        *sorted((root / "docs").glob("*.rst")),
+        root / "README.md",
+        *sorted((root / "src/xeda/data/agent").rglob("*.md")),
+        *sorted((root / ".claude/skills/xeda").rglob("*.md")),
+    ]
+
+
+def test_no_maintained_document_recommends_a_removed_flow_or_setting():
+    """The flow guide, the README and the agent skill (not the changelog, which is history):
+    `open_xc7`, the loader's build settings and the old pin-file settings appear only in a
+    paragraph that says they were removed, and nowhere as something to run or set."""
+    import re
+
+    documents = _maintained_documents()
+    assert len(documents) > 8
+    offending = []
+    for document in documents:
+        for paragraph in re.split(r"\n\s*\n", document.read_text()):
+            lowered = paragraph.lower()
+            # by exact spelling: `openXC7` is the toolchain's name, `openxc7` was a flow's
+            named = any(re.search(rf"\b{name}\b", paragraph) for name in REMOVED_NAMES)
+            if named and "removed" not in lowered:
+                offending.append((document.name, paragraph.strip()[:120]))
+            if re.search(
+                r"xeda run open_?xc7|openfpgaloader\.nextpnr|loader.*nextpnr\.yosys", lowered
+            ):
+                offending.append((document.name, paragraph.strip()[:120]))
+    assert not offending
+
+
+def test_the_documents_state_what_the_lut_count_is_and_is_not():
+    """PB7: `lut` is per toolchain, with its stage and method, and not certified comparable
+    with Vivado's."""
+    root = Path(__file__).parent.parent
+    for document in (
+        root / "docs/flows.rst",
+        root / "docs/machine-readable.rst",
+        root / "src/xeda/data/agent/references/troubleshooting.md",
+    ):
+        text = " ".join(document.read_text().split())
+        assert "LUT:STAGE" in text and "LUT:METHOD" in text, document
+        assert re.search(r"(not|neither is) certified comparable", text, re.IGNORECASE), document

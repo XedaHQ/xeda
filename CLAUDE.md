@@ -285,7 +285,8 @@ round-trip used to make it and `yosys_sim` unrunnable. A removed flow's names ar
 "`open_xc7` was removed: use fpga_pack to build, openfpgaloader to program"), and so is its
 section in any `flows` table -- a design's, a project's, `-s flows.open_xc7.*`, the API's --
 by `merge_flow_sections`, the one place they are all merged; a section for a flow that is merely
-unknown (a plugin that is not installed) is still left alone. `get_flow_class` normalizes dashes, retries
+unknown (a plugin that is not installed) is still left alone. `xeda scrub` alone takes a removed flow's name
+(`FlowChoice(removed=True)`): it only removes directories. `get_flow_class` normalizes dashes, retries
 case-insensitively, and raises `FlowNotFoundError` with close-match suggestions. `flows/__init__.py` `walk_packages()`s the subpackages to populate `__builtin_flows__`,
 and also re-exports flow classes explicitly in `__all__` - **add new flows to both the import list and
 `__all__`** so they appear in `xeda list-flows` and CLI completion.
@@ -347,6 +348,29 @@ Declared flows may narrow input/output types by effective target settings and en
 optional output when a consumer requires it. nextpnr selects typed pin constraints by family and
 merges typed SDC sources before its `sdc` setting's file. Board fallback is prepared before
 freshness; duplicate clock constraints across files and settings fail with their origins.
+
+**Xilinx 7-series goes through openXC7 1.0** (`flows/xilinx.py`, `nextpnr.py`, `fpga_pack.py`):
+`nextpnr-himbaechel --device <part as the Project X-Ray database spells it> --chipdb ... -o
+xdc= -o fasm= -o placement=`, never `--freq`/`--xdc`/`--fasm`; flow clocks become `create_clock
+-period` lines (no `-name`: the backend ignores it with a warning). Tool data is found from the
+resolved executable's prefix (`share/nextpnr/himbaechel`, `share/nextpnr/prjxray-db`), never
+from an environment variable. `Nextpnr.prepare_inputs` prepares the die's chip database in
+`<run root>/.cache/xilinx-chipdb/<identity>/` (`xilinx.prepare_chipdb`: identity by content of
+the executables, generator tree and device data; one durable lock per identity; generation in
+sibling scratch, validated, renamed; entries immutable and left by scrub; `chipdb` names a file
+instead) and registers it as an implicit input, so a hit starts no generator and an unchanged
+relaunch runs nothing. Generation and nextpnr's hooks run with `PYTHONDONTWRITEBYTECODE`: the
+installation is never written. `lut` is per toolchain and stage (`LUT:STAGE`, `LUT:METHOD`):
+nextpnr's is the distinct `(tile, site, A-D)` locations of `SLICE_LUTX` cells in this run's
+placement dump, yosys's a mapped-primitive footprint (`yosys_fpga.xilinx_lut_footprint`, every
+`RAM<d>X<w>[SD]`, SRL and LUT primitive); neither is certified comparable with Vivado's.
+`clock_port` is reported only when the reported domain is itself a top-level port. A failed
+nextpnr is reported by the `ERROR:` lines of this run's log (`Nextpnr._failure`: a constraint
+error at its origin, a missed timing constraint, else the tool's failure) -- a warning is never
+the cause. `fpga_pack` packs into `.xeda-pack-*` scratch in its run directory (removing one a
+killed run left) and publishes with `replacing_copy` only a nonempty file of a packer that
+exited 0. Known limit: an in-place change of the installed Project X-Ray data alone, with
+`fpga-as` unchanged, is not noticed when packing a prebuilt `Fasm` source.
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 database's YAML migration and suffix-based custom YAML/TOML loading are P2b follow-up work (PB6).
@@ -1115,6 +1139,18 @@ while it is open). A flow sharing
   `XEDA_TESTS_EXTERNAL_CACHE` or the checkout's `xeda_run/external/`; CI runs it on the latest
   Python version only. Its slowest test (Piccolo's core) also needs `XEDA_TESTS_EXTERNAL_SLOW=1`,
   which CI does not set.
+  `XEDA_TESTS_OPENXC7=1` builds an Arty A7-100T design with the real openXC7 toolchain
+  (`tests/test_openxc7_real.py`, `tool_utils.require_openxc7`; openXC7's `bin` first on `PATH`,
+  run as `python -m pytest` since its `export.sh` also puts its own venv's `pytest` first): the
+  bitstream, the same FASM features as the upstream Makefile's commands, a relaunch that runs
+  nothing, a second design reusing the one chip database (generated once per session, shared
+  by xdist workers under their common temporary directory), and the generator tree unchanged.
+  It is its own variable, not `XEDA_TESTS_REQUIRE_TOOLS`: CI has no openXC7.
+- **No test programs a device, structurally.** `tests/conftest.py`'s autouse `programmer_guard`
+  puts a sentinel `openFPGALoader` first on every test's `PATH` (the fake toolchain goes in front
+  of it; child processes and the popen remote worker inherit it) and fails a test that started
+  it or whose final `PATH` selects any loader but the fake or the sentinel. Loader tests still
+  assert on the fake's call record. Never run a real `openFPGALoader` from a test or a probe.
 - Formatting is inconsistent by design: `black` (line-length 100) is enforced on `src/` only; `ruff`
   (line-length 120, `target-version = "py311"`) checks the whole repo.
 

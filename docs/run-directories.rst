@@ -315,6 +315,15 @@ Some runs can never be reused, and say why: they always run, keep no trace, and 
   board fallbacks are tracked before freshness is checked. Bundled archive board files are
   materialized under the run root's content-keyed ``.cache/board-files/`` directory.
 
+The run root also holds what several designs share. ``nextpnr`` for a Xilinx 7-series part
+generates the die's chip database once, into ``.cache/xilinx-chipdb/<identity>/`` (about a minute
+and 3.5 GB of memory for an ``xc7a100t``), and every later launch under that run root -- of any
+design -- reads the same file; it is registered as an input before freshness is judged, so an
+unchanged relaunch starts nothing. The identity is the content of the installed toolchain's
+generator, executables and device data, never a version string. One lock per identity (POSIX)
+keeps two launches from generating it twice; an interrupted generation leaves only scratch, which
+the next one removes. ``--clean``, post-cleanup and ``xeda scrub`` leave the cache alone.
+
 What is not tracked
 ---------------------
 

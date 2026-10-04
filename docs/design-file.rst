@@ -208,6 +208,19 @@ design can still read it. An invalid explicit ``type`` is an error naming the cl
 A ``.v`` file is ``Verilog``; give a gate-level netlist explicitly as
 ``{ file = "net.v", type = "VerilogNetlist" }``.
 
+A source of a later stage's type stands in for the flows that would build it: a ``JsonNetlist``
+skips synthesis for ``nextpnr``, a ``Fasm``, ``EcpConfig`` or ``IceAsc`` configuration is packed
+by ``fpga_pack`` without placing, and a ``Bitstream`` is what ``openfpgaloader`` programs, with
+nothing built:
+
+.. code-block:: yaml
+
+    rtl:
+      sources:
+        - top.v
+        - {file: build/top.bit, type: Bitstream}   # or just build/top.bit: typed by its suffix
+      top: top
+
 Source-consumption contracts apply to ``vivado_synth``, ``vivado_alt_synth``, ``vivado_project``,
 ``quartus``, ``diamond_synth``, ``ise_synth``, ``dc`` and ``yosys_fpga``. They read only the types
 they declare: ``vivado_synth`` passes over an ``Lpf`` source, for example. A source in an
