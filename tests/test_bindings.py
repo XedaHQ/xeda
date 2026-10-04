@@ -42,7 +42,8 @@ def isolate_registration():
 
 
 def layer(cls, inputs, location="the design file"):
-    return split_bindings({cls.name: {"inputs": inputs}}, location=location)[1]
+    kind = "cli" if "CLI" in location else "api" if "API" in location else "file"
+    return split_bindings({cls.name: {"inputs": inputs}}, location=location, kind=kind)[1]
 
 
 def test_split_copies_settings_and_captures_immutable_binding_data():
@@ -167,19 +168,45 @@ def test_unreached_inputs_shape_is_tolerated_until_its_consumer_is_reached():
         effective_bindings([bindings], default_nodes([_Taker]))
 
 
-@pytest.mark.parametrize("origin", ["CLI", "design.yaml", "project.yaml", "API"])
+CHAIN_EDGE = (ProducerRef(NodeKey("__chain_simple_producer"), "netlist"),)
+
+
+@pytest.mark.parametrize("origin", ["CLI", "API"])
 @pytest.mark.parametrize("reference", ["__chain_simple_producer.netlist", "chain_source.json_a"])
-def test_pc1_collisions_precede_precedence_for_all_origins(origin, reference):
+def test_pc1_command_line_and_api_collisions_precede_precedence(origin, reference):
+    """PC1 as narrowed: a chain collides with a command-line or API binding of the same
+    input, equal or not, before layer precedence or value validation."""
     request = parse_request("__chain_simple_producer+__chain_simple_consumer")
     layers = [
+        layer(_ChainSimpleConsumer, {"netlist": False}, "design.yaml"),
         layer(_ChainSimpleConsumer, {"netlist": reference}, origin),
-        layer(_ChainSimpleConsumer, {"netlist": False}, "higher API"),
     ]
     with pytest.raises(FlowSettingsException) as error:
         effective_bindings(layers, default_nodes([_ChainSimpleConsumer]), request=request)
     message = str(error.value)
     assert "chain position 1" in message and "2" in message
     assert origin in message and "inputs.netlist" in message
+
+
+@pytest.mark.parametrize("origin", ["design.yaml", "project.yaml"])
+@pytest.mark.parametrize("reference", ["__chain_simple_producer.netlist", "chain_source.json_a"])
+def test_pc1_a_chain_overrides_a_file_binding_of_the_same_input(origin, reference):
+    """A chain is command-line data: it wins over a saved binding, which is reported as
+    overridden; a file binding of another input still applies, and a replaced value is not
+    validated."""
+    request = parse_request("__chain_simple_producer+__chain_simple_consumer")
+    layers = [
+        layer(_ChainSimpleConsumer, {"netlist": False}, "an earlier file"),
+        layer(_ChainSimpleConsumer, {"netlist": reference}, origin),
+    ]
+    bound = effective_bindings(layers, default_nodes([_ChainSimpleConsumer]), request=request)
+    netlist = bound[NodeKey(_ChainSimpleConsumer.name)]["netlist"]
+    assert netlist.references == CHAIN_EDGE and netlist.origin == "chain"
+    assert "chain position 1" in netlist.location
+    assert [origin in location for location in netlist.overridden] == [False, True]
+    assert all("inputs.netlist" in location for location in netlist.overridden)
+    data = bound[NodeKey(_ChainSimpleConsumer.name)]["data"]
+    assert data.origin == "chain" and data.overridden == ()
 
 
 def test_aliases_are_canonicalized_and_duplicate_sections_still_fail():
@@ -240,17 +267,33 @@ def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
     project = tmp_path / "project.yaml"
     project.write_text(yaml.safe_dump({"flows": bindings if origin == "project" else {}}))
     runner = DefaultRunner(tmp_path / "runs")
-    with pytest.raises(FlowSettingsException, match="chain position") as error:
-        runner._request(
+    label = {"CLI": "command line", "design": "design d", "project": str(project), "API": "API"}[
+        origin
+    ]
+
+    def request():
+        return runner._request(
             parse_request("__chain_simple_producer+__chain_simple_consumer"),
             design,
             str(project),
             {"inputs.netlist": reference} if origin == "CLI" else {},
             {"inputs.netlist": reference} if origin == "API" else {},
         )
-    assert {"CLI": "command line", "design": "design d", "project": str(project), "API": "API"}[
-        origin
-    ] in str(error.value)
+
+    if origin in ("CLI", "API"):
+        with pytest.raises(FlowSettingsException, match="chain position") as error:
+            request()
+        assert label in str(error.value)
+        return
+    captured = request()
+    bound = effective_bindings(
+        captured.binding_layers,
+        default_nodes([_ChainSimpleConsumer]),
+        request=captured.flow_request,
+    )
+    netlist = bound[NodeKey(_ChainSimpleConsumer.name)]["netlist"]
+    assert netlist.references == CHAIN_EDGE and netlist.origin == "chain"
+    assert len(netlist.overridden) == 1 and label in netlist.overridden[0]
 
 
 @pytest.mark.parametrize("entry", ["run", "plan", "run_flow", "resolve"])

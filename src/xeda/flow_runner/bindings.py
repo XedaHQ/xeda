@@ -58,20 +58,32 @@ class BindingEntry:
 
 @dataclass(frozen=True)
 class BindingLayer:
-    """One origin's reserved keys and explicitly supplied ordinary settings."""
+    """One origin's reserved keys and explicitly supplied ordinary settings.
+
+    ``kind`` is the origin's rank: a ``"file"`` (design or project), the command line
+    (``"cli"``) or the API (``"api"``). A chain adjacency is command-line data: it overrides a
+    file's binding of the same input and collides with a command-line or API one (PC1).
+    """
 
     location: str
     entries: tuple[BindingEntry, ...]
     settings: Mapping[str, Any]
     invalid_inputs: tuple[str, ...] = ()
+    kind: str = "file"
 
 
 @dataclass(frozen=True)
 class InputBinding:
-    """The winning ordered references for one input, with its explanatory location."""
+    """The winning ordered references for one input, with its explanatory location.
+
+    ``origin`` is ``"chain"`` or the winning layer's kind; ``overridden`` lists the locations
+    of file bindings a chain adjacency replaced. Neither is part of a run's identity.
+    """
 
     references: tuple[ProducerRef, ...]
     location: str
+    origin: str = "file"
+    overridden: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, eq=False)
@@ -102,7 +114,7 @@ def _freeze(value: Any) -> Any:
 
 
 def split_bindings(
-    sections: Mapping[str, Any], *, location: str
+    sections: Mapping[str, Any], *, location: str, kind: str = "file"
 ) -> tuple[dict[str, Any], BindingLayer]:
     """Copy/canonicalize an origin, removing ``inputs`` before Settings sees it.
 
@@ -140,7 +152,7 @@ def split_bindings(
                 )
             )
     return normalized, BindingLayer(
-        location, tuple(entries), _freeze(_explicit(normalized)), tuple(invalid_inputs)
+        location, tuple(entries), _freeze(_explicit(normalized)), tuple(invalid_inputs), kind
     )
 
 
@@ -170,62 +182,73 @@ def _reference(value: Any, location: str) -> ProducerRef:
     return ProducerRef(NodeKey(producer.name), output)
 
 
-def check_chain_collisions(layers: Sequence[BindingLayer], request: FlowRequest | None) -> None:
-    """PC1: reject every raw chain/explicit collision before precedence or value validation."""
+def chain_bindings(request: FlowRequest | None) -> dict[tuple[NodeKey, str], InputBinding]:
+    """The input each chain adjacency binds: ``(consumer, input)`` -> its one reference."""
+    bound: dict[tuple[NodeKey, str], InputBinding] = {}
     if request is None:
-        return
+        return bound
     for position, (producer, consumer) in enumerate(zip(request.elements, request.elements[1:]), 1):
-        adjacent = dict(
-            match_required_inputs(producer.flow_class, consumer.flow_class, output=producer.output)
+        location = (
+            f"the chain position {position} ({producer.node}) -> {position + 1} ({consumer.node})"
         )
-        for layer in layers:
-            for entry in layer.entries:
-                if entry.node == NodeKey(consumer.node) and entry.name in adjacent:
-                    raise FlowSettingsException(
-                        f"The chain position {position} ({producer.node}) -> {position + 1} "
-                        f"({consumer.node}) binds input {entry.name!r}; {entry.location} also "
-                        "binds that input. Give the binding in one place, even when equal."
-                    )
+        for name, output in match_required_inputs(
+            producer.flow_class, consumer.flow_class, output=producer.output
+        ):
+            bound[NodeKey(consumer.node), name] = InputBinding(
+                (ProducerRef(NodeKey(producer.node), output),), location, "chain"
+            )
+    return bound
 
 
-def effective_bindings(
+def check_chain_collisions(layers: Sequence[BindingLayer], request: FlowRequest | None) -> None:
+    """PC1: a chain adjacency and a command-line or API binding of the same input are always
+    an error, even when equal, before precedence or value validation. A design or project
+    file's binding is not a collision: the chain, command-line data, overrides it."""
+    chain = chain_bindings(request)
+    for layer in layers:
+        if layer.kind == "file":
+            continue
+        for entry in layer.entries:
+            adjacency = chain.get((entry.node, entry.name))
+            if adjacency is not None:
+                raise FlowSettingsException(
+                    f"{adjacency.location[0].upper()}{adjacency.location[1:]} binds input "
+                    f"{entry.name!r}; {entry.location} also binds that input. Give the "
+                    "binding in one place, even when equal."
+                )
+
+
+def node_bindings(
     layers: Sequence[BindingLayer],
-    reached: Sequence[tuple[NodeKey, type[Flow]]],
+    key: NodeKey,
+    cls: type[Flow],
     *,
     request: FlowRequest | None = None,
-) -> Mapping[NodeKey, Mapping[str, InputBinding]]:
-    """Validate reached input names in every layer, then only the winning reference values.
+) -> dict[str, InputBinding]:
+    """The winning binding of each explicitly bound input of one reached node.
 
-    Origins must be supplied in increasing precedence (project, design, CLI, API).
-    Ordered lists replace whole; input names merge keywise. Nodes are told apart by
-    ``NodeKey``, never by flow name. This does not select edges, append design sources,
-    compose producer settings or validate target-dependent types.
+    Origins must be supplied in increasing precedence (project, design, CLI, API). Every
+    layer's input names are checked; only a winning value is validated as a reference. A chain
+    adjacency replaces a file binding of its input and notes that binding's location.
     """
-    check_chain_collisions(layers, request)
-    classes: dict[NodeKey, type[Flow]] = {}
-    for key, cls in reached:
-        if key in classes:
-            raise ValueError(f"The node {key.label!r} is reached twice.")
-        classes[key] = cls
-    winners: dict[tuple[NodeKey, str], BindingEntry] = {}
+    declarations = declared_inputs(cls)
+    winners: dict[str, tuple[BindingEntry, str]] = {}
     for layer in layers:
-        for flow in layer.invalid_inputs:
-            if NodeKey(flow) in classes:
-                raise FlowSettingsException(
-                    f"{layer.location}: flows.{flow}.inputs must be a mapping."
-                )
+        if key.instance is None and key.flow in layer.invalid_inputs:
+            raise FlowSettingsException(
+                f"{layer.location}: flows.{key.flow}.inputs must be a mapping."
+            )
         for entry in layer.entries:
-            if entry.node not in classes:
+            if entry.node != key:
                 continue
-            if entry.name not in declared_inputs(classes[entry.node]):
+            if entry.name not in declarations:
                 raise FlowSettingsException(
                     f"{entry.location}: unknown input {entry.name!r} of {entry.node.label!r}."
                 )
-            winners[entry.node, entry.name] = entry
-    selected: dict[NodeKey, dict[str, InputBinding]] = {}
-    for (node, name), entry in winners.items():
-        cls = classes[node]
-        declaration = declared_inputs(cls)[name]
+            winners[entry.name] = (entry, layer.kind)
+    selected: dict[str, InputBinding] = {}
+    for name, (entry, kind) in winners.items():
+        declaration = declarations[name]
         if entry.is_list:
             if declaration.cardinality != "many":
                 raise FlowSettingsException(f"{entry.location}: takes one reference, not a list.")
@@ -236,10 +259,45 @@ def effective_bindings(
             values = entry.value
         else:
             values = (entry.value,)
-        binding = InputBinding(
-            tuple(_reference(value, entry.location) for value in values), entry.location
+        selected[name] = InputBinding(
+            tuple(_reference(value, entry.location) for value in values), entry.location, kind
         )
-        selected.setdefault(node, {})[name] = binding
+    for (node, name), adjacency in chain_bindings(request).items():
+        if node != key:
+            continue
+        overridden = tuple(
+            entry.location
+            for layer in layers
+            if layer.kind == "file"
+            for entry in layer.entries
+            if entry.node == key and entry.name == name
+        )
+        selected[name] = InputBinding(adjacency.references, adjacency.location, "chain", overridden)
+    return selected
+
+
+def effective_bindings(
+    layers: Sequence[BindingLayer],
+    reached: Sequence[tuple[NodeKey, type[Flow]]],
+    *,
+    request: FlowRequest | None = None,
+) -> Mapping[NodeKey, Mapping[str, InputBinding]]:
+    """`node_bindings` of every reached node that has any, after the PC1 collision check.
+
+    Nodes are told apart by ``NodeKey``, never by flow name. This does not select edges,
+    append design sources, compose producer settings or validate target-dependent types.
+    """
+    check_chain_collisions(layers, request)
+    classes: dict[NodeKey, type[Flow]] = {}
+    for key, cls in reached:
+        if key in classes:
+            raise ValueError(f"The node {key.label!r} is reached twice.")
+        classes[key] = cls
+    selected = {
+        key: bindings
+        for key, cls in classes.items()
+        if (bindings := node_bindings(layers, key, cls, request=request))
+    }
     return _freeze(selected)
 
 
