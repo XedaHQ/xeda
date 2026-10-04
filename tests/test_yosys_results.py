@@ -73,6 +73,11 @@ def test_per_cell_type_counts_are_reported(parsed_flow: Yosys):
     [
         ({"LUT1": 2, "LUT2": 3, "LUT6": 5, "LUT6_2": 7}, (24, 24, 0, 0)),
         ({"RAM32M": 2, "SRL16E": 3, "SRLC32E": 4}, (15, 0, 8, 7)),
+        # every distributed RAM, not RAM32M alone: a 6-input LUT holds 64 x 1 or 32 x 2 bits,
+        # and each further read port of a dual-port memory is another copy
+        ({"RAM32X1D": 1, "RAM64X1S": 1, "RAM64M": 1}, (7, 0, 7, 0)),
+        ({"RAM16X1S_1": 1, "RAM32X2S": 1, "RAM32X8S": 1, "RAM128X1D": 1}, (10, 0, 10, 0)),
+        ({"RAM256X1S": 1, "RAM64X1D_1": 1, "RAM64X2S": 1, "CFGLUT5": 2}, (10, 2, 8, 0)),
         ({}, (0, 0, 0, 0)),
     ],
 )
@@ -121,3 +126,27 @@ def test_xilinx_lut_footprint_uses_design_totals_once_with_hierarchy(tmp_path):
     assert flow.results["LUT"] == 7
     assert flow.results["LUT:LOGIC"] == 3
     assert flow.results["LUT:RAM"] == 4
+
+
+def test_every_lut_based_primitive_of_the_installed_yosys_has_a_footprint():
+    """A distributed RAM or shift register the count does not know is counted as no LUT at all
+    (RAM32X1D was: found on the real openXC7 build of a design instantiating one)."""
+    import re
+    import subprocess
+
+    from .tool_utils import require_yosys
+
+    from xeda.flows.yosys.yosys_fpga import xilinx_lut_footprint
+
+    require_yosys()
+    datdir = subprocess.run(
+        ["yosys-config", "--datdir"], capture_output=True, text=True, check=True, timeout=30
+    ).stdout.strip()
+    cells = re.findall(
+        r"^module\s+((?:LUT|RAM\d+[XM]|SRL|CFGLUT)\w*)",
+        (Path(datdir) / "xilinx" / "cells_sim.v").read_text(),
+        flags=re.MULTILINE,
+    )
+    assert len(cells) > 40
+    assert not [cell for cell in cells if xilinx_lut_footprint(cell) is None]
+    assert xilinx_lut_footprint("RAMB36E1") is None and xilinx_lut_footprint("FDRE") is None
