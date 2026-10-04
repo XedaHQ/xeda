@@ -373,7 +373,9 @@ exited 0. Known limit: an in-place change of the installed Project X-Ray data al
 `fpga-as` unchanged, is not noticed when packing a prebuilt `Fasm` source.
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
-database's YAML migration and suffix-based custom YAML/TOML loading are P2b follow-up work (PB6).
+and platform databases are still TOML, and `custom_boards_file` still reads TOML only
+(`board.py`'s `toml_load`): accepting a YAML custom database by its suffix, through the strict
+loader, is not done yet.
 
 ### Settings
 
