@@ -1674,7 +1674,7 @@ def test_remote_input_bindings_are_refused_before_connecting(
         "command_line": {"inputs.made": binding},
         "command_line_flow_section": {f"flows.{flow_name}.inputs.made": binding},
     }[origin]
-    with pytest.raises(FlowSettingsException, match="resolver integration"):
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
         RemoteRunner(tmp_path / "mirror").run_remote(
             design, flow_name, "fake", flow_settings=settings
         )

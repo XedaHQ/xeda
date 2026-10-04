@@ -93,6 +93,13 @@ def plan_info(plan: Plan) -> dict[str, Any]:
                             "producer": resolved.producer,
                             "output": resolved.output,
                             "sources": [str(path) for path in resolved.sources],
+                            "references": [
+                                {"node": ref.node, "output": ref.output}
+                                for ref in resolved.references
+                            ],
+                            "binding_origin": resolved.binding_origin,
+                            "binding_location": resolved.binding_location,
+                            "overridden": list(resolved.overridden),
                         }
                         for resolved in node.inputs
                     ],

@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from glob import glob
 from pathlib import Path
 from pprint import PrettyPrinter
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import yaml
 from box import Box
@@ -47,7 +47,14 @@ from ..design import (
     names_a_design_file,
     refusing_load_side_effects,
 )
-from ..flow import Flow, FlowDependencyFailure, FlowFatalError, FlowSettingsError, registered_flows
+from ..flow import (
+    Flow,
+    FlowDependencyFailure,
+    FlowFatalError,
+    FlowSettingsError,
+    FlowSettingsException,
+    registered_flows,
+)
 from ..flow.io import declared_inputs, is_declared, selected_types
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import WrittenLeaf, map_written_leaves
@@ -71,10 +78,11 @@ from ..utils import (
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, ProjectFileError, XedaProject, resolve_project_file
 from .bindings import (
+    LOCAL_REQUESTS_ONLY,
     BindingLayer,
+    NodeKey,
     default_nodes,
     effective_bindings,
-    require_resolver_integration,
     split_bindings,
 )
 from .chains import ChainElement, FlowRequest
@@ -446,6 +454,10 @@ class FlowLauncher:
     Manage running flows and their dependencies, make-like: see `launch_flow`.
     """
 
+    #: whether `run` takes a chain or a request with explicit input bindings; a launcher that
+    #: hands requests to workers (`Dse`) refuses them before anything is submitted
+    accepts_bindings: ClassVar[bool] = True
+
     class Settings(XedaBaseModel):
         """Settings for FlowLaunchers"""
 
@@ -523,7 +535,7 @@ class FlowLauncher:
         self._pending_deliveries: List[Tuple[Flow, Deliveries]] = []
         self._request_context: _Request | None = None
         self._plans: dict[int, tuple[Plan, Any, Any]] = {}
-        self._planned_completed: dict[tuple[int, str], Flow] = {}
+        self._planned_completed: dict[tuple[int, NodeKey], Flow] = {}
         self._completed_runs: dict[Path, tuple[Flow, CompletedRun]] = {}
 
     @property
@@ -581,8 +593,8 @@ class FlowLauncher:
         """Resolve one request without constructing a flow, probing tools or writing files."""
         recorded_settings = as_recorded(flow_settings or {})
         recorded_sections = as_recorded(all_flows_settings or {})
-        # Capture reserved keys before the resolver's existing settings composition. Do not
-        # integrate edge discovery here while P2b owns the resolver (PC3).
+        # Capture reserved keys before settings composition: `inputs` is wiring the resolver
+        # selects edges by, never a setting.
         layers = list(binding_layers)
         clean_origins = []
         for location, values in origins:
@@ -604,7 +616,6 @@ class FlowLauncher:
             {flow_class.name: flow_settings or {}}, location="the API", kind="api"
         )
         layers.append(bindings)
-        require_resolver_integration(layers, [flow_class], flow_request)
         # Preserve the context/full value of a Settings instance on ordinary direct calls.
         if not isinstance(flow_settings, Flow.Settings):
             flow_settings = clean_root[flow_class.name]
@@ -621,8 +632,9 @@ class FlowLauncher:
             command_line=clean_cli,
             api_overrides=clean_api,
             debug=self.settings.debug,
+            flow_request=flow_request,
+            binding_layers=layers,
         )
-        require_resolver_integration(layers, [node.flow_class for node in plan.nodes], flow_request)
         # The resolver validates final agreed settings. The original request may contain
         # partial shared values that become valid only along a declared edge.
         self._plans[id(plan)] = (
@@ -652,6 +664,7 @@ class FlowLauncher:
         design: Design,
         settings: Mapping[str, Any] | Flow.Settings | None,
         sections: Mapping[str, Any] | None,
+        node_key: NodeKey | None = None,
     ) -> PlanNode:
         """Validate a plan minted by this launcher; external plans are deferred (R3)."""
         captured = self._plans.get(id(plan))
@@ -670,9 +683,10 @@ class FlowLauncher:
             )
         ):
             raise FlowFatalError("The plan does not match this request's context")
-        if flow_class.name not in plan:
-            raise FlowFatalError(f"The plan has no node for this request: {flow_class.name}")
-        node = plan.node(flow_class.name)
+        node_key = node_key or NodeKey(flow_class.name)
+        if node_key not in plan:
+            raise FlowFatalError(f"The plan has no node for this request: {node_key.label}")
+        node = plan.node(node_key)
         supplied = as_recorded(settings or {})
         supplied_context = settings.context if isinstance(settings, Flow.Settings) else {}
         if (
@@ -704,6 +718,7 @@ class FlowLauncher:
         all_flows_settings: Union[Dict, None] = None,
         *,
         plan: Plan | None = None,
+        plan_node: NodeKey | None = None,
     ) -> Flow:
         """Launch `flow_class` on `design`: the one procedure every flow run, and every
         dependency run, goes through -- make's order: bring every prerequisite up to date, then
@@ -772,9 +787,10 @@ class FlowLauncher:
                 copy_resources,
                 all_flows_settings,
                 plan=plan,
+                plan_node=plan_node,
             )
             if plan is not None:
-                self._planned_completed[(id(plan), flow.name)] = flow
+                self._planned_completed[(id(plan), plan_node or NodeKey(flow.name))] = flow
         except BaseException:
             self._launch_depth -= 1
             if top_level:
@@ -869,6 +885,7 @@ class FlowLauncher:
         all_flows_settings: Union[Dict, None],
         *,
         plan: Plan | None = None,
+        plan_node: NodeKey | None = None,
     ) -> Flow:
         """`launch_flow`'s stages, for one flow."""
         self.debug |= self.settings.debug
@@ -896,9 +913,12 @@ class FlowLauncher:
                     else None
                 ),
                 api_overrides=request.api_overrides if request else None,
+                binding_layers=request.binding_layers if request else (),
             )
         if plan is not None:
-            node = self._validate_plan(plan, flow_class, design, flow_settings, all_flows_settings)
+            node = self._validate_plan(
+                plan, flow_class, design, flow_settings, all_flows_settings, plan_node
+            )
             flow_settings = node.settings
         input_settings = self._input_settings(
             flow_class, flow_settings, design, runner_cwd, depender
@@ -1352,12 +1372,13 @@ class FlowLauncher:
         declarations = declared_inputs(type(flow))
         for selected in node.inputs:
             declaration = declarations[selected.name]
-            producer = None
+            producers: list[Flow] = []
             paths = list(selected.sources)
-            if selected.origin == "producer":
-                assert selected.producer is not None and selected.output is not None
-                producer_node = plan.node(selected.producer)
-                key = (id(plan), producer_node.name)
+            # the ordered references of the plan: each producer launched once per plan,
+            # its files handed over by the frozen output key, concatenated in reference order
+            for reference in selected.references:
+                producer_node = plan.node(reference.node)
+                key = (id(plan), producer_node.node_key)
                 producer = self._planned_completed.get(key)
                 if producer is None:
                     try:
@@ -1368,6 +1389,7 @@ class FlowLauncher:
                             depender=flow,
                             all_flows_settings=sections,
                             plan=plan,
+                            plan_node=producer_node.node_key,
                         )
                     except Exception as error:
                         raise FlowDependencyFailure(
@@ -1385,14 +1407,16 @@ class FlowLauncher:
                     flow.completed_dependencies.append(producer)
                 accepted = selected_types(type(flow), node.settings, selected.name)
                 produced = selected_types(
-                    producer_node.flow_class, producer_node.settings, selected.output, output=True
+                    producer_node.flow_class, producer_node.settings, reference.output, output=True
                 )
                 if not produced or not set(produced) <= set(accepted):
                     raise FlowDependencyFailure(
-                        f"{flow.name}.{selected.name}: {producer.name}.{selected.output} "
+                        f"{flow.name}.{selected.name}: {producer.name}.{reference.output} "
                         "has no compatible output for the selected target"
                     )
-                paths = handed_over(producer, selected.output)
+                paths.extend(handed_over(producer, reference.output))
+                producers.append(producer)
+            producer = producers[0] if producers else None
             if (declaration.required and not paths) or (
                 declaration.cardinality != "many" and len(paths) > 1
             ):
@@ -1607,7 +1631,8 @@ class FlowLauncher:
                 {flow_cls.name: flow_settings or {}}, location="the API", kind="api"
             )
             layers = (section_bindings, own_bindings)
-            require_resolver_integration(layers, [flow_cls])
+            # a flow that declares no inputs has none to bind: an `inputs` key is an error
+            effective_bindings(layers, default_nodes([flow_cls]))
             all_flows_settings = sections
             if not isinstance(flow_settings, Flow.Settings):
                 flow_settings = own[flow_cls.name]
@@ -1713,10 +1738,12 @@ class FlowLauncher:
             design_allow_extra,
             design_remove_fields,
         )
-        require_resolver_integration(
-            request.binding_layers, [request.flow_class], request.flow_request
-        )
         plan = self._resolve_request(request) if is_declared(request.flow_class) else None
+        if not self.accepts_bindings and (
+            len(request.flow_request.elements) > 1
+            or (plan is not None and any(i.binding_origin for n in plan.nodes for i in n.inputs))
+        ):
+            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
         previous, self._request_context = self._request_context, request
         try:
             return self.run_flow(
@@ -1908,8 +1935,8 @@ class FlowLauncher:
         )
         binding_layers = (project_bindings, design_bindings, cli_bindings, api_bindings)
         effective_bindings(binding_layers, default_nodes([flow_class]), request=flow_request)
-        # Ordinary calls keep P1's early CLI addressing check. Bound requests need Task 3's
-        # active graph check, since an alternate producer can be outside the default graph.
+        # Ordinary calls keep P1's early CLI addressing check. A bound request is checked by
+        # the resolver against its graph: an alternate producer can be outside the default one.
         if (
             not any(layer.entries or layer.invalid_inputs for layer in binding_layers)
             and len(flow_request.elements) == 1

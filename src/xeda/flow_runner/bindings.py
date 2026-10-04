@@ -1,8 +1,8 @@
 """Reserved input wiring, captured per origin before ordinary settings composition.
 
-These layers describe requests, not an executable graph. The resolver must call
-``effective_bindings`` for each reached consumer before choosing sources or default producers;
-target-selected type matching and edge discovery remain the resolver's responsibility.
+These layers describe requests, not an executable graph. The resolver calls ``node_bindings``
+for each node it reaches, before choosing sources or default producers; target-selected type
+matching and edge discovery are the resolver's.
 """
 
 from __future__ import annotations
@@ -156,7 +156,10 @@ def split_bindings(
     )
 
 
-PENDING_INTEGRATION = "Input binding requests require resolver integration after P2b (PC3)."
+LOCAL_REQUESTS_ONLY = (
+    "Flow chains and input bindings are local `xeda run` requests: --remote and dse do not "
+    "take them."
+)
 
 _REFERENCE = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?\Z")
 
@@ -306,18 +309,7 @@ def default_nodes(classes: Sequence[type[Flow]]) -> list[tuple[NodeKey, type[Flo
     return [(NodeKey(cls.name), cls) for cls in classes]
 
 
-def require_resolver_integration(
-    layers: Sequence[BindingLayer],
-    reached: Sequence[type[Flow]],
-    request: FlowRequest | None = None,
-) -> None:
-    """Keep captured wiring from being silently ignored until Task 3 integrates the resolver."""
-    bindings = effective_bindings(layers, default_nodes(reached), request=request)
-    if bindings or (request is not None and len(request.elements) > 1):
-        raise FlowSettingsException(PENDING_INTEGRATION)
-
-
 def require_no_bindings(layers: Sequence[BindingLayer]) -> None:
-    """Refuse any binding where the request is not yet wired to the resolver (``--remote``)."""
+    """Refuse any binding where requests are not resolved locally (``--remote``)."""
     if any(layer.entries or layer.invalid_inputs for layer in layers):
-        raise FlowSettingsException(PENDING_INTEGRATION)
+        raise FlowSettingsException(LOCAL_REQUESTS_ONLY)

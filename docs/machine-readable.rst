@@ -293,11 +293,15 @@ consumer switching its producer's optional output on:
           {"name": "nextpnr", "flow": "nextpnr", "declared": true,
            "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
            "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
-                       "output": "netlist", "sources": []},
+                       "output": "netlist", "sources": [],
+                       "references": [{"node": "yosys_fpga", "output": "netlist"}],
+                       "binding_origin": null, "binding_location": null, "overridden": []},
                       {"name": "constraints", "origin": "none", "producer": null,
-                       "output": null, "sources": []},
+                       "output": null, "sources": [], "references": [],
+                       "binding_origin": null, "binding_location": null, "overridden": []},
                       {"name": "sdc", "origin": "none", "producer": null,
-                       "output": null, "sources": []}],
+                       "output": null, "sources": [], "references": [],
+                       "binding_origin": null, "binding_location": null, "overridden": []}],
            "switched_on": [],
            "input_types": {"netlist": ["JsonNetlist"], "constraints": ["Pcf"], "sdc": ["Sdc"]},
            "output_types": {"config": ["IceAsc"]}}
@@ -307,9 +311,14 @@ consumer switching its producer's optional output on:
 
 ``nodes`` is ordered with producers before consumers and the requested flow last. ``run_path``
 and ``flowrun_hash`` identify each planned run; ``--hashed-run-dirs`` adds the usual 16-character
-hash suffix. Each input's ``origin`` is ``producer``, ``source`` or ``none``. ``producer`` and
-``output`` name another node's output, or are ``null`` for source/absent inputs; ``sources`` is
-an ordered list of source paths. ``switched_on`` names optional outputs enabled because a
+hash suffix. Each input's ``origin`` is ``producer``, ``source`` or ``none``. ``references``
+lists, in order, every node and output that supplies the input (a list input may have several);
+``producer`` and ``output`` are the first one's, or ``null`` for source/absent inputs;
+``sources`` is an ordered list of source paths. An input is supplied by an explicit binding
+before the design's sources, and by those before its default producer. ``binding_origin`` is
+``null`` for sources and default producers, else where the binding was given: ``"file"`` (a
+design's or project's ``flows.<flow>.inputs.<input>``), ``"cli"``, ``"api"`` or ``"chain"``;
+``binding_location`` names that place and ``overridden`` the saved bindings it replaced. ``switched_on`` names optional outputs enabled because a
 consumer needs them, not every output already enabled by its settings. ``input_types`` and
 ``output_types`` report each declaration's effective types after target agreement; for example,
 iCE40 selects ``Pcf`` pin constraints and ``IceAsc`` configuration. The static flow catalog
