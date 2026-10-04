@@ -83,6 +83,9 @@ from .bindings import (
     NodeKey,
     default_nodes,
     effective_bindings,
+    input_origins,
+    node_bindings,
+    node_identity,
     split_bindings,
 )
 from .chains import ChainElement, FlowRequest
@@ -103,6 +106,7 @@ from .settings_layers import (
 )
 from .trace import (
     as_recorded,
+    BoundProducer,
     DeclaredInputRecord,
     check_trace,
     locate_program,
@@ -169,6 +173,7 @@ def print_results(
         "design_hash",
         "flow",
         "flow_hash",
+        "settings_hash",
         "tools",
         "run_path",
         "artifacts",
@@ -702,10 +707,47 @@ class FlowLauncher:
             or as_recorded(sections or {}) != captured[2]
         ):
             raise FlowFatalError("The plan does not match this request's settings")
-        if node.flowrun_hash != flow_run_hash(node.name, node.settings, design.name) or (
-            node.run_path != self.run_path_of(design.name, node.name, node.flowrun_hash)
-        ):
-            raise FlowFatalError("The plan does not match this request's identity or path")
+        # Every node's identity is recomputed from its settings and its ordered input origins,
+        # producers first, by the one helper the resolver froze it with (D-9).
+        identities: dict[str, str] = {}
+        for planned in plan.nodes:
+            try:
+                origins = input_origins(planned.inputs, identities.__getitem__)
+            except KeyError as error:
+                raise FlowFatalError(
+                    f"The plan's node {planned.name} reads a node that does not precede it"
+                ) from error
+            settings_hash = flow_run_hash(planned.flow_class.name, planned.settings, design.name)
+            identities[planned.name] = node_identity(settings_hash, origins)
+            if (
+                planned.settings_hash != settings_hash
+                or planned.origins != origins
+                or planned.flowrun_hash != identities[planned.name]
+                or planned.run_path
+                != self.run_path_of(design.name, planned.name, planned.flowrun_hash)
+            ):
+                raise FlowFatalError("The plan does not match this request's identity or path")
+        # A plan belongs to the request it was resolved for: its bound inputs are exactly
+        # what that request's bindings select.
+        request = self._request_context
+        if request is not None:
+            for planned in plan.nodes:
+                selected = node_bindings(
+                    request.binding_layers,
+                    planned.node_key,
+                    planned.flow_class,
+                    request=request.flow_request,
+                )
+                bound = {
+                    resolved.name: tuple(ref.node for ref in resolved.references)
+                    for resolved in planned.inputs
+                    if resolved.binding_origin is not None
+                }
+                if bound != {
+                    name: tuple(ref.node.label for ref in binding.references)
+                    for name, binding in selected.items()
+                }:
+                    raise FlowFatalError("The plan does not match this request's bindings")
         return node
 
     def launch_flow(
@@ -927,7 +969,9 @@ class FlowLauncher:
         # identity; the tools write that, and a delivery copies it to the location
         deliveries = split_deliveries(input_settings, design.name)
         copy_resources = [res for res in copy_resources if os.path.isfile(res)]
-        design_hash, flowrun_hash, run_path = self._run_identity(flow_name, design, input_settings)
+        design_hash, flowrun_hash, run_path, settings_hash = self._run_identity(
+            flow_name, design, input_settings, node
+        )
         # gpt-6-sol's final (c): what this flow reads -- the settings of a dependency nested in
         # its own included, and every file under a directory one names, as its trace lists it --
         # is an input no delivery of the launch may replace, nor land beside in such a directory:
@@ -1022,6 +1066,7 @@ class FlowLauncher:
             try:
                 flow.design_hash = design_hash
                 flow.flow_hash = flowrun_hash
+                flow.settings_hash = settings_hash
                 flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
                 # the flow's run time includes init() and the execution of its dependencies
                 flow.init_time = time.monotonic()
@@ -1114,6 +1159,7 @@ class FlowLauncher:
                     effective_flow_settings=flow.settings,
                     xeda_version=__version__,
                     flowrun_hash=flowrun_hash,
+                    settings_hash=settings_hash,
                     deliveries=[
                         {"setting": d.key, "name": str(d.name), "to": str(d.destination)}
                         for d in deliveries
@@ -1256,9 +1302,15 @@ class FlowLauncher:
         suggest_dependency_node(flow_class, error)
 
     def _run_identity(
-        self, flow_name: str, design: Design, settings: Flow.Settings
-    ) -> tuple[str, str, Path]:
-        """Stage 2: `(design_hash, flowrun_hash, run_path)`."""
+        self,
+        flow_name: str,
+        design: Design,
+        settings: Flow.Settings,
+        node: PlanNode | None = None,
+    ) -> tuple[str, str, Path, str]:
+        """Stage 2: `(design_hash, flowrun_hash, run_path, settings_hash)`. The run's hash is
+        its node's identity (`bindings.node_identity`): its settings and, for a planned node,
+        the ordered origins of its inputs; a flow launched without a plan has none."""
         # GOTCHA: design contains tb settings even for simulation flows
         # OTOH removing tb from hash for sim flows creates a mismatch for different flows of the same design
         design_hash = semantic_hash(
@@ -1267,9 +1319,12 @@ class FlowLauncher:
                 tb_hash=design.tb_hash,
             )
         )
-        flowrun_hash = flow_run_hash(flow_name, settings, design.name)
-        run_path = self.get_flow_run_path(design.name, flow_name, flowrun_hash)
-        return design_hash, flowrun_hash, run_path
+        settings_hash = flow_run_hash(flow_name, settings, design.name)
+        flowrun_hash = node_identity(settings_hash, node.origins if node is not None else ())
+        run_path = self.get_flow_run_path(
+            design.name, node.name if node is not None else flow_name, flowrun_hash
+        )
+        return design_hash, flowrun_hash, run_path, settings_hash
 
     def _run_dir_policy(self) -> RunDirPolicy:
         """What this launch does with its run directory: the launcher's settings, for every
@@ -1417,6 +1472,15 @@ class FlowLauncher:
                 paths.extend(handed_over(producer, reference.output))
                 producers.append(producer)
             producer = producers[0] if producers else None
+            bound_producers = tuple(
+                BoundProducer(
+                    producer=reference.node,
+                    output=reference.output,
+                    producer_hash=made_by.flow_hash,
+                    producer_path=str(made_by.run_path),
+                )
+                for reference, made_by in zip(selected.references, producers)
+            )
             if (declaration.required and not paths) or (
                 declaration.cardinality != "many" and len(paths) > 1
             ):
@@ -1440,6 +1504,9 @@ class FlowLauncher:
                     producer_hash=producer.flow_hash if producer else None,
                     producer_path=str(producer.run_path) if producer else None,
                     paths=tuple(map(str, paths)),
+                    references=bound_producers,
+                    binding_origin=selected.binding_origin,
+                    binding_location=selected.binding_location,
                 )
             )
         flow.declared_input_records = tuple(records)
@@ -1454,6 +1521,7 @@ class FlowLauncher:
         flow.results["design_hash"] = flow.design_hash
         flow.results["flow"] = flow.name
         flow.results["flow_hash"] = flow.flow_hash
+        flow.results["settings_hash"] = flow.settings_hash
         flow.results["run_path"] = run_path.absolute()
         flow.results.timestamp = flow.timestamp
 

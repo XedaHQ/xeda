@@ -586,6 +586,7 @@ def expectation(
             run_dir_key(dep.run_path, run_root): dep.name for dep in flow.completed_dependencies
         },
         declared_inputs=getattr(flow, "declared_input_records", ()),
+        settings_hash=flow.settings_hash or "",
     )
 
 
@@ -811,6 +812,7 @@ def build_trace(
         flow=expected.flow,
         run_id=uuid.uuid4().hex,
         flowrun_hash=expected.flowrun_hash,
+        settings_hash=expected.settings_hash,
         design_hash=expected.design_hash,
         xeda_version=expected.xeda_version,
         xeda_code=expected.xeda_code,

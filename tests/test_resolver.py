@@ -13,6 +13,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
+from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner.resolver import resolve
 from xeda.flow_runner.settings_layers import compose_flow_settings, transitive_dependencies
 
@@ -84,8 +85,11 @@ def test_an_undeclared_flow_is_one_node(tmp_path):
 
 def test_each_node_s_identity_is_what_the_launcher_hashes(tmp_path):
     plan = _plan(tmp_path, _Taker, sections={"__maker": {"text": "other\n"}})
+    maker, taker = plan.nodes
+    assert maker.origins == () and taker.origins == (("made", ((maker.flowrun_hash, "made"),)),)
     for node in plan.nodes:
-        assert node.flowrun_hash == flowrun_hash(node.name, node.settings, "d")
+        assert node.settings_hash == flowrun_hash(node.name, node.settings, "d")
+        assert node.flowrun_hash == node_identity(node.settings_hash, node.origins)
         assert node.run_path == tmp_path / "run" / "d" / node.name
 
 

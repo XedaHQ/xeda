@@ -288,10 +288,12 @@ consumer switching its producer's optional output on:
         "nodes": [
           {"name": "yosys_fpga", "flow": "yosys_fpga", "declared": true,
            "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",
+           "settings_hash": "...",
            "inputs": [], "switched_on": ["netlist"],
            "input_types": {}, "output_types": {"netlist": ["JsonNetlist"]}},
           {"name": "nextpnr", "flow": "nextpnr", "declared": true,
            "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
+           "settings_hash": "...",
            "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
                        "output": "netlist", "sources": [],
                        "references": [{"node": "yosys_fpga", "output": "netlist"}],
@@ -311,7 +313,12 @@ consumer switching its producer's optional output on:
 
 ``nodes`` is ordered with producers before consumers and the requested flow last. ``run_path``
 and ``flowrun_hash`` identify each planned run; ``--hashed-run-dirs`` adds the usual 16-character
-hash suffix. Each input's ``origin`` is ``producer``, ``source`` or ``none``. ``references``
+hash suffix. ``flowrun_hash`` is the node's identity: its settings (``settings_hash``, the hash
+of the flow name and input settings alone) together with where each input comes from, in order
+-- a producer's own identity and output, or the design's sources. So the same flow with the
+same settings has another identity when another producer, another output or another producer
+configuration feeds it, and where a binding was written (file, command line, chain) changes
+nothing. Each input's ``origin`` is ``producer``, ``source`` or ``none``. ``references``
 lists, in order, every node and output that supplies the input (a list input may have several);
 ``producer`` and ``output`` are the first one's, or ``null`` for source/absent inputs;
 ``sources`` is an ordered list of source paths. An input is supplied by an explicit binding

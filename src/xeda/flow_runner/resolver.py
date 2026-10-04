@@ -30,7 +30,15 @@ from ..flow.fpga import FPGA
 from ..flow.io import declared_inputs, declared_outputs, is_declared, selected_types
 from ..flow.synth import PhysicalClock
 from ..utils import semantic_hash
-from .bindings import BindingLayer, InputBinding, NodeKey, check_chain_collisions, node_bindings
+from .bindings import (
+    BindingLayer,
+    InputBinding,
+    NodeKey,
+    check_chain_collisions,
+    input_origins,
+    node_bindings,
+    node_identity,
+)
 from .chains import FlowRequest
 from .settings_layers import (
     _flow_of,
@@ -136,6 +144,10 @@ class PlanNode:
     inputs: tuple[ResolvedInput, ...] = ()
     switched_on: tuple[str, ...] = ()
     key: NodeKey | None = None
+    #: the settings-only hash and the ordered input origins `flowrun_hash`, the node's
+    #: identity, is made of (`bindings.node_identity`): kept so the launcher can recompute it
+    settings_hash: str = ""
+    origins: tuple[tuple[str, Any], ...] = ()
 
     @property
     def settings(self) -> Flow.Settings:
@@ -1094,10 +1106,13 @@ def resolve(
                         )
 
     nodes: list[PlanNode] = []
-    for request in order:
+    identities: dict[str, str] = {}
+    for request in order:  # producers first: a consumer's identity includes theirs
         assert request.settings is not None and request.key is not None
         label = request.label
-        identity = flowrun_hash(request.cls.name, request.settings, design.name)
+        settings_hash = flowrun_hash(request.cls.name, request.settings, design.name)
+        origins = input_origins(request.inputs, identities.__getitem__)
+        identity = identities[label] = node_identity(settings_hash, origins)
         nodes.append(
             PlanNode(
                 label,
@@ -1109,6 +1124,8 @@ def resolve(
                 tuple(request.inputs),
                 tuple(out for out in declared_outputs(request.cls) if out in request.switched),
                 request.key,
+                settings_hash,
+                origins,
             )
         )
     return Plan(

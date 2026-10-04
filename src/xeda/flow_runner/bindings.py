@@ -8,13 +8,14 @@ matching and edge discovery are the resolver's.
 from __future__ import annotations
 
 import re
-from collections.abc import Hashable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
 from ..flow import Flow, FlowSettingsException
 from ..flow.io import declared_inputs, declared_outputs
+from ..utils import semantic_hash
 from .chains import FlowRequest, match_required_inputs
 from .settings_layers import merge_flow_sections, registered_flow
 
@@ -302,6 +303,40 @@ def effective_bindings(
         if (bindings := node_bindings(layers, key, cls, request=request))
     }
     return _freeze(selected)
+
+
+def input_origins(
+    inputs: Sequence[Any], identity_of: Callable[[str], str]
+) -> tuple[tuple[str, Any], ...]:
+    """Where each resolved input of a node comes from, in declaration order: ``"source"``, or
+    its ordered ``(producer identity, output key)`` references (none for an absent input).
+
+    `inputs` are a plan node's `ResolvedInput`s; `identity_of` gives the identity of the plan
+    node a reference names, so producers are identified before their consumers. Reference
+    order counts. Where a binding was written (chain, file, command line, API) does not.
+    """
+    return tuple(
+        (
+            resolved.name,
+            (
+                "source"
+                if resolved.origin == "source"
+                else tuple((identity_of(ref.node), ref.output) for ref in resolved.references)
+            ),
+        )
+        for resolved in inputs
+    )
+
+
+def node_identity(settings_hash: str, origins: Sequence[Any] = ()) -> str:
+    """D-9, the one identity rule: a node is its settings plus its ordered resolved input
+    origins (`input_origins`), for default and explicit edges alike. `settings_hash` is the
+    settings-only `flowrun_hash`; a flow that declares no inputs has no origins.
+
+    The resolver's freeze, the launcher's plan validation and run identity, run-directory
+    claims, `results.json` and the trace all take a run's hash from here.
+    """
+    return semantic_hash({"settings": settings_hash, "inputs": tuple(origins)})
 
 
 def default_nodes(classes: Sequence[type[Flow]]) -> list[tuple[NodeKey, type[Flow]]]:

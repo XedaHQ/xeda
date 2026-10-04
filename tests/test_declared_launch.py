@@ -288,9 +288,10 @@ def test_changed_binding_provenance_invalidates_the_same_file_set(tmp_path, desi
     trace_file.write_text(json.dumps(trace))
     again = _runner(tmp_path).launch_flow(_Taker, design, {})
     assert not again.reused and again.completed_dependencies[0].reused
-    assert (
-        "another xeda" if binding == "format" else "declared input bindings changed"
-    ) in again.stale_reason
+    assert {
+        "format": "another xeda",
+        "origin": "made now from __maker.made (was the design's sources)",
+    }.get(binding, "declared input bindings changed") in again.stale_reason
 
 
 def test_planning_refuses_generator_and_git_loading_before_any_effect(tmp_path, monkeypatch):

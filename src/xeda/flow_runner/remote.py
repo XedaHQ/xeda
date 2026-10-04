@@ -57,7 +57,7 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, XedaProject, resolve_project_file
-from .bindings import require_no_bindings, split_bindings
+from .bindings import node_identity, require_no_bindings, split_bindings
 from .default_runner import (
     FlowLauncher,
     FlowNotFoundError,
@@ -1008,7 +1008,11 @@ class RemoteRunner(FlowLauncher):
         # the output names, checked as a local launch checks them: none xeda keeps (the remote's
         # own `results.json`), no two outputs under one name; no location is left to split
         split_deliveries(input_settings, design.name)
-        flowrun_hash = flow_run_hash(flow_name, input_settings, design.name)
+        # The mirror is named as a launch names a run without declared input origins; a
+        # declared flow's remote run also counts where its inputs come from there, so the two
+        # sides are compared by the hash of the settings alone.
+        settings_hash = flow_run_hash(flow_name, input_settings, design.name)
+        flowrun_hash = node_identity(settings_hash)
         design_hash = semantic_hash(
             dict(
                 rtl_hash=design.rtl_hash,
@@ -1157,6 +1161,7 @@ class RemoteRunner(FlowLauncher):
                 effective_flow_settings=input_settings,
                 xeda_version=__version__,
                 flowrun_hash=flowrun_hash,
+                settings_hash=settings_hash,
             )
             dump_json(all_settings, settings_json, backup=self.settings.backups)
             results = None
@@ -1209,7 +1214,9 @@ class RemoteRunner(FlowLauncher):
                 if (
                     is_declared(flow_class)
                     and results.get("success")
-                    and (results.get("flow_hash") != flowrun_hash)
+                    # the settings-only hash: the remote's `flow_hash` is its node's identity,
+                    # which also counts where its inputs come from there
+                    and results.get("settings_hash", results.get("flow_hash")) != settings_hash
                 ):
                     raise RemoteIncompatible("The remote resolved a different request identity")
                 print_results(
