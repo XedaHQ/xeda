@@ -23,7 +23,6 @@ from .io_flows import (
     _ChainConsumer,
     _Join,
     _Left,
-    _Right,
     _Taker,
 )
 
@@ -271,20 +270,6 @@ def test_one_producer_reached_through_two_branches_is_one_node_one_identity_one_
     ]
 
 
-def test_conflicting_defaults_for_one_producer_name_both_consumers(tmp_path, monkeypatch):
-    monkeypatch.setattr(_Left, "producer_defaults", {"json": {"label": "left"}})
-    plan = _runner(tmp_path).plan(_Join, _design(tmp_path))
-    assert plan.node("__fork").settings.label == "left"
-    explicit = _design(tmp_path, flows={"__fork": {"label": "given"}})
-    assert _runner(tmp_path).plan(_Join, explicit).node("__fork").settings.label == "given"
-    monkeypatch.setattr(_Right, "producer_defaults", {"json": {"label": "right"}})
-    with pytest.raises(FlowSettingsError) as raised:
-        _runner(tmp_path).plan(_Join, _design(tmp_path))
-    message = str(raised.value)
-    assert "__fork has incompatible requests from __left.json and __right.json" in message
-    assert "'left'" in message and "'right'" in message
-
-
 def test_a_binding_cycle_is_reported_in_order(tmp_path):
     flows = {
         "__left": {"inputs": {"json": "__relay.netlist"}},
@@ -377,8 +362,6 @@ def test_a_netlist_source_skips_yosys_unless_a_binding_or_chain_selects_it(tmp_p
         assert netlist.references == (ResolvedReference("yosys_fpga", "netlist"),)
         assert netlist.sources == ()
         assert plan.node("yosys_fpga").settings.fpga.part == PART
-        # the consumer's default for its producer applies to an explicit edge to it too
-        assert plan.node("yosys_fpga").settings.netlist_src_attrs is True
     assert _graph(saved) == _graph(chain)
 
 
@@ -404,7 +387,7 @@ def test_an_alternate_synthesis_agrees_its_device_through_the_new_edge(tmp_path)
 
 
 class _EcpTaker(Flow):
-    """Reads an ECP5 configuration only: a wrong-family producer must be refused."""
+    """Reads an ECP5 configuration only: `nextpnr.config` may be another family's."""
 
     results_description = {}
 
@@ -415,25 +398,59 @@ class _EcpTaker(Flow):
         pass
 
 
-@pytest.mark.parametrize("part, fits", [(PART, True), (ICE40, False)], ids=["ecp5", "ice40"])
-def test_a_bound_configuration_is_judged_by_the_family_the_target_selects(tmp_path, part, fits):
-    flows = {
-        "__ecp_taker": {"inputs": {"config": "nextpnr.config"}},
-        "nextpnr": {"fpga": {"part": part}, "textcfg": None, "asc": None},
-    }
-    design = _design(tmp_path, [("blink.v", SourceType.Verilog)], flows)
-    if not fits:
-        with pytest.raises(FlowSettingsException) as raised:
-            _runner(tmp_path).plan(_EcpTaker, design)
-        message = str(raised.value)
-        assert "nextpnr.config has no compatible output for the selected target" in message
-        assert "takes EcpConfig, makes IceAsc" in message
-        assert "flows.__ecp_taker.inputs.config" in message
-        return
-    plan = _runner(tmp_path).plan(_EcpTaker, design)
-    assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr", "__ecp_taker"]
-    assert plan.node("nextpnr").switched_on == ("config",)
-    assert plan.node("nextpnr").settings.textcfg == Path("config.txt")
+def test_a_binding_and_a_chain_judge_an_edge_by_the_same_predicate(tmp_path):
+    """M4 / PD3: what an output can make must be a subset of what the input takes. A chain and
+    a saved binding of the same edge are accepted or refused alike."""
+    from xeda.flow_runner.chains import fitting_outputs
+
+    with pytest.raises(FlowSettingsException, match="no compatible output"):
+        parse_request("nextpnr+__ecp_taker")
+    design = _design(
+        tmp_path,
+        [("blink.v", SourceType.Verilog)],
+        {"__ecp_taker": {"inputs": {"config": "nextpnr.config"}}, "nextpnr": {"fpga": PART}},
+    )
+    with pytest.raises(FlowSettingsException) as raised:
+        _runner(tmp_path).plan(_EcpTaker, design)
+    message = str(raised.value)
+    assert "__ecp_taker.config takes EcpConfig" in message
+    assert "nextpnr.config makes EcpConfig/IceAsc/Fasm" in message
+    from xeda.flow.io import declared_inputs
+
+    assert fitting_outputs(Nextpnr, declared_inputs(_EcpTaker)["config"]) == ([], [])
+
+
+def test_a_chain_over_an_invalid_saved_binding_succeeds(tmp_path):
+    """M1: a saved binding the chain replaces is not validated, as one a command-line binding
+    replaces is not."""
+    for bad in (False, "no such flow", "__maker.no_such_output", ["__maker"]):
+        design = _design(tmp_path, flows={"__taker": {"inputs": {"made": bad}}})
+        plan = _runner(tmp_path).plan(parse_request("__input_maker+__taker"), design)
+        made = _input(plan, "__taker", "made")
+        assert made.producer == "__input_maker" and len(made.overridden) == 1
+        replaced = _runner(tmp_path).plan(
+            _Taker, design, flow_settings=["inputs.made=__input_maker"]
+        )
+        assert _input(replaced, "__taker", "made").producer == "__input_maker"
+        with pytest.raises(FlowSettingsException):
+            _runner(tmp_path).plan(_Taker, design)
+
+
+def test_a_producer_s_settings_do_not_depend_on_who_asks(tmp_path):
+    """I1: no consumer gives its producer defaults. `yosys_fpga` requested alone and as
+    `nextpnr`'s producer is one configuration, one identity, one directory."""
+    from xeda.flows import YosysFpga
+
+    assert not hasattr(Flow, "producer_defaults")
+    assert YosysFpga.Settings().netlist_src_attrs is True
+    design = _design(
+        tmp_path, [("blink.v", SourceType.Verilog)], {"yosys_fpga": {"fpga": {"part": PART}}}
+    )
+    runner = _runner(tmp_path, hashed_run_dirs=True)
+    alone = runner.plan(YosysFpga, design).node("yosys_fpga")
+    produced = runner.plan(Nextpnr, design).node("yosys_fpga")
+    assert as_recorded(alone.settings) == as_recorded(produced.settings)
+    assert (alone.flowrun_hash, alone.run_path) == (produced.flowrun_hash, produced.run_path)
 
 
 # ---------------------------------------------------------------------------------------------

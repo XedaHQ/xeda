@@ -281,6 +281,7 @@ def test_netlist_flags_are_derived_when_used_not_stored():
         fpga={"part": "LFE5U-25F-6BG381C"},
         netlist_verilog_flags=flags,
         netlist_unset_attributes=unset_attributes,
+        netlist_src_attrs=False,  # `yosys_fpga` keeps `src` by default
     )
 
     assert (settings.netlist_verilog_flags, settings.netlist_unset_attributes) == (

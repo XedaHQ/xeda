@@ -57,7 +57,7 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, XedaProject, resolve_project_file
-from .bindings import node_identity, require_no_bindings, split_bindings
+from .bindings import NodeKey, node_identity, require_no_bindings, split_bindings
 from .default_runner import (
     FlowLauncher,
     FlowNotFoundError,
@@ -943,24 +943,27 @@ class RemoteRunner(FlowLauncher):
         cli_sections, flow_settings = command_line_sections(
             flow_settings, flow_class, flow_class_for=flow_class_if_known
         )
-        origins = [
-            merge_flow_sections(project_flow_settings, flow_class_for=flow_class_if_known),
-            merge_flow_sections(design.flow, flow_class_for=flow_class_if_known),
-            cli_sections,
-        ]
-        sections = merge_flow_sections(*origins, flow_class_for=flow_class_if_known)
-        command_line = merge_flow_sections(
-            cli_sections, {flow_name: flow_settings}, flow_class_for=flow_class_if_known
-        )
         # Bindings are taken out of every origin exactly as a local run does, before Settings
-        # sees them; a remote run cannot carry them yet.
-        require_no_bindings(
-            [
-                split_bindings(project_flow_settings or {}, location="the project file")[1],
-                split_bindings(design.flow, location="the design")[1],
-                split_bindings(command_line, location="the command line")[1],
-            ]
+        # sees them. A remote run cannot carry them yet: one the request reaches is refused
+        # below, once its graph is known; one saved for another flow is simply not used.
+        project_sections, project_bindings = split_bindings(
+            project_flow_settings or {}, location="the project file"
         )
+        design_sections, design_bindings = split_bindings(design.flow, location="the design")
+        command_line, cli_bindings = split_bindings(
+            merge_flow_sections(
+                cli_sections, {flow_name: flow_settings}, flow_class_for=flow_class_if_known
+            ),
+            location="the command line",
+            kind="cli",
+        )
+        binding_layers = [project_bindings, design_bindings, cli_bindings]
+        cli_sections, _cli_only = split_bindings(cli_sections, location="the command line")
+        flow_settings = {key: value for key, value in flow_settings.items() if key != "inputs"}
+        origins = [project_sections, design_sections, cli_sections]
+        sections = merge_flow_sections(*origins, flow_class_for=flow_class_if_known)
+        if not is_declared(flow_class):
+            require_no_bindings(binding_layers, [NodeKey(flow_name)])
         flow_settings = compose_flow_settings(flow_class, origins, flow_settings)
         plan = None
         if is_declared(flow_class):
@@ -976,6 +979,7 @@ class RemoteRunner(FlowLauncher):
                 ],
                 command_line=command_line,
             )
+            require_no_bindings(binding_layers, [node.node_key for node in plan.nodes])
             input_settings = plan.node(flow_name).settings
             sections = {
                 **sections,
@@ -1008,11 +1012,15 @@ class RemoteRunner(FlowLauncher):
         # the output names, checked as a local launch checks them: none xeda keeps (the remote's
         # own `results.json`), no two outputs under one name; no location is left to split
         split_deliveries(input_settings, design.name)
-        # The mirror is named as a launch names a run without declared input origins; a
-        # declared flow's remote run also counts where its inputs come from there, so the two
-        # sides are compared by the hash of the settings alone.
+        # The mirror is named by the requested node's identity, as a local hashed run
+        # directory is: for a declared flow the plan's, which counts its settings and where
+        # its inputs come from (so two configurations of a producer are two mirrors); a flow
+        # without declared inputs has no origins. The remote resolves the same request, and
+        # its `flow_hash` is compared with this one.
         settings_hash = flow_run_hash(flow_name, input_settings, design.name)
-        flowrun_hash = node_identity(settings_hash)
+        flowrun_hash = (
+            plan.node(flow_name).flowrun_hash if plan is not None else node_identity(settings_hash)
+        )
         design_hash = semantic_hash(
             dict(
                 rtl_hash=design.rtl_hash,
@@ -1214,9 +1222,9 @@ class RemoteRunner(FlowLauncher):
                 if (
                     is_declared(flow_class)
                     and results.get("success")
-                    # the settings-only hash: the remote's `flow_hash` is its node's identity,
-                    # which also counts where its inputs come from there
-                    and results.get("settings_hash", results.get("flow_hash")) != settings_hash
+                    # the remote's `flow_hash` is its node's identity: another one means it
+                    # resolved another configuration of this flow or of one of its producers
+                    and results.get("flow_hash") != flowrun_hash
                 ):
                     raise RemoteIncompatible("The remote resolved a different request identity")
                 print_results(

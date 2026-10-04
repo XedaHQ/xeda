@@ -39,7 +39,7 @@ from .bindings import (
     node_bindings,
     node_identity,
 )
-from .chains import FlowRequest
+from .chains import FlowRequest, fitting_outputs
 from .settings_layers import (
     _flow_of,
     _nested_model,
@@ -412,8 +412,6 @@ class _Request:
     switched: tuple[str, ...] = ()
     settings: Flow.Settings | None = None
     key: NodeKey | None = None
-    #: each default a consumer declares for this producer, with the consumer that gave it
-    defaults: dict[tuple[str, ...], tuple[Any, str]] = field(default_factory=dict)
 
     @property
     def label(self) -> str:
@@ -691,33 +689,29 @@ def resolve(
                 f"{cls.name}.{declaration.name}"
             )
         made = ", ".join(f"{out.name} ({kinds(out.types)})" for out in outputs.values())
-        compatible = [
-            out
-            for out in outputs.values()
-            if set(out.types) & set(declaration.types)
-            and not (out.cardinality == "many" and declaration.cardinality != "many")
-        ]
+        # The one edge predicate, shared with chain adjacency (`chains.fitting_outputs`).
+        fitting, many = fitting_outputs(producer, declaration, output=wanted)
         if wanted is not None:
-            output = outputs[wanted]
-            if not set(output.types) & set(declaration.types):
-                raise FlowSettingsException(
-                    f"{where}: {cls.name}.{declaration.name} takes {kinds(declaration.types)}; "
-                    f"{producer.name}.{wanted} makes {kinds(output.types)}. {producer.name} "
-                    f"makes: {made}"
-                )
-            if output not in compatible:
+            if wanted in many:
                 raise FlowSettingsException(
                     f"{where}: {cls.name}.{declaration.name} takes one file, but "
                     f"{producer.name}.{wanted} produces many"
                 )
+            if not fitting:
+                raise FlowSettingsException(
+                    f"{where}: {cls.name}.{declaration.name} takes {kinds(declaration.types)}; "
+                    f"{producer.name}.{wanted} makes {kinds(outputs[wanted].types)}. "
+                    f"{producer.name} makes: {made}"
+                )
             return wanted
-        if len(compatible) > 1 and declaration.output in [out.name for out in compatible]:
-            default = registered_flow(declaration.producer) if declaration.producer else None
-            if default is producer:
-                return declaration.output
-        if len(compatible) == 1:
-            return compatible[0].name
-        if not compatible:
+        if len(fitting) == 1:
+            return fitting[0]
+        if not fitting:
+            if many:
+                raise FlowSettingsException(
+                    f"{where}: {cls.name}.{declaration.name} takes one file, but "
+                    f"{producer.name}.{many[0]} produces many"
+                )
             raise FlowSettingsException(
                 f"{where}: {producer.name} has no output {cls.name}.{declaration.name} can "
                 f"take ({kinds(declaration.types)}); it makes: {made}"
@@ -725,7 +719,7 @@ def resolve(
         raise FlowSettingsException(
             f"{where}: {cls.name}.{declaration.name} can take several outputs of "
             f"{producer.name}: "
-            + ", ".join(f"{producer.name}.{out.name}" for out in compatible)
+            + ", ".join(f"{producer.name}.{name}" for name in fitting)
             + "; name one"
         )
 
@@ -734,21 +728,6 @@ def resolve(
         request.producers.setdefault(name, []).append((child, output))
         if all(child is not known for known in request.children):
             request.children.append(child)
-
-    def reach(producer: type[Flow], requester: str, defaults: Mapping[str, Any] | None) -> _Request:
-        """The producer's one node, with the defaults this consumer declares for it."""
-        child = discover(producer, None, requester)
-        for path, value in _leaves(dict(defaults or {})).items():
-            known = child.defaults.setdefault(path, (value, requester))
-            if known[0] != value:
-                leaf = ".".join(path)
-                raise _error(
-                    producer,
-                    leaf,
-                    f"{child.label} has incompatible requests from {known[1]} and {requester}: "
-                    f"{leaf}={known[0]!r} and {leaf}={value!r}",
-                )
-        return child
 
     def discover(cls: type[Flow], raw: _Located | None, requester: str) -> _Request:
         key = NodeKey(cls.name)
@@ -785,15 +764,7 @@ def resolve(
                     output_name = bound_output(
                         cls, declaration, producer, reference.output, explicit.location
                     )
-                    child = reach(
-                        producer,
-                        where,
-                        (
-                            cls.producer_defaults.get(declaration.name)
-                            if producer is registered_flow(declaration.producer or "")
-                            else None
-                        ),
-                    )
+                    child = discover(producer, None, where)
                     demand(request, declaration.name, child, output_name)
                     references.append(ResolvedReference(child.label, output_name))
                 request.inputs.append(
@@ -869,7 +840,7 @@ def resolve(
                 raise FlowSettingsException(
                     f"{where} takes one file, but {producer.name}.{output.name} produces many"
                 )
-            child = reach(producer, where, cls.producer_defaults.get(declaration.name))
+            child = discover(producer, None, where)
             demand(request, declaration.name, child, output.name)
             request.inputs.append(
                 ResolvedInput(
@@ -985,16 +956,6 @@ def resolve(
             request.inputs = selected_inputs
         # A displaced producer leaves the graph, with its settings and shared leaves.
         demands()
-
-    # A consumer's defaults for its producer sit below every origin and are no contribution.
-    for request in requests:
-        defaults: dict[str, Any] = {}
-        for path, (value, _requester) in request.defaults.items():
-            _put(defaults, path, value)
-        if defaults:
-            request.raw.values = merge_layers(
-                defaults, request.raw.values, settings_cls=request.cls.Settings
-            )
 
     active = {request.cls.name: request.cls for request in requests}
     default_flows = {**transitive_dependencies(flow_cls)}
