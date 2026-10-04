@@ -7,6 +7,7 @@ import yaml
 
 from xeda.design import Design, DesignFileParseError, DesignValidationError
 from xeda.xedaproject import XedaProject
+from xeda.yaml_loader import load_yaml
 
 SCALARS = [
     *[(s, s) for s in ("NO", "yes", "no", "on", "off", "y", "n", "Y", "N")],
@@ -36,6 +37,9 @@ SCALARS = [
     ('"0x1F"', "0x1F"),
     ('"1e3"', "1e3"),
     ("+0o17", "+0o17"),
+    ("-0o17", "-0o17"),
+    ("+0x1F", "+0x1F"),
+    ("-0x1F", "-0x1F"),
     ("0b11", "0b11"),
     ("-.nan", "-.nan"),
 ]
@@ -116,6 +120,72 @@ def test_tags_merges_and_recursive_aliases_fail_clearly(tmp_path, value):
         Design.from_file(path)
     assert str(path) in str(raised.value)
     assert raised.value.line == 2
+
+
+# YAML 1.2.2, 10.3.2 (core schema, tag resolution): the optional sign belongs to the base 10
+# expression alone -- `[-+]? [0-9]+` -- while the others are `0o [0-7]+` and
+# `0x [0-9a-fA-F]+`. So `-0o17` and `+0x1F` are text, not negative or signed numbers.
+SIGN_AND_BASE_PROBES = [
+    ("-0o17", "-0o17"),
+    ("+0o17", "+0o17"),
+    ("-0x1F", "-0x1F"),
+    ("+0x1F", "+0x1F"),
+    ("0o17", 15),
+    ("0x1F", 31),
+    ("-017", -17),
+    ("+017", 17),
+    ("0o", "0o"),
+    ("0x", "0x"),
+    ("0o8", "0o8"),
+    ("0xG", "0xG"),
+    ("+", "+"),
+]
+
+
+@pytest.mark.parametrize(
+    "token,expected", SIGN_AND_BASE_PROBES, ids=[t for t, _ in SIGN_AND_BASE_PROBES]
+)
+def test_signs_and_bases_are_a_number_or_text_in_every_position(tmp_path, token, expected):
+    path = tmp_path / "probe.yaml"
+    positions = {
+        "value": (f"a: {token}\n", {"a": expected}),
+        "block sequence": (f"a:\n  - {token}\n", {"a": [expected]}),
+        "flow sequence": (f"a: [{token}, b]\n", {"a": [expected, "b"]}),
+        "flow mapping": (f"a: {{b: {token}}}\n", {"a": {"b": expected}}),
+    }
+    for where, (text, loaded) in positions.items():
+        path.write_text(text)
+        actual = load_yaml(path)
+        assert actual == loaded, where
+        assert type(actual["a"]) is type(loaded["a"]), where
+    path.write_text(f"{token}: v\n")
+    if isinstance(expected, str):
+        assert load_yaml(path) == {token: "v"}
+    else:
+        with pytest.raises(yaml.MarkedYAMLError, match="mapping keys must be strings") as raised:
+            load_yaml(path)
+        assert str(path) in str(raised.value)
+
+
+@pytest.mark.parametrize("token", [t for t, e in SIGN_AND_BASE_PROBES if isinstance(e, str)])
+def test_forcing_the_int_tag_onto_text_is_a_clear_error(tmp_path, token):
+    path = tmp_path / "probe.yaml"
+    path.write_text(f"a: !!int {token}\n")
+    with pytest.raises(yaml.MarkedYAMLError, match="invalid YAML 1.2 core int value") as raised:
+        load_yaml(path)
+    assert str(path) in str(raised.value)
+    assert repr(token) in str(raised.value)
+
+
+def test_a_lone_minus_is_text_in_flow_context_and_a_syntax_error_in_block_context(tmp_path):
+    path = tmp_path / "probe.yaml"
+    path.write_text("a: [-, b]\n-: v\n")
+    assert load_yaml(path) == {"a": ["-", "b"], "-": "v"}
+    path.write_text("a: -\n")
+    with pytest.raises(yaml.MarkedYAMLError) as raised:
+        load_yaml(path)
+    assert str(path) in str(raised.value)
+    assert "line 1" in str(raised.value)
 
 
 def test_explicit_core_tags_and_ordinary_aliases(tmp_path):
