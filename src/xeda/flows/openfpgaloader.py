@@ -39,6 +39,13 @@ def _switched_on(value: Any) -> bool:
     return value is True or (isinstance(value, str) and value.lower() == "true")
 
 
+def _is_boolean(value: Any) -> bool:
+    """Whether a Boolean setting's input, still as given, is a boolean the setting accepts."""
+    return isinstance(value, bool) or (
+        isinstance(value, str) and value.lower() in ("true", "false")
+    )
+
+
 class Openfpgaloader(FpgaSynthFlow):
     """Program a bitstream onto an FPGA board with openFPGALoader.
 
@@ -110,7 +117,12 @@ class Openfpgaloader(FpgaSynthFlow):
             the settings as they were. Each value is read as its field will read it (`true` as
             text is true; `1` and `"yes"` are no boolean, and the field refuses them), and
             nothing is rewritten here."""
-            if _switched_on(values.get("verify")) and not _switched_on(values.get("write_flash")):
+            flash = values.get("write_flash")
+            if (
+                _switched_on(values.get("verify"))
+                and not _switched_on(flash)
+                and (flash is None or _is_boolean(flash))  # else the field says what it is
+            ):
                 raise ValueError(
                     "verify checks the flash openFPGALoader wrote: it needs write_flash=true "
                     "as well"

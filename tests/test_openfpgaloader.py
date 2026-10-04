@@ -230,6 +230,21 @@ def test_a_verify_that_is_no_boolean_is_refused_as_such_not_read_as_on(
     assert settings.verify is False
 
 
+@pytest.mark.parametrize("spelling", [1, "1", "yes", "on"])
+def test_a_write_flash_that_is_no_boolean_is_refused_as_such_beside_verify(tmp_path, spelling):
+    """With `verify` on, a `write_flash` that is no boolean is reported as that, not as a missing
+    flash: the rule stands aside for what the field itself refuses."""
+    with pytest.raises(FlowSettingsError, match="not a boolean.*write_flash") as error:
+        Openfpgaloader.Settings.from_input(
+            {"fpga": ECP5, "verify": True, "write_flash": spelling}, design_root=tmp_path
+        )
+    assert "needs write_flash" not in str(error.value)
+    settings = Openfpgaloader.Settings.from_input({"fpga": ECP5}, design_root=tmp_path)
+    with pytest.raises(ValidationError, match="not a boolean"):
+        settings.write_flash = spelling
+    assert settings.write_flash is False
+
+
 def test_verify_given_with_dash_s_is_refused_in_planning(tmp_path, fake_loader):
     with pytest.raises(FlowSettingsError, match="verify.*write_flash"):
         _runner(tmp_path).plan(
