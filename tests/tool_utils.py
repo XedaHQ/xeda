@@ -765,6 +765,7 @@ def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
 #   XEDA_TESTS_DOCKER=1  flows run `dockerized`, in their default images (tests/test_dockerized.py)
 #   XEDA_TESTS_EXTERNAL=1  bsc flows on external repositories (tests/test_bsc_external.py), with
 #     XEDA_TESTS_EXTERNAL_SLOW=1 for its slowest test too
+#   XEDA_TESTS_OPENXC7=1  FPGA builds by the real openXC7 1.0 toolchain (tests/test_openxc7_real.py)
 # ---------------------------------------------------------------------------------------------
 
 
@@ -779,6 +780,45 @@ def require_vivado() -> None:
         pytest.skip("set XEDA_TESTS_VIVADO=1 to run the tests that run Vivado")
     if shutil.which("vivado") is None:
         pytest.fail("XEDA_TESTS_VIVADO is set, but no `vivado` is on PATH")
+
+
+def require_openxc7() -> Path:
+    """Run the openXC7 toolchain only when asked (`XEDA_TESTS_OPENXC7=1`: its first build
+    generates a chip database, a minute and gigabytes of memory), and then insist on it: the
+    installation prefix `PATH` selects, with its yosys, nextpnr-himbaechel with the Xilinx
+    backend, chip database generator, Project X-Ray database and fpga-as. Its own variable,
+    not `XEDA_TESTS_REQUIRE_TOOLS`: CI requires the general tools and has no openXC7.
+    `openFPGALoader` is not looked for: nothing here programs a device."""
+    if not _opted_in("XEDA_TESTS_OPENXC7"):
+        pytest.skip("set XEDA_TESTS_OPENXC7=1 to run the tests that run the openXC7 toolchain")
+    from xeda.flow import FlowFatalError
+    from xeda.flows.xilinx import find_xilinx_layout, select_xilinx
+
+    nextpnr = shutil.which("nextpnr-himbaechel")
+    if nextpnr is None:
+        pytest.fail("XEDA_TESTS_OPENXC7 is set, but no `nextpnr-himbaechel` is on PATH")
+    prefix = Path(nextpnr).resolve().parent.parent
+    try:
+        layout = find_xilinx_layout(Path(nextpnr))
+        select_xilinx("xc7a100tcsg324-1", layout)
+    except FlowFatalError as error:
+        pytest.fail(
+            f"XEDA_TESTS_OPENXC7 is set, but {nextpnr} is not openXC7's (put its `bin` "
+            f"directory first on PATH): {error}"
+        )
+    for tool, probe in (
+        ("yosys", ["yosys", "-V"]),
+        ("nextpnr-himbaechel", ["nextpnr-himbaechel", "--version"]),
+        ("fpga-as", None),  # it has no option that exits with zero status without packing
+    ):
+        found = shutil.which(tool)
+        if found is None or Path(found).resolve().parent != prefix / "bin":
+            pytest.fail(
+                f"XEDA_TESTS_OPENXC7 is set, but `{tool}` on PATH is {found}, not openXC7's"
+            )
+        if probe is not None and not _command_succeeds(probe):
+            pytest.fail(f"XEDA_TESTS_OPENXC7 is set, but `{' '.join(probe)}` fails")
+    return prefix
 
 
 @lru_cache(maxsize=None)
