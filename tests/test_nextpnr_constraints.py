@@ -333,10 +333,14 @@ def test_url_constraints_fetch_only_during_run_into_owned_scratch(tmp_path, monk
     (tmp_path / "boards.toml").write_text(
         '[REMOTE]\nfpga.part="LFE5U-25F-6BG381C"\nlpf="https://example.invalid/pins.lpf"\n'
     )
-    fetched = []
-    monkeypatch.setattr(
-        nextpnr, "urlopen", lambda url: fetched.append(url) or io.BytesIO(b"# remote\n")
-    )
+    fetched, timeouts = [], []
+
+    def urlopen(url, timeout=None):
+        fetched.append(url)
+        timeouts.append(timeout)
+        return io.BytesIO(b"# remote\n")
+
+    monkeypatch.setattr(nextpnr, "urlopen", urlopen)
     flow, calls = make_flow(
         tmp_path, monkeypatch, settings={"board": "REMOTE", "custom_boards_file": "boards.toml"}
     )
@@ -348,6 +352,28 @@ def test_url_constraints_fetch_only_during_run_into_owned_scratch(tmp_path, monk
     assert fetched == ["https://example.invalid/pins.lpf"]
     assert (flow.run_path / "board-download.constraints").read_text() == "# remote\n"
     assert f"--lpf={flow.run_path / 'constraints.lpf'}" in calls[0]
+    assert timeouts == [nextpnr.BOARD_FILE_TIMEOUT_S] and 0 < timeouts[0] < float("inf")
+
+
+def test_a_stalled_constraint_download_fails_the_run_naming_the_url(tmp_path, monkeypatch):
+    import xeda.flows.nextpnr as nextpnr
+    from xeda.flow import FlowFatalError
+
+    (tmp_path / "boards.toml").write_text(
+        '[REMOTE]\nfpga.part="LFE5U-25F-6BG381C"\nlpf="https://example.invalid/pins.lpf"\n'
+    )
+
+    def stalled(url, timeout=None):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(nextpnr, "urlopen", stalled)
+    flow, _calls = make_flow(
+        tmp_path, monkeypatch, settings={"board": "REMOTE", "custom_boards_file": "boards.toml"}
+    )
+    flow.prepare_inputs()
+    flow.run_path.mkdir()
+    with pytest.raises(FlowFatalError, match=r"https://example.invalid/pins.lpf.*timed out"):
+        flow.run()
 
 
 def test_prepared_board_file_is_reserved_against_delivery(tmp_path, monkeypatch):

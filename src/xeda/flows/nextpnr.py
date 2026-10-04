@@ -101,6 +101,10 @@ EXECUTABLES = {"xilinx": "nextpnr-himbaechel"}
 #: written, since the canonical LUT count is read from it.
 XILINX_PLACEMENT = Path("placement.json")
 
+#: Seconds a board's pin-constraint download may wait on its server, to connect and for each
+#: read (not the whole transfer): a stalled server fails the run instead of holding its lock.
+BOARD_FILE_TIMEOUT_S = 60
+
 _XILINX_LUT_BEL = re.compile(r"[A-D][56]LUT")
 
 
@@ -729,7 +733,10 @@ class Nextpnr(FpgaSynthFlow):
             scratch = self.run_directory.writable("board-download.constraints")
             try:
                 # Fetch into our atomic guarded output, never a system temporary.
-                with urlopen(self._board_url) as response, replacing_file(scratch, "wb") as stream:
+                with (
+                    urlopen(self._board_url, timeout=BOARD_FILE_TIMEOUT_S) as response,
+                    replacing_file(scratch, "wb") as stream,
+                ):
                     stream.write(response.read())
             except (OSError, URLError) as e:
                 raise FlowFatalError(
