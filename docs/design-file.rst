@@ -2,12 +2,30 @@
 The design file
 *********************
 
-A design description says *what* your design is. It is a single TOML, YAML or JSON file, and it
-holds no tool invocations - only, optionally, per-flow settings at the end.
+A design description says *what* your design is. It is a single YAML, TOML or JSON file; YAML is
+the recommended format. It holds no tool invocations - only, optionally, per-flow settings.
 
 The authoritative, machine-readable definition is::
 
     xeda design-schema            # JSON Schema, for validation or generation
+
+YAML parsing
+============
+
+YAML follows the 1.2 core schema. ``yes/no/on/off/y/n`` are strings, ``010`` is decimal 10,
+``0o17`` is 15, ``0x1F`` is 31, and ``1e3`` is a float. Dates, sexagesimal values
+(``1:30``) and underscore-separated numbers (``1_000``) are strings. ``true``/``false``
+are booleans; ``null``/``~`` are null. Quote values intended as HDL text and source paths.
+
+A boolean setting accepts only ``true`` and ``false`` (not ``yes`` or ``1``), in every format (and ``-s key=true`` on
+the command line). ``debug: yes`` or ``-s debug=on`` is an error saying that ``yes`` is text,
+not a boolean, and to write ``true``; a field that is not a boolean says the same about a word
+YAML 1.1 would have read as one (``ncpus: on``).
+
+Mapping keys must be strings. Duplicate keys fail naming the file, key and both lines.
+Ordinary aliases and core explicit tags are accepted; merge keys, recursive aliases and
+non-core tags are rejected. Use two-space indentation and a complete source entry per list
+item. TOML and JSON designs and projects remain accepted.
 
 Top level
 =========
@@ -83,10 +101,10 @@ Top level
      - Verilog preprocessor macros, as a mapping.
    * - ``clock_port``
      - no
-     - Compatibility shorthand for a single-clock design. Prefer ``clock = { port = "..." }``.
+     - Compatibility shorthand for a single-clock design. Prefer ``clock: {port: "..."}``.
    * - ``clock``
      - no
-     - A single clock as ``{ port = "...", name = "..." }``.
+     - A single clock as ``{port: "...", name: "..."}``.
    * - ``clocks``
      - no
      - A list of clocks, for multi-clock designs.
@@ -102,8 +120,8 @@ Clocks here are *logical*: they name the design's clock ports. The *physical* pe
 is a flow setting, because it is a constraint on a particular build rather than a property of the
 design. A single-clock design usually needs only::
 
-    [rtl]
-    clock = { port = "clk" }
+    rtl:
+      clock: {port: clk}
 
 and then, per flow, ``clock.period`` (ns) or ``clock.freq`` (MHz), as a number or with a unit
 (``"5.5ns"``, ``"200MHz"``). Units are case-sensitive, as in SI: ``"200mhz"`` is an error that
@@ -132,7 +150,7 @@ The aliases ``test`` and ``tests`` are also accepted. The section takes the same
        signals for waveform dumping or activity capture.
    * - ``cocotb``
      - ``true``, or a table with ``module``, ``toplevel`` and ``testcase``. Detected automatically
-       when a ``.py`` source is present, so ``cocotb = true`` is usually redundant.
+       when a ``.py`` source is present, so ``cocotb: true`` is usually redundant.
 
 .. _sources:
 
@@ -203,15 +221,14 @@ Headers reach include/search paths; no template turns a source type's name into 
 
 When inference is not enough, give a table instead of a string:
 
-.. code-block:: toml
+.. code-block:: yaml
 
-    [rtl]
-    sources = [
-      "pkg.vhdl",
-      { file = "legacy.v", type = "SystemVerilog" },
-      { file = "old.vhdl", standard = "93" },
-      { path = "generated/top.v" },              # not checked for existence
-    ]
+    rtl:
+      sources:
+        - pkg.vhdl
+        - {file: legacy.v, type: SystemVerilog}
+        - {file: old.vhdl, standard: '93'}
+        - {path: generated/top.v} # not checked for existence
 
 ``file`` must exist, and be a file rather than a directory, when the design is loaded; ``path``
 is not checked, for sources a generator will produce. Every source carries a content hash and a
@@ -244,10 +261,13 @@ refuses a name containing ``[``, ``]`` or ``$``: rename such a file for Vivado.
 ``language`` - standards
 ========================
 
-.. code-block:: toml
+.. code-block:: yaml
 
-    language.vhdl.standard = "2008"      # or "93", "2019", ...
-    language.verilog.standard = "2005"
+    language:
+      vhdl:
+        standard: '2008' # or '93', '2019', ...
+      verilog:
+        standard: '2005'
 
 ``version`` is accepted as an alias of ``standard``. Two-digit forms (``08``) and four-digit forms
 (``2008``) both work.
@@ -257,21 +277,20 @@ refuses a name containing ``[``, ``]`` or ``$``: rename such a file for Vivado.
 ``flows`` - per-flow settings
 =============================
 
-Settings for a specific flow live under ``[flows.<flow_name>]``. They apply only when that flow
+Settings for a specific flow live under ``flows.<flow_name>``. They apply only when that flow
 runs, so one design file can carry constraints for several targets:
 
-.. code-block:: toml
+.. code-block:: yaml
 
-    [flows.vivado_synth]
-    fpga.part = "xc7a100tftg256-2L"
-    clock.period = 5.0
-
-    [flows.openroad]
-    platform = "sky130hd"
-    clock.period = 10.0
-
-    [flows.ghdl_sim]
-    stop_time = "100us"
+    flows:
+      vivado_synth:
+        fpga.part: xc7a100tftg256-2L
+        clock.period: 5.0
+      openroad:
+        platform: sky130hd
+        clock.period: 10.0
+      ghdl_sim:
+        stop_time: 100us
 
 ``xeda list-settings <flow>`` lists what a given flow accepts. Unknown keys are rejected, so a
 typo fails loudly rather than being ignored.
@@ -282,10 +301,11 @@ Environment variables in paths
 Settings typed as paths expand ``$PWD``, ``$DESIGN_ROOT`` and ``$DESIGN_DIR``, which keeps a
 design file portable across machines:
 
-.. code-block:: toml
+.. code-block:: yaml
 
-    [flows.dc]
-    target_libraries = ["$DESIGN_ROOT/lib/SAED90/saed90nm_typ_ht.db"]
+    flows:
+      dc:
+        target_libraries: [$DESIGN_ROOT/lib/SAED90/saed90nm_typ_ht.db]
 
 Design sources expand environment variables too, except ``$PWD``. There ``$DESIGN_ROOT`` and
 ``$DESIGN_DIR`` name the design root, the directory a relative source is resolved against, so

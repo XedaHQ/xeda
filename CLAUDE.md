@@ -77,7 +77,7 @@ xeda list-settings vivado_synth      # settings schema for a flow
 xeda list-results vivado_synth       # result keys a flow writes to results.json
 xeda design-schema                   # JSON Schema of a design file
 xeda list-boards / list-platforms / list-optimizers
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.toml -s clock.period=5.0 impl.strategy=Debug
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5.0 impl.strategy=Debug
 xeda dse vivado_synth --design <file>  # parallel design-space exploration (Fmax search)
 xeda scrub <flow> <design_name>      # remove previous run dirs
 ```
@@ -173,7 +173,7 @@ Note: the repository working tree accumulates untracked scratch output (`xeda_ru
 
 Four orthogonal abstractions, deliberately decoupled:
 
-- **`Design`** (`design.py`) - *what* to build. Loaded from TOML/YAML/JSON (`Design.from_file`), with
+- **`Design`** (`design.py`) - *what* to build. Loaded from YAML/TOML/JSON (`Design.from_file`), with
   `rtl` (`RtlSettings`) and `tb` (`TbSettings`) sections, both subclasses of `DVSettings`. Sources become
   `DesignSource`/`FileResource` objects that carry a content hash; `design.rtl_hash` / `design.tb_hash`
   feed the run-directory hashing. Designs can also be fetched from a `GitReference` or produced by a
@@ -185,7 +185,11 @@ Four orthogonal abstractions, deliberately decoupled:
 
 `xedaproject.py` handles multi-design project files (`xedaproject.yaml`, also accepted as
 `xedaproject.yml` or `xedaproject.toml`), including top-level `flows` settings that get merged into
-dependency flows.
+dependency flows. A project file is found by one helper, `resolve_project_file` (local and
+`--remote` runs alike): the file given (it must exist; `""` is none given), else the sole one of
+`PROJECT_FILE_NAMES` in the start directory; more than one, or a missing named file, is a
+`ProjectFileError` (defined there, re-exported by `flow_runner`). Tests name project files through
+`tests/project_files.py` (`PROJECT_FILE`, `TOML_PROJECT_FILE`), never a literal spelling.
 
 ### Flow lifecycle
 
@@ -341,7 +345,16 @@ text (`compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. W
 values really are of several kinds, its type says so and whatever consumes it renders each kind
 explicitly: Vivado run properties are `str | int | float | bool`, rendered for Tcl by
 `tcl_property_value`. Text that is naturally written as a number is declared per field with the
-`Code` type (`xeda.dataclass`): an FPGA's `speed = -1`, `grade`, `generation`. On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
+`Code` type (`xeda.dataclass`): an FPGA's `speed = -1`, `grade`, `generation`. **A `bool` or
+`Optional[bool]` field -- of a flow, the design or any nested model -- given text or a number is
+an error, whatever it says**, except exactly the text `true`/`false` (what the command line's `-s`
+can write; a quoted `"true"` in a file is accepted too, a known consequence): `yes`, `on`, `y`,
+`1` are not booleans (`XedaBaseModel._booleans_are_not_text`, one `before`
+validator every model shares, reporting per field: `` `yes` is text, not a boolean: write `true` ``).
+`dataclass.validation_errors` adds what to write where a YAML 1.1 word (`ncpus: on`) or a number
+(`top: 010`, which YAML 1.2 reads as 10) reaches a field that is neither. Never add a lax
+conversion back; `try_convert_to_primitives` converts only `true`/`false` for the same reason.
+On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
 setting three conveniences, applied before any field validator runs (by a model `before` validator
 on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
@@ -1084,3 +1097,9 @@ while it is open). A flow sharing
   which CI does not set.
 - Formatting is inconsistent by design: `black` (line-length 100) is enforced on `src/` only; `ruff`
   (line-length 120, `target-version = "py311"`) checks the whole repo.
+
+YAML is the preferred design/project authoring format; TOML and JSON remain accepted. All YAML
+input goes through `yaml_loader.load_yaml`: YAML 1.2 core scalars, string mapping keys and
+duplicate-key rejection. Quote string parameters and source paths. Use lowercase `true`/`false`
+for booleans; merge keys, recursive aliases and non-core tags are rejected. Keep bundled board
+and platform databases in TOML.

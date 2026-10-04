@@ -1,6 +1,6 @@
 ---
 name: xeda
-description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec compilation (bsc), FPGA synthesis (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, OpenXC7), or ASIC synthesis (OpenROAD, Design Compiler) - and when writing or fixing a Xeda design file (`*.toml`/`*.yaml`/`*.json` with `[rtl]`/`[tb]` sections, or `xedaproject.toml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, or diagnosing `FlowSettingsError`, `FlowNotFoundError`, or `ExecutableNotFound`.
+description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec compilation (bsc), FPGA synthesis (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, OpenXC7), or ASIC synthesis (OpenROAD, Design Compiler) - and when writing or fixing a Xeda YAML design file (`*.yaml`; TOML and JSON are accepted) or project file (`xedaproject.yaml`; `.yml` and `.toml` are accepted too). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, or diagnosing `FlowSettingsError`, `FlowNotFoundError`, or `ExecutableNotFound`.
 ---
 
 # Driving Xeda
@@ -31,67 +31,76 @@ xeda list-settings vivado_synth --json
 xeda list-results vivado_synth --json
 
 # 4. Run it, and read the result in the same pipe
-xeda run vivado_synth sqrt.toml -s clock.period=5.0 --json
+xeda run vivado_synth sqrt.yaml -s clock.period=5.0 --json
 ```
 
 `xeda run --json` emits one object: `success`, `results`, `run_path`, `results_json`,
 `settings_json` - or `success: false` plus an `error` object. Exit status is non-zero on failure.
 
 ```bash
-xeda run vivado_synth sqrt.toml --json | jq '.results.Fmax'
+xeda run vivado_synth sqrt.yaml --json | jq '.results.Fmax'
 ```
 
 ## Writing a design file
 
 `xeda design-schema` is the authoritative JSON Schema. The shape:
 
-```toml
-name = "sqrt"                      # required; names the run directory
-description = "..."
-language.vhdl.standard = "2008"    # or language.verilog.standard
-
-[rtl]
-sources = ["pkg.vhdl", "sqrt.vhdl"]   # required, IN COMPILATION ORDER
-top = "sqrt"                          # required by synthesis flows
-clock = { port = "clk" }               # names the clock PORT, not its period
-parameters = { G_IN_WIDTH = 32 }      # or `generics`; use one spelling, not both
-
-[tb]
-sources = ["tb_sqrt.py"]              # a .py source is detected as cocotb automatically
-top = "tb_sqrt"                       # required by simulation flows for non-cocotb testbenches
-
-[flows.vivado_synth]                  # per-flow settings, applied only for that flow
-fpga.part = "xc7a100tftg256-2L"
-clock.period = 5.0
+```yaml
+name: sqrt # required; names the run directory
+description: ...
+language:
+  vhdl:
+    standard: '2008' # or language.verilog.standard
+rtl:
+  sources: ['pkg.vhdl', 'sqrt.vhdl'] # required, IN COMPILATION ORDER
+  top: sqrt # required by synthesis flows
+  clock: {port: clk} # names the clock PORT, not its period
+  parameters: {G_IN_WIDTH: 32} # or `generics`; use one spelling, not both
+tb:
+  sources: ['tb_sqrt.py'] # a .py source is detected as cocotb automatically
+  top: tb_sqrt # required by simulation flows for non-cocotb testbenches
+flows:
+  vivado_synth: # per-flow settings, applied only for that flow
+    fpga:
+      part: xc7a100tftg256-2L
+    clock:
+      period: 5.0
 ```
+
+YAML uses the 1.2 core schema. Quote strings such as `"010"`, `"0x1F"` or `"1e3"`
+when they are text; `yes/no/on/off` stay strings, and booleans are `true`/`false` only
+(`debug: yes` and `debug: 1` are errors, never `true`).
+Duplicate keys and non-string mapping keys are errors. Ordinary aliases and core explicit
+tags are accepted; merge keys, recursive aliases and non-core tags are rejected.
+TOML and JSON designs/projects remain accepted.
 
 Key points that are easy to get wrong:
 
 - **Paths resolve against the design file's directory**, not the working directory.
 - **`sources` order is compilation order.** VHDL packages must precede their users.
-- **Clocks split in two.** `[rtl]` names the clock *port*; the *period or frequency* is a flow
-  setting, because it constrains a particular build. Single clock: `clock = { port = "clk" }` in
-  `[rtl]` plus `clock.period` (ns) or `clock.freq` per flow. The legacy `clock_port` spelling is
+- **Clocks split in two.** `rtl` names the clock *port*; the *period or frequency* is a flow
+  setting, because it constrains a particular build. Single clock: `clock: {port: clk}` in
+  `rtl` plus `clock.period` (ns) or `clock.freq` per flow. The legacy `clock_port` spelling is
   accepted as compatibility input. The legacy `clock_period` spelling is also accepted for flow
   settings. Within one settings layer, do not combine a compatibility spelling with its canonical
   counterpart; across layers the higher-precedence spelling wins and is merged into canonical
   `clocks`.
-  Prefer `clock.period` or `clock.freq` in new files. Multiple: `[[rtl.clocks]]` entries plus a
+  Prefer `clock.period` or `clock.freq` in new files. Multiple: a list under `rtl.clocks` plus a
   `clocks` mapping in the flow settings.
 - Every source needs a type: suffix inference is case-sensitive; unknown or ambiguous suffixes
   (`.json`, `.bin`, `.cfg`, `.config`) need an explicit `type`. Use `Data` for files with no
   automatic HDL frontend (a tool or the design can still read them). Invalid explicit types fail
   with suggestions; type names themselves are case-tolerant.
 - Give a source a table instead of a string when inference is not enough:
-  `{ file = "legacy.v", type = "SystemVerilog" }`. Use `path =` instead of `file =` for a source a
+  `{file: "legacy.v", type: SystemVerilog}`. Use `path:` instead of `file:` for a source a
   generator will produce (it is not checked for existence).
 
 See `references/design-file.md` for the full reference.
 
 ## Settings
 
-Precedence, lowest to highest: flow defaults -> `xedaproject.toml`'s `flows.<flow>` -> the
-design file's `[flows.<flow>]` section -> command-line `-s` -> the API. Layers merge key by key, so
+Precedence, lowest to highest: flow defaults -> `xedaproject.yaml`'s `flows.<flow>` -> the
+design file's `flows.<flow>` section -> command-line `-s` -> the API. Layers merge key by key, so
 `-s yosys.flatten=true` refines a nested section instead of replacing it; nesting applies only
 within one origin. `-s flows.<flow>.key=value` sets a setting of any flow in the run (the
 requested flow or a declared dependency; a typo is an error with suggestions), and `-s key` and
@@ -101,7 +110,7 @@ the options with `--`.
 
 ```bash
 # dotted keys reach nested settings; several can be given at once
-xeda run vivado_synth sqrt.toml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
+xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
 ```
 
 Every flow also accepts `ncpus` (alias `nthreads`), `dockerized`/`docker`,
@@ -123,12 +132,12 @@ openroad       -> yosys
 Reach a dependency's settings through a nested key:
 
 ```bash
-xeda run openfpgaloader blinky.toml -s nextpnr.yosys.flatten=true
+xeda run openfpgaloader blinky.yaml -s nextpnr.yosys.flatten=true
 ```
 
 `yosys_fpga` and `nextpnr` declare file I/O. `nextpnr` takes its `netlist` from
 `yosys_fpga`'s checked output record, or from exactly one
-`{ file = "top.json", type = "JsonNetlist" }` in `rtl.sources` (which skips synthesis).
+`{file: "top.json", type: JsonNetlist}` in `rtl.sources` (which skips synthesis).
 `nextpnr.config` records the selected ECP5 `textcfg`, iCE40 `asc` or Nexus `fasm`; a missing or
 stale enabled configuration fails the run.
 
@@ -146,7 +155,7 @@ so another Xeda process that would rebuild, clean or scrub that directory waits.
 ## Planning without running
 
 ```bash
-xeda run nextpnr blinky.toml --dry-run --json
+xeda run nextpnr blinky.yaml --dry-run --json
 ```
 
 This prints `success: true`, `dry_run: true`, and a `plan` with `requested` and ordered `nodes`:
@@ -220,8 +229,8 @@ named. Moving or renaming that destination later never re-runs the flow. `--outp
 delivers the requested flow's artifacts the same way, each at its path inside the run directory:
 
 ```bash
-xeda run vivado_synth blinky.toml -s bitstream=$PWD/blinky.bit
-xeda run vivado_synth blinky.toml --outputs-to ./out
+xeda run vivado_synth blinky.yaml -s bitstream=$PWD/blinky.bit
+xeda run vivado_synth blinky.yaml --outputs-to ./out
 ```
 
 A delivery never replaces a directory, a design source, or a file the run itself reads. An
@@ -295,7 +304,7 @@ See `references/troubleshooting.md` for more.
 from xeda import Design, DefaultRunner
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
-design = Design.from_file("sqrt.toml")
+design = Design.from_file("sqrt.yaml")
 flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5.0"])
 if flow and flow.results.success:
     print(flow.results.Fmax)

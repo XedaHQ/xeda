@@ -31,8 +31,8 @@ stdout carries only the JSON document:
 
 .. code-block:: bash
 
-    xeda run vivado_synth sqrt.toml --json
-    xeda dse vivado_synth --design sqrt.toml --json
+    xeda run vivado_synth sqrt.yaml --json
+    xeda dse vivado_synth --design sqrt.yaml --json
     xeda scrub vivado_synth sqrt --json
 
 .. note::
@@ -228,7 +228,7 @@ unknown flow or setting):
 
     {
       "flow": "vivado_synth",
-      "design": "sqrt.toml",
+      "design": "sqrt.yaml",
       "success": false,
       "results": {},
       "error": {
@@ -272,12 +272,12 @@ consumer switching its producer's optional output on:
 
 .. code-block:: bash
 
-    xeda run nextpnr blinky.toml -s fpga.part=iCE40HX1K-TQ144 flows.yosys_fpga.netlist_json= --dry-run --json
+    xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 flows.yosys_fpga.netlist_json= --dry-run --json
 
 .. code-block:: json
 
     {
-      "flow": "nextpnr", "design": "blinky.toml", "success": true, "dry_run": true,
+      "flow": "nextpnr", "design": "blinky.yaml", "success": true, "dry_run": true,
       "plan": {
         "requested": "nextpnr",
         "nodes": [
@@ -333,7 +333,7 @@ To run a flow:
 
     from xeda import Design, DefaultRunner
 
-    design = Design.from_file("sqrt.toml")
+    design = Design.from_file("sqrt.yaml")
     runner = DefaultRunner("xeda_run")
     flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5.0"])
     if flow and flow.results.success:

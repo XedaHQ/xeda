@@ -14,7 +14,7 @@ Xeda keeps four concerns deliberately separate. Understanding the split is most 
 to use it, and all of what is needed to extend it.
 
 ``Design`` - *what* to build
-    A design description loaded from TOML, YAML or JSON. It carries an ``rtl`` section (sources,
+    A design description loaded from YAML, TOML or JSON. It carries an ``rtl`` section (sources,
     top module, parameters, clocks) and a ``tb`` section (testbench sources, top, cocotb
     settings), plus optional per-flow settings. Sources become file resources that carry a content
     hash, which is what lets Xeda tell runs apart and reuse cached ones. See

@@ -26,30 +26,36 @@ Check the installation::
 Describe your design
 ====================
 
-A design description is a single TOML, YAML or JSON file. It says what the design is, not how to
-build it - tool choices stay out of it, except for the optional per-flow settings at the end.
+A design description is a single YAML, TOML or JSON file. YAML is the recommended format. It says
+what the design is, not how to build it - tool choices stay out of it, except for optional per-flow
+settings at the end.
 
-``sqrt.toml``:
+``sqrt.yaml``:
 
-.. code-block:: toml
+.. code-block:: yaml
 
-    name = "sqrt"
-    description = "Iterative computation of square-root of an integer"
-    language.vhdl.standard = "2008"
+    name: sqrt
+    description: Iterative computation of square-root of an integer
+    language:
+      vhdl:
+        standard: '2008'
 
-    [rtl]
-    sources = ["sqrt.vhdl"]
-    top = "sqrt"
-    clock = { port = "clk" }
-    parameters = { G_IN_WIDTH = 32 }
+    rtl:
+      sources: ['sqrt.vhdl']
+      top: sqrt
+      clock: {port: clk}
+      parameters: {G_IN_WIDTH: 32}
 
-    [tb]
-    sources = ["tb_sqrt.py"]
-    cocotb = true
+    tb:
+      sources: ['tb_sqrt.py']
+      cocotb: true
 
-    [flows.vivado_synth]
-    fpga.part = "xc7a100tftg256-2L"
-    clock.period = 5.0
+    flows:
+      vivado_synth:
+        fpga:
+          part: xc7a100tftg256-2L
+        clock:
+          period: 5.0
 
 Paths are resolved relative to the directory holding the design file, so the file is portable
 along with its sources. See :doc:`design-file` for the full reference.
@@ -59,16 +65,16 @@ Run a flow
 
 ``xeda run <FLOW_NAME> <DESIGN_FILE>``. To simulate the design with GHDL::
 
-    xeda run ghdl_sim sqrt.toml
+    xeda run ghdl_sim sqrt.yaml
 
 To synthesize it for an FPGA with Vivado::
 
-    xeda run vivado_synth sqrt.toml
+    xeda run vivado_synth sqrt.yaml
 
 The ``[flows.vivado_synth]`` section of the design file supplies that flow's settings. Override
 any of them on the command line with ``-s``/``--settings``, using dotted keys for nested values::
 
-    xeda run vivado_synth sqrt.toml -s clock.period=4.5 impl.strategy=Performance_ExplorePostRoutePhysOpt
+    xeda run vivado_synth sqrt.yaml -s clock.period=4.5 impl.strategy=Performance_ExplorePostRoutePhysOpt
 
 Unknown settings are rejected rather than ignored, so a typo fails loudly instead of quietly
 doing nothing.
@@ -102,6 +108,6 @@ Explore the design space
 ``xeda dse`` runs many instances of a flow in parallel under an optimizer. The default optimizer
 searches for the maximum clock frequency::
 
-    xeda dse vivado_synth --design sqrt.toml
+    xeda dse vivado_synth --design sqrt.yaml
 
 ``xeda list-optimizers`` shows the available optimizers and their settings.

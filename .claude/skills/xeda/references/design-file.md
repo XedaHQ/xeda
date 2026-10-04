@@ -1,9 +1,24 @@
 # Xeda design file reference
 
-A design description is one TOML, YAML or JSON file. It says *what* the design is, not how to
-build it - apart from the optional per-flow settings at the end.
+A design description is one YAML, TOML or JSON file. YAML is the recommended format. It says
+*what* the design is, not how to build it, apart from optional per-flow settings.
 
 The authoritative machine-readable definition: `xeda design-schema`.
+
+## YAML parsing
+
+YAML follows the 1.2 core schema: `yes/no/on/off/y/n` are strings, `010` is decimal 10,
+`0o17` is 15, `0x1F` is 31, and `1e3` is a float. Dates, sexagesimal values (`1:30`)
+and underscore-separated numbers (`1_000`) are strings. `true`/`false` are booleans;
+`null`/`~` are null. Quote HDL text, bit vectors, leading-zero text and source paths.
+
+A boolean setting accepts only `true` and `false` (no `yes`, no `1`; also `-s key=true`); `debug: yes` is an
+error saying "`yes` is text, not a boolean: write `true`".
+
+All mapping keys must be strings. Duplicate keys fail naming the file, key and both lines.
+Ordinary aliases and core explicit tags are accepted; merge keys, recursive aliases and
+non-core tags are rejected. Use two-space indentation and keep each source with its metadata
+in one list entry. TOML and JSON files remain supported.
 
 ## Top level
 
@@ -21,10 +36,10 @@ The authoritative machine-readable definition: `xeda design-schema`.
 | `design_root` | no | Base for relative paths. Defaults to the design file's directory - almost always right. |
 
 The loader also accepts `sources`, `top`, `clock`, `clocks`, `parameters`, `generics`, `defines` and
-`generator` at the top level. It folds them into `rtl`, so an explicit `[rtl]` section is not
+`generator` at the top level. It folds them into `rtl`, so an explicit `rtl` section is not
 required when this flat form is used.
 
-## `[rtl]` - the design
+## `rtl` - the design
 
 | Key | Required | Meaning |
 | --- | --- | --- |
@@ -32,16 +47,16 @@ required when this flat form is used.
 | `top` | no | Top-level module/entity. Required by synthesis flows. |
 | `parameters` / `generics` | no | Verilog parameters or VHDL generics for the top level. Use either interchangeable name; giving both is an error. |
 | `defines` | no | Verilog preprocessor macros. |
-| `clock` | no | Canonical single-clock description, e.g. `{ port = "clk" }`. |
+| `clock` | no | Canonical single-clock description, e.g. `{port: clk}`. |
 | `clock_port` | no | Compatibility shorthand for a single-clock design; prefer `clock`. |
 | `clocks` | no | A list of clocks, for multi-clock designs. |
 | `attributes` | no | HDL attributes, as `attribute -> (object -> value)`. |
 | `generator` | no | Command or generator class producing the sources before the flow runs. |
 
-## `[tb]` - the testbench
+## `tb` - the testbench
 
 The aliases `test` and `tests` are also accepted. The section has the same `sources`,
-`parameters`/`generics` and `defines` as `[rtl]`, plus:
+`parameters`/`generics` and `defines` as `rtl`, plus:
 
 | Key | Meaning |
 | --- | --- |
@@ -51,20 +66,21 @@ The aliases `test` and `tests` are also accepted. The section has the same `sour
 
 ## Clocks
 
-Clocks are split deliberately: `[rtl]` names the design's clock **ports**; the **period or
+Clocks are split deliberately: `rtl` names the design's clock **ports**; the **period or
 frequency** is a *flow setting*, because it constrains a particular build.
 
 Single clock:
 
-```toml
-[rtl]
-clock = { port = "clk" }
-
-[flows.vivado_synth]
-clock.period = 5.0          # nanoseconds
+```yaml
+rtl:
+  clock: {port: clk}
+flows:
+  vivado_synth:
+    clock:
+      period: 5.0 # nanoseconds
 ```
 
-or, equivalently, `clock.freq = "200MHz"` in the flow section. The legacy `clock_port` and
+or, equivalently, `clock.freq: "200MHz"` in the flow section. The legacy `clock_port` and
 `clock_period` inputs are accepted for compatibility. Within one settings layer, use only one
 spelling for a concept; across layers the higher-precedence spelling wins and is merged into the
 canonical `clocks` mapping. Prefer `clock` in the design and `clock.period` or `clock.freq` in
@@ -72,20 +88,16 @@ flow settings.
 
 Multiple clocks:
 
-```toml
-[[rtl.clocks]]
-port = "clk"
-name = "main_clock"
-
-[[rtl.clocks]]
-port = "clk_aux"
-name = "aux"
-
-[flows.vivado_synth.clocks.main_clock]
-period = 5.0
-
-[flows.vivado_synth.clocks.aux]
-freq = "100MHz"
+```yaml
+rtl:
+  clocks:
+    - {port: clk, name: main_clock}
+    - {port: clk_aux, name: aux}
+flows:
+  vivado_synth:
+    clocks:
+      main_clock: {period: 5.0}
+      aux: {freq: 100MHz}
 ```
 
 A `PhysicalClock` takes `period` (ns) or `freq` (MHz), and derives the other. A consistent pair is
@@ -117,11 +129,11 @@ A path string suffices when its extension identifies a type:
 | `.dcp` / `.lib` / `.def` / `.odb` / `.gds` / `.cdl` / `.vlt` | `Checkpoint` / `Liberty` / `Def` / `Odb` / `Gds` / `Cdl` / `Vlt` |
 
 Every source has a type. Suffixes match as written (`TOP.VHD` is an error naming `.vhd`).
-`.json`, `.bin`, `.cfg`, `.config` and any suffix not in the table need `type = "..."`;
+`.json`, `.bin`, `.cfg`, `.config` and any suffix not in the table need `type: "..."`;
 `JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `Chipdb` and `Data` are only given
 that way. `Data` has no automatic HDL frontend; a flow or the design can still read it.
 An invalid explicit `type` is an error naming the closest types. Explicit type names are
-case-tolerant; suffixes are not. Give a gate-level `.v` netlist `type = "VerilogNetlist"`;
+case-tolerant; suffixes are not. Give a gate-level `.v` netlist `type: VerilogNetlist`;
 otherwise its inferred type is `Verilog`.
 
 Source-consumption contracts apply to `vivado_synth`, `vivado_alt_synth`, `vivado_project`,
@@ -143,14 +155,13 @@ containing `[`, `]` or `$`: rename those for Vivado.
 
 When inference is not enough, use a table:
 
-```toml
-[rtl]
-sources = [
-  "pkg.vhdl",
-  { file = "legacy.v", type = "SystemVerilog" },
-  { file = "old.vhdl", standard = "93" },
-  { path = "generated/top.v" },          # not checked for existence
-]
+```yaml
+rtl:
+  sources:
+    - pkg.vhdl
+    - {file: legacy.v, type: SystemVerilog}
+    - {file: old.vhdl, standard: '93'}
+    - {path: generated/top.v} # not checked for existence
 ```
 
 `file` must exist and is checked at load time. `path` is not checked - use it for sources a
@@ -159,9 +170,12 @@ and reuses cached dependency runs.
 
 ## `[language]` - standards
 
-```toml
-language.vhdl.standard = "2008"      # "93", "2008", "2019", ...
-language.verilog.standard = "2005"
+```yaml
+language:
+  vhdl:
+    standard: '2008' # '93', '2008', '2019', ...
+  verilog:
+    standard: '2005'
 ```
 
 `version` is an accepted alias of `standard`. Two-digit (`08`) and four-digit (`2008`) both work.
@@ -170,17 +184,16 @@ language.verilog.standard = "2005"
 
 Applied only when that flow runs, so one file can carry constraints for several targets:
 
-```toml
-[flows.vivado_synth]
-fpga.part = "xc7a100tftg256-2L"
-clock.period = 5.0
-
-[flows.openroad]
-platform = "sky130hd"
-clock.period = 10.0
-
-[flows.ghdl_sim]
-stop_time = "100us"
+```yaml
+flows:
+  vivado_synth:
+    fpga.part: xc7a100tftg256-2L
+    clock.period: 5.0
+  openroad:
+    platform: sky130hd
+    clock.period: 10.0
+  ghdl_sim:
+    stop_time: 100us
 ```
 
 `xeda list-settings <flow> --json` lists what a flow accepts. Unknown keys are rejected.
@@ -189,9 +202,10 @@ stop_time = "100us"
 
 Path-typed settings expand `$PWD`, `$DESIGN_ROOT` and `$DESIGN_DIR`:
 
-```toml
-[flows.dc]
-target_libraries = ["$DESIGN_ROOT/lib/SAED90/saed90nm_typ_ht.db"]
+```yaml
+flows:
+  dc:
+    target_libraries: [$DESIGN_ROOT/lib/SAED90/saed90nm_typ_ht.db]
 ```
 
 Design sources expand environment variables too, except `$PWD`; `$DESIGN_ROOT`/`$DESIGN_DIR` are
@@ -199,5 +213,7 @@ the design root, so `"$DESIGN_ROOT/src/*.vhd"` and `"src/*.vhd"` are the same so
 
 ## Multiple designs
 
-A `xedaproject.toml` holds several designs plus top-level `flows` settings merged into each. Select
-one with `--design-name`.
+A `xedaproject.yaml` holds several designs plus top-level `flows` settings merged into each.
+`xedaproject.yml` and `xedaproject.toml` are also accepted. Automatic discovery requires exactly
+one of these names in a directory; multiple matches are an error. Select one design with
+`--design-name`.
