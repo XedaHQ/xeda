@@ -273,7 +273,7 @@ unknown flow or setting):
 ``error.type`` names the exception class, which is stable enough to branch on:
 ``FlowSettingsError`` (a bad setting), ``FlowNotFoundError`` (a bad flow name),
 ``ExecutableNotFound`` (the tool is not installed), ``NonZeroExitCode`` (the tool failed),
-``DesignValidationError`` (a bad design file), ``FlowFailed`` (the requested flow ran but reported failure),
+``DesignValidationError`` (a bad design file), ``FlowFailed`` (the verdict: the requested flow did not succeed, whatever the cause),
 ``NoSuccessfulRun`` (a DSE search found no successful candidate), ``FlowFatalError``, and
 ``FlowException``. Four more come from run-directory and delivery isolation (D21):
 
@@ -290,7 +290,9 @@ unknown flow or setting):
   ``--overwrite-outputs``, or answer the prompt at an interactive terminal.
 
 Every node's own ``results.json`` is a failure document too, and its ``error.type`` is more
-specific than the top-level document's. ``FlowFailure`` -- ``"`<flow>` reported failure: its
+specific than the top-level document's: the top-level ``FlowFailed`` is the run's verdict (the
+requested flow did not succeed, whatever the cause), while a node names the cause.
+``ReportedFailure`` -- ``"`<flow>` reported failure: its
 reports or checks did not pass"`` -- is what a flow leaves when it failed with no exception and no
 tool exit status (its tool exited 0 and the reports or checks it reads say otherwise, or an
 expected output was never written); the flows downstream of it say

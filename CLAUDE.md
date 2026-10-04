@@ -217,10 +217,13 @@ fresh `trace.json`, on success, once `_report` has returned).
 `success: false`, `error.type`, `error.message` and the run's identity -- a failing `run()`, and a
 failing dependency, which the depender's directory reports too (a `FlowDependencyFailure` naming
 the dependency and its `results.json`). A flow that fails with no exception and no tool exit
-status -- its `parse_reports()`/`check_results()` said so -- gets `error.type = "FlowFailure"` and
-a message from `_execute` (never overwriting a real error), so a depender quotes something. The
-top-level `--json` document of `xeda run` names the requested flow's own failure `FlowFailed`; a
-node's `results.json` says `FlowFailure`, and its consumers' `FlowDependencyFailure`. The previous `results.json` is
+status -- its `parse_reports()`/`check_results()` said so -- gets `error.type = "ReportedFailure"`
+and a message from `_execute` (never overwriting a real error), so a depender quotes something.
+The two names are two roles, not one thing spelled twice (neither is an exception class; both are
+strings in JSON documents): `FlowFailed` is the *verdict* at the top of the `--json` document of
+`xeda run` when the requested flow did not succeed, whatever the cause; `ReportedFailure` is a
+*cause*, in the node's `results.json`, for this one way of failing (a failing `run()` says its own
+exception's name, a failing producer `FlowDependencyFailure`). Keep them distinct. The previous `results.json` is
 removed before the run, so an earlier success never stands for a run that died
 (`tests/test_failure_results.py`).
 
