@@ -24,7 +24,7 @@ def test_ise_synth_py() -> None:
     path = RESOURCES_DIR / "design0/design0.toml"
     # Append to PATH so if the actual tool exists, would take precedences.
     assert path.exists()
-    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
     with tempfile.TemporaryDirectory() as run_dir:
         print("Xeda run dir: ", run_dir)
@@ -76,7 +76,7 @@ ISE_SETTINGS = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
 
 def _run_ise(run_dir: Path, monkeypatch, **launcher) -> Flow:
     use_fake_tools(monkeypatch)
-    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     flow = DefaultRunner(run_dir, **launcher).run_flow(IseSynth, design, ISE_SETTINGS)
     assert flow is not None
     return flow
@@ -123,7 +123,7 @@ def test_a_failed_ise_run_leaves_nothing_of_the_previous_run_in_its_run_director
     (work / "rtl" / "core.vhdl").write_text("-- a source\n")
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(work)
-    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     runner = DefaultRunner(tmp_path / "xeda_run", rebuild_all=True)
 
     first = runner.run_flow(IseSynth, design, ISE_SETTINGS)

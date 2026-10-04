@@ -1,0 +1,19 @@
+name: 'gcd'
+description: 'GCD accelerator in BSV with a Get/Put (Server) interface: requests are dealt round-robin
+  to two binary-GCD engines, a module synthesized separately in another package, through bsc library
+  FIFOs. The testbench checks 200 directed and LFSR-driven requests against Euclid''s algorithm.'
+rtl:
+  # The package defining `top` comes last.
+  sources:
+    - 'rtl/GcdEngine.bsv'
+    - 'rtl/GcdUnit.bsv'
+  top: 'mkGcdUnit'
+  clock:
+    port: 'CLK'
+tb:
+  sources:
+    - 'tb/TbGcdUnit.bsv'
+  top: 'mkTbGcdUnit'
+  # Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design, which the
+  # testbench must catch (non-zero exit):
+  # defines: {XEDA_INJECT_BUG: true}

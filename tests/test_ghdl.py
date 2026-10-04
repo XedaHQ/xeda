@@ -24,9 +24,9 @@ def test_ghdl_sim_py(tmp_path: Path) -> None:
     # settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
     # run_dir = "tests_run_dir"
     design_paths = [
-        EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml",
-        EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium.xeda.yaml",
-        EXAMPLES_DIR / "vhdl" / "pipeline" / "pipelined_adder.toml",
+        EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml",
+        EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium-dc.xeda.yaml",
+        EXAMPLES_DIR / "vhdl" / "pipeline" / "pipelined_adder.yaml",
     ]
     run_dir = tmp_path / "xeda_run"
     for design in design_paths:

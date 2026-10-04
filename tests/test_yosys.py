@@ -31,9 +31,9 @@ def test_yosys_synth_py(tmp_path: Path) -> None:
     # run_dir = "tests_run_dir"
     design_paths = [
         EXAMPLES_DIR / "boards" / "ulx3s" / "blinky" / "blinky.xeda.yaml",
-        EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml",
-        EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium.toml",
-        EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium.xeda.yaml",
+        EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml",
+        EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium.yaml",
+        EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium-dc.xeda.yaml",
         EXAMPLES_DIR / "boards" / "ulx3s" / "blinky" / "blinky_vhdl.xeda.yaml",
     ]
     run_dir = tmp_path / "xeda_run"
@@ -427,7 +427,7 @@ def test_yosys_fpga_hands_ghdl_each_vhdl_file_once(tmp_path):
     `GhdlSynth.synth_args` for a one-shot elaboration, which carries every file again, so GHDL
     analyzed each twice (`ghdl ... sqrt.vhdl sqrt.vhdl -e sqrt`)."""
     require_yosys_ghdl_plugin()
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     flow = DefaultRunner(tmp_path).run_flow(YosysFpga, design, {"fpga": "LFE5U-25F-6BG381C"})
     assert flow is not None and flow.succeeded
     ghdl_line = next(

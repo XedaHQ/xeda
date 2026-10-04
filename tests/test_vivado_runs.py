@@ -26,7 +26,7 @@ from xeda.flows.vivado import vivado_synth as vs
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
 
-SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.toml"
+SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
 FLOWS_DIR = Path(__file__).parent.parent / "src" / "xeda" / "flows"
 PART = "xc7a12tcsg325-1"
 BITSTREAM = "outputs/sqrt.bit"
@@ -42,7 +42,7 @@ def _run(tmp_path: Path, monkeypatch, fail: list[str] | None = None, **settings)
     if fail:
         monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", " ".join(fail))
     flow = DefaultRunner(tmp_path / "run").run_flow(
-        VivadoSynth, Design.from_toml(SQRT), {"fpga": PART, "clock_period": 5.5, **settings}
+        VivadoSynth, Design.from_file(SQRT), {"fpga": PART, "clock_period": 5.5, **settings}
     )
     assert isinstance(flow, VivadoSynth)
     return flow

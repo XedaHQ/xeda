@@ -750,7 +750,7 @@ def test_outputs_to_and_overwrite_outputs_on_the_command_line(sqrt_copy):
     args = [
         "run",
         "vivado_synth",
-        "sqrt.toml",
+        "sqrt.yaml",
         "-s",
         "fpga.part=xc7a12tcsg325-1",
         "--outputs-to",

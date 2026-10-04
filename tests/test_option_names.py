@@ -22,7 +22,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
 from xeda.flow_runner.remote import RemoteRunner
 
-SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.toml"
+SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
 FAKE_TOOLS = Path(__file__).parent / "fake_tools"
 
 #: what each command's arguments are, apart from the options under test

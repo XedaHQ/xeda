@@ -20,6 +20,8 @@ from xeda.flow_runner.settings_layers import merge_flow_sections, merge_layers
 from xeda.flows import GhdlSim, Nextpnr, VivadoSynth, YosysFpga
 from xeda.xedaproject import XedaProject
 
+from .project_files import PROJECT_FILE
+
 # ---------------------------------------------------------------------------------------------
 # The merge itself
 # ---------------------------------------------------------------------------------------------
@@ -283,15 +285,15 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
     monkeypatch.chdir(tmp_path)
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     _write(
-        tmp_path / "xedaproject.toml",
+        tmp_path / PROJECT_FILE,
         """
-        [flows.nextpnr]
-        seed = 1
-        ncpus = 1
-        yosys.abc9 = true
-        yosys.ncpus = 2
-        [flows.yosys_fpga]
-        flatten = true
+        flows:
+          nextpnr:
+            seed: 1
+            ncpus: 1
+            yosys: {abc9: true, ncpus: 2}
+          yosys_fpga:
+            flatten: true
         """,
     )
     design = _write(
@@ -359,21 +361,20 @@ def test_local_run_allows_higher_clock_spelling_to_override_design_layer(
 def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monkeypatch, launched):
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     project = _write(
-        tmp_path / "xedaproject.toml",
+        tmp_path / PROJECT_FILE,
         """
-        [flows.nextpnr]
-        seed = 1
-        yosys.abc9 = true
-
-        [[design]]
-        name = "d"
-        [design.rtl]
-        sources = ["top.v"]
-        top = "top"
-        [design.flows.nextpnr]
-        fpga.part = "LFE5U-25F-6BG381C"
-        seed = 2
-        yosys.flatten = false
+        flows:
+          nextpnr:
+            seed: 1
+            yosys: {abc9: true}
+        design:
+          - name: d
+            rtl: {sources: [top.v], top: top}
+            flows:
+              nextpnr:
+                fpga: {part: LFE5U-25F-6BG381C}
+                seed: 2
+                yosys: {flatten: false}
         """,
     )
     elsewhere = tmp_path / "elsewhere"
@@ -393,13 +394,11 @@ def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monk
 def test_embedded_project_design_paths_are_relative_to_the_project_file(tmp_path):
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     project_path = _write(
-        tmp_path / "xedaproject.toml",
+        tmp_path / PROJECT_FILE,
         """
-        [[design]]
-        name = "d"
-        [design.rtl]
-        sources = ["top.v"]
-        top = "top"
+        design:
+          - name: d
+            rtl: {sources: [top.v], top: top}
         """,
     )
 
@@ -503,21 +502,20 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     project = _write(
-        tmp_path / "xedaproject.toml",
+        tmp_path / PROJECT_FILE,
         """
-        [flows.nextpnr]
-        fpga.part = "LFE5U-25F-6BG381C"
-        seed = 1
-        yosys.abc9 = true
-
-        [[design]]
-        name = "d"
-        [design.rtl]
-        sources = ["top.v"]
-        top = "top"
-        [design.flows.nextpnr]
-        seed = 2
-        yosys.flatten = false
+        flows:
+          nextpnr:
+            fpga: {part: LFE5U-25F-6BG381C}
+            seed: 1
+            yosys: {abc9: true}
+        design:
+          - name: d
+            rtl: {sources: [top.v], top: top}
+            flows:
+              nextpnr:
+                seed: 2
+                yosys: {flatten: false}
         """,
     )
     captured = {}
@@ -812,7 +810,7 @@ def test_a_design_files_own_section_beats_a_project_files_nested_value(
 ):
     """C1: origin decides first; nesting only breaks ties within one origin."""
     monkeypatch.chdir(tmp_path)
-    _write(tmp_path / "xedaproject.toml", "[flows.nextpnr]\nyosys.flatten = true\n")
+    _write(tmp_path / PROJECT_FILE, "flows:\n  nextpnr:\n    yosys: {flatten: true}\n")
     design = _one_design(
         tmp_path,
         '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n[flows.yosys_fpga]\nflatten = false\n',
@@ -933,7 +931,7 @@ def test_a_command_line_dependency_setting_beats_a_files_nested_value(
 def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeypatch):
     """R7: the merge keeps every name, so a higher layer never hides an unknown one."""
     monkeypatch.chdir(tmp_path)
-    _write(tmp_path / "xedaproject.toml", "[flows.nextpnr]\nno_such_setting = 1\n")
+    _write(tmp_path / PROJECT_FILE, "flows:\n  nextpnr:\n    no_such_setting: 1\n")
     design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
     with pytest.raises(FlowSettingsError, match="no_such_setting"):
         DefaultRunner(tmp_path / "run").run("nextpnr", design, flow_settings=["seed=3"])

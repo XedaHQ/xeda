@@ -161,7 +161,7 @@ SQRT = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
 
 def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     """An exploration records one rerunnable best run."""
-    for name in ("sqrt.vhdl", "sqrt.toml", "tb_sqrt.py"):
+    for name in ("sqrt.vhdl", "sqrt.yaml", "tb_sqrt.py"):
         shutil.copy(SQRT / name, tmp_path)
     proc = subprocess.run(
         [
@@ -171,7 +171,7 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
             "dse",
             "vivado_synth",
             "--design",
-            "sqrt.toml",
+            "sqrt.yaml",
             "--max-workers",
             "2",
             "--init-freq-low",
@@ -211,13 +211,13 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
         again.main_clock
         and again.main_clock.period == best["settings"]["clocks"]["main_clock"]["period"]
     )
-    explored = Design.from_file(tmp_path / "sqrt.toml")
+    explored = Design.from_file(tmp_path / "sqrt.yaml")
     assert Design(**recorded["design"]).rtl_hash == explored.rtl_hash
 
     # the start directory holds the design's files and the run root, nothing else
     assert {p.name for p in tmp_path.iterdir()} == {
         "sqrt.vhdl",
-        "sqrt.toml",
+        "sqrt.yaml",
         "tb_sqrt.py",
         "xeda_run",
     }

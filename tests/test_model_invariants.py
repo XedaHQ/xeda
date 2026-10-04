@@ -165,10 +165,10 @@ def test_semantic_hash_of_an_enum_terminates():
 
 def test_semantic_hash_of_a_whole_design_terminates():
     """`DesignSource.type` is a `SourceType`, so hashing a design used to recurse until it died."""
-    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
 
     assert semantic_hash(design) == semantic_hash(
-        Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+        Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     )
 
 

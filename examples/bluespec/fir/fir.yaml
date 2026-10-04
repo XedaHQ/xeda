@@ -1,0 +1,23 @@
+name: 'fir'
+description: 'Streaming transposed-form FIR filter in BSV, polymorphic in its tap count and widths
+  (Vector, provisos, numeric types) and sized by the preprocessor macros TAPS and SAMPLE_WIDTH, which
+  the design''s defines set. The testbench checks every output against a direct-form model.'
+rtl:
+  sources:
+    - 'rtl/FirFilter.bsv'
+  top: 'mkFirFilter'
+  clock:
+    port: 'CLK'
+  # Preprocessor macros, passed to bsc as `-D TAPS=11 -D SAMPLE_WIDTH=12`; without them
+  # FirFilter.bsv defaults to 8 taps and 16-bit samples. (Not `parameters`: the generated
+  # mkFirFilter has no Verilog parameters for a downstream flow to set.)
+  defines:
+    TAPS: 11
+    SAMPLE_WIDTH: 12
+tb:
+  sources:
+    - 'tb/TbFirFilter.bsv'
+  top: 'mkTbFirFilter'
+  # Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design, which the
+  # testbench must catch (non-zero exit):
+  # defines: {XEDA_INJECT_BUG: true}

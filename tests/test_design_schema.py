@@ -11,6 +11,8 @@ import pytest
 
 from xeda.design import Design, DesignSource, SourceType
 from xeda.introspect import JSON_SCHEMA_DIALECT, design_schema
+from xeda.xedaproject import XedaProject
+from xeda.yaml_loader import load_yaml
 
 jsonschema = pytest.importorskip("jsonschema")
 
@@ -69,8 +71,8 @@ EXAMPLES_DIR = pathlib.Path(__file__).parent.parent / "examples"
 EXAMPLE_DESIGNS = sorted(
     p
     for p in EXAMPLES_DIR.rglob("*")
-    if p.suffix in (".toml", ".yaml", ".yml")
-    and p.name != "xedaproject.toml"
+    if p.suffix in (".yaml", ".yml", ".toml", ".json")
+    and not p.name.startswith("xedaproject.")
     and "xeda_run" not in p.parts
 )
 
@@ -119,10 +121,10 @@ INPUT_SHORTHANDS = {
 def load_design_file(path: pathlib.Path):
     import tomllib
 
-    import yaml
-
     if path.suffix in (".yaml", ".yml"):
-        return yaml.safe_load(path.read_text())
+        return load_yaml(path)
+    if path.suffix == ".json":
+        return json.loads(path.read_text())
     return tomllib.loads(path.read_bytes().decode())
 
 
@@ -246,3 +248,25 @@ def test_model_schema_is_still_available():
     model = design_schema(input_syntax=False)
     assert "sources" not in model["properties"]  # no flat form
     assert "rtl" in model.get("required", [])
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted(
+        p
+        for p in EXAMPLES_DIR.rglob("xedaproject.*")
+        if p.suffix in (".yaml", ".yml", ".toml", ".json")
+    ),
+    ids=lambda p: str(p.relative_to(EXAMPLES_DIR)),
+)
+def test_embedded_example_designs_validate_against_the_published_schema(path):
+    project = XedaProject.from_file(path)
+    raw = load_design_file(path)
+    designs = raw.get("design", raw.get("designs", []))
+    if isinstance(designs, dict):
+        designs = [designs]
+    assert designs
+    for index, data in enumerate(designs):
+        assert project.get_design(index) is not None
+        errors = list(validator().iter_errors(data))
+        assert not errors, f"{path}, design {index}: {[e.message for e in errors]}"

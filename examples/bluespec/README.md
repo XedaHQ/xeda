@@ -3,21 +3,21 @@
 Small, self-checking designs in Bluespec SystemVerilog (BSV, `.bsv`) and Bluespec Classic
 (BH, `.bs`), each with an Xeda design file. They need bsc 2026.07.1 or newer.
 
-Each example lives in `examples/bluespec/<name>/`, with its design file `<name>.toml`, the
+Each example lives in `examples/bluespec/<name>/`, with its design file `<name>.yaml`, the
 design in `rtl/` and the testbench in `tb/`. Compile a design's RTL to Verilog with the `bsc`
 flow:
 
 ```bash
-xeda run bsc examples/bluespec/gcd/gcd.toml
+xeda run bsc examples/bluespec/gcd/gcd.yaml
 ```
 
 Simulate its testbench with the `bsc_sim` flow, in Bluesim (the default) or in a Verilog
 simulator through bsc's own link step:
 
 ```bash
-xeda run bsc_sim examples/bluespec/gcd/gcd.toml
-xeda run bsc_sim examples/bluespec/gcd/gcd.toml -s simulator=verilator
-xeda run bsc_sim examples/bluespec/gcd/gcd.toml -s simulator=iverilog
+xeda run bsc_sim examples/bluespec/gcd/gcd.yaml
+xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s simulator=verilator
+xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s simulator=iverilog
 ```
 
 All the designs follow the same conventions:

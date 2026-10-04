@@ -9,25 +9,24 @@ sections: those are only read when a flow runs. Four sections had rotted unnotic
 from pathlib import Path
 
 import pytest
-import yaml
+import json
 
 from xeda.design import Design
 from xeda.flow_runner import get_flow_class
 from xeda.utils import toml_load
 from xeda.xedaproject import XedaProject
+from xeda.yaml_loader import load_yaml
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 FILES = sorted(
-    [
-        *EXAMPLES_DIR.rglob("*.toml"),
-        *EXAMPLES_DIR.rglob("*.xeda.yaml"),
-        *EXAMPLES_DIR.rglob("*.xeda.yml"),
-    ]
+    p
+    for p in EXAMPLES_DIR.rglob("*")
+    if p.suffix in (".yaml", ".yml", ".toml", ".json") and "xeda_run" not in p.parts
 )
 
 
 def _flow_sections(path):
-    if path.name == "xedaproject.toml":
+    if path.stem == "xedaproject":
         project = XedaProject.from_file(path)
         yield from (project.flows or {}).items()
         for i in range(len(project.designs)):
@@ -65,13 +64,15 @@ def _raw_flow_entries(node):
 def _raw_flow_count(path):
     """Structural count of flow sections in the raw (unparsed-by-xeda) file contents."""
     if path.suffix in (".yaml", ".yml"):
-        data = yaml.safe_load(path.read_text())
+        data = load_yaml(path)
+    elif path.suffix == ".json":
+        data = json.loads(path.read_text())
     else:
         data = toml_load(path)
     if not isinstance(data, dict):
         return 0
     count = _raw_flow_entries(data)
-    if path.name == "xedaproject.toml":
+    if path.stem == "xedaproject":
         designs = data.get("design", data.get("designs"))
         if isinstance(designs, dict):
             designs = [designs]

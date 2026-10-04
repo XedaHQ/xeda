@@ -29,7 +29,7 @@ from xeda.flows.vivado.vivado_sim import VivadoSim
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, use_fake_tools
 
-SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.toml"
+SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
 PART = "xc7a12tcsg325-1"
 
 needs_tclsh = pytest.mark.skipif(
@@ -63,7 +63,7 @@ def _synth(tmp_path: Path, monkeypatch, design: Optional[Design] = None, **setti
     use_fake_tools(monkeypatch)
     flow = DefaultRunner(tmp_path / "run").run_flow(
         VivadoSynth,
-        design or Design.from_toml(SQRT),
+        design or Design.from_file(SQRT),
         {"fpga": PART, "clock_period": 5.5, **settings},
     )
     assert isinstance(flow, VivadoSynth) and flow.succeeded
@@ -310,7 +310,7 @@ def test_a_bitstream_given_as_a_location_is_registered_in_the_run_directory_and_
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "write_bitstream")
     failed = DefaultRunner(tmp_path / "run", rebuild_all=True).run_flow(
         VivadoSynth,
-        Design.from_toml(SQRT),
+        Design.from_file(SQRT),
         {"fpga": PART, "clock_period": 5.5, "bitstream": str(bitstream)},
     )
     assert failed is not None and not failed.succeeded

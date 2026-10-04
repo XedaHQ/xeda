@@ -156,7 +156,7 @@ def test_a_run_adds_only_its_run_root_to_the_start_directory(sqrt):
     before = sorted(p.name for p in sqrt.iterdir())
     result = CliRunner().invoke(
         cli,
-        ["run", "vivado_synth", "sqrt.toml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"],
+        ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"],
         catch_exceptions=False,
     )
     assert json.loads(result.stdout)["success"], result.stdout
@@ -170,12 +170,12 @@ def test_an_unmarked_run_root_is_refused_with_a_json_document(sqrt, tmp_path, co
     mine.mkdir()
     (mine / "notes.txt").write_text("mine\n")
     args = {
-        "run": ["run", "vivado_synth", "sqrt.toml", "-s", "fpga.part=xc7a12tcsg325-1"],
+        "run": ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1"],
         "dse": [
             "dse",
             "vivado_synth",
             "--design",
-            "sqrt.toml",
+            "sqrt.yaml",
             "--init-freq-low",
             "100",
             "--init-freq-high",
@@ -194,11 +194,12 @@ def test_an_unmarked_run_root_is_refused_with_a_json_document(sqrt, tmp_path, co
 def test_a_run_that_fails_at_input_creates_no_run_root(sqrt, remote):
     """A design that does not load (here, a name that is no directory name) fails before any
     flow launches: the run root is created when a flow first needs it, so none is left behind."""
-    toml = (sqrt / "sqrt.toml").read_text().replace('name = "sqrt"', 'name = ".."')
-    (sqrt / "sqrt.toml").write_text(toml)
+    text = (sqrt / "sqrt.yaml").read_text().replace("name: 'sqrt'", 'name: ".."')
+    assert 'name: ".."' in text
+    (sqrt / "sqrt.yaml").write_text(text)
     before = sorted(p.name for p in sqrt.iterdir())
     extra = ["--remote", "nowhere.invalid"] if remote else []
-    result = CliRunner().invoke(cli, ["run", "vivado_synth", "sqrt.toml", *extra, "--json"])
+    result = CliRunner().invoke(cli, ["run", "vivado_synth", "sqrt.yaml", *extra, "--json"])
     document = json.loads(result.stdout)
     assert result.exit_code != 0 and document["success"] is False
     assert document["error"]["type"] == "DesignValidationError", document

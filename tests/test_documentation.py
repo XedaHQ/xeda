@@ -301,8 +301,8 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "blinky.v").write_text("module blinky(); endmodule\n", encoding="utf-8")
-    (tmp_path / "blinky.toml").write_text(
-        'name = "blinky"\n[rtl]\nsources = ["blinky.v"]\ntop = "blinky"\n', encoding="utf-8"
+    (tmp_path / "blinky.yaml").write_text(
+        "name: blinky\nrtl:\n  sources: [blinky.v]\n  top: blinky\n", encoding="utf-8"
     )
     doc = (README.parent / "docs/machine-readable.rst").read_text(encoding="utf-8")
     assert "Planning a run\n" in doc, "the planning command needs a JSON reference"
