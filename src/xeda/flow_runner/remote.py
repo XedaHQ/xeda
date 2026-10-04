@@ -56,7 +56,7 @@ from ..utils import (
     settings_to_dict,
 )
 from ..version import __version__
-from ..xedaproject import XedaProject, find_default_xedaproject
+from ..xedaproject import PROJECT_FILE_NAMES, XedaProject, resolve_project_file
 from .default_runner import (
     FlowLauncher,
     FlowNotFoundError,
@@ -891,13 +891,9 @@ class RemoteRunner(FlowLauncher):
                 # The local runner's rule: a design-file suffix means a file, which then loads or
                 # is reported as it is, never a design name to look up in a project.
                 standalone = names_a_design_file(design_path)
-                project_path = (
-                    Path(xedaproject)
-                    if xedaproject is not None
-                    else (find_default_xedaproject() or Path("xedaproject.toml"))
-                )
+                project_path = resolve_project_file(xedaproject)
                 project = None
-                if project_path.exists():
+                if project_path is not None:
                     project = XedaProject.from_file(
                         project_path,
                         skip_designs=standalone,
@@ -905,8 +901,6 @@ class RemoteRunner(FlowLauncher):
                         design_allow_extra=design_allow_extra,
                     )
                     project_flow_settings = project.flows
-                elif xedaproject is not None:
-                    raise FileNotFoundError(f"Cannot open xeda-project file: {project_path}")
 
                 if standalone:
                     design = Design.from_file(
@@ -927,16 +921,12 @@ class RemoteRunner(FlowLauncher):
                         f"Design file {design_path} does not exist and no xedaproject was found"
                     )
             else:
-                project_path = (
-                    Path(xedaproject)
-                    if xedaproject is not None
-                    else (find_default_xedaproject() or Path("xedaproject.toml"))
-                )
-                if project_path.exists():
+                project_path = resolve_project_file(xedaproject)
+                if project_path is not None:
                     project = XedaProject.from_file(project_path, skip_designs=True)
                     project_flow_settings = project.flows
-                elif xedaproject is not None:
-                    raise FileNotFoundError(f"Cannot open xeda-project file: {project_path}")
+        # where a project's settings come from, named in messages even when there is none
+        project_label = project_path or Path(PROJECT_FILE_NAMES[0])
         flow_class = get_flow_class(flow_name)
         flow_name = flow_class.name
 
@@ -969,7 +959,7 @@ class RemoteRunner(FlowLauncher):
                 flow_settings,
                 sections,
                 origins=[
-                    (str(project_path.absolute()), origins[0]),
+                    (str(project_label.absolute()), origins[0]),
                     (str(given_file.absolute()) if given_file else "the design", origins[1]),
                 ],
                 command_line=command_line,

@@ -24,6 +24,8 @@ import pytest
 from xeda.design import Design, DesignFileParseError, DesignValidationError
 from xeda.utils import XedaException
 
+from .project_files import PROJECT_FILE
+
 TESTS_DIR = Path(__file__).parent.absolute()
 SQRT_DIR = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
 FAKE_TOOLS_DIR = TESTS_DIR / "fake_tools"
@@ -205,17 +207,17 @@ def test_xeda_dse_reports_an_invalid_design_file_once(tmp_path, json_flag):
 
 
 PROJECT = """
-[[design]]
-name = "sqrt"
-[design.rtl]
-sources = ["{sqrt}"]
-top = "sqrt"
+designs:
+  - name: sqrt
+    rtl:
+      sources: ["{sqrt}"]
+      top: sqrt
 """
 
 
 def _project(tmp_path: Path) -> Path:
     """Create a project file for error reporting tests."""
-    project = tmp_path / "xedaproject.toml"
+    project = tmp_path / PROJECT_FILE
     project.write_text(PROJECT.format(sqrt=SQRT_DIR / "sqrt.vhdl"))
     return project
 
@@ -238,23 +240,23 @@ def test_a_design_name_without_a_project_is_reported_as_such(tmp_path, json_flag
     args = ["run", "ghdl_sim", "--design-name", "nosuch"] + (["--json"] if json_flag else [])
     proc = run_xeda(*args, cwd=tmp_path)
     if json_flag:
-        assert_one_error_document(proc, "DesignNotFoundError", "xedaproject.toml")
+        assert_one_error_document(proc, "DesignNotFoundError", PROJECT_FILE)
     else:
-        assert_one_critical_line(proc, "DesignNotFoundError", "xedaproject.toml")
+        assert_one_critical_line(proc, "DesignNotFoundError", PROJECT_FILE)
 
 
 @pytest.mark.parametrize(
     "content,detail",
     [
-        pytest.param("[[design]\n", "line 1", id="malformed"),
-        pytest.param("flows = 3\n", "flows", id="invalid"),
+        pytest.param("designs: [\n", "line", id="malformed"),
+        pytest.param("flows: 3\n", "flows", id="invalid"),
     ],
 )
 def test_a_project_file_that_cannot_be_loaded_is_reported_cleanly(tmp_path, content, detail):
     """A project file that cannot be loaded is reported cleanly."""
-    (tmp_path / "xedaproject.toml").write_text(content)
+    (tmp_path / PROJECT_FILE).write_text(content)
     proc = run_xeda("run", "ghdl_sim", "--design-name", "sqrt", "--json", cwd=tmp_path)
-    assert_one_error_document(proc, "ProjectFileError", "xedaproject.toml", detail)
+    assert_one_error_document(proc, "ProjectFileError", PROJECT_FILE, detail)
 
 
 def test_the_runner_raises_xeda_exceptions_for_user_errors(tmp_path):

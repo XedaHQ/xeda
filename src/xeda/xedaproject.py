@@ -9,7 +9,7 @@ import attrs
 
 from .dataclass import model_with_allow_extra
 from .design import DESIGN_FILE_FORMATS, Design
-from .utils import WorkingDirectory, hierarchical_merge, tomllib
+from .utils import WorkingDirectory, XedaException, hierarchical_merge, tomllib
 from .yaml_loader import load_yaml
 
 log = logging.getLogger(__name__)
@@ -18,16 +18,39 @@ log = logging.getLogger(__name__)
 PROJECT_FILE_NAMES = ("xedaproject.yaml", "xedaproject.yml", "xedaproject.toml")
 
 
+class ProjectFileError(XedaException):
+    """A project file (`xedaproject.yaml`, `.yml` or `.toml`) that cannot be found, opened,
+    parsed or used."""
+
+
 def find_default_xedaproject(directory: str | Path = ".") -> Path | None:
-    """Return the sole conventional project file in *directory*, if present."""
+    """Return the sole conventional project file in *directory*, if present.
+
+    Raises `ProjectFileError` when *directory* holds more than one of `PROJECT_FILE_NAMES`.
+    """
     directory = Path(directory)
     found = [directory / name for name in PROJECT_FILE_NAMES if (directory / name).exists()]
     if len(found) > 1:
         names = ", ".join(path.name for path in found)
-        raise ValueError(
+        raise ProjectFileError(
             f"Multiple project files found in {directory}: {names}; keep one project file"
         )
     return found[0] if found else None
+
+
+def resolve_project_file(
+    given: str | Path | None = None, directory: str | Path = "."
+) -> Path | None:
+    """The project file a launch reads, the same for a local and a remote one: the file *given*
+    (which must exist; `""` is no file given), else the sole conventional project file in
+    *directory*, else `None`. Raises `ProjectFileError` for a missing file given and for an
+    ambiguous directory."""
+    if given:
+        path = Path(given)
+        if not path.exists():
+            raise ProjectFileError(f'Cannot open project file "{given}": no such file')
+        return path
+    return find_default_xedaproject(directory)
 
 
 @attrs.define
