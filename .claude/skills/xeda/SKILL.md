@@ -178,8 +178,8 @@ across pin files, SDC files and settings: duplicates name the original files/lin
 clock setting/period. File-only clocks suppress generated frequency hints. A clock port
 without a period is a declaration; it does not supply a physical timing constraint.
 
-Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, where both
-nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
+Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`, where
+both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
 naming both origins. An explicit command-line leaf (`-s fpga.part=...` or
 `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group, preserving other leaves.
 API overrides remain the highest-precedence origin. Undeclared edges (Vivado

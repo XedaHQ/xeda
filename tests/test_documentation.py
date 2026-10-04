@@ -449,3 +449,30 @@ def test_the_documents_state_what_the_lut_count_is_and_is_not():
         text = " ".join(document.read_text().split())
         assert "LUT:STAGE" in text and "LUT:METHOD" in text, document
         assert re.search(r"(not|neither is) certified comparable", text, re.IGNORECASE), document
+
+
+def _paragraph(path: Path, start: str) -> str:
+    text = path.read_text(encoding="utf-8")
+    assert text.count(start) == 1, (path, start)
+    return text[text.index(start) :].split("\n\n", 1)[0]
+
+
+@pytest.mark.parametrize(
+    "relative,start",
+    [
+        ("src/xeda/data/agent/SKILL.md", "Shared settings on declared edges ("),
+        ("docs/flows.rst", "Along a declared edge, shared settings --"),
+        ("CLAUDE.md", "- **Shared leaves agree along declared edges.**"),
+    ],
+)
+def test_documented_shared_settings_are_the_resolvers(relative, start):
+    """The names a declared edge makes agree are `SHARED_SETTINGS`; each document that lists
+    them names exactly those, in that order, and none is added in one place and forgotten in
+    another."""
+    from xeda.flow_runner.resolver import SHARED_SETTINGS
+
+    path = README.parent / relative
+    if not path.is_file():
+        pytest.skip(f"{relative} is not part of this installation")
+    names = re.findall(r"`+([a-z_]+)`+", _paragraph(path, start))
+    assert tuple(names[: len(SHARED_SETTINGS)]) == SHARED_SETTINGS, relative
