@@ -209,9 +209,12 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
 
 #: The P2a release line, including its dev builds. Protocol 3 adds P1b's simulation evidence rule;
 #: protocol 4 P2b's FPGA build graph (the declared `fpga_pack` flow and its settings); protocol 5
-#: the programming-only `openfpgaloader` (its build settings and the `open_xc7` flow are gone).
+#: the programming-only `openfpgaloader` (its build settings and the `open_xc7` flow are gone);
+#: protocol 6 P3's node identity (D-9): a node's `flow_hash` is its settings plus its ordered
+#: resolved input origins, which is the hash this side names the mirror by and compares with the
+#: remote's report, so a protocol-5 remote's would never match.
 REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
-REMOTE_PROTOCOL_MIN_VERSION = 5
+REMOTE_PROTOCOL_MIN_VERSION = 6
 
 # Runs before shipping anything. Inspect the package this interpreter actually imports: installed
 # distribution metadata alone can describe a different xeda shadowed by a stale checkout. A
@@ -256,15 +259,17 @@ def check_remote_xeda(
     `rtl.sources: unhashable type: 'dict'`.
 
     P2a requires its release line (`REMOTE_XEDA_MIN_VERSION`, including dev builds), P1b
-    protocol 3 for the remote simulation evidence rule, and P2b protocol 5 for its FPGA build
-    and programming graph. Version alone cannot distinguish development checkouts that predate a contract.
+    protocol 3 for the remote simulation evidence rule, and P3 protocol 6 for its node identity
+    (D-9; a remote of protocol 5 reports another `flow_hash` for the same request, so it is
+    refused here rather than failing on a hash mismatch after the run). Version alone cannot
+    distinguish development checkouts that predate a contract.
     A compatible remote on another release line is warned about settings differences.
     """
     required = ".".join(str(part) for part in REMOTE_XEDA_MIN_VERSION)
     if found is None:
         raise RemoteIncompatible(
             f"{python} on the remote imports no xeda that can be used: upgrade the remote xeda "
-            f"to a P2b-capable build (xeda {required}, including dev builds, or newer; remote "
+            f"to a P3-capable build (xeda {required}, including dev builds, or newer; remote "
             f"protocol {REMOTE_PROTOCOL_MIN_VERSION} or newer) for that "
             "interpreter (it is started by a non-login shell, so it may not be the one on your "
             "login PATH)"
@@ -277,7 +282,7 @@ def check_remote_xeda(
         raise RemoteIncompatible(
             f"{python} on the remote imports xeda {found} from {location} (remote protocol "
             f"{protocol}), which cannot run this xeda's request: upgrade the remote xeda to a "
-            f"P2b-capable build (xeda {required}, including dev builds, or newer; remote protocol "
+            f"P3-capable build (xeda {required}, including dev builds, or newer; remote protocol "
             f"{REMOTE_PROTOCOL_MIN_VERSION} or newer). Remove that install if it shadows a newer "
             "install (it is started by a non-login shell, so it may not be the one on your login "
             "PATH)"
