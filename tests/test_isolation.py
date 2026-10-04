@@ -52,7 +52,7 @@ GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
 PACKAGE = Path(xeda.__file__).parent
 
 #: FPGA flows use process fakes, including an opt-in fake synthesis executable.
-FPGA_FAKED = {"yosys_fpga", "nextpnr", "openfpgaloader"}
+FPGA_FAKED = {"yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"}
 #: The flows whose tools have a fake in tests/fake_tools.
 FAKED = {
     "vivado_synth",
@@ -112,6 +112,7 @@ LOCATED = {
     "yosys_fpga": {"netlist_json": "net.json"},
     "yosys": {"netlist_verilog": "net.v"},
     "nextpnr": {"textcfg": "cfg.txt"},
+    "fpga_pack": {"bitstream": "top.bit"},
     "ghdl_synth": {"verilog_output": "sqrt.v"},
     "bsc_sim": {"vcd": "bsc_sim.vcd"},
 }

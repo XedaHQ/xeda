@@ -161,6 +161,8 @@ route. Results, generated scripts, reports, and effective settings are kept unde
     achieved frequency, slack and utilization. Lattice ECP5 is the supported and tested target;
     other backends are best-effort and report raw per-bel-type counts
   - `open_xc7` (alias: `openxc7`): Xilinx 7-series place and route via nextpnr-xilinx
+  - `fpga_pack`: packs the routed configuration `nextpnr` records (or a typed configuration
+    source) into a bitstream, with ecppack, icepack or openXC7's fpga-as; it programs nothing
 - [openFPGALoader](https://github.com/trabucayre/openFPGALoader): open-source and multi-platform
   universal utility for programming FPGAs, compatible with many boards, cables and FPGAs from
   major manufacturers

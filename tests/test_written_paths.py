@@ -88,6 +88,7 @@ ROLES = {
         ("OpenXC7.Settings", name): D for name in ("bitstream", "fasm_output", "json_output", "sdf")
     },
     ("OpenXC7.Settings", "log"): W,
+    ("FpgaPack.Settings", "bitstream"): D,
     ("Openfpgaloader.Settings", "bitstream_file"): D,
 }
 
