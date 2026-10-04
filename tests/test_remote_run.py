@@ -29,7 +29,7 @@ from xeda import Design
 from xeda.design import GitReference, SourceType
 from xeda.deliver import DeliveryError
 from xeda.flow import FlowException, FlowSettingsError
-from xeda.flow_runner import DIR_NAME_HASH_LEN
+from xeda.flow_runner import DIR_NAME_HASH_LEN, get_flow_class
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteIncompatible, RemoteRunner
 from xeda.flow_runner.default_runner import ProjectFileError
@@ -345,12 +345,13 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
     [
         ("0.4.3", 0, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
         ("0.4.4.dev1", 2, "ghdl_sim", None),
+        ("0.4.4.dev1", 3, "fpga_pack", ["fpga.part=LFE5U-25F-6BG381C"]),
     ],
 )
 def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
     tmp_path, remote_host, monkeypatch, version, protocol, flow_name, flow_settings
 ):
-    """Reject a pre-P2a release or protocol-2 remote before shipping the design."""
+    """Reject a pre-P2a release or a remote of an older protocol before shipping the design."""
     monkeypatch.setattr(
         remote_module,
         "REMOTE_PROBE",
@@ -388,12 +389,12 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
             design, flow_name, host="somewhere", flow_settings=flow_settings
         )
     assert version in str(raised.value)
-    assert "P1b" in str(raised.value)
+    assert "P2b" in str(raised.value)
     assert not shipped
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P1b remote (protocol 3), including this branch's dev builds.
+#: The archive accepted by a P2b remote (protocol 4), including this branch's dev builds.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {
@@ -1403,6 +1404,47 @@ def test_a_refused_delivery_still_closes_the_gateway_and_the_connection(
             design, "vivado_synth", host="somewhere", flow_settings=SQRT_SETTINGS
         )
     assert sorted(closed) == ["connection", "gateway"]
+
+
+def test_a_remote_run_builds_the_default_fpga_graph_and_mirrors_its_bitstream(
+    tmp_path, remote_host, monkeypatch
+):
+    """`fpga_pack` on the remote: its producers run there in their own run directories, and the
+    recorded bitstream comes back, verified, into the local mirror. Process fakes on both ends
+    (no real synthesis, and nothing that programs)."""
+    from xeda.digest import content_digest
+
+    from .tool_utils import use_fake_fpga_tools
+
+    use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
+    path = os.environ["PATH"]  # the fake toolchain first, as the remote's login shell has it
+    monkeypatch.setattr(
+        remote_module, "get_login_env", lambda conn: {"PATH": path, "HOME": str(remote_host)}
+    )
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
+    design = Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    settings = ["fpga.part=LFE5U-25F-6BG381C"]
+    expected = runner.resolve(get_flow_class("fpga_pack"), design, settings)
+    assert [node.name for node in expected.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack"]
+    results = runner.run_remote(design, "fpga_pack", "fake", flow_settings=settings)
+    assert results and results["success"]
+    assert results["flow_hash"] == expected.node("fpga_pack").flowrun_hash
+    recorded = results["outputs"]["bitstream"]
+    mirrored = Path(recorded["path"])
+    assert mirrored.is_relative_to(tmp_path / "mirror") and mirrored.name == "top.bit"
+    assert mirrored.read_bytes() == b"\x00\xffXEDA bitstream\x00"
+    assert content_digest(mirrored) == recorded["sha"]
+    tools = {}
+    for name in ("yosys_fpga", "nextpnr", "fpga_pack"):
+        calls = (_remote_run_dir(remote_host, name) / "fake_fpga.calls.jsonl").read_text()
+        tools[name] = [json.loads(line)["tool"] for line in calls.splitlines()]
+    assert tools == {"yosys_fpga": ["yosys"], "nextpnr": ["nextpnr-ecp5"], "fpga_pack": ["ecppack"]}
+    packed = _remote_run_dir(remote_host, "fpga_pack")
+    trace = json.loads((packed / "trace.json").read_text())
+    assert trace["declared_inputs"][0]["origin"] == expected.node("fpga_pack").inputs[0].origin
 
 
 def _nextpnr_design(tmp_path: Path) -> Path:

@@ -17,7 +17,7 @@ from xeda import Design
 from xeda.flow import FlowSettingsError
 from xeda.flow.io import declared_inputs, is_declared
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nextpnr, Openfpgaloader, YosysFpga
+from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
 from xeda.tool import Tool
 
@@ -94,11 +94,15 @@ def _runner(tmp_path: Path, monkeypatch) -> DefaultRunner:
     return DefaultRunner(tmp_path / "xeda_run", display_results=False)
 
 
-DECLARED = [YosysFpga, Nextpnr]
+DECLARED = [YosysFpga, Nextpnr, FpgaPack]
 
 
 def test_the_declared_flows():
-    assert {cls.name for cls, _ in flow_classes() if is_declared(cls)} == {"nextpnr", "yosys_fpga"}
+    assert {cls.name for cls, _ in flow_classes() if is_declared(cls)} == {
+        "fpga_pack",
+        "nextpnr",
+        "yosys_fpga",
+    }
 
 
 @pytest.mark.parametrize("flow_class", DECLARED, ids=lambda cls: cls.name)

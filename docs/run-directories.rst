@@ -360,14 +360,15 @@ outputs: ``trace.json``, ``trace.json.tmp`` (a trace being written), and ``.xeda
 marker touched to read the file system's clock, removed at once). A flow must not write files by
 these names.
 
-A remote host must run a P1b-capable xeda build: the 0.4.4 release line (including development
-builds) or newer, with remote protocol 3 or newer. Protocol 2 added canonical resolved settings,
+A remote host must run a P2b-capable xeda build: the 0.4.4 release line (including development
+builds) or newer, with remote protocol 4 or newer. Protocol 2 added canonical resolved settings,
 relocated read inputs with their original path identities, declared output records and checked
 hand-over. Protocol 3 adds the P1b simulation evidence rule: remote simulations must confirm that
-the simulation ended successfully. Xeda checks the package the remote interpreter actually
-imports before shipping the design. An older install or a build without protocol 3 support is
-refused with an "upgrade the remote xeda" error. Until a release with protocol 3 is available,
-install this P1b branch on the remote host.
+the simulation ended successfully. Protocol 4 adds the FPGA build graph: the ``fpga_pack`` flow
+and the settings of ``nextpnr`` on Xilinx 7-series. Xeda checks the package the remote interpreter
+actually imports before shipping the design. An older install or a build without protocol 4
+support is refused with an "upgrade the remote xeda" error. Until a release with protocol 4 is
+available, install this branch on the remote host.
 
 A remote run (``--remote``) always runs fresh on the remote, and its results are always mirrored
 locally in the hashed layout (``<design>/<flow>_<hash>``), so remote runs of different settings

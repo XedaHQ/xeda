@@ -577,6 +577,8 @@ class Nextpnr(FpgaSynthFlow):
     def enable_output(cls, settings: Flow.Settings, name: str) -> None:
         if name != "config":
             return super().enable_output(settings, name)
+        if getattr(settings, "fpga", None) is None:
+            return  # no target yet: the required-settings check names what is missing
         family = cls.io_family(settings)
         if family == "ecp5" and getattr(settings, "out_of_context", False):
             raise ValueError("ECP5 out_of_context produces no configuration")

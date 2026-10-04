@@ -183,13 +183,44 @@ def _mapped_name(entry: object, field: str, path: Path, part: str) -> str:
     return name.lower()
 
 
+def find_prjxray_database(executable: Path, prjxray_db: Path | None = None) -> Path:
+    """The Project X-Ray database root a tool of an openXC7 installation reads: ``prjxray_db``
+    when given, else ``share/nextpnr/prjxray-db`` under the prefix of the resolved
+    ``executable`` (``<prefix>/bin/fpga-as``). Read-only; no environment variable is consulted.
+    """
+    try:
+        if prjxray_db is not None:
+            database = prjxray_db.resolve()
+        else:
+            binary = executable.resolve()
+            if not binary.is_file() or binary.parent.name != "bin":
+                raise FlowFatalError(
+                    f"Unsupported openXC7 layout: {executable}; searched {binary}. Install it "
+                    "under <prefix>/bin with share/nextpnr data, or set prjxray_db."
+                )
+            database = binary.parent.parent / "share/nextpnr/prjxray-db"
+        if not database.is_dir():
+            raise FlowFatalError(
+                f"Project X-Ray database root is missing; searched {database}. "
+                "Install openXC7 data or set prjxray_db to its database root."
+            )
+        return database
+    except (OSError, RuntimeError) as error:
+        raise FlowFatalError(f"Cannot read openXC7 layout for {executable}: {error}") from error
+
+
 def select_xilinx(part: str, layout: XilinxLayout) -> XilinxSelection:
     """Select part -> device -> fabric using the installed Project X-Ray mappings."""
+    return select_xilinx_part(part, layout.database)
+
+
+def select_xilinx_part(part: str, database: Path) -> XilinxSelection:
+    """Select part -> device -> fabric from the mappings of the database root ``database``."""
     normalized = part.lower()
     family = _FAMILIES.get(FPGA(normalized).family or "")
     if family is None:
-        raise FlowFatalError(f"Unsupported Xilinx 7-series part {part} in {layout.database}")
-    root = layout.database / family
+        raise FlowFatalError(f"Unsupported Xilinx 7-series part {part} in {database}")
+    root = database / family
     parts_path = root / "mapping/parts.yaml"
     parts = _mapping(parts_path, normalized)
     if normalized not in parts:
@@ -208,7 +239,7 @@ def select_xilinx(part: str, layout: XilinxLayout) -> XilinxSelection:
             f"Fabric {fabric} for Xilinx part {part} is absent; searched {fabric_path}. "
             "Install a Project X-Ray database containing this fabric."
         )
-    return XilinxSelection(normalized, family, device, fabric, layout.database, name)
+    return XilinxSelection(normalized, family, device, fabric, database, name)
 
 
 def _tree_contents(

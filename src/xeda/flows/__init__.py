@@ -10,6 +10,7 @@ from ..flow import Flow
 from .bsc import Bsc, BscSim
 from .dc import Dc
 from .diamond import DiamondSynth
+from .fpga_pack import FpgaPack
 from .ghdl import GhdlSim, GhdlSynth
 from .ise import IseSynth
 from .modelsim import Modelsim
@@ -36,6 +37,7 @@ __all__ = [
     "BscSim",
     "Dc",
     "DiamondSynth",
+    "FpgaPack",
     "GhdlSim",
     "GhdlSynth",
     "IseSynth",

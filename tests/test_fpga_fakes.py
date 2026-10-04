@@ -351,7 +351,7 @@ def test_process_handover_and_second_launch_reuse(part, tmp_path, monkeypatch):
     assert len(_calls(first.run_path)) == len(_calls(producer.run_path)) == 1
 
 
-@pytest.mark.parametrize("name", ["yosys_fpga", "nextpnr", "openfpgaloader"])
+@pytest.mark.parametrize("name", ["yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"])
 def test_fpga_isolation_launch_reaches_success(name, tmp_path, monkeypatch):
     from .test_isolation import _flow, _launch, _world
 
@@ -366,6 +366,7 @@ def test_fpga_isolation_launch_reaches_success(name, tmp_path, monkeypatch):
     expected = {
         "yosys_fpga": {"yosys"},
         "nextpnr": {"yosys", "nextpnr-ecp5"},
+        "fpga_pack": {"yosys", "nextpnr-ecp5", "ecppack"},
         "openfpgaloader": {"yosys", "nextpnr-ecp5", "ecppack", "openFPGALoader"},
     }[name]
     assert tools == expected

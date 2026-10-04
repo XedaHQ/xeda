@@ -115,6 +115,16 @@ FPGA synthesis, place & route for Lattice devices using Lattice Diamond. Runs th
 
 Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `ff`, `slice`, `dsp`, `bram`
 
+### `fpga_pack`
+
+*runs first: `nextpnr`*
+
+Pack a routed FPGA design into a bitstream. Its `config` input is the routed configuration of the target's family: a typed design source (`EcpConfig`, `IceAsc` or `Fasm`) or, by default, the one `nextpnr` records after `yosys_fpga` -> `nextpnr`. It is packed with `ecppack` (ECP5), `icepack` (iCE40) or openXC7's `fpga-as` (Xilinx 7-series) into the declared `bitstream` output. The packer writes to scratch space in the run directory, and the bitstream is published only once the packer has exited successfully with a nonempty file: a failed packing never leaves a partial bitstream, nor replaces an earlier one. Nothing is programmed; `openfpgaloader` programs a bitstream.
+
+9 flow-specific settings (plus the common ones): `xeda list-settings fpga_pack --json`
+
+Reports no results beyond the keys every flow reports.
+
 ### `ise_synth`
 
 FPGA synthesis, implementation and bitstream generation using Xilinx ISE. Runs XST synthesis, translate, map and place & route ("Implement Design"), then bitgen ("Generate Programming File") in an ISE project, and reports resource utilization and timing. The bitstream, `<top>.bit`, is recorded as the `bitstream` artifact.
