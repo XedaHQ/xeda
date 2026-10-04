@@ -443,14 +443,32 @@ st = os.fstat(1)
 channel.send((st.st_dev, st.st_ino, os.isatty(1)))
 """
 
+# Whether the worker will get a pty from STREAM_OUTPUT_SETUP: the very condition its
+# `_open_stream_pair` branches on (both imports succeed, else it falls back to a pipe).
+# Asked of the worker itself, so the expectation follows the product's own branch rather
+# than the test host's platform.
+WORKER_HAS_PTY = """
+try:
+    import pty
+    import termios
+except ImportError:
+    channel.send(False)
+else:
+    channel.send(True)
+"""
+
 
 def test_worker_stdout_is_restored_after_teardown():
     """Teardown must put the worker's fds back, so the gateway stays usable and
-    nothing keeps writing into a torn-down pty."""
+    nothing keeps writing into a torn-down stream.
+
+    Restoring fd 1 exactly is the contract, and it holds for the pipe fallback as much as for
+    the pty. That fd 1 is a terminal during streaming is asserted only where the worker can
+    make a pty; where it cannot, it must be a pipe and therefore not a terminal."""
     gw = execnet.makegateway("popen")
     try:
+        expect_pty = gw.remote_exec(WORKER_HAS_PTY).receive()
         original_dev, original_ino, original_tty = gw.remote_exec(FD1_IDENTITY).receive()
-        assert not original_tty, "the worker's own stdout is not a terminal"
 
         stream_channel = gw.remote_exec(STREAM_OUTPUT_SETUP)
         outchan, errchan = stream_channel.receive()
@@ -458,8 +476,17 @@ def test_worker_stdout_is_restored_after_teardown():
         errchan.setcallback(lambda d: None, endmarker=None)
 
         during_dev, during_ino, during_tty = gw.remote_exec(FD1_IDENTITY).receive()
-        assert during_tty, "fd 1 should have pointed at the pty during streaming"
-        assert (during_dev, during_ino) != (original_dev, original_ino)
+        # the redirect happened, whichever kind of stream it is (this does not depend on what
+        # the worker's original stdout is, unlike the terminal check below)
+        assert (during_dev, during_ino) != (
+            original_dev,
+            original_ino,
+        ), "fd 1 should have been redirected to the stream during streaming"
+        assert during_tty is expect_pty, (
+            "fd 1 should be a pty during streaming"
+            if expect_pty
+            else "fd 1 should be a plain pipe, not a terminal, where the worker has no pty"
+        )
 
         stream_channel.send("stop")
         # a teardown that cannot finish fails here rather than hanging the run
@@ -469,9 +496,9 @@ def test_worker_stdout_is_restored_after_teardown():
         after_dev, after_ino, after_tty = gw.remote_exec(FD1_IDENTITY).receive()
         assert (after_dev, after_ino) == (original_dev, original_ino), (
             "teardown must put fd 1 back on the worker's original stdout, not leave it "
-            "on the torn-down pty"
+            "on the torn-down stream"
         )
-        assert not after_tty
+        assert after_tty is original_tty
 
         # the gateway must still work normally afterwards
         assert gw.remote_exec("channel.send(21 * 2)").receive() == 42
