@@ -200,3 +200,49 @@ def test_no_example_keeps_an_open_xc7_section():
         if "xc7]" in path.read_text().lower() or "xc7:" in path.read_text().lower()
     ]
     assert not kept
+
+
+@pytest.mark.parametrize("name", ["open_xc7", "OpenXC7", "openxc7"])
+def test_scrub_still_removes_a_removed_flow_s_run_directories(name, tmp_path):
+    """The flow is gone, the directories its runs left are not: `xeda scrub` only removes
+    directories, so it takes a removed flow's name, in any spelling the flow had."""
+    import json
+    import subprocess
+    import sys
+
+    from xeda.run_root import ensure_run_root
+
+    root = ensure_run_root(tmp_path / "run")
+    for directory in ("open_xc7", "open_xc7_0123456789abcdef", "nextpnr"):
+        (root / "blinky" / directory).mkdir(parents=True)
+        (root / "blinky" / directory / "results.json").write_text("{}\n")
+    proc = subprocess.run(
+        [sys.executable, "-m", "xeda", "scrub", name, "blinky", "--run-root", str(root), "--json"],
+        capture_output=True,
+        text=True,
+        input="yes\n",
+    )
+    assert proc.returncode == 0, proc.stderr
+    document = json.loads(proc.stdout)
+    assert document["success"] is True and document["flow"] == "open_xc7"
+    assert sorted(p.name for p in (root / "blinky").iterdir() if p.is_dir()) == ["nextpnr"]
+
+
+def test_a_removed_flow_named_on_the_command_line_as_a_section_says_so(tmp_path):
+    import json
+    import subprocess
+    import sys
+
+    (tmp_path / "d.v").write_text(_COUNTER)
+    design_file = tmp_path / "d.yaml"
+    design_file.write_text("name: d\nrtl: {sources: [d.v], top: d}\n")
+    for spelling in ("open_xc7", "openxc7", "OpenXC7"):
+        proc = subprocess.run(
+            [sys.executable, "-m", "xeda", "run", "yosys_fpga", str(design_file), "--json"]
+            + ["--dry-run", "-s", "fpga.part=xc7a100tcsg324-1", f"flows.{spelling}.seed=1"],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode != 0
+        error = json.loads(proc.stdout)["error"]
+        assert error["type"] == "FlowRemovedError" and REMOVED_OPEN_XC7 in error["message"]

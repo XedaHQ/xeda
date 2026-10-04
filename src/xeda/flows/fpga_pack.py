@@ -143,6 +143,9 @@ class FpgaPack(FpgaSynthFlow):
         # The packer writes scratch space only: an exit of zero may still leave no file (or an
         # empty one), and fpga-as writes its bitstream to standard output, so a failure there
         # leaves part of one. The bitstream's own name is replaced only by a whole new one.
+        # ... and one a killed run left is removed here: nothing else would, and every entry
+        # of a run directory after a run is recorded as that run's output
+        self.run_directory.remove(*self.run_path.glob(".xeda-pack-*"))
         with TemporaryDirectory(prefix=".xeda-pack-", dir=self.run_path) as scratch:
             packed = Path(scratch) / bitstream.name
             if family == "xilinx":

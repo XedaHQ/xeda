@@ -102,6 +102,24 @@ def test_the_loader_always_runs_because_it_programs(tmp_path):
     assert not flow.dependencies and not hasattr(flow, "packer")
 
 
+def test_the_loader_is_a_tool_of_its_flow_like_any_other(tmp_path, fake_loader):
+    """A tool made as a class attribute never finds its flow: no `dockerized`, no entry in the
+    results' `tools`."""
+    assert "ofpga_loader" not in vars(Openfpgaloader)
+    flow = _program(tmp_path, _prebuilt(tmp_path), {"fpga": ECP5})
+    assert [tool["executable"] for tool in flow.results["tools"]] == ["openFPGALoader"]
+    assert len(_calls(tmp_path, "openfpgaloader")) == 1  # programmed once: no other invocation
+
+
+def test_a_base_class_reason_to_always_run_comes_first(tmp_path, monkeypatch):
+    from xeda.flow import Flow
+
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    flow = Openfpgaloader(Openfpgaloader.Settings(fpga=ECP5), design, tmp_path / "loader")
+    monkeypatch.setattr(Flow, "always_runs", lambda self: "the base class says so")
+    assert flow.always_runs() == "the base class says so"
+
+
 @pytest.mark.parametrize(
     "removed,replacement",
     [
@@ -460,3 +478,35 @@ def test_the_ulx3s_blinky_example_builds_and_programs_under_the_fakes(tmp_path, 
         "--fpga-part",
         "LFE5U-85F-6BG381C",
     ]
+
+
+# ----------------------------------------------------------- the guard no test can forget
+
+
+def test_a_launch_without_the_fake_reaches_the_sentinel_not_a_programmer(
+    tmp_path, programmer_guard
+):
+    """No fake toolchain here, as in a test that forgot it: what the launch starts is the
+    suite's sentinel (`conftest.programmer_guard`), whatever programmer the machine has."""
+    assert shutil.which("openFPGALoader") == str(programmer_guard.sentinel)
+    flow = None
+    try:
+        flow = _runner(tmp_path).run(
+            "openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": ECP5}
+        )
+    except Exception:  # a failed launch, raised or returned: either way nothing was programmed
+        pass
+    assert flow is None or not flow.succeeded
+    assert programmer_guard.reached()  # the sentinel ran (and the marker is taken back)
+
+
+def test_the_guard_refuses_a_path_that_selects_another_loader(tmp_path, programmer_guard):
+    other = tmp_path / "bin/openFPGALoader"
+    other.parent.mkdir()
+    other.write_text("#!/bin/sh\nexit 0\n")
+    other.chmod(0o755)
+    with pytest.raises(AssertionError, match="neither the fake nor the sentinel"):
+        programmer_guard.check(str(other.parent))
+    programmer_guard.check(str(programmer_guard.directory))
+    programmer_guard.check(str(tool_utils.FAKE_TOOLS_DIR))
+    programmer_guard.check(str(tmp_path))  # none at all

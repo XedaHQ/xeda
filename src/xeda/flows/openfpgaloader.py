@@ -45,8 +45,6 @@ class Openfpgaloader(FpgaSynthFlow):
     # explicitly keeps `xeda list-results` from guessing.
     results_description: dict = {}
 
-    ofpga_loader = Tool("openFPGALoader")
-
     class Settings(WithFpgaBoardSettings):
         removed_settings = {
             **WithFpgaBoardSettings.removed_settings,
@@ -116,7 +114,7 @@ class Openfpgaloader(FpgaSynthFlow):
         )
 
     def always_runs(self) -> Optional[str]:
-        return "it programs a device"
+        return super().always_runs() or "it programs a device"
 
     def run(self) -> None:
         """Program exactly the bitstream handed over as the input `bitstream`."""
@@ -160,4 +158,6 @@ class Openfpgaloader(FpgaSynthFlow):
             if value is not None:
                 args.extend([f"--{name.replace('_', '-')}", str(value)])
         args.extend(ss.extra_args)
-        self.ofpga_loader.run(*args)
+        # made here, in the flow, so it takes the flow's settings and is listed in the results;
+        # without a version query: the programmer is started once, to program
+        Tool("openFPGALoader", version_flag=None).run(*args)

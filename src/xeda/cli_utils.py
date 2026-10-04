@@ -38,6 +38,7 @@ from .console import console, console_target, redirect_console, restore_console
 from .design import Design
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
+from .flow_runner.settings_layers import FlowRemovedError
 from .introspect import settings_info, type_str
 from .xedaproject import XedaProject
 
@@ -568,12 +569,23 @@ class FlowChoice(click.Choice[str]):
     `click.Choice` base is kept for shell completion and `--help`.
 
     Returns the flow's canonical name, so downstream code never has to re-normalize.
+
+    With `removed=True` a removed flow's name is accepted too, as its canonical name: `xeda
+    scrub` only removes directories, and those of a removed flow's runs are still there.
     """
+
+    def __init__(self, choices: Any, *, removed: bool = False, **kwargs: Any) -> None:
+        super().__init__(choices, **kwargs)
+        self.removed = removed
 
     def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> str:
         if isinstance(value, str):
             try:
                 return get_flow_class(value).name
+            except FlowRemovedError as e:
+                if self.removed and e.flow_name:
+                    return e.flow_name
+                self.fail(str(e), param, ctx)
             except FlowNotFoundError as e:
                 self.fail(str(e), param, ctx)
         return super().convert(value, param, ctx)
