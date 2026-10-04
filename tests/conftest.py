@@ -73,9 +73,9 @@ class ProgrammerGuard:
 
     def reached(self) -> bool:
         """Whether the sentinel was started since the last call."""
-        if not self.marker.exists():
+        if not os.path.exists(self.marker):
             return False
-        self.marker.unlink()
+        os.remove(self.marker)
         return True
 
     def check(self, path: str | None = None) -> None:
@@ -84,9 +84,15 @@ class ProgrammerGuard:
         resolved = shutil.which("openFPGALoader", path=path)
         if resolved is None:
             return
-        allowed = (self.sentinel.read_bytes(), (FAKE_TOOLS_DIR / "fake_fpga_tool.py").read_bytes())
+        # the built-in `open`: a test may have replaced `Path.open` for its own purposes
+
+        def content(file: object) -> bytes:
+            with open(str(file), "rb") as stream:
+                return stream.read()
+
+        allowed = (content(self.sentinel), content(FAKE_TOOLS_DIR / "fake_fpga_tool.py"))
         assert (
-            Path(resolved).read_bytes() in allowed
+            content(resolved) in allowed
         ), f"openFPGALoader resolves to {resolved}, which is neither the fake nor the sentinel"
 
 
