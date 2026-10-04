@@ -78,6 +78,9 @@ def test_per_cell_type_counts_are_reported(parsed_flow: Yosys):
         ({"RAM32X1D": 1, "RAM64X1S": 1, "RAM64M": 1}, (7, 0, 7, 0)),
         ({"RAM16X1S_1": 1, "RAM32X2S": 1, "RAM32X8S": 1, "RAM128X1D": 1}, (10, 0, 10, 0)),
         ({"RAM256X1S": 1, "RAM64X1D_1": 1, "RAM64X2S": 1, "CFGLUT5": 2}, (10, 2, 8, 0)),
+        # a distributed ROM is a LUT holding an INIT value: logic, as Vivado reports it
+        ({"ROM16X1": 1, "ROM32X1": 1, "ROM64X1": 1, "ROM128X1": 1, "ROM256X1": 1}, (9, 9, 0, 0)),
+        ({"ROM256X1": 2, "RAM64X1S": 1, "LUT4": 1}, (10, 9, 1, 0)),
         ({}, (0, 0, 0, 0)),
     ],
 )
@@ -100,6 +103,26 @@ def test_xilinx_lut_resource_footprint(counts, expected, tmp_path):
     assert flow.results.get("LUT:SRL", 0) == srl
     assert flow.results.get("LUT:STAGE") == "mapped"
     assert flow.results.get("LUT:METHOD") == "primitive-footprint estimate"
+
+
+@pytest.mark.parametrize(
+    "cell,expected",
+    [
+        ("ROM16X1", ("logic", 1)),
+        ("ROM32X1", ("logic", 1)),
+        ("ROM64X1", ("logic", 1)),
+        ("ROM128X1", ("logic", 2)),
+        ("ROM256X1", ("logic", 4)),
+        # the same arithmetic, still memory for a RAM
+        ("RAM64X1S", ("ram", 1)),
+        ("RAM256X1S", ("ram", 4)),
+        ("RAM32X1D", ("ram", 2)),
+    ],
+)
+def test_xilinx_distributed_rom_is_logic_footprint(cell, expected):
+    from xeda.flows.yosys.yosys_fpga import xilinx_lut_footprint
+
+    assert xilinx_lut_footprint(cell) == expected
 
 
 def test_xilinx_lut_footprint_uses_design_totals_once_with_hierarchy(tmp_path):
@@ -129,8 +152,9 @@ def test_xilinx_lut_footprint_uses_design_totals_once_with_hierarchy(tmp_path):
 
 
 def test_every_lut_based_primitive_of_the_installed_yosys_has_a_footprint():
-    """A distributed RAM or shift register the count does not know is counted as no LUT at all
-    (RAM32X1D was: found on the real openXC7 build of a design instantiating one)."""
+    """A distributed RAM, ROM or shift register the count does not know is counted as no LUT at all
+    (RAM32X1D was: found on the real openXC7 build of a design instantiating one; the ROM family
+    was missed because this pattern could not match it)."""
     import re
     import subprocess
 
@@ -143,7 +167,7 @@ def test_every_lut_based_primitive_of_the_installed_yosys_has_a_footprint():
         ["yosys-config", "--datdir"], capture_output=True, text=True, check=True, timeout=30
     ).stdout.strip()
     cells = re.findall(
-        r"^module\s+((?:LUT|RAM\d+[XM]|SRL|CFGLUT)\w*)",
+        r"^module\s+((?:LUT|RAM\d+[XM]|ROM\d+X|SRL|CFGLUT)\w*)",
         (Path(datdir) / "xilinx" / "cells_sim.v").read_text(),
         flags=re.MULTILINE,
     )

@@ -43,8 +43,10 @@ XILINX_FAMILY_NAMES = {
 }
 
 # Mapped primitive footprints, in 6-input LUTs: a logic LUT cell is one, LUT6_2 can use both
-# outputs, a shift register is one, and a distributed RAM is as many as its bits need -- one
-# LUT holds 64 x 1 or 32 x 2 bits, and a dual-port memory is a second copy for its read port.
+# outputs, a shift register is one, and a distributed RAM or ROM is as many as its bits need --
+# one LUT holds 64 x 1 or 32 x 2 bits, and a dual-port memory is a second copy for its read port.
+# A ROM is a LUT holding an INIT value, which Vivado reports as logic, not as memory; the MUXF7
+# and MUXF8 that join a deep ROM's LUTs are not LUTs.
 # These are synthesis-stage estimates, not placement occupancy or a claim of Vivado report
 # equivalence.
 XILINX_LUT_FOOTPRINT = {
@@ -60,25 +62,25 @@ XILINX_LUT_FOOTPRINT = {
     "RAM64X8SW": ("ram", 8),
 }
 
-_XILINX_LUT_RAM = re.compile(r"RAM(\d+)X(\d+)([SD])(?:_1)?")
+_XILINX_LUT_MEMORY = re.compile(r"(RAM|ROM)(\d+)X(\d+)([SD])?(?:_1)?")
 _XILINX_SRL = re.compile(r"SRLC?(?:16|32)E?(?:_1)?")
 
 
 def xilinx_lut_footprint(cell: str) -> tuple[str, int] | None:
-    """`(kind, LUTs)` a mapped Xilinx primitive occupies -- kind `logic`, `ram` or `srl` -- or
-    None for a cell that is not built from LUTs."""
+    """`(kind, LUTs)` a mapped Xilinx primitive occupies -- kind `logic` (a distributed ROM
+    included), `ram` or `srl` -- or None for a cell that is not built from LUTs."""
     known = XILINX_LUT_FOOTPRINT.get(cell)
     if known is not None:
         return known
     if _XILINX_SRL.fullmatch(cell):
         return ("srl", 1)
-    ram = _XILINX_LUT_RAM.fullmatch(cell)
-    if ram is None:
+    memory = _XILINX_LUT_MEMORY.fullmatch(cell)
+    if memory is None:
         return None
-    depth, width, ports = int(ram[1]), int(ram[2]), ram[3]
+    memory_kind, depth, width, ports = memory[1], int(memory[2]), int(memory[3]), memory[4]
     # up to 32 deep, one LUT gives two bits of a word; deeper, a bit takes depth / 64 LUTs
     luts = (width + 1) // 2 if depth <= 32 else width * (depth // 64)
-    return ("ram", luts * (2 if ports == "D" else 1))
+    return ("ram" if memory_kind == "RAM" else "logic", luts * (2 if ports == "D" else 1))
 
 
 def _abc9_mode(target: str, release: YosysRelease) -> Literal["opt-in", "default", "always"]:
