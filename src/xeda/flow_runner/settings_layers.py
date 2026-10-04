@@ -9,7 +9,11 @@ A flow's settings are assembled from these layers, lowest precedence first:
    producer's settings are written under its own ``flows.<flow>`` only
 3. the project file's ``flows.<flow>`` section
 4. the design file's ``flows.<flow>`` section
-5. the command line (``-s KEY=VALUE``), then overrides given through the API
+5. the selected target's ``flows.<flow>`` section (``--target``), key by key: the target is the
+   design's own author saying "for this build, these values", so what it writes wins over the
+   design's. The loader merges it into the design before anything else sees the design, so it
+   is part of the design's origin and below the command line and the API
+6. the command line (``-s KEY=VALUE``), then overrides given through the API
 
 The layers are merged *deeply*: a nested section such as ``clock = {...}`` combines key by key,
 so ``-s clock.freq=100MHz`` changes that one setting of the design's ``clock`` section instead

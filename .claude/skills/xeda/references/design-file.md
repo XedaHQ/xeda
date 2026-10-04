@@ -230,6 +230,50 @@ A project file's section means the same, below the design's. A chain on the comm
 (`xeda run yosys_fpga+nextpnr design.yaml`) replaces a saved binding of the same input; see
 `SKILL.md`.
 
+## `targets` - one design, several boards
+
+Each entry of `targets` is an overlay on the design: it takes the design file's own keys, merged
+over them. `--target NAME` (on `xeda run` and `xeda dse`) selects one.
+
+```yaml
+name: knight
+rtl:
+  top: mkKnight
+  sources: [Knight.bsv, por_sync.v]
+  clock: {port: CLK}
+targets:
+  arty:
+    sources: [arty.xdc]                 # appended after the design's sources
+    defines: {CLK_HZ: 100000000}        # mappings merge key by key
+    flows:
+      nextpnr: {board: ARTY_A7_100T}
+  ulx3s:
+    sources: [ulx3s.lpf]
+    defines: {CLK_HZ: 25000000}
+    flows:
+      nextpnr: {board: ULX3S_85F}
+```
+
+- A target takes `rtl`, `tb`, `flows` and every other design key, flat forms included (`sources`,
+  `defines`, `top`, `clock`, ...); not `name` or `targets`. Unknown keys are errors.
+- Mappings merge at every depth; `sources` are appended after the design's; any other list
+  replaces the design's. Paths resolve against the design root.
+- One target: no `--target` needed. Several: `--target` is required and the error lists them.
+  `--target` on a design without `targets` is an error. API: `Design.from_file(path, target=...)`.
+- **A target overrides the design**, key by key: where both write a key, the target's value
+  wins (a target's `flows.nextpnr.board` replaces the design's, with no error); keys the target
+  does not write stay the design's. Order, lowest first: flow defaults, project file, design
+  file, target, `-s`, API. This is not the agreement rule between two flows of one run (which
+  errors when `yosys_fpga` and `nextpnr` disagree on a shared setting).
+- A target name is a name (`[A-Za-z][A-Za-z0-9_-]*`) and not a flow's name or alias. A design
+  file has no `target` key.
+- The selected target yields an ordinary design, identical to the file written flat. `--json`
+  documents report `target` (`null` without one).
+- Not there yet: targets share the design's run directories (`<design>/<flow>`), so alternate
+  targets re-run shared flows - use `--hashed-run-dirs` or a `--run-root` per target; `xeda scrub`
+  has no `--target`; `board`/`fpga`/`custom_boards_file`/clock constraints go under the target's
+  `flows.<flow>` (at its top level they are refused, naming that).
+
 ## Environment variables in paths
 
 Path-typed settings expand `$PWD`, `$DESIGN_ROOT` and `$DESIGN_DIR`:

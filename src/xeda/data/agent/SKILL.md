@@ -95,12 +95,18 @@ Key points that are easy to get wrong:
   `{file: "legacy.v", type: SystemVerilog}`. Use `path:` instead of `file:` for a source a
   generator will produce (it is not checked for existence).
 
+- **One file, several boards:** `targets.<name>` is an overlay on the design (its own keys,
+  merged over it; `sources` appended), selected with `--target NAME` on `run` and `dse`. A design
+  with one target needs no flag; with several, the error lists them. `--json` documents carry
+  `target`. Targets do not have run directories of their own yet.
+
 See `references/design-file.md` for the full reference.
 
 ## Settings
 
 Precedence, lowest to highest: flow defaults -> `xedaproject.yaml`'s `flows.<flow>` -> the
-design file's `flows.<flow>` section -> command-line `-s` -> the API. Layers merge key by key, so
+design file's `flows.<flow>` section -> the selected `--target`'s `flows.<flow>` (it overrides the
+design, key by key) -> command-line `-s` -> the API. Layers merge key by key, so
 `-s clock.freq=100MHz` refines a nested section instead of replacing it. A flow's settings are
 written under its own `flows.<flow>`, never nested in another flow's (`nextpnr.yosys` was removed). `-s flows.<flow>.key=value` sets a setting of any flow in the run (the
 requested flow or a declared dependency; a typo is an error with suggestions), and `-s key` and

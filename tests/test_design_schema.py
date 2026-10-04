@@ -270,3 +270,56 @@ def test_embedded_example_designs_validate_against_the_published_schema(path):
         assert project.get_design(index) is not None
         errors = list(validator().iter_errors(data))
         assert not errors, f"{path}, design {index}: {[e.message for e in errors]}"
+
+
+# --------------------------------------------------------------------------------- targets
+
+TARGET_DESIGNS = sorted((pathlib.Path(__file__).parent / "resources" / "targets").glob("*.yaml"))
+
+
+def test_targets_are_published_in_the_input_schema_only():
+    schema = design_schema()
+    targets = schema["properties"]["targets"]
+    assert targets["description"]
+    overlay = targets["additionalProperties"]["properties"]
+    # the design's own keys, in every form a design file takes them...
+    assert {"rtl", "tb", "flows", "flow", "sources", "defines", "top", "clock", "test"} <= set(
+        overlay
+    )
+    # ...but for the ones that are the design's alone
+    for name in ("name", "targets", "target", "design_root"):
+        assert overlay[name] is False, name
+    # the recorded name is not something a design file writes
+    assert "target" not in schema["properties"]
+    model = design_schema(input_syntax=False)
+    assert "targets" not in model["properties"] and "target" in model["properties"]
+
+
+@pytest.mark.parametrize("path", TARGET_DESIGNS, ids=lambda p: p.name)
+def test_every_target_of_a_design_agrees_with_the_schema_and_the_loader(path):
+    data = load_design_file(path)
+    errors = sorted(validator().iter_errors(data), key=lambda e: list(e.path))
+    assert not errors, [e.message for e in errors[:3]]
+    targets = data.get("targets", {})
+    assert path.name not in ("knight.yaml", "single.yaml") or targets
+    for target in targets or [None]:
+        assert Design.from_file(path, target=target).target == target
+
+
+@pytest.mark.parametrize(
+    "targets",
+    [
+        ["arty"],
+        {"1st": {}},
+        {"arty": "arty.xdc"},
+        {"arty": {"name": "other"}},
+        {"arty": {"targets": {}}},
+        {"arty": {"rtl": {"sources": [{"type": "Verilog"}]}}},
+    ],
+    ids=str,
+)
+def test_the_schema_refuses_what_the_loader_refuses_in_targets(targets, tmp_path):
+    data = {"name": "d", "rtl": {"sources": [], "top": "t"}, "targets": targets}
+    assert not validator().is_valid(data)
+    with pytest.raises(Exception):
+        Design(design_root=tmp_path, **data)

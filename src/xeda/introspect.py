@@ -13,6 +13,7 @@ programmatically:
 from __future__ import annotations
 
 import ast
+from copy import deepcopy
 import inspect
 import json
 import logging
@@ -25,7 +26,7 @@ from importlib_resources import as_file, files
 from pydantic import BaseModel
 
 from .dataclass import PydanticUndefined, input_names, written_role
-from .design import Design
+from .design import DESIGN_NAME, FLAT_RTL_KEYS, TARGET_FORBIDDEN_KEYS, Design
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
 from .flow.io import declared_inputs, declared_outputs, is_declared, selected_types
 from .flow_runner import get_flow_class
@@ -100,13 +101,14 @@ def inputs_info(node: Any) -> list[dict[str, Any]]:
 
 
 def plan_info(plan: Plan) -> dict[str, Any]:
-    """A resolved plan as plain data: producers first, directories, input origins, and
-    outputs switched on because a consumer reads them. Undeclared nodes have unknown
+    """A resolved plan as plain data: the design's selected target (or None), producers
+    first, directories, input origins, and outputs switched on because a consumer reads them. Undeclared nodes have unknown
     runtime dependencies, indicated by ``declared: false``.
     """
     return json_safe(
         {
             "requested": plan.requested,
+            "target": plan.context.target,
             "nodes": [
                 {
                     "name": node.name,
@@ -679,27 +681,12 @@ _EXTRA_INPUT_FORMS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
 }
 
 
-#: Top-level shorthands that `Design.from_file` folds into `rtl` before validation, via
-#: `Design.process_compatibility`. A design file may use either form, so both are described.
-_FLAT_RTL_PROPERTIES = (
-    "sources",
-    "top",
-    "clock",
-    "clock_port",
-    "clocks",
-    "parameters",
-    "generics",
-    "defines",
-    "generator",
-)
-
-
 def _add_flat_form(schema: Dict[str, Any]) -> None:
     """Describe the flat top-level form, e.g. `sources` at the root instead of `rtl.sources`."""
     definitions = schema.get("$defs", {})
     rtl_properties = definitions.get("RtlSettings", {}).get("properties", {})
     root = schema.setdefault("properties", {})
-    for name in _FLAT_RTL_PROPERTIES:
+    for name in FLAT_RTL_KEYS:
         if name in rtl_properties and name not in root:
             root[name] = {
                 **rtl_properties[name],
@@ -725,6 +712,49 @@ def _add_flat_form(schema: Dict[str, Any]) -> None:
             schema["required"] = remaining
         else:
             schema.pop("required", None)
+
+
+def _add_targets(schema: dict[str, Any]) -> None:
+    """Describe `targets`: each one an overlay taking the design's own keys, in every form the
+    root takes them, but for the keys that are the design's alone. Input syntax only: the
+    loader applies the selected target (`Design.select_target`) and records its name as
+    `target`, which a design file therefore does not write."""
+    root = schema.setdefault("properties", {})
+    root.pop("target", None)
+    definitions = schema.setdefault("$defs", {})
+    # In an overlay `rtl` and `tb` are partial: the design supplies what a target leaves out.
+    partial = {}
+    for name in ("RtlSettings", "TbSettings"):
+        if name in definitions:
+            partial[f"#/$defs/{name}"] = f"#/$defs/{name}Overlay"
+            definitions[f"{name}Overlay"] = {
+                k: v for k, v in deepcopy(definitions[name]).items() if k != "required"
+            }
+
+    def overlaid(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {
+                k: partial.get(v, v) if k == "$ref" and isinstance(v, str) else overlaid(v)
+                for k, v in node.items()
+            }
+        if isinstance(node, list):
+            return [overlaid(item) for item in node]
+        return node
+
+    properties: dict[str, Any] = {
+        name: overlaid(spec) for name, spec in root.items() if name not in TARGET_FORBIDDEN_KEYS
+    }
+    properties.update({name: False for name in sorted(TARGET_FORBIDDEN_KEYS)})
+    root["targets"] = {
+        "type": "object",
+        "description": "Named targets (one per board, say), each an overlay on the design: it "
+        "takes the design's own keys, merged over them. Mappings merge key by key; `sources` "
+        "are appended after the design's; any other list replaces the design's. One is "
+        "selected with `--target NAME`; a design with a single target needs no selection. A "
+        "target is not named as a flow.",
+        "propertyNames": {"pattern": f"^{DESIGN_NAME.pattern}$"},
+        "additionalProperties": {"type": "object", "properties": properties},
+    }
 
 
 def _open_property_sets(node: Any) -> None:
@@ -856,6 +886,7 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
         for name, extra in properties.items():
             if name in target_properties:
                 target_properties[name] = _widen(target_properties[name], extra)
+    _add_targets(schema)
     # Last: the transforms above copy properties in from the by-name schema, which has them too.
     return schema
 

@@ -199,6 +199,7 @@ import sys
 from xeda.flow_runner import remote
 
 class FakeRunner:
+    target = None
     def __init__(self, *a, **k): pass
     def run_remote(
         self,
@@ -209,7 +210,9 @@ class FakeRunner:
         xedaproject,
         design_overrides,
         design_allow_extra,
+        target,
     ):
+        assert target is None
         assert xedaproject is None
         assert design_overrides == ()
         assert design_allow_extra is False

@@ -188,6 +188,23 @@ Four orthogonal abstractions, deliberately decoupled:
   `DesignSource`/`FileResource` objects that carry a content hash; `design.rtl_hash` / `design.tb_hash`
   feed the run-directory hashing. Designs can also be fetched from a `GitReference` or produced by a
   `Generator` (e.g. `ChiselGenerator`).
+  **Targets** (`targets.<name>` in a design file, one per board) are overlays the loader applies
+  before anything else sees the design: `Design.select_target(data, target)` works on the raw
+  mapping -- the overlay takes the design's own keys (not `TARGET_FORBIDDEN_KEYS`), is folded by
+  `process_compatibility(defaults=False)` (the design's own fold, so a key means the same in
+  both), then `hierarchical_merge`d over the design, `rtl.sources`/`tb.sources` appended -- and
+  records the name as `Design.target`, which no hash reads. `Design.from_file(path, target=)`,
+  `XedaProject.get_design(name, target)` and the launchers' `target=` (`--target` on `run` and
+  `dse`) all go through `Design.target_selected` (target, then `--design-overrides`). One target
+  needs no selection; several without one, an unknown one, a name that is a flow's, and a
+  written `target` key are `DesignValidationError`s at `targets...`. The oracle
+  (`tests/test_targets.py`): a selected target equals the design written flat by hand, in every
+  field, hash and dump but `target`. `design_schema()` adds `targets` to the input syntax only
+  (`introspect._add_targets`); `send_design` leaves `target` out of the remote archive; plans
+  carry it as `PlanContext.target`. Not yet: `<design>/<target>/<flow>` run directories,
+  `scrub --target`, shared leaves (`board`, `fpga`, `custom_boards_file`) at a target's top level
+  (refused, naming `flows.<flow>.<leaf>`: a top-level leaf has to reach every planned node that
+  declares it, which needs the resolver to take a per-origin shared leaf, not a loader-time merge).
 - **`Flow`** (`flow/flow.py`) - *how* to build. Abstract; concrete flows live in `flows/<tool>/`.
 - **`Tool`** (`tool.py`) - an executable, runnable natively, in Docker (`Docker` model), or remotely.
 - **`FlowLauncher`/`FlowRunner`** (`flow_runner/default_runner.py`) - orchestrates instantiation,
@@ -248,8 +265,16 @@ removed before the run, so an earlier success never stands for a run that died
   what it derives from the design where it uses it (a template global such as `top_is_vhdl()`)
   rather than editing it.
 - A flow's settings come from layers merged key by key (`flow_runner/settings_layers.py`),
-  **origin first**: defaults < project < design < command line < API, each origin composed on its
-  own (`compose_flow_settings`). **A flow's settings are written in one place, `flows.<flow>`**
+  **origin first**: defaults < project < design < **target** < command line < API, each origin
+  composed on its own (`compose_flow_settings`). **The selected target overrides the design, key by
+  key** (owner ruling): it is the design's own author saying "for this target, these values", so
+  its `flows.nextpnr.board` replaces the design's with no error, while a key it does not write
+  stays the design's, and the project's own keys survive both. The loader folds the target into the
+  design's mapping, so it is part of the design origin, below `-s` and the API
+  (`tests/test_targets.py`, the layer-order tests). **This is not the agreement rule**: agreement
+  is between two *nodes* of one graph (`yosys_fpga` against `nextpnr`) naming different values for
+  a shared leaf, an error even when a target supplied one side; two *origins* contributing to one
+  node are merged by precedence, never an error. **A flow's settings are written in one place, `flows.<flow>`**
   (D-10): `nextpnr.yosys` was removed and fails with "`yosys` was removed: use
   `flows.yosys_fpga.<key>`" (`Flow.Settings.removed_settings`; a `<key>` in a replacement names
   each key the removed value gave). **A producer's settings never depend
