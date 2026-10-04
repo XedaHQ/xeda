@@ -127,11 +127,11 @@ Reports: `minimum_period`, `maximum_frequency`, `Fmax`, `wns`, `lut`, `ff`, `sli
 
 *runs first: `yosys_fpga`*
 
-Place and route an FPGA design with nextpnr, the portable open-source PnR tool. Its `netlist` input is a `JsonNetlist` design source or, by default, the recorded netlist synthesized by `yosys_fpga`. This flow places and routes that input with the nextpnr variant matching `fpga.family`, then parses nextpnr's JSON report for achieved frequency, slack and resource utilization. Use the `openfpgaloader` flow to pack and program the result onto a board. ECP5 and iCE40 are exercised by real-tool tests; Nexus has verified command construction. The report parser works across architectures, but canonical resource names (`lut`, `ff`, ...) are currently mapped from ECP5 bel types only. Other families report raw bel-type counts. A target without a tested device/constraint/output mapping is rejected before synthesis.
+Place and route an FPGA design with nextpnr, the portable open-source PnR tool. Its `netlist` input is a `JsonNetlist` design source or, by default, the recorded netlist synthesized by `yosys_fpga`. This flow places and routes that input with the nextpnr variant matching `fpga.family` -- `nextpnr-ecp5`, `nextpnr-ice40`, `nextpnr-nexus`, or openXC7's `nextpnr-himbaechel` for Xilinx 7-series (Artix, Kintex, Spartan, Virtex, Zynq) -- then parses nextpnr's JSON report for achieved frequency, slack and resource utilization. A 7-series target needs the full part (`xc7a100tcsg324-1`) and pin constraints (typed `Xdc` sources, or a board's); its chip database is generated once per run root unless `chipdb` names one. Canonical resource names (`lut`, `ff`, ...) are mapped for ECP5 and 7-series; other families report raw bel-type counts. `lut` is counted at this stage by the method `LUT:METHOD` names -- for 7-series, the physical LUTs occupied, from the placement dump -- and is not certified comparable with another toolchain's. A target without a tested device/constraint/output mapping is rejected before synthesis.
 
-58 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
+62 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
 
-Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`
+Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`, `LUT:STAGE`, `LUT:METHOD`, `clock_port`, `device`, `fabric`
 
 ### `open_xc7`
 

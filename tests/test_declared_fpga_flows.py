@@ -273,7 +273,7 @@ def test_openfpgaloader_still_packs_and_programs_what_the_declared_nextpnr_place
 @pytest.mark.parametrize(
     "settings",
     [
-        {"fpga": "xc7a35tcpg236-1"},
+        {"fpga": "xc7a35tcpg236"},  # a 7-series part without its speed grade
         {"fpga": {"family": "ice40", "device": "iCE40UL1K"}},
         {"fpga": PART, "opt_timing": True},
     ],
@@ -299,6 +299,7 @@ CONFIGS = [
     ("iCE40HX1K-TQ144", "asc", "config.asc"),
     ("LIFCL-40-9BG400C", "fasm", "config.fasm"),
 ]
+# Xilinx 7-series takes its FASM as `-o fasm=`: tests/test_nextpnr_xilinx.py.
 
 
 @pytest.mark.parametrize("part,setting,filename", CONFIGS)

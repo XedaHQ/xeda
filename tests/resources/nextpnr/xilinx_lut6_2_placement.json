@@ -1,0 +1,22 @@
+{
+  "lut$LUT5": {"tile": "CLBLL_L_X2Y138", "site": "SLICE_X1Y138", "bel": "C5LUT", "type": "SLICE_LUTX"},
+  "i[0]": {"tile": "LIOB33_SING_X0Y149", "site": "IOB_X0Y149", "bel": "IOB33.PAD", "type": "PAD"},
+  "$PACKER_GND_DRV": {"tile": "NULL_X0Y208", "site": "", "bel": "PSEUDO_GND", "type": "PSEUDO_GND"},
+  "$PACKER_VCC_DRV": {"tile": "NULL_X0Y208", "site": "", "bel": "PSEUDO_VCC", "type": "PSEUDO_VCC"},
+  "o[1]": {"tile": "RIOB33_SING_X57Y100", "site": "IOB_X1Y100", "bel": "IOB33.PAD", "type": "PAD"},
+  "o[0]": {"tile": "RIOB33_X57Y101", "site": "IOB_X1Y101", "bel": "IOB33S.PAD", "type": "PAD"},
+  "i[5]": {"tile": "LIOB33_X0Y129", "site": "IOB_X0Y130", "bel": "IOB33M.PAD", "type": "PAD"},
+  "i[4]": {"tile": "LIOB33_X0Y137", "site": "IOB_X0Y137", "bel": "IOB33S.PAD", "type": "PAD"},
+  "i[3]": {"tile": "LIOB33_X0Y137", "site": "IOB_X0Y138", "bel": "IOB33M.PAD", "type": "PAD"},
+  "i[2]": {"tile": "LIOB33_X0Y141", "site": "IOB_X0Y141", "bel": "IOB33S.PAD", "type": "PAD"},
+  "i[1]": {"tile": "LIOB33_X0Y141", "site": "IOB_X0Y142", "bel": "IOB33M.PAD", "type": "PAD"},
+  "lut$LUT6": {"tile": "CLBLL_L_X2Y138", "site": "SLICE_X0Y138", "bel": "A6LUT", "type": "SLICE_LUTX"},
+  "$iopadmap$dual.o_1$intcell$OBUF": {"tile": "RIOB33_SING_X57Y100", "site": "IOB_X1Y100", "bel": "IOB33.OUTBUF", "type": "IOB33_OUTBUF"},
+  "$iopadmap$dual.o$intcell$OBUF": {"tile": "RIOB33_X57Y101", "site": "IOB_X1Y101", "bel": "IOB33.OUTBUF", "type": "IOB33_OUTBUF"},
+  "$iopadmap$dual.i_5$intcell$IBUF": {"tile": "LIOB33_X0Y129", "site": "IOB_X0Y130", "bel": "IOB33.INBUF_EN", "type": "IOB33_INBUF_EN"},
+  "$iopadmap$dual.i_4$intcell$IBUF": {"tile": "LIOB33_X0Y137", "site": "IOB_X0Y137", "bel": "IOB33.INBUF_EN", "type": "IOB33_INBUF_EN"},
+  "$iopadmap$dual.i_3$intcell$IBUF": {"tile": "LIOB33_X0Y137", "site": "IOB_X0Y138", "bel": "IOB33.INBUF_EN", "type": "IOB33_INBUF_EN"},
+  "$iopadmap$dual.i_2$intcell$IBUF": {"tile": "LIOB33_X0Y141", "site": "IOB_X0Y141", "bel": "IOB33.INBUF_EN", "type": "IOB33_INBUF_EN"},
+  "$iopadmap$dual.i_1$intcell$IBUF": {"tile": "LIOB33_X0Y141", "site": "IOB_X0Y142", "bel": "IOB33.INBUF_EN", "type": "IOB33_INBUF_EN"},
+  "$iopadmap$dual.i$intcell$IBUF": {"tile": "LIOB33_SING_X0Y149", "site": "IOB_X0Y149", "bel": "IOB33.INBUF_EN", "type": "IOB33_INBUF_EN"}
+}

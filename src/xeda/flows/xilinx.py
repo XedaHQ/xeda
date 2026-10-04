@@ -62,13 +62,18 @@ class XilinxLayout:
 
 @dataclass(frozen=True)
 class XilinxSelection:
-    """A full ordering part, its mapped device and the fabric actually routed."""
+    """A full ordering part, its mapped device and the fabric actually routed.
+
+    ``name`` is the part as the database spells it, which nextpnr's ``--device`` must be
+    given: it matches case-sensitively (``xc7a100tcsg324-2L``, never ``-2l``).
+    """
 
     part: str
     family: str
     device: str
     fabric: str
     database: Path
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -150,17 +155,20 @@ def find_xilinx_layout(
         raise FlowFatalError(f"Cannot read openXC7 layout for {nextpnr}: {error}") from error
 
 
-def _mapping(path: Path, part: str) -> dict[str, object]:
-    """Load mapping YAML while preserving a useful part/path error boundary."""
+def _mapping(path: Path, part: str) -> dict[str, tuple[str, object]]:
+    """Load mapping YAML while preserving a useful part/path error boundary.
+
+    Keys are matched in lower case; each entry keeps the name as the file spells it.
+    """
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("expected a YAML mapping")
-        normalized: dict[str, object] = {}
+        normalized: dict[str, tuple[str, object]] = {}
         for name, entry in data.items():
             if not isinstance(name, str) or name.lower() in normalized:
                 raise ValueError("expected unique text mapping keys")
-            normalized[name.lower()] = entry
+            normalized[name.lower()] = (name, entry)
         return normalized
     except (OSError, UnicodeError, ValueError, yaml.YAMLError) as error:
         raise FlowFatalError(
@@ -189,17 +197,18 @@ def select_xilinx(part: str, layout: XilinxLayout) -> XilinxSelection:
             f"Unknown full Xilinx part {part}; searched {parts_path}. "
             "Use a full part including package and speed supported by this Project X-Ray database."
         )
-    device = _mapped_name(parts[normalized], "device", parts_path, normalized)
+    name, entry = parts[normalized]
+    device = _mapped_name(entry, "device", parts_path, normalized)
     devices_path = root / "mapping/devices.yaml"
     devices = _mapping(devices_path, normalized)
-    fabric = _mapped_name(devices.get(device), "fabric", devices_path, normalized)
+    fabric = _mapped_name(devices.get(device, ("", None))[1], "fabric", devices_path, normalized)
     fabric_path = root / fabric
     if not fabric_path.is_dir():
         raise FlowFatalError(
             f"Fabric {fabric} for Xilinx part {part} is absent; searched {fabric_path}. "
             "Install a Project X-Ray database containing this fabric."
         )
-    return XilinxSelection(normalized, family, device, fabric, layout.database)
+    return XilinxSelection(normalized, family, device, fabric, layout.database, name)
 
 
 def _tree_contents(
