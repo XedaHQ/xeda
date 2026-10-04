@@ -29,7 +29,7 @@ def parsed_flow(tmp_path: Path) -> Yosys:
     report = tmp_path / "reports" / "utilization.json"
     report.parent.mkdir(parents=True)
     shutil.copy(STAT_REPORT, report)
-    design = Design.from_toml(RESOURCES_DIR / "design0" / "design0.toml")
+    design = Design.from_file(RESOURCES_DIR / "design0" / "design0.toml")
     flow = Yosys(Yosys.Settings(clock_period=10.0), design, tmp_path)
     flow.init()
     # `get_utilization` opens the artifact path as given, so make it absolute rather than

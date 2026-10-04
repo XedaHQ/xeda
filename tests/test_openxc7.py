@@ -64,7 +64,7 @@ class FakeNextpnr:
 def _openxc7(tmp_path: Path, monkeypatch, **settings) -> OpenXC7:
     """An open_xc7 flow in `tmp_path/run`, as the runner would call its `run()`: its yosys
     dependency completed (only its netlist file exists), the chip database a file."""
-    design = Design.from_toml(DESIGN0)
+    design = Design.from_file(DESIGN0)
     yosys = YosysFpga(YosysFpga.Settings(fpga=FPGA(PART)), design, tmp_path / "yosys")
     yosys.run_path.mkdir()
     (yosys.run_path / "netlist.json").write_text("{}")
@@ -91,7 +91,7 @@ def test_openxc7_records_generated_bitstream(tmp_path: Path, monkeypatch) -> Non
     fasm.write_text("test\n")
     bitstream = tmp_path / "outputs" / "top.bit"
     calls = _stub_packers(monkeypatch)
-    design = Design.from_toml(DESIGN0)
+    design = Design.from_file(DESIGN0)
     flow = OpenXC7(
         OpenXC7.Settings(
             fpga=FPGA(PART),

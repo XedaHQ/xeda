@@ -149,7 +149,7 @@ def test_an_ise_run_without_its_bitstream_fails_naming_it(tmp_path, monkeypatch)
     use_fake_tools(monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_TOOL_NO_OUTPUT", "1")
     monkeypatch.chdir(tmp_path)
-    design = Design.from_toml(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
     flow = IseSynth(IseSynth.Settings(**ISE_SETTINGS), design, tmp_path)
     flow.init()
 
