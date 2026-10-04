@@ -98,16 +98,22 @@ def test_ys_template_quotes_values_plainly(flow_cls, settings, tmp_path: Path) -
     assert "chparam -set G_ITERATIVE 1'b1" in script
 
 
+def _library_reads(script: str, library: str) -> list[int]:
+    """The line numbers that read `library` as a library: a `.tcl` script puts its path in double
+    quotes and `yosys` before the command."""
+    pattern = re.compile(rf'\s*(?:yosys\s+)?read_verilog -lib "?{re.escape(library)}"?\s*')
+    return [n for n, line in enumerate(script.splitlines()) if pattern.fullmatch(line)]
+
+
 @pytest.mark.parametrize("flow_cls", [YosysFpga], ids=["yosys_fpga"])
 @pytest.mark.parametrize("script_format", ["ys", "tcl"])
 def test_fpga_primitive_libraries_precede_hierarchy(flow_cls, script_format, tmp_path):
-    script = _render(flow_cls, _fpga_settings(), tmp_path)
-    xtra = script.index("read_verilog -lib +/xilinx/cells_xtra.v")
-    sim = script.index("read_verilog -lib +/xilinx/cells_sim.v")
-    hierarchy = script.index("hierarchy -check")
-    assert xtra < hierarchy and sim < hierarchy
-    assert script.count("+/xilinx/cells_xtra.v") == 1
-    assert script.count("+/xilinx/cells_sim.v") == 1
+    script = _render(flow_cls, _fpga_settings(script_format=script_format), tmp_path)
+    xtra = _library_reads(script, "+/xilinx/cells_xtra.v")
+    sim = _library_reads(script, "+/xilinx/cells_sim.v")
+    hierarchy = _command_lines(script, "hierarchy -check")
+    assert len(xtra) == 1 and len(sim) == 1 and hierarchy, (xtra, sim, hierarchy)
+    assert xtra[0] < hierarchy[0] and sim[0] < hierarchy[0]
 
 
 @pytest.mark.parametrize(
