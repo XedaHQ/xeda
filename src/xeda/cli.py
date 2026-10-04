@@ -24,6 +24,7 @@ from .cli_utils import (
     HELP_FORMATTER_SETTINGS,
     ClickMutex,
     DeclaredEnvvarsCommand,
+    ChainChoice,
     FlowChoice,
     OptionEatAll,
     XedaHelpGroup,
@@ -44,6 +45,8 @@ from .flow_runner import (
     add_file_logger,
     scrub_runs,
 )
+from .flow_runner.bindings import LOCAL_REQUESTS_ONLY
+from .flow_runner.chains import parse_request
 from .flow_runner.dse import Dse
 from .flow_runner.resolver import Plan
 from .flows import __builtin_flows__
@@ -53,7 +56,9 @@ from .introspect import (
     flows_info,
     json_safe,
     optimizers_info,
+    inputs_info,
     plan_info,
+    request_info,
     platforms_info,
     results_info,
 )
@@ -408,7 +413,23 @@ def _run_root_options(func):
     )(func)
 
 
-def _node_states(flows: Iterable[Flow]) -> List[Dict[str, Any]]:
+RUN_HELP = """Run a flow, or the last flow of a chain.
+
+FLOW names one flow (ghdl_sim, GhdlSim and ghdl-sim are the same flow): it runs with whatever
+it needs first. A chain, `yosys_fpga+nextpnr+fpga_pack`, runs its last flow, binding each
+preceding flow's declared output to the next flow's compatible required inputs; `FLOW.OUTPUT`
+names the output when several fit. Unbound inputs use the design's sources or their default
+producers. Use + within one argument; a chain does not search for missing stages.
+
+-s KEY=VALUE sets the last flow; -s flows.NAME.KEY=VALUE sets another flow of the run. A
+binding can be saved instead, under flows.NAME.inputs in a YAML design or project file. --dry-run
+shows the graph and runs no tools. Chains are local requests: not for --remote.
+
+Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
+"""
+
+
+def _node_states(flows: Iterable[Flow], plan: Optional[Plan] = None) -> List[Dict[str, Any]]:
     """One `nodes` entry per run directory the launcher entered, in completion order: what
     `run --json` reports about each node of the run, whether it was reused, ran, or failed. A
     directory entered again within the launch (the same configuration asked for twice) reuses
@@ -421,16 +442,36 @@ def _node_states(flows: Iterable[Flow]) -> List[Dict[str, Any]]:
         if run_path in seen:
             continue
         seen.add(run_path)
+        planned = next(
+            (n for n in (plan.nodes if plan else ()) if os.path.abspath(n.run_path) == run_path),
+            None,
+        )
         nodes.append(
             {
+                "node": planned.name if planned else f.name,
                 "flow": f.name,
                 "run_path": str(f.run_path),
                 "state": "fresh" if f.reused else ("ran" if f.succeeded else "failed"),
                 "reason": f.stale_reason or "",
                 "deliveries": [d.as_json_value() for d in getattr(f, "deliveries", [])],
+                "inputs": inputs_info(planned) if planned else [],
             }
         )
-    return nodes
+    # the planned nodes the launch never entered: a producer failed before their turn
+    for planned in plan.nodes if plan else ():
+        if os.path.abspath(planned.run_path) not in seen:
+            nodes.append(
+                {
+                    "node": planned.name,
+                    "flow": planned.flow_class.name,
+                    "run_path": str(planned.run_path),
+                    "state": "not run",
+                    "reason": "",
+                    "deliveries": [],
+                    "inputs": inputs_info(planned),
+                }
+            )
+    return json_safe(nodes)
 
 
 def _interactive(json_flag: bool) -> bool:
@@ -458,6 +499,7 @@ def _run_document(
     flow_obj: Optional[Flow],
     success: bool,
     nodes: Iterable[Flow] = (),
+    plan: Optional[Plan] = None,
 ) -> Dict[str, Any]:
     """The machine-readable summary emitted by `xeda run --json`."""
     document: Dict[str, Any] = {
@@ -482,7 +524,7 @@ def _run_document(
             "type": "FlowFailed",
             "message": f"Flow '{document['flow']}' did not complete successfully.",
         }
-    document["nodes"] = _node_states(nodes)
+    document["nodes"] = _node_states(nodes, plan)
     return document
 
 
@@ -505,7 +547,7 @@ def _print_plan(plan: Plan) -> None:
     cls=DeclaredEnvvarsCommand,
     context_settings=CONTEXT_SETTINGS,
     short_help="Run a flow.",
-    help="Run the flow identified by FLOW_NAME. A snake_case styled FLOW_NAME (e.g. ghdl_sim) is converted to a CamelCase class name (e.g. GhdlSim).",
+    help=RUN_HELP,
     no_args_is_help=False,
     # click-extra highlights command names wherever they appear in help prose. Here the command
     # is named after an ordinary English verb, so "Don't run dependency flows" and "Flows run
@@ -514,8 +556,8 @@ def _print_plan(plan: Plan) -> None:
 )
 @click.argument(
     "flow",
-    metavar="FLOW_NAME",
-    type=FlowChoice(all_flow_names),
+    metavar="FLOW[.OUTPUT][+FLOW[.OUTPUT]...]",
+    type=ChainChoice(all_flow_names),
 )
 @click.argument(
     "design_file",
@@ -771,6 +813,9 @@ def run(
     """`run` command"""
     assert ctx
     options: XedaOptions = ctx.obj or XedaOptions()
+    # FLOW is the canonical request text: results, settings and exit status are its last flow's
+    request = parse_request(flow)
+    chain, flow = flow, request.requested.name
     if json_flag:
         # stdout belongs to the JSON document from here on
         machine_readable_mode()
@@ -814,6 +859,8 @@ def run(
 
     if dry_run and remote:
         raise click.UsageError("`--dry-run` is not supported with --remote", ctx=ctx)
+    if remote and len(request.elements) > 1:
+        raise click.UsageError(LOCAL_REQUESTS_ONLY, ctx=ctx)
 
     if remote:
         from .flow_runner import remote as remote_runner
@@ -885,7 +932,12 @@ def run(
                     "success": False,
                     "results": {},
                     "error": {"type": error_type, "message": message},
-                    "nodes": _node_states(launcher.launched) if launcher is not None else [],
+                    "request": request_info(request),
+                    "nodes": (
+                        _node_states(launcher.launched, launcher.last_plan)
+                        if launcher is not None
+                        else []
+                    ),
                 },
                 "json",
             )
@@ -897,7 +949,7 @@ def run(
         try:
             launcher = DefaultRunner(run_root, hashed_run_dirs=hashed_run_dirs, debug=debug)
             plan = launcher.plan(
-                flow,
+                chain,
                 xedaproject=xedaproject,
                 design=design,
                 flow_settings=flow_settings,
@@ -920,6 +972,7 @@ def run(
                     "design": str(design),
                     "success": True,
                     "dry_run": True,
+                    "request": request_info(request),
                     "plan": plan_info(plan),
                 },
                 "json",
@@ -944,7 +997,7 @@ def run(
         launcher.settings.scrub_old_runs = scrub
         launcher.settings.debug = debug
         f = launcher.run(
-            flow,
+            chain,
             xedaproject=xedaproject,
             design=design or design_name,
             flow_settings=flow_settings,
@@ -954,7 +1007,11 @@ def run(
         )
         success = bool(f and f.results.success)
         if json_flag:
-            emit_structured(_run_document(flow, design, f, success, launcher.launched), "json")
+            document = _run_document(
+                flow, design, f, success, launcher.launched, launcher.last_plan
+            )
+            document["request"] = request_info(request)
+            emit_structured(document, "json")
         sys.exit(0 if success else 1)
     except FlowFatalError as e:
         emit_failure(

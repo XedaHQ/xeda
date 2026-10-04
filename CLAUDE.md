@@ -344,7 +344,12 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   edge by one predicate, `chains.fitting_outputs` (the types an output can make are a nonempty
   subset of those the input takes, and a many output feeds only a many input). `--remote` and
   `dse` refuse chains and bindings their request reaches; a binding saved for another flow is
-  not a refusal. `xeda run a+b` on the command line is not activated yet (P3 Task 6).
+  not a refusal. On the command line, `xeda run a+b+c design.yaml` (`cli_utils.ChainChoice`, the
+  canonical request text; `FlowChoice` keeps one flow for every other command and says a
+  chain is for `xeda run`): the top-level `flow`, results, `--help-settings` and exit status
+  are the last flow's; `--json` adds `request` (`introspect.request_info`) and per-node
+  `node`/`inputs` (`introspect.inputs_info`), and after a failure the planned nodes never
+  entered as `"state": "not run"` (from `FlowLauncher.last_plan`, the plan the run followed).
 - **One node per producer, keyed by node identity** (`bindings.NodeKey`, never the flow name
   alone): the resolver reaches each node once, unions every consumer's demand on its outputs
   before its settings are frozen and hashed, and the launcher's completed-run cache is keyed

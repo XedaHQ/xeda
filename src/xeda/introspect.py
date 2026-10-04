@@ -71,6 +71,33 @@ def json_safe(value: Any) -> Any:
     return json.loads(json.dumps(with_json_keys(value), default=json_encodable))
 
 
+def request_info(request: Any) -> list[dict[str, Any]]:
+    """A request's elements as given, canonical: one for a single flow, several for a chain.
+    `output` is the output a chain element selected for its next edge, else None."""
+    return [
+        {"node": element.node, "flow": element.flow_class.name, "output": element.output}
+        for element in request.elements
+    ]
+
+
+def inputs_info(node: Any) -> list[dict[str, Any]]:
+    """A plan node's resolved inputs, as `plan_info` and `xeda run --json`'s nodes give them."""
+    return [
+        {
+            "name": resolved.name,
+            "origin": resolved.origin,
+            "producer": resolved.producer,
+            "output": resolved.output,
+            "sources": [str(path) for path in resolved.sources],
+            "references": [{"node": ref.node, "output": ref.output} for ref in resolved.references],
+            "binding_origin": resolved.binding_origin,
+            "binding_location": resolved.binding_location,
+            "overridden": list(resolved.overridden),
+        }
+        for resolved in node.inputs
+    ]
+
+
 def plan_info(plan: Plan) -> dict[str, Any]:
     """A resolved plan as plain data: producers first, directories, input origins, and
     outputs switched on because a consumer reads them. Undeclared nodes have unknown
@@ -87,23 +114,7 @@ def plan_info(plan: Plan) -> dict[str, Any]:
                     "run_path": str(node.run_path),
                     "flowrun_hash": node.flowrun_hash,
                     "settings_hash": node.settings_hash,
-                    "inputs": [
-                        {
-                            "name": resolved.name,
-                            "origin": resolved.origin,
-                            "producer": resolved.producer,
-                            "output": resolved.output,
-                            "sources": [str(path) for path in resolved.sources],
-                            "references": [
-                                {"node": ref.node, "output": ref.output}
-                                for ref in resolved.references
-                            ],
-                            "binding_origin": resolved.binding_origin,
-                            "binding_location": resolved.binding_location,
-                            "overridden": list(resolved.overridden),
-                        }
-                        for resolved in node.inputs
-                    ],
+                    "inputs": inputs_info(node),
                     "switched_on": list(node.switched_on),
                     "input_types": {
                         name: [t.name for t in selected_types(node.flow_class, node.settings, name)]

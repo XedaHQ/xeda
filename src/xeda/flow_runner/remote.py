@@ -40,7 +40,7 @@ from ..design import (
     cloning_dependencies_into,
     names_a_design_file,
 )
-from ..flow import Flow, FlowSettingsError
+from ..flow import Flow, FlowSettingsError, FlowSettingsException
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import written_path_problems
 from ..flow.flow import map_keyed_path_leaves
@@ -57,7 +57,13 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, XedaProject, resolve_project_file
-from .bindings import NodeKey, node_identity, require_no_bindings, split_bindings
+from .bindings import (
+    LOCAL_REQUESTS_ONLY,
+    NodeKey,
+    node_identity,
+    require_no_bindings,
+    split_bindings,
+)
 from .default_runner import (
     FlowLauncher,
     FlowNotFoundError,
@@ -930,6 +936,8 @@ class RemoteRunner(FlowLauncher):
                     project_flow_settings = project.flows
         # where a project's settings come from, named in messages even when there is none
         project_label = project_path or Path(PROJECT_FILE_NAMES[0])
+        if "+" in flow_name:
+            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
         flow_class = get_flow_class(flow_name)
         flow_name = flow_class.name
 

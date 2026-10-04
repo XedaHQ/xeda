@@ -87,7 +87,7 @@ from .bindings import (
     node_identity,
     split_bindings,
 )
-from .chains import ChainElement, FlowRequest
+from .chains import ChainElement, FlowRequest, parse_request
 from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
@@ -540,6 +540,7 @@ class FlowLauncher:
         self._request_context: _Request | None = None
         self._plans: dict[int, tuple[Plan, Any, Any]] = {}
         self._planned_completed: dict[tuple[int, NodeKey], Flow] = {}
+        self.last_plan: Plan | None = None
         self._completed_runs: dict[Path, tuple[Flow, CompletedRun]] = {}
 
     @property
@@ -1790,6 +1791,8 @@ class FlowLauncher:
             or (plan is not None and any(i.binding_origin for n in plan.nodes for i in n.inputs))
         ):
             raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
+        #: the plan this run follows, for reporting (None for a flow without declarations)
+        self.last_plan = plan
         previous, self._request_context = self._request_context, request
         try:
             return self.run_flow(
@@ -1940,9 +1943,9 @@ class FlowLauncher:
             flow_request = flow
             flow_class = flow.requested
         elif isinstance(flow, str):
-            flow = flow.replace("-", "_")
-            flow_class = get_flow_class(flow)
-            flow_request = FlowRequest((ChainElement(flow_class),))
+            # one flow name, or a chain `a+b.out+c`: the same parser as the command line's
+            flow_request = parse_request(flow)
+            flow_class = flow_request.requested
         else:
             flow_class = flow
             flow_request = FlowRequest((ChainElement(flow_class),))
