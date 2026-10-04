@@ -480,3 +480,28 @@ def test_documented_shared_settings_are_the_resolvers(relative, start):
         pytest.skip(f"{relative} is not part of this installation")
     names = re.findall(r"`+([a-z_]+)`+", _paragraph(path, start))
     assert tuple(names[: len(SHARED_SETTINGS)]) == SHARED_SETTINGS, relative
+
+
+def test_the_machine_readable_docs_name_the_chain_keys_list_flows_publishes():
+    docs = (README.parent / "docs/machine-readable.rst").read_text(encoding="utf-8")
+    for key in ("can_follow", "can_precede", "action_reason", "target_dependent", "required"):
+        assert f"``{key}``" in docs, key
+
+
+@pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
+def test_every_published_follow_relation_is_a_chain_xeda_run_accepts(flow_class):
+    """`can_precede`/`can_follow` come from the validator `xeda run` applies, so the listing
+    cannot advertise a chain that run refuses."""
+    from xeda.flow_runner.chains import parse_request
+
+    info = flow_info(flow_class)
+    for edge in info["can_precede"]:
+        qualifier = f".{edge['output']}" if edge["output"] else ""
+        parse_request(f"{info['name']}{qualifier}+{edge['flow']}")
+    for edge in info["can_follow"]:
+        qualifier = f".{edge['output']}" if edge["output"] else ""
+        parse_request(f"{edge['flow']}{qualifier}+{info['name']}")
+    if not info["declared"] or info["action_reason"]:
+        assert info["can_precede"] == [] if info["action_reason"] else True
+    if not info["declared"]:
+        assert info["can_follow"] == info["can_precede"] == []

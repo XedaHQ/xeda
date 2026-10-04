@@ -361,3 +361,87 @@ class _Relay(Flow):
         with replacing_file(self.run_directory.writable(path)) as f:
             f.write(self.inputs.data.read_text())
         self.outputs.netlist = path
+
+
+class _RouteA(Flow):
+    """The head of a three-stage default route: makes `x`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Outputs(Flow.Outputs):
+        x: Path = Out(SourceType.JsonNetlist, description="The first stage's file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _RouteB(Flow):
+    """The middle of the route: by default reads `_RouteA`'s `x`, makes `y`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        x: Path = In(
+            SourceType.JsonNetlist, producer="__route_a", output="x", description="Stage A."
+        )
+
+    class Outputs(Flow.Outputs):
+        y: Path = Out(SourceType.Data, description="The second stage's file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _RouteC(Flow):
+    """The end of the route: by default reads `_RouteB`'s `y`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        y: Path = In(SourceType.Data, producer="__route_b", output="y", description="Stage B.")
+
+    def run(self) -> None:
+        pass
+
+
+class _LoopA(Flow):
+    """Default producers that form a cycle (each other's), over a type nothing else makes."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        i: Path = In(SourceType.Sdc, producer="__loop_b", description="From B.")
+
+    class Outputs(Flow.Outputs):
+        o: Path = Out(SourceType.Sdc, description="A's file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _LoopB(Flow):
+    """The other half of the cycle."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        i: Path = In(SourceType.Sdc, producer="__loop_a", description="From A.")
+
+    class Outputs(Flow.Outputs):
+        o: Path = Out(SourceType.Sdc, description="B's file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _ChainAliased(Flow):
+    """A consumer with an alias, for completion."""
+
+    aliases = ["sink_alias"]
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        netlist: Path = In(SourceType.JsonNetlist, description="The netlist.")
+
+    def run(self) -> None:
+        pass

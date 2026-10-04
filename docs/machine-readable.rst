@@ -56,7 +56,8 @@ Discovering what to run
       "category": "simulation",
       "supports_cocotb": false,
       "dependencies": ["vivado_synth"],
-      "declared": false, "inputs": [], "outputs": [],
+      "declared": false, "action_reason": null, "inputs": [], "outputs": [],
+      "can_follow": [], "can_precede": [],
       "settings_class": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim.Settings"
     }
 
@@ -66,10 +67,23 @@ dependencies conditionally at run time.
 
 ``declared`` distinguishes flows with explicit file I/O. Their ``inputs`` and ``outputs`` list
 names, accepted source ``types``, ``cardinality`` (``one``, ``optional``, ``many``) and descriptions;
-inputs also name ``producer``, ``output`` and ``optional``, outputs their ``enabled_by`` setting.
+inputs also say whether they are ``required`` (the flow cannot run without one) and whether they are
+``optional`` (an optional list, which may be empty), and name their default ``producer`` and
+``output``; outputs name their ``enabled_by`` setting.
 For example, ``nextpnr`` declares input ``netlist`` of type ``JsonNetlist``, default producer
 ``yosys_fpga``, output ``netlist``. Sources of an accepted type displace that default producer.
 Use the resolved plan for the producers a particular request actually needs.
+
+``can_precede`` lists the flows that can come directly after this one in a chain
+(``xeda run this+other``) and ``can_follow`` those it can come directly after. Both are judged by the
+validator ``xeda run`` applies, on declarations alone, so a listed relation is never refused and a
+refused chain is never advertised. Each entry has ``flow``, ``output`` (the producer output the
+request must name, ``null`` when the unqualified request is valid), ``binds`` (the ``input`` and
+``output`` pairs the adjacency binds) and ``target_dependent``: true when a produced or accepted
+kind is a union that the target selects from (``nextpnr`` makes the configuration of the target's
+family), so the resolved plan is authoritative. A flow with no declared I/O has no relations, and
+``action_reason`` (static, ``null`` for most flows) says why a flow, such as a programmer, can
+only end a chain.
 
 Discovering what to set
 =======================
@@ -303,7 +317,7 @@ consumer switching its producer's optional output on:
           {"name": "yosys_fpga", "flow": "yosys_fpga", "declared": true,
            "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",
            "settings_hash": "...",
-           "inputs": [], "switched_on": ["netlist"],
+           "inputs": [], "switched_on": ["netlist"], "action_reason": null,
            "input_types": {}, "output_types": {"netlist": ["JsonNetlist"]}},
           {"name": "nextpnr", "flow": "nextpnr", "declared": true,
            "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
@@ -318,7 +332,7 @@ consumer switching its producer's optional output on:
                       {"name": "sdc", "origin": "none", "producer": null,
                        "output": null, "sources": [], "references": [],
                        "binding_origin": null, "binding_location": null, "overridden": []}],
-           "switched_on": [],
+           "switched_on": [], "action_reason": null,
            "input_types": {"netlist": ["JsonNetlist"], "constraints": ["Pcf"], "sdc": ["Sdc"]},
            "output_types": {"config": ["IceAsc"]}}
         ]

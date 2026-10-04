@@ -19,6 +19,7 @@ from typing import (
 )
 
 import click
+from click.shell_completion import CompletionItem
 import yaml
 from click_extra import Command as ColorizedCommand
 from click_extra import Context as ColorizedContext
@@ -611,13 +612,25 @@ class ChainChoice(FlowChoice):
     def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> str:
         if not isinstance(value, str) or not ("+" in value or "." in value):
             return super().convert(value, param, ctx)
-        from .flow_runner.chains import parse_request
+        from .flow_runner.chains import parse_request, request_text
 
         try:
             request = parse_request(value)
         except (FlowNotFoundError, XedaException) as e:
             self.fail(str(e), param, ctx)
-        return "+".join(
-            element.node + (f".{element.output}" if element.output else "")
-            for element in request.elements
-        )
+        return request_text(request.elements)
+
+    def shell_complete(
+        self, ctx: click.Context, param: click.Parameter, incomplete: str
+    ) -> list[CompletionItem]:
+        """Complete a flow name as `Choice` does; once the token has a `+` or a `.`, complete
+        the unfinished chain (`chains.complete_request`), each candidate the whole token."""
+        if "+" not in incomplete and "." not in incomplete:
+            return super().shell_complete(ctx, param, incomplete)
+        from .flow_runner.chains import complete_request
+        from .introspect import all_flow_classes
+
+        return [
+            CompletionItem(candidate)
+            for candidate in complete_request(incomplete, all_flow_classes())
+        ]
