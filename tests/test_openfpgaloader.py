@@ -494,7 +494,7 @@ def test_a_failing_programmer_fails_the_flow(tmp_path, fake_loader, monkeypatch)
 
 @pytest.mark.parametrize("project", ["blinky", "dvi_test"])
 def test_the_ulx3s_example_projects_plan_the_whole_graph_from_their_sections(project, tmp_path):
-    path = Path(__file__).parent.parent / "examples/boards/ulx3s" / project / "xedaproject.toml"
+    path = Path(__file__).parent.parent / "examples/boards/ulx3s" / project / "xedaproject.yaml"
     plan = _runner(tmp_path).plan(Openfpgaloader, design=project, xedaproject=str(path))
     assert [n.name for n in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"]
     placed = plan.node("nextpnr").settings
