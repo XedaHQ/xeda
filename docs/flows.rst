@@ -11,7 +11,8 @@ Discovering flows and their settings
 
 .. code-block:: bash
 
-    xeda list-flows                     # name, aliases, category, description, dependencies
+    xeda list-flows                     # name, aliases, category, description, dependencies,
+                                        # declared inputs/outputs, what can follow it in a chain
     xeda list-settings <flow>           # every setting: name, type, default, meaning
     xeda list-results <flow>            # every key the flow writes to results.json
 
@@ -57,8 +58,7 @@ flow's run needs it: ``-s flows.yosys_fpga.flatten=true`` sets the synthesis tha
 places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, naming
 ``flows.yosys_fpga.<key>``. The flows that still launch a dependency themselves
 (``vivado_postsynth_sim``'s ``synth``, ``vivado_power``'s ``postsynthsim``, ``openroad``'s
-``synthesis``, ``openfpgaloader``'s ``nextpnr``) keep a nested section for it until they declare
-their inputs; it refines the dependency's own section only within one origin.
+``synthesis``) keep a nested section for it until they declare their inputs; it refines the dependency's own section only within one origin.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are the same setting
@@ -104,7 +104,7 @@ Dependencies between flows
 
 A flow may declare that it needs another flow's output. ``xeda list-flows`` shows these under
 *Depends on*, and the runner satisfies them automatically - you run the flow you want, not the
-chain leading to it.
+chain leading to it. To name the stages yourself, see :ref:`flow-chains`.
 
 .. code-block:: text
 
@@ -174,6 +174,192 @@ is not called while planning. Freshness and always-run decisions are not evaluat
 
 Runs are make-like by default: a dependency whose trace still matches what it would consume now
 is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.
+
+.. _flow-chains:
+
+Flow chains and input bindings
+==============================
+
+``xeda run`` also takes a chain of flows joined by ``+``. Its last flow is the one you ask for;
+each flow before it supplies the next one's inputs:
+
+.. code-block:: bash
+
+    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
+
+That is the build the default route already gives ``xeda run fpga_pack design.yaml``, so a chain
+is for naming stages explicitly: to pick an alternate producer, to override a saved binding, or
+to see in one line what a request will run. ``xeda run fpga_pack+openfpgaloader design.yaml``
+builds the bitstream and then programs it. The chain is a *path*, not a list of waypoints: Xeda
+checks each neighboring pair and never searches for a missing stage.
+
+**What a chain means.**
+
+* ``+`` is the only separator, and each flow may appear once. A flow is named as anywhere else
+  (canonical name, aliases, dashes), and ``FLOW.OUTPUT`` names the output of a producer that
+  has several: ``nextpnr.config+fpga_pack``.
+* A flow supplies **every compatible required input** of the next one; optional inputs are not
+  bound. An output that fits no input of the next flow, or two outputs that fit, is an error that
+  names the choices. A refused chain suggests the valid one, built only from declared default
+  routes: ``nextpnr+openfpgaloader`` suggests ``nextpnr+fpga_pack+openfpgaloader``.
+* A flow that programs a device (``openfpgaloader``) can only end a chain.
+* Only flows that declare their file inputs and outputs (``declared`` in ``xeda list-flows
+  --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack`` and ``openfpgaloader``
+  today. A flow without declarations (``bsc``, ``bsc_sim``, the Vivado flows, ...) runs alone and
+  is refused inside a chain, naming it. No stage is ever fed by reading another flow's
+  ``artifacts``.
+* ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
+  come directly after it (JSON: ``can_precede``, ``can_follow``); shell completion offers only
+  the flows that can follow the chain typed so far.
+
+Completion returns the whole token, so ``<TAB>`` after a prefix extends the chain:
+
+.. code-block:: text
+
+    xeda run yosys_fpga+ne<TAB>      ->  yosys_fpga+nextpnr
+    xeda run fpga_pack+<TAB>         ->  fpga_pack+openfpgaloader
+    xeda run openfpgaloader+<TAB>    ->  (nothing: a programmer can only end a chain)
+
+**Settings.** ``-s`` sets the last flow, as for any run, and ``-s flows.<flow>.<key>=<value>``
+sets any other flow of the chain; a flow that is not in the run is an error with the close
+matches suggested. A flow's settings are written in one place, its ``flows.<flow>`` section,
+whether it runs because you named it or because it is somebody's default producer:
+
+.. code-block:: bash
+
+    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s flows.nextpnr.seed=2 flows.yosys_fpga.flatten=true
+
+Shared leaves (``fpga``, ``board``, ``clocks``, ...) given at any one node apply to every node
+along the chain's edges. Two different values in files are a conflict that names both nodes and
+their files; a command-line value wins for the whole group.
+
+**Results.** ``flow``, ``results``, ``--help-settings`` and the exit status are the last flow's.
+``--json`` adds ``request`` (the chain, element by element) and, for every flow of the plan, its
+``node`` name and resolved ``inputs``; a flow that was planned but never entered after a failure
+is listed as ``"state": "not run"`` (see :doc:`machine-readable`). ``--outputs-to`` delivers the
+last flow's outputs, only after the whole chain succeeded. ``--dry-run`` shows the graph and runs
+no tools.
+
+Input sources and saved bindings
+--------------------------------
+
+Every declared input has one origin, chosen in this order:
+
+1. an **explicit binding** -- a chain adjacency or a saved ``inputs`` entry (below);
+2. otherwise a **typed source** in ``rtl.sources``, in source order -- a ``JsonNetlist`` supplies
+   ``nextpnr``'s ``netlist`` and no synthesis runs;
+3. otherwise the input's **default producer** (``yosys_fpga`` for ``nextpnr``'s ``netlist``).
+
+Typed sources name their kind (``{file: top.json, type: JsonNetlist}``; ``xeda design-schema``
+lists the kinds), and a source never mixes with a producer for one input. A binding is saved in a
+design or project file under ``flows.<consumer>.inputs`` and names a producer by flow name,
+optionally with its output: ``yosys_fpga.netlist``. It is a reference to a flow's output, never a
+file path; give an external file as a typed source instead. A list input takes an ordered list
+of references.
+
+.. code-block:: yaml
+
+    # routed_demo.yaml
+    name: routed_demo
+    rtl:
+      top: top
+      sources:
+        - top.v
+    flows:
+      nextpnr:
+        fpga:
+          part: LFE5U-85F-6BG381C
+        inputs:
+          netlist: yosys_fpga.netlist
+      fpga_pack:
+        inputs:
+          config: nextpnr.config
+
+These bindings say what the defaults say, so the plan and every hash are those of the file
+without them. They matter when they differ from what the sources or defaults would choose:
+
+.. code-block:: yaml
+
+    # prebuilt_demo.yaml
+    name: prebuilt_demo
+    rtl:
+      top: top
+      sources:
+        - file: top.json
+          type: JsonNetlist
+    flows:
+      nextpnr:
+        fpga:
+          part: LFE5U-85F-6BG381C
+
+With it, the source is used unless something binds the input (a saved ``netlist: yosys_fpga``
+does, as does the chain):
+
+.. code-block:: bash
+
+    xeda run nextpnr prebuilt_demo.yaml                 # reads top.json, runs no synthesis
+    xeda run yosys_fpga+nextpnr prebuilt_demo.yaml      # synthesizes anyway
+
+``--dry-run`` shows which origin each input has and, for a saved binding, the file and section
+it came from.
+
+``inputs`` is wiring that the resolver reads, not a setting of the flow: it does not appear in
+``xeda list-settings``, is not part of a flow's ``settings.json`` or of the design hash, and is
+split out of each origin before the settings are validated, so ``flows.nextpnr.inputs`` never
+collides with a ``nextpnr`` setting. What a node's inputs come from does change its identity: the
+same flow with the same settings has another hashed run directory when another producer feeds it
+(see :doc:`run-directories`).
+
+**Where a binding can be given.** From the lowest rank to the highest: a project file, the
+design file, the command line (a chain, ``-s flows.<consumer>.inputs.<input>=<reference>``, or
+``-s inputs.<input>=<reference>`` for the requested flow) and the API; a higher rank replaces a
+lower one input by input. A chain is command-line input, so it replaces a binding saved in a
+design or project for the same input, and the plan says so
+(``overridden``). A chain and an explicit command-line or API binding of the same input are an
+error, even when they are equal and before either is checked:
+
+.. code-block:: text
+
+    The chain position 1 (yosys_fpga) -> 2 (nextpnr) binds input 'netlist'; the command line:
+    flows.nextpnr.inputs.netlist also binds that input. Give the binding in one place, even when equal.
+
+A project file given with ``--xedaproject project.yaml`` holds the same ``flows.<flow>.inputs``
+sections, below the design's:
+
+.. code-block:: yaml
+
+    # project.yaml
+    flows:
+      nextpnr:
+        inputs:
+          netlist: yosys_fpga
+
+Bindings, like chains, are local. ``--remote`` and ``xeda dse`` refuse a chain and any binding
+the request reaches before connecting or starting a worker; a binding saved for a flow the
+request does not reach is ignored.
+
+What is supported today
+-----------------------
+
+The open FPGA flows -- ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader`` -- for
+ECP5, iCE40, Nexus and Xilinx 7-series are what chains cover. The build-only chain
+``yosys_fpga+nextpnr+fpga_pack`` runs no programmer and touches no hardware; only a chain that
+ends at ``openfpgaloader`` programs a device. The test suite runs those chains against fake
+tools, and never starts a real programmer.
+
+Chains that start at Bluespec or go through Vivado are **not** available yet, and the commands
+below are refused today (``Flow `bsc` has no declared I/O and can only be run alone``). They
+need three later steps: the conversion of the remaining flows to declared inputs and outputs
+(PC), a design value that ``bsc`` produces and the flows after it read (P4), and the showcase
+designs and targets that use them (P5):
+
+.. code-block:: bash
+
+    # requires PC, P4 and P5
+    xeda run bsc+yosys_fpga+nextpnr+fpga_pack+openfpgaloader knight.yaml
+    xeda run vivado_synth+openfpgaloader knight.yaml
+
+Binding an input called ``design`` is refused for the same reason: no flow declares one.
 
 Open-source FPGA flow targets and tuning
 ========================================

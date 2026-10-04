@@ -308,6 +308,34 @@ runs, so one design file can carry constraints for several targets:
 ``xeda list-settings <flow>`` lists what a given flow accepts. Unknown keys are rejected, so a
 typo fails loudly rather than being ignored.
 
+A section may also hold ``inputs``: where a flow that declares file inputs reads each from, as
+``<producer flow>`` or ``<producer flow>.<output>`` (a list for an input that takes several).
+It is saved wiring that the resolver reads, not one of the flow's settings -- it is absent from
+``xeda list-settings`` and from the flow's ``settings.json`` -- and it names a flow's output,
+never a file; an external file is a typed source. A saved binding is chosen before a typed
+source and before the input's default producer:
+
+.. code-block:: yaml
+
+    # bound_demo.yaml
+    name: bound_demo
+    rtl:
+      top: top
+      sources:
+        - top.v
+        - file: top.json       # a prebuilt netlist ...
+          type: JsonNetlist
+    flows:
+      nextpnr:
+        fpga:
+          part: LFE5U-85F-6BG381C
+        inputs:
+          netlist: yosys_fpga.netlist   # ... that this binding chooses not to use
+
+The same section in a project file has the same meaning, below the design's. ``xeda run
+a+b+c`` chains and bindings are described in :ref:`flow-chains`, and a chain given on the command
+line replaces a saved binding of the same input.
+
 Environment variables in paths
 ==============================
 

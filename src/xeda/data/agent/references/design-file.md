@@ -203,6 +203,33 @@ flows:
 
 `xeda list-settings <flow> --json` lists what a flow accepts. Unknown keys are rejected.
 
+A section may also hold `inputs`: where a flow that declares file inputs reads each from, as
+`<producer flow>` or `<producer flow>.<output>` (a list for an input that takes several). It is
+saved wiring for the resolver, not a setting -- absent from `xeda list-settings` and from
+`settings.json` -- and it names a flow's output, never a file; give an external file as a typed
+source. A saved binding is chosen before a typed source and before the input's default producer:
+
+```yaml
+# bound_demo.yaml
+name: bound_demo
+rtl:
+  top: top
+  sources:
+    - top.v
+    - file: top.json       # a prebuilt netlist ...
+      type: JsonNetlist
+flows:
+  nextpnr:
+    fpga:
+      part: LFE5U-85F-6BG381C
+    inputs:
+      netlist: yosys_fpga.netlist   # ... that this binding chooses not to use
+```
+
+A project file's section means the same, below the design's. A chain on the command line
+(`xeda run yosys_fpga+nextpnr design.yaml`) replaces a saved binding of the same input; see
+`SKILL.md`.
+
 ## Environment variables in paths
 
 Path-typed settings expand `$PWD`, `$DESIGN_ROOT` and `$DESIGN_DIR`:

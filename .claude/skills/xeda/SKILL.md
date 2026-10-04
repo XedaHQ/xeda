@@ -189,6 +189,64 @@ so another Xeda process that would rebuild, clean or scrub that directory waits.
 
 `xeda list-flows --json` reports `dependencies`, `declared`, `inputs` and `outputs`.
 
+## Flow chains and input bindings
+
+`xeda run` takes a chain: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml`. The last flow is the
+one requested (`flow`, `results`, `--help-settings` and the exit status are its); each flow before
+it supplies the next one's compatible **required** inputs. A chain is a path, not waypoints: `+`
+is the only separator, each flow appears once, `FLOW.OUTPUT` picks one output of a producer
+(`nextpnr.config+fpga_pack`), and nothing searches for a missing stage. A refused chain suggests
+the valid one (`nextpnr+openfpgaloader` -> `nextpnr+fpga_pack+openfpgaloader`). A flow that
+programs a device (`openfpgaloader`) can only end a chain, and only flows with declared I/O chain
+(`xeda list-flows --json`: `declared`, `can_follow`, `can_precede`); `bsc`, `bsc_sim` and the
+Vivado flows run alone, and a chain through one fails naming it. A chain is local: `--remote` and
+`xeda dse` refuse it.
+
+`-s` sets the last flow; `-s flows.<flow>.key=value` sets any other flow of the chain. With
+`--json`, `request` lists the elements and every node has its `node` name and `inputs` (each with
+`origin`, `producer`, `output`, `binding_origin`); nodes planned but never entered after a failure
+show `"state": "not run"`. A build-only chain (`yosys_fpga+nextpnr+fpga_pack`) programs nothing.
+
+Each input is supplied, in this order, by an **explicit binding** (a chain adjacency, or
+`flows.<consumer>.inputs.<input>: <producer>[.<output>]` saved in a design or project file, given
+as `-s flows.<consumer>.inputs.<input>=...`, or through the API), else a **typed source** in
+`rtl.sources` (a `JsonNetlist` skips synthesis for `nextpnr`), else the declared **default
+producer**. A binding names a flow's output, never a file: give a file as a typed source.
+`inputs` is wiring for the resolver, not a setting: it is not in `xeda list-settings` or
+`settings.json`.
+
+```yaml
+# prebuilt_demo.yaml: `xeda run nextpnr prebuilt_demo.yaml` skips synthesis;
+# `xeda run yosys_fpga+nextpnr prebuilt_demo.yaml` synthesizes anyway.
+name: prebuilt_demo
+rtl:
+  top: top
+  sources:
+    - file: top.json
+      type: JsonNetlist
+flows:
+  nextpnr:
+    fpga:
+      part: LFE5U-85F-6BG381C
+```
+
+A chain is command-line data: it replaces a binding saved in a design or project (the plan's
+`overridden` lists them), and it is an error, even when equal, against a command-line or API
+binding of the same input, naming the chain position and where the other was given. A project file
+is read with `--xedaproject`:
+
+```yaml
+# project.yaml
+flows:
+  nextpnr:
+    inputs:
+      netlist: yosys_fpga
+```
+
+Do not suggest Bluespec or Vivado chains (`bsc+yosys_fpga+...`, `vivado_synth+openfpgaloader`) or
+an `inputs.design` binding: they are refused until those flows declare their inputs and outputs.
+To check a chain, use `--dry-run` or end it at `fpga_pack`: `openfpgaloader` programs hardware.
+
 ## Planning without running
 
 ```bash
@@ -317,6 +375,7 @@ available, install this branch on the remote host.
 | `MissingOutput` | A required or enabled declared output is absent, stale or unreadable | Read `results.json` and the tool log; confirm its output setting |
 | `FlowDependencyFailure` | A producer failed or its completed output could not be verified | Read the named producer's `results.json`; rebuild after correcting the cause |
 | `FlowFailed` | The flow ran but reported failure | Read `results` and the reports under `run_path` |
+| `FlowFailure` | In a node's `results.json` (and quoted by its consumers): the flow's reports or checks failed with no tool error | Read the log and reports in that node's run directory |
 | `NoSuccessfulRun` | A DSE search found no successful run | Inspect the attempted runs and relax or correct the search settings |
 | `RunRootError` | The run root holds files but no marker xeda created, or cannot be written | Move it aside, or create `<dir>/.xeda-run-root` to hand it to xeda |
 | `DeliveryError` | A named output could not be delivered: the run did not write it, or the destination is an input, a directory, or inside a run root | Check the setting's value and that it does not point at an input or a run root |

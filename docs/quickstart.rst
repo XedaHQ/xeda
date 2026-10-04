@@ -79,6 +79,16 @@ any of them on the command line with ``-s``/``--settings``, using dotted keys fo
 Unknown settings are rejected rather than ignored, so a typo fails loudly instead of quietly
 doing nothing.
 
+Flows that declare their file inputs and outputs can be named as a chain, joined by ``+``: the
+last flow is the one you ask for and each flow before it feeds the next. ``xeda list-flows`` shows
+which flows can follow which, and tab completion offers only those. The open FPGA flows are the
+ones that chain today::
+
+    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml --dry-run
+
+``--dry-run`` shows the plan and runs nothing; this chain ends at the bitstream and programs no
+hardware. See :ref:`flow-chains`.
+
 Find out what is available
 ==========================
 
@@ -86,7 +96,8 @@ Nothing here needs to be memorized; the CLI is self-describing.
 
 .. code-block:: bash
 
-    xeda list-flows                     # every flow, with its aliases, category and dependencies
+    xeda list-flows                     # every flow: aliases, category, dependencies, what it takes,
+                                        # makes and can be followed by in a chain
     xeda list-settings vivado_synth     # every setting of a flow, with type, default and meaning
     xeda list-results vivado_synth      # the keys that flow writes to results.json
     xeda list-boards                    # bundled FPGA board definitions

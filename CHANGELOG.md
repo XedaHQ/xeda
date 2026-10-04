@@ -15,8 +15,8 @@ All notable changes to this project will be documented in this file.
 - Yosys FPGA synthesis loads release- and family-specific primitive libraries, defaults to
   `-sv` with opt-in `-noautowire`, and reports mapped LUT resource estimates with method detail.
 - **Settings compose origin first** (project < design < command line < API); a nested section
-  such as `nextpnr`'s `yosys` refines the dependency's own `[flows.yosys_fpga]` section only
-  within one origin. Locally and with `--remote` alike.
+  such as `openroad`'s `synthesis` refines the dependency's own section only within one origin.
+  Locally and with `--remote` alike.
 - **`-s flows.<flow>.key=value` sets a setting of any flow in the run** (the requested flow or a
   declared dependency); `-s key` and `-s flows.<requested>.key` are one setting, two values for it
   are an error, and a misdirected or mistyped flow name suggests the right one.
@@ -45,10 +45,38 @@ All notable changes to this project will be documented in this file.
   is an error-rank event and fails at the default threshold. Compilation/loading diagnostics
   are excluded from the runtime verdict.
 - A failed dependency's `FlowDependencyFailure` names the dependency and its `results.json`.
+- A flow whose reports or checks fail without an exception or a tool exit status leaves
+  `error.type = "FlowFailure"` and a message in its `results.json`, as every failure document
+  does; a dependent used to quote an empty error (`dependency yosys_fpga failed: ;`).
 
 ### Added
 - Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or
   `xedaproject.toml`; multiple matches report the conflicting files and ask to keep one.
+- **Flow chains**: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` runs the last flow of a
+  `+`-joined chain, each preceding flow supplying the next one's compatible required inputs
+  (`FLOW.OUTPUT` picks one output of a producer). One parser and one edge predicate serve the
+  command line, saved bindings, suggestions, `list-flows` and completion. A chain that does not
+  fit is a usage error that suggests the valid one built from declared default routes
+  (`nextpnr+openfpgaloader` -> `nextpnr+fpga_pack+openfpgaloader`); a flow that programs a device
+  can only end a chain, and a flow with no declared I/O (`bsc`, the Vivado flows) runs alone.
+  `-s flows.<flow>.key=value` sets any flow of the chain. `--json` adds `request` and per-node
+  `node`/`inputs`, lists nodes planned but never entered as `"state": "not run"`, and keeps
+  the last flow's `flow`, `results` and exit status. Chains are local: `--remote` and `dse` refuse
+  them. Bluespec and Vivado chains need the later conversion of those flows to declared I/O.
+- **Saved input bindings**: `flows.<consumer>.inputs.<input>: <producer>[.<output>]` (an ordered
+  list for a list input) in a design or project file, on the command line or through the API.
+  An explicit binding is chosen before a typed source, which is chosen before the default
+  producer. `inputs` is wiring for the resolver, not a setting: it is absent from `list-settings`,
+  `settings.json` and the design hash. A chain replaces a binding saved in a design or project and
+  is an error, even when equal, against a command-line or API binding of the same input, naming
+  the chain position and the origin. A binding for a flow that declares no inputs says so.
+- A node's identity (`flowrun_hash`, the hashed directory suffix, the trace) includes where each
+  declared input comes from -- the producer's own identity and output, or sources -- never how
+  the request spelled it. Equal graphs from a chain, a saved binding and the defaults have equal
+  identities; the trace says "declared input bindings changed" when the wiring did.
+- `xeda list-flows` shows what each declared flow takes (required or optional), makes and can be
+  followed by (`can_follow`, `can_precede`, `target_dependent`, `action_reason` in `--json`), and
+  shell completion of `xeda run` completes chains in bash, zsh and fish.
 - **Xilinx 7-series builds with openXC7 1.0**: `nextpnr` places and routes Artix-7, Kintex-7,
   Spartan-7, Virtex-7 and Zynq-7000 parts with `nextpnr-himbaechel` (the full part as
   `--device`, typed `Xdc` pin sources, flow clocks as `create_clock`), with the new settings
