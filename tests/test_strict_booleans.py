@@ -81,10 +81,13 @@ def test_a_flow_boolean_given_a_yaml_11_word_is_a_settings_error(word, fix):
 
 
 def _boolean_fields():
-    for flow, _ in flow_classes():
-        for name, info in flow.Settings.model_fields.items():
-            if _is_boolean_annotation(info.annotation):
-                yield pytest.param(flow, name, id=f"{flow.__name__}.{name}")
+    # a list: pytest 10 refuses a generator, which it could only run once
+    return [
+        pytest.param(flow, name, id=f"{flow.__name__}.{name}")
+        for flow, _ in flow_classes()
+        for name, info in flow.Settings.model_fields.items()
+        if _is_boolean_annotation(info.annotation)
+    ]
 
 
 @pytest.mark.parametrize("flow,name", _boolean_fields())
