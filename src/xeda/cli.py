@@ -53,6 +53,7 @@ from .flows import __builtin_flows__
 from .introspect import (
     boards_info,
     design_schema,
+    flow_chain_cells,
     flows_info,
     json_safe,
     optimizers_info,
@@ -145,7 +146,14 @@ def _info_table(title: str, columns: Iterable[Tuple[str, Dict[str, Any]]]) -> Ta
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
 @output_format_option()
 def list_flows(output_format: str, json_flag: bool):
-    """List every flow xeda can run, with its aliases, category and dependencies."""
+    """List every flow xeda can run, with its aliases, category, dependencies and file I/O.
+
+    Takes and Makes list a declared flow's inputs and outputs as `name (Types)`: [name] is
+    optional, name... is a list. "Can be followed by" names the flows that can come right
+    after it in a chain (`xeda run a+b`); `(depends on the target)` marks a relation the
+    target's family decides, `flow.output` one that needs that output named. A flow that
+    declares no I/O runs alone.
+    """
     fmt = resolve_format(output_format, json_flag)
     info = flows_info()
     if fmt != "table":
@@ -154,10 +162,14 @@ def list_flows(output_format: str, json_flag: bool):
     table = _info_table(
         "Available flows",
         [
-            ("Flow", {"header_style": "bold green", "style": "bold"}),
+            # a name is never folded, so it can be typed back into a command
+            ("Flow", {"header_style": "bold green", "style": "bold", "no_wrap": True}),
             ("Category", {}),
             ("Description", {}),
             ("Depends on", {}),
+            ("Takes", {}),
+            ("Makes", {}),
+            ("Can be followed by", {}),
             ("Class", {"style": "dim"}),
         ],
     )
@@ -170,6 +182,7 @@ def list_flows(output_format: str, json_flag: bool):
             flow["category"].replace("_", " "),
             escape(flow["description"]) if flow["description"] else "[red]<no description>[/red]",
             escape(", ".join(flow["dependencies"])) or "-",
+            *(escape(cell) for cell in flow_chain_cells(flow)),
             escape(flow["qualified_name"]),
         )
     console.print(table)
@@ -535,6 +548,9 @@ def _print_plan(plan: Plan) -> None:
         click.echo(f"  {node.name}  {node.run_path}")
         if not node.declared:
             click.echo("      runtime dependencies are unknown: init() registers them when it runs")
+        # static class metadata, never the flow's dynamic `always_runs()`
+        if node.flow_class.action_reason:
+            click.echo(f"      always runs: {node.flow_class.action_reason}")
         for resolved in node.inputs:
             click.echo(f"      {resolved.describe()}")
         for output in node.switched_on:

@@ -29,6 +29,7 @@ from .design import Design
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
 from .flow.io import declared_inputs, declared_outputs, is_declared, selected_types
 from .flow_runner import get_flow_class
+from .flow_runner.chains import ChainEdge, followers, predecessors
 from .flows import __builtin_flows__
 from .utils import json_encodable, toml_load, unique, with_json_keys
 
@@ -116,6 +117,8 @@ def plan_info(plan: Plan) -> dict[str, Any]:
                     "settings_hash": node.settings_hash,
                     "inputs": inputs_info(node),
                     "switched_on": list(node.switched_on),
+                    # static class metadata: a dynamic `always_runs()` is never evaluated here
+                    "action_reason": node.flow_class.action_reason,
                     "input_types": {
                         name: [t.name for t in selected_types(node.flow_class, node.settings, name)]
                         for name in declared_inputs(node.flow_class)
@@ -211,9 +214,30 @@ def _declared_dependencies(cls: Type[Flow]) -> List[str]:
     return unique(found)
 
 
+def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
+    """One follow relation as plain data, seen from the other end: `other` is the flow it
+    names, `output` the producer output a request qualifies when the unqualified one is
+    ambiguous, `binds` the input/output pairs the adjacency binds, and `target_dependent`
+    whether a produced or accepted kind is a union the target narrows."""
+    return {
+        "flow": other.name,
+        "output": edge.output,
+        "binds": [{"input": taken, "output": made} for taken, made in edge.binds],
+        "target_dependent": edge.target_dependent,
+    }
+
+
 def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
-    """Everything known about a flow that does not require instantiating it."""
+    """Everything known about a flow that does not require instantiating it.
+
+    `can_precede` lists the flows that can directly follow this one in a chain (`this+other`)
+    and `can_follow` those it can directly follow (`other+this`), both judged by the chain
+    validator on declarations alone (`chains.followers`/`predecessors`), so a hint and a
+    refusal cannot disagree. A relation is `target_dependent` when a union of kinds, which the
+    target narrows, decides it; the resolved plan is authoritative.
+    """
     cls = _resolve(flow)
+    candidates = all_flow_classes()
     return {
         "name": cls.name,
         "aliases": list(cls.aliases),
@@ -228,11 +252,14 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
             + [d.producer for d in declared_inputs(cls).values() if d.producer is not None]
         ),
         "declared": is_declared(cls),
+        "action_reason": cls.action_reason,
         "inputs": [
             {
                 "name": d.name,
                 "types": [t.name for t in d.types],
                 "cardinality": d.cardinality,
+                "required": d.required,
+                "optional": d.optional,
                 "producer": d.producer,
                 "output": d.output,
                 "description": d.description,
@@ -249,8 +276,46 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
             }
             for d in declared_outputs(cls).values()
         ],
+        "can_follow": [_edge_info(e, e.producer) for e in predecessors(cls, candidates)],
+        "can_precede": [_edge_info(e, e.consumer) for e in followers(cls, candidates)],
         "settings_class": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
     }
+
+
+def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
+    """The `list-flows` table's chain columns for one `flow_info` document: what it takes, what
+    it makes, and what can follow it. An undeclared flow shows its boundary instead."""
+    if not info["declared"]:
+        return "undeclared: runs alone", "-", "-"
+
+    def kinds(item: dict[str, Any]) -> str:
+        return "/".join(item["types"])
+
+    takes = []
+    for item in info["inputs"]:
+        name = item["name"] + ("..." if item["cardinality"] == "many" else "")
+        name = f"[{name}]" if not item["required"] else name
+        takes.append(f"{name} ({kinds(item)})")
+    makes = []
+    for item in info["outputs"]:
+        name = item["name"] + ("..." if item["cardinality"] == "many" else "")
+        name = f"[{name}]" if item["enabled_by"] else name
+        makes.append(f"{name} ({kinds(item)})")
+    if info["action_reason"]:
+        makes.append(f"action: {info['action_reason']} (ends a chain)")
+    following = [
+        (
+            edge["flow"]
+            if edge["output"] is None
+            else f"{info['name']}.{edge['output']}+{edge['flow']}"
+        )
+        for edge in info["can_precede"]
+    ]
+    following = [
+        f"{name} (depends on the target)" if edge["target_dependent"] else name
+        for name, edge in zip(following, info["can_precede"])
+    ]
+    return "\n".join(takes) or "-", "\n".join(makes) or "-", "\n".join(following) or "-"
 
 
 def flows_info() -> List[Dict[str, Any]]:

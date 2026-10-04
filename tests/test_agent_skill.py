@@ -60,6 +60,29 @@ def test_generated_reference_reports_dependencies():
     assert "runs first" in reference
 
 
+def _facts(section: str, label: str) -> str:
+    """The text after `label:` on the section's italic fact line, up to the next ` | `."""
+    line = next((row for row in section.splitlines() if f"{label}:" in row), "")
+    return line.partition(f"{label}:")[2].partition(" | ")[0].strip(" *")
+
+
+def test_generated_reference_publishes_the_chains_each_flow_can_join():
+    # other test modules register test-only flows in this process: look for the real ones
+    reference = generate_flows_reference()
+    assert "xeda run yosys_fpga+nextpnr+fpga_pack" in reference
+    section = reference.partition("### `nextpnr`")[2].partition("###")[0]
+    assert "`yosys_fpga`" in _facts(section, "can follow").split(", ")
+    assert "`fpga_pack` (depends on the target)" in _facts(section, "can be followed by").split(
+        ", "
+    )
+    loader = reference.partition("### `openfpgaloader`")[2].partition("###")[0]
+    assert "programs a device and can only end a chain" in loader
+    assert _facts(loader, "can be followed by") == ""
+    # a flow with no declared I/O runs alone, and says nothing about chains
+    bsc = reference.partition("### `bsc`")[2].partition("###")[0]
+    assert "can follow" not in bsc and "can be followed by" not in bsc
+
+
 def test_generated_reference_documents_simulator_verification_limits():
     reference = generate_flows_reference()
     assert "documentation-only" in reference

@@ -52,6 +52,20 @@ def skill_source_dir() -> Iterator[Path]:
         yield Path(path)
 
 
+def _edge_text(edge: dict[str, object], name: str, key: str) -> str:
+    """One chain relation as text: the other flow, qualified when the request must name an
+    output, marked when the target's family decides it."""
+    other = str(edge["flow"])
+    text = f"`{other}`"
+    if edge.get("output"):
+        text = (
+            f"`{name}.{edge['output']}+{other}`"
+            if key == "can_precede"
+            else f"`{other}.{edge['output']}`"
+        )
+    return text + (" (depends on the target)" if edge.get("target_dependent") else "")
+
+
 def _flow_section(flow: Dict[str, object]) -> str:
     name = str(flow["name"])
     lines = [f"### `{name}`", ""]
@@ -65,6 +79,13 @@ def _flow_section(flow: Dict[str, object]) -> str:
         facts.append("runs first: " + " -> ".join(f"`{d}`" for d in deps))
     if flow.get("supports_cocotb"):
         facts.append("supports cocotb testbenches")
+    for label, key in (("can follow", "can_follow"), ("can be followed by", "can_precede")):
+        edges = flow.get(key) or []
+        if isinstance(edges, list) and edges:
+            facts.append(f"{label}: " + ", ".join(_edge_text(edge, name, key) for edge in edges))
+    reason = flow.get("action_reason")
+    if reason:
+        facts.append(f"{reason} and can only end a chain".replace("it programs", "programs", 1))
     if facts:
         lines += ["*" + " | ".join(facts) + "*", ""]
 
@@ -107,6 +128,13 @@ def generate_flows_reference() -> str:
         "xeda list-settings <flow> --json     # every setting: name, type, default, meaning",
         "xeda list-results <flow> --json      # every result key, with its meaning",
         "```",
+        "",
+        "Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_pack "
+        "design.yaml` binds each flow's declared outputs to the next flow's required inputs. "
+        '"can follow" and "can be followed by" below are the declared relations; '
+        "`(depends on the target)` marks one the target's family decides, and `flow.output+flow` "
+        "one that needs the output named. A refused chain says which chain would be valid, if "
+        "any. A flow with no declared I/O runs alone.",
         "",
     ]
 

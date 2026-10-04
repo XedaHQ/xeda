@@ -9,6 +9,8 @@ xeda list-settings <flow> --json     # every setting: name, type, default, meani
 xeda list-results <flow> --json      # every result key, with its meaning
 ```
 
+Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` binds each flow's declared outputs to the next flow's required inputs. "can follow" and "can be followed by" below are the declared relations; `(depends on the target)` marks one the target's family decides, and `flow.output+flow` one that needs the output named. A refused chain says which chain would be valid, if any. A flow with no declared I/O runs alone.
+
 ## Simulation
 
 ### `bsc_sim`
@@ -117,7 +119,7 @@ Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `
 
 ### `fpga_pack`
 
-*runs first: `nextpnr`*
+*runs first: `nextpnr` | can follow: `nextpnr` (depends on the target) | can be followed by: `openfpgaloader`*
 
 Pack a routed FPGA design into a bitstream. Its `config` input is the routed configuration of the target's family: a typed design source (`EcpConfig`, `IceAsc` or `Fasm`) or, by default, the one `nextpnr` records after `yosys_fpga` -> `nextpnr`. It is packed with `ecppack` (ECP5), `icepack` (iCE40) or openXC7's `fpga-as` (Xilinx 7-series) into the declared `bitstream` output. The packer writes to scratch space in the run directory, and the bitstream is published only once the packer has exited successfully with a nonempty file: a failed packing never leaves a partial bitstream, nor replaces an earlier one. Nothing is programmed; `openfpgaloader` programs a bitstream.
 
@@ -135,7 +137,7 @@ Reports: `minimum_period`, `maximum_frequency`, `Fmax`, `wns`, `lut`, `ff`, `sli
 
 ### `nextpnr`
 
-*runs first: `yosys_fpga`*
+*runs first: `yosys_fpga` | can follow: `yosys_fpga` | can be followed by: `fpga_pack` (depends on the target)*
 
 Place and route an FPGA design with nextpnr, the portable open-source PnR tool. Its `netlist` input is a `JsonNetlist` design source or, by default, the recorded netlist synthesized by `yosys_fpga`. This flow places and routes that input with the nextpnr variant matching `fpga.family` -- `nextpnr-ecp5`, `nextpnr-ice40`, `nextpnr-nexus`, or openXC7's `nextpnr-himbaechel` for Xilinx 7-series (Artix, Kintex, Spartan, Virtex, Zynq) -- then parses nextpnr's JSON report for achieved frequency, slack and resource utilization. A 7-series target needs the full part (`xc7a100tcsg324-1`) and pin constraints (typed `Xdc` sources, or a board's); its chip database is generated once per run root unless `chipdb` names one. Canonical resource names (`lut`, `ff`, ...) are mapped for ECP5 and 7-series; other families report raw bel-type counts. `lut` is counted at this stage by the method `LUT:METHOD` names -- for 7-series, the physical LUTs occupied, from the placement dump -- and is not certified comparable with another toolchain's. A target without a tested device/constraint/output mapping is rejected before synthesis.
 
@@ -145,7 +147,7 @@ Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `tim
 
 ### `openfpgaloader`
 
-*runs first: `fpga_pack`*
+*runs first: `fpga_pack` | can follow: `fpga_pack` | programs a device and can only end a chain*
 
 Program a bitstream onto an FPGA board with openFPGALoader. Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` -> `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted by `cable`, else by the `board`'s programmer name, plus the FPGA part. It always runs, since it changes a device rather than a file, and it is the only flow here that touches hardware.
 
@@ -186,6 +188,8 @@ FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in ba
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 
 ### `yosys_fpga`
+
+*can be followed by: `nextpnr`*
 
 Yosys Open SYnthesis Suite: FPGA synthesis
 

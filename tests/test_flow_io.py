@@ -216,6 +216,8 @@ def test_list_flows_publishes_the_declarations():
             "name": "made",
             "types": ["Data"],
             "cardinality": "one",
+            "required": True,
+            "optional": False,
             "producer": "__maker",
             "output": "made",
             "description": "What it reads.",
