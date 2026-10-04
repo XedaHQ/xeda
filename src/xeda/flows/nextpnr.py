@@ -754,7 +754,6 @@ class Nextpnr(FpgaSynthFlow):
             main_clock=self.settings.main_clock,
             uses=uses,
         )
-        self._clock_uses = uses
         if not timed:
             log.warning(
                 "No physical clock period/frequency in flow settings or constraint files; nextpnr uses its 12 MHz default."

@@ -315,7 +315,7 @@ def test_generation_logs_resource_cost_before_start(api, generation, monkeypatch
     original = api.run_process
 
     def check_log(*args, **kwargs):
-        assert "about a minute" in caplog.text and "4.8 GB" in caplog.text
+        assert "about a minute" in caplog.text and "3.5 GB" in caplog.text
         return original(*args, **kwargs)
 
     monkeypatch.setattr(api, "run_process", check_log)

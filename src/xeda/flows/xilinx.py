@@ -447,13 +447,13 @@ def _generate_chipdb(
     assert layout.generator is not None and layout.bbasm is not None
     if selection.fabric == "xc7a100t":
         log.info(
-            "generating the xc7a100t chip database: about a minute and up to about 4.8 GB "
+            "generating the xc7a100t chip database: about a minute and about 3.5 GB "
             "of memory, once per run root"
         )
     else:
         log.info(
             "generating the %s chip database in %s; time and memory for this fabric are "
-            "unmeasured (xc7a100t takes about a minute and up to about 4.8 GB)",
+            "unmeasured (xc7a100t takes about a minute and about 3.5 GB)",
             selection.fabric,
             entry,
         )
