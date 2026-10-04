@@ -1553,6 +1553,16 @@ class FlowLauncher:
                     }
             if not success and not input_settings.is_quiet:
                 log.debug("Failure was reported in the parsed results.")
+            if not success and not flow.results.get("error"):
+                # no exception and no exit status: the reports or checks said so; a failure
+                # document always names its error (and a depender quotes it)
+                flow.results["error"] = {
+                    "type": "FlowFailure",
+                    "message": (
+                        f"`{flow.name}` reported failure: its reports or checks did not pass "
+                        "(see the log and its run directory)"
+                    ),
+                }
             flow.results.success = success
         for k, v in flow.artifacts.items():
             if not flow.results.artifacts.get(k):
