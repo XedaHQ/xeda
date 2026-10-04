@@ -318,7 +318,7 @@ an optional output. A consumer switches a Boolean setting on; other settings nee
 nonempty default or an explicit value. The flow chooses its output paths inside its run directory.
 
 - **One plan drives execution.** `flow_runner/resolver.py` resolves effective settings, input
-  origins, switched-on outputs, hashes and paths before constructing flows. Settings access gives
+  origins, switched-on outputs, identities and paths before constructing flows. Settings access gives
   private copies; request context is protected. The launcher checks its internal plan against the
   design, original request and run-root policy, then executes producers first without resolving
   inputs again. External supplied plans are not a supported API. Declared `init()` adds no
@@ -326,12 +326,42 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   targets in planning. `yosys_fpga` declares `netlist` (`netlist_json`); `nextpnr` declares input
   `netlist` and optional output `config` (ECP5 textcfg, iCE40 asc or Nexus/Xilinx fasm);
   `fpga_pack` declares input `config` and output `bitstream`; `openfpgaloader` declares input
-  `bitstream` and no output. No flow of this graph nests a producer's settings but `nextpnr.yosys`.
-- **Sources displace default producers.** An accepted type in `rtl.sources` supplies the input,
-  in source order; a `JsonNetlist` skips `yosys_fpga` for `nextpnr`. Cardinality is checked.
-  Settings for a displaced producer are unused and logged at info level.
-- **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,
-  `prjxray_db` apply where both endpoints declare them. Disjoint leaves combine; conflicting values fail with
+  `bitstream` and no output. No flow of this graph nests a producer's settings (D-10).
+- **Binding > design source > default producer.** An explicit binding -- a chain adjacency
+  (`chains.parse_request`, `a+b`), or `flows.<consumer>.inputs.<input>: producer[.output]` in
+  a design or project file, on the command line or through the API -- supplies the input first
+  (`bindings.node_bindings`, called by the resolver for each node it reaches); a many input
+  takes an ordered list. Otherwise an accepted type in `rtl.sources` supplies it, in source
+  order (a `JsonNetlist` skips `yosys_fpga` for `nextpnr`); otherwise the declared default
+  producer. Cardinality is checked. A bound input is never pruned by a matching source, and a
+  displaced default producer leaves the graph: its settings are unused (logged at info level)
+  and take no part in shared agreement. `inputs` is reserved wiring split out per origin
+  before settings composition (`bindings.split_bindings`), never a `Flow.Settings` field or
+  part of the design hash. A chain is command-line data: it overrides a file's binding of the
+  same input (the plan reports it as `overridden`) and is an error, even when equal, against a
+  command-line or API binding of that input (PC1). `--remote` and `dse` refuse chains and
+  reached bindings. `xeda run a+b` on the command line is not activated yet (P3 Task 6).
+- **One node per producer, keyed by node identity** (`bindings.NodeKey`, never the flow name
+  alone): the resolver reaches each node once, unions every consumer's demand on its outputs
+  before its settings are frozen and hashed, and the launcher's completed-run cache is keyed
+  the same way, so a producer feeding several inputs or branches runs once. An input's
+  `ResolvedInput.references` are its ordered `(node, output)` producers; `binding_origin`,
+  `binding_location` and `overridden` only explain.
+- **One identity rule (D-9).** `bindings.node_identity(settings_hash, origins)`: a node's hash
+  (`PlanNode.flowrun_hash`, `flow.flow_hash`, `results.json`'s `flow_hash`, the trace's
+  `flowrun_hash`, the hashed directory suffix) is its settings-only hash
+  (`flow.flowrun_hash(...)`, kept as `settings_hash`) plus its ordered input origins
+  (`bindings.input_origins`: each a producer's identity and output key, or `"source"`), for
+  default and explicit edges alike; a flow without a plan node has no origins. The resolver's
+  freeze, `_validate_plan` (which recomputes every node and checks the plan's bound inputs
+  against the request's bindings), `_run_identity`, claims, results and traces all use it. A
+  producer's settings change therefore moves its consumers' identities; where a binding was
+  written does not. The trace (`TRACE_FORMAT` 14) records each input's ordered producers
+  (`DeclaredInputRecord.references`) and its explanatory origin, and `trace.changed_binding`
+  names the reason: "netlist now from __synth.netlist (was yosys_fpga.netlist)", or the
+  producer that "has other settings or inputs than in the last run".
+- **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`,
+  `clocks` and `prjxray_db` apply where both endpoints declare them. Disjoint leaves combine; conflicting values fail with
   both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
   `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
   leaves; API contributions remain a separate highest-precedence origin. Undeclared edges keep
@@ -509,7 +539,9 @@ vivado.log where it runs (the fake `vivado` does too).
 
 A run is identified by `design_hash` (from `rtl_hash` + `tb_hash`: each source's content hash,
 type, `standard`, `variant`, and its position in the source order, plus behavior-affecting
-RTL/testbench metadata) and `flow.flowrun_hash` (flow name + input settings). Both are semantic --
+RTL/testbench metadata) and the run's hash: `flow.flowrun_hash` (flow name + input settings)
+combined with the ordered origins of its declared inputs (`bindings.node_identity`, D-9; the
+settings-only hash is kept as `settings_hash`). Both are semantic --
 they depend on what the inputs mean, not where anything is: moving a whole design never changes
 `design_hash`. Every source counts by its path relative to the design root, outside it too
 (`../lib/defs.vh`, `Design._source_fingerprint`): a tool can resolve another file from any

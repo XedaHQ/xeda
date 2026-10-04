@@ -96,7 +96,10 @@ by the source's location. A parameter whose value is a path
 under the design root, such as one given as a file relative to it, counts relative to it; one
 outside the root counts as the location it names, and a parameter file's content is not hashed.
 ``flowrun_hash`` covers settings, with a path counted as its text relative to the design
-(``$DESIGN_ROOT/c.xdc``). Moving a whole design anywhere keeps both hashes (unless a parameter
+(``$DESIGN_ROOT/c.xdc``), and where each declared input of the flow comes from, in order: the
+producing flow's own ``flowrun_hash`` and output, or the design's sources. A producer's settings
+therefore count for the flows that consume it. ``settings_hash``, beside it in ``results.json``,
+covers the settings alone. Moving a whole design anywhere keeps both hashes (unless a parameter
 names a file outside it); starting Xeda from another directory does too. The hashes never read a
 file a setting names: whether its content changed since the last run is the trace's business
 (see ``trace.json`` below).
@@ -206,7 +209,8 @@ Written last, atomically, only after a run succeeds, and removed before the *nex
 directory executes -- so its presence alone means "the last run here completed and succeeded". It
 records:
 
-- the run's settings identity (``flowrun_hash``) and design hash;
+- the run's identity (``flowrun_hash``: its settings and where its declared inputs come from),
+  the hash of its settings alone (``settings_hash``) and the design hash;
 - the Xeda version, a digest of every file of the installed Xeda package, and one of the flow's
   own modules when it is defined outside Xeda;
 - the programs it started, each as a file record (below) of the resolved executable -- size,

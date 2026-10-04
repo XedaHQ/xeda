@@ -20,7 +20,19 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Literal, Mapping, Optional, Set, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+)
 
 from pydantic import ValidationError
 
@@ -52,7 +64,7 @@ TRACE_FILE = "trace.json"
 #: 12: programs are file records; listings hold directory entries and follow directory links;
 #: the reports a run read are recorded.
 #: 13: ordered declared-input bindings, including their source/producer provenance.
-TRACE_FORMAT = 13
+TRACE_FORMAT = 14
 
 #: The names xeda reserves at the top of a run directory, never outputs: the trace and the trace
 #: being written -- and the clock markers, named `digest.TIME_MARKER_PREFIX` + a random suffix.
@@ -70,8 +82,25 @@ class ProgramRecord(XedaBaseModel):
     file: Optional[FileRecord] = None
 
 
+class BoundProducer(XedaBaseModel):
+    """One producer reference of an input: the plan node, its output key, the identity of the
+    run that made it and that run's directory."""
+
+    producer: str
+    output: str
+    producer_hash: str | None = None
+    producer_path: str | None = None
+
+
 class DeclaredInputRecord(XedaBaseModel):
-    """One ordered input binding, independent of the set of input files."""
+    """One ordered input binding, independent of the set of input files.
+
+    `references` are the input's producers in binding order; `producer`, `output`,
+    `producer_hash` and `producer_path` are the first one's. `binding_origin` and
+    `binding_location` say where an explicit binding was written (a chain, a file, the command
+    line, the API): explanation only, which `semantic` leaves out, so the same wiring given
+    another way is the same binding.
+    """
 
     name: str
     origin: Literal["source", "producer", "none"]
@@ -80,6 +109,50 @@ class DeclaredInputRecord(XedaBaseModel):
     producer_hash: str | None = None
     producer_path: str | None = None
     paths: tuple[str, ...] = ()
+    references: tuple[BoundProducer, ...] = ()
+    binding_origin: str | None = None
+    binding_location: str | None = None
+
+    def semantic(self) -> tuple[Any, ...]:
+        """What the binding is: its name, origin, ordered producers and ordered files."""
+        return (
+            self.name,
+            self.origin,
+            tuple(
+                (ref.producer, ref.output, ref.producer_hash, ref.producer_path)
+                for ref in self.references
+            ),
+            self.paths,
+        )
+
+    def wiring(self) -> str:
+        """Where the input comes from, for a stale reason."""
+        if self.origin == "source":
+            return "the design's sources"
+        if not self.references:
+            return "nothing"
+        return ", ".join(f"{ref.producer}.{ref.output}" for ref in self.references)
+
+
+def changed_binding(
+    recorded: Sequence[DeclaredInputRecord], current: Sequence[DeclaredInputRecord]
+) -> str | None:
+    """The first input whose wiring differs from the recorded run's, as a reason naming it;
+    else a producer that was configured or wired differently; None if the bindings are, in
+    effect, the same (where a binding was written is no difference)."""
+    if [r.name for r in recorded] != [r.name for r in current]:
+        return "declared input bindings changed (name, order or origin)"
+    for old, new in zip(recorded, current):
+        if (old.origin, old.wiring()) != (new.origin, new.wiring()):
+            return f"{new.name} now from {new.wiring()} (was {old.wiring()})"
+    for old, new in zip(recorded, current):
+        for before, now in zip(old.references, new.references):
+            if before.producer_hash != now.producer_hash:
+                return (
+                    f"{now.producer}, which makes {new.name}, has other settings or inputs "
+                    "than in the last run"
+                )
+    return None
 
 
 class Trace(XedaBaseModel):
@@ -89,7 +162,9 @@ class Trace(XedaBaseModel):
     flow: str
     #: this run, unique among all runs: the flows depending on it record which run they consumed
     run_id: str
+    #: the run's identity (`bindings.node_identity`) and the settings-only hash it is made of
     flowrun_hash: str
+    settings_hash: str = ""
     design_hash: str
     xeda_version: str
     #: a digest of every file of the installed xeda package: code, templates and data
@@ -250,6 +325,8 @@ class Expectation:
     #: the flow of each dependency, by the same run directory, to name it in a reason
     dependency_flows: Mapping[str, str]
     declared_inputs: tuple[DeclaredInputRecord, ...] = ()
+    #: the hash of the settings alone, to tell a settings change from a change of wiring
+    settings_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -326,6 +403,10 @@ def check_trace(
     if trace.flow != expected.flow:
         return Freshness(False, f"recorded for another flow: {trace.flow}")
     if trace.flowrun_hash != expected.flowrun_hash:
+        # The identity is settings plus input origins (D-9): say which of them moved.
+        rewired = changed_binding(trace.declared_inputs, expected.declared_inputs)
+        if rewired is not None and trace.settings_hash == expected.settings_hash:
+            return Freshness(False, rewired)
         return Freshness(
             False, "settings changed: " + _changed_settings(run_dir, expected.settings)
         )
@@ -377,8 +458,14 @@ def check_trace(
         if reads[0] > reads_before:
             read.append(current)
         refreshed.programs[name] = ProgramRecord(path=program.path, file=current)
-    if trace.declared_inputs != list(expected.declared_inputs):
-        return Freshness(False, "declared input bindings changed (name, order or origin)")
+    if [r.semantic() for r in trace.declared_inputs] != [
+        r.semantic() for r in expected.declared_inputs
+    ]:
+        return Freshness(
+            False,
+            changed_binding(trace.declared_inputs, expected.declared_inputs)
+            or "declared input bindings changed (name, order or origin)",
+        )
     # A dependency that ran again may have changed files this run read without declaring them,
     # which the comparison of its declared outputs below cannot see.
     for run in sorted(trace.dependency_runs.keys() | expected.dependency_runs.keys()):

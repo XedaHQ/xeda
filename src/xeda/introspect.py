@@ -86,6 +86,7 @@ def plan_info(plan: Plan) -> dict[str, Any]:
                     "declared": node.declared,
                     "run_path": str(node.run_path),
                     "flowrun_hash": node.flowrun_hash,
+                    "settings_hash": node.settings_hash,
                     "inputs": [
                         {
                             "name": resolved.name,
@@ -532,7 +533,9 @@ def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         "design": "Name of the design that was run.",
         "design_hash": "Hash of the design's RTL and testbench fingerprints.",
         "flow": "Canonical flow name.",
-        "flow_hash": "Hash of the flow name and its effective settings.",
+        "flow_hash": "The run's identity: a hash of its settings and of where each declared "
+        "input comes from (a producer's identity and output, or the design's sources).",
+        "settings_hash": "Hash of the flow name and its input settings alone.",
         "run_path": "Absolute path of the run directory holding reports/, outputs/ and checkpoints/.",
         "timestamp": "Local time the run finished, as YYYY-MM-DD-HHMMSS.",
     }

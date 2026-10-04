@@ -1172,7 +1172,10 @@ class Flow(metaclass=ABCMeta):
         #: directory that the run did not write is a previous run's (`report_file`)
         self.run_started: bool = False
         self.timestamp: Optional[str] = None
+        #: the run's identity (its settings and where its inputs come from) and the hash of
+        #: its settings alone, which that identity is made of (`bindings.node_identity`)
         self.flow_hash: Optional[str] = None
+        self.settings_hash: Optional[str] = None
         self.design_hash: Optional[str] = None
         self.declared_input_records: tuple[Any, ...] = ()
 

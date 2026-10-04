@@ -318,6 +318,7 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
     for node in actual["plan"]["nodes"]:
         node["run_path"] = node["run_path"].replace(str(tmp_path), "/path/to")
         node["flowrun_hash"] = "..."
+        node["settings_hash"] = "..."
     assert actual == expected
     assert not (tmp_path / "xeda_run").exists()
 

@@ -16,6 +16,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow import flowrun_hash
+from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoSynth
 from xeda.utils import dump_json
@@ -307,7 +308,10 @@ def test_a_recorded_settings_json_is_a_rerunnable_input(tmp_path, fake_tools):
 
     again = VivadoSynth.Settings.from_input(recorded["flow_settings"], design_root=design.root_path)
 
-    assert flowrun_hash("vivado_synth", again) == recorded["flowrun_hash"]
+    # the settings alone hash as recorded; the run's identity adds its input origins (none
+    # for a flow that declares no inputs)
+    assert flowrun_hash("vivado_synth", again) == recorded["settings_hash"]
+    assert node_identity(recorded["settings_hash"]) == recorded["flowrun_hash"]
 
 
 def test_a_source_hashes_the_same_however_its_path_is_written(tmp_path):
