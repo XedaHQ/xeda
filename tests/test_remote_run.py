@@ -347,6 +347,10 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
         ("0.4.4.dev1", 2, "ghdl_sim", None),
         ("0.4.4.dev1", 3, "fpga_pack", ["fpga.part=LFE5U-25F-6BG381C"]),
         ("0.4.4.dev1", 4, "openfpgaloader", ["fpga.part=LFE5U-25F-6BG381C"]),
+        # protocol 5 predates D-9's node identity: its `flow_hash` for the same request differs
+        # from this side's, so it must be refused here, not accepted and failed on a mirror hash
+        ("0.4.4.dev1", 5, "nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
+        ("0.4.4.dev1", 5, "ghdl_sim", None),
     ],
 )
 def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
@@ -390,12 +394,14 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
             design, flow_name, host="somewhere", flow_settings=flow_settings
         )
     assert version in str(raised.value)
-    assert "P2b" in str(raised.value)
+    assert "P3" in str(raised.value)
+    assert f"remote protocol {protocol}" in str(raised.value)
+    assert "remote protocol 6 or newer" in str(raised.value)
     assert not shipped
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P2b remote (protocol 5), including this branch's dev builds.
+#: The archive accepted by a P3 remote (protocol 6), including this branch's dev builds.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {

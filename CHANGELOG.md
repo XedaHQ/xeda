@@ -147,8 +147,10 @@ All notable changes to this project will be documented in this file.
   accepted only with `write_flash`. The default graph is
   `openfpgaloader -> fpga_pack -> nextpnr -> yosys_fpga`. `results.tools` records the
   programmer's version (asked with `-V`, which touches no device).
-- **`--remote` needs a remote with protocol 5** (this release): the FPGA build graph and the
-  programming-only loader are part of what a remote must understand.
+- **`--remote` needs a remote with protocol 6** (this release): the FPGA build graph, the
+  programming-only loader and the node identity of flow chains (a node's `flow_hash` counts where
+  its declared inputs come from) are part of what a remote must understand. A remote of protocol
+  5 is refused before anything ships, with an "upgrade the remote xeda" error.
 - A failed `nextpnr` is reported by the errors in its log: a constraint error at its original
   file and line, a missed timing constraint as such (`timing_allow_fail` keeps the result), and
   anything else as the tool's own failure -- never by a parser warning.

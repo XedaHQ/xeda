@@ -20,8 +20,10 @@ from typing import List, Tuple
 import execnet
 import pytest
 
+import xeda
 from xeda.flow_runner.remote import (
     REMOTE_PROBE,
+    REMOTE_PROTOCOL_MIN_VERSION,
     STREAM_OUTPUT_SETUP,
     RemoteIncompatible,
     check_remote_python,
@@ -45,8 +47,8 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
     shell), and an old one fails on the design archive with whatever its loader chokes on first
     -- a 0.2 checkout said `rtl.sources: unhashable type: 'dict'`. The check names the version,
     the interpreter and *where* that xeda lives, which is what finds a shadowing install."""
-    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 5)
-    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 5)
+    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 6)
+    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 6)
     for version, protocol in (
         ("0.4.3", 0),
         ("0.4.3", 2),
@@ -55,6 +57,7 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
         ("0.4.4.dev42+gabc", 2),
         ("0.4.4.dev42+gabc", 3),
         ("0.4.4.dev42+gabc", 4),
+        ("0.4.4.dev42+gabc", 5),
     ):
         with pytest.raises(RemoteIncompatible, match="upgrade the remote xeda"):
             check_remote_xeda(version, "/site/xeda/__init__.py", "/usr/bin/python3", protocol)
@@ -63,11 +66,35 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
         check_remote_xeda(
             "0.2.13.dev1+g13970c24c", "/home/u/src/xeda/src/xeda/__init__.py", "/usr/bin/python3"
         )
-    for part in ("0.2.13.dev1", "/home/u/src/xeda/src/xeda", "/usr/bin/python3", "P2b"):
+    for part in ("0.2.13.dev1", "/home/u/src/xeda/src/xeda", "/usr/bin/python3", "P3"):
         assert part in str(old.value)
 
     with pytest.raises(RemoteIncompatible, match="/usr/bin/python3.*no xeda"):
         check_remote_xeda(None, None, "/usr/bin/python3")
+
+
+def test_a_protocol_5_remote_is_refused_for_its_node_identity_not_accepted():
+    """Protocol 5 (the openXC7 build: `fpga_pack`, a programming-only `openfpgaloader`) predates
+    D-9, under which a node's `flow_hash` is its settings plus its ordered resolved input
+    origins. `RemoteRunner` names the mirror by this side's hash and compares it with the one the
+    remote reports, so a protocol-5 remote that was accepted would fail only afterwards, on a
+    hash mismatch nobody can explain. It is refused up front, naming both protocols."""
+    assert xeda.REMOTE_PROTOCOL_VERSION == 6
+    assert REMOTE_PROTOCOL_MIN_VERSION == 6
+    # this build satisfies its own floor, so a remote of this checkout is accepted
+    check_remote_xeda(
+        xeda.__version__,
+        "/site/xeda/__init__.py",
+        "/usr/bin/python3",
+        xeda.REMOTE_PROTOCOL_VERSION,
+    )
+    with pytest.raises(RemoteIncompatible) as refused:
+        check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 5)
+    message = str(refused.value)
+    assert "upgrade the remote xeda" in message
+    assert "remote protocol 5" in message
+    assert "remote protocol 6 or newer" in message
+    assert "0.4.4.dev42+gabc" in message and "/site/xeda/__init__.py" in message
 
 
 def test_the_probe_reports_the_imported_packages_version_and_capability():
@@ -78,12 +105,12 @@ def test_the_probe_reports_the_imported_packages_version_and_capability():
             "import xeda\n"
             "from importlib import metadata\n"
             "xeda.__version__ = '0.4.4.dev99+gprobe'\n"
-            "xeda.REMOTE_PROTOCOL_VERSION = 5\n"
+            "xeda.REMOTE_PROTOCOL_VERSION = 6\n"
             "metadata.version = lambda name: '0.4.3'\n" + REMOTE_PROBE
         ).receive()
         assert reply[3] == "0.4.4.dev99+gprobe"
         assert reply[4].endswith("xeda/__init__.py")
-        assert reply[5] == 5
+        assert reply[5] == 6
     finally:
         gw.exit()
 
