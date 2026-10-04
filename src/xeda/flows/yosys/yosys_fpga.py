@@ -1,10 +1,10 @@
 import logging
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, List, Literal, Optional
+from typing import List, Literal, Optional
 
-from ...dataclass import Field, field_validator, input_names
+from ...dataclass import Field, field_validator
 from ...design import SourceType
 from ...flow import FlowSettingsException, FpgaSynthFlow, Out, describe_results
 from ...flows.ghdl import GhdlSynth
@@ -575,36 +575,3 @@ def sum_all_resources(design_util: dict, lst: Iterable) -> int:
 
 #: Why a flow that places the `yosys_fpga` netlist with nextpnr keeps its `src` attributes, for
 #: the description of the field holding its `yosys_fpga` settings.
-NEXTPNR_KEEPS_SRC = (
-    "Unlike `yosys_fpga` on its own, it keeps `src` attributes in the netlist "
-    "(`netlist_src_attrs` defaults to true), since nextpnr's reports cite them as source "
-    "locations; a `netlist_src_attrs` given here or in `flows.yosys_fpga` wins."
-)
-
-
-def yosys_fpga_keeping_src() -> YosysFpga.Settings:
-    """`yosys_fpga`'s default settings for a flow that places its netlist with nextpnr: keeping
-    `src` attributes (`NEXTPNR_KEEPS_SRC`)."""
-    return YosysFpga.Settings(netlist_src_attrs=True)
-
-
-def keeping_src_by_default(value: Any) -> Any:
-    """`yosys_fpga` settings given to a flow that places the netlist with nextpnr, as a mapping
-    or a `YosysFpga.Settings`, with `netlist_src_attrs` true unless they give it.
-
-    For the `mode="before"` validator of the field holding them; the default comes from
-    `yosys_fpga_keeping_src`. The value is recorded as given (`model_fields_set`): launching the
-    dependency layers only what was given over `flows.yosys_fpga`
-    (`default_runner.dependency_settings`). That section is merged into the field before
-    validation (`settings_layers.flow_settings_from_sections`), so a `netlist_src_attrs` it
-    gives arrives as given, and wins. An instance is copied, never changed."""
-    if isinstance(value, Mapping):
-        names = input_names(YosysFpga.Settings)
-        if not any(names.get(key) == "netlist_src_attrs" for key in value):
-            value = {**value, "netlist_src_attrs": True}
-    elif isinstance(value, YosysFpga.Settings):
-        if "netlist_src_attrs" not in value.model_fields_set:
-            value = value.model_copy(deep=True)
-            value.invalidate_cached_properties()
-            value.netlist_src_attrs = True
-    return value
