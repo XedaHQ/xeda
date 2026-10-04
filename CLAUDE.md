@@ -323,8 +323,8 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
 - **Sources displace default producers.** An accepted type in `rtl.sources` supplies the input,
   in source order; a `JsonNetlist` skips `yosys_fpga` for `nextpnr`. Cardinality is checked.
   Settings for a displaced producer are unused and logged at info level.
-- **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`
-  apply where both endpoints declare them. Disjoint leaves combine; conflicting values fail with
+- **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,
+  `prjxray_db` apply where both endpoints declare them. Disjoint leaves combine; conflicting values fail with
   both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
   `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
   leaves; API contributions remain a separate highest-precedence origin. Undeclared edges keep

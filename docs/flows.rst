@@ -135,8 +135,8 @@ Output paths are set by the flow, verified and recorded with content digests in 
 Consumers get only those checked records, for newly run and reused producers alike.
 
 Along a declared edge, shared settings -- ``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
-where both endpoints declare them -- must agree. Leaves given on one node apply to both; disjoint
-leaves combine. Different values for the same leaf, for example ``flows.nextpnr.fpga.part`` in a
+``prjxray_db``, where both endpoints declare them -- must agree. Leaves given on one node
+apply to both; disjoint leaves combine. Different values for the same leaf, for example ``flows.nextpnr.fpga.part`` in a
 project and ``flows.yosys_fpga.fpga.part`` in a design, fail before anything runs, naming both
 files and sections. A command-line leaf (``-s fpga.part=...`` or
 ``-s flows.yosys_fpga.fpga.part=...``) wins for the connected group, preserving unrelated leaves.

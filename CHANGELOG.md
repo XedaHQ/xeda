@@ -163,7 +163,7 @@ All notable changes to this project will be documented in this file.
 - A flow hands its tool only the source types it reads: Quartus no longer writes `XDC_FILE` or
   `MEMORYFILE_FILE` assignments, Vivado, Diamond, ISE and DC no longer add a source of a type
   they cannot use, and a language a flow cannot read is an error naming the source.
-- **Settings connected flows share (`fpga`, `board`, `custom_boards_file`, `clocks`) must agree**
+- **Settings connected flows share (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`) must agree**
   between `nextpnr` and `yosys_fpga`: different values in two places are an error naming both
   (the depending flow's value used to win silently); an explicit CLI leaf wins for
   both, preserving unrelated leaves. API overrides keep their highest-precedence origin.
