@@ -233,6 +233,11 @@ All notable changes to this project will be documented in this file.
   unmarked directory holding an earlier run of the same flow: the run root's marker makes
   everything under it xeda's. A leftover `.xeda-run-dir` is an ordinary file of the run
   directory.
+- **Breaking: `Design.from_toml`.** It only called `Design.from_file`, which reads a YAML, TOML or
+  JSON design by the file's format, so the name claimed a format it did not parse. Call
+  `Design.from_file` (same arguments); `Design.from_toml` is gone and raises `AttributeError`.
+  Bundled platform databases are TOML only, and `Platform.from_toml`, which does parse TOML,
+  stays.
 
 ### Added
 - **`xeda run` is make-like by default.** A flow re-runs only when something it consumed or produced

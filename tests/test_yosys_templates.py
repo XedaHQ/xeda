@@ -38,7 +38,7 @@ ATTRS: dict[str, Any] = {"keep": {"top": "true"}, "ram_style": {"mem": "block"}}
 
 
 def _render(flow_cls, settings: dict[str, Any], tmp_path: Path) -> str:
-    design = Design.from_toml(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
     flow = flow_cls(flow_cls.Settings(**settings), design, tmp_path)
     flow.init()  # registers the `esc` template filter and the netlist artifacts
     flow.artifacts.utilization_report = "reports/utilization.json"
@@ -170,7 +170,7 @@ def test_ys_leaves_plugin_and_flag_args_unquoted(tmp_path: Path) -> None:
     each command: its built-in frontends strip, but plugins (`ghdl`, `read_slang`,
     `read_systemverilog`) do not, and `-I<dir>` is one token parsed as a flag.
     """
-    design = Design.from_toml(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
     flow = YosysFpga(YosysFpga.Settings(**_fpga_settings()), design, tmp_path)
     flow.init()
     script = (
@@ -200,7 +200,7 @@ def test_tcl_template_keeps_legacy_escaping(tmp_path: Path) -> None:
 
 
 def test_script_format_selects_template_and_flag(tmp_path: Path) -> None:
-    design = Design.from_toml(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
     ys = YosysFpga(YosysFpga.Settings(**_fpga_settings()), design, tmp_path)
     tcl = YosysFpga(YosysFpga.Settings(**_fpga_settings(script_format="tcl")), design, tmp_path)
     assert (ys.script_ext, ys.script_flag) == (".ys", "-s")

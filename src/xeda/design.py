@@ -1499,10 +1499,10 @@ class DesignReference(XedaBaseModel):
         return DesignReference(**data)  # type: ignore
 
     def fetch_design(self) -> Design:
-        toml_path = Path(self.uri)
-        if not toml_path.exists():
-            raise ValueError(f"file {toml_path} does not exist!")
-        return Design.from_toml(toml_path)
+        design_path = Path(self.uri)
+        if not design_path.exists():
+            raise ValueError(f"file {design_path} does not exist!")
+        return Design.from_file(design_path)
 
 
 class GitReference(DesignReference):
@@ -1660,8 +1660,8 @@ class GitReference(DesignReference):
             log.info("Checking out branch: %s", self.branch)
             repo.git.checkout(self.branch)
 
-        toml_path = clone_dir / self.design_file
-        return Design.from_toml(toml_path)
+        design_path = clone_dir / self.design_file
+        return Design.from_file(design_path)
 
 
 DesignType = TypeVar("DesignType", bound="Design")
@@ -2013,23 +2013,6 @@ class Design(XedaBaseModel):
         if not self.design_root:
             raise ValueError("design_root is not set")
         return self.design_root
-
-    @classmethod
-    def from_toml(
-        cls: Type[DesignType],
-        design_file: Union[str, os.PathLike],
-        design_root: Union[str, os.PathLike, None] = None,
-        overrides: Optional[Dict[str, Any]] = None,
-        allow_extra: bool = False,
-        remove_extra: Optional[List[str]] = None,
-    ) -> DesignType:
-        return cls.from_file(
-            design_file,
-            design_root=design_root,
-            overrides=overrides,
-            allow_extra=allow_extra,
-            remove_extra=remove_extra,
-        )
 
     @classmethod
     def from_file(
