@@ -4,7 +4,9 @@
 Calls are JSON lines in the working directory, after every input has been opened.
 XEDA_FAKE_FPGA_TOOL optionally limits fault injection to one executable. MODE is
 partial, no-output, malformed-report, fail, or signal; DELAY is seconds before output.
-Only version/help probes bypass input validation and call recording.
+Only version/help probes bypass input validation and call recording. openFPGALoader answers
+its version as the real one does: `-V` or `--Version` (capital V) print `openFPGALoader v1.0.0`,
+and the conventional `--version` is rejected, so a flow that asks the wrong way gets no version.
 """
 
 import argparse
@@ -18,6 +20,11 @@ import time
 from pathlib import Path
 
 BITSTREAM = b"\x00\xffXEDA bitstream\x00"
+#: The shape of what openFPGALoader v1.1.1 prints for `-V`: one line on stdout, the version
+#: after a `v`.
+LOADER_VERSION = "openFPGALoader v1.0.0"
+#: ... and for `--version`, which it does not have (the message is the real one's).
+LOADER_NO_VERSION_OPTION = "Error parsing options: Option 'version' does not exist"
 NETLIST = {"creator": "fake yosys", "modules": {"top": {"ports": {}, "cells": {}}}}
 VALUE_OPTIONS = {
     "json",
@@ -354,6 +361,13 @@ def yosys(tool, args):
 def main():
     tool, args = Path(sys.argv[0]).name, sys.argv[1:]
     probe_args = [arg for arg in args if arg not in ("-T", "-Q")]
+    if tool == "openFPGALoader":
+        if probe_args in (["-V"], ["--Version"]):
+            print(LOADER_VERSION)
+            return 0
+        if probe_args == ["--version"]:
+            print(LOADER_NO_VERSION_OPTION, file=sys.stderr)
+            return 1
     if probe_args in (["--version"], ["-V"], ["--help"], ["-h"]):
         if tool.startswith("nextpnr-"):
             print(

@@ -18,6 +18,7 @@ from xeda.flow import FlowSettingsError, FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Openfpgaloader
+from xeda.flows.openfpgaloader import OpenfpgaloaderTool
 
 from . import tool_utils
 
@@ -108,7 +109,30 @@ def test_the_loader_is_a_tool_of_its_flow_like_any_other(tmp_path, fake_loader):
     assert "ofpga_loader" not in vars(Openfpgaloader)
     flow = _program(tmp_path, _prebuilt(tmp_path), {"fpga": ECP5})
     assert [tool["executable"] for tool in flow.results["tools"]] == ["openFPGALoader"]
-    assert len(_calls(tmp_path, "openfpgaloader")) == 1  # programmed once: no other invocation
+    # the call record holds the one programming call: the fake answers the version query
+    # without recording it
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"][0] == "--bitstream"
+
+
+def test_the_loader_records_its_version_in_the_results(tmp_path, fake_loader):
+    """The programmer is asked for its version, which makes a programming run reproducible;
+    through the fake, which answers `-V` (capital V) as openFPGALoader v1.1.1 does and
+    rejects `--version`, so a flow asking the wrong way would record an empty version."""
+    flow = _program(tmp_path, _prebuilt(tmp_path), {"fpga": ECP5})
+    expected = [{"executable": "openFPGALoader", "version": "1.0.0"}]
+    assert flow.results["tools"] == expected
+    results = json.loads((tmp_path / "run/top/openfpgaloader/results.json").read_text())
+    assert results["tools"] == expected
+
+
+def test_the_loader_is_asked_for_its_version_with_a_capital_v():
+    """openFPGALoader v1.1.1 lists `-V, --Version` and rejects `--version`. Pinned without
+    starting anything: a tool made outside a flow queries nothing until its version is read."""
+    tool = OpenfpgaloaderTool()
+    assert (tool.executable, tool.version_flag) == ("openFPGALoader", ["-V"])
+    # the one line a real v1.1.1 prints for it
+    assert tool.process_version_output("openFPGALoader v1.1.1\n") == ("1", "1", "1")
 
 
 def test_a_base_class_reason_to_always_run_comes_first(tmp_path, monkeypatch):
@@ -498,6 +522,16 @@ def test_a_launch_without_the_fake_reaches_the_sentinel_not_a_programmer(
         pass
     assert flow is None or not flow.succeeded
     assert programmer_guard.reached()  # the sentinel ran (and the marker is taken back)
+
+
+def test_a_version_query_without_the_fake_reaches_the_sentinel_too(programmer_guard):
+    """The guard does not excuse the flow's version query: against anything but the fake, that
+    start is a loader started by a test, whatever it asks. The fake never touches the guard, so
+    the query the flow makes under it costs nothing -- and a loader reached without it, even
+    for `-V`, is the same `PATH` that would program on the next call."""
+    assert shutil.which("openFPGALoader") == str(programmer_guard.sentinel)
+    assert OpenfpgaloaderTool().version_output is None  # the sentinel exits 97: no version
+    assert programmer_guard.reached()  # ... and the guard saw it (the marker is taken back)
 
 
 def test_the_guard_refuses_a_path_that_selects_another_loader(tmp_path, programmer_guard):

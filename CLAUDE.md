@@ -1151,6 +1151,12 @@ while it is open). A flow sharing
   of it; child processes and the popen remote worker inherit it) and fails a test that started
   it or whose final `PATH` selects any loader but the fake or the sentinel. Loader tests still
   assert on the fake's call record. Never run a real `openFPGALoader` from a test or a probe.
+  The flow starts the loader twice, once for its version (`-V`, capital V: it has no `--version`,
+  and the fake rejects that spelling as the real one does, so a flow asking the wrong way records
+  an empty version) and once to program. The guard keys on identity, never on a count: the fake
+  answers both starts and never touches it, while the same query against the sentinel or any other
+  loader fails the test like the programming call would (no sentinel answers `-V`: a loader
+  reached without the fake is the `PATH` that would program on the next call).
 - Formatting is inconsistent by design: `black` (line-length 100) is enforced on `src/` only; `ruff`
   (line-length 120, `target-version = "py311"`) checks the whole repo.
 

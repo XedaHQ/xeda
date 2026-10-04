@@ -1,6 +1,7 @@
 import logging
+import re
 from pathlib import Path
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -13,6 +14,23 @@ from ..tool import Tool
 __all__ = ["Openfpgaloader"]
 
 log = logging.getLogger(__name__)
+
+
+class OpenfpgaloaderTool(Tool):
+    """openFPGALoader, whose version flag is spelled with a capital V.
+
+    `openFPGALoader --help` lists `-V, --Version   Print program version`, and the conventional
+    `--version` is rejected (`Error parsing options: Option 'version' does not exist`), so the
+    generic `Tool` flag would record an empty version. The query prints one line on stdout,
+    `openFPGALoader v1.1.1`, which `Tool`'s default patterns do not match (the fallback would
+    keep the leading `v`). Asking for the version touches no device.
+    """
+
+    executable: str = "openFPGALoader"
+    version_flag: Optional[List[str]] = ["-V"]
+    version_regexps: List[Union[re.Pattern[str], str]] = [
+        r"\bopenFPGALoader\s+v?(?P<version>\d+(?:\.\d+)+)"
+    ]
 
 
 _BOOL = TypeAdapter(bool)
@@ -158,6 +176,7 @@ class Openfpgaloader(FpgaSynthFlow):
             if value is not None:
                 args.extend([f"--{name.replace('_', '-')}", str(value)])
         args.extend(ss.extra_args)
-        # made here, in the flow, so it takes the flow's settings and is listed in the results;
-        # without a version query: the programmer is started once, to program
-        Tool("openFPGALoader", version_flag=None).run(*args)
+        # made here, in the flow, so it takes the flow's settings and is listed in the results,
+        # with the version it reports: the loader is started twice, once to ask for its version
+        # and once to program
+        OpenfpgaloaderTool().run(*args)

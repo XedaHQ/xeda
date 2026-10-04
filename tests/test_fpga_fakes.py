@@ -79,12 +79,36 @@ def test_fake_yosys_resolves_library_pseudo_paths_from_install_prefix(tmp_path, 
     ]
 
 
-@pytest.mark.parametrize("name", TOOLS)
-@pytest.mark.parametrize("probe", ["--version", "--help"])
+def _probes():
+    for name in TOOLS:
+        # openFPGALoader has no `--version`: its flag is `-V` / `--Version`, capital V
+        version = ("-V", "--Version") if name == "openFPGALoader" else ("--version",)
+        for probe in (*version, "--help"):
+            yield name, probe
+
+
+@pytest.mark.parametrize("name,probe", list(_probes()))
 def test_probes_do_not_build_or_record_an_action(name, probe, tmp_path):
     result = _run(name, [probe], tmp_path)
     assert result.returncode == 0, result.stderr
     assert result.stdout or result.stderr
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("flag", ["-V", "--Version"])
+def test_the_loader_prints_its_version_as_the_real_one_does(flag, tmp_path):
+    """One line on stdout, the version after a `v` (openFPGALoader v1.1.1 prints
+    `openFPGALoader v1.1.1`)."""
+    result = _run("openFPGALoader", [flag], tmp_path)
+    assert (result.returncode, result.stdout, result.stderr) == (0, b"openFPGALoader v1.0.0\n", b"")
+
+
+def test_the_loader_rejects_the_lowercase_version_option_as_the_real_one_does(tmp_path):
+    """A flow that asks `openFPGALoader --version` must get no version from the fake either:
+    a fake that answered it would let that mistake pass every test."""
+    result = _run("openFPGALoader", ["--version"], tmp_path)
+    assert result.returncode != 0 and not result.stdout
+    assert b"Option 'version' does not exist" in result.stderr
     assert not list(tmp_path.iterdir())
 
 
