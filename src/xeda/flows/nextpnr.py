@@ -792,25 +792,28 @@ class Nextpnr(FpgaSynthFlow):
 
     def _constraint_diagnostic(self, errors: list[str]) -> str | None:
         """Translate the constraint-file lines among nextpnr's `errors` to their origins. A
-        warning is never a failure's cause: the parsers warn about options they ignore."""
+        warning is never a failure's cause: the parsers warn about options they ignore. Each
+        line is attributed on its own: by the file it names, else (nextpnr's parsers also emit
+        an unqualified '(on line N)') by the only constraint input there is. With several
+        inputs its origin is unknown and the line is reported without a file. Python hook
+        tracebacks ('File ... line N') are never constraint-file diagnostics."""
         messages = []
-        current = None
         for line in errors:
+            source = None
             if "constraints.sdc" in line:
-                current = self._sdc_constraints
+                source = self._sdc_constraints
             elif f"constraints.{self._constraint_kind()}" in line:
-                current = self._pin_constraints
-            # nextpnr's constraint parsers also emit an unqualified '(on line N)'.
-            # Without a named file or a unique input, its origin is ambiguous. Python hook
-            # tracebacks ('File ... line N') are never constraint-file diagnostics.
-            parser_line = re.search(r"\(on line\s+\d+\)", line, re.IGNORECASE)
-            if parser_line and current is None:
+                source = self._pin_constraints
+            elif re.search(r"\(on line\s+\d+\)", line, re.IGNORECASE):
                 candidates = [m for m in (self._pin_constraints, self._sdc_constraints) if m.text]
                 if len(candidates) == 1:
-                    current = candidates[0]
-            named = "constraints.sdc" in line or f"constraints.{self._constraint_kind()}" in line
-            if current is not None and (named or parser_line):
-                translated = current.diagnostic(line)
+                    source = candidates[0]
+                elif candidates:
+                    unknown = line.strip().removeprefix("ERROR:").strip()
+                    messages.append(f"{unknown} (in the pin or the SDC input; nextpnr does not say which)")
+                    continue
+            if source is not None:
+                translated = source.diagnostic(line)
                 if translated != line:
                     messages.append(translated)
         return "\n".join(messages) if messages else None
