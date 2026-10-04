@@ -107,7 +107,7 @@ chain leading to it.
     openroad        ->  yosys
 
 A dependency runs in its own run directory, a sibling of the flow that launched it. Its settings
-are its own section's (``[flows.yosys_fpga]``), set from the command line with
+are its own section's (``flows.yosys_fpga``), set from the command line with
 ``-s flows.<flow>.<setting>``. For example, to change how the synthesis stage behaves while
 running ``openfpgaloader``::
 
@@ -216,9 +216,9 @@ Yosys netlist alone does not establish an improvement in routed Fmax.
 
 For example, include ``{ file = "pins.pcf", type = "Pcf" }`` in ``rtl.sources``, then::
 
-        xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
-          -s clock.period=20 -s seed=2
-        xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
+    xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
+      -s clock.period=20 -s seed=2
+    xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
 
 Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
 ``fpga_pack --json`` or ``openfpgaloader --json`` to inspect all named settings.
@@ -314,10 +314,10 @@ What is not noticed: an in-place change of the installed Project X-Ray database 
 ``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads
 from its own installation are not inputs; ``--rebuild-all`` runs everything).
 
-The ``open_xc7`` flow was removed. Running it, or keeping a ``[flows.open_xc7]`` section in a
+The ``open_xc7`` flow was removed. Running it, or keeping a ``flows.open_xc7`` section in a
 design or project file, fails with "``open_xc7`` was removed: use fpga_pack to build,
-openfpgaloader to program". Move its ``nextpnr`` settings to ``[flows.nextpnr]``, its synthesis
-settings to ``[flows.yosys_fpga]``, and pin files into ``rtl.sources``. ``openfpgaloader``'s
+openfpgaloader to program". Move its ``nextpnr`` settings to ``flows.nextpnr``, its synthesis
+settings to ``flows.yosys_fpga``, and pin files into ``rtl.sources``. ``openfpgaloader``'s
 former ``nextpnr``, ``packer_args`` and ``bitstream_file`` settings are removed the same way:
 use the ``nextpnr`` and ``fpga_pack`` sections, and a ``Bitstream`` source for a prebuilt file.
 ``xeda scrub open_xc7 <design>`` still removes the run directories the removed flow left.
