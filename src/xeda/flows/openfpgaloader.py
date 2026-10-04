@@ -3,8 +3,6 @@ import re
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Union
 
-from pydantic import TypeAdapter, ValidationError
-
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
 from ..design import SourceType
@@ -33,17 +31,12 @@ class OpenfpgaloaderTool(Tool):
     ]
 
 
-_BOOL = TypeAdapter(bool)
-
-
 def _switched_on(value: Any) -> bool:
-    """Whether a Boolean setting's input, still as given, turns it on: what pydantic's own
-    Boolean validation makes of it. Input that is no Boolean at all is not on; its field's
-    validation rejects it."""
-    try:
-        return _BOOL.validate_python(value)
-    except ValidationError:
-        return False
+    """Whether a Boolean setting's input, still as given, turns it on, as the setting itself
+    reads it: a boolean, or `true` as text (how a command line writes one). `yes`, `on` and
+    numbers are no boolean, so they are not on here; the setting's own validation refuses them,
+    saying what to write."""
+    return value is True or (isinstance(value, str) and value.lower() == "true")
 
 
 class Openfpgaloader(FpgaSynthFlow):
@@ -114,8 +107,9 @@ class Openfpgaloader(FpgaSynthFlow):
             after loading SRAM. Checked on the whole input -- on an assignment, the whole
             state with the assigned value -- before anything is stored, so the order the two
             settings are given or assigned in does not matter and a refused assignment leaves
-            the settings as they were. Each value is read as its field will read it (a
-            design file's `1` or `"yes"` is true), and nothing is rewritten here."""
+            the settings as they were. Each value is read as its field will read it (`true` as
+            text is true; `1` and `"yes"` are no boolean, and the field refuses them), and
+            nothing is rewritten here."""
             if _switched_on(values.get("verify")) and not _switched_on(values.get("write_flash")):
                 raise ValueError(
                     "verify checks the flash openFPGALoader wrote: it needs write_flash=true "
