@@ -1,0 +1,30 @@
+name: 'trivium'
+language:
+  vhdl:
+    standard: '2008'
+rtl:
+  sources:
+    - 'trivium.vhdl'
+  parameters:
+    G_IN_BITS: 64
+    G_OUT_BITS: 64 # 96
+    # G_SETUP_ROUNDS: 4 (the HDL default)
+  top: 'trivium'
+  clock:
+    port: 'clk'
+tb:
+  sources:
+    - 'trivium_tb.py'
+    - 'cref/trivium64.c'
+  cocotb: true
+flow:
+  vivado_synth:
+    fpga:
+      part: 'xc7a12tcsg325-3'
+    clock:
+      freq: '200 MHz'
+  yosys_fpga:
+    fpga:
+      part: 'xc7a12tcsg325-3'
+    clock:
+      freq: '200 MHz'

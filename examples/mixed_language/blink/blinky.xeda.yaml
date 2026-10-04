@@ -1,0 +1,25 @@
+rtl:
+  sources:
+    - 'blink.sv'
+  top: 'blink'
+  # clocks: [{port: clk}]
+  clock:
+    port: 'clk'
+tb:
+  sources:
+    - 'blink_tb.cpp'
+flows:
+  yosys_sim:
+    cxxrtl:
+      filename: 'blink.cpp'
+  yosys_fpga:
+    fpga:
+      vendor: 'xilinx'
+      family: 'xc7'
+    clock:
+      period: 5.0
+  vivado_synth:
+    fpga:
+      part: 'xc7a100tftg256-2L'
+    clock:
+      period: 5.0

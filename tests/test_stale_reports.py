@@ -40,7 +40,7 @@ SOURCES = {"bsc": (["Top.bsv"], "mkTop"), "bsc_sim": (["Top.bsv"], "mkTop")}
 def _design_directory(work: Path) -> Path:
     """The design's own directory: the sqrt design plus the bsc/bsc_sim sources."""
     work.mkdir(parents=True)
-    for name in ("sqrt.vhdl", "sqrt.toml", "tb_sqrt.py"):
+    for name in ("sqrt.vhdl", "sqrt.yaml", "tb_sqrt.py"):
         shutil.copy(SQRT / name, work / name)
     (work / "Top.bsv").write_text("module mkTop(Empty); endmodule\n")
     (work / "Tb.bsv").write_text("module mkTb(Empty); endmodule\n")

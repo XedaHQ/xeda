@@ -21,7 +21,7 @@ from xeda.run_root import ensure_run_root
 
 from .tool_utils import use_fake_tools
 
-EXAMPLE = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.toml"
+EXAMPLE = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
 
 
 @pytest.mark.parametrize("as_box", [False, True])

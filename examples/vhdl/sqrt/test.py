@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 
-design = Design.from_toml(SCRIPT_DIR / "sqrt.toml")
+design = Design.from_file(SCRIPT_DIR / "sqrt.yaml")
 xeda_runner = DefaultRunner()
 
 

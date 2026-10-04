@@ -168,6 +168,6 @@ def test_repeated_eat_all_option_accumulates():
 
 def test_the_examples_still_load():
     """The sweep above must not have been satisfied by rejecting everything."""
-    design = Design.from_toml(Path(__file__).parent.parent / "examples/vhdl/sqrt/sqrt.toml")
+    design = Design.from_file(Path(__file__).parent.parent / "examples/vhdl/sqrt/sqrt.yaml")
 
     assert design.rtl.sources

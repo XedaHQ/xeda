@@ -18,7 +18,7 @@ from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.run_dir import RunDirectoryError
 
-EXAMPLE = "examples/vhdl/sqrt/sqrt.toml"
+EXAMPLE = "examples/vhdl/sqrt/sqrt.yaml"
 
 
 @pytest.fixture(scope="module")

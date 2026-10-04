@@ -262,7 +262,7 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
 ):
     """A run whose inputs did not change is reused, not repeated -- also when xeda is started
     from another directory, which used to change the settings' hash."""
-    design = Design.from_toml(SQRT / "sqrt.toml")
+    design = Design.from_file(SQRT / "sqrt.yaml")
     settings = {"fpga": "xc7a12tcsg325-1", "clock_period": 5.5}
     runner = DefaultRunner(tmp_path / "xeda_run")
 
@@ -280,7 +280,7 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
 def test_a_run_never_modifies_its_input_settings(tmp_path, fake_tools):
     """The flow completes a copy of its own; the input it was launched with -- what identifies
     and records the run -- is never modified, whatever the flow does to its copy."""
-    design = Design.from_toml(SQRT / "sqrt.toml")
+    design = Design.from_file(SQRT / "sqrt.yaml")
     given = VivadoSynth.Settings.from_input(
         {"fpga": "xc7a12tcsg325-1", "clock_period": 5.5, "bitstream": "sqrt.bit"},
         design_root=design.root_path,
@@ -298,7 +298,7 @@ def test_a_run_never_modifies_its_input_settings(tmp_path, fake_tools):
 
 
 def test_a_recorded_settings_json_is_a_rerunnable_input(tmp_path, fake_tools):
-    design = Design.from_toml(SQRT / "sqrt.toml")
+    design = Design.from_file(SQRT / "sqrt.yaml")
     flow = DefaultRunner(tmp_path / "xeda_run").run_flow(
         VivadoSynth, design, {"fpga": "xc7a12tcsg325-1", "clock_period": 5.5}
     )

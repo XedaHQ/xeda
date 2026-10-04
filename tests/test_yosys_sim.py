@@ -270,7 +270,7 @@ def test_driver_monitor_paths_use_the_execution_environment(tmp_path, monkeypatc
 def test_yosys_sim_runs_the_cxxrtl_example(tmp_path):
     require_yosys()
     require_c_toolchain()
-    example = Path(__file__).parent.parent / "examples/mixed_language/blink/blinky.xeda.toml"
+    example = Path(__file__).parent.parent / "examples/mixed_language/blink/blinky.xeda.yaml"
     design = Design.from_file(example)
     flow = DefaultRunner(tmp_path).run_flow(YosysSim, design, {"cxxrtl": {"filename": None}})
     assert flow is not None and flow.succeeded

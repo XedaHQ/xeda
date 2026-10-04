@@ -553,14 +553,14 @@ def test_a_cocotb_simulation_leaves_the_design_directory_as_it_was(
     require()
     design_dir = tmp_path / "sqrt"
     design_dir.mkdir()
-    for name in ("sqrt.toml", "sqrt.vhdl", "tb_sqrt.py"):
+    for name in ("sqrt.yaml", "sqrt.vhdl", "tb_sqrt.py"):
         shutil.copy(SQRT / name, design_dir / name)
     monkeypatch.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
     monkeypatch.delenv("PYTHONPYCACHEPREFIX", raising=False)
     monkeypatch.chdir(design_dir)
     root = design_dir / "xeda_run"
     before = _state(tmp_path, [root])
-    result = CliRunner().invoke(cli, ["run", flow, "sqrt.toml", "--json"])
+    result = CliRunner().invoke(cli, ["run", flow, "sqrt.yaml", "--json"])
     assert result.exit_code == 0, result.output
     assert _state(tmp_path, [root]) == before
     assert list(root.rglob("tb_sqrt.*.pyc")), "the testbench ran, its bytecode cached by xeda"
@@ -568,11 +568,11 @@ def test_a_cocotb_simulation_leaves_the_design_directory_as_it_was(
 
 def test_the_command_line_changes_nothing_outside_the_run_root(tmp_path, monkeypatch):
     world = _world(tmp_path)
-    shutil.copy(SQRT / "sqrt.toml", world.work / "sqrt.toml")
+    shutil.copy(SQRT / "sqrt.yaml", world.work / "sqrt.yaml")
     before = _state(world.parent, [world.root])
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(world.work)
-    args = ["run", "vivado_synth", "sqrt.toml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
+    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
     for extra in (["--clean"], ["--post-cleanup"], []):
         with watching(world) as violations:
             result = CliRunner().invoke(cli, [*args, *extra])

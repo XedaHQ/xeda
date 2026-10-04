@@ -20,7 +20,7 @@ def sqrt(tmp_path, monkeypatch):
     """The example design, read in place; runs land in `tmp_path/xeda_run`."""
     monkeypatch.setenv("PATH", str(FAKE_TOOLS) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(tmp_path)
-    return SQRT / "sqrt.toml"
+    return SQRT / "sqrt.yaml"
 
 
 def _run(*args):

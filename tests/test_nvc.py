@@ -21,9 +21,9 @@ debug = False
 def test_nvc_sim_py(tmp_path: Path) -> None:
     require_nvc_evidence()
     design_paths = [
-        EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml",
-        EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium.xeda.yaml",
-        EXAMPLES_DIR / "vhdl" / "pipeline" / "pipelined_adder.toml",
+        EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml",
+        EXAMPLES_DIR / "vhdl" / "Trivium" / "trivium-dc.xeda.yaml",
+        EXAMPLES_DIR / "vhdl" / "pipeline" / "pipelined_adder.yaml",
     ]
     run_dir = tmp_path / "xeda_run"
     for design in design_paths:

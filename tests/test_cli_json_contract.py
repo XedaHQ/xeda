@@ -16,7 +16,7 @@ import pytest
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 FAKE_TOOLS_DIR = TESTS_DIR / "fake_tools"
-SQRT = EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml"
+SQRT = EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml"
 
 
 def run_xeda(*args: str, cwd=None, fake_tools: bool = False) -> subprocess.CompletedProcess:

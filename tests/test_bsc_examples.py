@@ -31,7 +31,7 @@ from .tool_utils import (
 )
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "bluespec"
-EXAMPLES = sorted(EXAMPLES_DIR.glob("*/*.toml"))
+EXAMPLES = sorted(EXAMPLES_DIR.glob("*/*.yaml"))
 SIMULATORS = ("bluesim", "verilator", "iverilog")
 
 

@@ -25,7 +25,7 @@ import yaml
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 FAKE_TOOLS_DIR = TESTS_DIR / "fake_tools"
-SQRT_DESIGN = EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml"
+SQRT_DESIGN = EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml"
 
 QUERY_COMMANDS = [
     ["list-flows"],
@@ -67,7 +67,7 @@ def test_cwd_with_remote_is_a_removed_option_under_json():
     proc = run_xeda(
         "run",
         "vivado_synth",
-        "sqrt.toml",
+        "sqrt.yaml",
         "--cwd",
         "--remote",
         "nohost",
@@ -242,7 +242,7 @@ def test_run_json_reports_failures_as_json_and_a_nonzero_exit(tmp_path):
 def test_failed_run_document_includes_an_error():
     from xeda.cli import _run_document
 
-    document = _run_document("vivado_synth", "sqrt.toml", None, False)
+    document = _run_document("vivado_synth", "sqrt.yaml", None, False)
     assert document["success"] is False
     assert document["error"]["type"] == "FlowFailed"
 

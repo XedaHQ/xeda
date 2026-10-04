@@ -1,0 +1,38 @@
+design:
+  - name: 'blinky'
+    description: 'Running LEDs on the ULX3S board'
+    rtl:
+      sources:
+        - 'blinky.v'
+      top: 'blinky'
+      clock:
+        port: 'clk_25mhz'
+  - name: 'blinky-vhdl'
+    description: 'LED chaser on ULX3S'
+    language:
+      vhdl:
+        standard: 2008
+    rtl:
+      sources:
+        - 'ecp5pll.vhdl'
+        - 'blinky.vhdl'
+      top: 'blinky'
+      clock:
+        port: 'clk_25mhz'
+flows:
+  openfpgaloader:
+    board: 'ULX3S_85F'
+    clock:
+      period: 40 # 25 MHz
+    nextpnr:
+      detailed_timing_report: false
+      timing_allow_fail: true
+  nextpnr:
+    board: 'ULX3S_85F'
+    clock:
+      period: 40 # 25 MHz
+  yosys_fpga:
+    fpga:
+      family: 'ecp5'
+    clock:
+      period: 40

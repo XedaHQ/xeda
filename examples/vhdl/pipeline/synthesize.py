@@ -8,7 +8,7 @@ def quartus_synth():
             "run",
             "quartus",
             "--design",
-            "pipelined_adder.toml",
+            "pipelined_adder.yaml",
             "--settings",
             "dockerized=true",
             "fpga.part=10CL016YU256C6G",

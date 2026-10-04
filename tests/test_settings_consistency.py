@@ -358,7 +358,7 @@ def test_copying_generics_between_rtl_and_tb_reaches_the_parameters_spelling():
     `tb.generics`, so leaving the sibling stale dropped every generic from the elaboration.
     """
     design = Design.from_toml(
-        Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.toml"
+        Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
     )
     design.rtl.parameters = {"G_IN_WIDTH": 32}
     design.tb.parameters = {"G_IN_WIDTH": 8}  # the testbench's own, about to be superseded

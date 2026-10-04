@@ -52,7 +52,7 @@ def test_vivado_synth_py(tmp_path: Path) -> None:
     os.environ["PATH"] = (
         os.path.join(TESTS_DIR, "fake_tools") + os.pathsep + os.environ.get("PATH", "")
     )
-    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
     xeda_runner = DefaultRunner(tmp_path / "xeda_run", debug=True)
     flow = xeda_runner.run_flow(VivadoSynth, design, settings)
@@ -146,7 +146,7 @@ def test_vivado_s_version_probe_does_not_make_vivado_synth_stale(tmp_path, monke
     from .tool_utils import use_fake_tools
 
     use_fake_tools(monkeypatch)
-    design = Design.from_toml(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.toml")
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock=dict(period=5.5))
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     first = runner.launch_flow(VivadoSynth, design, settings)

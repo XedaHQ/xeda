@@ -72,7 +72,7 @@ def test_machine_readable_mode_does_not_leak_between_invocations():
     assert "vivado_synth" in _output(second), "human-facing output went to the previous stream"
 
 
-SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.toml"
+SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
 FAKE_TOOLS = Path(__file__).parent / "fake_tools"
 
 

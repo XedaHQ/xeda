@@ -21,6 +21,7 @@ from xeda.flows import Nextpnr, Openfpgaloader, YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
 from xeda.tool import Tool
 
+from .project_files import PROJECT_FILE
 from .settings_samples import flow_classes, minimal_settings
 
 PART = "LFE5U-25F-6BG381C"
@@ -181,7 +182,9 @@ def _files(tmp_path: Path, nextpnr_part: str, yosys_part: str) -> Path:
     root = tmp_path / "d"
     root.mkdir()
     (root / "blink.v").write_text(BLINK)
-    (tmp_path / "xedaproject.toml").write_text(f'[flows.nextpnr]\nfpga.part = "{nextpnr_part}"\n')
+    (tmp_path / PROJECT_FILE).write_text(
+        f"flows:\n  nextpnr:\n    fpga: {{part: {nextpnr_part}}}\n"
+    )
     design_file = root / "blink.toml"
     design_file.write_text(
         'name = "blink"\n[rtl]\nsources = ["blink.v"]\ntop = "blink"\nclock.port = "clk"\n'
@@ -197,7 +200,7 @@ def test_devices_that_differ_in_two_files_are_an_error_naming_both(tmp_path, mon
     with pytest.raises(FlowSettingsError) as raised:
         _runner(tmp_path, monkeypatch).run("nextpnr", str(design_file))
     message = str(raised.value)
-    for text in (PART, OTHER_PART, str(tmp_path / "xedaproject.toml"), str(design_file)):
+    for text in (PART, OTHER_PART, str(tmp_path / PROJECT_FILE), str(design_file)):
         assert text in message, text
     assert not (tmp_path / "xeda_run").exists(), "nothing ran"
 
@@ -361,10 +364,10 @@ def test_ecp5_out_of_context_has_no_configuration(tmp_path, monkeypatch, tools):
 @pytest.mark.parametrize("cli_leaf", ["fpga.part", "flows.yosys_fpga.fpga.part"])
 def test_cli_device_leaf_preserves_nested_origins(tmp_path, monkeypatch, tools, cli_leaf):
     design_file = _files(tmp_path, OTHER_PART, PART)
-    project = tmp_path / "xedaproject.toml"
+    project = tmp_path / PROJECT_FILE
     project.write_text(
         project.read_text()
-        + "clock.period = 10\nyosys.netlist_src_attrs = false\nyosys.flatten = true\n"
+        + "    clock: {period: 10}\n    yosys: {netlist_src_attrs: false, flatten: true}\n"
     )
     design_file.write_text(
         design_file.read_text()
@@ -572,7 +575,7 @@ def test_cli_device_conflict_names_both_files_and_override_wins(tmp_path, cli_le
     )
     assert refused.returncode != 0
     message = json.loads(refused.stdout)["error"]["message"]
-    for text in (PART, OTHER_PART, str(spec), str(tmp_path / "xedaproject.toml")):
+    for text in (PART, OTHER_PART, str(spec), str(tmp_path / PROJECT_FILE)):
         assert text in message
     assert not (tmp_path / "xeda_run").exists()
     ran = subprocess.run(

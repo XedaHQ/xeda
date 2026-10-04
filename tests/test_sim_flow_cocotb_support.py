@@ -33,7 +33,7 @@ def cocotb_design(tmp_path):
     """`examples/vhdl/sqrt`, whose testbench is cocotb's (`tb.cocotb = true`)."""
     root = tmp_path / "design"
     shutil.copytree(SQRT, root, ignore=shutil.ignore_patterns("__pycache__", "xeda_run"))
-    design = Design.from_file(root / "sqrt.toml")
+    design = Design.from_file(root / "sqrt.yaml")
     assert design.tb.cocotb
     return design
 
