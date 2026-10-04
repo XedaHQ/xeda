@@ -32,9 +32,12 @@ from xeda.flow import FlowException, FlowSettingsError
 from xeda.flow_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteIncompatible, RemoteRunner
+from xeda.flow_runner.default_runner import ProjectFileError
 from xeda.flow_runner.run_lock import lock_file
 from xeda.run_root import RunRootError, ensure_run_root, is_run_root
+from xeda.xedaproject import PROJECT_FILE_NAMES
 
+from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
 from .tool_utils import require_ghdl
 
 TESTS_DIR = Path(__file__).parent.absolute()
@@ -409,7 +412,7 @@ EXAMPLE_DESIGNS = sorted(
     p
     for p in (TESTS_DIR.parent / "examples").rglob("*")
     if p.suffix in (".toml", ".yaml", ".yml")
-    and p.name != "xedaproject.toml"
+    and not p.name.startswith("xedaproject.")
     and "xeda_run" not in p.parts
 )
 
@@ -453,7 +456,7 @@ def test_a_git_dependency_is_archived_as_a_p2a_remote_reads_it(local_cache, tmp_
     assigned afterwards is shipped for the remote to fetch, in the form P2a reads."""
     monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
     design = Design.from_file(_sqrt_design(tmp_path / "design"))
-    reference = {"uri": "https://example.com/org/repo.git?branch=dev#design.toml"}
+    reference = {"uri": "https://example.com/org/repo.git?branch=dev#design.yaml"}
     if local_cache is not None:
         reference["local_cache"] = str(tmp_path / local_cache)
     design.dependencies = [GitReference(**reference)]
@@ -534,14 +537,16 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
     (design_root / "rom.mem").write_text("00 11\n")
-    (design_root / "sqrt.toml").write_text(
-        'name = "sqrt"\n'
-        "[rtl]\n"
-        'sources = ["sqrt.vhdl"]\n'
-        'top = "sqrt"\n'
-        'clock.port = "clk"\n'
-        "[rtl.parameters]\n"
-        'G_IN_WIDTH = 32\nROM = { file = "rom.mem" }\nTRACE = { path = "out/trace.txt" }\n'
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\n"
+        "rtl:\n"
+        "  sources: [sqrt.vhdl]\n"
+        "  top: sqrt\n"
+        "  clock: {port: clk}\n"
+        "  parameters:\n"
+        "    G_IN_WIDTH: 32\n"
+        "    ROM: {file: rom.mem}\n"
+        "    TRACE: {path: out/trace.txt}\n"
     )
     # deliberately not under the start directory
     local_run_dir = ensure_run_root(tmp_path / "local" / "xeda_run")
@@ -553,7 +558,7 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
 
     def run_remote():
         return RemoteRunner(local_run_dir).run_remote(
-            design_root / "sqrt.toml",
+            design_root / "sqrt.yaml",
             "vivado_synth",
             host="somewhere",
             flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
@@ -619,11 +624,11 @@ def _run_vivado_alt_synth_with_netlist(tmp_path: Path) -> dict | None:
     design_root = tmp_path / "design"
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
-    (design_root / "sqrt.toml").write_text(
-        'name = "sqrt"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\nclock.port = "clk"\n'
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl:\n  sources: [sqrt.vhdl]\n  top: sqrt\n  clock: {port: clk}\n"
     )
     return RemoteRunner(tmp_path / "local" / "xeda_run").run_remote(
-        design_root / "sqrt.toml",
+        design_root / "sqrt.yaml",
         "vivado_alt_synth",
         host="somewhere",
         flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0", "write_netlist=true"],
@@ -724,12 +729,12 @@ def test_a_failed_remote_run_does_not_fetch_an_earlier_runs_output(
     design_root = tmp_path / "design"
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
-    (design_root / "sqrt.toml").write_text(
-        'name = "sqrt"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\nclock.port = "clk"\n'
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl:\n  sources: [sqrt.vhdl]\n  top: sqrt\n  clock: {port: clk}\n"
     )
 
     results = RemoteRunner(tmp_path / "local" / "xeda_run").run_remote(
-        design_root / "sqrt.toml",
+        design_root / "sqrt.yaml",
         "vivado_synth",
         host="somewhere",
         flow_settings=[
@@ -778,7 +783,7 @@ def test_the_remote_vouches_only_for_what_its_failed_run_wrote(remote, tmp_path,
     outside.write_text("an earlier run's\n")
     monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
     zip_file, design_file = remote_module.send_design(
-        Design.from_file(SQRT / "sqrt.toml"), _LocalConnection("somewhere"), str(remote_path)
+        Design.from_file(SQRT / "sqrt.yaml"), _LocalConnection("somewhere"), str(remote_path)
     )
     if remote != "this xeda":
         monkeypatch.setattr(default_runner, "_drop_unwritten_artifacts", id)
@@ -870,15 +875,15 @@ def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remo
         "  end process;\n"
         "end;\n"
     )
-    (design_root / "d.toml").write_text(
-        'name = "d"\nlanguage.vhdl.standard = "2008"\n'
-        '[rtl]\nsources = ["dut.vhd"]\ntop = "dut"\n'
-        '[tb]\nsources = ["tb.vhd"]\ntop = "tb"\n'
-        '[tb.parameters]\nROM = { file = "rom.mem" }\nTRACE = { path = "trace.txt" }\n'
+    (design_root / "d.yaml").write_text(
+        "name: d\nlanguage: {vhdl: {standard: '2008'}}\n"
+        "rtl: {sources: [dut.vhd], top: dut}\n"
+        "tb:\n  sources: [tb.vhd]\n  top: tb\n"
+        "  parameters: {ROM: {file: rom.mem}, TRACE: {path: trace.txt}}\n"
     )
 
     results = RemoteRunner(tmp_path / "local" / "xeda_run").run_remote(
-        design_root / "d.toml", "ghdl_sim", host="somewhere"
+        design_root / "d.yaml", "ghdl_sim", host="somewhere"
     )
 
     assert results and results["success"], results
@@ -906,13 +911,13 @@ def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
     design_root = tmp_path / "design"
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
-    (design_root / "sqrt.toml").write_text(
-        'name = "sqrt"\nlanguage.vhdl.standard = "2008"\n'
-        '[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\n'
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nlanguage: {vhdl: {standard: '2008'}}\n"
+        "rtl: {sources: [sqrt.vhdl], top: sqrt}\n"
     )
 
     results = RemoteRunner(tmp_path / "local" / "xeda_run").run_remote(
-        design_root / "sqrt.toml",
+        design_root / "sqrt.yaml",
         "ghdl_synth",
         host="somewhere",
         flow_settings=["verilog_output=vout"],
@@ -944,7 +949,7 @@ def test_a_remote_run_rejects_a_testbench_the_simulator_cannot_run_before_connec
     local_run_dir = tmp_path / "local" / "xeda_run"
 
     with pytest.raises(FlowException, match=re.escape("modelsim cannot run cocotb tests")):
-        RemoteRunner(local_run_dir).run_remote(SQRT / "sqrt.toml", "modelsim", host="somewhere")
+        RemoteRunner(local_run_dir).run_remote(SQRT / "sqrt.yaml", "modelsim", host="somewhere")
 
     assert not connected_to
     assert not (remote_host / ".xeda").exists(), "nothing was shipped"
@@ -974,7 +979,7 @@ def test_a_remote_run_refuses_a_users_local_results_directory_before_connecting(
 
     with pytest.raises(RunRootError, match=re.escape(str(local_run_dir))):
         RemoteRunner(local_run_dir).run_remote(
-            SQRT / "sqrt.toml",
+            SQRT / "sqrt.yaml",
             "vivado_synth",
             host="somewhere",
             flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
@@ -993,7 +998,7 @@ def test_a_remote_run_marks_its_local_results_directory_and_reuses_it(tmp_path, 
     mirrors = []
     for attempt in (1, 2):
         results = RemoteRunner(local_run_dir).run_remote(
-            SQRT / "sqrt.toml",
+            SQRT / "sqrt.yaml",
             "vivado_synth",
             host="somewhere",
             flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
@@ -1147,10 +1152,10 @@ SQRT_SETTINGS = ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]
 def _sqrt_design(root: Path) -> Path:
     root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", root)
-    (root / "sqrt.toml").write_text(
-        'name = "sqrt"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\nclock.port = "clk"\n'
+    (root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl:\n  sources: [sqrt.vhdl]\n  top: sqrt\n  clock: {port: clk}\n"
     )
-    return root / "sqrt.toml"
+    return root / "sqrt.yaml"
 
 
 def test_a_remote_run_delivers_outputs_to_but_never_onto_a_read_input(tmp_path, remote_host):
@@ -1217,8 +1222,10 @@ def test_a_remote_run_guards_the_directories_its_flow_reads_as_the_command_line_
     for directory in (old, new):
         directory.mkdir()
         (directory / "cells.v").write_text("module cell; endmodule\n")
-    with design.open("a") as toml:
-        toml.write(f'[flows.vivado_synth]\nlib_paths = [["work", "{old}"]]\n')
+    with design.open("a") as yaml_file:
+        yaml_file.write(
+            f"flows:\n  vivado_synth:\n    lib_paths: [[work, {json.dumps(str(old))}]]\n"
+        )
     root = tmp_path / "local" / "xeda_run"
     overridden = [*SQRT_SETTINGS, {"lib_paths": [["work", str(new)]]}]
     result = RemoteRunner(root, outputs_to=old).run_remote(
@@ -1400,10 +1407,10 @@ def test_a_refused_delivery_still_closes_the_gateway_and_the_connection(
 
 def _nextpnr_design(tmp_path: Path) -> Path:
     (tmp_path / "top.v").write_text("module top; endmodule\n")
-    design = tmp_path / "d.toml"
+    design = tmp_path / "d.yaml"
     design.write_text(
-        'name = "d"\n[rtl]\nsources = ["top.v"]\ntop = "top"\n'
-        '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n'
+        "name: d\nrtl:\n  sources: [top.v]\n  top: top\n"
+        "flows:\n  nextpnr:\n    fpga: {part: LFE5U-25F-6BG381C}\n"
     )
     return design
 
@@ -1480,3 +1487,81 @@ def test_the_archive_names_every_source_s_type(tmp_path, monkeypatch):
         assert restored == [[m.name for m in members]] * 2
     finally:
         gw.exit()
+
+
+def _unreachable_remote(monkeypatch) -> list:
+    connected_to: list = []
+
+    class _Unreachable(_LocalConnection):
+        def __init__(self, host, user=None, port=None):
+            connected_to.append(host)
+            raise ConnectionRefusedError(f"connected to {host}")
+
+    monkeypatch.setattr(remote_module, "Connection", _Unreachable)
+    return connected_to
+
+
+def test_a_remote_run_refuses_a_directory_with_two_project_files_as_a_local_run_does(
+    tmp_path, monkeypatch
+):
+    """One discovery rule for both: more than one project file is a `ProjectFileError` naming
+    them, before anything connects."""
+    connected_to = _unreachable_remote(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    design = _nextpnr_design(tmp_path)
+    (tmp_path / PROJECT_FILE).write_text("flows: {}\n")
+    (tmp_path / TOML_PROJECT_FILE).write_text("[flows]\n")
+
+    with pytest.raises(ProjectFileError, match=rf"{PROJECT_FILE}.*{TOML_PROJECT_FILE}.*keep one"):
+        RemoteRunner(tmp_path / "xeda_run").run_remote(design, "nextpnr", host="h")
+    with pytest.raises(ProjectFileError, match=r"keep one"):
+        RemoteRunner(tmp_path / "xeda_run").run_remote(Design(name="d"), "nextpnr", host="h")
+    assert not connected_to
+
+
+@pytest.mark.parametrize("given", ["missing.yaml", Path("missing.toml")])
+def test_a_remote_run_reports_a_missing_project_file_as_a_local_run_does(
+    tmp_path, monkeypatch, given
+):
+    connected_to = _unreachable_remote(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ProjectFileError, match=r"Cannot open project file .*missing.*no such file"):
+        RemoteRunner(tmp_path / "xeda_run").run_remote(
+            _nextpnr_design(tmp_path), "nextpnr", host="h", xedaproject=given
+        )
+    assert not connected_to
+
+
+def test_a_remote_run_treats_an_empty_project_name_as_none_given(tmp_path, monkeypatch):
+    connected_to = _unreachable_remote(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ConnectionRefusedError):
+        RemoteRunner(tmp_path / "xeda_run").run_remote(
+            _nextpnr_design(tmp_path), "nextpnr", host="h", xedaproject=""
+        )
+    assert connected_to == ["h"]
+
+
+@pytest.mark.parametrize("name", PROJECT_FILE_NAMES)
+def test_a_remote_run_finds_a_lone_project_file_by_any_accepted_name(tmp_path, monkeypatch, name):
+    """The project is found (a broken one is reported, not skipped), whichever of the accepted
+    names it has; it does not have to be named `xedaproject.toml`."""
+    connected_to = _unreachable_remote(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    design = _nextpnr_design(tmp_path)
+    (tmp_path / name).write_text(
+        "flows: {nextpnr: {flatten: 1, flatten: 2}}\n"
+        if not name.endswith(".toml")
+        else "[flows.nextpnr\nflatten = 1\n"
+    )
+
+    with pytest.raises(Exception, match=r"flatten|line 1"):
+        RemoteRunner(tmp_path / "xeda_run").run_remote(design, "nextpnr", host="h")
+    assert not connected_to
+
+    (tmp_path / name).write_text("flows: {}\n" if not name.endswith(".toml") else "[flows]\n")
+    with pytest.raises(ConnectionRefusedError):
+        RemoteRunner(tmp_path / "xeda_run").run_remote(design, "nextpnr", host="h")
+    assert connected_to == ["h"]

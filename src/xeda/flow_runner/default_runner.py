@@ -69,7 +69,7 @@ from ..utils import (
     with_json_keys,
 )
 from ..version import __version__
-from ..xedaproject import XedaProject, find_default_xedaproject
+from ..xedaproject import PROJECT_FILE_NAMES, ProjectFileError, XedaProject, resolve_project_file
 from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
@@ -202,10 +202,6 @@ class FlowNotFoundError(XedaException):
 class DesignNotFoundError(XedaException):
     """The design to run cannot be determined: none was given and there is no project to take
     one from, the project has no designs, or it has none of the given name."""
-
-
-class ProjectFileError(XedaException):
-    """A project file (`xedaproject.toml`) that cannot be opened, parsed or used."""
 
 
 #: Launcher settings that no longer exist, with what replaced them. Giving one is an error that
@@ -1576,8 +1572,9 @@ class FlowLauncher:
         if not xeda_project:
             given = f"'{name}' is not a design file, and" if name else "No design was given, and"
             raise DesignNotFoundError(
-                f'{given} there is no project file "{xedaproject}" in {Path.cwd()} to take '
-                "a design from. Give a design file (.toml, .json, .yaml or .yml)."
+                f"{given} there is no project file ({', '.join(PROJECT_FILE_NAMES)}) in "
+                f"{Path.cwd()} to take a design from. Give a design file (.yaml, .yml, .toml "
+                "or .json)."
             )
         names = xeda_project.design_names
         if not xeda_project.designs:
@@ -1704,17 +1701,9 @@ class FlowLauncher:
             design_overrides = list(design_overrides)
             design_overrides = settings_to_dict(design_overrides)
         design_not_in_project = False
-        if xedaproject:
-            if not Path(xedaproject).exists():
-                raise ProjectFileError(f'Cannot open project file "{xedaproject}": no such file')
-        else:
-            try:
-                default_project = find_default_xedaproject()
-            except ValueError as e:
-                raise ProjectFileError(str(e)) from e
-            xedaproject = (
-                str(default_project) if default_project is not None else "xedaproject.toml"
-            )
+        project_path = resolve_project_file(xedaproject)
+        # the name messages use when there is no project file
+        xedaproject = str(project_path) if project_path is not None else PROJECT_FILE_NAMES[0]
         given_file = (
             Path(design)
             if isinstance(design, (str, Path)) and names_a_design_file(design)
