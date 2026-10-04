@@ -1,6 +1,6 @@
 """Every advertised flow must be resolvable by the name the CLI advertises.
 
-`xeda list-flows` used to list flows (`open_xc7`, `yosys_sim`) that `xeda run` and
+`xeda list-flows` used to list flows (`yosys_sim`, the since-removed `open_xc7`) that `xeda run` and
 `xeda list-settings` could not resolve, because the registry was keyed by class name and the
 snake_case lookup fell back to a lossy `snakecase_to_camelcase` round-trip.
 """

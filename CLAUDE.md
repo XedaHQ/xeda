@@ -279,8 +279,10 @@ removed before the run, so an earlier success never stands for a run that died
 `Flow.__init_subclass__` auto-registers every non-abstract subclass in `registered_flows` under its
 canonical snake_case name (`VivadoSynth` -> `vivado_synth`, via `camelcase_to_snakecase`), its
 CamelCase class name, and any `aliases`. Registering the canonical name matters: `snakecase_to_camelcase`
-is not a lossless inverse (`open_xc7` -> `OpenXc7` != `OpenXC7`), and relying on that round-trip used to
-make `open_xc7` and `yosys_sim` unrunnable. `get_flow_class` normalizes dashes, retries
+is not a lossless inverse (the removed `open_xc7` -> `OpenXc7` != `OpenXC7`), and relying on that
+round-trip used to make it and `yosys_sim` unrunnable. A removed flow's names are refused by
+`get_flow_class` before any lookup (`REMOVED_FLOWS`: "`open_xc7` was removed: use fpga_pack to
+build, openfpgaloader to program"). `get_flow_class` normalizes dashes, retries
 case-insensitively, and raises `FlowNotFoundError` with close-match suggestions. `flows/__init__.py` `walk_packages()`s the subpackages to populate `__builtin_flows__`,
 and also re-exports flow classes explicitly in `__all__` - **add new flows to both the import list and
 `__all__`** so they appear in `xeda list-flows` and CLI completion.
@@ -311,7 +313,9 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   inputs again. External supplied plans are not a supported API. Declared `init()` adds no
   dependencies, reads no inputs and writes no files; pure `check_settings_supported` validates
   targets in planning. `yosys_fpga` declares `netlist` (`netlist_json`); `nextpnr` declares input
-  `netlist` and optional output `config` (ECP5 textcfg, iCE40 asc or Nexus fasm).
+  `netlist` and optional output `config` (ECP5 textcfg, iCE40 asc or Nexus/Xilinx fasm);
+  `fpga_pack` declares input `config` and output `bitstream`; `openfpgaloader` declares input
+  `bitstream` and no output. No flow of this graph nests a producer's settings but `nextpnr.yosys`.
 - **Sources displace default producers.** An accepted type in `rtl.sources` supplies the input,
   in source order; a `JsonNetlist` skips `yosys_fpga` for `nextpnr`. Cardinality is checked.
   Settings for a displaced producer are unused and logged at info level.
@@ -527,7 +531,7 @@ expanded against the start directory or the environment) and the dependencies' o
 racy threshold; each file as itself, `follow_symlinks=False`, reusing the previous run's record
 where `FileRecord.trusted` vouches for it), so a file edited while the run goes on no longer
 matches; its **implicit inputs**, known only after the run (depfile
-entries, `yosys -E`, and files `run()` registers in `Flow.implicit_inputs`, such as open_xc7's
+entries, `yosys -E`, and files `run()` registers in `Flow.implicit_inputs`, such as a
 chip database wherever it was found; a depfile entry under the installation prefix of a host program the flow started, the directory above its resolved `bin/`, is the tool's own file and is not recorded); and its **outputs**
 (`output_files`, with `outputs_recorded_ns`): every entry of the run directory after the run
 (`run_directory_files`: `xeda.listing.directory_files`, recursive, artifact or not, since a
@@ -590,7 +594,7 @@ Dependencies are brought up to date first, then the depending flow is judged. Wi
 run directory is entered at most once: two configurations of one flow resolving to the same
 directory in one launch is a `FlowSettingsError` naming both requesters
 (`FlowLauncher._claim_run_dir`). A flow whose `Flow.always_runs()` gives a reason always runs,
-keeps no trace and reports that reason: `openfpgaloader` and a programming `open_xc7` ("it
+keeps no trace and reports that reason: `openfpgaloader` ("it
 programs a device"), a flow asked for a fresh random seed ("it draws a new random seed"), nextpnr
 with pin constraints from a URL. Seeds are settings with fixed defaults (verilator and cocotb
 `random_seed = 1`; `randomize_seed` defaults to false), so a default configuration is reusable. The
@@ -743,10 +747,11 @@ and `test_nvc.py` simulate the examples in place.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
   keys. **Requirement: a remote runs a P2b-capable build (this branch or newer)**: release line
   `REMOTE_XEDA_MIN_VERSION = (0, 4, 4)` (including `0.4.4.devN+g...`) and
-  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 4: protocol 2 adds
+  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 5: protocol 2 adds
   canonical resolved settings, relocated read inputs with their original path identities, declared
   output records and checked hand-over; protocol 3 requires remote simulations to satisfy P1b's
-  current-run evidence rule; protocol 4 adds P2b's FPGA build graph, the `fpga_pack` flow).
+  current-run evidence rule; protocol 4 adds P2b's FPGA build graph, the `fpga_pack` flow;
+  protocol 5 the programming-only `openfpgaloader`, which consumes `fpga_pack`'s bitstream).
   `check_remote_xeda` refuses xeda 0.4.3 and development checkouts without the capability with an
   "upgrade the remote xeda" error before anything ships. Version alone does not prove protocol
   support.
@@ -1094,7 +1099,8 @@ while it is open). A flow sharing
   on a new yosys release, add its option changes there and raise `NEWEST_CHECKED_YOSYS`.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers).
-  Undeclared flows validate in `init()` after `resolve_dependency` (`openfpgaloader`'s packer).
+  (`fpga_pack` refuses a family it has no packer for there). Undeclared flows validate in
+  `init()` after `resolve_dependency`.
 - **Real proprietary tools and containers are opt-in layers**, skipped unless their variable is set
   (and then failing on what they need): `XEDA_TESTS_VIVADO=1` runs Vivado flows on tiny designs
   (`tests/test_vivado_real.py`, `vivado` on PATH); `XEDA_TESTS_DOCKER=1` runs flows `dockerized`

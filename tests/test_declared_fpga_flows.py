@@ -19,7 +19,6 @@ from xeda.flow.io import declared_inputs, is_declared
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
-from xeda.tool import Tool
 
 from .project_files import PROJECT_FILE
 from .settings_samples import flow_classes, minimal_settings
@@ -94,13 +93,14 @@ def _runner(tmp_path: Path, monkeypatch) -> DefaultRunner:
     return DefaultRunner(tmp_path / "xeda_run", display_results=False)
 
 
-DECLARED = [YosysFpga, Nextpnr, FpgaPack]
+DECLARED = [YosysFpga, Nextpnr, FpgaPack, Openfpgaloader]
 
 
 def test_the_declared_flows():
     assert {cls.name for cls, _ in flow_classes() if is_declared(cls)} == {
         "fpga_pack",
         "nextpnr",
+        "openfpgaloader",
         "yosys_fpga",
     }
 
@@ -248,30 +248,6 @@ def test_nextpnr_reads_nothing_of_yosys_fpga_s_but_its_netlist(tmp_path, monkeyp
     }
     assert read <= declared, f"nextpnr read {read - declared}"
     assert handed == declared, f"nextpnr handed its tool {handed}"
-
-
-def test_openfpgaloader_still_packs_and_programs_what_the_declared_nextpnr_placed(
-    tmp_path, monkeypatch, tools
-):
-    """Coexistence: openfpgaloader declares nothing yet (P2b), and registers nextpnr in its
-    `init()`; the launcher resolves nextpnr's own plan from there."""
-    programmed: list[str] = []
-
-    def tool_run(self, *args):
-        programmed.append((self.executable, args))
-        if self.executable == "ecppack":
-            Path(args[1]).write_bytes(b"packed")
-
-    monkeypatch.setattr(Tool, "run", tool_run)
-    runner = _runner(tmp_path, monkeypatch)
-    loader = runner.run_flow(Openfpgaloader, _design(tmp_path / "d"), {"fpga": {"part": PART}})
-    assert loader is not None and loader.succeeded
-    assert [flow.name for flow in runner.launched] == ["yosys_fpga", "nextpnr", "openfpgaloader"]
-    assert [exe for exe, _ in programmed] == ["ecppack", "openFPGALoader"]
-    assert Path(programmed[0][1][0]) == loader.completed_dependencies[0].outputs.config
-    bitstream = Path(programmed[1][1][1])
-    assert programmed[1][1][0] == "--bitstream"
-    assert bitstream.read_bytes() == b"packed"
 
 
 @pytest.mark.parametrize(

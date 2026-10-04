@@ -16,7 +16,7 @@ from xeda import Design
 from xeda.cocotb import Cocotb, CocotbSettings
 from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nextpnr, Openfpgaloader, OpenXC7, Verilator
+from xeda.flows import Nextpnr, Openfpgaloader, Verilator
 
 RUNS: list[str] = []
 
@@ -76,30 +76,6 @@ def test_is_action_is_gone():
 def test_openfpgaloader_programs_a_device(tmp_path, design):
     flow = _flow(Openfpgaloader, design, tmp_path, fpga={"part": "LFE5U-25F-6BG256C"})
     assert flow.always_runs() == "it programs a device"
-
-
-@pytest.mark.parametrize(
-    "settings, reason",
-    [
-        ({}, None),
-        ({"program": True}, "it programs a device"),
-        ({"program": "ft2232"}, "it programs a device"),
-        ({"randomize_seed": True}, "it draws a new random seed"),
-        ({"randomize_seed": True, "seed": 3}, None),  # a pinned seed wins, as on the command line
-    ],
-    ids=str,
-)
-def test_open_xc7_always_runs_only_when_it_programs_or_draws_a_seed(
-    tmp_path, design, settings, reason
-):
-    flow = _flow(OpenXC7, design, tmp_path, fpga={"part": "xc7a35tcsg324-1"}, **settings)
-    assert flow.always_runs() == reason
-
-
-def test_open_xc7_keeps_no_results_of_its_own_and_pins_its_seed_by_default():
-    """Its own reuse of `results.json` bypassed the trace, even under --rebuild-all."""
-    assert not hasattr(OpenXC7, "use_existing_results")
-    assert OpenXC7.Settings().randomize_seed is False
 
 
 def test_nextpnr_draws_a_new_seed_only_when_asked(tmp_path, design):

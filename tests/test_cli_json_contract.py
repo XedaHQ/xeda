@@ -104,13 +104,30 @@ def test_group_level_json_is_itself_a_usage_error():
         ("vivado-synth", "vivado_synth"),
         ("VivadoSynth", "vivado_synth"),  # the CamelCase class name
         ("ghdl", "ghdl_sim"),  # an alias
-        ("OpenXC7", "open_xc7"),  # lossy snake_case round-trip
+        ("FpgaPack", "fpga_pack"),
+        ("fpga-pack", "fpga_pack"),
+        ("YosysFpga", "yosys_fpga"),
     ],
 )
 def test_cli_accepts_every_name_the_resolver_accepts(name, canonical):
     proc = run_xeda("list-settings", name, "--json")
     assert proc.returncode == 0, proc.stderr
     assert json_stdout(proc)["flow"] == canonical
+
+
+@pytest.mark.parametrize("name", ["open_xc7", "openxc7", "OpenXC7", "open-xc7"])
+def test_the_removed_open_xc7_is_refused_by_name_with_its_replacements(name):
+    """The CLI and the API share one diagnostic (`get_flow_class`)."""
+    message = "`open_xc7` was removed: use fpga_pack to build, openfpgaloader to program"
+    proc = run_xeda("list-settings", name, "--json")
+    assert proc.returncode != 0
+    assert message in json_stdout(proc)["error"]["message"]
+    proc = run_xeda("run", name, "--json")
+    assert proc.returncode != 0
+    assert message in json_stdout(proc)["error"]["message"]
+    listed = json_stdout(run_xeda("list-flows", "--json"))
+    names = [name for flow in listed for name in (flow["name"], *flow.get("aliases", []))]
+    assert "fpga_pack" in names and not [name for name in names if "xc7" in name.lower()]
 
 
 def test_unknown_flow_name_suggests_close_matches():

@@ -268,7 +268,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             if named is not None:
                 return named
             # Keep the historical, deterministic fallback for consumers that support one
-            # timing target only (Yosys/nextpnr/OpenXC7).  A named ``main_clock`` remains the
+            # timing target only (Yosys/nextpnr).  A named ``main_clock`` remains the
             # explicit way to choose one; otherwise insertion order identifies the legacy main.
             return first_value(self.clocks)
 

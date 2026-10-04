@@ -301,14 +301,14 @@ Flows that always run
 Some runs can never be reused, and say why: they always run, keep no trace, and report the reason
 (``Running <flow>: <reason>``, and ``nodes[].reason`` under ``--json``):
 
-- ``openfpgaloader``, and ``open_xc7`` when it programs (``program`` or ``board`` is set):
-  "it programs a device" -- that changes the outside world. A non-programming ``open_xc7`` run is
-  an ordinary node, reused when nothing changed.
+- ``openfpgaloader``: "it programs a device" -- that changes the outside world. The stages that
+  build its bitstream (``yosys_fpga``, ``nextpnr``, ``fpga_pack``) are ordinary nodes, reused
+  when nothing changed.
 - A flow asked for a fresh random seed: "it draws a new random seed". Every seed is a setting with
   a fixed default, so equal inputs give equal outputs: Verilator's random initialization (off unless ``random_init`` is set) uses
   ``random_seed`` (default 1) and cocotb's ``random_seed`` defaults to 1. Ask for a new seed per
-  run with ``random_seed: random``, or with ``randomize_seed: true`` for ``nextpnr`` and
-  ``open_xc7`` (now off by default).
+  run with ``random_seed: random``, or with ``randomize_seed: true`` for ``nextpnr`` (off
+  by default).
 - ``nextpnr`` when a board's pin constraints are fetched from a URL: "its constraints are fetched
   from a URL" -- no trace can verify a file on the network. It is fetched into guarded scratch
   in the run directory only when the flow executes. Local typed constraint sources and local
@@ -361,14 +361,15 @@ marker touched to read the file system's clock, removed at once). A flow must no
 these names.
 
 A remote host must run a P2b-capable xeda build: the 0.4.4 release line (including development
-builds) or newer, with remote protocol 4 or newer. Protocol 2 added canonical resolved settings,
+builds) or newer, with remote protocol 5 or newer. Protocol 2 added canonical resolved settings,
 relocated read inputs with their original path identities, declared output records and checked
 hand-over. Protocol 3 adds the P1b simulation evidence rule: remote simulations must confirm that
 the simulation ended successfully. Protocol 4 adds the FPGA build graph: the ``fpga_pack`` flow
-and the settings of ``nextpnr`` on Xilinx 7-series. Xeda checks the package the remote interpreter
-actually imports before shipping the design. An older install or a build without protocol 4
-support is refused with an "upgrade the remote xeda" error. Until a release with protocol 4 is
-available, install this branch on the remote host.
+and the settings of ``nextpnr`` on Xilinx 7-series. Protocol 5 makes ``openfpgaloader`` a
+programming-only flow that consumes ``fpga_pack``'s bitstream. Xeda checks the package the remote
+interpreter actually imports before shipping the design. An older install or a build without
+protocol 5 support is refused with an "upgrade the remote xeda" error. Until a release with
+protocol 5 is available, install this branch on the remote host.
 
 A remote run (``--remote``) always runs fresh on the remote, and its results are always mirrored
 locally in the hashed layout (``<design>/<flow>_<hash>``), so remote runs of different settings

@@ -46,3 +46,46 @@ def test_nextpnr_pin_settings_name_typed_source_replacement(kind, tmp_path):
     message = str(exc.value)
     assert "was removed" in message and "rtl.sources" in message
     assert f'type = "{kind.capitalize()}"' in message
+
+
+# ------------------------------------------------------------------------------ a removed flow
+
+REMOVED_OPEN_XC7 = "`open_xc7` was removed: use fpga_pack to build, openfpgaloader to program"
+
+
+@pytest.mark.parametrize(
+    "name", ["open_xc7", "openxc7", "OpenXC7", "open-xc7", "OPEN_XC7", "OpenXc7", " open_xc7 "]
+)
+def test_open_xc7_was_removed_and_names_what_replaced_it(name):
+    from xeda.flow_runner import FlowNotFoundError, get_flow_class
+
+    with pytest.raises(FlowNotFoundError) as error:
+        get_flow_class(name)
+    assert str(error.value) == REMOVED_OPEN_XC7
+
+
+def test_no_open_xc7_flow_module_alias_or_tombstone_is_left():
+    import importlib
+
+    import xeda.flows
+    from xeda.introspect import flows_info
+
+    assert not [name for name in registered_flows if "xc7" in name.lower()]
+    assert not [name for name in dir(xeda.flows) if "xc7" in name.lower()]
+    assert not [flow["name"] for flow in flows_info() if "xc7" in flow["name"]]
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("xeda.flows.openxc7")
+
+
+def test_launching_open_xc7_through_the_api_says_it_was_removed(tmp_path):
+    from xeda import Design
+    from xeda.flow_runner import DefaultRunner, FlowNotFoundError
+
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    for launch in (runner.run, runner.plan):
+        with pytest.raises(
+            FlowNotFoundError, match="fpga_pack to build, openfpgaloader to program"
+        ):
+            launch("open_xc7", design)
+    assert not (tmp_path / "run").exists()

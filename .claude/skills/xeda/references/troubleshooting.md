@@ -149,8 +149,8 @@ unknown field, or a missing `sources` list.
 ### The flow "succeeds" but timing is not met
 
 Flows that enforce timing fail on negative slack by default. If timing results look wrong, check
-`wns`/`whs` in `results.json` and whether `fail_timing` (Vivado) or `timing_allow_fail` (nextpnr,
-OpenXC7) was turned off.
+`wns`/`whs` in `results.json` and whether `fail_timing` (Vivado) or `timing_allow_fail` (nextpnr)
+was turned off.
 
 ### Simulation passes but nothing ran
 

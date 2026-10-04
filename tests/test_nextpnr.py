@@ -673,7 +673,7 @@ ICE40_PART = "iCE40HX1K-TQ144"
 #: JSON netlist it writes with nextpnr, whose reports cite the netlist's `src` attributes. Each
 #: one keeps them by default. The part each is launched for here:
 PLACERS = {
-    cls: {"nextpnr": ICE40_PART, "open_xc7": "xc7a35tcpg236-1"}[cls.name]
+    cls: {"nextpnr": ICE40_PART}[cls.name]
     for cls, _ in flow_classes()
     if any(
         cls.Settings._dependency_settings_class(field) is YosysFpga.Settings
@@ -684,7 +684,7 @@ BY_PLACER = pytest.mark.parametrize("flow_cls", list(PLACERS), ids=[c.name for c
 
 
 def test_every_flow_placing_a_yosys_netlist_is_covered():
-    assert {cls.name for cls in PLACERS} == {"nextpnr", "open_xc7"}
+    assert {cls.name for cls in PLACERS} == {"nextpnr"}
 
 
 @BY_PLACER
@@ -726,6 +726,7 @@ def test_the_synthesis_nextpnr_places_keeps_src_unless_told_otherwise(
     ids=["default", "yosys_fpga-section"],
 )
 def test_openfpgaloader_synthesis_keeps_src_like_nextpnr(tmp_path, monkeypatch, flows, keeps_src):
+    """Through `fpga_pack` and `nextpnr`: the synthesis is still the one nextpnr places."""
     from xeda.flows.openfpgaloader import Openfpgaloader
 
     settings = _yosys_launch_settings(tmp_path, monkeypatch, Openfpgaloader, flows)
