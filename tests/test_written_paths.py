@@ -80,6 +80,7 @@ ROLES = {
             "placed_svg",
             "routed_svg",
             "sdf",
+            "placement",
         )
     },
     ("Nextpnr.Settings", "log"): W,

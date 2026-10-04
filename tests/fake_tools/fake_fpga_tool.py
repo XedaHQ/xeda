@@ -85,10 +85,9 @@ def options(args):
     iterator = iter(args)
     for arg in iterator:
         if arg in ("-o", "--vopt"):
+            # A bare name is a switch, as `-o hold-fix` is for the real Xilinx backend.
             name, sep, value = next(iterator).partition("=")
-            if not sep:
-                raise ValueError("-o requires name=value")
-            values[name] = value
+            values[name] = value if sep else True
         elif arg == "-l":
             values["log"] = next(iterator)
         elif arg in ("-q", "-v"):

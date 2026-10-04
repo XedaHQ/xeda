@@ -61,6 +61,10 @@ FAMILIES = [
 ]
 
 
+#: The database override is a setting of the Xilinx backend alone.
+XILINX_PART = "xc7a100tcsg324-1"
+
+
 def _design(tmp_path, sources=()):
     root = tmp_path / "d"
     root.mkdir(exist_ok=True)
@@ -215,7 +219,7 @@ def test_database_override_and_context_aliases_agree(tmp_path, owner):
         "prjxray_db": "db"
     }
     plan = DefaultRunner(tmp_path / "run").plan(
-        _ConfigTaker, design, flow_settings={"fpga": FAMILIES[0][0]}
+        _ConfigTaker, design, flow_settings={"fpga": XILINX_PART}
     )
     for name in (_ConfigTaker.name, "nextpnr"):
         assert plan.node(name).settings.prjxray_db.resolve() == design.root_path / "db"
@@ -223,7 +227,7 @@ def test_database_override_and_context_aliases_agree(tmp_path, owner):
 
 def test_database_conflict_and_command_line_precedence(tmp_path):
     design = _design(tmp_path)
-    design.flow[_ConfigTaker.name] = {"fpga": FAMILIES[0][0], "prjxray_db": "a"}
+    design.flow[_ConfigTaker.name] = {"fpga": XILINX_PART, "prjxray_db": "a"}
     design.flow["nextpnr"] = {"prjxray_db": "b"}
     runner = DefaultRunner(tmp_path / "run")
     with pytest.raises(FlowSettingsError, match="prjxray_db.*disagrees"):
@@ -243,7 +247,7 @@ def test_one_database_override_reaches_only_endpoints_with_the_setting(tmp_path,
     design = _design(tmp_path)
     design.flow[owner] = {"prjxray_db": "db"}
     plan = DefaultRunner(tmp_path / "run").plan(
-        _ConfigTaker, design, flow_settings={"fpga": FAMILIES[0][0]}
+        _ConfigTaker, design, flow_settings={"fpga": XILINX_PART}
     )
     assert plan.node(_ConfigTaker.name).settings.prjxray_db == design.root_path / "db"
     assert plan.node("nextpnr").settings.prjxray_db == design.root_path / "db"

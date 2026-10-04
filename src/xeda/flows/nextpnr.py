@@ -4,7 +4,7 @@ import logging
 import re
 from pathlib import Path
 from shutil import which
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -26,7 +26,7 @@ from ..flow import (
 from ..tool import NonZeroExitCode, Tool
 from ..run_dir import RunDirectory
 from ..utils import replacing_file, setting_flag
-from .nextpnr_constraints import Constraints, merge_constraints, reconcile_clocks
+from .nextpnr_constraints import ClockUse, Constraints, merge_constraints, reconcile_clocks
 from .xilinx import find_xilinx_layout, prepare_chipdb, select_xilinx
 from .yosys import YosysFpga
 from .yosys.yosys_fpga import NEXTPNR_KEEPS_SRC, keeping_src_by_default, yosys_fpga_keeping_src
@@ -42,13 +42,14 @@ class NextpnrTool(Tool):
     The banner looks like::
 
         "nextpnr-ecp5" -- Next Generation Place and Route (Version nextpnr-0.11.1-3-g930fef44)
+        "nextpnr-himbaechel" -- Next Generation Place and Route (Version 1.0.0-7-g334d1b18)
 
     The generic patterns in `Tool` do not match that shape, so without this the reported version
     is empty. `Tool` already retries version detection with stderr folded in.
     """
 
     version_regexps: List[Union[re.Pattern, str]] = [
-        re.compile(r"Version\s+nextpnr-(?P<version>\d+(?:\.\d+)*)")
+        re.compile(r"Version\s+(?:nextpnr-)?(?P<version>\d+(?:\.\d+)*)")
     ]
 
 
@@ -71,8 +72,66 @@ ECP5_RESOURCES: Dict[str, Tuple[str, ...]] = {
     "io": ("TRELLIS_IO",),
 }
 
-#: The nextpnr architectures this flow has a tested device, constraint and output mapping for.
-NEXTPNR_FAMILIES = ("ecp5", "ice40", "nexus")
+#: Canonical resource name -> the bel types that implement it, for Xilinx 7-series
+#: (nextpnr-himbaechel 1.0.0, uarch `xilinx`). `lut` is not here: `SLICE_LUTX` counts 5LUT and
+#: 6LUT *positions*, two per physical LUT, so it is counted from the placement dump instead
+#: (`xilinx_lut_locations`). Block RAM counts primitives; `CARRY4` stays a raw count.
+XILINX_RESOURCES: dict[str, tuple[str, ...]] = {
+    "ff": ("SLICE_FFX",),
+    "bram": ("RAMB18E1", "RAMB36E1"),
+    "dsp": ("DSP48E1",),
+    "io": ("PAD",),
+}
+
+#: How each family's canonical `lut` is counted (`LUT:METHOD`); the stage is always this flow's.
+LUT_STAGE = "placed and routed"
+LUT_METHODS = {
+    "ecp5": "TRELLIS_COMB bels in nextpnr's utilization report",
+    "xilinx": "unique occupied LUT locations (tile, site, A-D) in nextpnr's placement dump",
+}
+
+#: The nextpnr architectures this flow has a tested device, constraint and output mapping for;
+#: `xilinx` is every 7-series family (`Nextpnr.io_family`).
+NEXTPNR_FAMILIES = ("ecp5", "ice40", "nexus", "xilinx")
+
+#: The executable of an architecture that is not `nextpnr-<architecture>`.
+EXECUTABLES = {"xilinx": "nextpnr-himbaechel"}
+
+#: Where the placement dump goes when the `placement` setting names no file: it is always
+#: written, since the canonical LUT count is read from it.
+XILINX_PLACEMENT = Path("placement.json")
+
+_XILINX_LUT_BEL = re.compile(r"[A-D][56]LUT")
+
+
+def xilinx_lut_locations(placement: Any) -> tuple[int, int]:
+    """The LUT cells of a nextpnr-himbaechel placement dump (`-o placement=`, cell -> its tile,
+    site, bel and bel type) and the physical LUTs they occupy.
+
+    A 7-series LUT has a 5LUT and a 6LUT position (`A5LUT`, `A6LUT`, ...): a fractured pair, a
+    `LUT6_2`, or a LUT nextpnr inserted beside a carry input shares one physical LUT, and a
+    RAM or shift-register LUT occupies its position like any other. Returns the number of
+    placed LUT cells (positions) and of distinct `(tile, site, letter)` locations; raises
+    `ValueError` for a dump that is not of that shape, rather than count what it cannot read.
+    """
+    if not isinstance(placement, dict):
+        raise ValueError("it is not a mapping of cells")
+    cells = 0
+    locations = set()
+    for cell, where in placement.items():
+        if not isinstance(where, dict) or not isinstance(where.get("type"), str):
+            raise ValueError(f"cell {cell!r} has no bel type")
+        if where["type"] != "SLICE_LUTX":
+            continue
+        tile, site, bel = (where.get(key) for key in ("tile", "site", "bel"))
+        if not (isinstance(tile, str) and tile and isinstance(site, str) and site):
+            raise ValueError(f"LUT cell {cell!r} has no tile or site")
+        if not isinstance(bel, str) or not _XILINX_LUT_BEL.fullmatch(bel):
+            raise ValueError(f"LUT cell {cell!r} is on an unknown bel {bel!r}")
+        cells += 1
+        locations.add((tile, site, bel[0]))
+    return cells, len(locations)
+
 
 #: nextpnr-ice40's device flags.
 ICE40_DEVICES: Tuple[str, ...] = (
@@ -103,7 +162,16 @@ FAMILY_SETTINGS: Dict[str, Tuple[str, ...]] = {
     "no_post_place_opt": ("nexus",),
     "carry_lutff_ratio": ("nexus",),
     "estimate_delay_mult": ("nexus",),
+    "chipdb": ("xilinx",),
+    "prjxray_db": ("xilinx",),
+    "placement": ("xilinx",),
+    "delay_matrix": ("xilinx",),
+    "hold_fix": ("xilinx",),
+    "hold_detour_max": ("xilinx",),
 }
+
+#: Settings of the Xilinx backend, given to it as `-o name=value` rather than as flags.
+XILINX_SETTINGS = tuple(name for name, families in FAMILY_SETTINGS.items() if "xilinx" in families)
 
 
 class EcpPLL(Tool):
@@ -190,13 +258,16 @@ class Nextpnr(FpgaSynthFlow):
 
     Its `netlist` input is a `JsonNetlist` design source or, by default, the recorded netlist
     synthesized by `yosys_fpga`. This flow places and routes that input with the nextpnr
-    variant matching `fpga.family`, then parses nextpnr's
-    JSON report for achieved frequency, slack and resource utilization. Use the `openfpgaloader`
-    flow to pack and program the result onto a board.
+    variant matching `fpga.family` -- `nextpnr-ecp5`, `nextpnr-ice40`, `nextpnr-nexus`, or
+    openXC7's `nextpnr-himbaechel` for Xilinx 7-series (Artix, Kintex, Spartan, Virtex, Zynq) --
+    then parses nextpnr's JSON report for achieved frequency, slack and resource utilization.
 
-    ECP5 and iCE40 are exercised by real-tool tests; Nexus has verified command construction.
-    The report parser works across architectures, but canonical resource names (`lut`, `ff`, ...)
-    are currently mapped from ECP5 bel types only. Other families report raw bel-type counts.
+    A 7-series target needs the full part (`xc7a100tcsg324-1`) and pin constraints (typed `Xdc`
+    sources, or a board's); its chip database is generated once per run root unless `chipdb`
+    names one. Canonical resource names (`lut`, `ff`, ...) are mapped for ECP5 and 7-series;
+    other families report raw bel-type counts. `lut` is counted at this stage by the method
+    `LUT:METHOD` names -- for 7-series, the physical LUTs occupied, from the placement dump --
+    and is not certified comparable with another toolchain's.
     A target without a tested device/constraint/output mapping is rejected before synthesis.
     """
 
@@ -215,6 +286,14 @@ class Nextpnr(FpgaSynthFlow):
         "bram",
         "dsp",
         "io",
+        **{
+            "LUT:STAGE": "Stage the canonical `lut` count describes.",
+            "LUT:METHOD": "How the canonical `lut` count was taken at that stage.",
+            "clock_port": "Top-level port of the one reported clock domain, when it is certain.",
+            "device": "Xilinx 7-series: the part placed and routed.",
+            "fabric": "Xilinx 7-series: the die routed, which every `available` total describes "
+            "(an xc7a35t is routed as an xc7a50t).",
+        },
     )
 
     class Settings(WithFpgaBoardSettings):
@@ -256,7 +335,7 @@ class Nextpnr(FpgaSynthFlow):
         )
         fasm: Optional[Path] = Field(
             Path("config.fasm"),
-            description="Nexus FASM configuration written with `--fasm`.",
+            description="Nexus or Xilinx 7-series FASM configuration.",
             json_schema_extra=deliverable(),
         )
         out_of_context: bool = Field(
@@ -401,6 +480,35 @@ class Nextpnr(FpgaSynthFlow):
             description="An existing Himbaechel Xilinx chip database file; otherwise prepare "
             "a content-identified shared cache under the run root.",
         )
+        delay_matrix: Literal["build", "off"] = Field(
+            "build",
+            description="Xilinx interconnect delay model: `build` measures it per tile offset "
+            "(the backend's default), `off` uses the tuned formula.",
+        )
+        hold_fix: bool | int = Field(
+            False,
+            description="Xilinx: fix hold-time violations after routing. `true` uses the "
+            "backend's default pass limit (8); a positive number is the pass limit.",
+        )
+        hold_detour_max: float | None = Field(
+            None,
+            ge=0,
+            description="Xilinx: hold deficit in ns up to which hold fixing uses a routing "
+            "detour instead of a feedthrough LUT.",
+        )
+        placement: Path | None = Field(
+            None,
+            description="Xilinx placement dump (JSON: cell to tile, site and bel). It is always "
+            "written in the run directory, where the LUT count is read from it.",
+            json_schema_extra=deliverable("outputs/{design}_placement.json"),
+        )
+
+        @field_validator("hold_fix")
+        @classmethod
+        def _hold_fix_pass_limit(cls, value):
+            if not isinstance(value, bool) and value < 1:
+                raise ValueError("hold_fix is true, false, or a positive number of passes")
+            return value
 
         @field_validator("yosys", mode="before")
         @classmethod
@@ -633,6 +741,7 @@ class Nextpnr(FpgaSynthFlow):
         if self.settings.sdc:
             timing_paths.append(self.normalize_path_to_design_root(self.settings.sdc))
         sdc = merge_constraints(timing_paths)
+        uses: list[ClockUse] = []
         pins, frequency, timed = reconcile_clocks(
             pins,
             sdc,
@@ -641,7 +750,9 @@ class Nextpnr(FpgaSynthFlow):
             netlist=self.inputs.netlist,
             top=self.design.rtl.top or "",
             main_clock=self.settings.main_clock,
+            uses=uses,
         )
+        self._clock_uses = uses
         if not timed:
             log.warning(
                 "No physical clock period/frequency in flow settings or constraint files; nextpnr uses its 12 MHz default."
@@ -708,21 +819,33 @@ class Nextpnr(FpgaSynthFlow):
         """Select a supported architecture and device without tools or filesystem writes."""
         fpga = ss.fpga
         assert fpga is not None, "checked at launch (`required_settings`)"
-        family = (fpga.family or "").lower()
+        family = cls.io_family(ss)
         if family not in NEXTPNR_FAMILIES:
             raise FlowSettingsException(
                 f"nextpnr has no tested device, constraint and output mapping for "
-                f"fpga.family={family or None!r}; supported are {', '.join(NEXTPNR_FAMILIES)}."
+                f"fpga.family={fpga.family or None!r}; supported are "
+                f"{', '.join(NEXTPNR_FAMILIES)} (7-series)."
             )
+        # A setting of another architecture, given any value but its default.
         misplaced = [
             name
             for name, families in FAMILY_SETTINGS.items()
             if family not in families
-            and getattr(ss, name) is not None
-            and getattr(ss, name) is not False
+            and getattr(ss, name) != type(ss).model_fields[name].get_default()
         ]
         if misplaced:
-            raise FlowSettingsException(f"nextpnr-{family} does not take {', '.join(misplaced)}.")
+            executable = EXECUTABLES.get(family, f"nextpnr-{family}")
+            raise FlowSettingsException(f"{executable} does not take {', '.join(misplaced)}.")
+        if family == "xilinx":
+            # The part selects the package pins and speed file; the database maps it to a die.
+            if not (fpga.part and fpga.device and fpga.package and fpga.pins and fpga.speed):
+                raise FlowSettingsException(
+                    "nextpnr-himbaechel needs the full part in fpga.part, with its package and "
+                    f"speed grade, e.g. xc7a100tcsg324-1, not {fpga.part or fpga.device or None!r}."
+                )
+            # `--device` is the part as the Project X-Ray database spells it, known only once
+            # the installation is read (`prepare_inputs`): nextpnr matches it case-sensitively.
+            return family, []
         if family == "ecp5":
             if not fpga.capacity:
                 raise FlowSettingsException(
@@ -771,10 +894,10 @@ class Nextpnr(FpgaSynthFlow):
     @classmethod
     def config_for_settings(cls, ss: Settings) -> tuple[str, Path] | None:
         """Select an enabled family configuration, including ECP5 out-of-context runs."""
-        family = ((ss.fpga.family if ss.fpga else None) or "").lower()
+        family = cls.io_family(ss)
         if family == "ecp5" and ss.out_of_context:
             return None
-        name = {"ecp5": "textcfg", "ice40": "asc", "nexus": "fasm"}.get(family)
+        name = {"ecp5": "textcfg", "ice40": "asc", "nexus": "fasm", "xilinx": "fasm"}.get(family)
         path = getattr(ss, name) if name else None
         return (name, path) if name and path else None
 
@@ -789,20 +912,49 @@ class Nextpnr(FpgaSynthFlow):
         if config:
             declared.config = self.run_path / config[1]
         fpga_family, target_args = self._target()
-        next_pnr = NextpnrTool(executable=f"nextpnr-{fpga_family}")
+        next_pnr = NextpnrTool(executable=EXECUTABLES.get(fpga_family, f"nextpnr-{fpga_family}"))
+        xilinx = fpga_family == "xilinx"
 
         if not netlist_json.exists():
             raise FlowFatalError(f"netlist json file {netlist_json} does not exist!")
 
         pin_file, sdc_file, frequency = self._merged_constraints()
-        args = setting_flag(netlist_json, name="json")
+        if xilinx:
+            if not hasattr(self, "_chipdb"):
+                raise FlowFatalError(
+                    "Call prepare_inputs() after assigning inputs and before running nextpnr."
+                )
+            # The Xilinx backend takes its files as `-o name=value` options of the uarch, and
+            # never `--freq`: its clocks are the `create_clock`s of the XDC and SDC files.
+            placement = ss.placement or XILINX_PLACEMENT
+            args: list[Any] = ["--device", self._xilinx_selection.name]
+            args += ["--chipdb", self._chipdb, "--json", netlist_json]
+            if pin_file:
+                args += ["-o", f"xdc={pin_file}"]
+            if config:
+                args += ["-o", f"fasm={config[1]}"]
+            args += ["-o", f"placement={placement}"]
+            if ss.delay_matrix != "build":
+                args += ["-o", f"delay-matrix={ss.delay_matrix}"]
+            if ss.hold_fix is True:
+                args += ["-o", "hold-fix"]  # the backend's default pass limit
+            elif ss.hold_fix:
+                args += ["-o", f"hold-fix={ss.hold_fix}"]
+            if ss.hold_detour_max is not None:
+                args += ["-o", f"hold-detour-max={ss.hold_detour_max}"]
+        else:
+            constraint_name = {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc"}[fpga_family]
+            args = setting_flag(pin_file, name=constraint_name)
+            args += setting_flag(netlist_json, name="json")
+            args += target_args
         args += setting_flag(frequency, name="freq")
         args += setting_flag(sdc_file, name="sdc")
         args += setting_flag(self.design.rtl.top)
         args += setting_flag(ss.seed)
-        args += target_args
         # Settings of another architecture were rejected by `_target`.
         for name in FAMILY_SETTINGS:
+            if name in XILINX_SETTINGS:
+                continue
             value = getattr(ss, name)
             if isinstance(value, Path):
                 value = self.normalize_path_to_design_root(value)
@@ -814,10 +966,10 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.timing_allow_fail)
         args += setting_flag(ss.ignore_loops)
         outputs: Tuple[str, ...] = ("write", "sdf", "log", "report", "placed_svg", "routed_svg")
+        for name in outputs if xilinx or not config else (config[0], *outputs):
+            args += setting_flag(getattr(ss, name), name=name)
         if config:
             outputs = (config[0], *outputs)
-        for name in outputs:
-            args += setting_flag(getattr(ss, name), name=name)
         args += setting_flag(ss.nthreads, name="threads")
         args += setting_flag(ss.detailed_timing_report)
         args += setting_flag(ss.parallel_refine)
@@ -845,13 +997,8 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.placer_heap_no_ctrl_set)
         if ss.extra_args:
             args += ss.extra_args
-        constraint_name = {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc"}[fpga_family]
         try:
-            next_pnr.run(
-                *setting_flag(pin_file, name=constraint_name),
-                *args,
-                env={"PYTHONDONTWRITEBYTECODE": "1"},
-            )
+            next_pnr.run(*args, env={"PYTHONDONTWRITEBYTECODE": "1"})
         except NonZeroExitCode as e:
             diagnostic = self._constraint_diagnostic()
             if diagnostic:
@@ -867,6 +1014,8 @@ class Nextpnr(FpgaSynthFlow):
                 path = path if path.is_absolute() else self.run_path / path
                 if path.is_file():
                     self.artifacts[name] = path
+        if xilinx and (self.run_path / placement).is_file():
+            self.artifacts["placement"] = self.run_path / placement
 
     # ------------------------------------------------------------------ report parsing
 
@@ -900,6 +1049,11 @@ class Nextpnr(FpgaSynthFlow):
 
         timing_met = self._parse_fmax(report.get("fmax") or {})
         self._parse_utilization(report.get("utilization") or {})
+        if self.io_family(ss) == "xilinx":
+            selection = getattr(self, "_xilinx_selection", None)
+            if selection is not None:
+                self.results["device"] = selection.name
+                self.results["fabric"] = selection.fabric
         self._parse_critical_paths(report.get("critical_paths") or [])
         detailed = report.get("detailed_net_timings")
         if detailed is not None:
@@ -950,6 +1104,10 @@ class Nextpnr(FpgaSynthFlow):
         wns = min(raw_slacks.values())
         self.results["wns"] = round(wns, _SLACK_DECIMALS)
         self.results["timing_met"] = wns >= 0
+        if len(domains) == 1:
+            port = self._clock_port(next(iter(domains)))
+            if port is not None:
+                self.results["clock_port"] = port
         if len(constrained) == 1:
             # clock_frequency/clock_period are per-domain, so only report them when there is no
             # ambiguity about which domain they describe.
@@ -964,6 +1122,48 @@ class Nextpnr(FpgaSynthFlow):
                 self.results.get("Fmax"),
             )
         return bool(wns >= 0)
+
+    def _clock_port(self, domain: str) -> str | None:
+        """The top-level port of the only reported clock domain, when that is certain.
+
+        nextpnr names a domain for its clock net, which is the port's own only when no buffer
+        sits between them (a 7-series domain is the BUFG's output net). The port is known when
+        the domain is itself a port of the top module in the placed netlist, or when the launch
+        constrained exactly one clock, on a port, across its settings and constraint files.
+        Anything else -- several clocks, a clock on a net -- keeps the raw name only.
+        """
+        try:
+            netlist = json.loads(Path(self.inputs.netlist).read_text())  # type: ignore[attr-defined]
+            ports = netlist["modules"][self.design.rtl.top or ""]["ports"]
+            if domain in ports:
+                return domain
+        except (AttributeError, KeyError, OSError, TypeError, ValueError):
+            pass  # no netlist to consult (a flow built for its report alone)
+        uses = getattr(self, "_clock_uses", None)
+        if uses is not None and len(uses) == 1 and uses[0].kind == "port":
+            return uses[0].target
+        return None
+
+    def _count_xilinx_luts(self, positions: Any) -> None:
+        """Report `lut` as the physical LUTs this run's placement dump shows occupied.
+
+        `positions` is the report's `SLICE_LUTX` count, which the dump's LUT cells must equal:
+        a dump that is missing, a previous run's, unreadable or disagreeing gives no count.
+        """
+        assert isinstance(self.settings, self.Settings)
+        path = self.run_path / (self.settings.placement or XILINX_PLACEMENT)
+        try:
+            if self.report_file(path) is None:
+                raise ValueError("nextpnr did not write it")
+            cells, locations = xilinx_lut_locations(json.loads(path.read_text()))
+            if cells != positions:
+                raise ValueError(f"it places {cells} LUT cells, the report counts {positions}")
+        except (OSError, ValueError) as e:
+            log.warning("No `lut` result: placement dump %s cannot be counted: %s", path, e)
+            return
+        self.results["lut"] = locations
+        self.results["LUT:STAGE"] = LUT_STAGE
+        self.results["LUT:METHOD"] = LUT_METHODS["xilinx"]
 
     def _parse_utilization(self, utilization: Dict[str, Any]) -> None:
         """Record per-bel-type usage, plus canonical resource names where the family is known."""
@@ -982,9 +1182,9 @@ class Nextpnr(FpgaSynthFlow):
         self.results["_utilization"] = detail
 
         assert isinstance(self.settings, self.Settings)
-        fpga = self.settings.fpga
-        family = (fpga.family or "").lower() if fpga else ""
-        if family != "ecp5":
+        family = self.io_family(self.settings)
+        resources = {"ecp5": ECP5_RESOURCES, "xilinx": XILINX_RESOURCES}.get(family)
+        if resources is None:
             if detail:
                 log.debug(
                     "No canonical resource mapping for fpga.family=%r; reporting raw nextpnr "
@@ -992,10 +1192,16 @@ class Nextpnr(FpgaSynthFlow):
                     family or None,
                 )
             return
-        for canonical, cell_types in ECP5_RESOURCES.items():
+        for canonical, cell_types in resources.items():
             present = [c for c in cell_types if c in detail]
             if present:
                 self.results[canonical] = sum(detail[c]["used"] for c in present)
+        if family == "xilinx":
+            if "SLICE_LUTX" in detail:
+                self._count_xilinx_luts(detail["SLICE_LUTX"]["used"])
+        elif "lut" in self.results:
+            self.results["LUT:STAGE"] = LUT_STAGE
+            self.results["LUT:METHOD"] = LUT_METHODS[family]
 
     def _parse_critical_paths(self, critical_paths: List[Dict[str, Any]]) -> None:
         """Summarize each reported critical path; the full stage-by-stage detail stays in the

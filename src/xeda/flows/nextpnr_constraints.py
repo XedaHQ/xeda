@@ -48,6 +48,15 @@ class Constraints:
         return re.sub(r"\bline\s+(\d+)\b", original, message, flags=re.IGNORECASE)
 
 
+@dataclass(frozen=True)
+class ClockUse:
+    """One physical clock a launch constrains: its literal target and where it was given."""
+
+    target: str
+    kind: str  # "port" or "net"
+    origin: str
+
+
 def merge_constraints(paths: Sequence[Path]) -> Constraints:
     """Concatenate files in supplied order, inserting a newline at each file boundary."""
     merged = Constraints()
@@ -176,12 +185,14 @@ def reconcile_clocks(
     netlist: Path,
     top: str,
     main_clock: PhysicalClock | None = None,
+    uses: list[ClockUse] | None = None,
 ) -> tuple[Constraints, float | None, bool]:
     """Reject overlapping clock authorities and generate the selected family's timing form.
 
     Returns the pin constraints (including Xilinx generated clocks), the ECP5/iCE40/Nexus
     main-clock frequency hint, and whether any physical timing constraint was provided.
-    Port declarations without a period do not supply timing.
+    Port declarations without a period do not supply timing. Every clock found, in the
+    settings or a file, is appended to ``uses`` when the caller supplies that list.
     """
     nets = _net_bits(netlist, top)
     seen: dict[int | str, str] = {}
@@ -213,6 +224,8 @@ def reconcile_clocks(
                 )
             seen[identity] = origin
         has_timing = True
+        if uses is not None:
+            uses.append(ClockUse(target, kind, origin))
 
     for name, clock in clocks.items():
         if clock.period is not None:

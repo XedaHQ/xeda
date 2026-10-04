@@ -441,7 +441,7 @@ def test_nextpnr_names_the_device_and_package_its_own_way(tmp_path, monkeypatch,
     "settings,message",
     [
         ({"fpga": {"vendor": "gowin", "family": "gowin", "device": "GW1N-9"}}, "no tested"),
-        ({"fpga": "xc7a35tcpg236-1"}, "no tested"),
+        ({"fpga": "xc7a35tcpg236"}, "full part"),
         (
             {"fpga": "iCE40HX1K-TQ144", "lpf_allow_unconstrained": True},
             "does not take lpf_allow_unconstrained",
