@@ -290,9 +290,8 @@ def test_diamond_allows_or_forbids_dsps_and_brams(allowed, engine, tmp_path, mon
 #: tests/test_yosys_templates.py).
 TCL_SUFFIXES = {".tcl", ".xdc", ".sdc", ".ldc", ".fdc", ".do"}
 #: Templates no Tcl interpreter reads: yosys' scripts (their own filters:
-#: tests/test_yosys_templates.py) and open_xc7's XDC, which nextpnr's own parser reads. UCF and
-#: XCF files (ISE) are not Tcl either.
-NOT_TCL = {"yosys", "openxc7"}
+#: tests/test_yosys_templates.py). UCF and XCF files (ISE) are not Tcl either.
+NOT_TCL = {"yosys"}
 
 #: The settings a template may render raw -- as the several Tcl words the user wrote, by design --
 #: each with why: `(template, expression) -> reason`. None is a path, and none is checked by

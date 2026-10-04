@@ -201,9 +201,10 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
 
 
 #: The P2a release line, including its dev builds. Protocol 3 adds P1b's simulation evidence rule;
-#: protocol 4 P2b's FPGA build graph (the declared `fpga_pack` flow and its settings).
+#: protocol 4 P2b's FPGA build graph (the declared `fpga_pack` flow and its settings); protocol 5
+#: the programming-only `openfpgaloader` (its build settings and the `open_xc7` flow are gone).
 REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
-REMOTE_PROTOCOL_MIN_VERSION = 4
+REMOTE_PROTOCOL_MIN_VERSION = 5
 
 # Runs before shipping anything. Inspect the package this interpreter actually imports: installed
 # distribution metadata alone can describe a different xeda shadowed by a stale checkout. A
@@ -248,8 +249,8 @@ def check_remote_xeda(
     `rtl.sources: unhashable type: 'dict'`.
 
     P2a requires its release line (`REMOTE_XEDA_MIN_VERSION`, including dev builds), P1b
-    protocol 3 for the remote simulation evidence rule, and P2b protocol 4 for its FPGA build
-    graph. Version alone cannot distinguish development checkouts that predate a contract.
+    protocol 3 for the remote simulation evidence rule, and P2b protocol 5 for its FPGA build
+    and programming graph. Version alone cannot distinguish development checkouts that predate a contract.
     A compatible remote on another release line is warned about settings differences.
     """
     required = ".".join(str(part) for part in REMOTE_XEDA_MIN_VERSION)

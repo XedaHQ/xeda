@@ -6,13 +6,23 @@ import pytest
 
 import xeda.board
 from xeda import Design
-from xeda.dataclass import ValidationError
+from xeda.board import WithFpgaBoardSettings
+from xeda.dataclass import Field, ValidationError
 from xeda.flow import FlowSettingsError
-from xeda.flows import Nextpnr, Openfpgaloader, OpenXC7
+from xeda.flows import Nextpnr, Openfpgaloader
 from xeda.flows.nextpnr import NextpnrTool
-from xeda.tool import Tool
 
 from .test_nextpnr import write_nextpnr_config
+
+
+class _LegacyParent(WithFpgaBoardSettings):
+    """Settings holding a board-aware dependency's, as an undeclared flow's do: no built-in
+    flow nests one any more, and `resolve_dependency` still serves such flows."""
+
+    nextpnr: Nextpnr.Settings = Field(
+        default_factory=Nextpnr.Settings, description="The dependency's settings."
+    )
+    dependency_settings = {"nextpnr": ("fpga", "board", "custom_boards_file", "clocks")}
 
 
 def board_file(tmp_path: Path) -> Path:
@@ -43,8 +53,9 @@ def test_custom_board_resolves_from_design_and_survives_reload(tmp_path):
     assert reloaded.fpga == settings.fpga
     assert reloaded.board_data() == settings.board_data()
 
-    # OpenXC7 uses the inherited board-to-FPGA lookup, though it does not consume LPF files.
-    assert OpenXC7.Settings.from_input(data, design_root=tmp_path).fpga.part == settings.fpga.part
+    # Every board-aware flow uses the inherited board-to-FPGA lookup, whatever files it reads.
+    loader = Openfpgaloader.Settings.from_input(data, design_root=tmp_path)
+    assert loader.fpga.part == settings.fpga.part
 
 
 def test_custom_board_assignment_order_uses_design_root(tmp_path):
@@ -97,7 +108,7 @@ def test_dependency_resolves_parent_board_and_database_together(tmp_path):
     parent_file.write_text('[PARENT]\nfpga.part = "LFE5U-25F-6BG381C"\n')
     child_file = tmp_path / "child.toml"
     child_file.write_text('[CHILD]\nfpga.part = "LFE5U-45F-6BG381C"\n')
-    settings = Openfpgaloader.Settings.from_input(
+    settings = _LegacyParent.from_input(
         {
             "board": "PARENT",
             "custom_boards_file": "parent.toml",
@@ -115,7 +126,7 @@ def test_dependency_resolves_parent_board_and_database_together(tmp_path):
 
 def test_dependency_adopts_a_custom_board_pair_without_changing_the_given_settings(tmp_path):
     boards = board_file(tmp_path)
-    settings = Openfpgaloader.Settings.from_input(
+    settings = _LegacyParent.from_input(
         {"nextpnr": {"board": "MY_BOARD", "custom_boards_file": str(boards)}},
         design_root=tmp_path,
     )
@@ -130,7 +141,7 @@ def test_dependency_adopts_a_custom_board_pair_without_changing_the_given_settin
 
 def test_invalid_combined_board_pair_leaves_dependency_settings_unchanged(tmp_path):
     boards = board_file(tmp_path)
-    settings = Openfpgaloader.Settings.from_input(
+    settings = _LegacyParent.from_input(
         {"board": "ULX3S_85F", "nextpnr": {"board": "MY_BOARD", "custom_boards_file": str(boards)}},
         design_root=tmp_path,
     )
@@ -265,34 +276,3 @@ def test_nextpnr_resolves_bundled_board_lpf_against_bundled_database(tmp_path, m
         Path(lpfs[0].removeprefix("--lpf=")).read_text()
         == (Path(xeda.board.__file__).parent / "data/boards/ulx3s/board.lpf").read_text()
     )
-
-
-def test_openfpgaloader_forwards_database_and_uses_programmer_name(tmp_path, monkeypatch):
-    board_file(tmp_path)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
-    settings = Openfpgaloader.Settings.from_input(
-        {"board": "MY_BOARD", "custom_boards_file": "board files/boards.toml"},
-        design_root=tmp_path,
-    )
-    flow = Openfpgaloader(settings, design, tmp_path / "loader")
-    flow.init()
-    dep_settings = flow.dependencies[0][1]
-    assert dep_settings.custom_boards_file == tmp_path / "board files" / "boards.toml"
-    assert dep_settings.fpga.part == "LFE5U-25F-6BG381C"
-
-    nextpnr = Nextpnr(dep_settings, design, tmp_path / "nextpnr")
-    nextpnr.run_path.mkdir()
-    (nextpnr.run_path / nextpnr.settings.textcfg).write_text("config")
-    flow.completed_dependencies.append(nextpnr)
-    calls = []
-
-    def fake_run(self, *args):
-        calls.append((self.executable, args))
-        if self.executable == "ecppack":
-            Path(args[1]).write_bytes(b"bitstream")
-
-    monkeypatch.setattr(Tool, "run", fake_run)
-
-    flow.run()
-
-    assert any("--board" in args and "programmer_board" in args for _, args in calls)

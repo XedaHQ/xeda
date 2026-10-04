@@ -158,16 +158,17 @@ route. Results, generated scripts, reports, and effective settings are kept unde
     mixed-language designs, with optional SDF timing annotation
 - [nextpnr](https://github.com/YosysHQ/nextpnr) portable FPGA place and route tool
   - `nextpnr`: places and routes the netlist produced by its `yosys_fpga` dependency and reports
-    achieved frequency, slack and utilization. Lattice ECP5 is the supported and tested target;
-    other backends are best-effort and report raw per-bel-type counts
-  - `open_xc7` (alias: `openxc7`): Xilinx 7-series place and route via nextpnr-xilinx
+    achieved frequency, slack and utilization. Lattice ECP5 and iCE40, and Xilinx 7-series
+    through openXC7's nextpnr-himbaechel, are the tested targets; Nexus is best-effort and
+    reports raw per-bel-type counts
   - `fpga_pack`: packs the routed configuration `nextpnr` records (or a typed configuration
     source) into a bitstream, with ecppack, icepack or openXC7's fpga-as; it programs nothing
 - [openFPGALoader](https://github.com/trabucayre/openFPGALoader): open-source and multi-platform
   universal utility for programming FPGAs, compatible with many boards, cables and FPGAs from
   major manufacturers
-  - `openfpgaloader`: runs the full `yosys_fpga` -> `nextpnr` chain, packs the routed design into
-    a bitstream, and loads it onto the board. The only flow that touches real hardware
+  - `openfpgaloader`: loads a bitstream onto the board: the one `fpga_pack` builds through
+    `yosys_fpga` -> `nextpnr` -> `fpga_pack`, or a typed bitstream source. The only flow that
+    touches real hardware
 - [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD/): integrated chip physical design
   flow that takes a design from RTL sources to routed layout
   - `openroad`: ASIC implementation on top of a `yosys` synthesis dependency, against the bundled
@@ -182,7 +183,7 @@ route. Results, generated scripts, reports, and effective settings are kept unde
     cocotb testbenches, plain C++/SystemC harnesses, and VCD/FST waveform tracing
 - [Yosys](https://github.com/YosysHQ/yosys) Open SYnthesis Suite
   - `yosys`: ASIC and generic gate/LUT synthesis
-  - `yosys_fpga`: FPGA synthesis; the dependency of `nextpnr`, `open_xc7` and `openfpgaloader`
+  - `yosys_fpga`: FPGA synthesis; the first stage of `nextpnr`, `fpga_pack` and `openfpgaloader`
   - `yosys_sim`: simulation with CXXRTL
 
 Run `xeda list-flows` for the complete list in the installed version; use

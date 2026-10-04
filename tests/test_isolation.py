@@ -118,7 +118,6 @@ LOCATED = {
 }
 #: The flows the sweep does not bring to their `run()`, and why nothing is lost.
 UNREACHED = {
-    "open_xc7": "its yosys_fpga dependency writes no netlist",
     "openroad": "the asap7 platform's liberty files are not shipped",
     "vivado_power": "its vivado_postsynth_sim dependency finds no netlist",
 }
@@ -760,10 +759,6 @@ REVIEWED_PY_DELETIONS = {
         "`scrub_runs`: a run directory reached through a link in the run root, the link itself, "
         "once its target (under the run root) was removed",
     ),
-    ("flows/openfpgaloader.py", "packed.replace(bitstream)"): (
-        1,
-        "the packed bitstream, inside the run directory (`run_directory.writable`)",
-    ),
     ("flows/yosys/common.py", "flags.remove(flag)"): (1, "a list of flags"),
     ("proc_utils.py", "readable.remove(fd)"): (1, "a list of file descriptors"),
     ("deliver.py", "os.replace(temporary, destination)"): (
@@ -1196,11 +1191,6 @@ REVIEWED_WRITES = [
         "flow_runner/remote.py",
         'with open(design_file, "w") as f:',
         f"`send_design`: the archive's design file, in a `TemporaryDirectory` it made: {_OUTSIDE_RUNS}",
-    ),
-    (
-        "flows/openfpgaloader.py",
-        "packed.replace(bitstream)",
-        "a rename of its own packed file onto the bitstream: replaces a link, never follows it",
     ),
     (
         "flows/yosys/common.py",

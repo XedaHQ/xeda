@@ -1014,7 +1014,7 @@ class Flow(metaclass=ABCMeta):
         if not inspect.isabstract(cls):
             # register under the canonical (snake_case) name first, then the class name and any
             # aliases. `cls.name` is what the CLI and the docs use, so it must be resolvable
-            # without relying on a lossy snake_case -> CamelCase round-trip (e.g. OpenXC7).
+            # without relying on a lossy snake_case -> CamelCase round-trip (as `OpenXC7` once was).
             for name in unique([cls.name, cls_name] + cls.aliases):
                 if name in registered_flows:
                     log.warning("Duplicate name: %s while registering flow %s", name, cls_name)

@@ -86,7 +86,8 @@ def test_a_dependency_s_own_section_reaches_the_flow_that_launches_it():
     """`[flows.yosys_fpga]` is the base of `nextpnr`'s `yosys` settings, which `[flows.nextpnr]`
     refines -- so a device given only for `yosys_fpga` is one `nextpnr` resolves (it shares
     `fpga` with that dependency), not one it learns of after its own `init()` already failed
-    without it. Recursively: `openfpgaloader`'s `nextpnr.yosys` sits on it too."""
+    without it. A flow with no nested dependency settings (`openfpgaloader`) has its own section
+    alone: its producers' sections are theirs."""
     from xeda.flow_runner.settings_layers import flow_settings_from_sections
     from xeda.flows import Nextpnr, Openfpgaloader
 
@@ -99,9 +100,7 @@ def test_a_dependency_s_own_section_reaches_the_flow_that_launches_it():
         "seed": 3,
         "yosys": {"fpga": {"part": "LFE5U-25F-6BG381C"}, "abc9": True},  # the more specific wins
     }
-    assert flow_settings_from_sections(Openfpgaloader, sections)["nextpnr"]["yosys"]["fpga"] == {
-        "part": "LFE5U-25F-6BG381C"
-    }
+    assert flow_settings_from_sections(Openfpgaloader, sections) == {}
     assert flow_settings_from_sections(Nextpnr, {}) == {}
 
 

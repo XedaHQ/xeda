@@ -84,12 +84,7 @@ ROLES = {
         )
     },
     ("Nextpnr.Settings", "log"): W,
-    **{
-        ("OpenXC7.Settings", name): D for name in ("bitstream", "fasm_output", "json_output", "sdf")
-    },
-    ("OpenXC7.Settings", "log"): W,
     ("FpgaPack.Settings", "bitstream"): D,
-    ("Openfpgaloader.Settings", "bitstream_file"): D,
 }
 
 
@@ -270,20 +265,6 @@ def test_every_deliverable_has_a_conventional_name_of_its_own(flow):
         assert names.setdefault(name, f"{owner}.{field}") == f"{owner}.{field}", (flow, name)
 
 
-@pytest.mark.parametrize(
-    "fpga, suffix",
-    [
-        ({"part": "LFE5U-25F-6BG381C"}, ".bit"),
-        ({"family": "ice40", "vendor": "lattice", "device": "ice40HX1K"}, ".bin"),
-    ],
-)
-def test_openfpgaloader_names_its_bitstream_for_the_packer(fpga, suffix):
-    from xeda.flows import Openfpgaloader
-
-    settings = Openfpgaloader.Settings.from_input({"fpga": fpga})
-    assert settings.conventional_output("bitstream_file", "d") == Path(f"outputs/d{suffix}")
-
-
 NESTED_DELIVERABLES = [("ghdl_sim", "cocotb.results_xml"), ("yosys_sim", "cxxrtl.filename")]
 
 
@@ -316,13 +297,3 @@ def test_a_known_variable_left_unexpanded_is_named_as_such(tmp_path):
     settings.cocotb.results_xml = Path("$PWD/r.xml")  # on the nested model: nothing expands it
     (message,) = [m for key, m in written_path_problems(settings) if key == "cocotb.results_xml"]
     assert "$PWD was not expanded here" in message and "not a variable xeda knows" not in message
-
-
-def test_openfpgaloader_names_its_bitstream_by_nextpnr_s_fpga_too():
-    """Deliveries are split before `resolve_dependency` adopts an `fpga` given only for nextpnr."""
-    from xeda.flows import Openfpgaloader
-
-    settings = Openfpgaloader.Settings.from_input(
-        {"nextpnr": {"fpga": {"part": "LFE5U-25F-6BG381C"}}}
-    )
-    assert settings.conventional_output("bitstream_file", "d") == Path("outputs/d.bit")

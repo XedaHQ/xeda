@@ -111,7 +111,7 @@ type as ``-s <name>=<value>``:
 * ``writes`` says whether the flow writes to the path this setting names: ``"working"`` (an
   intermediate location, always used as a bare name inside the run directory, whatever it is
   given -- ``sim_dir``, a log path), ``"deliverable"`` (an output that may be given a location,
-  which is then delivered there once the run finishes -- ``bitstream_file``, ``vcd``), or
+  which is then delivered there once the run finishes -- ``fpga_pack``'s ``bitstream``, ``vcd``), or
   ``null`` when the setting is read, not written.
 * ``enum`` lists the permitted values when a setting is constrained to a set.
 * ``definitions`` describes nested setting types (``FPGA``, ``PhysicalClock``, ``RunOptions``, ...).
@@ -195,8 +195,8 @@ recorded run was still valid and was reused, without re-running), ``"ran"`` or `
 ``reason`` is why it ran (empty for a fresh node), the same text logged as
 ``Running <flow>: <reason>``. Runs are make-like by default (without ``--rebuild-all``): a fully
 fresh run is ``"success": true`` with every node ``"fresh"``. See :doc:`run-directories` for what makes
-a node stale. A flow that always runs (``openfpgaloader``, ``open_xc7`` when it programs a
-device, a flow asked for a fresh random seed) is never ``"fresh"``; its ``reason`` says why.
+a node stale. A flow that always runs (``openfpgaloader``, which programs a device, or a flow
+asked for a fresh random seed) is never ``"fresh"``; its ``reason`` says why.
 
 ``deliveries`` lists every output that node's flow copied to a location the settings or
 ``--outputs-to`` named, once the whole launch finished (see :doc:`run-directories`'s "Outputs

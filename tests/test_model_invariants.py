@@ -50,7 +50,7 @@ def test_settings_json_schema_builds(cls):
 
 @pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=FLOW_IDS)
 def test_a_setting_every_flow_shares_has_the_same_type_in_every_flow(cls):
-    """`verbose` is a verbosity level everywhere; `nextpnr` and `open_xc7` once redeclared it as a
+    """`verbose` is a verbosity level everywhere; `nextpnr` (and the since-removed `open_xc7`) once redeclared it as a
     `bool`, so `-s verbose=2` worked for every flow but those two."""
     from xeda.flow import Flow
 

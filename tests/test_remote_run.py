@@ -346,6 +346,7 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
         ("0.4.3", 0, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
         ("0.4.4.dev1", 2, "ghdl_sim", None),
         ("0.4.4.dev1", 3, "fpga_pack", ["fpga.part=LFE5U-25F-6BG381C"]),
+        ("0.4.4.dev1", 4, "openfpgaloader", ["fpga.part=LFE5U-25F-6BG381C"]),
     ],
 )
 def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
@@ -394,7 +395,7 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P2b remote (protocol 4), including this branch's dev builds.
+#: The archive accepted by a P2b remote (protocol 5), including this branch's dev builds.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {
@@ -1445,6 +1446,52 @@ def test_a_remote_run_builds_the_default_fpga_graph_and_mirrors_its_bitstream(
     packed = _remote_run_dir(remote_host, "fpga_pack")
     trace = json.loads((packed / "trace.json").read_text())
     assert trace["declared_inputs"][0]["origin"] == expected.node("fpga_pack").inputs[0].origin
+
+
+def test_a_remote_run_programs_a_prebuilt_bitstream_with_the_worker_s_fake_loader(
+    tmp_path, remote_host, monkeypatch
+):
+    """`openfpgaloader` on the remote, given a typed bitstream source: the loader alone runs
+    there, on the shipped file. NO REAL PROGRAMMER: the worker's PATH starts with the fake
+    toolchain, `openFPGALoader` on it is checked to be the fake before anything is sent, and
+    the call record only the fake writes is what proves which program ran."""
+    from .tool_utils import FAKE_TOOLS_DIR, use_fake_fpga_tools
+
+    prefix = use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
+    path = os.environ["PATH"]
+    loader = shutil.which("openFPGALoader", path=path)
+    assert loader == str(prefix / "bin/openFPGALoader")
+    assert Path(loader).read_bytes() == (FAKE_TOOLS_DIR / "fake_fpga_tool.py").read_bytes()
+    monkeypatch.setattr(
+        remote_module, "get_login_env", lambda conn: {"PATH": path, "HOME": str(remote_host)}
+    )
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
+    (root / "built.bit").write_bytes(b"a bitstream built elsewhere")
+    design = Design(
+        name="top",
+        design_root=root,
+        rtl={"sources": ["top.v", {"file": "built.bit", "type": "Bitstream"}], "top": "top"},
+    )
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    settings = ["board=ULX3S_85F"]
+    expected = runner.resolve(get_flow_class("openfpgaloader"), design, settings)
+    assert [node.name for node in expected.nodes] == ["openfpgaloader"]
+    results = runner.run_remote(design, "openfpgaloader", "fake", flow_settings=settings)
+    assert results and results["success"]
+    remote_run = _remote_run_dir(remote_host, "openfpgaloader")
+    assert [p.name.split("_")[0] for p in remote_run.parent.iterdir() if p.is_dir()] == [
+        "openfpgaloader"
+    ]
+    (call,) = [
+        json.loads(line) for line in (remote_run / "fake_fpga.calls.jsonl").read_text().splitlines()
+    ]
+    assert call["tool"] == "openFPGALoader"
+    shipped = Path(call["argv"][1])
+    assert call["argv"][0] == "--bitstream" and shipped.is_relative_to(remote_host)
+    assert shipped.read_bytes() == b"a bitstream built elsewhere"
+    assert call["argv"][2:] == ["--board", "ulx3s", "--fpga-part", "LFE5U-85F-6BG381C"]
 
 
 def _nextpnr_design(tmp_path: Path) -> Path:

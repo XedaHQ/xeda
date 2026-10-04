@@ -1,29 +1,27 @@
 import logging
-from pathlib import Path, PurePath
-from tempfile import TemporaryDirectory
+from pathlib import Path
 from typing import List, Literal, Optional
 
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
-from ..dataclass import Field, deliverable
-from ..flow import FlowFatalError, FlowSettingsException, FpgaSynthFlow
+from ..dataclass import Field, model_validator
+from ..design import SourceType
+from ..flow import FpgaSynthFlow, In
 from ..tool import Tool
-from .nextpnr import Nextpnr
 
 __all__ = ["Openfpgaloader"]
 
 log = logging.getLogger(__name__)
 
-#: Bitstream packer for each FPGA family this flow is tested with.
-PACKERS = {"ecp5": "ecppack", "ice40": "icepack"}
-
 
 class Openfpgaloader(FpgaSynthFlow):
-    """Build a bitstream and program it onto an FPGA board with openFPGALoader.
+    """Program a bitstream onto an FPGA board with openFPGALoader.
 
-    Runs the full `yosys_fpga` -> `nextpnr` chain, packs the routed design into a bitstream
-    with `ecppack` for ECP5 or `icepack` for iCE40, and loads it over the configured `cable` or
-    `board`. Other families are rejected before place and route. This is the only flow here
-    that touches real hardware.
+    Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by
+    any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` ->
+    `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those
+    stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted
+    by `cable`, else by the `board`'s programmer name, plus the FPGA part. It always runs, since
+    it changes a device rather than a file, and it is the only flow here that touches hardware.
     """
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
@@ -35,6 +33,15 @@ class Openfpgaloader(FpgaSynthFlow):
     ofpga_loader = Tool("openFPGALoader")
 
     class Settings(WithFpgaBoardSettings):
+        removed_settings = {
+            **WithFpgaBoardSettings.removed_settings,
+            "nextpnr": "the nextpnr flow's own settings: a [flows.nextpnr] section, or "
+            "`-s flows.nextpnr.<setting>=<value>`",
+            "packer_args": "flows.fpga_pack.packer_args",
+            "bitstream_file": "flows.fpga_pack.bitstream to name or deliver the packed "
+            "bitstream, or a typed source in rtl.sources to program an existing file: "
+            '{ file = "top.bit", type = "Bitstream" }',
+        }
         reset: bool = Field(
             False, description="Reset the FPGA after loading the bitstream (`--reset`)."
         )
@@ -43,14 +50,10 @@ class Openfpgaloader(FpgaSynthFlow):
             description='Programming cable to use, e.g. "ft2232". Takes precedence over the '
             "cable implied by `board`.",
         )
-        bitstream_file: Optional[Path] = Field(
-            None,
-            description="Packed bitstream output path, relative to the run directory. Defaults "
-            "to a file named after the board.",
-            json_schema_extra=deliverable("outputs/{design}.bit"),
-        )
         write_flash: bool = Field(False, description="Program nonvolatile flash (`--write-flash`).")
-        verify: bool = Field(False, description="Verify SPI flash after programming.")
+        verify: bool = Field(
+            False, description="Verify SPI flash after programming; needs `write_flash`."
+        )
         freq: Optional[int] = Field(None, gt=0, description="JTAG clock frequency in Hz.")
         offset: Optional[int] = Field(None, ge=0, description="Flash start address in bytes.")
         cable_index: Optional[int] = Field(None, ge=0, description="Probe index.")
@@ -69,93 +72,48 @@ class Openfpgaloader(FpgaSynthFlow):
         verbose_level: Optional[int] = Field(
             None, ge=-1, le=2, description="Loader verbosity (-1 to 2)."
         )
-        packer_args: List[str] = Field([], description="Extra arguments to ecppack or icepack.")
         extra_args: List[str] = Field(
             [], description="Extra openFPGALoader command-line arguments."
         )
-        nextpnr: Nextpnr.Settings = Field(
-            default_factory=Nextpnr.Settings,
-            description="Settings for the `nextpnr` dependency that places and routes the design.",
+
+        @model_validator(mode="before")
+        @classmethod
+        def _verify_needs_flash(cls, values):
+            """openFPGALoader verifies what it wrote to flash: there is nothing to verify
+            after loading SRAM. Checked on the whole input -- on an assignment, the whole
+            state with the assigned value -- before anything is stored, so the order the two
+            settings are given or assigned in does not matter and a refused assignment leaves
+            the settings as they were. Nothing is rewritten here."""
+            if values.get("verify") is True and values.get("write_flash") is not True:
+                raise ValueError(
+                    "verify checks the flash openFPGALoader wrote: it needs write_flash=true "
+                    "as well"
+                )
+            return values
+
+    class Inputs(FpgaSynthFlow.Inputs):
+        bitstream: Path = In(
+            SourceType.Bitstream,
+            producer="fpga_pack",
+            output="bitstream",
+            description="The bitstream to program: a design source or fpga_pack's.",
         )
-
-        dependency_settings = {"nextpnr": ("fpga", "board", "custom_boards_file", "clocks")}
-
-        def conventional_output(self, field: str, design: str) -> Optional[PurePath]:
-            """The packed bitstream is named for its packer's format, which the family decides:
-            `ecppack` writes `.bit` (ECP5), `icepack` `.bin` (iCE40), and openFPGALoader reads a
-            file by its extension. The family is nextpnr's when this flow's `fpga` is unset:
-            deliveries are split before `resolve_dependency` adopts an `fpga` given only there."""
-            if field == "bitstream_file":
-                fpga = self.fpga if self.fpga is not None else self.nextpnr.fpga
-                family = (fpga.family or "").lower() if fpga is not None else ""
-                return PurePath("outputs", design + (".bit" if family == "ecp5" else ".bin"))
-            return super().conventional_output(field, design)
 
     def always_runs(self) -> Optional[str]:
         return "it programs a device"
 
-    def init(self) -> None:
-        """Select the FPGA packer and register the nextpnr dependency."""
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        nextpnr = ss.resolve_dependency("nextpnr")  # adopts an `fpga` given only for nextpnr
-        assert ss.fpga is not None, "checked at launch (`required_settings`)"
-        family = (ss.fpga.family or "").lower()
-        # Checked before the dependencies run: there is no use in placing and routing a design
-        # that cannot be packed.
-        if family not in PACKERS:
-            raise FlowSettingsException(
-                f"openfpgaloader has no tested bitstream packer for fpga.family={family or None!r}"
-                f" (packers: {', '.join(f'{k}: {v}' for k, v in PACKERS.items())}); run nextpnr "
-                "directly for other families."
-            )
-        if family == "ecp5" and nextpnr.out_of_context:
-            raise FlowSettingsException(
-                "openfpgaloader cannot use nextpnr.out_of_context=true for ECP5 because "
-                "nextpnr does not emit textcfg."
-            )
-        self.packer = Tool(PACKERS[family])
-        self.add_dependency(Nextpnr, nextpnr)
-
     def run(self) -> None:
+        """Program exactly the bitstream handed over as the input `bitstream`."""
         assert isinstance(self.settings, self.Settings)
+        assert isinstance(self.inputs, self.Inputs)
         ss = self.settings
-        board_id = ss.board
         board_name = None
-        if board_id:
+        if ss.board:
             board_data = ss.board_data()
             if board_data:
                 board_name = board_data.get("name")
         assert ss.fpga is not None
-        family = (ss.fpga.family or "").lower()
-        next_pnr = self.completed_dependencies[0]
-        assert isinstance(next_pnr, Nextpnr)
-        assert isinstance(next_pnr.settings, Nextpnr.Settings)
-        config_name = next_pnr.settings.textcfg if family == "ecp5" else next_pnr.settings.asc
-        if not config_name:
-            raise FlowFatalError(f"nextpnr {family} configuration output is disabled.")
-        config = next_pnr.run_path / config_name
-        if not config.is_file():
-            raise FlowFatalError(f"Can't find {config} generated by nextpnr.")
-        extension = ".bit" if family == "ecp5" else ".bin"
-        bitstream = ss.bitstream_file or Path(f"{board_name or 'bitstream'}{extension}")
-        if not bitstream.is_absolute():
-            bitstream = self.run_path / bitstream
-        bitstream.parent.mkdir(parents=True, exist_ok=True)
-        if bitstream.resolve() == config.resolve():
-            raise FlowFatalError("The packed bitstream cannot overwrite the nextpnr configuration.")
-        # A successful packer invocation may produce no file (for example, --help). Pack to a
-        # fresh path, then publish it only after this invocation has written an output.
-        # never through a link at that name (`RunDirectory.writable`)
-        self.run_directory.writable(bitstream)
-        with TemporaryDirectory(prefix=".xeda-pack-", dir=bitstream.parent) as temporary_dir:
-            packed = Path(temporary_dir) / bitstream.name
-            self.packer.run(config, packed, *ss.packer_args)
-            if not packed.is_file():
-                raise FlowFatalError(f"Bitstream packer did not write {packed}.")
-            packed.replace(bitstream)
-        self.artifacts["bitstream"] = bitstream
-        args = ["--bitstream", bitstream]
+        args = ["--bitstream", self.inputs.bitstream]
         if ss.cable:
             args.extend(["--cable", ss.cable])
         elif board_name:

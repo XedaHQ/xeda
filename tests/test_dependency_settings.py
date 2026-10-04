@@ -75,9 +75,7 @@ SAMPLES: Dict[str, Tuple[Any, Any]] = {
     "timeout": (10.0, 20.0),
     "fail_severity": ("warning", "fatal"),
 }
-SAMPLES_BY_FLOW = {
-    ("open_xc7", "fpga"): ({"part": "xc7a100tftg256-2L"}, {"part": "xc7a35tcpg236-1"})
-}
+SAMPLES_BY_FLOW: dict = {}
 
 #: Nested flow settings that are options, not the settings of a dependency the flow launches.
 NOT_DEPENDENCIES = {
@@ -289,7 +287,7 @@ def test_resolution_is_stable_across_a_settings_json_round_trip(cls, field):
 # ---------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("flow", ["nextpnr", "open_xc7"])
+@pytest.mark.parametrize("flow", ["nextpnr"])
 def test_a_multi_clock_dependency_is_kept_when_the_flow_gives_no_clocks(flow):
     """An empty `clocks` means "not given"; letting it replace the dependency's clocks made
     yosys re-derive one `main_clock` from its `clock_period`, dropping `clk_b`."""
@@ -306,7 +304,7 @@ def test_a_multi_clock_dependency_is_kept_when_the_flow_gives_no_clocks(flow):
         assert {k: c.freq for k, c in resolved.clocks.items()} == {"clk_a": 100.0, "clk_b": 50.0}
 
 
-@pytest.mark.parametrize("flow", ["nextpnr", "open_xc7"])
+@pytest.mark.parametrize("flow", ["nextpnr"])
 def test_the_resolved_clock_keeps_canonical_clock_in_step(flow):
     """A canonical clock is propagated to the dependency without a second stored spelling."""
     from xeda.flow_runner import get_flow_class
@@ -320,18 +318,23 @@ def test_the_resolved_clock_keeps_canonical_clock_in_step(flow):
     assert resolved.clock_period == 5.0
 
 
-def test_openfpgaloader_resolves_its_whole_chain_consistently():
-    """`openfpgaloader` -> `nextpnr` -> `yosys_fpga`, each resolved when it is launched."""
+def test_openfpgaloader_resolves_its_whole_graph_consistently(tmp_path):
+    """`openfpgaloader` <- `fpga_pack` <- `nextpnr` <- `yosys_fpga`: declared edges, on which the
+    resolver agrees the device and the clocks, wherever in the graph they were given."""
+    from xeda import Design
+    from xeda.flow_runner import DefaultRunner
     from xeda.flows.openfpgaloader import Openfpgaloader
 
-    settings = Openfpgaloader.Settings(
-        clock_period=10.0, nextpnr={"yosys": {"fpga": {"part": "LFE5U-25F-6BG381C"}}}
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": [], "top": "d", "clock": {"port": "clk"}},
+        flow={"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}},
     )
-
-    nextpnr = settings.resolve_dependency("nextpnr")
-    yosys = nextpnr.resolve_dependency("yosys")
-
-    assert settings.fpga is None, "the part is given only inside yosys' settings"
-    assert yosys.fpga is not None and yosys.fpga.part == "LFE5U-25F-6BG381C"
-    assert nextpnr.fpga is not None and nextpnr.fpga.part == "LFE5U-25F-6BG381C"
-    assert yosys.clock_period == nextpnr.clock_period == 10.0
+    plan = DefaultRunner(tmp_path / "run").plan(
+        Openfpgaloader, design, flow_settings={"clock_period": 10.0}
+    )
+    assert [n.name for n in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"]
+    for node in plan.nodes:
+        assert node.settings.fpga.part == "LFE5U-25F-6BG381C", node.name
+        assert node.settings.clock_period == 10.0, node.name

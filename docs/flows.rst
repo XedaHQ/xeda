@@ -102,15 +102,16 @@ chain leading to it.
 
 .. code-block:: text
 
-    openfpgaloader  ->  nextpnr  ->  yosys_fpga
+    openfpgaloader  ->  fpga_pack  ->  nextpnr  ->  yosys_fpga
     vivado_power    ->  vivado_postsynth_sim  ->  vivado_synth
     openroad        ->  yosys
 
-A dependency runs in its own run directory, a sibling of the flow that launched it, and its
-settings are reachable from the parent as a nested settings key. For example, to change how
-``nextpnr``'s synthesis dependency behaves while running ``openfpgaloader``::
+A dependency runs in its own run directory, a sibling of the flow that launched it. Its settings
+are its own section's (``[flows.yosys_fpga]``), set from the command line with
+``-s flows.<flow>.<setting>``. For example, to change how the synthesis stage behaves while
+running ``openfpgaloader``::
 
-    xeda run openfpgaloader blinky.yaml -s nextpnr.yosys.flatten=true
+    xeda run openfpgaloader blinky.yaml -s flows.yosys_fpga.flatten=true
 
 Some flows declare inputs and outputs (``xeda list-flows --json`` exposes them). ``nextpnr``
 reads a ``netlist``, by default the one ``yosys_fpga`` writes. A source of type ``JsonNetlist``
@@ -125,7 +126,10 @@ in ``rtl.sources`` supplies that input instead and skips synthesis:
 Xeda resolves the declared producers and their settings before anything runs. A scalar input
 requires exactly one matching source. Settings for a producer displaced by sources are unused
 and logged. The first declared outputs are ``yosys_fpga.netlist`` (enabled by ``netlist_json``)
-and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or Nexus ``fasm``).
+and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or Nexus/Xilinx ``fasm``).
+``fpga_pack`` packs that configuration, or a typed ``EcpConfig``, ``IceAsc`` or ``Fasm`` source,
+into its ``bitstream`` output; ``openfpgaloader`` programs that bitstream, or a typed
+``Bitstream`` source, and declares no output.
 An enabled configuration that is missing or stale fails the run; disabled outputs are omitted.
 Output paths are set by the flow, verified and recorded with content digests in ``results.json``.
 Consumers get only those checked records, for newly run and reused producers alike.
@@ -139,7 +143,7 @@ files and sections. A command-line leaf (``-s fpga.part=...`` or
 API overrides retain their separate highest-precedence origin. Normal origin-first precedence
 still applies within each node.
 
-Undeclared edges (``openfpgaloader`` to ``nextpnr``, the Vivado simulation/power flows) keep the
+Undeclared edges (the Vivado simulation/power flows) keep the
 legacy rule: the depending flow's nonempty value, else its dependency's nested value.
 Undeclared flows may launch declared ones.
 
@@ -170,10 +174,11 @@ Open-source FPGA flow targets and tuning
 
 ``yosys_fpga`` uses the target's Yosys synthesis pass. It supports ECP5, iCE40, Nexus,
 Xilinx and Gowin synthesis. ``nextpnr`` adds verified device selection, constraints and output
-formats for ECP5 (Trellis ``textcfg``), iCE40 (``asc``) and Nexus (``fasm``). The
-``openfpgaloader`` chain packs and programs ECP5 with ``ecppack`` and iCE40 with ``icepack``.
-Both reject a family they have no tested mapping or packer for when they start, before any
-synthesis runs. For Xilinx 7-series placement and routing, use the separate ``openxc7`` flow.
+formats for ECP5 (Trellis ``textcfg``), iCE40 (``asc``), Nexus (``fasm``) and Xilinx 7-series
+(``fasm``, with openXC7's ``nextpnr-himbaechel``). ``fpga_pack`` packs ECP5 with ``ecppack``,
+iCE40 with ``icepack`` and 7-series with ``fpga-as``; ``openfpgaloader`` programs the bitstream.
+Each rejects a family it has no tested mapping or packer for before any synthesis runs. The
+former ``open_xc7`` flow was removed: use ``fpga_pack`` to build, ``openfpgaloader`` to program.
 
 The options of Yosys' synthesis passes changed between releases, so ``yosys_fpga`` chooses them
 by the installed Yosys version (0.63 is the minimum; flags are checked through 0.69). ABC9 is
@@ -216,8 +221,8 @@ For example, include ``{ file = "pins.pcf", type = "Pcf" }`` in ``rtl.sources``,
         xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
 
 Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
-``openfpgaloader --json`` to inspect all named settings. ``synth_flags``, ``extra_args`` and
-``packer_args`` expose target/version-specific switches that do not have dedicated settings;
+``fpga_pack --json`` or ``openfpgaloader --json`` to inspect all named settings.
+``synth_flags``, ``extra_args`` and ``fpga_pack``'s ``packer_args`` expose target/version-specific switches that do not have dedicated settings;
 the selected installed tool must support those switches. Placement and programming are
 different operations: ``openfpgaloader`` is the only flow here that writes hardware.
 

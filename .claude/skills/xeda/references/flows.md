@@ -143,23 +143,13 @@ Place and route an FPGA design with nextpnr, the portable open-source PnR tool. 
 
 Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`, `LUT:STAGE`, `LUT:METHOD`, `clock_port`, `device`, `fabric`
 
-### `open_xc7`
-
-*aliases: `openxc7` | runs first: `yosys_fpga`*
-
-OpenXC7: FPGA synthesis using nextpnr-xilinx
-
-35 flow-specific settings (plus the common ones): `xeda list-settings open_xc7 --json`
-
-Reports: `f_max`, `Fmax`, `lut`, `ff`, `LUT`, `FF`, `DSP48E1`, `RAMB18E1`, `RAMB36E1`, `RAMBFIFO36E1`
-
 ### `openfpgaloader`
 
-*runs first: `nextpnr`*
+*runs first: `fpga_pack`*
 
-Build a bitstream and program it onto an FPGA board with openFPGALoader. Runs the full `yosys_fpga` -> `nextpnr` chain, packs the routed design into a bitstream with `ecppack` for ECP5 or `icepack` for iCE40, and loads it over the configured `cable` or `board`. Other families are rejected before place and route. This is the only flow here that touches real hardware.
+Program a bitstream onto an FPGA board with openFPGALoader. Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` -> `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted by `cable`, else by the `board`'s programmer name, plus the FPGA part. It always runs, since it changes a device rather than a file, and it is the only flow here that touches hardware.
 
-24 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
+21 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 
 Reports no results beyond the keys every flow reports.
 

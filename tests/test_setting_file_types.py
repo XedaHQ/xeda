@@ -120,7 +120,7 @@ INPUT_DIRECTORIES = {
     "lib_paths": "compiled libraries a tool reads",
     "include_dirs": "include directories Verilator searches",
     "additional_search_path": "a directory DC searches for libraries",
-    "prjxray_db_dir": "the Project X-Ray database open_xc7 reads",
+    "prjxray_db": "the Project X-Ray database nextpnr and fpga_pack read for 7-series",
     "search_paths": "directories bsc searches for imported Bluespec packages",
     "verilog_search_paths": "directories bsc searches for the Verilog of imported modules",
     "library_dirs": "directories of the C/C++ libraries bsc_sim links",

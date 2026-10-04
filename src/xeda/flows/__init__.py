@@ -18,7 +18,6 @@ from .nextpnr import Nextpnr
 from .nvc import Nvc
 from .openfpgaloader import Openfpgaloader
 from .openroad import Openroad
-from .openxc7 import OpenXC7
 from .quartus import Quartus
 from .vcs import Vcs
 from .verilator import Verilator
@@ -44,7 +43,6 @@ __all__ = [
     "Modelsim",
     "Nextpnr",
     "Nvc",
-    "OpenXC7",
     "Openfpgaloader",
     "Openroad",
     "Quartus",

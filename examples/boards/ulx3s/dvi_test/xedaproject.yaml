@@ -22,10 +22,8 @@ flows:
     clock:
       period: 40 # 25 MHz
     detailed_timing_report: false # nextpnr BUG, o/w crashes
+    timing_allow_fail: true
   openfpgaloader:
     board: 'ULX3S_85F'
     clock:
       period: 40 # 25 MHz
-    nextpnr:
-      detailed_timing_report: false
-      timing_allow_fail: true
