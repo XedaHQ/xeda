@@ -20,7 +20,7 @@ through `merge_layers`, so they cannot disagree about precedence.
 
 import difflib
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
 from types import UnionType
@@ -404,11 +404,16 @@ def split_flow_sections(
     return sections, own
 
 
-def check_run_flows(sections: Mapping[str, Any], flow_cls: type[Flow]) -> None:
+def check_run_flows(
+    sections: Mapping[str, Any],
+    flow_cls: type[Flow],
+    run_flows: Collection[str] | None = None,
+) -> None:
     """The command line's `flows.<name>` sections may name only the flows of this run: the
-    requested flow and its transitive declared dependencies. Any other name is an error with the
-    close matches among them."""
-    run_flows = sorted({flow_cls.name, *transitive_dependencies(flow_cls)})
+    requested flow and its transitive declared dependencies, or `run_flows` when the resolver
+    knows the graph (an explicit binding can reach a flow outside the default one). Any other
+    name is an error with the close matches among them."""
+    run_flows = sorted({flow_cls.name, *(run_flows or transitive_dependencies(flow_cls))})
     unknown = [name for name in sections if name not in run_flows]
     if unknown:
         raise FlowSettingsError(

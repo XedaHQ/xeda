@@ -268,3 +268,96 @@ class _ChainAction(Flow):
 
     def run(self) -> None:
         pass
+
+
+class _Fork(Flow):
+    """Writes each of two optional netlists a consumer asks for: the demand-union producer."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Settings(Flow.Settings):
+        first: bool = Field(False, description="Write the `a` netlist.")
+        second: bool = Field(False, description="Write the `b` netlist.")
+        label: str = Field("", description="Text written into each netlist.")
+
+    class Outputs(Flow.Outputs):
+        a: Path | None = Out(SourceType.JsonNetlist, enabled_by="first", description="Netlist a.")
+        b: Path | None = Out(SourceType.JsonNetlist, enabled_by="second", description="Netlist b.")
+
+    def run(self) -> None:
+        for name, enabled in (("a", self.settings.first), ("b", self.settings.second)):
+            if enabled:
+                path = self.run_path / f"{name}.json"
+                with replacing_file(self.run_directory.writable(path)) as f:
+                    f.write(f"{name}{self.settings.label}\n")
+                setattr(self.outputs, name, path)
+
+
+class _Branch(Flow):
+    """Copies its netlist input to its data output; the base of `_Left` and `_Right`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Outputs(Flow.Outputs):
+        out: Path = Out(SourceType.Data, description="What it read.")
+
+    def run(self) -> None:
+        path = self.run_path / "out.txt"
+        with replacing_file(self.run_directory.writable(path)) as f:
+            f.write(self.inputs.json.read_text())
+        self.outputs.out = path
+
+
+class _Left(_Branch):
+    """Reads `_Fork`'s `a` netlist."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        json: Path = In(
+            SourceType.JsonNetlist, producer="__fork", output="a", description="Netlist a."
+        )
+
+
+class _Right(_Branch):
+    """Reads `_Fork`'s `b` netlist."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        json: Path = In(
+            SourceType.JsonNetlist, producer="__fork", output="b", description="Netlist b."
+        )
+
+
+class _Join(Flow):
+    """Reads both branches, which both read `_Fork`: a diamond."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        left: Path = In(SourceType.Data, producer="__left", output="out", description="Left.")
+        right: Path = In(SourceType.Data, producer="__right", output="out", description="Right.")
+        more: list[Path] = In(SourceType.Data, optional=True, description="Any further files.")
+
+    def run(self) -> None:
+        self.results["read"] = self.inputs.left.read_text() + self.inputs.right.read_text()
+        self.results["more"] = [path.read_text() for path in self.inputs.more or []]
+
+
+class _Relay(Flow):
+    """Turns a data file into a netlist: with `_Left`, the two halves of a binding cycle."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        data: Path = In(SourceType.Data, description="The data it relays.")
+
+    class Outputs(Flow.Outputs):
+        netlist: Path = Out(SourceType.JsonNetlist, description="The relayed netlist.")
+
+    def run(self) -> None:
+        path = self.run_path / "relay.json"
+        with replacing_file(self.run_directory.writable(path)) as f:
+            f.write(self.inputs.data.read_text())
+        self.outputs.netlist = path

@@ -297,20 +297,34 @@ def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
 
 
 @pytest.mark.parametrize("entry", ["run", "plan", "run_flow", "resolve"])
-def test_reached_bindings_stop_before_the_pending_resolver_integration(tmp_path, entry):
-    runner = DefaultRunner(tmp_path / "runs")
+def test_a_reached_binding_selects_the_edge_on_every_entry_path(tmp_path, entry):
+    """Every local entry hands its captured binding layers to the resolver: the bound
+    producer replaces the default one, and nothing is silently ignored."""
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    source = tmp_path / "in.txt"
+    source.write_text("bound\n")
     design = Design(name="d", rtl={"sources": []})
-    with pytest.raises(FlowSettingsException, match="binding.*resolver integration"):
-        if entry in ("run_flow", "resolve"):
-            getattr(runner, entry)(
-                _Taker,
-                design,
-                {},
-                all_flows_settings={_Taker.name: {"inputs": {"made": "__maker.made"}}},
-            )
-        else:
-            getattr(runner, entry)(_Taker, design, flow_settings={"inputs.made": "__maker.made"})
-    assert not (tmp_path / "runs").exists()
+    sections = {
+        _Taker.name: {"inputs": {"made": "__input_maker.made"}},
+        "__input_maker": {"input_file": str(source)},
+    }
+    if entry in ("run_flow", "resolve"):
+        result = getattr(runner, entry)(_Taker, design, {}, all_flows_settings=sections)
+    else:
+        result = getattr(runner, entry)(
+            _Taker,
+            design,
+            flow_settings={
+                "inputs.made": "__input_maker.made",
+                "flows.__input_maker.input_file": str(source),
+            },
+        )
+    if entry in ("plan", "resolve"):
+        assert [node.name for node in result.nodes] == ["__input_maker", "__taker"]
+        assert not (tmp_path / "runs").exists()
+    else:
+        assert result.succeeded and result.results["read"] == "bound\n"
+        assert [flow.name for flow in runner.launched] == ["__input_maker", "__taker"]
 
 
 def test_captured_layers_can_be_transported_to_existing_dse_workers(tmp_path):

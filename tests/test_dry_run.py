@@ -26,6 +26,11 @@ def worktree_imports(monkeypatch):
     monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1] / "src"))
 
 
+#: what the plan says of an input no explicit binding supplies, and of one nothing supplies
+UNBOUND = {"binding_origin": None, "binding_location": None, "overridden": []}
+NOTHING = {"sources": [], "references": [], **UNBOUND}
+
+
 def _design_file(root: Path, yosys_part: str | None = None) -> Path:
     root.mkdir(exist_ok=True)
     (root / "blink.v").write_text(BLINK)
@@ -109,9 +114,11 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
             "producer": "yosys_fpga",
             "output": "netlist",
             "sources": [],
+            "references": [{"node": "yosys_fpga", "output": "netlist"}],
+            **UNBOUND,
         },
-        {"name": "constraints", "origin": "none", "producer": None, "output": None, "sources": []},
-        {"name": "sdc", "origin": "none", "producer": None, "output": None, "sources": []},
+        {"name": "constraints", "origin": "none", "producer": None, "output": None, **NOTHING},
+        {"name": "sdc", "origin": "none", "producer": None, "output": None, **NOTHING},
     ]
     assert all(node["declared"] for node in nodes)
     for node in nodes:
@@ -140,9 +147,11 @@ def test_a_source_supplies_the_input_and_displaces_the_producer(tmp_path):
             "producer": None,
             "output": None,
             "sources": [str(tmp_path / "netlist.json")],
+            "references": [],
+            **UNBOUND,
         },
-        {"name": "constraints", "origin": "none", "producer": None, "output": None, "sources": []},
-        {"name": "sdc", "origin": "none", "producer": None, "output": None, "sources": []},
+        {"name": "constraints", "origin": "none", "producer": None, "output": None, **NOTHING},
+        {"name": "sdc", "origin": "none", "producer": None, "output": None, **NOTHING},
     ]
     assert not (tmp_path / "xeda_run").exists()
 

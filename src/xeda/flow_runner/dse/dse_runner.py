@@ -205,6 +205,8 @@ class Executioner:
 
 
 class Dse(FlowLauncher):
+    accepts_bindings = False  # chains and input bindings are local `xeda run` requests
+
     class Settings(FlowLauncher.Settings):
         max_runtime_minutes: int = Field(
             12 * 3600,
