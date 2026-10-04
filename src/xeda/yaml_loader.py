@@ -15,6 +15,8 @@ _TAG = "tag:yaml.org,2002:"
 _CORE_SCALARS = {
     "null": re.compile(r"^(?:null|Null|NULL|~|)$"),
     "bool": re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"),
+    # YAML 1.2.2, 10.3.2: only the base 10 form takes a sign (`[-+]? [0-9]+`); `0o` and `0x`
+    # do not, so `-0x1F` is text -- as written, not an oversight.
     "int": re.compile(r"^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$"),
     "float": re.compile(
         r"^(?:[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
