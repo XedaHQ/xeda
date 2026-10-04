@@ -357,7 +357,7 @@ def test_copying_generics_between_rtl_and_tb_reaches_the_parameters_spelling():
     `nvc` builds its `-g` elaboration flags from `tb.parameters`, while both flows assign
     `tb.generics`, so leaving the sibling stale dropped every generic from the elaboration.
     """
-    design = Design.from_toml(
+    design = Design.from_file(
         Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
     )
     design.rtl.parameters = {"G_IN_WIDTH": 32}
