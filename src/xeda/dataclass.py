@@ -40,7 +40,7 @@ from pydantic import (
 from pydantic import field_validator as _pydantic_field_validator
 from pydantic import model_validator as _pydantic_model_validator
 from pydantic.fields import FieldInfo
-from pydantic_core import ErrorDetails, PydanticUndefined
+from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, PydanticUndefined
 
 __all__ = [
     "AliasChoices",
@@ -336,6 +336,41 @@ def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str
     return attrs.asdict(inst, filter=filter_)
 
 
+#: The words YAML 1.1 (and pydantic's lax booleans) read as a boolean. xeda reads YAML 1.2, where
+#: they are text, and a setting accepts exactly its declared type, so they are never a boolean.
+_TRUE_WORDS = frozenset({"y", "yes", "on", "t"})
+_FALSE_WORDS = frozenset({"n", "no", "off", "f"})
+
+
+def _is_boolean_annotation(annotation: Any) -> bool:
+    """Whether `annotation` is `bool` or `Optional[bool]`."""
+    accepted = annotation_args(annotation) if annotation is not None else ()
+    return bool(accepted) and all(a is bool for a in accepted)
+
+
+def boolean_text_message(text: str) -> str:
+    """What to say about `text` given where a boolean is required."""
+    word = text.strip().lower()
+    if word in _TRUE_WORDS:
+        return f"`{text}` is text, not a boolean: write `true`"
+    if word in _FALSE_WORDS:
+        return f"`{text}` is text, not a boolean: write `false`"
+    return f"`{text}` is text, not a boolean: write `true` or `false`"
+
+
+def yaml11_hint(value: Any) -> Optional[str]:
+    """For a value that does not fit a field, what YAML 1.2 wants written, when the value is a
+    word YAML 1.1 read as a boolean (`on`, `no`)."""
+    if not isinstance(value, str):
+        return None
+    word = value.strip().lower()
+    if word in _TRUE_WORDS:
+        return f"`{value}` is text in xeda YAML (YAML 1.2): write `true`"
+    if word in _FALSE_WORDS:
+        return f"`{value}` is text in xeda YAML (YAML 1.2): write `false`"
+    return None
+
+
 class XedaBaseModel(BaseModel):
     model_config = ConfigDict(
         validate_assignment=True,
@@ -349,6 +384,39 @@ class XedaBaseModel(BaseModel):
         # and writing its default explicitly (as a saved `settings.json` does) are the same.
         validate_default=True,
     )
+
+    @_pydantic_model_validator(mode="before")
+    @classmethod
+    def _booleans_are_not_text(cls, values: Any) -> Any:
+        """A `bool` or `Optional[bool]` field given text or a number is an error, unless the
+        text is `true` or `false` (a command line has no other way to write a boolean):
+        pydantic's lax booleans would read `yes`, `on`, `y` and `1` as `True`, but a setting
+        accepts exactly its declared type. Every model of xeda -- flow settings, the design,
+        nested models -- shares the rule. The input is only read, never rewritten."""
+        if not isinstance(values, dict):
+            return values
+        names = input_names(cls)
+        problems = []
+        for key, value in values.items():
+            if not (isinstance(key, str) and key in names):
+                continue
+            if isinstance(value, str):
+                if value.lower() in ("true", "false"):  # how a command line writes a boolean
+                    continue
+                message = boolean_text_message(value)
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                message = f"`{value}` is a number, not a boolean: write `true` or `false`"
+            else:
+                continue
+            if _is_boolean_annotation(field_annotation(cls, names[key])):
+                problems.append(
+                    InitErrorDetails(
+                        type=PydanticCustomError("boolean_text", message), loc=(key,), input=value
+                    )
+                )
+        if problems:
+            raise ValidationError.from_exception_data(cls.__name__, problems)
+        return values
 
     def invalidate_cached_properties(self):
         # A `cached_property` caches in the instance `__dict__` whichever class along the MRO
@@ -412,9 +480,23 @@ def validation_errors(
     return [
         (
             " -> ".join(str(loc) for loc in e.get("loc", [])),
-            e.get("msg"),
+            _with_yaml_hint(e),
             "".join(f"; {k}={v}" for k, v in (e.get("ctx") or {}).items()),
             e.get("type"),
         )
         for e in errors
     ]
+
+
+def _with_yaml_hint(error: ErrorDetails) -> str:
+    """The message of one error, saying what to write when YAML 1.2 changed the input: a word
+    YAML 1.1 read as a boolean (`ncpus: on`), or a number where text is needed (`top: 010`)."""
+    msg = str(error.get("msg"))
+    if error.get("type") in ("boolean_text", "extra_forbidden"):
+        return msg
+    value = error.get("input")
+    hint = yaml11_hint(value)
+    if hint is None and error.get("type") == "string_type" and isinstance(value, (int, float)):
+        shown = repr(value)
+        hint = f'`{shown}` is a number in xeda YAML (YAML 1.2): write `"{shown}"` for text'
+    return f"{msg}; {hint}" if hint else msg

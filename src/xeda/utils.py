@@ -503,9 +503,9 @@ def try_convert_to_primitives(
         # Should NOT convert dict, set, etc!
         if re.match(r"^\d+$", s):
             return int(s)
-        if s.lower() in ["true", "yes"]:
+        if s.lower() == "true":
             return True
-        if s.lower() in ["false", "no"]:
+        if s.lower() == "false":
             return False
         try:
             return float(s)
