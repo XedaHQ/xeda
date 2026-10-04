@@ -29,8 +29,8 @@ All the designs follow the same conventions:
   makes the simulation exit with a non-zero status, on a mismatch or when a watchdog runs
   out of cycles. (`$finish(1)` would not do: its argument is a verbosity level, not an
   exit status.)
-- Defining the macro `XEDA_INJECT_BUG` (`defines = { XEDA_INJECT_BUG = true }` under
-  `[tb]`) plants a deliberate bug that the testbench must catch, for negative tests.
+- Defining the macro `XEDA_INJECT_BUG` (`defines: {XEDA_INJECT_BUG: true}` under
+  `tb`) plants a deliberate bug that the testbench must catch, for negative tests.
 - Bluesim, Verilator and Icarus Verilog run each testbench in the same number of cycles.
 
 ## gcd: multi-package BSV
@@ -77,5 +77,5 @@ parameter and ports to BSV methods and declares how they may be scheduled. The p
 stall, so the wrapper counts credits to never start a multiplication without room for its
 result. The testbench drains results slowly to exercise that backpressure.
 
-Bluesim cannot simulate imported Verilog, so this design sets `simulator = "verilator"` for
+Bluesim cannot simulate imported Verilog, so this design sets `simulator: verilator` for
 `bsc_sim` in its design file, and `-s simulator=iverilog` works too.

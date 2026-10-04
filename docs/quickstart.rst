@@ -71,7 +71,7 @@ To synthesize it for an FPGA with Vivado::
 
     xeda run vivado_synth sqrt.yaml
 
-The ``[flows.vivado_synth]`` section of the design file supplies that flow's settings. Override
+The ``flows.vivado_synth`` mapping of the design file supplies that flow's settings. Override
 any of them on the command line with ``-s``/``--settings``, using dotted keys for nested values::
 
     xeda run vivado_synth sqrt.yaml -s clock.period=4.5 impl.strategy=Performance_ExplorePostRoutePhysOpt

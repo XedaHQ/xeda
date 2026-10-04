@@ -78,7 +78,7 @@ What is in it
 -----------------
 
 ``flow_settings`` holds the run's *input*: the flow's defaults, the project's and design file's
-``[flows.<flow>]`` sections and the command-line ``-s`` overrides, merged key by key. It is exactly
+``flows.<flow>`` sections and the command-line ``-s`` overrides, merged key by key. It is exactly
 what the run is identified by, so it can be fed back to reproduce the run.
 ``effective_flow_settings`` holds what the flow made of them while preparing and executing the run
 (resolved paths, derived options and generated outputs) -- the difference between what you asked
@@ -307,7 +307,7 @@ Some runs can never be reused, and say why: they always run, keep no trace, and 
 - A flow asked for a fresh random seed: "it draws a new random seed". Every seed is a setting with
   a fixed default, so equal inputs give equal outputs: Verilator's random initialization (off unless ``random_init`` is set) uses
   ``random_seed`` (default 1) and cocotb's ``random_seed`` defaults to 1. Ask for a new seed per
-  run with ``random_seed = "random"``, or with ``randomize_seed = true`` for ``nextpnr`` and
+  run with ``random_seed: random``, or with ``randomize_seed: true`` for ``nextpnr`` and
   ``open_xc7`` (now off by default).
 - ``nextpnr`` when a board's pin constraints are fetched from a URL: "its constraints are fetched
   from a URL" -- no trace can verify a file on the network. A local constraints file (``lpf_cfg``,
@@ -483,7 +483,7 @@ only from its local mirror -- always the hashed layout, ``<design>/<flow>_<hash>
 deliverable given as a location is refused before anything is shipped, since the remote run's own
 identity would otherwise depend on where the local side later copies its output. What a remote
 run's ``--outputs-to`` may never land on or in is what the requested flow reads as the launch uses
-its settings (its ``[flows.<flow>]`` section with ``-s`` over it), plus whatever every other flow's
+its settings (its ``flows.<flow>`` section with ``-s`` over it), plus whatever every other flow's
 section names as written: the local side cannot know which dependencies the remote will launch,
 so it protects those conservatively, even where no flow of the run ends up reading them.
 ``bsc_sim``'s delivered Bluesim executable is the generated script without its ``.so``: the two

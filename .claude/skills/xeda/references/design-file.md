@@ -180,7 +180,7 @@ language:
 
 `version` is an accepted alias of `standard`. Two-digit (`08`) and four-digit (`2008`) both work.
 
-## `[flows.<flow_name>]` - per-flow settings
+## `flows.<flow_name>` - per-flow settings
 
 Applied only when that flow runs, so one file can carry constraints for several targets:
 

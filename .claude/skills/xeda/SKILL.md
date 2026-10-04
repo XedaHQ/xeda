@@ -249,7 +249,7 @@ directory* points to when that is a directory (recorded by its target text, neve
 programs started indirectly (a compiler under `make`, Python packages such as cocotb), environment
 variables, and files a tool finds on its own without reporting them -
 `--rebuild-all` is the escape if a rebuild looks wrong. A flow that programs a device, or that is
-asked for a fresh random seed (`random_seed = "random"`, `randomize_seed = true`; seeds default to
+asked for a fresh random seed (`random_seed: random`, `randomize_seed: true`; seeds default to
 fixed values), always runs and says so.
 
 `--clean` empties a flow's run directory before running and forces every flow to run ("make clean,

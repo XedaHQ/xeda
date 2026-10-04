@@ -44,14 +44,14 @@ precedence:
 
 1. the flow's own defaults
 2. a ``xedaproject.yaml``'s ``flows.<flow_name>`` section
-3. the design file's ``[flows.<flow_name>]`` section
+3. the design file's ``flows.<flow_name>`` section
 4. the command line, via ``-s``/``--settings``
 5. the API, via ``flow_overrides``
 
 They merge key by key: ``-s yosys.flatten=true`` changes that one setting of a ``yosys`` section
 given in the design file, rather than replacing the whole section. Precedence goes by where a
 setting was given first (project, design, command line, API); a nested section such as
-``nextpnr``'s ``yosys`` refines the dependency's own ``[flows.yosys_fpga]`` section only within
+``nextpnr``'s ``yosys`` refines the dependency's own ``flows.yosys_fpga`` section only within
 one of these.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
@@ -132,8 +132,8 @@ Consumers get only those checked records, for newly run and reused producers ali
 
 Along a declared edge, shared settings -- ``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
 where both endpoints declare them -- must agree. Leaves given on one node apply to both; disjoint
-leaves combine. Different values for the same leaf, for example ``[flows.nextpnr] fpga.part`` in a
-project and ``[flows.yosys_fpga] fpga.part`` in a design, fail before anything runs, naming both
+leaves combine. Different values for the same leaf, for example ``flows.nextpnr.fpga.part`` in a
+project and ``flows.yosys_fpga.fpga.part`` in a design, fail before anything runs, naming both
 files and sections. A command-line leaf (``-s fpga.part=...`` or
 ``-s flows.yosys_fpga.fpga.part=...``) wins for the connected group, preserving unrelated leaves.
 API overrides retain their separate highest-precedence origin. Normal origin-first precedence
@@ -230,7 +230,7 @@ multi-package design lists each package's file, the top's last.
 
 ``rtl.defines`` and ``rtl.parameters`` (and, for ``bsc_sim``, the testbench's over the RTL's) are
 passed to bsc as preprocessor macros. bsc's own preprocessor reads BSV only, so a BH (``.bs``)
-source sees them only through the C preprocessor: set ``cpp = true``, which also feeds the macros
+source sees them only through the C preprocessor: set ``cpp: true``, which also feeds the macros
 to it; without it, a design that defines macros but whose Bluespec sources are all BH is warned
 about.
 

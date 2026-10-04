@@ -78,7 +78,7 @@ Any simulator will do - the design file does not change:
 
     xeda run vivado_synth sqrt.yaml
 
-The ``[flows.vivado_synth]`` section supplies the part and the clock period. Tighten the period
+The ``flows.vivado_synth`` mapping supplies the part and the clock period. Tighten the period
 from the command line without editing the file:
 
 .. code-block:: bash

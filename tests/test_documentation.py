@@ -320,3 +320,79 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
         node["flowrun_hash"] = "..."
     assert actual == expected
     assert not (tmp_path / "xeda_run").exists()
+
+
+# A bracketed section header is TOML. The documents below show YAML first, where a flow's
+# settings are the `flows.<flow>` mapping, so a `[flows.x]`, `[rtl]` or `[tb]` in their prose is
+# TOML left behind by the conversion. A snippet that is explicitly TOML (a `toml` fence or
+# code-block) is correct -- TOML design files are still accepted.
+TOML_SECTION_HEADER = re.compile(r"\[(?:flows(?:\.[\w<>.\-]+)?|rtl|tb|design|designs)\]")
+YAML_FIRST_DOCUMENTS = [
+    "README.md",
+    "docs/**/*.rst",
+    "examples/**/README.md",
+    ".claude/skills/xeda/**/*.md",
+    "src/xeda/data/agent/**/*.md",
+]
+
+
+def _prose_outside_toml_snippets(text: str, rst: bool):
+    """`(line number, line)` for every line that is not inside a TOML snippet."""
+    fenced = False  # inside a markdown fence of any language
+    in_toml = False
+    block_indent = None  # an rst `code-block:: toml` ends at the first line indented no deeper
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if rst:
+            if block_indent is not None:
+                if stripped and len(line) - len(line.lstrip()) <= block_indent:
+                    block_indent = None
+                else:
+                    continue
+            opening = re.match(r"(\s*)\.\.\s+(?:code-block|sourcecode)::\s*toml\b", line)
+            if opening:
+                block_indent = len(opening.group(1))
+                continue
+        elif stripped.startswith("```"):
+            fenced = not fenced
+            in_toml = fenced and stripped[3:].strip().lower() == "toml"
+            continue
+        if not in_toml:
+            yield number, line
+
+
+def _yaml_first_files() -> List[Path]:
+    root = README.parent
+    return sorted({p for pattern in YAML_FIRST_DOCUMENTS for p in root.glob(pattern)})
+
+
+def test_the_documents_shown_in_yaml_name_no_toml_section_header():
+    assert len(_yaml_first_files()) > 20  # the globs reach the documents
+    found = [
+        f"{path.relative_to(README.parent)}:{number}: {line.strip()}"
+        for path in _yaml_first_files()
+        for number, line in _prose_outside_toml_snippets(
+            path.read_text(encoding="utf-8"), path.suffix == ".rst"
+        )
+        if TOML_SECTION_HEADER.search(line)
+    ]
+    assert (
+        not found
+    ), "TOML section header in YAML-first prose; write `flows.<flow>`:\n" + "\n".join(found)
+
+
+def test_the_toml_header_oracle_sees_prose_and_spares_toml_snippets():
+    def flagged(text: str, rst: bool) -> List[int]:
+        return [
+            n
+            for n, line in _prose_outside_toml_snippets(text, rst)
+            if TOML_SECTION_HEADER.search(line)
+        ]
+
+    markdown = "see `[flows.x]`\n```toml\n[flows.x]\n```\n```yaml\n# [tb]\n```\n[rtl] again\n"
+    assert flagged(markdown, rst=False) == [1, 6, 8]
+    rst = (
+        "the ``[flows.x]`` section\n\n.. code-block:: toml\n\n   [rtl]\n   top = 1\n\n"
+        ".. code-block:: yaml\n\n   [tb]\n\nback to ``[tb]`` prose\n"
+    )
+    assert flagged(rst, rst=True) == [1, 10, 12]
