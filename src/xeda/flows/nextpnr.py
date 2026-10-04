@@ -325,22 +325,37 @@ class Nextpnr(FpgaSynthFlow):
             False, description="ignore combinational loops in timing analysis"
         )
 
-        textcfg: Optional[Path] = Field(
+        textcfg: Path = Field(
             Path("config.txt"),
             description="ECP5 routed design written as a Trellis textual configuration file, "
-            "which the bitstream packer (and the `openfpgaloader` flow) consumes.",
+            "which the bitstream packer (`fpga_pack`) consumes. Always written, except by an "
+            "`out_of_context` run, which has none.",
             json_schema_extra=deliverable(),
         )
-        asc: Optional[Path] = Field(
+        asc: Path = Field(
             Path("config.asc"),
-            description="iCE40 ASCII configuration written with `--asc`.",
+            description="iCE40 ASCII configuration written with `--asc`. Always written.",
             json_schema_extra=deliverable(),
         )
-        fasm: Optional[Path] = Field(
+        fasm: Path = Field(
             Path("config.fasm"),
-            description="Nexus or Xilinx 7-series FASM configuration.",
+            description="Nexus or Xilinx 7-series FASM configuration. Always written.",
             json_schema_extra=deliverable(),
         )
+
+        @field_validator("textcfg", "asc", "fasm", mode="before")
+        @classmethod
+        def _configuration_is_always_written(cls, value):
+            """There is no switch: the configuration is nextpnr's declared output `config`,
+            the same whether nextpnr is requested or produces for a packer, so one run serves
+            both. The setting only names (or delivers) the file."""
+            if value is None or (isinstance(value, (str, Path)) and not str(value).strip()):
+                raise ValueError(
+                    "nextpnr always writes its configuration; give a file name or leave the "
+                    "default"
+                )
+            return value
+
         out_of_context: bool = Field(
             False,
             description="disable IO buffer insertion and global promotion/routing, for building pre-routed blocks",
@@ -571,11 +586,9 @@ class Nextpnr(FpgaSynthFlow):
         family = cls.io_family(settings)
         if family == "ecp5" and getattr(settings, "out_of_context", False):
             raise ValueError("ECP5 out_of_context produces no configuration")
-        setting = {"ecp5": "textcfg", "ice40": "asc", "nexus": "fasm", "xilinx": "fasm"}.get(family)
-        if setting is None:
+        if family not in ("ecp5", "ice40", "nexus", "xilinx"):
             raise ValueError(f"no configuration format for FPGA family {family!r}")
-        if not getattr(settings, setting):
-            setattr(settings, setting, cls.Settings.model_fields[setting].get_default())
+        # nothing to switch on: the family's configuration is always written
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:

@@ -72,16 +72,16 @@ def _design(tmp_path, sources=()):
 
 
 @pytest.mark.parametrize("part,pins,config,setting,filename", FAMILIES)
-def test_pure_family_hooks_keep_types_when_configuration_is_disabled(
+def test_pure_family_hooks_select_types_and_change_no_setting(
     part, pins, config, setting, filename
 ):
-    settings = Nextpnr.Settings(fpga=part, **{setting: None})
+    settings = Nextpnr.Settings(fpga=part)
     before = settings.model_dump()
     assert Nextpnr.input_types(settings, "constraints") == (pins,)
     assert Nextpnr.input_types(settings, "sdc") == (SourceType.Sdc,)
     assert Nextpnr.output_types(settings, "config") == (config,)
+    Nextpnr.enable_output(settings, "config")  # always written: nothing to switch on
     assert settings.model_dump() == before
-    Nextpnr.enable_output(settings, "config")
     assert getattr(settings, setting) == Path(filename)
 
 
@@ -123,23 +123,23 @@ def test_foreign_pins_and_sdc_leave_pin_binding_empty(tmp_path):
 
 
 @pytest.mark.parametrize("part,pins,config,setting,filename", FAMILIES[:3])
-def test_demand_enables_configuration_and_executes_exactly_the_plan(
+def test_a_demanded_configuration_switches_nothing_and_executes_exactly_the_plan(
     tmp_path, monkeypatch, tools, part, pins, config, setting, filename
 ):
     monkeypatch.chdir(tmp_path)
     design = _design(tmp_path)
     values = {"fpga": part}
-    sections = {"nextpnr": {setting: None}}
+    sections = {"nextpnr": {"seed": 1}}
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     plan = runner.plan(_ConfigTaker, design, flow_settings={**values, "flows": sections})
-    assert plan.node("nextpnr").switched_on == ("config",)
+    assert plan.node("nextpnr").switched_on == ()
     assert getattr(plan.node("nextpnr").settings, setting) == Path(filename)
     first = runner.run_flow(_ConfigTaker, design, values, all_flows_settings=sections)
     assert first.succeeded and first.results["read"] == "config\n"
     assert [flow.name for flow in runner.launched] == [node.name for node in plan.nodes]
     again = runner.run_flow(_ConfigTaker, design, values, all_flows_settings=sections)
     assert again.reused and len(tools) == 1
-    assert sections["nextpnr"][setting] is None
+    assert sections == {"nextpnr": {"seed": 1}}
 
 
 def test_out_of_context_demand_is_rejected_before_tools(tmp_path):
