@@ -25,7 +25,7 @@ _CORE_SCALARS = {
 
 class _CoreLoader(yaml.SafeLoader):
     # Own both tables: registering this profile must never modify PyYAML's global loaders.
-    yaml_implicit_resolvers = {}
+    yaml_implicit_resolvers: dict[Any, Any] = {}
     yaml_constructors = {
         _TAG + "str": yaml.SafeLoader.construct_yaml_str,
         None: yaml.SafeLoader.construct_undefined,
