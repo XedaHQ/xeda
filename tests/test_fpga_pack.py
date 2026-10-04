@@ -171,31 +171,47 @@ def test_scratch_a_killed_run_left_is_removed_and_never_recorded(tmp_path, toolc
     assert again.outputs.bitstream.read_bytes() == BITSTREAM
 
 
-def test_ecppack_and_icepack_are_given_the_configuration_then_a_scratch_output(tmp_path, toolchain):
+def test_ecppack_and_icepack_are_given_their_options_then_the_configuration_and_a_scratch_output(
+    tmp_path, toolchain
+):
     design = _design(tmp_path)
     settings = {"fpga": ECP5, "packer_args": ["--compress", "--freq", "38.8"]}
     flow = _runner(tmp_path).run("fpga_pack", design, flow_settings=settings)
     argv = _calls(flow.run_path)[0]["argv"]
-    assert argv[0] == str(flow.inputs.config)
-    scratch = Path(argv[1])
+    assert argv[:3] == ["--compress", "--freq", "38.8"]
+    assert argv[3] == str(flow.inputs.config)
+    scratch = Path(argv[4])
     assert scratch.name == "top.bit" and scratch.parent.name.startswith(".xeda-pack-")
     assert scratch.parent.parent == flow.run_path and not scratch.parent.exists()
-    assert argv[2:] == ["--compress", "--freq", "38.8"]
+    assert len(argv) == 5
 
 
-def test_fpga_as_is_given_the_family_database_and_the_part(tmp_path, toolchain):
-    design = _design(tmp_path, A100T)
+@pytest.mark.parametrize(
+    "part,packer,args,operands",
+    [
+        (ECP5, "ecppack", ["--compress", "--freq", "38.8"], 2),
+        (ICE40, "icepack", ["-s", "-v"], 2),
+        (A100T, "fpga-as", ["--dump_frames_file=frames"], 1),
+    ],
+    ids=["ecp5", "ice40", "xilinx"],
+)
+def test_every_packer_is_given_all_its_options_before_its_operands(
+    tmp_path, toolchain, part, packer, args, operands
+):
+    """`icepack`'s usage is `[options] [input-file [output-file]]`, and a strict POSIX `getopt`
+    (BSD, musl) stops at the first operand: `icepack config.asc out.bin -s` would read `-s` as
+    a third operand and ignore it. One order for every packer: options, then operands."""
+    design = _design(tmp_path, part)
     flow = _runner(tmp_path).run(
-        "fpga_pack",
-        design,
-        flow_settings={"fpga": "XC7A100TCSG324-1", "packer_args": ["--dump_frames_file=frames"]},
+        "fpga_pack", design, flow_settings={"fpga": part, "packer_args": args}
     )
-    assert _calls(flow.run_path)[0]["argv"] == [
-        f"--prjxray_db_path={toolchain / 'share/nextpnr/prjxray-db/artix7'}",
-        "--part=xc7a100tcsg324-1",
-        "--dump_frames_file=frames",
-        str(flow.inputs.config),
-    ]
+    (call,) = _calls(flow.run_path)
+    assert call["tool"] == packer
+    argv = call["argv"]
+    operand_start = len(argv) - operands
+    assert not any(arg.startswith("-") for arg in argv[operand_start:])
+    assert all(arg in argv[:operand_start] for arg in args)
+    assert argv[operand_start] == str(flow.inputs.config)
 
 
 def test_a_device_given_only_for_nextpnr_is_the_packer_s_too(tmp_path, toolchain):
