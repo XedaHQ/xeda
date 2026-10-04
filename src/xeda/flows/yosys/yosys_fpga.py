@@ -1,4 +1,5 @@
 import logging
+import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, List, Literal, Optional
@@ -41,27 +42,43 @@ XILINX_FAMILY_NAMES = {
     "spartan3e": "xc3se",
 }
 
-# Mapped primitive footprints: logic LUT cells occupy one LUT, LUT6_2 can use both outputs,
-# RAM32M maps to four LUTs, and an SRL primitive uses one LUT. These are synthesis-stage estimates,
-# not placement occupancy or a claim of Vivado report equivalence.
+# Mapped primitive footprints, in 6-input LUTs: a logic LUT cell is one, LUT6_2 can use both
+# outputs, a shift register is one, and a distributed RAM is as many as its bits need -- one
+# LUT holds 64 x 1 or 32 x 2 bits, and a dual-port memory is a second copy for its read port.
+# These are synthesis-stage estimates, not placement occupancy or a claim of Vivado report
+# equivalence.
 XILINX_LUT_FOOTPRINT = {
     **{f"LUT{width}": ("logic", 1) for width in range(1, 7)},
     "LUT6_2": ("logic", 2),
+    "CFGLUT5": ("logic", 1),
+    # the multi-port memories, which do not follow the <depth>X<width><S|D> naming
     "RAM32M": ("ram", 4),
-    **{
-        cell: ("srl", 1)
-        for cell in (
-            "SRL16",
-            "SRL16E",
-            "SRLC16",
-            "SRLC16E",
-            "SRL32",
-            "SRL32E",
-            "SRLC32",
-            "SRLC32E",
-        )
-    },
+    "RAM64M": ("ram", 4),
+    "RAM32M16": ("ram", 8),
+    "RAM64M8": ("ram", 8),
+    "RAM32X16DR8": ("ram", 8),
+    "RAM64X8SW": ("ram", 8),
 }
+
+_XILINX_LUT_RAM = re.compile(r"RAM(\d+)X(\d+)([SD])(?:_1)?")
+_XILINX_SRL = re.compile(r"SRLC?(?:16|32)E?(?:_1)?")
+
+
+def xilinx_lut_footprint(cell: str) -> tuple[str, int] | None:
+    """`(kind, LUTs)` a mapped Xilinx primitive occupies -- kind `logic`, `ram` or `srl` -- or
+    None for a cell that is not built from LUTs."""
+    known = XILINX_LUT_FOOTPRINT.get(cell)
+    if known is not None:
+        return known
+    if _XILINX_SRL.fullmatch(cell):
+        return ("srl", 1)
+    ram = _XILINX_LUT_RAM.fullmatch(cell)
+    if ram is None:
+        return None
+    depth, width, ports = int(ram[1]), int(ram[2]), ram[3]
+    # up to 32 deep, one LUT gives two bits of a word; deeper, a bit takes depth / 64 LUTs
+    luts = (width + 1) // 2 if depth <= 32 else width * (depth // 64)
+    return ("ram", luts * (2 if ports == "D" else 1))
 
 
 def _abc9_mode(target: str, release: YosysRelease) -> Literal["opt-in", "default", "always"]:
@@ -507,8 +524,10 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 assert self.settings.fpga
                 if self.settings.fpga.vendor == "xilinx":
                     lut_footprint = {"logic": 0, "ram": 0, "srl": 0}
-                    for cell, (kind, units) in XILINX_LUT_FOOTPRINT.items():
-                        lut_footprint[kind] += units * int(design_util.get(cell, 0))
+                    for cell, count in design_util.items():
+                        footprint = xilinx_lut_footprint(str(cell))
+                        if footprint is not None:
+                            lut_footprint[footprint[0]] += footprint[1] * int(count)
                     logic_luts = lut_footprint["logic"]
                     ram_luts = lut_footprint["ram"]
                     srl_luts = lut_footprint["srl"]
