@@ -18,7 +18,7 @@ through `merge_layers`, so they cannot disagree about precedence.
 
 import difflib
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
 from types import UnionType
@@ -27,9 +27,13 @@ from typing import Annotated, Any, Union, get_args, get_origin
 from ..dataclass import XedaBaseModel, input_names
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
-from ..utils import hierarchical_merge, settings_to_dict
+from ..utils import XedaException, hierarchical_merge, settings_to_dict
 
 __all__ = [
+    "REMOVED_FLOWS",
+    "FlowNotFoundError",
+    "FlowRemovedError",
+    "check_not_removed",
     "carry_diagnostics",
     "dependency_settings",
     "settings_in_context",
@@ -44,6 +48,46 @@ __all__ = [
     "split_flow_sections",
     "transitive_dependencies",
 ]
+
+
+class FlowNotFoundError(XedaException):
+    def __init__(self, flow_name: str | None = None, suggestions: Iterable[str] = ()) -> None:
+        self.flow_name = flow_name
+        self.suggestions = list(suggestions)
+        msg = f"Flow '{flow_name}' was not found." if flow_name else "Flow was not found."
+        if self.suggestions:
+            msg += " Did you mean: " + ", ".join(self.suggestions) + "?"
+        msg += " Run `xeda list-flows` to see all available flows."
+        super().__init__(msg)
+
+
+#: Flows that no longer exist, by every normalized spelling (lower case, `-` as `_`) of the
+#: names they had, with the flow's canonical name and what replaced it. `get_flow_class` says
+#: so, in the words a removed setting or option uses.
+REMOVED_FLOWS = {
+    name: ("open_xc7", "fpga_pack to build, openfpgaloader to program")
+    for name in ("open_xc7", "openxc7")
+}
+
+
+class FlowRemovedError(FlowNotFoundError):
+    """A flow that was removed: the message names what to use instead."""
+
+    def __init__(self, flow_name: str, replacement: str) -> None:
+        self.flow_name = flow_name
+        self.suggestions = []
+        XedaException.__init__(self, f"`{flow_name}` was removed: use {replacement}")
+
+
+def check_not_removed(flow_name: str) -> None:
+    """Refuse a removed flow's name, in any spelling, wherever a flow is named: to run it, or
+    as a section of a `flows` table. A removed flow is not an unknown one (a plugin that is not
+    installed, whose section is left alone): its settings configure nothing any more, and
+    saying nothing would leave them silently unused."""
+    removed = REMOVED_FLOWS.get(str(flow_name).strip().replace("-", "_").lower())
+    if removed is not None:
+        raise FlowRemovedError(*removed)
+
 
 #: One layer: a (possibly nested, possibly dotted-key) mapping, or `KEY=VALUE` strings.
 Layer = None | Mapping[str, Any] | Sequence[str]
@@ -428,7 +472,9 @@ def merge_flow_sections(
 
     A design file's ``flows.nextpnr`` refines the project's ``flows.nextpnr`` rather than
     replacing it. When `flow_class_for` is supplied, aliases such as ``ghdl`` are normalized to
-    the canonical flow name; spelling the same flow twice in one section is an error.
+    the canonical flow name; spelling the same flow twice in one section is an error. So is a
+    section for a removed flow (`check_not_removed`), wherever it was written: every `flows`
+    table -- a design's, a project's, the command line's, the API's -- is merged here.
     """
     normalized_sections: list[dict[str, dict[str, Any]]] = []
     classes: dict[str, Any] = {}
@@ -436,6 +482,7 @@ def merge_flow_sections(
         normalized: dict[str, dict[str, Any]] = {}
         original_names: dict[str, str] = {}
         for name, values in (section or {}).items():
+            check_not_removed(name)
             flow_cls = flow_class_for(name) if flow_class_for is not None else None
             canonical_name = flow_cls.name if flow_cls is not None else name
             if canonical_name in normalized:

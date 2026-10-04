@@ -74,6 +74,8 @@ from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
 from .settings_layers import (
+    FlowNotFoundError,
+    check_not_removed,
     command_line_sections,
     compose_flow_settings,
     dependency_settings,
@@ -189,35 +191,6 @@ def print_results(
     console.print(table)
 
 
-class FlowNotFoundError(XedaException):
-    def __init__(self, flow_name: Optional[str] = None, suggestions: Iterable[str] = ()) -> None:
-        self.flow_name = flow_name
-        self.suggestions = list(suggestions)
-        msg = f"Flow '{flow_name}' was not found." if flow_name else "Flow was not found."
-        if self.suggestions:
-            msg += " Did you mean: " + ", ".join(self.suggestions) + "?"
-        msg += " Run `xeda list-flows` to see all available flows."
-        super().__init__(msg)
-
-
-#: Flows that no longer exist, by every normalized spelling (lower case, `-` as `_`) of the
-#: names they had, with the flow's canonical name and what replaced it. `get_flow_class` says
-#: so, in the words a removed setting or option uses.
-REMOVED_FLOWS = {
-    name: ("open_xc7", "fpga_pack to build, openfpgaloader to program")
-    for name in ("open_xc7", "openxc7")
-}
-
-
-class FlowRemovedError(FlowNotFoundError):
-    """A flow that was removed: the message names what to use instead."""
-
-    def __init__(self, flow_name: str, replacement: str) -> None:
-        self.flow_name = flow_name
-        self.suggestions = []
-        XedaException.__init__(self, f"`{flow_name}` was removed: use {replacement}")
-
-
 class DesignNotFoundError(XedaException):
     """The design to run cannot be determined: none was given and there is no project to take
     one from, the project has no designs, or it has none of the given name."""
@@ -276,9 +249,7 @@ def get_flow_class(
 ) -> Type[Flow]:
     flow_name = flow_name.strip().replace("-", "_")
     # before any lookup or import: a removed name is neither a flow nor a near miss of one
-    removed = REMOVED_FLOWS.get(flow_name.lower())
-    if removed is not None:
-        raise FlowRemovedError(*removed)
+    check_not_removed(flow_name)
     _mod, flow_class = registered_flows.get(flow_name, (None, None))
     if flow_class is None:
         # canonical names, class names and aliases are all registered, but the user (or an agent)
