@@ -115,17 +115,15 @@ def validate_chain(elements: Sequence[ChainElement]) -> None:
             )
     for index, producer in enumerate(elements[:-1]):
         consumer = elements[index + 1]
-        if getattr(producer.flow_class, "action_reason", None):
+        reason = getattr(producer.flow_class, "action_reason", None)
+        if reason:
             raise FlowSettingsException(
-                f"Flow `{producer.node}` is an action and can only appear at the end of a chain."
+                f"Flow `{producer.node}` {reason.removeprefix('it ')} and can only end a chain."
             )
         if not match_required_inputs(
             producer.flow_class, consumer.flow_class, output=producer.output
         ):
-            raise FlowSettingsException(
-                f"Flow `{producer.node}` has no compatible output for a required input of "
-                f"`{consumer.node}`."
-            )
+            raise FlowSettingsException(_no_edge(producer.flow_class, consumer.flow_class))
 
 
 def fitting_outputs(
@@ -221,8 +219,27 @@ def match_required_inputs(
                 f"Flow `{producer.name}` output `{output_name}` has incompatible cardinality "
                 f"for `{consumer.name}` input `{input_name}`."
             )
-        raise FlowSettingsException(
-            f"Flow `{producer.name}` has no compatible output for a required input of "
-            f"`{consumer.name}`."
-        )
+        raise FlowSettingsException(_no_edge(producer, consumer))
     return matches
+
+
+def _no_edge(producer: type[Flow], consumer: type[Flow]) -> str:
+    """Why `producer` cannot be chained before `consumer`: what each takes and makes."""
+
+    def listed(declarations: Mapping[str, Any]) -> str:
+        return (
+            ", ".join(
+                f"{name} ({'/'.join(t.name for t in declared.types)})"
+                for name, declared in declarations.items()
+            )
+            or "nothing"
+        )
+
+    required = {
+        name: declared for name, declared in declared_inputs(consumer).items() if declared.required
+    }
+    return (
+        f"Flow `{producer.name}` has no compatible output for a required input of "
+        f"`{consumer.name}`: `{consumer.name}` takes {listed(required)}; `{producer.name}` "
+        f"makes {listed(declared_outputs(producer))}."
+    )

@@ -59,6 +59,9 @@ class Openfpgaloader(FpgaSynthFlow):
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
+    #: Static, so a chain can refuse this flow anywhere but last without constructing it.
+    action_reason = "it programs a device"
+
     # This flow reports no results beyond the keys every flow reports; declaring this
     # explicitly keeps `xeda list-results` from guessing.
     results_description: dict = {}
@@ -138,7 +141,7 @@ class Openfpgaloader(FpgaSynthFlow):
         )
 
     def always_runs(self) -> Optional[str]:
-        return super().always_runs() or "it programs a device"
+        return super().always_runs() or self.action_reason
 
     def run(self) -> None:
         """Program exactly the bitstream handed over as the input `bitstream`."""

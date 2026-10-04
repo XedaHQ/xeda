@@ -109,7 +109,9 @@ def test_undeclared_flows_are_allowed_alone_but_not_in_a_chain():
 
 def test_actions_can_only_appear_at_the_end():
     assert parse_request("_ChainSimpleProducer+_ChainAction").requested is _ChainAction
-    with pytest.raises(FlowSettingsException, match="only appear at the end"):
+    with pytest.raises(
+        FlowSettingsException, match="performs a test action and can only end a chain"
+    ):
         validate_chain((ChainElement(_ChainAction), ChainElement(_ChainSimpleConsumer)))
 
 
