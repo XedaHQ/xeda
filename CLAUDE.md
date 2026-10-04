@@ -281,8 +281,11 @@ canonical snake_case name (`VivadoSynth` -> `vivado_synth`, via `camelcase_to_sn
 CamelCase class name, and any `aliases`. Registering the canonical name matters: `snakecase_to_camelcase`
 is not a lossless inverse (the removed `open_xc7` -> `OpenXc7` != `OpenXC7`), and relying on that
 round-trip used to make it and `yosys_sim` unrunnable. A removed flow's names are refused by
-`get_flow_class` before any lookup (`REMOVED_FLOWS`: "`open_xc7` was removed: use fpga_pack to
-build, openfpgaloader to program"). `get_flow_class` normalizes dashes, retries
+`get_flow_class` before any lookup (`settings_layers.REMOVED_FLOWS`, `check_not_removed`:
+"`open_xc7` was removed: use fpga_pack to build, openfpgaloader to program"), and so is its
+section in any `flows` table -- a design's, a project's, `-s flows.open_xc7.*`, the API's --
+by `merge_flow_sections`, the one place they are all merged; a section for a flow that is merely
+unknown (a plugin that is not installed) is still left alone. `get_flow_class` normalizes dashes, retries
 case-insensitively, and raises `FlowNotFoundError` with close-match suggestions. `flows/__init__.py` `walk_packages()`s the subpackages to populate `__builtin_flows__`,
 and also re-exports flow classes explicitly in `__all__` - **add new flows to both the import list and
 `__all__`** so they appear in `xeda list-flows` and CLI completion.

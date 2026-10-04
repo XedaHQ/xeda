@@ -89,3 +89,114 @@ def test_launching_open_xc7_through_the_api_says_it_was_removed(tmp_path):
         ):
             launch("open_xc7", design)
     assert not (tmp_path / "run").exists()
+
+
+# ------------------------------------------------- a removed flow's section in a `flows` table
+
+_COUNTER = "module d(input wire clk, output reg q);\n  always @(posedge clk) q <= ~q;\nendmodule\n"
+
+
+def _design_with_sections(tmp_path, sections):
+    from xeda import Design
+
+    (tmp_path / "d.v").write_text(_COUNTER)
+    sections = {"yosys_fpga": {"fpga": {"part": "xc7a100tcsg324-1"}}, **sections}
+    return Design(
+        name="d", design_root=tmp_path, rtl={"sources": ["d.v"], "top": "d"}, flows=sections
+    )
+
+
+@pytest.mark.parametrize("name", ["open_xc7", "openxc7", "OpenXC7", "open-xc7"])
+def test_a_design_s_open_xc7_section_is_an_error_naming_the_replacement(name, tmp_path):
+    """A removed flow is not an unknown plugin: its section configures nothing any more, and
+    saying nothing would leave the design's settings silently unused."""
+    from xeda.flow_runner import DefaultRunner, FlowNotFoundError
+
+    design = _design_with_sections(tmp_path, {name: {"fpga": {"part": "xc7a100tcsg324-1"}}})
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    for launch in (runner.run, runner.plan):
+        with pytest.raises(FlowNotFoundError) as error:
+            launch("yosys_fpga", design)
+        assert str(error.value) == REMOVED_OPEN_XC7
+    assert not (tmp_path / "run").exists()
+
+
+def test_a_project_s_open_xc7_section_is_an_error_naming_the_replacement(tmp_path):
+    from xeda.flow_runner import DefaultRunner, FlowNotFoundError
+
+    (tmp_path / "d.v").write_text(_COUNTER)
+    project = tmp_path / "xedaproject.yaml"
+    project.write_text(
+        "designs:\n"
+        "  - name: d\n"
+        "    rtl: {sources: [d.v], top: d}\n"
+        "flows:\n"
+        "  yosys_fpga:\n"
+        "    fpga: {part: xc7a100tcsg324-1}\n"
+        "  openxc7:\n"
+        "    fpga: {part: xc7a100tcsg324-1}\n"
+    )
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    with pytest.raises(FlowNotFoundError) as error:
+        runner.run("yosys_fpga", xedaproject=str(project), select_design_in_project="d")
+    assert str(error.value) == REMOVED_OPEN_XC7
+    assert not (tmp_path / "run").exists()
+
+
+def test_an_open_xc7_section_given_as_a_setting_is_an_error_naming_the_replacement(tmp_path):
+    from xeda.flow_runner import DefaultRunner, FlowNotFoundError
+
+    design = _design_with_sections(tmp_path, {})
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    with pytest.raises(FlowNotFoundError) as error:
+        runner.run("yosys_fpga", design, flow_settings=["flows.open_xc7.seed=1"])
+    assert str(error.value) == REMOVED_OPEN_XC7
+    with pytest.raises(FlowNotFoundError) as error:
+        runner.run_flow("yosys_fpga", design, all_flows_settings={"open_xc7": {"seed": 1}})
+    assert str(error.value) == REMOVED_OPEN_XC7
+
+
+def test_the_command_line_reports_a_design_file_s_open_xc7_section(tmp_path):
+    import json
+    import subprocess
+    import sys
+
+    (tmp_path / "d.v").write_text(_COUNTER)
+    design_file = tmp_path / "d.yaml"
+    design_file.write_text(
+        "name: d\nrtl: {sources: [d.v], top: d}\nflows:\n"
+        "  yosys_fpga: {fpga: {part: xc7a100tcsg324-1}}\n  open_xc7: {seed: 1}\n"
+    )
+    for extra in ([], ["--dry-run"]):
+        proc = subprocess.run(
+            [sys.executable, "-m", "xeda", "run", "yosys_fpga", str(design_file), "--json"]
+            + extra
+            + ["--run-root", str(tmp_path / "run")],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode != 0
+        error = json.loads(proc.stdout)["error"]
+        assert error["type"] == "FlowRemovedError" and REMOVED_OPEN_XC7 in error["message"]
+
+
+def test_a_section_of_a_flow_that_is_not_installed_is_still_tolerated(tmp_path):
+    """A plugin flow that is not installed here: its section is nobody's settings."""
+    from xeda.flow_runner import DefaultRunner
+
+    design = _design_with_sections(tmp_path, {"some_plugin_flow": {"anything": 1}})
+    plan = DefaultRunner(tmp_path / "run", display_results=False).plan("yosys_fpga", design)
+    assert plan is not None
+
+
+def test_no_example_keeps_an_open_xc7_section():
+    from pathlib import Path
+
+    examples = Path(__file__).parent.parent / "examples"
+    kept = [
+        str(path)
+        for suffix in ("toml", "yaml", "yml", "json")
+        for path in examples.rglob(f"*.{suffix}")
+        if "xc7]" in path.read_text().lower() or "xc7:" in path.read_text().lower()
+    ]
+    assert not kept
