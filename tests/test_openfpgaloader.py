@@ -149,6 +149,39 @@ def test_verify_without_write_flash_is_rejected_wherever_it_is_given(tmp_path):
     assert Openfpgaloader.Settings(fpga=ECP5, write_flash=True, verify=True).verify is True
 
 
+@pytest.mark.parametrize("verify", ["true", "True", 1, "1", "yes", "on"])
+@pytest.mark.parametrize("write_flash", [None, False, "false", 0, "no"])
+def test_verify_needs_flash_in_whatever_form_a_file_spells_the_two(tmp_path, verify, write_flash):
+    """The rule is checked on the input as pydantic will read it, not on `True` alone: a design
+    file's `verify: 1` or `"yes"` becomes true as well."""
+    given = {"fpga": ECP5, "verify": verify}
+    if write_flash is not None:
+        given["write_flash"] = write_flash
+    with pytest.raises(FlowSettingsError, match="verify.*write_flash"):
+        Openfpgaloader.Settings.from_input(given, design_root=tmp_path)
+    settings = Openfpgaloader.Settings.from_input({"fpga": ECP5}, design_root=tmp_path)
+    with pytest.raises(ValidationError, match="verify.*write_flash"):
+        settings.verify = verify
+    assert settings.verify is False
+    accepted = Openfpgaloader.Settings.from_input(
+        {"fpga": ECP5, "verify": verify, "write_flash": "yes"}, design_root=tmp_path
+    )
+    assert accepted.verify is True and accepted.write_flash is True
+
+
+def test_verify_given_with_dash_s_is_refused_in_planning(tmp_path, fake_loader):
+    with pytest.raises(FlowSettingsError, match="verify.*write_flash"):
+        _runner(tmp_path).plan(
+            Openfpgaloader, _prebuilt(tmp_path), flow_settings=["fpga=" + ECP5, "verify=true"]
+        )
+    plan = _runner(tmp_path).plan(
+        Openfpgaloader,
+        _prebuilt(tmp_path),
+        flow_settings=["fpga=" + ECP5, "verify=true", "write_flash=true"],
+    )
+    assert plan.node("openfpgaloader").settings.verify is True
+
+
 def test_verify_without_write_flash_fails_before_anything_is_built(tmp_path, fake_loader):
     with pytest.raises(FlowSettingsError, match="verify.*write_flash"):
         _runner(tmp_path).run(

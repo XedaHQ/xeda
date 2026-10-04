@@ -1,6 +1,8 @@
 import logging
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
+
+from pydantic import TypeAdapter, ValidationError
 
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
@@ -11,6 +13,19 @@ from ..tool import Tool
 __all__ = ["Openfpgaloader"]
 
 log = logging.getLogger(__name__)
+
+
+_BOOL = TypeAdapter(bool)
+
+
+def _switched_on(value: Any) -> bool:
+    """Whether a Boolean setting's input, still as given, turns it on: what pydantic's own
+    Boolean validation makes of it. Input that is no Boolean at all is not on; its field's
+    validation rejects it."""
+    try:
+        return _BOOL.validate_python(value)
+    except ValidationError:
+        return False
 
 
 class Openfpgaloader(FpgaSynthFlow):
@@ -83,8 +98,9 @@ class Openfpgaloader(FpgaSynthFlow):
             after loading SRAM. Checked on the whole input -- on an assignment, the whole
             state with the assigned value -- before anything is stored, so the order the two
             settings are given or assigned in does not matter and a refused assignment leaves
-            the settings as they were. Nothing is rewritten here."""
-            if values.get("verify") is True and values.get("write_flash") is not True:
+            the settings as they were. Each value is read as its field will read it (a
+            design file's `1` or `"yes"` is true), and nothing is rewritten here."""
+            if _switched_on(values.get("verify")) and not _switched_on(values.get("write_flash")):
                 raise ValueError(
                     "verify checks the flash openFPGALoader wrote: it needs write_flash=true "
                     "as well"
