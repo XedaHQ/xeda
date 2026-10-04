@@ -287,32 +287,32 @@ def test_resolution_is_stable_across_a_settings_json_round_trip(cls, field):
 # ---------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("flow", ["nextpnr"])
+@pytest.mark.parametrize("flow", ["vivado_postsynth_sim"])
 def test_a_multi_clock_dependency_is_kept_when_the_flow_gives_no_clocks(flow):
     """An empty `clocks` means "not given"; letting it replace the dependency's clocks made
-    yosys re-derive one `main_clock` from its `clock_period`, dropping `clk_b`."""
+    the dependency re-derive one `main_clock` from its `clock_period`, dropping `clk_b`."""
     from xeda.flow_runner import get_flow_class
 
     cls = get_flow_class(flow)
     clocks = {"clk_a": {"freq": "100MHz"}, "clk_b": {"freq": "50MHz"}}
     for flow_clocks in ({}, None):
         kwargs = {} if flow_clocks is None else {"clocks": flow_clocks}
-        settings = _settings(cls, "yosys", yosys={"clocks": clocks}, **kwargs)
+        settings = _settings(cls, "synth", synth={"clocks": clocks}, **kwargs)
 
-        resolved = settings.resolve_dependency("yosys")
+        resolved = settings.resolve_dependency("synth")
 
         assert {k: c.freq for k, c in resolved.clocks.items()} == {"clk_a": 100.0, "clk_b": 50.0}
 
 
-@pytest.mark.parametrize("flow", ["nextpnr"])
+@pytest.mark.parametrize("flow", ["vivado_postsynth_sim"])
 def test_the_resolved_clock_keeps_canonical_clock_in_step(flow):
     """A canonical clock is propagated to the dependency without a second stored spelling."""
     from xeda.flow_runner import get_flow_class
 
     cls = get_flow_class(flow)
-    settings = _settings(cls, "yosys", clock={"period": 5.0}, yosys={"clock": {"period": 10.0}})
+    settings = _settings(cls, "synth", clock={"period": 5.0}, synth={"clock": {"period": 10.0}})
 
-    resolved = settings.resolve_dependency("yosys")
+    resolved = settings.resolve_dependency("synth")
 
     assert resolved.main_clock is not None and resolved.main_clock.period == 5.0
     assert resolved.clock_period == 5.0

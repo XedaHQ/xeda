@@ -101,8 +101,8 @@ See `references/design-file.md` for the full reference.
 
 Precedence, lowest to highest: flow defaults -> `xedaproject.yaml`'s `flows.<flow>` -> the
 design file's `flows.<flow>` section -> command-line `-s` -> the API. Layers merge key by key, so
-`-s yosys.flatten=true` refines a nested section instead of replacing it; nesting applies only
-within one origin. `-s flows.<flow>.key=value` sets a setting of any flow in the run (the
+`-s clock.freq=100MHz` refines a nested section instead of replacing it. A flow's settings are
+written under its own `flows.<flow>`, never nested in another flow's (`nextpnr.yosys` was removed). `-s flows.<flow>.key=value` sets a setting of any flow in the run (the
 requested flow or a declared dependency; a typo is an error with suggestions), and `-s key` and
 `-s flows.<requested>.key` are one setting. `-s` takes space-separated KEY=VALUE items and stops
 at the next option or the first token that is not KEY=VALUE, so put the design before it or end

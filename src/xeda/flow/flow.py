@@ -604,6 +604,23 @@ def is_unset(value: Any) -> bool:
     return isinstance(value, (str, list, tuple, set, frozenset, dict)) and len(value) == 0
 
 
+def _removed_replacement(replacement: str, value: Any) -> str:
+    """A removed setting's replacement; a `<key>` in it names each key the removed value gave."""
+    if "<key>" not in replacement or not isinstance(value, Mapping) or not value:
+        return replacement
+
+    def keys(mapping: Mapping, prefix: str = "") -> list[str]:
+        found: list[str] = []
+        for key, item in mapping.items():
+            if isinstance(item, Mapping) and item:
+                found += keys(item, f"{prefix}{key}.")
+            else:
+                found.append(f"{prefix}{key}")
+        return found
+
+    return ", ".join(replacement.replace("<key>", key) for key in keys(value))
+
+
 class Flow(metaclass=ABCMeta):
     """A flow may run one or more tools and is associated with a single set of settings and a single design.
     All tool executables should be available on the installed system or on the same docker image."""
@@ -641,6 +658,11 @@ class Flow(metaclass=ABCMeta):
     #: A static explanation for flows that must not appear before the end of a chain, such as a
     #: programmer. Dynamic `always_runs()` remains the launcher's runtime freshness decision.
     action_reason: ClassVar[str | None] = None
+
+    #: Defaults this flow gives the default producer of one of its declared inputs (input name
+    #: -> the producer's settings), below every `flows.<producer>` section. A consumer refines
+    #: its producer here, never through a nested settings field.
+    producer_defaults: ClassVar[Dict[str, Dict[str, Any]]] = {}
 
     @classmethod
     def check_required_settings(cls, settings: "Flow.Settings") -> None:
@@ -772,7 +794,7 @@ class Flow(metaclass=ABCMeta):
         console_colors: bool = Field(True, description="Colorize tool output on the console.")
 
         #: The settings this flow shares with each of its dependencies, keyed by the field that
-        #: holds that dependency's settings: `nextpnr` declares `{"yosys": ("fpga", "clocks")}`.
+        #: holds that dependency's settings: `open_xc7` declares `{"yosys": ("fpga", "clocks")}`.
         #: `resolve_dependency` applies it when the flow launches the dependency.
         dependency_settings: ClassVar[Dict[str, Tuple[str, ...]]] = {}
 
@@ -907,7 +929,9 @@ class Flow(metaclass=ABCMeta):
             if isinstance(values, dict):
                 for name, replacement in cls.removed_settings.items():
                     if name in values:
-                        raise ValueError(f"`{name}` was removed: use {replacement}")
+                        raise ValueError(
+                            f"`{name}` was removed: use {_removed_replacement(replacement, values[name])}"
+                        )
             if info.field_name is not None and info.data is None:
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)

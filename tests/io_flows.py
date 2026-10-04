@@ -124,17 +124,12 @@ class _Synth(FpgaSynthFlow):
 
 
 class _Place(FpgaSynthFlow):
-    """Places `_Synth`'s netlist, holding its settings as `nextpnr` holds `yosys_fpga`'s."""
+    """Places `_Synth`'s netlist, as `nextpnr` places `yosys_fpga`'s."""
 
     results_description: ClassVar[dict[str, str]] = {}
 
     class Settings(FpgaSynthFlow.Settings):
-        synth: _Synth.Settings = Field(
-            default_factory=_Synth.Settings,
-            description="Settings for the `_Synth` that makes its netlist.",
-        )
-
-        dependency_settings: ClassVar[dict[str, tuple[str, ...]]] = {"synth": ("fpga", "clocks")}
+        """`_Place`'s settings: an FPGA implementation's."""
 
     class Inputs(FpgaSynthFlow.Inputs):
         netlist: Path = In(

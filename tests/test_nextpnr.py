@@ -672,8 +672,9 @@ ICE40_PART = "iCE40HX1K-TQ144"
 #: Every flow that launches `yosys_fpga` -- found from its declared dependencies -- places the
 #: JSON netlist it writes with nextpnr, whose reports cite the netlist's `src` attributes. Each
 #: one keeps them by default. The part each is launched for here:
+_PLACER_PARTS: dict[str, str] = {}
 PLACERS = {
-    cls: {"nextpnr": ICE40_PART}[cls.name]
+    cls: _PLACER_PARTS[cls.name]
     for cls, _ in flow_classes()
     if any(
         cls.Settings._dependency_settings_class(field) is YosysFpga.Settings
@@ -684,7 +685,66 @@ BY_PLACER = pytest.mark.parametrize("flow_cls", list(PLACERS), ids=[c.name for c
 
 
 def test_every_flow_placing_a_yosys_netlist_is_covered():
-    assert {cls.name for cls in PLACERS} == {"nextpnr"}
+    # `nextpnr` declares its producer; its default for it is `Nextpnr.producer_defaults`
+    assert not PLACERS, "no built-in flow nests yosys_fpga settings any more"
+    assert Nextpnr.producer_defaults == {"netlist": {"netlist_src_attrs": True}}
+
+
+@pytest.mark.parametrize(
+    "flows, cli, keeps_src",
+    [
+        ({}, (), True),
+        ({"yosys_fpga": {"flatten": True}}, (), True),
+        ({"yosys_fpga": {"netlist_src_attrs": False}}, (), False),
+        ({}, ("flows.yosys_fpga.netlist_src_attrs=false",), False),
+        (
+            {"yosys_fpga": {"netlist_src_attrs": False}},
+            ("flows.yosys_fpga.netlist_src_attrs=true",),
+            True,
+        ),
+    ],
+    ids=["default", "section-silent-on-src", "section", "cli", "cli-over-section"],
+)
+def test_the_synthesis_declared_nextpnr_places_keeps_src_unless_told_otherwise(
+    tmp_path, monkeypatch, flows, cli, keeps_src
+):
+    """The same default, for the producer `nextpnr` declares: `flows.yosys_fpga` is the one
+    place its settings are written (D-10), and a `netlist_src_attrs` given there wins."""
+    settings = _yosys_launch_settings(tmp_path, monkeypatch, Nextpnr, flows, cli)
+    assert settings.netlist_src_attrs is keeps_src
+
+
+@pytest.mark.parametrize("origin", ["design", "project", "cli", "api", "loader-cli"])
+def test_nextpnr_yosys_was_removed_and_names_its_replacement(tmp_path, monkeypatch, origin):
+    """`nextpnr.yosys.<key>` fails in every layer, naming `flows.yosys_fpga.<key>`."""
+    from xeda.flows.openfpgaloader import Openfpgaloader
+
+    monkeypatch.chdir(tmp_path)
+    nested = {"nextpnr": {"yosys": {"flatten": True}}}
+    design = _blink(tmp_path, nested if origin == "design" else {})
+    runner = DefaultRunner(tmp_path / "xeda_run")
+    message = "`yosys` was removed: use `flows.yosys_fpga.flatten`"
+    with pytest.raises(Exception, match=message):
+        if origin == "project":
+            project = tmp_path / "project.yaml"
+            project.write_text("flows:\n  nextpnr:\n    yosys:\n      flatten: true\n")
+            runner.plan(
+                Nextpnr, design, xedaproject=str(project), flow_settings=[f"fpga={ICE40_PART}"]
+            )
+        elif origin == "cli":
+            runner.plan(Nextpnr, design, flow_settings=[f"fpga={ICE40_PART}", "yosys.flatten=true"])
+        elif origin == "api":
+            runner.run_flow(Nextpnr, design, {"fpga": ICE40_PART, "yosys": {"flatten": True}})
+        elif origin == "loader-cli":
+            runner.run(
+                Openfpgaloader,
+                design,
+                flow_settings=[f"fpga={ICE40_PART}", "flows.nextpnr.yosys.flatten=true"],
+            )
+        else:
+            runner.plan(Nextpnr, design, flow_settings=[f"fpga={ICE40_PART}"])
+    with pytest.raises(Exception, match="`yosys` was removed: use `flows.yosys_fpga.<key>`"):
+        Nextpnr.Settings(yosys=YosysFpga.Settings())
 
 
 @BY_PLACER

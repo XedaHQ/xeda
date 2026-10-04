@@ -3,14 +3,16 @@
 A flow's settings are assembled from these layers, lowest precedence first:
 
 1. the flow's own defaults (supplied by validation, not here)
-2. under the field holding a dependency's settings (``nextpnr.yosys``), that dependency's own
-   sections (``flows.yosys_fpga``), in the order below (`flow_settings_from_sections`)
+2. for a flow that still launches a dependency itself, under the field holding that
+   dependency's settings (``vivado_postsynth_sim.synth``), the dependency's own sections
+   (``flows.vivado_synth``), in the order below (`flow_settings_from_sections`); a declared
+   producer's settings are written under its own ``flows.<flow>`` only
 3. the project file's ``flows.<flow>`` section
 4. the design file's ``flows.<flow>`` section
 5. the command line (``-s KEY=VALUE``), then overrides given through the API
 
-The layers are merged *deeply*: a nested section such as ``yosys = {...}`` combines key by key,
-so ``-s yosys.flatten=true`` changes that one setting of the design's ``yosys`` section instead
+The layers are merged *deeply*: a nested section such as ``clock = {...}`` combines key by key,
+so ``-s clock.freq=100MHz`` changes that one setting of the design's ``clock`` section instead
 of replacing the whole section. Any other value -- a list included -- is replaced whole by a
 higher layer. Local and remote runs, and the settings a flow hands to a dependency, all go
 through `merge_layers`, so they cannot disagree about precedence.
@@ -284,14 +286,14 @@ def flow_settings_from_sections(
     """What merged `flows` sections (`merge_flow_sections`) say for `flow_cls`: its own
     section, over each of its declared dependencies' own sections.
 
-    A dependency's section (``flows.yosys_fpga``) is the base of the field holding that
-    dependency's settings (``nextpnr.yosys``), and the depender's section
-    (``flows.nextpnr.yosys.*``) refines it -- the precedence the dependency's launch uses (`dependency_settings`).
-    Composed here, before the depender runs, because only then can the depender see it: a
-    setting it shares with the dependency is resolved in its `init()` (`resolve_dependency`),
-    long before the dependency launches -- so an `fpga` given only for `yosys_fpga` never
-    reached `nextpnr`, which cannot run without one. Recursive: `openfpgaloader.nextpnr.yosys`
-    sits on `flows.yosys_fpga` as well.
+    A dependency's section (``flows.vivado_synth``) is the base of the field holding that
+    dependency's settings (``vivado_postsynth_sim.synth``), and the depender's section
+    (``flows.vivado_postsynth_sim.synth.*``) refines it -- the precedence the dependency's
+    launch uses (`dependency_settings`). Composed here, before the depender runs, because only
+    then can the depender see it: a setting it shares with the dependency is resolved in its
+    `init()` (`resolve_dependency`), long before the dependency launches. Recursive. Only
+    flows that still launch a dependency themselves have such a field; a declared producer's
+    settings are written under its own ``flows.<flow>`` (D-10).
     """
     sections = sections or {}
     dependencies: dict[str, Any] = {}
@@ -316,9 +318,9 @@ def compose_flow_settings(
     Each origin is composed on its own first -- a dependency's own section under the depender's
     nested value for it (`flow_settings_from_sections`) -- and the composed origins are then
     stacked. So a leaf is decided by where it was given first, and by nesting only within one
-    origin: a design file's ``flows.yosys_fpga.flatten`` beats a project file's
-    ``flows.nextpnr.yosys.flatten``, while within the design file ``flows.nextpnr.yosys.flatten``
-    beats ``flows.yosys_fpga.flatten``. Composing a result again with the
+    origin: a design file's ``flows.vivado_synth.fail_timing`` beats a project file's
+    ``flows.vivado_postsynth_sim.synth.fail_timing``, while within the design file the nested
+    value beats ``flows.vivado_synth.fail_timing``. Composing a result again with the
     merged sections below it changes nothing, so `run()` and `run_flow` may both compose.
     """
     per_origin = [flow_settings_from_sections(flow_cls, sections or {}) for sections in origins]

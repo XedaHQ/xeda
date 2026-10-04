@@ -18,7 +18,7 @@ from typing import Any, Literal
 from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel
 from ..design import Design
-from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
+from ..flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException, flowrun_hash
 from ..flow.flow import written_path_problems
 from ..flow.fpga import FPGA
 from ..flow.io import declared_inputs, declared_outputs, is_declared, selected_types
@@ -658,7 +658,7 @@ def resolve(
                 raise FlowSettingsException(
                     f"{cls.name}.{declaration.name} takes one file, but {producer.name}.{output.name} produces many"
                 )
-            key = next(
+            nested = next(
                 (
                     key
                     for key in cls.Settings.dependency_settings
@@ -666,35 +666,25 @@ def resolve(
                 ),
                 None,
             )
-            if key:
-                # Already composed once, including producer sections and direct nested edits.
-                child_raw = raw.child(key)
-                # A consumer can refine its producer's defaults (e.g. keeping source
-                # attributes for placement). Retain nonshared defaults below all input
-                # origins, without turning shared defaults into explicit contributions.
-                default = cls.Settings.model_fields[key].get_default(call_default_factory=True)
-                defaults = (
-                    {
-                        name: value
-                        for name, value in _explicit(default).items()
-                        if name not in SHARED_SETTINGS
-                    }
-                    if isinstance(default, Flow.Settings)
-                    else {}
+            if nested is not None:
+                raise FlowFatalError(
+                    f"{cls.name} declares {producer.name} as a producer and may not nest its "
+                    f"settings (`{nested}`): they are written under flows.{producer.name}"
                 )
-                child_raw.values = merge_layers(
-                    defaults, child_raw.values, settings_cls=producer.Settings
-                )
-            else:
-                child_raw = _Located()
-                for label, values, kind in layers:
-                    child_raw = _overlay(
-                        child_raw, _compose(producer, values, label, kind), producer
-                    )
+            # A producer's settings come from its own `flows.<producer>` sections (D-10), over
+            # the defaults its consumer declares for it; those are not explicit contributions.
+            child_raw = _Located()
+            for label, values, kind in layers:
+                child_raw = _overlay(child_raw, _compose(producer, values, label, kind), producer)
+            child_raw.values = merge_layers(
+                cls.producer_defaults.get(declaration.name),
+                child_raw.values,
+                settings_cls=producer.Settings,
+            )
             child = discover(producer, child_raw, f"{cls.name}.{declaration.name}")
             child.needed.add(output.name)
             request.producers[declaration.name] = child
-            request.children.append((key, child))
+            request.children.append((None, child))
             request.inputs.append(
                 ResolvedInput(declaration.name, "producer", producer.name, output.name)
             )
@@ -795,12 +785,6 @@ def resolve(
     required: dict[str, set[str]] = {}
     for request in requests:
         required.setdefault(request.cls.name, set()).update(request.needed)
-    # Shared agreement may complete a partial nested clock; reconcile raw children before
-    # constructing parent models, whose validators otherwise reject that partial input.
-    for request in order:
-        for key, child in request.children:
-            if key:
-                request.raw.values[key] = deepcopy(child.raw.values)
     for request in requests:
         try:
             request.settings = settings_in_context(request.cls, request.raw.values, **context)
@@ -841,12 +825,8 @@ def resolve(
         for _key, child in request.children:
             assert child.settings is not None
             carry_diagnostics(child.settings, request.settings)
-    # Reconcile nested models bottom-up before parent hashing and required-setting checks.
     for request in order:
         assert request.settings is not None
-        for key, child in request.children:
-            if key:
-                setattr(request.settings, key, child.settings)
         if isinstance(request.settings, WithFpgaBoardSettings) and request.settings.board:
             board_fpga = request.settings._board_fpga(request.settings.board_data())
             if board_fpga and request.settings.fpga:

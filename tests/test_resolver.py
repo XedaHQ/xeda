@@ -199,8 +199,8 @@ def private_registry():
     registered_flows.update(saved)
 
 
-def test_nested_locations_and_origin_precedence_are_retained(tmp_path):
-    project = {"__place": {"fpga": {"part": OTHER}, "synth": {"fpga": {"part": OTHER}}}}
+def test_section_locations_and_origin_precedence_are_retained(tmp_path):
+    project = {"__place": {"fpga": {"part": OTHER}}}
     design = {"__synth": {"fpga": {"part": PART}}}
     with pytest.raises(FlowSettingsError) as raised:
         _plan(
@@ -212,33 +212,6 @@ def test_nested_locations_and_origin_precedence_are_retained(tmp_path):
     message = str(raised.value)
     for text in ("/p/project.toml", "/d/design.toml", "__place", "__synth", PART, OTHER):
         assert text in message
-
-
-def test_same_origin_nested_values_refine_the_producer_section(tmp_path):
-    design = {
-        "__place": {"synth": {"fpga": {"part": PART}}},
-        "__synth": {"fpga": {"part": OTHER}},
-    }
-    plan = _plan(
-        tmp_path, _Place, compose_flow_settings(_Place, [design]), origins=[("design.toml", design)]
-    )
-    for node in plan.nodes:
-        assert node.settings.fpga.part == PART
-    assert plan.node("__place").settings.synth == plan.node("__synth").settings
-
-
-def test_nested_conflict_names_the_original_nested_setting(tmp_path):
-    project = {"__place": {"synth": {"fpga": {"part": OTHER}}}}
-    design = {"__place": {"fpga": {"part": PART}}}
-    with pytest.raises(FlowSettingsError) as raised:
-        _plan(
-            tmp_path,
-            _Place,
-            compose_flow_settings(_Place, [project, design]),
-            origins=[("project.toml", project), ("design.toml", design)],
-        )
-    assert "synth.fpga.part" in str(raised.value)
-    assert "project.toml" in str(raised.value) and "design.toml" in str(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -315,24 +288,8 @@ def test_api_overrides_have_their_own_highest_precedence(tmp_path):
     assert "command line" not in str(raised.value)
 
 
-def test_direct_models_keep_nested_edits_and_original_path_context(tmp_path):
-    original_root = tmp_path / "original"
-    original_root.mkdir()
-    given = _Place.Settings.from_input({}, design_root=original_root, runner_cwd=original_root)
-    given.synth.fpga = PART
-    given.synth.lib_paths = [("work", "$DESIGN_ROOT/lib")]
-    given.synth.nthreads = 2
-    before = given.model_dump()
-    plan = _plan(tmp_path, _Place, given)
-    synth = plan.node("__synth").settings
-    assert synth.fpga.part == PART and synth.nthreads == 2
-    assert synth.lib_paths == [("work", original_root / "lib")]
-    assert given.model_dump() == before
-    assert plan.node("__place").settings.synth == synth
-
-
-def test_mappings_and_settings_agree_on_aliases_and_nested_values(tmp_path):
-    values = {"fpga": PART, "synth": {"ncpus": 2, "lib_paths": [("work", "$PWD/lib")]}}
+def test_mappings_and_settings_agree_on_aliases(tmp_path):
+    values = {"fpga": PART, "ncpus": 2}
     mapping = _plan(tmp_path, _Place, values)
     model = _Place.Settings.from_input(values, design_root=tmp_path / "d", runner_cwd=tmp_path)
     instance = _plan(tmp_path, _Place, model)
@@ -346,7 +303,7 @@ def test_deep_plan_protection_and_resolution_purity(tmp_path):
     root = tmp_path / "d"
     root.mkdir()
     design = Design(name="d", design_root=root, rtl={"sources": [], "top": "t"})
-    sections = {"__place": {"fpga": PART, "synth": {"lib_paths": [("work", "lib")]}}}
+    sections = {"__place": {"fpga": PART}, "__synth": {"lib_paths": [("work", "lib")]}}
     given = _Place.Settings.from_input(
         compose_flow_settings(_Place, [sections]), design_root=root, runner_cwd=tmp_path
     )
@@ -365,29 +322,26 @@ def test_deep_plan_protection_and_resolution_purity(tmp_path):
         debug=True,
     )
     saved = [(n.settings.model_dump(), n.flowrun_hash, n.run_path) for n in plan.nodes]
-    exposed = plan.node("__place").settings
-    exposed.synth.lib_paths.append(("other", Path("other")))
+    exposed = plan.node("__synth").settings
+    exposed.lib_paths.append(("other", Path("other")))
     exposed.fpga.part = OTHER
-    given.synth.lib_paths.clear()
+    given.fpga.part = OTHER
     sections["__place"]["fpga"] = OTHER
     assert [(n.settings.model_dump(), n.flowrun_hash, n.run_path) for n in plan.nodes] == saved
     assert design.model_dump() == design_state
-    assert initial["synth"]["lib_paths"] == [("work", "lib")]
+    assert initial["fpga"]["part"] == PART
     assert plan.context.design_root == root and plan.context.runner_cwd == tmp_path
     assert plan.context.hashed_run_dirs and plan.context.debug
     with pytest.raises(TypeError):
-        plan.context.input_settings["synth"]["lib_paths"][0] = "bad"
+        plan.context.input_settings["fpga"]["part"] = "bad"
     assert not (tmp_path / "run").exists()
     assert all(node.settings.debug for node in plan.nodes)
 
 
 def _board_place():
     from xeda.board import WithFpgaBoardSettings
-    from xeda.dataclass import Field
     from xeda.design import SourceType
     from xeda.flow import FpgaSynthFlow, In
-
-    from .io_flows import _Synth
 
     class _BoardPlace(FpgaSynthFlow):
         """A board-aware consumer of the same test synthesis producer."""
@@ -395,12 +349,7 @@ def _board_place():
         results_description: ClassVar[dict[str, str]] = {}
 
         class Settings(WithFpgaBoardSettings):
-            synth: _Synth.Settings = Field(
-                default_factory=_Synth.Settings, description="Synthesis settings."
-            )
-            dependency_settings: ClassVar[dict[str, tuple[str, ...]]] = {
-                "synth": ("fpga", "clocks")
-            }
+            """A board-aware implementation's settings."""
 
         class Inputs(Flow.Inputs):
             netlist: Path = In(

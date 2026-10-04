@@ -28,8 +28,6 @@ from ..run_dir import RunDirectory
 from ..utils import replacing_file, setting_flag
 from .nextpnr_constraints import ClockUse, Constraints, merge_constraints, reconcile_clocks
 from .xilinx import find_xilinx_layout, prepare_chipdb, select_xilinx
-from .yosys import YosysFpga
-from .yosys.yosys_fpga import NEXTPNR_KEEPS_SRC, keeping_src_by_default, yosys_fpga_keeping_src
 
 __all__ = ["Nextpnr"]
 
@@ -307,6 +305,7 @@ class Nextpnr(FpgaSynthFlow):
                 f"{kind}_cfg": f'rtl.sources with a typed pin file: {{ file = "pins.{kind}", type = "{kind.capitalize()}" }}'
                 for kind in ("lpf", "pcf", "pdc")
             },
+            "yosys": "`flows.yosys_fpga.<key>`",
         }
         seed: Optional[int] = Field(
             None,
@@ -470,14 +469,6 @@ class Nextpnr(FpgaSynthFlow):
             description="Enable nextpnr's parallel placement refinement. Faster on many cores, "
             "and only available in some nextpnr builds.",
         )
-        yosys: YosysFpga.Settings = Field(
-            default_factory=yosys_fpga_keeping_src,
-            description="Settings for the `yosys_fpga` dependency that synthesizes the design. "
-            "`fpga` and `clocks` are propagated automatically. " + NEXTPNR_KEEPS_SRC,
-        )
-
-        dependency_settings = {"yosys": ("fpga", "clocks")}
-
         prjxray_db: Path | None = Field(None, description="Project X-Ray database root override.")
         chipdb: Path | None = Field(
             None,
@@ -514,12 +505,6 @@ class Nextpnr(FpgaSynthFlow):
                 raise ValueError("hold_fix is true, false, or a positive number of passes")
             return value
 
-        @field_validator("yosys", mode="before")
-        @classmethod
-        def _yosys_keeps_src_by_default(cls, value):
-            """nextpnr places the netlist: keep `src` unless told otherwise."""
-            return keeping_src_by_default(value)
-
     class Inputs(FpgaSynthFlow.Inputs):
         netlist: Path = In(
             SourceType.JsonNetlist,
@@ -537,6 +522,10 @@ class Nextpnr(FpgaSynthFlow):
             optional=True,
             description="SDC timing constraints in design-source order.",
         )
+
+    #: nextpnr's reports cite the netlist's `src` attributes as source locations, so the
+    #: synthesis that makes its netlist keeps them unless `flows.yosys_fpga` says otherwise.
+    producer_defaults = {"netlist": {"netlist_src_attrs": True}}
 
     class Outputs(FpgaSynthFlow.Outputs):
         config: Path | None = Out(

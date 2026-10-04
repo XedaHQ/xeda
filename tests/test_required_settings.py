@@ -66,40 +66,35 @@ def test_an_fpga_flow_launched_without_a_device_names_the_setting(
     assert not list(run_dir.rglob("settings.json")), "and nothing was set up for the run"
 
 
-def test_a_device_supplied_through_a_dependency_section_counts(design, tmp_path, monkeypatch):
-    """`nextpnr` shares `fpga` with its `yosys` dependency (`dependency_settings`), and adopts
-    one given only there -- so that satisfies it."""
+def test_a_device_supplied_through_a_producer_section_counts(design, tmp_path, monkeypatch):
+    """`nextpnr` shares `fpga` with the `yosys_fpga` that makes its netlist, along their declared
+    edge, and adopts one given only in `flows.yosys_fpga` -- so that satisfies it."""
     from xeda.flows import Nextpnr
 
     monkeypatch.setenv("PATH", "")
     monkeypatch.chdir(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    sections = {"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}}
+    plan = runner.resolve(Nextpnr, design, {"clock": {"period": 10.0}}, sections)
+    assert plan.node("nextpnr").settings.fpga.part == "LFE5U-25F-6BG381C"
     with pytest.raises(Exception) as raised:
-        DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
-            Nextpnr,
-            design,
-            {"clock": {"period": 10.0}, "yosys": {"fpga": {"part": "LFE5U-25F-6BG381C"}}},
-        )
+        runner.run_flow(Nextpnr, design, {"clock": {"period": 10.0}}, all_flows_settings=sections)
     assert "`fpga`" not in str(raised.value), "it got past the check, to the missing tool"
+    assert "was removed" not in str(raised.value)
 
 
 def test_a_dependency_s_own_section_reaches_the_flow_that_launches_it():
-    """`[flows.yosys_fpga]` is the base of `nextpnr`'s `yosys` settings, which `[flows.nextpnr]`
-    refines -- so a device given only for `yosys_fpga` is one `nextpnr` resolves (it shares
-    `fpga` with that dependency), not one it learns of after its own `init()` already failed
-    without it. A flow with no nested dependency settings (`openfpgaloader`) has its own section
-    alone: its producers' sections are theirs."""
+    """A declared producer's settings are written under its own section only (D-10): a flow's
+    section is its own, and its producers' sections are theirs. The device given only for
+    `yosys_fpga` reaches `nextpnr` along their declared edge, in the resolver."""
     from xeda.flow_runner.settings_layers import flow_settings_from_sections
     from xeda.flows import Nextpnr, Openfpgaloader
 
     sections = {
         "yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}, "abc9": False},
-        "nextpnr": {"seed": 3, "yosys": {"abc9": True}},
+        "nextpnr": {"seed": 3},
     }
-    composed = flow_settings_from_sections(Nextpnr, sections)
-    assert composed == {
-        "seed": 3,
-        "yosys": {"fpga": {"part": "LFE5U-25F-6BG381C"}, "abc9": True},  # the more specific wins
-    }
+    assert flow_settings_from_sections(Nextpnr, sections) == sections["nextpnr"]
     assert flow_settings_from_sections(Openfpgaloader, sections) == {}
     assert flow_settings_from_sections(Nextpnr, {}) == {}
 

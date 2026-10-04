@@ -16,7 +16,7 @@ from typing import Any
 from ..flow import Flow, FlowSettingsException
 from ..flow.io import declared_inputs, declared_outputs
 from .chains import FlowRequest, match_required_inputs
-from .settings_layers import _flow_of, merge_flow_sections, registered_flow
+from .settings_layers import merge_flow_sections, registered_flow
 
 
 @dataclass(frozen=True)
@@ -188,35 +188,6 @@ def check_chain_collisions(layers: Sequence[BindingLayer], request: FlowRequest 
                     )
 
 
-def _check_nested_default(
-    cls: type[Flow], name: str, binding: InputBinding, layers: Sequence[BindingLayer]
-) -> None:
-    declaration = declared_inputs(cls)[name]
-    default = registered_flow(declaration.producer) if declaration.producer else None
-    if default is None:
-        return
-    outputs = declared_outputs(default)
-    matching = [key for key, out in outputs.items() if set(out.types) <= set(declaration.types)]
-    default_output = declaration.output or (matching[0] if len(matching) == 1 else None)
-    if len(binding.references) == 1:
-        reference = binding.references[0]
-        if reference.node == NodeKey(default.name) and (
-            reference.output is None or reference.output == default_output
-        ):
-            return
-    for field in cls.Settings.dependency_settings:
-        if _flow_of(cls.Settings._dependency_settings_class(field)) is not default:
-            continue
-        for layer in layers:
-            values = layer.settings.get(cls.name, {})
-            if field in values and values[field]:
-                raise FlowSettingsException(
-                    f"{layer.location}: flows.{cls.name}.{field} explicitly configures the "
-                    f"default producer {default.name!r}, displaced by {binding.location}; "
-                    "give settings in the selected producer's own section."
-                )
-
-
 def effective_bindings(
     layers: Sequence[BindingLayer],
     reached: Sequence[tuple[NodeKey, type[Flow]]],
@@ -268,7 +239,6 @@ def effective_bindings(
         binding = InputBinding(
             tuple(_reference(value, entry.location) for value in values), entry.location
         )
-        _check_nested_default(cls, name, binding, layers)
         selected.setdefault(node, {})[name] = binding
     return _freeze(selected)
 
