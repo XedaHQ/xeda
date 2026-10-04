@@ -122,7 +122,9 @@ def test_run_help_explains_chains_with_yaml_examples():
     assert "FLOW[.OUTPUT][+FLOW[.OUTPUT]...]" in text
     for phrase in ("binding each preceding flow", "--dry-run", "design.yaml"):
         assert phrase in " ".join(text.split()), phrase
-    assert ".toml" not in text
+    # the chain text above the option list shows YAML only; `--xedaproject` names `.toml` among
+    # the project files it discovers
+    assert ".toml" not in text.split("Options:")[0]
 
 
 # -------------------------------------------------------------------------------------- dry run
