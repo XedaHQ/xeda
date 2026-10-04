@@ -104,12 +104,22 @@ names a file outside it); starting Xeda from another directory does too. The has
 file a setting names: whether its content changed since the last run is the trace's business
 (see ``trace.json`` below).
 
+How an input was asked for -- a chain, a ``flows.<flow>.inputs`` binding in a design, a project, on
+the command line or through the API -- is not part of either hash; only what it selects is. A
+chain, a saved binding and the defaults that choose the same producer and output give the same
+hashes and the same directories, and a chain that selects another producer or another output gives
+the consumer another ``flowrun_hash`` (with ``--hashed-run-dirs``, another directory). Without
+hashed directories the consumer keeps its directory, and the trace says why it ran again:
+``declared input bindings changed``. See :ref:`flow-chains`.
+
 ``results.json``
 ----------------
 
 What the flow parsed out of the tool's reports. A run that fails after it has started (a failing
 tool, or a failing dependency) still writes it, as a failure document: ``success`` is ``false``, and
-``error.type`` and ``error.message`` say what failed, beside the run's identity. The previous
+``error.type`` and ``error.message`` say what failed, beside the run's identity (a flow whose
+reports or checks failed without a tool error says ``FlowFailure``, and a flow downstream of a
+failed one ``FlowDependencyFailure``, quoting it). The previous
 ``results.json`` is removed before a run starts, so an earlier success never stands for a run that
 failed. Every flow reports:
 

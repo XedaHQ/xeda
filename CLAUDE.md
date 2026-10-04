@@ -216,7 +216,11 @@ fresh `trace.json`, on success, once `_report` has returned).
 **Every failure path after a run starts leaves a failure document**: `results.json` with
 `success: false`, `error.type`, `error.message` and the run's identity -- a failing `run()`, and a
 failing dependency, which the depender's directory reports too (a `FlowDependencyFailure` naming
-the dependency and its `results.json`). The previous `results.json` is
+the dependency and its `results.json`). A flow that fails with no exception and no tool exit
+status -- its `parse_reports()`/`check_results()` said so -- gets `error.type = "FlowFailure"` and
+a message from `_execute` (never overwriting a real error), so a depender quotes something. The
+top-level `--json` document of `xeda run` names the requested flow's own failure `FlowFailed`; a
+node's `results.json` says `FlowFailure`, and its consumers' `FlowDependencyFailure`. The previous `results.json` is
 removed before the run, so an earlier success never stands for a run that died
 (`tests/test_failure_results.py`).
 
@@ -350,6 +354,29 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   are the last flow's; `--json` adds `request` (`introspect.request_info`) and per-node
   `node`/`inputs` (`introspect.inputs_info`), and after a failure the planned nodes never
   entered as `"state": "not run"` (from `FlowLauncher.last_plan`, the plan the run followed).
+- **A chain is validated, suggested, listed and completed by one predicate.**
+  `chains._check_chain` judges a request (declaration, action last, repeat, edge) and
+  `validate_chain` appends `Did you mean ...` with whole corrected requests that pass the same
+  check: another output of the producer, or stages inserted along required default-producer edges
+  (`_default_routes`, bounded and breadth-first; never a search over all flows, never an
+  undeclared flow, never a construction of a flow). `edges`/`followers`/`predecessors` are the
+  same relation for `list-flows` (`can_follow`/`can_precede`/`target_dependent`, and the
+  `required`/`optional` of each input) and for shell completion (`chains.complete_request`,
+  `ChainChoice.shell_complete`: the prefix returned as typed, nothing offered after an action,
+  a repeat or an undeclared flow). `Flow.action_reason` (class metadata) is why a flow can only
+  end a chain; the dry run prints it without calling `always_runs()`. A binding naming an input of
+  a flow that declares none says so (`bindings.node_bindings`), which is also the tripwire
+  for P4: `tests/test_fpga_chains.py`'s refusals of `bsc`/Vivado chains and of `inputs.design`
+  must be inverted the day those flows declare I/O (checklist in the phase handoff).
+- **Chain documentation is executable** (`tests/test_chain_documentation.py`). The YAML
+  fixtures in `docs/flows.rst`, `docs/design-file.rst` and the packaged agent docs begin with a
+  `# <name>.yaml` comment; the test writes each as that file, loads it with `Design.from_file`,
+  checks it against `introspect.design_schema()` and its flow sections (`inputs` split out first,
+  as the launcher does) against the flows, and runs the documented commands against the real
+  FPGA flows (planning needs no tool; execution uses `tests/fake_tools`). New configuration
+  snippets are YAML with a `.yaml` name; leave a document that still shows TOML to the branch
+  converting the examples. A test that enumerates `registered_flows` must scope to the product's
+  flows (fixture flows leak globally through `Flow.__init_subclass__`).
 - **One node per producer, keyed by node identity** (`bindings.NodeKey`, never the flow name
   alone): the resolver reaches each node once, unions every consumer's demand on its outputs
   before its settings are frozen and hashed, and the launcher's completed-run cache is keyed

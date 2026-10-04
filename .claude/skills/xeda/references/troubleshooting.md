@@ -104,6 +104,35 @@ The flow ran but reported failure, often because report parsing found a tool err
 violation. The JSON document keeps the parsed `results`; inspect them and the reports under
 `run_path`.
 
+### `FlowFailure`
+
+A node's `results.json` says `error.type = "FlowFailure"` when its reports or checks failed
+without an exception or a tool exit status (a tool that exited 0 and wrote no netlist, for
+instance). Its consumers quote the message ("dependency yosys_fpga failed: ..."), and the
+top-level `--json` document of the request carries `FlowDependencyFailure` (a producer failed) or
+`FlowFailed` (the requested flow itself). Read the log and the reports in the failing node's
+run directory: the `nodes` of the document list every run directory, and a flow that was planned
+but never entered shows `"state": "not run"`.
+
+### A chain is refused
+
+`xeda run a+b` fails with exit status 2 before anything runs, and says why:
+
+- `Flow `x` has no declared I/O and can only be run alone`: `bsc`, `bsc_sim` and the Vivado flows
+  cannot be part of a chain yet; run each alone.
+- `no compatible output for a required input`: the pair does not fit. The message ends with
+  `Did you mean ...?`, a whole valid chain (`nextpnr+openfpgaloader` ->
+  `nextpnr+fpga_pack+openfpgaloader`); `xeda list-flows --json` has `can_follow`/`can_precede`.
+- `programs a device and can only end a chain`: `openfpgaloader` must be last.
+- `appears more than once`: a chain is a path; each flow once.
+- `--remote` and `xeda dse` refuse chains and bindings; run locally.
+
+A binding that fails is a settings error naming the consumer, the input and where it was written
+(`unknown input`, `unknown producer`, `declares no inputs`), and a chain and an explicit
+command-line or API binding of the same input is an error even when they are equal: bind it in
+one place. A saved binding is a reference to a flow's output (`yosys_fpga.netlist`), never a file
+path; give a file as a typed source.
+
 ### `NoSuccessfulRun`
 
 A design-space exploration completed without a successful candidate. Inspect the attempted run

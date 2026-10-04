@@ -273,7 +273,7 @@ unknown flow or setting):
 ``error.type`` names the exception class, which is stable enough to branch on:
 ``FlowSettingsError`` (a bad setting), ``FlowNotFoundError`` (a bad flow name),
 ``ExecutableNotFound`` (the tool is not installed), ``NonZeroExitCode`` (the tool failed),
-``DesignValidationError`` (a bad design file), ``FlowFailed`` (the flow ran but reported failure),
+``DesignValidationError`` (a bad design file), ``FlowFailed`` (the requested flow ran but reported failure),
 ``NoSuccessfulRun`` (a DSE search found no successful candidate), ``FlowFatalError``, and
 ``FlowException``. Four more come from run-directory and delivery isolation (D21):
 
@@ -288,6 +288,19 @@ unknown flow or setting):
 * ``OutputExistsError`` -- a subclass of ``DeliveryError``: the destination holds a file that is
   not Xeda's own unchanged earlier delivery, and replacing it was not confirmed. Rerun with
   ``--overwrite-outputs``, or answer the prompt at an interactive terminal.
+
+Every node's own ``results.json`` is a failure document too, and its ``error.type`` is more
+specific than the top-level document's. ``FlowFailure`` -- ``"`<flow>` reported failure: its
+reports or checks did not pass"`` -- is what a flow leaves when it failed with no exception and no
+tool exit status (its tool exited 0 and the reports or checks it reads say otherwise, or an
+expected output was never written); the flows downstream of it say
+``FlowDependencyFailure`` and quote it (``dependency yosys_fpga failed: ...``), and so does the
+top-level ``error`` of a chain whose last flow was never reached. A chain that is malformed
+or does not fit (an empty element, an unknown or repeated flow, a flow with no declared I/O, a
+programmer before the end, a pair with no compatible output) is a ``UsageError`` with exit status 2
+and no ``request``; a binding that cannot be applied (an unknown input or producer, a binding for
+a flow that declares no inputs, a chain and a command-line or API binding of the same input) is a
+settings error naming the input and where the binding was written.
 
 Exit status
 ===========
@@ -368,6 +381,54 @@ Planning changes no run roots, markers, locks, results or deliveries and probes 
 Loading that needs a generator or a Git dependency fetch is refused before those side effects;
 materialize sources first, or pass an already materialized ``Design`` to ``DefaultRunner.plan``.
 ``--dry-run --remote`` is refused.
+
+Planning a chain
+----------------
+
+A chain is planned (and run) the same way. With the ``routed_demo.yaml`` of :ref:`flow-chains`:
+
+.. code-block:: bash
+
+    xeda run yosys_fpga+nextpnr+fpga_pack routed_demo.yaml --dry-run --json
+
+``request`` is the chain as a list of ``{node, flow, output}`` elements -- structural, never the
+joined text -- and every node of ``plan.nodes`` has its resolved ``inputs``. Abridged (only each
+node's wired inputs, and none of the paths and hashes):
+
+.. code-block:: json
+
+    {
+      "flow": "fpga_pack",
+      "success": true,
+      "dry_run": true,
+      "request": [
+        {"node": "yosys_fpga", "flow": "yosys_fpga", "output": null},
+        {"node": "nextpnr", "flow": "nextpnr", "output": null},
+        {"node": "fpga_pack", "flow": "fpga_pack", "output": null}
+      ],
+      "plan": {
+        "requested": "fpga_pack",
+        "nodes": [
+          {"name": "yosys_fpga", "inputs": []},
+          {"name": "nextpnr", "inputs": [
+            {"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
+             "output": "netlist", "binding_origin": "chain",
+             "references": [{"node": "yosys_fpga", "output": "netlist"}]}
+          ]},
+          {"name": "fpga_pack", "inputs": [
+            {"name": "config", "origin": "producer", "producer": "nextpnr",
+             "output": "config", "binding_origin": "chain",
+             "references": [{"node": "nextpnr", "output": "config"}]}
+          ]}
+        ]
+      }
+    }
+
+Here the chain replaced both bindings the file saved (``overridden`` names them and their
+sections). A request of a single flow has a one-element ``request``. After a failure the nodes
+that were planned but never entered are listed with ``"state": "not run"``, and
+``request`` and ``nodes`` are absent from the document of a chain that was refused before it was
+planned (a usage error).
 
 Using Xeda as a library
 =======================
