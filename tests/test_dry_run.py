@@ -103,6 +103,7 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
         "design": str(design),
         "success": True,
         "dry_run": True,
+        "request": [{"node": "nextpnr", "flow": "nextpnr", "output": None}],
         "plan": expected,
     }
     nodes = document["plan"]["nodes"]

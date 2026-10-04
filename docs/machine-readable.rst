@@ -194,6 +194,19 @@ run finished:
       ]
     }
 
+``xeda run`` also takes a chain, ``xeda run yosys_fpga+nextpnr+fpga_pack design.yaml``: its
+last flow is the requested one (``flow``, ``results``, ``run_path`` and the exit status are
+that flow's), and each preceding flow supplies the next one's compatible required inputs. The
+document's ``request`` lists the elements as given, canonically -- ``{"node", "flow",
+"output"}`` each, ``output`` being the ``FLOW.OUTPUT`` qualifier or ``null`` -- one element for
+a single flow. Each ``nodes`` entry carries its ``node`` name and, for a declared flow, its
+resolved ``inputs`` in the representation of the plan below ("Planning a run" below
+has the fields). When a producer fails, the planned nodes that were never entered are listed
+after the others with ``"state": "not run"``. A malformed chain (an empty element, an unknown
+flow or output, a repeated flow, an edge that does not fit) is a usage error: one error
+document, exit status 2, no ``request``, ``plan`` or ``nodes``. Chains are local requests:
+``--remote`` and ``dse`` refuse them.
+
 ``nodes`` lists every run directory the run touched -- the requested flow's and each
 dependency's -- once each, in completion order. Each entry's ``state`` is ``"fresh"`` (the
 recorded run was still valid and was reused, without re-running), ``"ran"`` or ``"failed"``;
@@ -283,6 +296,7 @@ consumer switching its producer's optional output on:
 
     {
       "flow": "nextpnr", "design": "blinky.yaml", "success": true, "dry_run": true,
+      "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null}],
       "plan": {
         "requested": "nextpnr",
         "nodes": [

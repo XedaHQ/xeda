@@ -39,10 +39,12 @@ from .design import Design
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
 from .flow_runner.settings_layers import FlowRemovedError
+from .utils import XedaException
 from .introspect import settings_info, type_str
 from .xedaproject import XedaProject
 
 __all__ = [
+    "ChainChoice",
     "HELP_FORMATTER_SETTINGS",
     "XEDA_HELP_THEME",
     "ClickMutex",
@@ -580,6 +582,13 @@ class FlowChoice(click.Choice[str]):
 
     def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> str:
         if isinstance(value, str):
+            if "+" in value:
+                self.fail(
+                    f"{value!r} is a flow chain: this command takes one flow. A chain is a "
+                    "request for `xeda run`.",
+                    param,
+                    ctx,
+                )
             try:
                 return get_flow_class(value).name
             except FlowRemovedError as e:
@@ -589,3 +598,26 @@ class FlowChoice(click.Choice[str]):
             except FlowNotFoundError as e:
                 self.fail(str(e), param, ctx)
         return super().convert(value, param, ctx)
+
+
+class ChainChoice(FlowChoice):
+    """`xeda run`'s request: one flow name, or a chain `FLOW[.OUTPUT][+FLOW[.OUTPUT]...]`.
+
+    Returns the canonical request text -- each flow's canonical name, with its output
+    qualifier when one was given, joined by `+` -- which for a single flow is that flow's
+    name, as `FlowChoice` returns. A malformed chain is a usage error.
+    """
+
+    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> str:
+        if not isinstance(value, str) or not ("+" in value or "." in value):
+            return super().convert(value, param, ctx)
+        from .flow_runner.chains import parse_request
+
+        try:
+            request = parse_request(value)
+        except (FlowNotFoundError, XedaException) as e:
+            self.fail(str(e), param, ctx)
+        return "+".join(
+            element.node + (f".{element.output}" if element.output else "")
+            for element in request.elements
+        )
