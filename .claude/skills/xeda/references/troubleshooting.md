@@ -169,8 +169,8 @@ settings to `[flows.nextpnr]`, synthesis settings to `[flows.yosys_fpga]`, and p
 - "needs the full part": give `fpga.part` with package, pins and speed grade
   (`xc7a100tcsg324-1`), as the Project X-Ray database lists it.
 - A missing Himbaechel share tree, generator, `bbasm` or Project X-Ray database names the path
-  searched: put openXC7 1.0's `bin` first on `PATH` (another `nextpnr-himbaechel`, such as the
-  OSS CAD Suite's, has other backends and no such data), or set `chipdb`/`prjxray_db`.
+  searched: put openXC7 1.0's `bin` first on `PATH` (another `nextpnr-himbaechel` on `PATH`, without
+  the openXC7 share tree, cannot serve), or set `chipdb`/`prjxray_db`.
 - The first build seems to hang: it is generating the chip database (about a minute, gigabytes
   of memory), once per run root.
 - "timing constraints are not met: Max frequency ... (FAIL at ...)": relax the clock, or set
