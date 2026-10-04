@@ -1,0 +1,17 @@
+# The ULX3S 85F blinky (ECP5: nextpnr-ecp5, ecppack), to build and program as a chain:
+#   xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader ulx3s.yaml
+name: chain_ulx3s
+rtl:
+  sources: ["ulx3s_blinky.v", {file: "ulx3s_blinky.lpf", type: Lpf}]
+  top: blinky
+  clock:
+    port: "clk_25mhz"
+
+flows:
+  openfpgaloader:
+    clock.freq: 25MHz
+  nextpnr:
+    board: ULX3S_85F
+  yosys_fpga:
+    fpga.family: ecp5
+    clock.freq: 25MHz

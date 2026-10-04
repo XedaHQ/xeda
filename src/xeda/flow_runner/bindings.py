@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..flow import Flow, FlowSettingsException
-from ..flow.io import declared_inputs, declared_outputs
+from ..flow.io import declared_inputs, declared_outputs, is_declared
 from ..utils import semantic_hash
 from .chains import FlowRequest, close_names, match_required_inputs
 from .settings_layers import merge_flow_sections, registered_flow
@@ -249,7 +249,17 @@ def node_bindings(
             if entry.name not in declarations:
                 raise FlowSettingsException(
                     f"{entry.location}: unknown input {entry.name!r} of {entry.node.label!r}."
-                    + close_names(entry.name, list(declarations))
+                    + (
+                        close_names(entry.name, list(declarations))
+                        if declarations
+                        else f" `{entry.node.label}` declares no inputs"
+                        + (
+                            ""
+                            if is_declared(cls)
+                            else " (it has no declared I/O yet, so it can only be run alone)"
+                        )
+                        + "; only a flow's declared inputs can be bound."
+                    )
                 )
             winners[entry.name] = (entry, layer.kind)
     chain = {

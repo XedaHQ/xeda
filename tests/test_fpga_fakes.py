@@ -153,6 +153,8 @@ def test_nextpnr_consumes_inputs_and_writes_only_named_outputs(name, config_flag
         }
     (call,) = _calls(tmp_path)
     assert call["tool"] == name
+    # the file that ran: a launch can tell the fake it started from any other `openFPGALoader`
+    assert Path(call["executable"]) == (tool_utils.FAKE_TOOLS_DIR / "fake_fpga_tool.py").resolve()
     assert call["argv"] == list(map(str, args))
     assert Path(call["cwd"]).resolve() == tmp_path.resolve()
     assert call["environment"]["PYTHONDONTWRITEBYTECODE"] == "1"

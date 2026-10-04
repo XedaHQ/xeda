@@ -101,6 +101,19 @@ def test_a_non_zero_exit_is_recorded_in_the_failure_document(tmp_path):
     assert document["error"]["type"] == "NonZeroExitCode"
 
 
+def test_a_failure_the_reports_show_is_a_failure_document_with_an_error(tmp_path):
+    """No exception, no nonzero exit: the flow's reports or checks say it failed. The document
+    still names the error."""
+    design = _design(tmp_path)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = runner.run_flow(_MayFail, design, {"report_failure": True})
+    document = json.loads((flow.run_path / "results.json").read_text())
+    assert document["success"] is False
+    assert document["error"]["type"] == "FlowFailure"
+    assert f"`{flow.name}` reported failure" in document["error"]["message"]
+    assert "reports or checks" in document["error"]["message"]
+
+
 @pytest.mark.parametrize(
     "dep, error_type, raised",
     [

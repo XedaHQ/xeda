@@ -1,0 +1,12 @@
+# The Arty A7-100T blinky (Xilinx 7 series: nextpnr-himbaechel, fpga-as), as a chain:
+#   xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader arty.yaml
+name: chain_arty
+rtl:
+  sources: ["arty_blinky.v", "arty_blinky.xdc"]
+  top: blinky
+
+flows:
+  nextpnr:
+    board: ARTY_A7_100T
+  yosys_fpga:
+    flatten: true

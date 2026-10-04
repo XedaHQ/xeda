@@ -123,6 +123,8 @@ def record(tool, args, inputs, contents, seed=1):
     }
     call = {
         "tool": tool,
+        # the file that ran (a symbolic link followed), so a test can tell which fake it was
+        "executable": os.path.realpath(sys.argv[0]),
         "argv": args,
         "cwd": str(Path.cwd()),
         "environment": environment,
