@@ -543,7 +543,7 @@ def discover_flow_class(flow: str) -> Type[Flow]:
 
 
 def select_design_in_project(
-    xeda_project: XedaProject, design_name: Optional[str] = None
+    xeda_project: XedaProject, design_name: str | None = None, target: str | None = None
 ) -> Optional[Design]:
     if console.is_interactive:
         terminal_menu = TerminalMenu(xeda_project.design_names, title="Please select a design: ")
@@ -551,7 +551,7 @@ def select_design_in_project(
         if idx is None or not isinstance(idx, int) or idx < 0:
             log.critical("Invalid design choice!")
             return None
-        return xeda_project.get_design(idx)
+        return xeda_project.get_design(idx, target)
     else:
         design_name = click.prompt(
             "Please enter design name: ",
@@ -560,7 +560,7 @@ def select_design_in_project(
         if not design_name or design_name not in xeda_project.design_names:
             log.critical("Invalid design name!")
             return None
-        return xeda_project.get_design(design_name)
+        return xeda_project.get_design(design_name, target)
 
 
 class FlowChoice(click.Choice[str]):

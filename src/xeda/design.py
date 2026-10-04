@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import errno
 import hashlib
+import importlib
 import inspect
 import json
 import logging
@@ -44,6 +45,7 @@ from .dataclass import (
     ValidationError,
     XedaBaseModel,
     field_validator,
+    input_names,
     model_validator,
     model_with_allow_extra,
     validation_errors,
@@ -1646,6 +1648,58 @@ class GitReference(DesignReference):
 
 DesignType = TypeVar("DesignType", bound="Design")
 
+#: The top-level shorthands `Design.process_compatibility` folds into `rtl`: a design file (and
+#: a target) may write them at its root.
+FLAT_RTL_KEYS = (
+    "sources",
+    "top",
+    "clock",
+    "clock_port",
+    "clocks",
+    "parameters",
+    "generics",
+    "defines",
+    "generator",
+)
+
+#: Keys a target may not hold: they belong to the design itself.
+TARGET_FORBIDDEN_KEYS = frozenset({"name", "targets", "target", "design_root"})
+# Settings shared by the flows of a graph (`board`, `fpga`, ...): written once, they would apply to
+# every flow that declares them. A target takes them only under its own `flows.<flow>`, for now.
+TARGET_FLOW_SETTING_KEYS = frozenset({"board", "fpga", "custom_boards_file"})
+
+_NO_SINGULAR_TARGET = (
+    "`target` is not a key of a design: targets are written as `targets.<name>`, and one is "
+    "selected with `--target NAME` (`target=` in the API)"
+)
+
+
+def _as_list(value: Any) -> list[Any]:
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
+def _spell_as(base: dict[str, Any], overlay: dict[str, Any], model: type[XedaBaseModel]) -> None:
+    """Rename `overlay`'s keys to the spelling `base` uses for the same field of `model`
+    (`flow`/`flows`, `parameters`/`generics`), so the two meet when merged."""
+    names = input_names(model)
+    spelled = {names[key]: key for key in base if key in names}
+    for key in list(overlay):
+        ours = spelled.get(names.get(key, ""), key)
+        if ours != key and ours not in overlay:
+            overlay[ours] = overlay.pop(key)
+
+
+def _names_a_flow(name: str) -> bool:
+    """Whether `name` is a registered flow's name or alias, as the command line would take it
+    (dashes for underscores, any letter case)."""
+    # Imported here, and by name: the flows import this module, and are registered by being
+    # imported.
+    importlib.import_module("xeda.flows")
+    registered_flows = importlib.import_module("xeda.flow").registered_flows
+
+    folded = name.replace("-", "_").lower()
+    return any(flow.lower() == folded for flow in registered_flows)
+
 
 class Design(XedaBaseModel):
     name: str = Field(
@@ -1679,6 +1733,13 @@ class Design(XedaBaseModel):
     license: Union[str, List[str], None] = None
     version: Optional[str] = None
     url: Optional[str] = None
+    target: str | None = Field(
+        None,
+        description="Name of the target this design was selected as (`targets.<name>` in its "
+        "design file), recorded by the loader for documents to report. It is not part of the "
+        "design's identity, and a design file does not write it.",
+        json_schema_extra={"hidden_from_schema": True},
+    )
 
     @field_validator("name", mode="after")
     @classmethod
@@ -1716,24 +1777,25 @@ class Design(XedaBaseModel):
         return value
 
     @classmethod
-    def process_compatibility(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    def process_compatibility(cls, data: dict[str, Any], defaults: bool = True) -> dict[str, Any]:
+        """Fold the flat top-level form into `rtl` and `tb`. A target's overlay is folded by this
+        very function, with `defaults=False`: only the keys it wrote, so it overrides no more
+        than it says."""
         if "rtl" not in data:
-            clock_inputs = {
-                name: data.pop(name) for name in ("clock", "clock_port", "clocks") if name in data
-            }
-            # Keep multiple spellings if they were written together: the corresponding model
-            # validator then reports the ambiguity instead of silently choosing one.
-            parameters = {
-                name: data.pop(name) for name in ("parameters", "generics") if name in data
-            }
-            data["rtl"] = {
-                "sources": data.pop("sources", []),
-                "generator": data.pop("generator", None),
-                **parameters,
-                "defines": data.pop("defines", {}),
-                "top": data.pop("top", None),
-                **clock_inputs,
-            }
+            given = {name: data.pop(name) for name in FLAT_RTL_KEYS if name in data}
+            # Multiple spellings written together (`parameters` and `generics`, the clock
+            # inputs) are all kept: the corresponding model validator then reports the
+            # ambiguity instead of silently choosing one.
+            if defaults:
+                data["rtl"] = {
+                    "sources": [],
+                    "generator": None,
+                    "defines": {},
+                    "top": None,
+                    **given,
+                }
+            elif given:
+                data["rtl"] = given
         tb = data.get("tb", {})
         tests = data.pop("tests", [])
         if tests and not isinstance(tests, list):
@@ -1748,6 +1810,129 @@ class Design(XedaBaseModel):
                 raise ValueError(f"test: {test} is not a dictionary")
             data["tb"] = test
         return data
+
+    @classmethod
+    def select_target(cls, data: Mapping[str, Any], target: str | None = None) -> dict[str, Any]:
+        """The design `data` describes once one of its `targets` is selected: an ordinary
+        design description, with the target's name recorded as `target`.
+
+        A target is an overlay: it takes the keys of the design file itself (all but
+        `TARGET_FORBIDDEN_KEYS`), folded as the design's own are (`process_compatibility`) and
+        merged over them. Mappings merge key by key at every depth; `rtl.sources` and
+        `tb.sources` are appended after the design's; any other list replaces the design's.
+
+        With one target and no `target` given, that target is selected. Without `targets`, the
+        data is returned as it is, and naming a `target` is an error. Every problem is a
+        `DesignValidationError` located at `targets.<name>.<key>`.
+        """
+        data = dict(data)
+
+        def invalid(loc: str, msg: str) -> DesignValidationError:
+            return DesignValidationError([(loc, msg, "", "value_error")], data=data)
+
+        if "targets" not in data or data["targets"] in (None, {}):
+            data.pop("targets", None)
+            if target is not None:
+                raise invalid(
+                    "targets",
+                    f"target {target!r} was asked for, but the design has no `targets`",
+                )
+            return data
+        if "target" in data:
+            raise invalid("target", _NO_SINGULAR_TARGET)
+        targets = data.pop("targets")
+        if not isinstance(targets, Mapping):
+            raise invalid(
+                "targets",
+                f"`targets` is a table of named targets (`targets.<name>`), got {type(targets).__name__}",
+            )
+        overlays = {name: cls._target_overlay(name, overlay) for name, overlay in targets.items()}
+        names = ", ".join(overlays)
+        if target is None:
+            if len(overlays) > 1:
+                raise invalid(
+                    "targets",
+                    f"the design has several targets ({names}): select one with `--target NAME` "
+                    "(`target=` in the API)",
+                )
+            target = next(iter(overlays))
+        elif target not in overlays:
+            close = difflib.get_close_matches(str(target), list(overlays), n=1)
+            raise invalid(
+                "targets",
+                f"{target!r} is not a target of the design"
+                + (f" (did you mean {close[0]!r}?)" if close else "")
+                + f". Its targets are: {names}",
+            )
+        overlay = overlays[target]
+        try:
+            base = cls.process_compatibility(deepcopy(data))
+        except ValueError as e:
+            raise invalid("", str(e)) from e
+        for part, model in (("rtl", RtlSettings), ("tb", TbSettings)):
+            ours, theirs = base.get(part), overlay.get(part)
+            if isinstance(ours, dict) and isinstance(theirs, dict):
+                _spell_as(ours, theirs, model)
+                if "sources" in theirs:
+                    theirs["sources"] = [
+                        *_as_list(ours.get("sources", [])),
+                        *_as_list(theirs["sources"]),
+                    ]
+        _spell_as(base, overlay, cls)
+        return {**hierarchical_merge(base, overlay), "target": target}
+
+    @classmethod
+    def _target_overlay(cls, name: Any, overlay: Any) -> dict[str, Any]:
+        """One target's overlay, checked and folded as a design's own top level is."""
+        loc = f"targets.{name}"
+
+        def invalid(key: str | None, msg: str) -> DesignValidationError:
+            return DesignValidationError([(f"{loc}.{key}" if key else loc, msg, "", "value_error")])
+
+        if not isinstance(name, str) or not DESIGN_NAME.fullmatch(name):
+            raise invalid(
+                None,
+                f"{name!r} is not a target name: it names the target's run directories, so it "
+                "starts with a letter and holds only letters, digits, `_` and `-`",
+            )
+        if _names_a_flow(name):
+            raise invalid(
+                None,
+                f"{name!r} is the name of a flow, and a target's run directories lie beside "
+                "the flows' own: give the target another name",
+            )
+        if not isinstance(overlay, Mapping):
+            raise invalid(
+                None,
+                "a target is a table of the design's own keys (`sources`, `defines`, `rtl`, "
+                f"`tb`, `flows`, ...), got {type(overlay).__name__}",
+            )
+        overlay = expand_hierarchy(dict(overlay))
+        known = {*input_names(cls), *FLAT_RTL_KEYS, "test", "tests"} - TARGET_FORBIDDEN_KEYS
+        for key in overlay:
+            if key in TARGET_FORBIDDEN_KEYS:
+                raise invalid(
+                    key,
+                    f"`{key}` is not allowed in a target: it belongs to the design itself"
+                    + (" (a target has no targets of its own)" if key == "targets" else ""),
+                )
+            if key not in known and cls.model_config.get("extra") != "allow":
+                close = difflib.get_close_matches(str(key), sorted(known), n=1)
+                if key in TARGET_FLOW_SETTING_KEYS:
+                    raise invalid(
+                        key,
+                        f"`{key}` is a setting of a flow, and not supported at a target's top "
+                        f"level (yet): write it under the target's flows, as `flows.<flow>.{key}`",
+                    )
+                raise invalid(
+                    key,
+                    "not a key of a design, so not of a target either"
+                    + (f" (did you mean `{close[0]}`?)" if close else ""),
+                )
+        try:
+            return cls.process_compatibility(overlay, defaults=False)
+        except ValueError as e:
+            raise invalid(None, str(e)) from e
 
     @classmethod
     def process_generation(cls, data: Dict[str, Any]):
@@ -1902,6 +2087,8 @@ class Design(XedaBaseModel):
             raise invalid("design_root", f"directory does not exist: {design_root}")
         if not data.get("design_root"):
             data["design_root"] = design_root
+        if "targets" in data:
+            data = self.select_target(data)
         try:
             data = Design.process_dict(data)
         except (ValueError, TypeError, AssertionError) as e:
@@ -2002,8 +2189,12 @@ class Design(XedaBaseModel):
         overrides: Optional[Dict[str, Any]] = None,
         allow_extra: bool = False,
         remove_extra: Optional[List[str]] = None,
+        target: str | None = None,
     ) -> DesignType:
         """Load and validate a design description from a TOML, JSON or YAML file.
+
+        `target` selects one of the design's `targets` (`select_target`); a design with one
+        target needs none. `overrides` are applied last, over the selected target.
 
         A file that cannot be read as a design raises `DesignFileParseError`, and one whose
         design does not validate `DesignValidationError`; both name the file.
@@ -2016,27 +2207,27 @@ class Design(XedaBaseModel):
             design_file = Path(design_file)
         design_dict = _read_design_file(design_file)
         design_dict = expand_hierarchy(design_dict)
-        design_dict = hierarchical_merge(design_dict, overrides)
-        if "name" not in design_dict:
-            design_name = design_file.stem
-            design_name = removesuffix(design_name, ".xeda")
-            log.debug(
-                "'design.name' not specified! Inferring design name: `%s` from design file name.",
-                design_name,
-            )
-            design_dict["name"] = design_name
         if allow_extra:
             cls = model_with_allow_extra(cls)
-        else:
-            for k in remove_extra:
-                design_dict.pop(k, None)
-        # Default value for design_root is the folder containing the design description file.
-        dr = design_dict.pop("design_root", None)
-        if design_root is None:
-            design_root = dr
-        if design_root is None:
-            design_root = design_file.parent
         try:
+            design_dict = cls.target_selected(design_dict, target, overrides)
+            if "name" not in design_dict:
+                design_name = design_file.stem
+                design_name = removesuffix(design_name, ".xeda")
+                log.debug(
+                    "'design.name' not specified! Inferring design name: `%s` from design file name.",
+                    design_name,
+                )
+                design_dict["name"] = design_name
+            if not allow_extra:
+                for k in remove_extra:
+                    design_dict.pop(k, None)
+            # Default value for design_root is the folder containing the design description file.
+            dr = design_dict.pop("design_root", None)
+            if design_root is None:
+                design_root = dr
+            if design_root is None:
+                design_root = design_file.parent
             return cls(design_root=design_root, **design_dict)
         except DesignValidationError as e:
             raise DesignValidationError(  # add design_file to the emitted exception
@@ -2049,6 +2240,28 @@ class Design(XedaBaseModel):
         except Exception as e:
             log.error("Error processing design file: %s", design_file.absolute())
             raise e
+
+    @classmethod
+    def target_selected(
+        cls,
+        data: Mapping[str, Any],
+        target: str | None = None,
+        overrides: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """A design description as written in a file (a design file, or a project's `designs`
+        entry), with its target selected and then `overrides` applied: what every loader of
+        written designs builds the `Design` from. Written input has no `target` key: the
+        loader records the name there."""
+        if "target" in data:
+            raise DesignValidationError(
+                [("target", _NO_SINGULAR_TARGET, "", "value_error")], data=dict(data)
+            )
+        selected = cls.select_target(data, target)
+        overrides = deepcopy(dict(overrides or {}))
+        if selected.get("target") is not None:
+            # the selected design is folded, so the flat form of an override is folded too
+            overrides = cls.process_compatibility(overrides, defaults=False)
+        return hierarchical_merge(selected, overrides)
 
     def source_path_as_named(self, src: FileResource) -> Path:
         """`src` as this design names it: relative to the design root when it is under it,

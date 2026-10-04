@@ -442,6 +442,42 @@ def test_the_design_archive_is_readable_by_a_p2a_remote(design_file, tmp_path, m
     assert set(shipped["tb"]) <= P2A_TB_KEYS
 
 
+TARGETS = TESTS_DIR / "resources" / "targets"
+
+
+def test_a_remote_is_sent_the_design_a_target_yields(tmp_path, monkeypatch):
+    """The archive of a design with a target selected is that of the same design written flat:
+    neither `targets` nor the recorded `target`, which a remote's loader would refuse."""
+    monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
+
+    def shipped(design: Design, name: str) -> dict:
+        remote_dir = tmp_path / name
+        remote_dir.mkdir()
+        zip_name, design_name = remote_module.send_design(
+            design, _LocalConnection("somewhere"), str(remote_dir)
+        )
+        with zipfile.ZipFile(remote_dir / zip_name) as archive:
+            return json.loads(archive.read(design_name))
+
+    selected = shipped(Design.from_file(TARGETS / "knight.yaml", target="arty"), "selected")
+    flat = shipped(Design.from_file(TARGETS / "knight_arty_flat.yaml"), "flat")
+    assert "target" not in selected and "targets" not in selected
+    assert selected == flat
+
+
+def test_a_remote_run_takes_a_target(tmp_path, remote_host):
+    runner = RemoteRunner(tmp_path / "local" / "xeda_run")
+    results = runner.run_remote(
+        TARGETS / "knight.yaml", "vivado_synth", host="somewhere", target="arty"
+    )
+    assert results is not None and results["success"] is True
+    assert runner.target == "arty"
+    with pytest.raises(Exception, match="arty, ulx3s"):
+        RemoteRunner(tmp_path / "other" / "xeda_run").run_remote(
+            TARGETS / "knight.yaml", "vivado_synth", host="somewhere"
+        )
+
+
 #: A P2a design dependency (`GitReference`) and the keys it accepts as `null`.
 #: Unlike the old floor, P2a accepts an unset local_cache directly.
 P2A_GIT_REFERENCE_KEYS = {

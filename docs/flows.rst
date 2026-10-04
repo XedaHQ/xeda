@@ -53,18 +53,21 @@ same flow. An unrecognized name suggests close matches.
 Settings
 ========
 
-Every flow declares its own settings. They can be given in five places, in increasing order of
+Every flow declares its own settings. They can be given in six places, in increasing order of
 precedence:
 
 1. the flow's own defaults
 2. a ``xedaproject.yaml``'s ``flows.<flow_name>`` section
 3. the design file's ``flows.<flow_name>`` section
-4. the command line, via ``-s``/``--settings``
-5. the API, via ``flow_overrides``
+4. the selected target's ``flows.<flow_name>`` section, if you chose a target with ``--target``
+   (see :ref:`targets`)
+5. the command line, via ``-s``/``--settings``
+6. the API, via ``flow_overrides``
 
 They merge key by key: ``-s clock.freq=100MHz`` changes that one setting of a ``clock`` section
 given in the design file, rather than replacing the whole section. Precedence goes by where a
-setting was given first (project, design, command line, API).
+setting was given first (project, design, target, command line, API). A target's value wins over
+the design's for the same key, and only for the keys the target writes.
 
 A flow's settings are written in one place, its own ``flows.<flow_name>`` section, whichever
 flow's run needs it: ``-s flows.yosys_fpga.flatten=true`` sets the synthesis that ``nextpnr``

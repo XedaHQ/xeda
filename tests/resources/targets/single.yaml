@@ -1,0 +1,9 @@
+# The flat top-level form with one target: no selection is needed.
+name: single
+sources: [knight.v]
+top: knight
+clock: {port: CLK}
+targets:
+  arty:
+    sources: [arty.xdc]
+    defines: {CLK_HZ: 100000000}

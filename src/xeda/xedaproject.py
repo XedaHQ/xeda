@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, List, Type, Union
 
 import attrs
 
@@ -62,6 +62,8 @@ class XedaProject:
     flows: Dict[str, dict] = {}  # = attrs.field(default={}, validator=type_validator())
     design_cls: Type[Design] = Design
     root_path: Path = attrs.field(factory=Path.cwd)
+    # applied to each design when the project is read, and again over a selected target
+    design_overrides: dict[str, Any] = {}
 
     @classmethod
     def from_file(
@@ -140,6 +142,7 @@ class XedaProject:
                     flows=flows,
                     design_cls=design_cls,
                     root_path=file.parent.resolve(),
+                    design_overrides=dict(design_overrides),
                 )
             except Exception as e:
                 log.error("Error processing project file: %s", file.absolute())
@@ -149,18 +152,21 @@ class XedaProject:
     def design_names(self) -> List[str]:
         return [str(d.get("name")) for d in self.designs if "name" in d]
 
-    def get_design(self, name_or_idx: Union[str, int, None] = None) -> Optional[Design]:
+    def get_design(
+        self, name_or_idx: Union[str, int, None] = None, target: str | None = None
+    ) -> Design | None:
+        """The project's design of that name or position (the first by default), with `target`
+        selected among its `targets` as `Design.from_file` selects one; None if there is none."""
         if name_or_idx is None:
-            return self.get_design(0)
-        if isinstance(name_or_idx, int):
-            if len(self.designs) <= name_or_idx:
+            name_or_idx = 0
+        if isinstance(name_or_idx, str):
+            if name_or_idx not in self.design_names:
                 return None
-            data = dict(self.designs[name_or_idx])
-            data.setdefault("design_root", self.root_path)
-            return self.design_cls(**data)
-        try:
-            data = dict(self.designs[self.design_names.index(name_or_idx)])
-            data.setdefault("design_root", self.root_path)
-            return self.design_cls(**data)
-        except ValueError:
+            name_or_idx = self.design_names.index(name_or_idx)
+        if len(self.designs) <= name_or_idx:
             return None
+        data = self.design_cls.target_selected(
+            self.designs[name_or_idx], target, self.design_overrides
+        )
+        data.setdefault("design_root", self.root_path)
+        return self.design_cls(**data)
