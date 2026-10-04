@@ -231,18 +231,25 @@ removed before the run, so an earlier success never stands for a run that died
   rather than editing it.
 - A flow's settings come from layers merged key by key (`flow_runner/settings_layers.py`),
   **origin first**: defaults < project < design < command line < API, each origin composed on its
-  own and nesting (`nextpnr.yosys` over `[flows.yosys_fpga]`) applying only within one origin
-  (`compose_flow_settings`), so a design's `[flows.yosys_fpga] flatten` beats a project's
-  `[flows.nextpnr] yosys.flatten`. `-s flows.<flow>.key=value` sets any flow of the run (the
+  own (`compose_flow_settings`). **A flow's settings are written in one place, `flows.<flow>`**
+  (D-10): `nextpnr.yosys` was removed and fails with "`yosys` was removed: use
+  `flows.yosys_fpga.<key>`" (`Flow.Settings.removed_settings`; a `<key>` in a replacement names
+  each key the removed value gave). A consumer's default for its declared producer is the
+  class-level `Flow.producer_defaults` (`nextpnr` keeps `src` attributes in `yosys_fpga`'s
+  netlist), applied by the resolver below every `flows.<producer>` section. Only flows still on
+  `add_dependency` (`vivado_postsynth_sim.synth`, `vivado_power.postsynthsim`, `openroad`,
+  `openfpgaloader.nextpnr`, `open_xc7.yosys`) keep a nested field until PC; there, nesting
+  applies only within one origin, so a design's `[flows.vivado_synth] fail_timing` beats a
+  project's `[flows.vivado_postsynth_sim] synth.fail_timing`. `-s flows.<flow>.key=value` sets any flow of the run (the
   requested flow or one of its declared dependencies; an unknown flow is an error with
   suggestions); `-s key` and `-s flows.<requested>.key` are one setting (two values for it are an
   error); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
   rules. `-s` takes space-separated KEY=VALUE items and ends at the next option or the first
   token that is not KEY=VALUE (its key must look like a setting name), so it never swallows the
   design file; `--` ends the options. Local runs, remote runs and dependencies all use
-  `merge_layers`. Under the field holding a declared
-  dependency's settings (`nextpnr.yosys`), that dependency's own sections (`[flows.yosys_fpga]`)
-  are the base (`settings_layers.flow_settings_from_sections`, used by the launcher and the
+  `merge_layers`. Under the field holding an undeclared
+  dependency's settings (`vivado_postsynth_sim.synth`), that dependency's own sections
+  (`[flows.vivado_synth]`) are the base (`settings_layers.flow_settings_from_sections`, used by the launcher and the
   remote runner alike). Declared edges agree shared leaves in the resolver; undeclared edges
   resolve them in `init()` before launching dependencies.
 - A dependency's launch settings are composed in `default_runner.dependency_settings`: the

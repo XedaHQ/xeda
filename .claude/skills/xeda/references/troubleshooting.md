@@ -22,8 +22,8 @@ xeda list-settings <flow> --json | jq -r '.fields[].name'
 ```
 
 Check for an `alias`: some settings have two accepted names (`vcd`/`waveform`,
-`nthreads`/`ncpus`). Check nesting too - a dependency's settings live under a nested key, e.g.
-`nextpnr.yosys.flatten`, not `flatten`.
+`nthreads`/`ncpus`). Check the flow too - a dependency's settings belong to its own flow, e.g.
+`-s flows.yosys_fpga.flatten=true`, not `flatten`.
 
 ### `FlowSettingsError` with a type error
 

@@ -17,7 +17,7 @@ from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import dependency_settings
 from xeda.flow_runner.settings_layers import merge_flow_sections, merge_layers
-from xeda.flows import GhdlSim, Nextpnr, VivadoSynth, YosysFpga
+from xeda.flows import GhdlSim, Nextpnr, VivadoPostsynthSim, VivadoSynth, YosysFpga
 from xeda.xedaproject import XedaProject
 
 from .project_files import PROJECT_FILE
@@ -67,29 +67,37 @@ def test_merging_leaves_every_layer_unchanged():
 
 
 def test_a_design_section_refines_the_projects_section_for_the_same_flow():
-    project = {"nextpnr": {"seed": 1, "yosys": {"abc9": True}}, "yosys_fpga": {"flatten": True}}
-    design = {"nextpnr": {"fpga": {"part": "LFE5U-25F-6BG381C"}, "yosys": {"flatten": False}}}
+    project = {
+        "vivado_postsynth_sim": {"vcd_level": 1, "synth": {"fail_timing": True}},
+        "vivado_synth": {"out_of_context": True},
+    }
+    design = {
+        "vivado_postsynth_sim": {"synth": {"fpga": {"part": "xc7a100t"}, "out_of_context": False}}
+    }
 
     assert merge_flow_sections(project, design) == {
-        "nextpnr": {
-            "seed": 1,
-            "yosys": {"abc9": True, "flatten": False},
-            "fpga": {"part": "LFE5U-25F-6BG381C"},
+        "vivado_postsynth_sim": {
+            "vcd_level": 1,
+            "synth": {
+                "fail_timing": True,
+                "out_of_context": False,
+                "fpga": {"part": "xc7a100t"},
+            },
         },
-        "yosys_fpga": {"flatten": True},
+        "vivado_synth": {"out_of_context": True},
     }
 
 
 def test_setting_aliases_are_one_key_across_precedence_layers():
     merged = merge_layers(
-        {"ncpus": 1, "yosys": {"ncpus": 2}},
-        {"nthreads": 3, "yosys": {"nthreads": 4}},
-        settings_cls=Nextpnr.Settings,
+        {"ncpus": 1, "synth": {"ncpus": 2}},
+        {"nthreads": 3, "synth": {"nthreads": 4}},
+        settings_cls=VivadoPostsynthSim.Settings,
     )
 
     assert merged["nthreads"] == 3
-    assert merged["yosys"]["nthreads"] == 4
-    assert "ncpus" not in merged and "ncpus" not in merged["yosys"]
+    assert merged["synth"]["nthreads"] == 4
+    assert "ncpus" not in merged and "ncpus" not in merged["synth"]
 
 
 def test_two_names_for_one_setting_in_one_layer_are_still_an_error():
@@ -190,15 +198,15 @@ def test_higher_clock_timing_replaces_alternate_spelling_and_preserves_other_att
 
 def test_clock_spelling_precedence_is_applied_recursively_to_dependency_settings():
     merged = merge_layers(
-        {"yosys": {"clock_period": 10.0}},
-        {"yosys": {"clock": {"freq": 200.0, "port": "clk_i"}}},
-        settings_cls=Nextpnr.Settings,
+        {"synth": {"clock_period": 10.0}},
+        {"synth": {"clock": {"freq": 200.0, "port": "clk_i"}}},
+        settings_cls=VivadoPostsynthSim.Settings,
     )
-    settings = Nextpnr.Settings.from_input({"fpga": "LFE5U-25F-6BG381C", **merged})
+    settings = VivadoPostsynthSim.Settings.from_input(merged)
 
-    assert settings.yosys.main_clock is not None
-    assert settings.yosys.main_clock.period == pytest.approx(5.0)
-    assert settings.yosys.main_clock.port == "clk_i"
+    assert settings.synth.main_clock is not None
+    assert settings.synth.main_clock.period == pytest.approx(5.0)
+    assert settings.synth.main_clock.port == "clk_i"
 
 
 def test_mixed_clock_spellings_in_one_layer_are_still_an_error():
@@ -288,12 +296,12 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
         tmp_path / PROJECT_FILE,
         """
         flows:
-          nextpnr:
-            seed: 1
+          vivado_postsynth_sim:
+            vcd_level: 1
             ncpus: 1
-            yosys: {abc9: true, ncpus: 2}
-          yosys_fpga:
-            flatten: true
+            synth: {fail_timing: true, ncpus: 2}
+          vivado_synth:
+            out_of_context: true
         """,
     )
     design = _write(
@@ -303,26 +311,30 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
         [rtl]
         sources = ["top.v"]
         top = "top"
-        [flows.nextpnr]
-        fpga.part = "LFE5U-25F-6BG381C"
+        [flows.vivado_postsynth_sim]
+        synth.fpga.part = "xc7a100t"
         nthreads = 3
-        yosys.flatten = false
-        yosys.nthreads = 4
+        synth.out_of_context = false
+        synth.nthreads = 4
         """,
     )
 
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
-            "nextpnr", design, flow_settings=["ncpus=5", "yosys.abc9=false"]
+            "vivado_postsynth_sim", design, flow_settings=["ncpus=5", "synth.fail_timing=false"]
         )
 
     assert launched["settings"] == {
-        "seed": 1,
+        "vcd_level": 1,
         "nthreads": "5",
-        "yosys": {"abc9": "false", "nthreads": 4, "flatten": False},
-        "fpga": {"part": "LFE5U-25F-6BG381C"},
+        "synth": {
+            "fail_timing": "false",
+            "nthreads": 4,
+            "out_of_context": False,
+            "fpga": {"part": "xc7a100t"},
+        },
     }
-    assert launched["all_flows"]["yosys_fpga"] == {"flatten": True}
+    assert launched["all_flows"]["vivado_synth"] == {"out_of_context": True}
 
 
 @pytest.mark.parametrize(
@@ -364,17 +376,16 @@ def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monk
         tmp_path / PROJECT_FILE,
         """
         flows:
-          nextpnr:
-            seed: 1
-            yosys: {abc9: true}
+          vivado_postsynth_sim:
+            vcd_level: 1
+            synth: {fail_timing: true}
         design:
           - name: d
             rtl: {sources: [top.v], top: top}
             flows:
-              nextpnr:
-                fpga: {part: LFE5U-25F-6BG381C}
-                seed: 2
-                yosys: {flatten: false}
+              vivado_postsynth_sim:
+                synth: {fpga: {part: xc7a100t}, out_of_context: false}
+                vcd_level: 2
         """,
     )
     elsewhere = tmp_path / "elsewhere"
@@ -382,12 +393,11 @@ def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monk
     monkeypatch.chdir(elsewhere)
 
     with pytest.raises(_Launched):
-        DefaultRunner(tmp_path / "run").run("nextpnr", "d", xedaproject=str(project))
+        DefaultRunner(tmp_path / "run").run("vivado_postsynth_sim", "d", xedaproject=str(project))
 
     assert launched["settings"] == {
-        "fpga": {"part": "LFE5U-25F-6BG381C"},
-        "seed": 2,
-        "yosys": {"abc9": True, "flatten": False},
+        "vcd_level": 2,
+        "synth": {"fail_timing": True, "out_of_context": False, "fpga": {"part": "xc7a100t"}},
     }
 
 
@@ -445,10 +455,10 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, m
         [rtl]
         sources = ["top.v"]
         top = "top"
-        [flows.nextpnr]
-        fpga.part = "LFE5U-25F-6BG381C"
-        yosys.abc9 = true
-        yosys.flatten = false
+        [flows.vivado_postsynth_sim]
+        synth.fpga.part = "xc7a100t"
+        synth.fail_timing = true
+        synth.out_of_context = false
         """,
     )
     composed = {}
@@ -460,10 +470,13 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, m
     monkeypatch.setattr(remote, "flow_run_hash", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
-            design, "nextpnr", "host", flow_settings=["yosys.flatten=true"]
+            design, "vivado_postsynth_sim", "host", flow_settings=["synth.out_of_context=true"]
         )
 
-    assert (composed["settings"].yosys.abc9, composed["settings"].yosys.flatten) == (True, True)
+    assert (composed["settings"].synth.fail_timing, composed["settings"].synth.out_of_context) == (
+        True,
+        True,
+    )
 
 
 def test_a_remote_run_canonicalizes_the_flow_name_and_does_not_mutate_the_design(
@@ -505,17 +518,16 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
         tmp_path / PROJECT_FILE,
         """
         flows:
-          nextpnr:
-            fpga: {part: LFE5U-25F-6BG381C}
-            seed: 1
-            yosys: {abc9: true}
+          vivado_postsynth_sim:
+            synth: {fpga: {part: xc7a100t}, fail_timing: true}
+            vcd_level: 1
         design:
           - name: d
             rtl: {sources: [top.v], top: top}
             flows:
-              nextpnr:
-                seed: 2
-                yosys: {flatten: false}
+              vivado_postsynth_sim:
+                vcd_level: 2
+                synth: {out_of_context: false}
         """,
     )
     captured = {}
@@ -528,17 +540,17 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             "d",
-            "nextpnr",
+            "vivado_postsynth_sim",
             "host",
             xedaproject=project,
-            flow_settings=["yosys.abc9=false"],
+            flow_settings=["synth.fail_timing=false"],
         )
 
     settings = captured["settings"]
-    assert captured["flow_name"] == "nextpnr"
-    assert settings.seed == 2
-    assert settings.yosys.abc9 is False
-    assert settings.yosys.flatten is False
+    assert captured["flow_name"] == "vivado_postsynth_sim"
+    assert settings.vcd_level == 2
+    assert settings.synth.fail_timing is False
+    assert settings.synth.out_of_context is False
 
 
 def test_a_dependency_refines_the_design_section_for_its_flow():
@@ -764,7 +776,8 @@ def test_every_accepted_spelling_of_a_setting_gets_the_same_input_conveniences(t
 
 def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypatch):
     """The remote runner composes a flow's settings as the local launcher does: the device given
-    only in `[flows.yosys_fpga]` reaches `nextpnr` (and gets it past its required settings)."""
+    only in `[flows.vivado_synth]` reaches `vivado_postsynth_sim` (and gets it past its required settings).
+    """
     from xeda.flow_runner import remote
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")
@@ -775,8 +788,8 @@ def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypa
         [rtl]
         sources = ["top.v"]
         top = "top"
-        [flows.yosys_fpga]
-        fpga.part = "LFE5U-25F-6BG381C"
+        [flows.vivado_synth]
+        fpga.part = "xc7a100t"
         """,
     )
     composed = {}
@@ -787,8 +800,10 @@ def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypa
 
     monkeypatch.setattr(remote, "flow_run_hash", capture)
     with pytest.raises(_Launched):
-        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(design, "nextpnr", "host")
-    assert composed["settings"].yosys.fpga.part == "LFE5U-25F-6BG381C"
+        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
+            design, "vivado_postsynth_sim", "host"
+        )
+    assert composed["settings"].synth.fpga.part == "xc7a100t"
 
 
 def _one_design(tmp_path, flows_toml: str):
@@ -810,14 +825,17 @@ def test_a_design_files_own_section_beats_a_project_files_nested_value(
 ):
     """C1: origin decides first; nesting only breaks ties within one origin."""
     monkeypatch.chdir(tmp_path)
-    _write(tmp_path / PROJECT_FILE, "flows:\n  nextpnr:\n    yosys: {flatten: true}\n")
+    _write(
+        tmp_path / PROJECT_FILE,
+        "flows:\n  vivado_postsynth_sim:\n    synth: {out_of_context: true}\n",
+    )
     design = _one_design(
         tmp_path,
-        '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n[flows.yosys_fpga]\nflatten = false\n',
+        '[flows.vivado_postsynth_sim]\nsynth.fpga.part = "xc7a100t"\n[flows.vivado_synth]\nout_of_context = false\n',
     )
     with pytest.raises(_Launched):
-        DefaultRunner(tmp_path / "run").run("nextpnr", design)
-    assert launched["settings"]["yosys"]["flatten"] is False
+        DefaultRunner(tmp_path / "run").run("vivado_postsynth_sim", design)
+    assert launched["settings"]["synth"]["out_of_context"] is False
 
 
 def test_within_one_origin_the_nested_value_beats_the_dependencys_own_section(
@@ -826,12 +844,12 @@ def test_within_one_origin_the_nested_value_beats_the_dependencys_own_section(
     monkeypatch.chdir(tmp_path)
     design = _one_design(
         tmp_path,
-        '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\nyosys.flatten = true\n'
-        "[flows.yosys_fpga]\nflatten = false\n",
+        '[flows.vivado_postsynth_sim]\nsynth.fpga.part = "xc7a100t"\nsynth.out_of_context = true\n'
+        "[flows.vivado_synth]\nout_of_context = false\n",
     )
     with pytest.raises(_Launched):
-        DefaultRunner(tmp_path / "run").run("nextpnr", design)
-    assert launched["settings"]["yosys"]["flatten"] is True
+        DefaultRunner(tmp_path / "run").run("vivado_postsynth_sim", design)
+    assert launched["settings"]["synth"]["out_of_context"] is True
 
 
 def test_run_flow_composes_the_sections_it_is_given(tmp_path, monkeypatch):
@@ -847,13 +865,13 @@ def test_run_flow_composes_the_sections_it_is_given(tmp_path, monkeypatch):
     design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run_flow(
-            Nextpnr,
+            VivadoPostsynthSim,
             design,
-            {"fpga": {"part": "LFE5U-25F-6BG381C"}},
-            all_flows_settings={"yosys_fpga": {"flatten": True}},
+            {"synth": {"fpga": {"part": "xc7a100t"}}},
+            all_flows_settings={"vivado_synth": {"out_of_context": True}},
         )
-    assert seen["settings"]["yosys"]["flatten"] is True
-    assert seen["settings"]["fpga"] == {"part": "LFE5U-25F-6BG381C"}
+    assert seen["settings"]["synth"]["out_of_context"] is True
+    assert seen["settings"]["synth"]["fpga"] == {"part": "xc7a100t"}
 
 
 def test_composing_twice_changes_nothing(tmp_path):
@@ -870,15 +888,20 @@ def test_composing_twice_changes_nothing(tmp_path):
 def test_dash_s_flows_node_key_sets_a_dependencys_setting(tmp_path, monkeypatch, launched):
     monkeypatch.chdir(tmp_path)
     design = _one_design(
-        tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\nyosys.flatten = true\n'
+        tmp_path,
+        '[flows.vivado_postsynth_sim]\nsynth.fpga.part = "xc7a100t"\nsynth.out_of_context = true\n',
     )
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
-            "nextpnr", design, flow_settings=["flows.yosys_fpga.flatten=false", "seed=3"]
+            "vivado_postsynth_sim",
+            design,
+            flow_settings=["flows.vivado_synth.out_of_context=false", "vcd_level=3"],
         )
-    assert launched["settings"]["yosys"]["flatten"] == "false"  # command line beats the design file
-    assert launched["settings"]["seed"] == "3"
-    assert launched["all_flows"]["yosys_fpga"]["flatten"] == "false"
+    assert (
+        launched["settings"]["synth"]["out_of_context"] == "false"
+    )  # command line beats the design file
+    assert launched["settings"]["vcd_level"] == "3"
+    assert launched["all_flows"]["vivado_synth"]["out_of_context"] == "false"
 
 
 def test_dash_s_key_and_flows_requested_key_are_one_leaf(tmp_path, monkeypatch, launched):
@@ -919,13 +942,14 @@ def test_a_command_line_dependency_setting_beats_a_files_nested_value(
 ):
     monkeypatch.chdir(tmp_path)
     design = _one_design(
-        tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\nyosys.abc9 = true\n'
+        tmp_path,
+        '[flows.vivado_postsynth_sim]\nsynth.fpga.part = "xc7a100t"\nsynth.fail_timing = true\n',
     )
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
-            "nextpnr", design, flow_settings=["flows.yosys_fpga.abc9=false"]
+            "vivado_postsynth_sim", design, flow_settings=["flows.vivado_synth.fail_timing=false"]
         )
-    assert launched["settings"]["yosys"]["abc9"] == "false"
+    assert launched["settings"]["synth"]["fail_timing"] == "false"
 
 
 def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeypatch):

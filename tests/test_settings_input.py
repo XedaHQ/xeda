@@ -263,27 +263,27 @@ def test_comma_separated_path_list_expands_each_design_root(tmp_path):
 
 
 def test_default_dependency_inherits_context_for_later_assignment(tmp_path):
-    from xeda.flows.nextpnr import Nextpnr
+    from xeda.flows import VivadoPostsynthSim
 
-    settings = Nextpnr.Settings.from_input(
-        {"fpga": "LFE5U-25F-6BG381C"}, design_root=tmp_path, runner_cwd=tmp_path / "start"
+    settings = VivadoPostsynthSim.Settings.from_input(
+        {"synth": {"fpga": "xc7a100t"}}, design_root=tmp_path, runner_cwd=tmp_path / "start"
     )
 
-    assert settings.yosys.context == settings.context
-    settings.yosys.netlist_json = "$DESIGN_ROOT/netlist.json"
-    assert settings.yosys.netlist_json == tmp_path / "netlist.json"
+    assert settings.synth.context == settings.context
+    settings.synth.xdc_files = ["$DESIGN_ROOT/pins.xdc"]
+    assert settings.synth.xdc_files == [tmp_path / "pins.xdc"]
 
 
 def test_dependency_mapping_assignment_uses_parent_context(tmp_path):
-    from xeda.flows.nextpnr import Nextpnr
+    from xeda.flows import VivadoPostsynthSim
 
-    settings = Nextpnr.Settings.from_input(
-        {"fpga": "LFE5U-25F-6BG381C"}, design_root=tmp_path, runner_cwd=tmp_path / "start"
+    settings = VivadoPostsynthSim.Settings.from_input(
+        {"synth": {"fpga": "xc7a100t"}}, design_root=tmp_path, runner_cwd=tmp_path / "start"
     )
-    settings.yosys = {"netlist_json": "$DESIGN_ROOT/netlist.json"}
+    settings.synth = {"fpga": "xc7a100t", "xdc_files": ["$DESIGN_ROOT/pins.xdc"]}
 
-    assert settings.yosys.context == settings.context
-    assert settings.yosys.netlist_json == tmp_path / "netlist.json"
+    assert settings.synth.context == settings.context
+    assert settings.synth.xdc_files == [tmp_path / "pins.xdc"]
 
 
 def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):
@@ -308,14 +308,14 @@ def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):
 
 def test_runner_preserves_edits_inside_a_default_dependency_settings_object(tmp_path):
     from xeda.flow_runner import DefaultRunner
-    from xeda.flows import Nextpnr
+    from xeda.flows import VivadoPostsynthSim
 
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "top"})
-    settings = Nextpnr.Settings(fpga="LFE5U-25F-6BG381C")
-    settings.yosys.netlist_json = "$DESIGN_ROOT/netlist.json"
+    settings = VivadoPostsynthSim.Settings(synth={"fpga": "xc7a100t"})
+    settings.synth.xdc_files = ["$DESIGN_ROOT/pins.xdc"]
 
     validated = DefaultRunner(tmp_path / "run")._input_settings(
-        Nextpnr, settings, design, tmp_path / "start"
+        VivadoPostsynthSim, settings, design, tmp_path / "start"
     )
 
-    assert validated.yosys.netlist_json == tmp_path / "netlist.json"
+    assert validated.synth.xdc_files == [tmp_path / "pins.xdc"]

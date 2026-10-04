@@ -29,8 +29,6 @@ from .io_flows import (
     _ChainProducer,
     _ChainSimpleConsumer,
     _Maker,
-    _Place,
-    _Synth,
     _Taker,
 )
 
@@ -272,37 +270,6 @@ def test_reached_bindings_stop_before_the_pending_resolver_integration(tmp_path,
     assert not (tmp_path / "runs").exists()
 
 
-def test_nested_default_settings_are_allowed_only_for_a_default_equivalent_binding():
-    settings, default = split_bindings(
-        {_Place.name: {"inputs": {"netlist": "__synth.netlist"}, "synth": {"quiet": True}}},
-        location="design.yaml",
-    )
-    assert settings[_Place.name]["synth"] == {"quiet": True}
-    effective_bindings([default], default_nodes([_Place]))
-    _, alternate = split_bindings(
-        {
-            _Place.name: {
-                "inputs": {"netlist": "__chain_simple_producer.netlist"},
-                "synth": {"quiet": True},
-            }
-        },
-        location="design.yaml",
-    )
-    with pytest.raises(FlowSettingsException, match="design.yaml.*synth.*default producer"):
-        effective_bindings([alternate], default_nodes([_Place]))
-
-
-def test_model_defaults_and_separate_producer_sections_are_not_explicit_nested_settings():
-    model = _Place.Settings()
-    _, defaults = split_bindings({_Place.name: model, _Synth.name: {"quiet": True}}, location="API")
-    alternate = layer(_Place, {"netlist": "__chain_simple_producer.netlist"})
-    effective_bindings([defaults, alternate], default_nodes([_Place]))
-    model.synth.quiet = True
-    _, edited = split_bindings({_Place.name: model}, location="API")
-    with pytest.raises(FlowSettingsException, match="API.*synth.*default producer"):
-        effective_bindings([edited, alternate], default_nodes([_Place]))
-
-
 def test_captured_layers_can_be_transported_to_existing_dse_workers(tmp_path):
     runner = DefaultRunner(tmp_path / "runs")
     design = Design(
@@ -354,26 +321,6 @@ def test_binding_capture_keeps_sources_and_design_hash_unchanged(tmp_path):
     )
     assert request.design.rtl.sources[0].path == source
     assert request.design.rtl_hash == before == design.rtl_hash
-
-
-def test_request_checks_edited_nested_model_defaults_as_supplied_settings(tmp_path):
-    model = _Place.Settings()
-    runner = DefaultRunner(tmp_path / "runs")
-    design = Design(name="d", rtl={"sources": []})
-    runner._request(
-        _Place,
-        design,
-        flow_settings=model,
-        flow_overrides={"inputs.netlist": "__chain_simple_producer.netlist"},
-    )
-    model.synth.quiet = True
-    with pytest.raises(FlowSettingsException, match="command line.*synth.*default producer"):
-        runner._request(
-            _Place,
-            design,
-            flow_settings=model,
-            flow_overrides={"inputs.netlist": "__chain_simple_producer.netlist"},
-        )
 
 
 def test_node_keys_are_immutable_hashable_and_pickle_for_dse_transport():

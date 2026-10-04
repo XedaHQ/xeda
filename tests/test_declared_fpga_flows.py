@@ -343,17 +343,14 @@ def test_ecp5_out_of_context_has_no_configuration(tmp_path, monkeypatch, tools):
 
 
 @pytest.mark.parametrize("cli_leaf", ["fpga.part", "flows.yosys_fpga.fpga.part"])
-def test_cli_device_leaf_preserves_nested_origins(tmp_path, monkeypatch, tools, cli_leaf):
+def test_cli_device_leaf_preserves_section_origins(tmp_path, monkeypatch, tools, cli_leaf):
     design_file = _files(tmp_path, OTHER_PART, PART)
     project = tmp_path / PROJECT_FILE
     project.write_text(
         project.read_text()
-        + "    clock: {period: 10}\n    yosys: {netlist_src_attrs: false, flatten: true}\n"
+        + "    clock: {period: 10}\n  yosys_fpga: {netlist_src_attrs: false, flatten: true}\n"
     )
-    design_file.write_text(
-        design_file.read_text()
-        + "clock.uncertainty = 0.3\n[flows.nextpnr.yosys]\nflatten = false\n"
-    )
+    design_file.write_text(design_file.read_text() + "clock.uncertainty = 0.3\nflatten = false\n")
     runner = _runner(tmp_path, monkeypatch)
     plan = runner.plan("nextpnr", design_file, flow_settings=[f"{cli_leaf}={PART}"])
     flow = runner.run("nextpnr", design_file, flow_settings=[f"{cli_leaf}={PART}"])
@@ -363,7 +360,7 @@ def test_cli_device_leaf_preserves_nested_origins(tmp_path, monkeypatch, tools, 
     assert producer.settings.flatten is False and producer.settings.netlist_src_attrs is False
     assert producer.settings.main_clock.period == flow.settings.main_clock.period == 10
     assert producer.settings.main_clock.uncertainty == flow.settings.main_clock.uncertainty == 0.3
-    assert flow.settings.yosys == plan.node("yosys_fpga").settings
+    assert producer.settings.flatten is plan.node("yosys_fpga").settings.flatten
     assert producer.flow_hash == plan.node("yosys_fpga").flowrun_hash
     assert flow.flow_hash == plan.node("nextpnr").flowrun_hash
 

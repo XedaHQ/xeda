@@ -48,11 +48,17 @@ precedence:
 4. the command line, via ``-s``/``--settings``
 5. the API, via ``flow_overrides``
 
-They merge key by key: ``-s yosys.flatten=true`` changes that one setting of a ``yosys`` section
+They merge key by key: ``-s clock.freq=100MHz`` changes that one setting of a ``clock`` section
 given in the design file, rather than replacing the whole section. Precedence goes by where a
-setting was given first (project, design, command line, API); a nested section such as
-``nextpnr``'s ``yosys`` refines the dependency's own ``flows.yosys_fpga`` section only within
-one of these.
+setting was given first (project, design, command line, API).
+
+A flow's settings are written in one place, its own ``flows.<flow_name>`` section, whichever
+flow's run needs it: ``-s flows.yosys_fpga.flatten=true`` sets the synthesis that ``nextpnr``
+places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, naming
+``flows.yosys_fpga.<key>``. The flows that still launch a dependency themselves
+(``vivado_postsynth_sim``'s ``synth``, ``vivado_power``'s ``postsynthsim``, ``openroad``'s
+``synthesis``, ``openfpgaloader``'s ``nextpnr``) keep a nested section for it until they declare
+their inputs; it refines the dependency's own section only within one origin.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are the same setting

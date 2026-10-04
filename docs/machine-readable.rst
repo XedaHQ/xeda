@@ -379,6 +379,6 @@ Notes for coding agents
 * ``xeda run --json`` gives both the parsed results and the paths to the run directory, so there is
   no need to guess where output landed.
 * A flow's ``dependencies`` run automatically; run the flow you want, not the chain leading to it.
-  Reach a dependency's settings through a nested key, e.g. ``-s nextpnr.yosys.flatten=true``.
+  Set a dependency through its own flow, e.g. ``-s flows.yosys_fpga.flatten=true``.
 * ``xeda run`` is make-like by default: re-running with nothing changed re-runs nothing, and
   ``nodes`` says so per flow. Force everything to run with ``--rebuild-all``.

@@ -31,11 +31,7 @@ class _ConfigTaker(Flow):
     required_settings = Nextpnr.required_settings
 
     class Settings(WithFpgaBoardSettings, Flow.Settings):
-        nextpnr: Nextpnr.Settings = Field(
-            default_factory=Nextpnr.Settings, description="Placement settings."
-        )
         prjxray_db: Path | None = Field(None, description="Database override.")
-        dependency_settings = {"nextpnr": ("fpga", "board", "custom_boards_file")}
 
     class Inputs(Flow.Inputs):
         config: Path = In(
@@ -132,17 +128,18 @@ def test_demand_enables_configuration_and_executes_exactly_the_plan(
 ):
     monkeypatch.chdir(tmp_path)
     design = _design(tmp_path)
-    values = {"fpga": part, "nextpnr": {setting: None}}
+    values = {"fpga": part}
+    sections = {"nextpnr": {setting: None}}
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    plan = runner.plan(_ConfigTaker, design, flow_settings=values)
+    plan = runner.plan(_ConfigTaker, design, flow_settings={**values, "flows": sections})
     assert plan.node("nextpnr").switched_on == ("config",)
     assert getattr(plan.node("nextpnr").settings, setting) == Path(filename)
-    first = runner.run_flow(_ConfigTaker, design, values)
+    first = runner.run_flow(_ConfigTaker, design, values, all_flows_settings=sections)
     assert first.succeeded and first.results["read"] == "config\n"
     assert [flow.name for flow in runner.launched] == [node.name for node in plan.nodes]
-    again = runner.run_flow(_ConfigTaker, design, values)
+    again = runner.run_flow(_ConfigTaker, design, values, all_flows_settings=sections)
     assert again.reused and len(tools) == 1
-    assert values["nextpnr"][setting] is None
+    assert sections["nextpnr"][setting] is None
 
 
 def test_out_of_context_demand_is_rejected_before_tools(tmp_path):
@@ -150,7 +147,7 @@ def test_out_of_context_demand_is_rejected_before_tools(tmp_path):
         DefaultRunner(tmp_path / "run").plan(
             _ConfigTaker,
             _design(tmp_path),
-            flow_settings={"fpga": FAMILIES[0][0], "nextpnr": {"out_of_context": True}},
+            flow_settings={"fpga": FAMILIES[0][0], "flows": {"nextpnr": {"out_of_context": True}}},
         )
     assert not (tmp_path / "run").exists()
 
