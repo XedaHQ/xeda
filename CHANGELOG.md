@@ -117,7 +117,8 @@ All notable changes to this project will be documented in this file.
   source, and builds nothing itself: its `nextpnr`, `packer_args` and `bitstream_file` settings
   are removed (use `[flows.nextpnr]`, `[flows.fpga_pack]` and a `Bitstream` source). `verify` is
   accepted only with `write_flash`. The default graph is
-  `openfpgaloader -> fpga_pack -> nextpnr -> yosys_fpga`.
+  `openfpgaloader -> fpga_pack -> nextpnr -> yosys_fpga`. `results.tools` records the
+  programmer's version (asked with `-V`, which touches no device).
 - **`--remote` needs a remote with protocol 5** (this release): the FPGA build graph and the
   programming-only loader are part of what a remote must understand.
 - A failed `nextpnr` is reported by the errors in its log: a constraint error at its original
