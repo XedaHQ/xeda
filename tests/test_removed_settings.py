@@ -1,5 +1,7 @@
 """A removed setting is an error that names what replaced it, for every flow."""
 
+import re
+
 import pytest
 
 from xeda.flow import FlowSettingsError, registered_flows
@@ -189,6 +191,31 @@ def test_a_section_of_a_flow_that_is_not_installed_is_still_tolerated(tmp_path):
     assert plan is not None
 
 
+#: A `flows` entry for the removed flow, in any of the formats an example may be written in:
+#: the name in any spelling it had, optionally quoted, then what ends a key, a table header or a
+#: dotted path (`open_xc7:`, `"open-xc7": {`, `[flows.open_xc7]`, `flows.OpenXC7.seed = 1`).
+OPEN_XC7_ENTRY = re.compile(r"""open[_-]?xc7["']?\s*[:=\].]""", re.IGNORECASE)
+
+
+@pytest.mark.parametrize(
+    "text, found",
+    [
+        ("[flows.open_xc7]\nseed = 1\n", True),
+        ('[flows."open-xc7"]\n', True),
+        ("flows:\n  open_xc7:\n    seed: 1\n", True),
+        ("flows:\n  'openxc7': {seed: 1}\n", True),
+        ('{"flows": {"OpenXC7": {"seed": 1}}}', True),
+        ("flows.open_xc7.seed = 1\n", True),
+        ("open_xc7 = {}\n", True),
+        ("[flows.nextpnr]\nfpga.part = 'xc7a100tcsg324-1'\n", False),
+        ("flows:\n  nextpnr:\n    fpga: {part: xc7a35tcsg324-1}\n", False),
+        ("# the open_xc7 flow was removed\n", False),
+    ],
+)
+def test_the_open_xc7_pattern_sees_every_spelling_and_spares_the_rest(text, found):
+    assert bool(OPEN_XC7_ENTRY.search(text)) is found
+
+
 def test_no_example_keeps_an_open_xc7_section():
     from pathlib import Path
 
@@ -197,7 +224,7 @@ def test_no_example_keeps_an_open_xc7_section():
         str(path)
         for suffix in ("toml", "yaml", "yml", "json")
         for path in examples.rglob(f"*.{suffix}")
-        if "xc7]" in path.read_text().lower() or "xc7:" in path.read_text().lower()
+        if OPEN_XC7_ENTRY.search(path.read_text())
     ]
     assert not kept
 
