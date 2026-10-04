@@ -251,7 +251,7 @@ def test_a_clock_setting_becomes_a_create_clock_and_never_a_freq(tmp_path, monke
         tmp_path, monkeypatch, prefix, clocks={"main": {"port": "clk", "period": 10}}
     )
     flow.run()
-    assert 'create_clock -name "main" -period 10.0 [get_ports {clk}]' in _xdc(flow)
+    assert "create_clock -period 10.0 [get_ports {clk}]" in _xdc(flow)
     assert not [a for a in tool.args if a.startswith(("--freq", "--sdc"))]
 
 
@@ -316,9 +316,10 @@ def test_the_measured_counter_reports_occupied_luts_not_positions(tmp_path, monk
     assert r["wns"] == pytest.approx(10 - 1000 / 325.8390197753906, abs=1e-6)
     assert r["device"] == A100T and r["fabric"] == "xc7a100t"
     assert r["_utilization"]["SLICE_LUTX"]["available"] == 126800
-    # The domain is the BUFG's output net; the one clock given is on port `clk`.
+    # The domain is the BUFG's output net, not a port: that one clock was constrained, on port
+    # `clk`, does not prove the domain is that port's (logic on an MMCM's output is not).
     assert list(r["_fmax"]) == ["$abc$2027$aiger$o71"]
-    assert r["clock_port"] == "clk"
+    assert "clock_port" not in r
     assert flow.artifacts["placement"] == flow.run_path / "placement.json"
 
 
@@ -399,6 +400,19 @@ def test_a_previous_run_s_placement_dump_is_not_counted(tmp_path, monkeypatch, p
     flow.run()
     assert flow.parse_reports() is True
     assert "lut" not in flow.results
+
+
+def test_files_a_previous_run_left_are_not_this_run_s_artifacts(tmp_path, monkeypatch, prefix):
+    """An artifact is a file this run wrote, the rule every other artifact follows: an earlier
+    run's SDF, routed netlist or placement dump that the tool did not write again is not one."""
+    flow, tool = _flow(tmp_path, monkeypatch, prefix, sdf="routed.sdf", write="routed.json")
+    flow.run_path.mkdir(parents=True)
+    for name in ("routed.sdf", "routed.json", "placement.json"):
+        (flow.run_path / name).write_text("{}\n")
+    flow.start_run()
+    tool.skip = ("placement",)
+    flow.run()
+    assert not {"sdf", "write", "placement"} & set(flow.artifacts)
 
 
 def test_totals_are_the_routed_fabric_s_not_the_marketed_device_s(tmp_path, monkeypatch, prefix):
@@ -505,7 +519,5 @@ def test_a_board_supplies_the_part_and_its_pin_file(tmp_path, monkeypatch):
     assert flow is not None and flow.succeeded
     merged = (flow.run_path / "constraints.xdc").read_text()
     assert "PACKAGE_PIN E3" in merged
-    assert merged.rstrip().endswith(
-        'create_clock -name "main" -period 10.0 [get_ports {CLK100MHZ}]'
-    )
+    assert merged.rstrip().endswith("create_clock -period 10.0 [get_ports {CLK100MHZ}]")
     assert _calls(flow.run_path)[0]["argv"][:2] == ["--device", "xc7a100tcsg324-1"]
