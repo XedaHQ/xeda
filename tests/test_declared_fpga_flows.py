@@ -321,18 +321,6 @@ def test_missing_or_stale_configuration_fails(
     assert not result.get("outputs")
 
 
-@pytest.mark.parametrize("part,setting,filename", CONFIGS)
-def test_disabled_family_configuration_stays_absent(
-    tmp_path, monkeypatch, tools, part, setting, filename
-):
-    flow = _runner(tmp_path, monkeypatch).run_flow(
-        Nextpnr, _design(tmp_path / "d"), {"fpga": part, setting: None}
-    )
-    assert flow.succeeded and flow.outputs.config is None
-    assert not flow.results["outputs"]
-    assert f"--{setting}={filename}" not in tools[0]
-
-
 def test_ecp5_out_of_context_has_no_configuration(tmp_path, monkeypatch, tools):
     flow = _runner(tmp_path, monkeypatch).run_flow(
         Nextpnr, _design(tmp_path / "d"), {"fpga": PART, "out_of_context": True}

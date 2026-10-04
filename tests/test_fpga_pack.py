@@ -225,10 +225,28 @@ def test_a_device_given_only_for_nextpnr_is_the_packer_s_too(tmp_path, toolchain
     assert flow.succeeded and _tools(tmp_path) == ["icepack", "nextpnr-ice40", "yosys"]
 
 
-def test_the_configuration_the_packer_needs_is_switched_on(tmp_path, toolchain):
-    design = _design(tmp_path, flows={"nextpnr": {"textcfg": ""}})
-    plan = _runner(tmp_path).plan(FpgaPack, design, flow_settings={"fpga": ECP5})
-    assert plan.node("nextpnr").settings.textcfg == Path("config.txt")
+def test_nextpnr_always_writes_its_configuration_so_requests_do_not_ping_pong(tmp_path, toolchain):
+    """`nextpnr` has no switch for its configuration: requested alone or as the packer's
+    producer it is one configuration and one identity, so `run nextpnr`, `run fpga_pack`,
+    `run nextpnr` runs nextpnr once."""
+    design = _design(tmp_path, flows={"nextpnr": {"fpga": ECP5}})
+    runner = _runner(tmp_path)
+    alone = runner.plan(Nextpnr, design).node("nextpnr")
+    packed = runner.plan(FpgaPack, design).node("nextpnr")
+    assert alone.settings.textcfg == Path("config.txt") and packed.switched_on == ()
+    assert (alone.flowrun_hash, alone.run_path) == (packed.flowrun_hash, packed.run_path)
+    first = runner.run("nextpnr", design)
+    assert first.succeeded and not first.reused
+    assert runner.run("fpga_pack", design).succeeded
+    assert [f.reused for f in runner.launched if f.name == "nextpnr"] == [False, True]
+    assert runner.run("nextpnr", design).reused
+
+
+@pytest.mark.parametrize("setting", ["textcfg", "asc", "fasm"])
+@pytest.mark.parametrize("value", [None, "", "  "])
+def test_the_configuration_file_cannot_be_switched_off(setting, value):
+    with pytest.raises(ValueError, match="always writes its configuration"):
+        Nextpnr.Settings(fpga=ECP5, **{setting: value})
 
 
 def test_devices_that_differ_between_the_packer_and_nextpnr_are_an_error(tmp_path, toolchain):

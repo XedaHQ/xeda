@@ -386,7 +386,12 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   Undeclared runtime dependencies are unknown, freshness is not evaluated, and `--remote` is refused.
 
 Declared flows may narrow input/output types by effective target settings and enable a selected
-optional output when a consumer requires it. nextpnr selects typed pin constraints by family and
+optional output when a consumer requires it. **An output a consumer switches on changes its
+producer's settings, hence its identity**: a request that demands it and one that does not
+re-run the producer in turn. So a cheap output is always written, with no switch: `nextpnr`
+always writes its `config` (`textcfg`/`asc`/`fasm` name the file and cannot be empty; only an
+ECP5 `out_of_context` run has none), and `run nextpnr`, `run fpga_pack`, `run nextpnr` runs
+nextpnr once. Keep `enabled_by` for genuinely expensive outputs. nextpnr selects typed pin constraints by family and
 merges typed SDC sources before its `sdc` setting's file. Board fallback is prepared before
 freshness; duplicate clock constraints across files and settings fail with their origins.
 
