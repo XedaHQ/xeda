@@ -810,7 +810,9 @@ class Nextpnr(FpgaSynthFlow):
                     source = candidates[0]
                 elif candidates:
                     unknown = line.strip().removeprefix("ERROR:").strip()
-                    messages.append(f"{unknown} (in the pin or the SDC input; nextpnr does not say which)")
+                    messages.append(
+                        f"{unknown} (in the pin or the SDC input; nextpnr does not say which)"
+                    )
                     continue
             if source is not None:
                 translated = source.diagnostic(line)
