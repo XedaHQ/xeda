@@ -160,8 +160,8 @@ testbench source is present in `tb.sources` and that `tb.top` is set for non-coc
 ### `open_xc7` was removed
 
 "`open_xc7` was removed: use fpga_pack to build, openfpgaloader to program" -- for the flow's
-name and for a `[flows.open_xc7]` section in a design or project file alike. Move its placement
-settings to `[flows.nextpnr]`, synthesis settings to `[flows.yosys_fpga]`, and pin files into
+name and for a `flows.open_xc7` section in a design or project file alike. Move its placement
+settings to `flows.nextpnr`, synthesis settings to `flows.yosys_fpga`, and pin files into
 `rtl.sources`; `xeda scrub open_xc7 <design>` still removes its old run directories.
 
 ### A 7-series build fails before or during nextpnr
