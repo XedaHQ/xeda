@@ -250,8 +250,15 @@ def node_bindings(
                     f"{entry.location}: unknown input {entry.name!r} of {entry.node.label!r}."
                 )
             winners[entry.name] = (entry, layer.kind)
+    chain = {
+        name: adjacency
+        for (node, name), adjacency in chain_bindings(request).items()
+        if node == key
+    }
     selected: dict[str, InputBinding] = {}
     for name, (entry, kind) in winners.items():
+        if name in chain:
+            continue  # replaced by the chain: a replaced value is never validated (PD4)
         declaration = declarations[name]
         if entry.is_list:
             if declaration.cardinality != "many":
@@ -266,9 +273,7 @@ def node_bindings(
         selected[name] = InputBinding(
             tuple(_reference(value, entry.location) for value in values), entry.location, kind
         )
-    for (node, name), adjacency in chain_bindings(request).items():
-        if node != key:
-            continue
+    for name, adjacency in chain.items():
         overridden = tuple(
             entry.location
             for layer in layers
@@ -344,7 +349,14 @@ def default_nodes(classes: Sequence[type[Flow]]) -> list[tuple[NodeKey, type[Flo
     return [(NodeKey(cls.name), cls) for cls in classes]
 
 
-def require_no_bindings(layers: Sequence[BindingLayer]) -> None:
-    """Refuse any binding where requests are not resolved locally (``--remote``)."""
-    if any(layer.entries or layer.invalid_inputs for layer in layers):
-        raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
+def require_no_bindings(layers: Sequence[BindingLayer], reached: Sequence[NodeKey]) -> None:
+    """Refuse a binding of a node the request reaches, where requests are not resolved
+    locally (``--remote``). `reached` are the nodes of the request's graph without bindings:
+    any other node could be reached only through a binding of one of these. A binding saved
+    for a flow the request never runs is no refusal."""
+    nodes = set(reached)
+    for layer in layers:
+        if any(entry.node in nodes for entry in layer.entries) or any(
+            NodeKey(flow) in nodes for flow in layer.invalid_inputs
+        ):
+            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)

@@ -189,6 +189,7 @@ def test_template_unsets_attributes_before_each_netlist(
         script_format=script_format,
         write_blif="netlist.blif",
         netlist_unset_attributes=["keep"],
+        netlist_src_attrs=False,  # the default of `yosys`; `yosys_fpga` keeps `src`
     )
     script = _render(flow_cls, settings, tmp_path)
     writers = {writer: _command_lines(script, writer) for writer in NETLIST_WRITERS}
@@ -204,7 +205,9 @@ def test_template_unsets_attributes_before_each_netlist(
 @BOTH_FLOWS
 @BOTH_FORMATS
 def test_template_writes_json_without_verilog(flow_cls, script_format, tmp_path: Path) -> None:
-    settings = _settings_for(flow_cls, script_format=script_format, netlist_verilog=None)
+    settings = _settings_for(
+        flow_cls, script_format=script_format, netlist_verilog=None, netlist_src_attrs=False
+    )
     script = _render(flow_cls, settings, tmp_path)
     (json_write,) = _command_lines(script, "write_json")
     for unset in ("setattr -unset src =*", "setattr -mod -unset src =*"):
@@ -218,9 +221,9 @@ def test_template_writes_json_without_verilog(flow_cls, script_format, tmp_path:
 def test_src_is_unset_whenever_it_is_not_kept(flow_cls, netlist_attrs, tmp_path: Path) -> None:
     """`netlist_attrs` governs only `write_verilog -noattr`; the JSON netlist carries attributes
     either way, so `netlist_src_attrs = false` must strip `src` whatever `netlist_attrs` is."""
-    settings = _settings_for(flow_cls, netlist_attrs=netlist_attrs)
+    settings = _settings_for(flow_cls, netlist_attrs=netlist_attrs, netlist_src_attrs=False)
     assert "src" in flow_cls.Settings(**settings).attributes_to_unset()
-    kept = flow_cls.Settings(**settings, netlist_src_attrs=True)
+    kept = flow_cls.Settings(**{**settings, "netlist_src_attrs": True})
     assert "src" not in kept.attributes_to_unset()
     script = _render(flow_cls, settings, tmp_path)
     assert _command_lines(script, "setattr -mod -unset src =*")

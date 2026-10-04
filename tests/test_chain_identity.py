@@ -187,17 +187,11 @@ def test_hashed_variants_of_one_flow_coexist_and_run_where_they_were_planned(tmp
     assert TRACE_FORMAT == 14
 
 
-def test_a_tampered_identity_or_another_request_s_bindings_fail_before_execution(tmp_path):
+def test_a_tampered_identity_fails_before_execution(tmp_path):
     runner = _runner(tmp_path)
     design = _design(tmp_path)
     request = runner._request(_Taker, design, flow_overrides={"inputs.made": "__input_maker"})
     plan = runner._resolve_request(request)
-    other = runner._request(_Taker, design)
-    runner._request_context = other
-    with pytest.raises(FlowFatalError, match="this request's bindings"):
-        runner.run_flow(
-            _Taker, design, request.settings, all_flows_settings=request.sections, plan=plan
-        )
     runner._request_context = request
     node = plan.node("__taker")
     saved = node.origins

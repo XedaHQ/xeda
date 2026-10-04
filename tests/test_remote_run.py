@@ -1679,3 +1679,52 @@ def test_remote_input_bindings_are_refused_before_connecting(
             design, flow_name, "fake", flow_settings=settings
         )
     assert not connected and not (tmp_path / "mirror").exists()
+
+
+def test_a_saved_binding_the_remote_request_does_not_reach_is_no_refusal(tmp_path, monkeypatch):
+    """M2: as `dse` does, `--remote` refuses a binding its request reaches, not a design that
+    merely saves one for another flow."""
+    from .io_flows import _Maker, _Taker
+
+    class _Connecting(Exception):
+        pass
+
+    def connect(**kwargs):
+        raise _Connecting
+
+    monkeypatch.setattr(remote_module, "Connection", connect)
+    flows = {_Taker.name: {"inputs": {"made": "__input_maker.made"}}}
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"}, flow=flows)
+    with pytest.raises(_Connecting):
+        RemoteRunner(tmp_path / "mirror").run_remote(design, _Maker.name, "fake")
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
+        RemoteRunner(tmp_path / "other").run_remote(design, _Taker.name, "fake")
+
+
+def test_the_mirror_of_a_declared_flow_is_named_by_its_plan_identity(tmp_path, monkeypatch):
+    """I3: two configurations of a producer are two mirrors of the consumer, each named by
+    the requested node's identity in the plan, which is what the remote's `flow_hash` is."""
+    from .io_flows import _Taker
+
+    class _Named(Exception):
+        pass
+
+    def named(self, design_name, flow_name, identity):
+        raise _Named(identity)
+
+    monkeypatch.setattr(RemoteRunner, "get_flow_run_path", named)
+    seen = []
+    for text in ("one\n", "two\n"):
+        design = Design(
+            name="d",
+            design_root=tmp_path,
+            rtl={"sources": [], "top": "t"},
+            flow={"__maker": {"text": text}},
+        )
+        runner = RemoteRunner(tmp_path / "mirror")
+        planned = runner.resolve(_Taker, design, {}, design.flow).node(_Taker.name)
+        with pytest.raises(_Named) as named_as:
+            runner.run_remote(design, _Taker.name, "fake")
+        assert str(named_as.value) == planned.flowrun_hash
+        seen.append(planned.flowrun_hash)
+    assert seen[0] != seen[1]

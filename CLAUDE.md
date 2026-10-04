@@ -234,11 +234,12 @@ removed before the run, so an earlier success never stands for a run that died
   own (`compose_flow_settings`). **A flow's settings are written in one place, `flows.<flow>`**
   (D-10): `nextpnr.yosys` was removed and fails with "`yosys` was removed: use
   `flows.yosys_fpga.<key>`" (`Flow.Settings.removed_settings`; a `<key>` in a replacement names
-  each key the removed value gave). A consumer's default for its declared producer is the
-  class-level `Flow.producer_defaults` (`nextpnr` keeps `src` attributes in `yosys_fpga`'s
-  netlist), applied by the resolver below every `flows.<producer>` section. Only flows still on
-  `add_dependency` (`vivado_postsynth_sim.synth`, `vivado_power.postsynthsim`, `openroad`,
-  `openfpgaloader.nextpnr`, `open_xc7.yosys`) keep a nested field until PC; there, nesting
+  each key the removed value gave). **A producer's settings never depend
+  on which consumer asked**: there are no consumer-given producer defaults, so `yosys_fpga`
+  requested alone and as `nextpnr`'s producer is one configuration, one identity and one run
+  (`yosys_fpga` keeps `src` attributes by its own default, since nextpnr's reports cite them).
+  Only flows still on `add_dependency` (`vivado_postsynth_sim.synth`,
+  `vivado_power.postsynthsim`, `openroad`) keep a nested field until PC; there, nesting
   applies only within one origin, so a design's `[flows.vivado_synth] fail_timing` beats a
   project's `[flows.vivado_postsynth_sim] synth.fail_timing`. `-s flows.<flow>.key=value` sets any flow of the run (the
   requested flow or one of its declared dependencies; an unknown flow is an error with
@@ -339,8 +340,11 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   before settings composition (`bindings.split_bindings`), never a `Flow.Settings` field or
   part of the design hash. A chain is command-line data: it overrides a file's binding of the
   same input (the plan reports it as `overridden`) and is an error, even when equal, against a
-  command-line or API binding of that input (PC1). `--remote` and `dse` refuse chains and
-  reached bindings. `xeda run a+b` on the command line is not activated yet (P3 Task 6).
+  command-line or API binding of that input (PC1). A chain adjacency and a binding judge an
+  edge by one predicate, `chains.fitting_outputs` (the types an output can make are a nonempty
+  subset of those the input takes, and a many output feeds only a many input). `--remote` and
+  `dse` refuse chains and bindings their request reaches; a binding saved for another flow is
+  not a refusal. `xeda run a+b` on the command line is not activated yet (P3 Task 6).
 - **One node per producer, keyed by node identity** (`bindings.NodeKey`, never the flow name
   alone): the resolver reaches each node once, unions every consumer's demand on its outputs
   before its settings are frozen and hashed, and the launcher's completed-run cache is keyed
@@ -684,7 +688,8 @@ exclusive-to-shared acquisition gap refuses hand-over. Same-mode and exclusive-t
 retain protection; shared-to-exclusive reentry is refused. Scrub siblings before taking the
 current run lock to avoid cross-variant deadlocks. DSE purge also takes the exclusive lock.
 `--remote` always mirrors into the hashed layout
-(`<flow>_<flowrun_hash>`, `RemoteRunner.Settings.hashed_run_dirs`, `Literal[True]` as `Dse`'s), so
+(`<flow>_<flowrun_hash>`, the requested node's identity in the plan this side resolved, which
+the remote's `flow_hash` must equal; `RemoteRunner.Settings.hashed_run_dirs`, `Literal[True]` as `Dse`'s), so
 remote runs of different settings never share a directory, and refuses `--rebuild-all`, `--clean`
 and `--hashed-run-dirs` alike (a remote run always runs fresh); it also refuses a deliverable
 setting given as a location before shipping anything, and delivers `--outputs-to` only after a run

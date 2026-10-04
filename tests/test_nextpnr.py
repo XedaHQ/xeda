@@ -668,8 +668,11 @@ def _yosys_launch_settings(tmp_path, monkeypatch, flow_cls, flows=None, cli=(), 
 ICE40_PART = "iCE40HX1K-TQ144"
 
 
-def test_nextpnr_asks_its_producer_to_keep_src():
-    assert Nextpnr.producer_defaults == {"netlist": {"netlist_src_attrs": True}}
+def test_the_fpga_synthesis_keeps_src_for_whoever_reads_its_netlist():
+    """nextpnr's reports cite `src` attributes, so `yosys_fpga` keeps them by default -- its
+    own default, the same whether it is requested alone or as a producer."""
+    assert YosysFpga.Settings().netlist_src_attrs is True
+    assert "nextpnr" in YosysFpga.Settings.model_fields["netlist_src_attrs"].description
 
 
 @pytest.mark.parametrize(
@@ -742,8 +745,8 @@ def test_openfpgaloader_synthesis_keeps_src_like_nextpnr(tmp_path, monkeypatch, 
     assert settings.netlist_src_attrs is keeps_src
 
 
-def test_yosys_fpga_on_its_own_strips_src_by_default(tmp_path, monkeypatch):
-    assert _yosys_launch_settings(tmp_path, monkeypatch, YosysFpga).netlist_src_attrs is False
+def test_yosys_fpga_on_its_own_keeps_src_as_under_nextpnr(tmp_path, monkeypatch):
+    assert _yosys_launch_settings(tmp_path, monkeypatch, YosysFpga).netlist_src_attrs is True
 
 
 @pytest.mark.parametrize(

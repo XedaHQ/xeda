@@ -523,10 +523,6 @@ class Nextpnr(FpgaSynthFlow):
             description="SDC timing constraints in design-source order.",
         )
 
-    #: nextpnr's reports cite the netlist's `src` attributes as source locations, so the
-    #: synthesis that makes its netlist keeps them unless `flows.yosys_fpga` says otherwise.
-    producer_defaults = {"netlist": {"netlist_src_attrs": True}}
-
     class Outputs(FpgaSynthFlow.Outputs):
         config: Path | None = Out(
             (SourceType.EcpConfig, SourceType.IceAsc, SourceType.Fasm),

@@ -659,11 +659,6 @@ class Flow(metaclass=ABCMeta):
     #: programmer. Dynamic `always_runs()` remains the launcher's runtime freshness decision.
     action_reason: ClassVar[str | None] = None
 
-    #: Defaults this flow gives the default producer of one of its declared inputs (input name
-    #: -> the producer's settings), below every `flows.<producer>` section. A consumer refines
-    #: its producer here, never through a nested settings field.
-    producer_defaults: ClassVar[Dict[str, Dict[str, Any]]] = {}
-
     @classmethod
     def check_required_settings(cls, settings: "Flow.Settings") -> None:
         """Fail a launch that lacks a `required_settings` entry, naming each and how to give it,

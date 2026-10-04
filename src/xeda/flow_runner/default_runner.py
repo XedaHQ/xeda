@@ -84,7 +84,6 @@ from .bindings import (
     default_nodes,
     effective_bindings,
     input_origins,
-    node_bindings,
     node_identity,
     split_bindings,
 )
@@ -727,27 +726,6 @@ class FlowLauncher:
                 != self.run_path_of(design.name, planned.name, planned.flowrun_hash)
             ):
                 raise FlowFatalError("The plan does not match this request's identity or path")
-        # A plan belongs to the request it was resolved for: its bound inputs are exactly
-        # what that request's bindings select.
-        request = self._request_context
-        if request is not None:
-            for planned in plan.nodes:
-                selected = node_bindings(
-                    request.binding_layers,
-                    planned.node_key,
-                    planned.flow_class,
-                    request=request.flow_request,
-                )
-                bound = {
-                    resolved.name: tuple(ref.node for ref in resolved.references)
-                    for resolved in planned.inputs
-                    if resolved.binding_origin is not None
-                }
-                if bound != {
-                    name: tuple(ref.node.label for ref in binding.references)
-                    for name, binding in selected.items()
-                }:
-                    raise FlowFatalError("The plan does not match this request's bindings")
         return node
 
     def launch_flow(

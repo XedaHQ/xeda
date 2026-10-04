@@ -130,6 +130,12 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     )
 
     class Settings(YosysBase.Settings, FpgaSynthFlow.Settings):
+        netlist_src_attrs: bool = Field(
+            True,
+            description="Keep `src` attributes (source file and line) in the written netlists "
+            "(JSON, Verilog and BLIF). On by default: nextpnr's reports cite them as source "
+            "locations when it places this netlist.",
+        )
         read_verilog_flags: list[str] = Field(
             ["-sv"],
             description="Flags passed to yosys' `read_verilog` for each Verilog source. Add "

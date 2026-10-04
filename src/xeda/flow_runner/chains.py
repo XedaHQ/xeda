@@ -10,6 +10,7 @@ from __future__ import annotations
 import difflib
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 from ..design import SourceType
 from ..flow import Flow, FlowSettingsException
@@ -18,6 +19,7 @@ from ..flow.io import declared_inputs, declared_outputs, is_declared
 __all__ = [
     "ChainElement",
     "FlowRequest",
+    "fitting_outputs",
     "match_required_inputs",
     "parse_request",
     "validate_chain",
@@ -126,6 +128,45 @@ def validate_chain(elements: Sequence[ChainElement]) -> None:
             )
 
 
+def fitting_outputs(
+    producer: type[Flow],
+    declaration: Any,
+    *,
+    output: str | None = None,
+    accepted: Sequence[SourceType] | None = None,
+    selected_output_types: Mapping[str, Sequence[SourceType]] | None = None,
+) -> tuple[list[str], list[str]]:
+    """The one edge predicate (PD3), for chain adjacency and explicit bindings alike: the
+    outputs of `producer` that can supply the input `declaration`, and those of a fitting kind
+    that cannot because they are many-valued and the input takes one file.
+
+    An output fits when the types it can make are nonempty and a **subset** of the types the
+    input accepts (an output that may be of a kind the input cannot take does not fit), and a
+    many-valued output feeds only a many-valued input. `output` restricts the question to one
+    key. When several fit and the input's own default producer is `producer`, its declared
+    default output decides.
+    """
+    takes = tuple(declaration.types if accepted is None else accepted)
+    fitting: list[str] = []
+    many: list[str] = []
+    for name, made in declared_outputs(producer).items():
+        if output is not None and name != output:
+            continue
+        produced = tuple((selected_output_types or {}).get(name, made.types))
+        if not produced or not set(produced).issubset(takes):
+            continue
+        if made.cardinality == "many" and declaration.cardinality != "many":
+            many.append(name)
+            continue
+        fitting.append(name)
+    if len(fitting) > 1 and declaration.producer is not None and declaration.output in fitting:
+        from .settings_layers import registered_flow
+
+        if registered_flow(declaration.producer) is producer:
+            fitting = [declaration.output]
+    return fitting, many
+
+
 def match_required_inputs(
     producer: type[Flow],
     consumer: type[Flow],
@@ -140,8 +181,6 @@ def match_required_inputs(
     output can feed only a many-valued input. Optional inputs are intentionally excluded because
     adjacency is not an opt-in for them.
     """
-    from .default_runner import FlowNotFoundError, get_flow_class
-
     inputs = declared_inputs(consumer)
     outputs = declared_outputs(producer)
     if output is not None and output not in outputs:
@@ -158,28 +197,14 @@ def match_required_inputs(
     for input_name, declaration in inputs.items():
         if not declaration.required:
             continue
-        accepted = tuple((selected_input_types or {}).get(input_name, declaration.types))
-        candidates: list[str] = []
-        for output_name, produced_declaration in outputs.items():
-            if output is not None and output_name != output:
-                continue
-            produced = tuple(
-                (selected_output_types or {}).get(output_name, produced_declaration.types)
-            )
-            if not produced or not set(produced).issubset(accepted):
-                continue
-            if produced_declaration.cardinality == "many" and declaration.cardinality != "many":
-                cardinality_mismatches.append((input_name, output_name))
-                continue
-            candidates.append(output_name)
-
-        if len(candidates) > 1 and declaration.producer is not None:
-            try:
-                default_producer = get_flow_class(declaration.producer)
-            except FlowNotFoundError:
-                default_producer = None
-            if default_producer is producer and declaration.output in candidates:
-                candidates = [declaration.output]
+        candidates, many = fitting_outputs(
+            producer,
+            declaration,
+            output=output,
+            accepted=(selected_input_types or {}).get(input_name),
+            selected_output_types=selected_output_types,
+        )
+        cardinality_mismatches += [(input_name, name) for name in many]
         if len(candidates) > 1:
             raise FlowSettingsException(
                 f"Flow `{consumer.name}` input `{input_name}` has ambiguous outputs from "
