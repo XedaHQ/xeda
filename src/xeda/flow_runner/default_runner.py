@@ -594,12 +594,14 @@ class FlowLauncher:
         )
         if bindings.entries or bindings.invalid_inputs or (not origins and not binding_layers):
             layers.append(bindings)
-        clean_cli, bindings = split_bindings(command_line or {}, location="the command line")
+        clean_cli, bindings = split_bindings(
+            command_line or {}, location="the command line", kind="cli"
+        )
         layers.append(bindings)
-        clean_api, bindings = split_bindings(api_overrides or {}, location="the API")
+        clean_api, bindings = split_bindings(api_overrides or {}, location="the API", kind="api")
         layers.append(bindings)
         clean_root, bindings = split_bindings(
-            {flow_class.name: flow_settings or {}}, location="the API"
+            {flow_class.name: flow_settings or {}}, location="the API", kind="api"
         )
         layers.append(bindings)
         require_resolver_integration(layers, [flow_class], flow_request)
@@ -1602,7 +1604,7 @@ class FlowLauncher:
                 all_flows_settings or {}, location="the supplied API flow sections"
             )
             own, own_bindings = split_bindings(
-                {flow_cls.name: flow_settings or {}}, location="the API"
+                {flow_cls.name: flow_settings or {}}, location="the API", kind="api"
             )
             layers = (section_bindings, own_bindings)
             require_resolver_integration(layers, [flow_cls])
@@ -1898,9 +1900,11 @@ class FlowLauncher:
         cli_sections = merge_flow_sections(
             cli_sections, {flow_class.name: cli_own}, flow_class_for=_get_flow_class_if_known
         )
-        cli_sections, cli_bindings = split_bindings(cli_sections, location="the command line")
+        cli_sections, cli_bindings = split_bindings(
+            cli_sections, location="the command line", kind="cli"
+        )
         api_sections, api_bindings = split_bindings(
-            {flow_class.name: flow_overrides}, location="the API"
+            {flow_class.name: flow_overrides}, location="the API", kind="api"
         )
         binding_layers = (project_bindings, design_bindings, cli_bindings, api_bindings)
         effective_bindings(binding_layers, default_nodes([flow_class]), request=flow_request)
