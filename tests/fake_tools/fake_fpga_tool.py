@@ -249,8 +249,26 @@ def nextpnr(tool, args):
     return 0
 
 
+def strict_getopt(args):
+    """POSIX `getopt` as BSD and musl do it: option letters stop at the first operand, and
+    everything after it is an operand, a `-s` included."""
+    flags = []
+    for index, arg in enumerate(args):
+        if arg == "--":
+            return flags, list(args[index + 1 :])
+        if not arg.startswith("-") or arg == "-":
+            return flags, list(args[index:])
+        flags.extend(arg[1:])
+    return flags, []
+
+
 def pack_or_load(tool, args):
     opts, positional = options(args)
+    if tool == "icepack":
+        # `icepack [options] [input-file [output-file]]`: a third operand is a mistake
+        flags, positional = strict_getopt(args)
+        if not set(flags) <= set("uvsbfcrn"):
+            raise ValueError(f"icepack: unknown option in {flags}")
     if tool == "openFPGALoader":
         paths = [opts.get("bitstream") or (positional[0] if positional else "")]
     elif tool == "fpga-as":

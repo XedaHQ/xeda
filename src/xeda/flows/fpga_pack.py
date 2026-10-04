@@ -124,7 +124,11 @@ class FpgaPack(FpgaSynthFlow):
             if family == "xilinx"
             else Tool(executable=executable)
         )
-        args: list[str | Path]
+        # Every packer is given its options before its operands: `icepack`'s usage is
+        # `[options] [input-file [output-file]]`, and a strict POSIX `getopt` (BSD, musl) stops
+        # at the first operand, where an option after it would be read as one. `ecppack` and
+        # `fpga-as` accept options in any position.
+        fixed: list[str | Path] = []
         if family == "xilinx":
             resolved = which(executable)
             if resolved is None:
@@ -134,12 +138,7 @@ class FpgaPack(FpgaSynthFlow):
                 self.normalize_path_to_design_root(ss.prjxray_db) if ss.prjxray_db else None,
             )
             selection = select_xilinx_part(ss.fpga.part or "", database)
-            args = [
-                f"--prjxray_db_path={database / selection.family}",
-                f"--part={selection.name}",
-                *ss.packer_args,
-                config,
-            ]
+            fixed = [f"--prjxray_db_path={database / selection.family}", f"--part={selection.name}"]
         # The packer writes scratch space only: an exit of zero may still leave no file (or an
         # empty one), and fpga-as writes its bitstream to standard output, so a failure there
         # leaves part of one. The bitstream's own name is replaced only by a whole new one.
@@ -149,9 +148,9 @@ class FpgaPack(FpgaSynthFlow):
         with TemporaryDirectory(prefix=".xeda-pack-", dir=self.run_path) as scratch:
             packed = Path(scratch) / bitstream.name
             if family == "xilinx":
-                packer.run(*args, stdout=packed)
+                packer.run(*fixed, *ss.packer_args, config, stdout=packed)
             else:
-                packer.run(config, packed, *ss.packer_args)
+                packer.run(*ss.packer_args, config, packed)
             if not packed.is_file() or packed.stat().st_size == 0:
                 raise FlowFatalError(
                     f"{executable} exited successfully but wrote no bitstream for {config}."

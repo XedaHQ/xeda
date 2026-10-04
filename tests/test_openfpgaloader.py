@@ -438,7 +438,7 @@ def test_the_placing_and_packing_settings_live_in_their_own_sections(tmp_path, f
     flow = _program(tmp_path, _design(tmp_path, flows=flows), {"fpga": ECP5})
     assert flow.succeeded
     assert "--seed=7" in _calls(tmp_path, "nextpnr")[0]["argv"]
-    assert _calls(tmp_path, "fpga_pack")[0]["argv"][2:] == ["--compress"]
+    assert _calls(tmp_path, "fpga_pack")[0]["argv"][:1] == ["--compress"]
     assert flow.inputs.bitstream == tmp_path / "run/top/fpga_pack/board.bit"
 
 
