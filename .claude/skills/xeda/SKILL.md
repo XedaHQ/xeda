@@ -137,6 +137,29 @@ source, and builds nothing. The `open_xc7` flow was removed: use `fpga_pack` to 
 `nextpnr.config` records the selected ECP5 `textcfg`, iCE40 `asc` or Nexus/Xilinx `fasm`; a missing or
 stale enabled configuration fails the run.
 
+Xilinx 7-series (openXC7 1.0: its `yosys`, `nextpnr-himbaechel` and `fpga-as` on `PATH`):
+
+```yaml
+name: blinky
+rtl:
+  sources: [blinky.v, blinky.xdc]   # pins as a typed Xdc source
+  top: blinky
+flows:
+  yosys_fpga:
+    fpga: {part: xc7a100tcsg324-1}  # the full part: device, package, pins, speed grade
+  nextpnr:
+    clock: {port: clk, freq: 100MHz}
+```
+
+`xeda run fpga_pack blinky.yaml` builds `outputs/blinky.bit` and programs nothing. The first
+build under a run root generates the die's chip database into `<run root>/.cache/xilinx-chipdb/`
+(about a minute and 3.5 GB of memory for an `xc7a100t`); every later launch, of any design
+there, reuses it. `chipdb` names an existing database file instead; `prjxray_db` another
+Project X-Ray root. `board: ARTY_A7_100T` (or `ARTY_A7_35T`) gives the part and, with no `Xdc`
+source, Digilent's pin names (`CLK100MHZ`, `led[0]`, ...), which the design's ports must then use.
+`openfpgaloader` loads SRAM by default; `write_flash` programs flash and `verify` needs it.
+A `[flows.open_xc7]` section fails as the removed flow's own name does, naming the replacement.
+
 Put pin constraints in `rtl.sources` as typed `Lpf`, `Pcf`, `Pdc` or `Xdc` files. nextpnr
 merges the selected family's files in source order, falling back to its board's file when
 none are supplied. The former `lpf_cfg`, `pcf_cfg` and `pdc_cfg` settings are removed.

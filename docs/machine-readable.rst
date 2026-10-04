@@ -150,6 +150,11 @@ canonical aliases the runner adds:
 ``documented: false`` means the flow's results have not been curated yet and the listed keys were
 detected from its source as a best effort. In that case read an actual ``results.json``.
 
+A canonical key names a quantity, not one way of measuring it. ``lut`` is reported per toolchain
+and per stage: the open-source FPGA flows add ``LUT:STAGE`` (``mapped`` for ``yosys_fpga``,
+``placed and routed`` for ``nextpnr``) and ``LUT:METHOD`` beside it. Counts from different
+toolchains or stages are not certified comparable, with Vivado's utilization report in particular.
+
 Validating a design file
 ========================
 

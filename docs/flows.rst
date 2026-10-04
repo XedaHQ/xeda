@@ -226,6 +226,102 @@ Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
 the selected installed tool must support those switches. Placement and programming are
 different operations: ``openfpgaloader`` is the only flow here that writes hardware.
 
+Xilinx 7-series with openXC7
+----------------------------
+
+Artix-7, Kintex-7, Spartan-7, Virtex-7 and Zynq-7000 parts build with the openXC7 1.0 toolchain:
+its ``yosys``, ``nextpnr-himbaechel`` (the Xilinx backend) and ``fpga-as``. Put its ``bin``
+directory on ``PATH``; Xeda finds the tool data from the resolved ``nextpnr-himbaechel``
+executable, in ``<prefix>/share/nextpnr/himbaechel`` and ``<prefix>/share/nextpnr/prjxray-db``,
+and reads no ``CHIPDB_DIR``-style environment variable. A design for the Arty A7-100T:
+
+.. code-block:: yaml
+
+    name: blinky
+    rtl:
+      sources:
+        - blinky.v
+        - blinky.xdc        # pins: an Xdc source, typed by its suffix
+      top: blinky
+      clock: {port: clk}
+    flows:
+      yosys_fpga:
+        fpga: {part: xc7a100tcsg324-1}
+      nextpnr:
+        clock: {freq: 100MHz}
+
+``xeda run fpga_pack blinky.yaml`` synthesizes, places and routes, and packs
+``outputs/blinky.bit`` in ``fpga_pack``'s run directory; nothing is programmed. ``xeda run
+openfpgaloader blinky.yaml`` builds the same bitstream if it is not up to date and loads it.
+The part is given once: ``fpga`` is shared along the declared edges.
+
+``fpga.part`` must be the full ordering part -- device, package, pin count and speed grade
+(``xc7a100tcsg324-1``) -- as the Project X-Ray database lists it; a bare device name is refused
+before synthesis. ``board: ARTY_A7_100T`` or ``ARTY_A7_35T`` fills it in (``xeda list-boards``).
+
+**Constraints.** ``Xdc`` sources carry the pins (``set_property`` with ``PACKAGE_PIN``/``LOC``
+and ``IOSTANDARD``) and may carry ``create_clock``; with no ``Xdc`` source and a ``board``, the
+board's bundled pin file is used. The bundled Arty files are active, pin-only derivatives of
+Digilent's master XDC and keep its port names (``CLK100MHZ``, ``led[0]``, ``sw[0]``,
+``btn[0]``, ...), so a design relying on the fallback names its top-level ports that way; the
+ULX3S file likewise uses the board's own names (``clk_25mhz``, ``led[0]``, ...). They contain no
+clock constraint: timing comes from the flow's ``clock``/``clocks`` or the design's own files,
+one authority per clock. With no clock constraint at all, nextpnr analyzes at its 12 MHz default
+and Xeda says so.
+
+**The chip database.** nextpnr needs a database for the die, which openXC7 generates from the
+Project X-Ray data. Xeda generates it on first use and keeps it under the run root, in
+``.cache/xilinx-chipdb/<identity>/<die>.bin``, where every design using that run root shares it.
+The first build of an ``xc7a100t`` takes about a minute and about 3.5 GB of memory (larger dies
+take more); later launches start no generator. The entry is identified by content -- the nextpnr
+and ``bbasm`` executables, the generator and the database family's files -- so another
+installation or an updated one gets its own entry. Entries are never modified, and ``xeda
+scrub`` and ``--clean`` leave them; delete the ``.cache`` directory to reclaim the space.
+``chipdb`` names an existing database file to use instead (nothing is generated), and
+``prjxray_db`` another Project X-Ray database root, which ``nextpnr`` and ``fpga_pack`` must
+agree on. Generation and nextpnr's Python hooks run with bytecode writing off: the installation
+is never written to.
+
+**Tuning.** ``delay_matrix`` (``build``, the backend's default, or ``off``), ``hold_fix``
+(``true``, or a pass limit) and ``hold_detour_max`` are the Xilinx backend's own options;
+``seed``, ``placer``, ``router`` and the hooks are common to every nextpnr backend.
+``placement`` names a location the placement dump is delivered to.
+
+**Results.** ``ff`` counts ``SLICE_FFX`` cells, ``bram`` ``RAMB18E1`` plus ``RAMB36E1``, ``dsp``
+``DSP48E1`` and ``io`` pads; ``CARRY4`` and the other cell types are reported under their own
+names. ``device`` is the part and ``fabric`` the die that was routed: every ``available`` total
+in the utilization describes the fabric, so an ``xc7a35t`` (routed as an ``xc7a50t``) shows the
+larger die's totals. ``clock_port`` is given only when the one reported clock domain is itself
+a top-level port; a domain named for a buffer's or a clock generator's output net keeps its raw
+name alone. A run that misses its timing constraint fails with nextpnr's own "Max frequency ...
+(FAIL at ...)" line, unless ``timing_allow_fail`` is set.
+
+``lut`` is reported per toolchain and per stage, and ``LUT:STAGE`` and ``LUT:METHOD`` say which:
+after ``nextpnr`` it is the number of distinct LUT locations (tile, site and one of A-D) the
+placement occupies -- a location whose two outputs are both used counts once, and LUTs used as
+distributed RAM or shift registers are included -- while ``yosys_fpga`` estimates it from the
+mapped primitives (``LUT:LOGIC``, ``LUT:RAM``, ``LUT:SRL``) before packing. The two differ for
+one design, and neither is certified comparable with Vivado's utilization report: compare a
+design against itself across settings or seeds with one toolchain, not across toolchains.
+
+**Packing and programming.** ``fpga_pack`` runs ``fpga-as`` with the Project X-Ray family
+database and the part, into a scratch file in its run directory, and publishes the bitstream
+only when the packer succeeded with a nonempty file: a failed run leaves no partial bitstream.
+``openfpgaloader`` loads into SRAM by default; ``write_flash`` programs the flash, and
+``verify`` is accepted only with it.
+
+What is not noticed: an in-place change of the installed Project X-Ray database alone, with
+``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads
+from its own installation are not inputs; ``--rebuild-all`` runs everything).
+
+The ``open_xc7`` flow was removed. Running it, or keeping a ``[flows.open_xc7]`` section in a
+design or project file, fails with "``open_xc7`` was removed: use fpga_pack to build,
+openfpgaloader to program". Move its ``nextpnr`` settings to ``[flows.nextpnr]``, its synthesis
+settings to ``[flows.yosys_fpga]``, and pin files into ``rtl.sources``. ``openfpgaloader``'s
+former ``nextpnr``, ``packer_args`` and ``bitstream_file`` settings are removed the same way:
+use the ``nextpnr`` and ``fpga_pack`` sections, and a ``Bitstream`` source for a prebuilt file.
+``xeda scrub open_xc7 <design>`` still removes the run directories the removed flow left.
+
 Bluespec
 ========
 

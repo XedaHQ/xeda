@@ -157,6 +157,26 @@ was turned off.
 Check `results.json`'s cocotb counts: `cocotb.tests` of 0 means no test was collected. Verify the
 testbench source is present in `tb.sources` and that `tb.top` is set for non-cocotb testbenches.
 
+### `open_xc7` was removed
+
+"`open_xc7` was removed: use fpga_pack to build, openfpgaloader to program" -- for the flow's
+name and for a `[flows.open_xc7]` section in a design or project file alike. Move its placement
+settings to `[flows.nextpnr]`, synthesis settings to `[flows.yosys_fpga]`, and pin files into
+`rtl.sources`; `xeda scrub open_xc7 <design>` still removes its old run directories.
+
+### A 7-series build fails before or during nextpnr
+
+- "needs the full part": give `fpga.part` with package, pins and speed grade
+  (`xc7a100tcsg324-1`), as the Project X-Ray database lists it.
+- A missing Himbaechel share tree, generator, `bbasm` or Project X-Ray database names the path
+  searched: put openXC7 1.0's `bin` first on `PATH` (another `nextpnr-himbaechel`, such as the
+  OSS CAD Suite's, has other backends and no such data), or set `chipdb`/`prjxray_db`.
+- The first build seems to hang: it is generating the chip database (about a minute, gigabytes
+  of memory), once per run root.
+- "timing constraints are not met: Max frequency ... (FAIL at ...)": relax the clock, or set
+  `timing_allow_fail` to keep the result.
+- "nextpnr constraint error" names the original constraint file and line.
+
 ## Reading numbers correctly
 
 - **`clock_frequency` is not `Fmax`.** `clock_frequency` is the frequency that was *constrained*;
@@ -171,8 +191,15 @@ testbench source is present in `tb.sources` and that `tb.top` is set for non-coc
   explicitly for those.
 - `nextpnr` reports timing and utilization parsed from the JSON report named by its `report`
   setting (kept as the `report` artifact). Its canonical `lut`/`ff`/`bram`/`dsp`/`io` keys are
-  ECP5-specific; for another `fpga.family` you get the raw nextpnr bel-type counts
-  (`ICESTORM_LC`, `OXIDE_COMB`, ...) instead, plus timing, which is family-independent.
+  given for ECP5 and Xilinx 7-series; for another `fpga.family` you get the raw nextpnr bel-type
+  counts (`ICESTORM_LC`, `OXIDE_COMB`, ...) instead, plus timing, which is family-independent.
+- **`lut` is per toolchain and per stage**, and `LUT:STAGE`/`LUT:METHOD` say which. For 7-series,
+  `nextpnr` counts distinct occupied LUT locations in its placement (not `SLICE_LUTX`, which
+  counts both halves of a fractured LUT), and `yosys_fpga` estimates from mapped primitives
+  (`LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`). Neither is certified comparable with Vivado's count:
+  compare one toolchain with itself. `fabric` names the die whose `available` totals are shown
+  (an `xc7a35t` is routed as an `xc7a50t`); `clock_port` appears only when the reported clock
+  domain is itself a top-level port.
 - `nextpnr`'s `wns` is derived: nextpnr reports achieved *frequencies*, not slack, so slack is the
   difference between the constrained and achieved clock periods. With several constrained clock
   domains, `Fmax` is the lowest achieved frequency across them while `wns` comes from the

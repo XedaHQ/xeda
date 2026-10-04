@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- `yosys_fpga`'s mapped Xilinx `LUT` count includes every distributed RAM primitive
+  (`RAM32X1D`, `RAM64X1D`, `RAM64M`, ...), not `RAM32M` alone.
+- `nextpnr` lists an SDF, routed netlist, SVG or placement dump as an artifact only when this
+  run wrote it.
 - FPGA board lookup rejects unknown names after resolving the selected custom database;
   7-series part parsing preserves device, package and speed suffix boundaries. Bundled Arty
   pin constraints and a local ULX3S fallback are available without network access.
@@ -45,6 +49,25 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or
   `xedaproject.toml`; multiple matches report the conflicting files and ask to keep one.
+- **Xilinx 7-series builds with openXC7 1.0**: `nextpnr` places and routes Artix-7, Kintex-7,
+  Spartan-7, Virtex-7 and Zynq-7000 parts with `nextpnr-himbaechel` (the full part as
+  `--device`, typed `Xdc` pin sources, flow clocks as `create_clock`), with the new settings
+  `chipdb`, `prjxray_db`, `delay_matrix`, `hold_fix`, `hold_detour_max` and `placement`. The
+  die's chip database is generated on first use into `<run root>/.cache/xilinx-chipdb/`,
+  identified by the installed toolchain's content, and shared by every design under that run
+  root (an `xc7a100t`: about a minute and 3.5 GB of memory, once); the installation is never
+  written to. Results: `ff`, `bram`, `dsp`, `io`, `device`, `fabric` (the die whose totals are
+  shown), `clock_port` only when the reported domain is itself a top-level port, and `lut` as the
+  distinct LUT locations the placement occupies.
+- **`fpga_pack`**, a flow that packs `nextpnr`'s configuration (or a typed `EcpConfig`, `IceAsc`
+  or `Fasm` source) into a bitstream with `ecppack`, `icepack` or `fpga-as`: `outputs/<design>.bit`
+  (`.bin` for iCE40), published only when the packer succeeded with a nonempty file. It programs
+  nothing.
+- `lut` carries `LUT:STAGE` and `LUT:METHOD` in the open-source FPGA flows. It is reported per
+  toolchain and stage and is not certified comparable with Vivado's utilization report.
+- A real-toolchain test layer, `XEDA_TESTS_OPENXC7=1` (`tests/test_openxc7_real.py`): an Arty
+  A7-100T design from openXC7's demo projects through `yosys_fpga`, `nextpnr` and `fpga_pack`,
+  with the same FASM configuration as the upstream Makefile's commands.
 - `Flow.prepare_inputs()` registers implicit inputs after producer hand-over and before
   freshness, under the producer's read lease. Prepared inputs are reserved against delivery.
 - Declared FPGA I/O specializes types by target family and enables demanded configurations;
@@ -90,6 +113,16 @@ All notable changes to this project will be documented in this file.
   platform databases stay TOML. Trivium keeps its former TOML configuration in `trivium.yaml`
   and its distinct DC-capable configuration in `trivium-dc.xeda.yaml` (formerly
   `trivium.xeda.yaml`).
+- **`openfpgaloader` only programs.** It takes `fpga_pack`'s bitstream, or a typed `Bitstream`
+  source, and builds nothing itself: its `nextpnr`, `packer_args` and `bitstream_file` settings
+  are removed (use `[flows.nextpnr]`, `[flows.fpga_pack]` and a `Bitstream` source). `verify` is
+  accepted only with `write_flash`. The default graph is
+  `openfpgaloader -> fpga_pack -> nextpnr -> yosys_fpga`.
+- **`--remote` needs a remote with protocol 5** (this release): the FPGA build graph and the
+  programming-only loader are part of what a remote must understand.
+- A failed `nextpnr` is reported by the errors in its log: a constraint error at its original
+  file and line, a missed timing constraint as such (`timing_allow_fail` keeps the result), and
+  anything else as the tool's own failure -- never by a parser warning.
 - nextpnr takes pin constraints from typed design sources in source order, then falls back
   to the board file when none are supplied. Typed SDC sources precede the `sdc` setting's file;
   duplicate clock constraints fail with their original locations. The `lpf_cfg`, `pcf_cfg`
@@ -213,6 +246,10 @@ All notable changes to this project will be documented in this file.
   before anything ships, with an error asking to upgrade the remote xeda.
 
 ### Removed
+- **The `open_xc7` flow**: use `fpga_pack` to build and `openfpgaloader` to program. Its name in
+  any spelling, and a `[flows.open_xc7]` section in a design or project file (or
+  `-s flows.open_xc7.*`), fail with that message; `xeda scrub open_xc7 <design>` still removes
+  the run directories it left.
 - **The `<design>_<design_hash>/` run-directory layer.** It only ever appeared with
   `--cached-dependencies --no-incremental`; delete any such directories by hand, xeda no longer
   looks for them.
