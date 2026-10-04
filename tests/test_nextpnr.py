@@ -21,8 +21,6 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr, YosysFpga
 from xeda.flows.nextpnr import ECP5_RESOURCES, EcpPLL, NextpnrTool
 
-from .settings_samples import flow_classes
-
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources" / "nextpnr"
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
@@ -669,24 +667,8 @@ def _yosys_launch_settings(tmp_path, monkeypatch, flow_cls, flows=None, cli=(), 
 
 ICE40_PART = "iCE40HX1K-TQ144"
 
-#: Every flow that launches `yosys_fpga` -- found from its declared dependencies -- places the
-#: JSON netlist it writes with nextpnr, whose reports cite the netlist's `src` attributes. Each
-#: one keeps them by default. The part each is launched for here:
-_PLACER_PARTS: dict[str, str] = {}
-PLACERS = {
-    cls: _PLACER_PARTS[cls.name]
-    for cls, _ in flow_classes()
-    if any(
-        cls.Settings._dependency_settings_class(field) is YosysFpga.Settings
-        for field in cls.Settings.dependency_settings
-    )
-}
-BY_PLACER = pytest.mark.parametrize("flow_cls", list(PLACERS), ids=[c.name for c in PLACERS])
 
-
-def test_every_flow_placing_a_yosys_netlist_is_covered():
-    # `nextpnr` declares its producer; its default for it is `Nextpnr.producer_defaults`
-    assert not PLACERS, "no built-in flow nests yosys_fpga settings any more"
+def test_nextpnr_asks_its_producer_to_keep_src():
     assert Nextpnr.producer_defaults == {"netlist": {"netlist_src_attrs": True}}
 
 
@@ -747,39 +729,6 @@ def test_nextpnr_yosys_was_removed_and_names_its_replacement(tmp_path, monkeypat
         Nextpnr.Settings(yosys=YosysFpga.Settings())
 
 
-@BY_PLACER
-@pytest.mark.parametrize(
-    "flows, cli, keeps_src",
-    [
-        ({}, (), True),
-        ({"yosys_fpga": {"flatten": True}}, (), True),
-        ({"yosys_fpga": {"netlist_src_attrs": False}}, (), False),
-        ({"<flow>": {"yosys": {"netlist_src_attrs": False}}}, (), False),
-        ({}, ("yosys.netlist_src_attrs=false",), False),
-        ({"yosys_fpga": {"netlist_src_attrs": False}}, ("yosys.netlist_src_attrs=true",), True),
-    ],
-    ids=[
-        "default",
-        "yosys_fpga-section-silent-on-src",
-        "yosys_fpga-section",
-        "own-section",
-        "cli",
-        "cli-over-yosys_fpga-section",
-    ],
-)
-def test_the_synthesis_nextpnr_places_keeps_src_unless_told_otherwise(
-    tmp_path, monkeypatch, flow_cls, flows, cli, keeps_src
-):
-    """nextpnr cites the netlist's `src` attributes in its reports, so the synthesis a placing
-    flow launches keeps them by default -- also when `[flows.yosys_fpga]` sets other things --
-    while a `netlist_src_attrs` the user gives, in either flow's section or with `-s`, wins."""
-    flows = {flow_cls.name if name == "<flow>" else name: v for name, v in flows.items()}
-    settings = _yosys_launch_settings(
-        tmp_path, monkeypatch, flow_cls, flows, cli, part=PLACERS[flow_cls]
-    )
-    assert settings.netlist_src_attrs is keeps_src
-
-
 @pytest.mark.parametrize(
     "flows, keeps_src",
     [({}, True), ({"yosys_fpga": {"netlist_src_attrs": False}}, False)],
@@ -795,35 +744,6 @@ def test_openfpgaloader_synthesis_keeps_src_like_nextpnr(tmp_path, monkeypatch, 
 
 def test_yosys_fpga_on_its_own_strips_src_by_default(tmp_path, monkeypatch):
     assert _yosys_launch_settings(tmp_path, monkeypatch, YosysFpga).netlist_src_attrs is False
-
-
-@BY_PLACER
-def test_a_placing_flow_keeps_src_by_default_however_its_yosys_settings_are_given(flow_cls):
-    given = YosysFpga.Settings(flatten=True)
-    for settings in (
-        flow_cls.Settings(),
-        flow_cls.Settings(yosys={"flatten": True}),
-        flow_cls.Settings(yosys=given),
-    ):
-        assert settings.yosys.netlist_src_attrs is True
-    assigned = flow_cls.Settings()
-    assigned.yosys = {"flatten": True}
-    assert assigned.yosys.netlist_src_attrs is True
-    assigned.yosys = given
-    assert assigned.yosys.netlist_src_attrs is True
-    assert given.netlist_src_attrs is False, "the caller's settings must be left alone"
-    assert flow_cls.Settings(yosys={"netlist_src_attrs": False}).yosys.netlist_src_attrs is False
-    assert YosysFpga.Settings().netlist_src_attrs is False
-
-
-@BY_PLACER
-def test_a_placing_flow_advertises_the_src_default_its_yosys_runs_with(flow_cls):
-    """`xeda list-settings <flow>` shows the default the flow actually applies, and says why."""
-    from xeda.introspect import settings_info
-
-    (yosys,) = [f for f in settings_info(flow_cls)["fields"] if f["name"] == "yosys"]
-    assert yosys["default"]["netlist_src_attrs"] is True
-    assert "nextpnr's reports cite them as source locations" in yosys["description"]
 
 
 @pytest.mark.parametrize(
