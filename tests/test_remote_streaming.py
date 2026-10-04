@@ -432,24 +432,46 @@ channel.send("ran")
     assert "the-very-last-line" in text_of(out_chunks)
 
 
+# What the worker reports about its own fd 1. An inode number is only unique within one
+# filesystem (`st_dev`), so identity is (`st_dev`, `st_ino`): the pty during streaming is
+# on devpts, where /dev/pts/N is inode N + 3, while the worker's original stdout is /dev/null
+# (execnet's popen worker points it there) on devtmpfs, inode 5 on Linux -- pts/2 is also
+# inode 5. A bare `st_ino` compare passed or failed by which pty number the run happened to get.
+FD1_IDENTITY = """
+import os
+st = os.fstat(1)
+channel.send((st.st_dev, st.st_ino, os.isatty(1)))
+"""
+
+
 def test_worker_stdout_is_restored_after_teardown():
     """Teardown must put the worker's fds back, so the gateway stays usable and
     nothing keeps writing into a torn-down pty."""
     gw = execnet.makegateway("popen")
     try:
+        original_dev, original_ino, original_tty = gw.remote_exec(FD1_IDENTITY).receive()
+        assert not original_tty, "the worker's own stdout is not a terminal"
+
         stream_channel = gw.remote_exec(STREAM_OUTPUT_SETUP)
         outchan, errchan = stream_channel.receive()
         outchan.setcallback(lambda d: None, endmarker=None)
         errchan.setcallback(lambda d: None, endmarker=None)
 
-        before = gw.remote_exec("import os; channel.send(os.fstat(1).st_ino)").receive()
+        during_dev, during_ino, during_tty = gw.remote_exec(FD1_IDENTITY).receive()
+        assert during_tty, "fd 1 should have pointed at the pty during streaming"
+        assert (during_dev, during_ino) != (original_dev, original_ino)
 
         stream_channel.send("stop")
-        assert stream_channel.receive() == "stopped"
-        stream_channel.waitclose()
+        # a teardown that cannot finish fails here rather than hanging the run
+        assert stream_channel.receive(timeout=30) == "stopped"
+        stream_channel.waitclose(timeout=30)
 
-        after = gw.remote_exec("import os; channel.send(os.fstat(1).st_ino)").receive()
-        assert before != after, "fd 1 should have pointed at the pty during streaming"
+        after_dev, after_ino, after_tty = gw.remote_exec(FD1_IDENTITY).receive()
+        assert (after_dev, after_ino) == (original_dev, original_ino), (
+            "teardown must put fd 1 back on the worker's original stdout, not leave it "
+            "on the torn-down pty"
+        )
+        assert not after_tty
 
         # the gateway must still work normally afterwards
         assert gw.remote_exec("channel.send(21 * 2)").receive() == 42
