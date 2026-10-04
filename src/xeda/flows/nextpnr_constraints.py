@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..flow import FlowFatalError, PhysicalClock
-from ..utils import tcl_word
 
 
 @dataclass(frozen=True)
@@ -283,7 +282,8 @@ def reconcile_clocks(
                 if any(c.isspace() for c in port):
                     port = "{" + port + "}"
                 pins = pins.append(
-                    f"create_clock -name {tcl_word(name)} -period {clock.period} [get_ports {{{port}}}]\n",
+                    # no `-name`: the backend ignores it, with a warning
+                    f"create_clock -period {clock.period} [get_ports {{{port}}}]\n",
                     f"clock setting clocks.{name} (period {clock.period} ns)",
                 )
         return pins, None, has_timing

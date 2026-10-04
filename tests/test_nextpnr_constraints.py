@@ -411,6 +411,60 @@ def test_hook_failure_lines_are_not_attributed_to_pin_constraints(tmp_path, monk
         flow.run()
 
 
+def _failing_with_log(flow, monkeypatch, text):
+    from xeda.tool import NonZeroExitCode
+
+    def fail(self, *args, env=None):
+        (flow.run_path / "nextpnr.log").write_text(text)
+        raise NonZeroExitCode(args, 1)
+
+    monkeypatch.setattr(NextpnrTool, "run", fail)
+
+
+PARSER_WARNING = "Warning: ignoring unsupported XDC option '-name' (on line 1)\n"
+
+
+def test_a_timing_failure_is_reported_as_one_not_as_a_parser_warning(tmp_path, monkeypatch):
+    """Found on a real 7-series run: every failure was blamed on a harmless parser warning."""
+    (tmp_path / "pins.lpf").write_text("# first\n# second\n")
+    flow, _ = make_flow(tmp_path, monkeypatch, sources=["pins.lpf"])
+    flow.prepare_inputs()
+    flow.run_path.mkdir()
+    failure = "ERROR: Max frequency for clock 'clk': 363.77 MHz (FAIL at 666.67 MHz)"
+    _failing_with_log(flow, monkeypatch, PARSER_WARNING + failure + "\n")
+    with pytest.raises(FlowFatalError) as error:
+        flow.run()
+    message = str(error.value)
+    assert "timing" in message and failure.removeprefix("ERROR: ") in message
+    assert "timing_allow_fail" in message
+    assert "constraint error" not in message and "-name" not in message
+
+
+def test_another_tool_error_is_not_blamed_on_a_parser_warning(tmp_path, monkeypatch):
+    from xeda.tool import NonZeroExitCode
+
+    (tmp_path / "pins.lpf").write_text("# first\n# second\n")
+    flow, _ = make_flow(tmp_path, monkeypatch, sources=["pins.lpf"])
+    flow.prepare_inputs()
+    flow.run_path.mkdir()
+    _failing_with_log(
+        flow, monkeypatch, PARSER_WARNING + "ERROR: Unable to place cell 'x', no BELs remaining\n"
+    )
+    with pytest.raises(NonZeroExitCode):
+        flow.run()
+
+
+def test_a_parser_error_on_a_line_is_still_translated(tmp_path, monkeypatch):
+    (tmp_path / "pins.lpf").write_text("# first\n# second\n")
+    flow, _ = make_flow(tmp_path, monkeypatch, sources=["pins.lpf"])
+    flow.prepare_inputs()
+    flow.run_path.mkdir()
+    _failing_with_log(flow, monkeypatch, PARSER_WARNING + "ERROR: unknown command (on line 2)\n")
+    with pytest.raises(FlowFatalError, match="constraint error.*pins.lpf:2") as error:
+        flow.run()
+    assert "-name" not in str(error.value)
+
+
 def test_ordered_sdc_sources_alone_keep_explicit_types_and_line_map(tmp_path, monkeypatch):
     (tmp_path / "one.sdc").write_text("# one\n# two")
     (tmp_path / "two.pcf").write_text("create_clock -period 40 [get_ports clk]\n")

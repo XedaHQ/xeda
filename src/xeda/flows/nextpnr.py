@@ -776,22 +776,27 @@ class Nextpnr(FpgaSynthFlow):
             frequency,
         )
 
-    def _constraint_diagnostic(self) -> str | None:
-        """Translate constraint lines from a log written by this execution only."""
+    def _error_lines(self) -> list[str]:
+        """The lines nextpnr emitted as errors, from a log written by this execution only."""
         assert isinstance(self.settings, self.Settings)
         path = self.settings.log
         if path is None:
-            return None
+            return []
         path = self.report_file(path if path.is_absolute() else self.run_path / path)
         if path is None:
-            return None
+            return []
         try:
             lines = path.read_text(errors="replace").splitlines()
         except OSError:
-            return None  # preserve the tool failure when its log cannot be read
+            return []  # preserve the tool failure when its log cannot be read
+        return [line for line in lines if line.lstrip().startswith("ERROR:")]
+
+    def _constraint_diagnostic(self, errors: list[str]) -> str | None:
+        """Translate the constraint-file lines among nextpnr's `errors` to their origins. A
+        warning is never a failure's cause: the parsers warn about options they ignore."""
         messages = []
         current = None
-        for line in lines:
+        for line in errors:
             if "constraints.sdc" in line:
                 current = self._sdc_constraints
             elif f"constraints.{self._constraint_kind()}" in line:
@@ -810,6 +815,26 @@ class Nextpnr(FpgaSynthFlow):
                 if translated != line:
                     messages.append(translated)
         return "\n".join(messages) if messages else None
+
+    def _failure(self, error: NonZeroExitCode) -> Exception:
+        """What a failed nextpnr is reported as: a constraint error at its original file and
+        line, a timing failure, or the tool's failure itself -- by the errors in its log."""
+        errors = self._error_lines()
+        diagnostic = self._constraint_diagnostic(errors)
+        if diagnostic:
+            return FlowFatalError(f"nextpnr constraint error: {diagnostic}")
+        missed = [
+            line.strip().removeprefix("ERROR:").strip()
+            for line in errors
+            if "Max frequency for clock" in line and "FAIL" in line
+        ]
+        if missed:
+            return FlowFatalError(
+                "nextpnr: timing constraints are not met: "
+                + "; ".join(dict.fromkeys(missed))
+                + " (`timing_allow_fail` keeps the result anyway)"
+            )
+        return error
 
     def _target(self) -> tuple[str, list[str]]:
         """The validated architecture and device arguments for this instance."""
@@ -1002,10 +1027,10 @@ class Nextpnr(FpgaSynthFlow):
         try:
             next_pnr.run(*args, env={"PYTHONDONTWRITEBYTECODE": "1"})
         except NonZeroExitCode as e:
-            diagnostic = self._constraint_diagnostic()
-            if diagnostic:
-                raise FlowFatalError(f"nextpnr constraint error: {diagnostic}") from e
-            raise
+            failure = self._failure(e)
+            if failure is e:
+                raise
+            raise failure from e
         if config and (declared.config is None or not self.wrote_output(declared.config)):
             raise FlowFatalError(
                 f"nextpnr did not write enabled {config[0]} configuration {declared.config}."
@@ -1014,9 +1039,9 @@ class Nextpnr(FpgaSynthFlow):
             path = getattr(ss, name)
             if name != "report" and path:
                 path = path if path.is_absolute() else self.run_path / path
-                if path.is_file():
+                if path.is_file() and self.wrote_output(path):  # never an earlier run's
                     self.artifacts[name] = path
-        if xilinx and (self.run_path / placement).is_file():
+        if xilinx and self.wrote_output(self.run_path / placement):
             self.artifacts["placement"] = self.run_path / placement
 
     # ------------------------------------------------------------------ report parsing
@@ -1129,10 +1154,10 @@ class Nextpnr(FpgaSynthFlow):
         """The top-level port of the only reported clock domain, when that is certain.
 
         nextpnr names a domain for its clock net, which is the port's own only when no buffer
-        sits between them (a 7-series domain is the BUFG's output net). The port is known when
-        the domain is itself a port of the top module in the placed netlist, or when the launch
-        constrained exactly one clock, on a port, across its settings and constraint files.
-        Anything else -- several clocks, a clock on a net -- keeps the raw name only.
+        sits between them (a 7-series domain is the BUFG's output net). The port is known only
+        when the domain is itself a port of the top module in the placed netlist; anything else
+        keeps the raw name. That the launch constrained one clock, on a port, proves nothing:
+        the reported domain may be a clock generated from it (an MMCM's output).
         """
         try:
             netlist = json.loads(Path(self.inputs.netlist).read_text())  # type: ignore[attr-defined]
@@ -1141,9 +1166,6 @@ class Nextpnr(FpgaSynthFlow):
                 return domain
         except (AttributeError, KeyError, OSError, TypeError, ValueError):
             pass  # no netlist to consult (a flow built for its report alone)
-        uses = getattr(self, "_clock_uses", None)
-        if uses is not None and len(uses) == 1 and uses[0].kind == "port":
-            return uses[0].target
         return None
 
     def _count_xilinx_luts(self, positions: Any) -> None:

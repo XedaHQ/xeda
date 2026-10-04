@@ -237,32 +237,51 @@ def _yosys_report(flow: Flow) -> Path:
     return flow.artifacts.utilization_report
 
 
-#: The flows the sweep cannot bring to their `parse_reports` with their tools stubbed, each
-#: with the settings to construct it, the report it reads (placed as its run would), and a
-#: content that is a passing report.
+NEXTPNR_XILINX_REPORT = (
+    '{"fmax": {}, "utilization": {"SLICE_LUTX": {"used": 1, "available": 2}}, '
+    '"critical_paths": []}\n'
+)
+XILINX_PLACEMENT = (
+    '{"a": {"tile": "CLBLL_L_X2Y56", "site": "SLICE_X0Y56", "bel": "A6LUT", '
+    '"type": "SLICE_LUTX"}}\n'
+)
+
+
+#: The flows the sweep cannot bring to their `parse_reports` with their tools stubbed, by case:
+#: the flow, the settings to construct it, and every file its `parse_reports` reads (placed as
+#: its run would) with a content that is a passing report.
 DIRECT = {
-    "ghdl_sim": ({}, lambda flow: flow.run_path / "results.xml", RESULTS_XML),
-    "nvc": ({}, lambda flow: flow.run_path / "results.xml", RESULTS_XML),
-    "yosys": ({"platform": "asap7"}, _yosys_report, UTILIZATION_JSON),
+    "ghdl_sim": ("ghdl_sim", {}, lambda flow: {flow.run_path / "results.xml": RESULTS_XML}),
+    "nvc": ("nvc", {}, lambda flow: {flow.run_path / "results.xml": RESULTS_XML}),
+    "yosys": ("yosys", {"platform": "asap7"}, lambda f: {_yosys_report(f): UTILIZATION_JSON}),
     "nextpnr": (
+        "nextpnr",
         {"fpga": {"part": "LFE5U-25F-6BG381C"}},
-        lambda flow: flow.run_path / "report.json",
-        NEXTPNR_REPORT,
+        lambda flow: {flow.run_path / "report.json": NEXTPNR_REPORT},
+    ),
+    # 7-series: the report, and the placement dump the LUT count is read from
+    "nextpnr_xilinx": (
+        "nextpnr",
+        {"fpga": {"part": "xc7a100tcsg324-1"}},
+        lambda flow: {
+            flow.run_path / "report.json": NEXTPNR_XILINX_REPORT,
+            flow.run_path / "placement.json": XILINX_PLACEMENT,
+        },
     ),
 }
 
 
-@pytest.mark.parametrize("flow_name", sorted(DIRECT))
+@pytest.mark.parametrize("case", sorted(DIRECT))
 def test_a_flow_the_sweep_cannot_run_never_reads_a_previous_run_s_report(
-    flow_name, tmp_path, monkeypatch
+    case, tmp_path, monkeypatch
 ):
-    """The report such a flow reads, a passing one: written by this run it is read and passes;
-    left by a previous run -- there, unchanged, since the run started -- it is not read, and the
-    run does not pass."""
+    """The reports such a flow reads, passing ones: written by this run they are read and it
+    passes; left by a previous run -- there, unchanged, since the run started -- none is read,
+    and the run does not pass."""
     from xeda.flow_runner import get_flow_class
 
+    flow_name, settings, files_of = DIRECT[case]
     flow_class = get_flow_class(flow_name)
-    settings, report_of, content = DIRECT[flow_name]
     design = Design(
         name="sqrt",
         design_root=tmp_path,
@@ -275,18 +294,25 @@ def test_a_flow_the_sweep_cannot_run_never_reads_a_previous_run_s_report(
         run_dir.mkdir()
         monkeypatch.chdir(run_dir)
         flow = flow_class(settings, design, run_dir)
-        report = report_of(flow)
-        report.parent.mkdir(parents=True, exist_ok=True)
+        files = files_of(flow)
+        for report in files:
+            report.parent.mkdir(parents=True, exist_ok=True)
         if age == "a previous run's":
-            report.write_text(content)
+            for report, content in files.items():
+                report.write_text(content)
         flow.start_run()
         if age == "this run's":
-            report.write_text(content)
+            for report, content in files.items():
+                report.write_text(content)
         reads: list[Path] = []
         _recording_parse_reports(flow_class, monkeypatch, reads, [])
         passed = bool(flow.parse_reports()) & bool(flow.check_results())  # as the launcher does
-        outcomes[age] = (passed, report.resolve() in reads)
-    assert outcomes == {"this run's": (True, True), "a previous run's": (False, False)}
+        outcomes[age] = (passed, sorted(r for r in files if r.resolve() in reads))
+        if case == "nextpnr_xilinx" and age == "this run's":
+            assert flow.results["lut"] == 1
+    assert outcomes["a previous run's"] == (False, [])
+    passed, read = outcomes["this run's"]
+    assert passed and len(read) == len(files)
 
 
 class _ReadsReport(Flow):
