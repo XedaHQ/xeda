@@ -3,7 +3,7 @@
 ## First move: read `settings.json`
 
 Every run directory contains `settings.json`: `flow_settings`, the run's input (the flow's
-defaults, the project's and design file's `[flows.<flow>]` sections and the command-line `-s`
+defaults, the project's and design file's `flows.<flow>` sections and the command-line `-s`
 overrides, merged key by key), and `effective_flow_settings`, what the flow made of it -- plus the
 design as Xeda resolved it.
 
@@ -30,7 +30,7 @@ Check for an `alias`: some settings have two accepted names (`vcd`/`waveform`,
 The value does not match the setting's type. `xeda list-settings <flow> --json` gives each
 field's `type` and, where the value is constrained, its `enum`. Text that spells a number is read
 as one, so `-s clock.period=5.5` is fine but `-s clock.period=fast` is not. The reverse does not
-happen: a text setting needs text in a design file (`compile_args = ["-j", "8"]`), not a number,
+happen: a text setting needs text in a design file (`compile_args: ["-j", "8"]`), not a number,
 and `true`/`false` are not text. The declared `Code` fields used for FPGA speed grades and device
 generations are the exception: `speed = -1` is accepted and stored as text. A list setting also
 accepts comma-separated text (`-s xdc_files=a.xdc,b.xdc`).
@@ -155,7 +155,7 @@ OpenXC7) was turned off.
 ### Simulation passes but nothing ran
 
 Check `results.json`'s cocotb counts: `cocotb.tests` of 0 means no test was collected. Verify the
-testbench source is present in `[tb].sources` and that `tb.top` is set for non-cocotb testbenches.
+testbench source is present in `tb.sources` and that `tb.top` is set for non-cocotb testbenches.
 
 ## Reading numbers correctly
 

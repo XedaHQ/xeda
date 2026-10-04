@@ -127,7 +127,7 @@ route. Results, generated scripts, reports, and effective settings are kept unde
   - `vivado_synth`: FPGA synthesis and implementation in project mode, run in batch
   - `vivado_alt_synth`: the same in non-project mode, driving `synth_design` through
     `route_design` from a generated TCL script
-  - `vivado_project`: creates a Vivado project for the design, to work on in Vivado (`gui = true`
+  - `vivado_project`: creates a Vivado project for the design, to work on in Vivado (`gui: true`
     opens it)
   - `vivado_sim`: functional simulation of an RTL design with the Vivado simulator (`xsim`)
   - `vivado_postsynth_sim`: post-synthesis and post-implementation simulation of the generated

@@ -162,7 +162,7 @@ def remote_read_inputs(
     (`input_settings`: its section with the command line's settings over it, the dependencies'
     settings nested in it included; never its section as written, since what the command line
     replaced there no flow of the run reads -- gpt-6-sol's re-check), and of every other flow's
-    section sent with the design (`[flows.<name>]`, the project's merged in) as written, since
+    section sent with the design (`flows.<name>`, the project's merged in) as written, since
     which dependencies the remote launches, and with what, is not known here. A file, or a
     directory with every entry under it, as a local launch registers them
     (`trace_inputs.register_read_settings`, with `run_path`, the local mirror, and `run_root`

@@ -4,9 +4,9 @@ A flow's settings are assembled from these layers, lowest precedence first:
 
 1. the flow's own defaults (supplied by validation, not here)
 2. under the field holding a dependency's settings (``nextpnr.yosys``), that dependency's own
-   sections (``[flows.yosys_fpga]``), in the order below (`flow_settings_from_sections`)
+   sections (``flows.yosys_fpga``), in the order below (`flow_settings_from_sections`)
 3. the project file's ``flows.<flow>`` section
-4. the design file's ``[flows.<flow>]`` section
+4. the design file's ``flows.<flow>`` section
 5. the command line (``-s KEY=VALUE``), then overrides given through the API
 
 The layers are merged *deeply*: a nested section such as ``yosys = {...}`` combines key by key,
@@ -240,14 +240,14 @@ def flow_settings_from_sections(
     """What merged `flows` sections (`merge_flow_sections`) say for `flow_cls`: its own
     section, over each of its declared dependencies' own sections.
 
-    A dependency's section (``[flows.yosys_fpga]``) is the base of the field holding that
-    dependency's settings (``nextpnr.yosys``), and the depender's section (``[flows.nextpnr]
-    yosys.*``) refines it -- the precedence the dependency's launch uses (`dependency_settings`).
+    A dependency's section (``flows.yosys_fpga``) is the base of the field holding that
+    dependency's settings (``nextpnr.yosys``), and the depender's section
+    (``flows.nextpnr.yosys.*``) refines it -- the precedence the dependency's launch uses (`dependency_settings`).
     Composed here, before the depender runs, because only then can the depender see it: a
     setting it shares with the dependency is resolved in its `init()` (`resolve_dependency`),
     long before the dependency launches -- so an `fpga` given only for `yosys_fpga` never
     reached `nextpnr`, which cannot run without one. Recursive: `openfpgaloader.nextpnr.yosys`
-    sits on `[flows.yosys_fpga]` as well.
+    sits on `flows.yosys_fpga` as well.
     """
     sections = sections or {}
     dependencies: dict[str, Any] = {}
@@ -272,9 +272,9 @@ def compose_flow_settings(
     Each origin is composed on its own first -- a dependency's own section under the depender's
     nested value for it (`flow_settings_from_sections`) -- and the composed origins are then
     stacked. So a leaf is decided by where it was given first, and by nesting only within one
-    origin: a design file's ``[flows.yosys_fpga] flatten`` beats a project file's
-    ``[flows.nextpnr] yosys.flatten``, while within the design file ``[flows.nextpnr]
-    yosys.flatten`` beats ``[flows.yosys_fpga] flatten``. Composing a result again with the
+    origin: a design file's ``flows.yosys_fpga.flatten`` beats a project file's
+    ``flows.nextpnr.yosys.flatten``, while within the design file ``flows.nextpnr.yosys.flatten``
+    beats ``flows.yosys_fpga.flatten``. Composing a result again with the
     merged sections below it changes nothing, so `run()` and `run_flow` may both compose.
     """
     per_origin = [flow_settings_from_sections(flow_cls, sections or {}) for sections in origins]
@@ -426,7 +426,7 @@ def merge_flow_sections(
 ) -> dict[str, dict[str, Any]]:
     """Merge `flows` sections (flow name -> settings) flow by flow, later sections winning.
 
-    A design file's ``[flows.nextpnr]`` refines the project's ``flows.nextpnr`` rather than
+    A design file's ``flows.nextpnr`` refines the project's ``flows.nextpnr`` rather than
     replacing it. When `flow_class_for` is supplied, aliases such as ``ghdl`` are normalized to
     the canonical flow name; spelling the same flow twice in one section is an error.
     """
@@ -481,7 +481,7 @@ def dependency_settings(
     `given` is what the depending flow passed to `add_dependency` (for a declared dependency,
     already `resolve_dependency`-d). Layers, lowest precedence first:
 
-    1. the design's / project's own section for the dependency's flow (``[flows.yosys_fpga]``),
+    1. the design's / project's own section for the dependency's flow (``flows.yosys_fpga``),
        merged deeply like any settings layer (`settings_layers.merge_layers`);
     2. `given`, which is more specific.
 

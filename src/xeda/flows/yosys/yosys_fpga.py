@@ -502,7 +502,7 @@ def sum_all_resources(design_util: dict, lst: Iterable) -> int:
 NEXTPNR_KEEPS_SRC = (
     "Unlike `yosys_fpga` on its own, it keeps `src` attributes in the netlist "
     "(`netlist_src_attrs` defaults to true), since nextpnr's reports cite them as source "
-    "locations; a `netlist_src_attrs` given here or in `[flows.yosys_fpga]` wins."
+    "locations; a `netlist_src_attrs` given here or in `flows.yosys_fpga` wins."
 )
 
 
@@ -518,7 +518,7 @@ def keeping_src_by_default(value: Any) -> Any:
 
     For the `mode="before"` validator of the field holding them; the default comes from
     `yosys_fpga_keeping_src`. The value is recorded as given (`model_fields_set`): launching the
-    dependency layers only what was given over `[flows.yosys_fpga]`
+    dependency layers only what was given over `flows.yosys_fpga`
     (`default_runner.dependency_settings`). That section is merged into the field before
     validation (`settings_layers.flow_settings_from_sections`), so a `netlist_src_attrs` it
     gives arrives as given, and wins. An instance is copied, never changed."""
