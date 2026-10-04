@@ -43,7 +43,7 @@ Every flow declares its own settings. They can be given in five places, in incre
 precedence:
 
 1. the flow's own defaults
-2. a ``xedaproject.toml``'s ``flows.<flow_name>`` section
+2. a ``xedaproject.yaml``'s ``flows.<flow_name>`` section
 3. the design file's ``[flows.<flow_name>]`` section
 4. the command line, via ``-s``/``--settings``
 5. the API, via ``flow_overrides``
@@ -65,7 +65,7 @@ options.
 
 Command-line settings take dotted keys for nested values, and several can be given at once::
 
-    xeda run vivado_synth sqrt.toml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
+    xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
 
 Unknown settings are a hard error, not a warning. This is deliberate: a mistyped setting that was
 silently ignored would produce a result that looks fine and is not what you asked for.
@@ -110,17 +110,17 @@ A dependency runs in its own run directory, a sibling of the flow that launched 
 settings are reachable from the parent as a nested settings key. For example, to change how
 ``nextpnr``'s synthesis dependency behaves while running ``openfpgaloader``::
 
-    xeda run openfpgaloader blinky.toml -s nextpnr.yosys.flatten=true
+    xeda run openfpgaloader blinky.yaml -s nextpnr.yosys.flatten=true
 
 Some flows declare inputs and outputs (``xeda list-flows --json`` exposes them). ``nextpnr``
 reads a ``netlist``, by default the one ``yosys_fpga`` writes. A source of type ``JsonNetlist``
 in ``rtl.sources`` supplies that input instead and skips synthesis:
 
-.. code-block:: toml
+.. code-block:: yaml
 
-    [rtl]
-    sources = [{ file = "top.json", type = "JsonNetlist" }]
-    top = "top"
+    rtl:
+      sources: [{file: top.json, type: JsonNetlist}]
+      top: top
 
 Xeda resolves the declared producers and their settings before anything runs. A scalar input
 requires exactly one matching source. Settings for a producer displaced by sources are unused
@@ -150,7 +150,7 @@ the producer waits (POSIX only). Missing or changed completion evidence refuses 
 Planning without running
 ------------------------
 
-``xeda run nextpnr blinky.toml --dry-run`` prints the immutable plan the launcher would execute:
+``xeda run nextpnr blinky.yaml --dry-run`` prints the immutable plan the launcher would execute:
 producers first, directories, hashes, each declared input's source/producer origin and optional
 outputs switched on for consumers. Add ``--json`` for a document (see :doc:`machine-readable`).
 It runs no tools and changes no run roots, markers, locks or deliveries. Invalid settings,
@@ -204,9 +204,9 @@ Yosys netlist alone does not establish an improvement in routed Fmax.
 
 For example::
 
-    xeda run nextpnr blinky.toml -s fpga.part=iCE40HX1K-TQ144 \
+    xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
       -s clock.period=20 -s pcf_cfg=pins.pcf -s seed=2
-    xeda run openfpgaloader blinky.toml -s write_flash=true -s verify=true
+    xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
 
 Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
 ``openfpgaloader --json`` to inspect all named settings. ``synth_flags``, ``extra_args`` and
@@ -257,8 +257,8 @@ backends still await evidence conversion.
 
 .. code-block:: bash
 
-    xeda run bsc examples/bluespec/gcd/gcd.toml
-    xeda run bsc_sim examples/bluespec/gcd/gcd.toml -s simulator=verilator
+    xeda run bsc examples/bluespec/gcd/gcd.yaml
+    xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s simulator=verilator
 
 See ``examples/bluespec/`` for self-checking designs in both BSV and BH, including a
 multi-package design, one sized by macros, one importing Verilog with ``import "BVI"``, and one

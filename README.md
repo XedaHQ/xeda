@@ -57,7 +57,7 @@ xeda list-flows                   # every flow, with its aliases, category and d
 xeda list-settings vivado_synth   # every setting of a flow, with type, default and meaning
 xeda list-results vivado_synth    # the keys that flow writes to results.json
 xeda design-schema                # JSON Schema of a design description file
-xeda run vivado_synth sqrt.toml -s clock.period=5.0
+xeda run vivado_synth sqrt.yaml -s clock.period=5.0
 ```
 
 Flow names accept snake case, dashes, CamelCase class names, and documented aliases. Setting
@@ -70,7 +70,7 @@ The query commands above accept `--json` for machine-readable output. The `run`,
 parseable JSON document:
 
 ```bash
-xeda run vivado_synth sqrt.toml --json | jq '.results.Fmax'
+xeda run vivado_synth sqrt.yaml --json | jq '.results.Fmax'
 ```
 
 Xeda also ships a coding-agent skill whose flow catalog is generated from the installed version:
@@ -82,32 +82,38 @@ xeda skill install                # writes ./.claude/skills/xeda/
 ### Design description
 
 A design file describes what to build: sources in compilation order, the top level, parameters,
-logical clock ports, and an optional testbench. Tool constraints remain per-flow settings. TOML,
-YAML, and JSON are accepted; paths resolve relative to the design file.
+logical clock ports, and an optional testbench. Tool constraints remain per-flow settings. YAML,
+TOML, and JSON are accepted; YAML is the recommended format, and paths resolve relative to the
+design file.
 
-For example, [`examples/vhdl/sqrt/sqrt.toml`](./examples/vhdl/sqrt/sqrt.toml):
+For example, [`examples/vhdl/sqrt/sqrt.yaml`](./examples/vhdl/sqrt/sqrt.yaml):
 
-```toml
-name = "sqrt"
-description = "Iterative computation of square-root of an integer"
-language.vhdl.standard = "2008"
-
-[rtl]
-sources = ["sqrt.vhdl"]
-top = "sqrt"
-clock = { port = "clk" }
-parameters = { G_IN_WIDTH = 32 }
-
-[tb]
-sources = ["tb_sqrt.py"]
-cocotb = true
-
-[flows.vivado_synth]
-fpga.part = "xc7a100tftg256-2L"
-clock.period = 5.0
+```yaml
+name: sqrt
+description: Iterative computation of square-root of an integer
+language:
+  vhdl:
+    standard: '2008'
+rtl:
+  sources: ['sqrt.vhdl']
+  top: sqrt
+  clock: {port: clk}
+  parameters: {G_IN_WIDTH: 32}
+tb:
+  sources: ['tb_sqrt.py']
+  cocotb: true
+flows:
+  vivado_synth:
+    fpga:
+      part: xc7a100tftg256-2L
+    clock:
+      period: 5.0
 ```
 
-Use `xeda design-schema` for the authoritative input schema.
+Use `xeda design-schema` for the authoritative input schema. YAML uses the 1.2 core schema
+and rejects duplicate or non-string mapping keys. Quote values intended as text, such as
+`"010"`, `"0x1F"` and `"1e3"`; `yes/no/on/off` remain strings, and a boolean setting accepts
+only `true` or `false` (`debug: yes` and `debug: 1` are errors). TOML and JSON remain supported.
 
 ## Flows
 

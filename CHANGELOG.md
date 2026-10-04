@@ -54,14 +54,32 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
-- YAML design and project files now use the YAML 1.2 core schema: `yes/no/on/off/y/n`
-  remain strings, `010` is decimal 10, `0o17` is octal 15, `0x1F` is hexadecimal 31,
-  and scientific notation such as `1e3` is a float. Sexagesimal (`1:30`), timestamps
-  (`2026-10-03`) and underscore-separated numbers (`1_000`) remain strings. Quote
-  values intended as text; use `true`/`false` for booleans and `0o` for octal.
-  Duplicate mapping keys and non-string keys fail with file/line diagnostics. Core
-  explicit tags and ordinary aliases are supported; non-core tags, merge keys and
-  recursive aliases are rejected. TOML and JSON input remain supported.
+- **Breaking: YAML is read as YAML 1.2, strictly.** One shared loader reads every YAML design and
+  project file. `yes`, `no`, `on`, `off`, `y` and `n` are text, not booleans (write `true` or
+  `false`); the octal `010` is gone (`010` is decimal 10; write `0o10` for octal) and the
+  sexagesimal `1:30` is text; timestamps and underscore-separated numbers (`1_000`) are text;
+  `0x1F` is 31 and scientific notation such as `1e3` is a float. Duplicate mapping keys, and
+  keys that are not strings, are errors naming the file and line. Core explicit tags and ordinary
+  aliases are accepted; non-core tags, merge keys and recursive aliases are rejected. Quote values
+  meant as text. TOML and JSON input are unchanged.
+- **Breaking: a boolean setting accepts only `true` and `false`.** pydantic's lax booleans used
+  to read the text `yes`, `on`, `y`, `t` and `1`, and the numbers `1` and `0`, as booleans, so
+  `debug: yes`, `debug: 1` and `-s debug=on` worked. They are now errors that say what to write
+  (`` `yes` is text, not a boolean: write `true` ``, `` `1` is a number, not a boolean: write
+  `true` or `false` ``), for flow settings, design fields and the
+  command line alike, and a word YAML 1.1 read as a boolean that reaches a field that is not
+  one says so too (`` `on` is text in xeda YAML (YAML 1.2): write `true` ``). A number that
+  reaches a text field says to quote it. The command line's `-s` text `true` and `false`
+  (case-insensitive) remain booleans; `try_convert_to_primitives` no longer converts `yes`/`no`.
+- The remote runner finds its project file with the same helper as a local run
+  (`xedaproject.resolve_project_file`): more than one of `xedaproject.yaml`, `.yml` and `.toml`,
+  or a named file that does not exist, is a `ProjectFileError` (now defined in
+  `xeda.xedaproject`, still importable from `xeda.flow_runner`), and `""` means none given.
+- All shipped example designs and projects now use YAML, and documentation and the agent
+  skill show YAML first. TOML and JSON designs/projects remain accepted; bundled board and
+  platform databases stay TOML. Trivium keeps its former TOML configuration in `trivium.yaml`
+  and its distinct DC-capable configuration in `trivium-dc.xeda.yaml` (formerly
+  `trivium.xeda.yaml`).
 - **Breaking: `--remote` requires protocol 3.** P1b remotes apply the shared simulation evidence
   rule and fail simulations that exit successfully without confirmed completion evidence. A P2a
   protocol-2 remote is refused before the design is shipped; upgrade its xeda installation.
