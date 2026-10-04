@@ -163,10 +163,14 @@ All notable changes to this project will be documented in this file.
 - A flow hands its tool only the source types it reads: Quartus no longer writes `XDC_FILE` or
   `MEMORYFILE_FILE` assignments, Vivado, Diamond, ISE and DC no longer add a source of a type
   they cannot use, and a language a flow cannot read is an error naming the source.
-- **Settings connected flows share (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`) must agree**
-  between `nextpnr` and `yosys_fpga`: different values in two places are an error naming both
+- **Settings connected flows share (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`)
+  must agree wherever both endpoints of a declared edge declare them.** On the FPGA path
+  `fpga` and `clocks` are shared by `yosys_fpga`, `nextpnr`, `fpga_pack` and `openfpgaloader`;
+  `board` and `custom_boards_file` by the last three (`yosys_fpga` takes neither); `prjxray_db`
+  only by `nextpnr` and `fpga_pack`. Different values in two places are an error naming both
   (the depending flow's value used to win silently); an explicit CLI leaf wins for
-  both, preserving unrelated leaves. API overrides keep their highest-precedence origin.
+  the whole connected group, preserving unrelated leaves. API overrides keep their
+  highest-precedence origin.
 - `nextpnr` records the selected ECP5, iCE40 or Nexus configuration; an enabled output that is
   missing or stale fails, while disabled/out-of-context outputs remain absent.
 - `nextpnr` takes its netlist from `yosys_fpga`'s recorded output, checked by content, or from a
