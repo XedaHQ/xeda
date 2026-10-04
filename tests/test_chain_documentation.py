@@ -550,8 +550,10 @@ def test_outputs_are_delivered_only_after_the_whole_chain_succeeded(
     assert not out.exists()
 
 
-def test_a_flow_that_fails_without_a_tool_error_says_flow_failure(tmp_path, toolchain, monkeypatch):
-    """The documented split: the node's `results.json` says `FlowFailure`, the consumers quote
+def test_a_flow_that_fails_without_a_tool_error_says_reported_failure(
+    tmp_path, toolchain, monkeypatch
+):
+    """The documented split: the node's `results.json` says `ReportedFailure`, the consumers quote
     it as `FlowDependencyFailure`, and a requested flow's own failure is `FlowFailed` at the top
     level of the document."""
     root = _stage(tmp_path, "routed_demo.yaml")
@@ -563,12 +565,12 @@ def test_a_flow_that_fails_without_a_tool_error_says_flow_failure(tmp_path, tool
     assert result.exit_code == 1 and document["error"]["type"] == "FlowFailed"
     recorded = json.loads((tmp_path / "xeda_run/routed_demo/yosys_fpga/results.json").read_text())
     assert (
-        recorded["error"]["type"] == "FlowFailure"
+        recorded["error"]["type"] == "ReportedFailure"
         and "reported failure" in recorded["error"]["message"]
     )
     result, document = _xeda("run", CHAIN, root / "routed_demo.yaml")
     assert document["error"]["type"] == "FlowDependencyFailure"
-    assert "FlowFailure" in document["error"]["message"]
+    assert "ReportedFailure" in document["error"]["message"]
     assert [n["state"] for n in document["nodes"]][0] == "failed"
 
 

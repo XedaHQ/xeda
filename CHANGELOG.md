@@ -46,8 +46,9 @@ All notable changes to this project will be documented in this file.
   are excluded from the runtime verdict.
 - A failed dependency's `FlowDependencyFailure` names the dependency and its `results.json`.
 - A flow whose reports or checks fail without an exception or a tool exit status leaves
-  `error.type = "FlowFailure"` and a message in its `results.json`, as every failure document
-  does; a dependent used to quote an empty error (`dependency yosys_fpga failed: ;`).
+  `error.type = "ReportedFailure"` and a message in its `results.json`, as every failure document
+  does; a dependent used to quote an empty error (`dependency yosys_fpga failed: ;`). The name is
+  a cause, kept apart from `FlowFailed`, the verdict at the top of the `xeda run --json` document.
 
 ### Added
 - Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or

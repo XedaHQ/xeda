@@ -100,15 +100,17 @@ The EDA tool itself failed. The generated script and the tool's log are in the r
 
 ### `FlowFailed`
 
-The flow ran but reported failure, often because report parsing found a tool error or a timing
-violation. The JSON document keeps the parsed `results`; inspect them and the reports under
-`run_path`.
+The verdict at the top of the `--json` document: the requested flow did not succeed, whatever the
+cause (often report parsing found a tool error or a timing violation). The document keeps the
+parsed `results`; inspect them and the reports under `run_path`.
 
-### `FlowFailure`
+### `ReportedFailure`
 
-A node's `results.json` says `error.type = "FlowFailure"` when its reports or checks failed
-without an exception or a tool exit status (a tool that exited 0 and wrote no netlist, for
-instance). Its consumers quote the message ("dependency yosys_fpga failed: ..."), and the
+The cause, not the verdict: a node's `results.json` says `error.type = "ReportedFailure"` when its
+reports or checks failed without an exception or a tool exit status (a tool that exited 0 and
+wrote no netlist, for instance). The names differ on purpose: `FlowFailed` is the top of the
+document, what happened to the request; `ReportedFailure` is inside a node, why it failed. Its
+consumers quote the message ("dependency yosys_fpga failed: ..."), and the
 top-level `--json` document of the request carries `FlowDependencyFailure` (a producer failed) or
 `FlowFailed` (the requested flow itself). Read the log and the reports in the failing node's
 run directory: the `nodes` of the document list every run directory, and a flow that was planned

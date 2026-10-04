@@ -697,7 +697,7 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
     # tool that exited with zero did not write -- and then the consumers quote it
     expected = {
         ("yosys_fpga", "fail"): "NonZeroExitCode",
-        ("yosys_fpga", "no-output"): "FlowFailure",
+        ("yosys_fpga", "no-output"): "ReportedFailure",
         ("nextpnr", "fail"): "NonZeroExitCode",
         ("nextpnr", "no-output"): "FlowFatalError",
     }[stage, mode]

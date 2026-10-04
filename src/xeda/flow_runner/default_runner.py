@@ -1555,9 +1555,11 @@ class FlowLauncher:
                 log.debug("Failure was reported in the parsed results.")
             if not success and not flow.results.get("error"):
                 # no exception and no exit status: the reports or checks said so; a failure
-                # document always names its error (and a depender quotes it)
+                # document always names its error (and a depender quotes it). This is a node's
+                # cause, `ReportedFailure`; `FlowFailed` is the verdict the top-level `--json`
+                # document of `xeda run` gives whatever the cause, so the names must differ.
                 flow.results["error"] = {
-                    "type": "FlowFailure",
+                    "type": "ReportedFailure",
                     "message": (
                         f"`{flow.name}` reported failure: its reports or checks did not pass "
                         "(see the log and its run directory)"

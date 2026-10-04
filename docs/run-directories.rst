@@ -118,7 +118,7 @@ hashed directories the consumer keeps its directory, and the trace says why it r
 What the flow parsed out of the tool's reports. A run that fails after it has started (a failing
 tool, or a failing dependency) still writes it, as a failure document: ``success`` is ``false``, and
 ``error.type`` and ``error.message`` say what failed, beside the run's identity (a flow whose
-reports or checks failed without a tool error says ``FlowFailure``, and a flow downstream of a
+reports or checks failed without a tool error says ``ReportedFailure``, and a flow downstream of a
 failed one ``FlowDependencyFailure``, quoting it). The previous
 ``results.json`` is removed before a run starts, so an earlier success never stands for a run that
 failed. Every flow reports:
