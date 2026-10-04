@@ -465,6 +465,43 @@ def test_a_parser_error_on_a_line_is_still_translated(tmp_path, monkeypatch):
     assert "-name" not in str(error.value)
 
 
+def _mixed_input_flow(tmp_path, monkeypatch):
+    (tmp_path / "pins.lpf").write_text("# first\n# second\n")
+    (tmp_path / "timing.sdc").write_text("# one\n# two\n# three\n")
+    flow, _ = make_flow(tmp_path, monkeypatch, sources=["pins.lpf", "timing.sdc"])
+    flow.prepare_inputs()
+    flow.run_path.mkdir()
+    return flow
+
+
+def test_an_unqualified_parser_error_with_pin_and_sdc_inputs_names_neither_file(
+    tmp_path, monkeypatch
+):
+    """Both inputs are candidates, so a wrong file in the diagnostic is worse than none."""
+    flow = _mixed_input_flow(tmp_path, monkeypatch)
+    _failing_with_log(flow, monkeypatch, "ERROR: unknown command (on line 2)\n")
+    with pytest.raises(FlowFatalError) as error:
+        flow.run()
+    message = str(error.value)
+    assert "unknown command (on line 2)" in message
+    assert "pins.lpf" not in message and "timing.sdc" not in message
+
+
+def test_a_named_error_does_not_attribute_the_next_unqualified_one(tmp_path, monkeypatch):
+    flow = _mixed_input_flow(tmp_path, monkeypatch)
+    _failing_with_log(
+        flow,
+        monkeypatch,
+        "ERROR: bad option in constraints.sdc (on line 3)\nERROR: unknown command (on line 2)\n",
+    )
+    with pytest.raises(FlowFatalError) as error:
+        flow.run()
+    message = str(error.value)
+    assert "timing.sdc:3" in message
+    assert "unknown command (on line 2)" in message
+    assert "timing.sdc:2" not in message and "pins.lpf" not in message
+
+
 def test_ordered_sdc_sources_alone_keep_explicit_types_and_line_map(tmp_path, monkeypatch):
     (tmp_path / "one.sdc").write_text("# one\n# two")
     (tmp_path / "two.pcf").write_text("create_clock -period 40 [get_ports clk]\n")
