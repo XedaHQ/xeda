@@ -367,3 +367,55 @@ def test_installed_yosys_accepts_the_generated_command(target, tmp_path):
         script = f"read_verilog {source}; {' '.join(settings.synth_command(release))} -top top"
         result = subprocess.run(["yosys", "-q", "-p", script], capture_output=True, text=True)
         assert result.returncode == 0, f"{script}\n{result.stdout}\n{result.stderr}"
+
+
+def _begin_reads(pass_name: str) -> list[tuple[frozenset[str], str]]:
+    """What the installed yosys's `pass_name` reads in its `begin` step: one `(flags, path)` for
+    every file `read_verilog` names, from the pass's own help (`yosys -h`)."""
+    text = subprocess.run(
+        ["yosys", "-p", f"help {pass_name}"], capture_output=True, text=True, check=True
+    ).stdout
+    begin = re.search(r"^    begin:\n((?:        .*\n)+)", text, re.MULTILINE)
+    if not begin and pass_name in ("synth_ecp5", "synth_nexus"):
+        return _begin_reads("synth_lattice")  # they run it with `-family`
+    assert begin, f"no `begin` step in the help of {pass_name}"
+    reads = []
+    for line in begin[1].splitlines():
+        words = line.split()
+        if words[:1] != ["read_verilog"]:
+            continue
+        paths = [word for word in words[1:] if word.startswith("+/")]
+        flags = frozenset(word for word in words[1:] if word not in paths)
+        reads += [(flags, path) for path in paths]
+    return reads
+
+
+@pytest.mark.parametrize("target", ["xilinx", "ecp5", "ice40-hx", "crosslink-nx", "certus-nx"])
+def test_primitive_libraries_are_read_the_way_the_installed_pass_reads_them(target):
+    """A pass reads its library with `-specify`, the cells' timing abc9 maps by, and xeda reads
+    the library first (to check the hierarchy): read without it, the pass is handed a library
+    with no timing, and `yosys_fpga` maps to another netlist than `yosys synth_<target>`."""
+    require_yosys()
+    version = subprocess.run(["yosys", "-V"], capture_output=True, text=True, check=True).stdout
+    match = re.search(r"Yosys (\d+)\.(\d+)", version)
+    assert match, version
+    release: YosysRelease = min((int(match[1]), int(match[2])), NEWEST_CHECKED_YOSYS)
+    settings = YosysFpga.Settings(fpga=TARGETS[target])
+    libraries = settings.primitive_libraries(release)
+    assert libraries
+    # the help names a family's file without its family: `cells_sim.v` for `cells_sim_ecp5.v`
+    pass_reads = _begin_reads(settings.synth_command(release)[0])
+    for library in libraries:
+        name = re.sub(r"_(ecp5|nexus)(?=\.v$)", "", library.path)
+        # a define is the pass's too, by the device: the help shows the default one
+        flags = frozenset(w for w in library.flags if not w.startswith("ICE40_") and w != "-D")
+        assert (flags, name) in {
+            (frozenset(f for f in fl if f != "-D" and not f.startswith("ICE40_")), p)
+            for fl, p in pass_reads
+        }, (library, pass_reads)
+
+
+def test_the_ice40_library_is_defined_for_the_device():
+    for part, define in (("iCE40HX1K-TQ144", "ICE40_HX"), ("iCE40UP5K-SG48I", "ICE40_U")):
+        (library,) = YosysFpga.Settings(fpga={"part": part}).primitive_libraries((0, 69))
+        assert library.flags[:2] == ("-D", define), library

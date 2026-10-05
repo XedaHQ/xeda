@@ -2,7 +2,7 @@ import logging
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import List, Literal, NamedTuple, Optional
 
 from ...dataclass import Field, field_validator
 from ...design import SourceType
@@ -14,6 +14,19 @@ from .common import MINIMUM_YOSYS, YosysBase, YosysRelease, process_parameters, 
 log = logging.getLogger(__name__)
 
 GOWIN_FAMILIES = ("gw1n", "gw2a", "gw5a")
+
+
+class PrimitiveLibrary(NamedTuple):
+    """A primitive library file, and the `read_verilog` flags the target's own pass reads it with.
+
+    A pass's `begin` step reads its library with `-specify`, the cells' timing that abc9 maps by.
+    xeda reads the library first, to check the hierarchy: read any other way, the pass is handed a
+    library without the timing, and maps to a different netlist than `yosys synth_<target>` does
+    on the same sources."""
+
+    path: str
+    flags: tuple[str, ...] = ("-lib", "-specify")
+
 
 #: `synth_xilinx -family` values, the same in every supported yosys release (0.63 to 0.69).
 XILINX_FAMILIES = frozenset(
@@ -233,19 +246,31 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 "families ecp5, ice40 and nexus."
             )
 
-        def primitive_libraries(self, release: YosysRelease) -> list[str]:
-            """Yosys pseudo-paths for primitive models needed before hierarchy checking."""
+        def primitive_libraries(self, release: YosysRelease) -> list[PrimitiveLibrary]:
+            """The primitive models the target's pass reads in its `begin` step, which xeda reads
+            the same way before checking the hierarchy (`tests/test_yosys_templates.py` compares
+            them with the installed yosys's own `begin`)."""
             target = self.synthesis_target()
             if target == "xilinx":
-                return ["+/xilinx/cells_sim.v", "+/xilinx/cells_xtra.v"]
+                return [
+                    PrimitiveLibrary("+/xilinx/cells_sim.v"),
+                    PrimitiveLibrary("+/xilinx/cells_xtra.v", ("-lib",)),
+                ]
             if target == "nexus":
-                return ["+/lattice/cells_sim_nexus.v", "+/lattice/cells_bb_nexus.v"]
+                return [
+                    PrimitiveLibrary("+/lattice/cells_sim_nexus.v"),
+                    PrimitiveLibrary("+/lattice/cells_bb_nexus.v"),
+                ]
             if target == "ecp5" and release >= (0, 69):
-                return ["+/lattice/cells_sim_ecp5.v", "+/lattice/cells_bb_ecp5.v"]
+                return [
+                    PrimitiveLibrary("+/lattice/cells_sim_ecp5.v"),
+                    PrimitiveLibrary("+/lattice/cells_bb_ecp5.v"),
+                ]
             if target == "ecp5":
-                return ["+/ecp5/cells_sim.v"]
+                return [PrimitiveLibrary("+/ecp5/cells_sim.v")]
             if target == "ice40":
-                return ["+/ice40/cells_sim.v"]
+                define = f"ICE40_{self._ice40_device().upper()}"
+                return [PrimitiveLibrary("+/ice40/cells_sim.v", ("-D", define, "-lib", "-specify"))]
             return []
 
         def synth_command(self, release: YosysRelease) -> List[str]:
@@ -350,7 +375,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 )
             return command + list(self.synth_flags)
 
-        def _ice40_flags(self) -> List[str]:
+        def _ice40_device(self) -> str:
+            """`hx`, `lp` or `u`: `ice40_device`, else the one `fpga` names."""
             assert self.fpga is not None
             device: Optional[str] = self.ice40_device
             if device is None:
@@ -366,6 +392,10 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                     device = "u"
                 else:
                     device = "lp" if name.startswith("ice40lp") else "hx"
+            return device
+
+        def _ice40_flags(self) -> List[str]:
+            device = self._ice40_device()
             flags: List[str] = ["-device", device]
             if (self.ice40_dsp or self.ice40_spram) and device != "u":
                 raise FlowSettingsException(

@@ -26,8 +26,8 @@ plugin -i systemverilog
 plugin -i slang
 {% endif -%}
 
-{% for src in primitive_libraries|default([]) -%}
-read_verilog -lib {{src|read_path}}
+{% for lib in primitive_libraries|default([]) -%}
+read_verilog {{lib.flags|join(" ")}} {{lib.path|read_path}}
 {% endfor -%}
 
 {% for src in sources -%}
@@ -65,7 +65,7 @@ read_liberty -lib {{lib|read_path}}
 {% endfor -%}
 {% endif -%}
 
-{% for src in settings.verilog_lib if src|string not in primitive_libraries|default([]) -%}
+{% for src in settings.verilog_lib if src|string not in primitive_libraries|default([])|map(attribute="path")|list -%}
 read_verilog -lib {{src|read_path}}
 {% endfor -%}
 

@@ -101,7 +101,9 @@ def test_ys_template_quotes_values_plainly(flow_cls, settings, tmp_path: Path) -
 def _library_reads(script: str, library: str) -> list[int]:
     """The line numbers that read `library` as a library: a `.tcl` script puts its path in double
     quotes and `yosys` before the command."""
-    pattern = re.compile(rf'\s*(?:yosys\s+)?read_verilog -lib "?{re.escape(library)}"?\s*')
+    pattern = re.compile(
+        rf'\s*(?:yosys\s+)?read_verilog (?:-\S+ )*-lib (?:-\S+ )*"?{re.escape(library)}"?\s*'
+    )
     return [n for n, line in enumerate(script.splitlines()) if pattern.fullmatch(line)]
 
 
@@ -140,7 +142,7 @@ def test_fpga_primitive_libraries_follow_release_recipe(fpga, release, expected)
     from xeda.flows.yosys.yosys_fpga import YosysFpga
 
     settings = YosysFpga.Settings(fpga=fpga)
-    assert settings.primitive_libraries(release) == expected
+    assert [library.path for library in settings.primitive_libraries(release)] == expected
 
 
 @pytest.mark.parametrize("flow_cls", [Yosys, YosysFpga], ids=["yosys", "yosys_fpga"])
