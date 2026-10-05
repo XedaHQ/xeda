@@ -68,6 +68,7 @@ import importlib
 import importlib.util
 import inspect
 from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
 from typing import NamedTuple
@@ -616,27 +617,52 @@ def test_patching_a_launcher_stage_name_intercepts_a_real_launch(tmp_path, monke
     )
 
 
-def test_patching_the_failed_run_artifact_drop_intercepts_a_failing_launch(tmp_path, monkeypatch):
-    """The same, for the one name only a failing run reaches."""
-    import pytest as _pytest
+@contextmanager
+def _a_flow_whose_run_raises():
+    """A registered flow that fails, unregistered again at the end.
 
-    from xeda import Design
-    from xeda.flow_runner import DefaultRunner
+    `Flow.__init_subclass__` registers every subclass globally, and a test must leave no
+    registered flow behind (it would reach every later sweep, in this worker and under `-n`).
+    """
+    from xeda.flow import registered_flows
 
     from .io_flows import _Maker
 
-    class _Failing(_Maker):
-        """A flow whose run raises, so the launcher drops what it did not write."""
+    class _FailingRun(_Maker):
+        """Its run raises, so the launcher drops the artifacts it did not write."""
 
         def run(self) -> None:
             raise RuntimeError("as the oracle asked")
 
+    try:
+        yield _FailingRun
+    finally:
+        for registered in (_FailingRun.name, _FailingRun.__name__):
+            registered_flows.pop(registered, None)
+
+
+def test_patching_the_failed_run_artifact_drop_intercepts_a_failing_launch(tmp_path, monkeypatch):
+    """The same, for the one name only a failing run reaches."""
+    from xeda import Design
+    from xeda.flow_runner import DefaultRunner
+
     seen = _intercepting(monkeypatch, ["_drop_unwritten_artifacts"])
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    with _pytest.raises(RuntimeError, match="as the oracle asked"):
-        runner.launch_flow(_Failing, design, {})
+    with _a_flow_whose_run_raises() as failing:
+        with pytest.raises(RuntimeError, match="as the oracle asked"):
+            runner.launch_flow(failing, design, {})
     assert seen == {"_drop_unwritten_artifacts"}, (
         "a failing launch did not go through default_runner._drop_unwritten_artifacts: it is "
         "patched to intercept the launcher, and the patch reached nothing"
     )
+
+
+def test_the_failing_fixture_flow_leaves_the_registry_as_it_was():
+    """The guard on the guard: a leaked registration would reach every later sweep."""
+    from xeda.flow import registered_flows
+
+    before = dict(registered_flows)
+    with _a_flow_whose_run_raises() as failing:
+        assert registered_flows.get(failing.name) is not None, "it was never registered"
+    assert registered_flows == before
