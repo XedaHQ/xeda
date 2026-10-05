@@ -454,29 +454,55 @@ def test_the_yaml_reader_is_the_shared_strict_loader(tmp_path, monkeypatch):
     assert seen == [path]
 
 
+ACCEPTED = "a board database is TOML or YAML ('.toml', '.yaml', '.yml')"
+
+
 @pytest.mark.parametrize(
-    "filename, hint",
+    "filename, reason",
     [
         ("boards.json", "unsupported file suffix '.json'"),
-        ("boards.txt", "unsupported file suffix '.txt'"),
+        ("boards.cfg", "unsupported file suffix '.cfg'"),
+        ("boards.toml.bak", "unsupported file suffix '.bak'"),
         ("boards", "no file suffix"),
-        ("boards.TOML", "suffixes are case-sensitive, did you mean '.toml'?"),
-        ("boards.Yaml", "suffixes are case-sensitive, did you mean '.yaml'?"),
+        (
+            "boards.TOML",
+            "unsupported file suffix '.TOML' (suffixes are case-sensitive: did you mean '.toml'?)",
+        ),
+        (
+            "boards.Yaml",
+            "unsupported file suffix '.Yaml' (suffixes are case-sensitive: did you mean '.yaml'?)",
+        ),
+        (
+            "boards.YML",
+            "unsupported file suffix '.YML' (suffixes are case-sensitive: did you mean '.yml'?)",
+        ),
     ],
 )
-def test_an_unknown_database_suffix_is_an_error_saying_what_is_accepted(tmp_path, filename, hint):
+def test_an_unknown_database_suffix_is_an_error_saying_what_is_accepted(tmp_path, filename, reason):
+    """Every refused suffix says what it is and what is accepted; a mis-cased one also says
+    the right spelling. Pinned whole, as the setting reports it and as the function raises it."""
     path = tmp_path / filename
     path.write_text(BOARD_TOML)  # valid TOML: the suffix alone decides, nothing is guessed
+    expected = f'Cannot load board database "{path}": {reason}; {ACCEPTED}'
+    with pytest.raises(ValueError) as direct:
+        xeda.board.board_database_format(path)
+    assert str(direct.value) == expected
     for data in ({"board": "MY_BOARD"}, {}):  # a database nobody has asked a board of too
         with pytest.raises(FlowSettingsError) as raised:
             Nextpnr.Settings.from_input(
                 {**data, "custom_boards_file": str(path)}, design_root=tmp_path
             )
-        message = str(raised.value)
-        assert f'Cannot load board database "{path}": ' in message
-        assert hint in message
-    if "case-sensitive" not in hint:
-        assert "a board database is TOML or YAML ('.toml', '.yaml', '.yml')" in message
+        assert expected in str(raised.value)
+
+
+def test_a_directory_is_no_database_and_says_so_like_any_suffixless_path(tmp_path):
+    directory = tmp_path / "boards"
+    directory.mkdir()
+    with pytest.raises(ValueError) as raised:
+        xeda.board.board_database_format(directory)
+    assert str(raised.value) == (
+        f'Cannot load board database "{directory}": no file suffix; {ACCEPTED}'
+    )
 
 
 def test_a_yaml_database_that_is_broken_names_the_file(tmp_path):
