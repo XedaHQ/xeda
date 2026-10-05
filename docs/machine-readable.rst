@@ -281,7 +281,7 @@ its completed output could not be verified), ``FlowFatalError``, and ``FlowExcep
 not an exception class is ``FlowFailed``, the run's verdict: the requested flow
 itself ran to its end without raising and did not succeed (its own cause is in its
 ``results.json``, below). A flow that raises is named by its exception class, never by
-``FlowFailed``. Four more come from run-directory and delivery isolation (D21):
+``FlowFailed``. Four more come from run-directory and delivery isolation:
 
 * ``RunRootError`` -- the run root (``--run-root``/``XEDA_RUN_ROOT``) cannot be used: it holds
   files and carries no marker Xeda created, or it lies where Xeda cannot write. Names the
