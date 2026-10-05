@@ -10,10 +10,9 @@ import yaml
 from importlib_resources import as_file, files
 
 from .dataclass import Field, model_validator
-from .design import _yaml_error_position
 from .flow import FPGA, FpgaSynthFlow
 from .utils import expand_env_vars, toml_load, toml_loads
-from .yaml_loader import load_yaml
+from .yaml_loader import load_yaml, yaml_error_position
 
 __all__ = [
     "BOARD_DATABASE_FORMATS",
@@ -76,7 +75,7 @@ def read_board_database(path: Union[str, os.PathLike]) -> Dict[str, Any]:
     except tomllib.TOMLDecodeError as e:
         raise ValueError(f'Cannot load board database "{path}": {e}') from None
     except yaml.MarkedYAMLError as e:
-        reason, line, column = _yaml_error_position(e)
+        reason, line, column = yaml_error_position(e)
         where = f", line {line}, column {column}" if line is not None else ""
         raise ValueError(f'Cannot load board database "{path}"{where}: {reason}') from None
     except yaml.YAMLError as e:

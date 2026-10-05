@@ -111,3 +111,23 @@ def load_yaml(path: str | Path) -> Any:
     """
     with Path(path).open("rb") as stream:
         return yaml.load(stream, Loader=_CoreLoader)
+
+
+def yaml_error_position(e: yaml.MarkedYAMLError) -> tuple[str, int | None, int | None]:
+    """`(message, line, column)` of a YAML error, 1-based: where the parser found the problem,
+    with where the enclosing construct began (if it did) in the message."""
+    parts = []
+    if e.context:
+        context = e.context
+        if e.context_mark is not None and e.context_mark is not e.problem_mark:
+            context += f" (line {e.context_mark.line + 1}, column {e.context_mark.column + 1})"
+        parts.append(context)
+    if e.problem:
+        parts.append(e.problem)
+    if e.note:
+        parts.append(f"note: {e.note}")
+    mark = e.problem_mark or e.context_mark  # PyYAML marks are 0-based
+    reason = ": ".join(parts) or "invalid YAML"
+    if mark is None:
+        return reason, None, None
+    return reason, mark.line + 1, mark.column + 1
