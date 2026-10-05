@@ -683,6 +683,8 @@ def test_a_remote_listing_unwritten_artifacts_is_handled(
     after failure; after success, a missing artifact is still an error."""
     monkeypatch.setattr(remote_module, "remote_runner", _remote_runner_with_unwritten_artifacts)
     if not fails:
+        # the fake Vivado writes the netlist unless it is told its commands write nothing
+        monkeypatch.setenv("XEDA_FAKE_TOOL_NO_OUTPUT", "1")
         with pytest.raises(FileNotFoundError, match=r"impl_funcsim\.v"):
             _run_vivado_alt_synth_with_netlist(tmp_path)
         return
