@@ -652,7 +652,7 @@ def use_fake_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     loader = FAKE_TOOLS_DIR / "openFPGALoader"
     assert (
         loader.is_file()
-        and loader.resolve() == FAKE_TOOLS_DIR / "fake_fpga_tool.py"
+        and loader.resolve() == (FAKE_TOOLS_DIR / "fake_fpga_tool.py").resolve()
         and os.access(loader, os.X_OK)
     ), f"missing or incorrect fake openFPGALoader: {loader}; refusing real programmer fallback"
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ.get("PATH", ""))
