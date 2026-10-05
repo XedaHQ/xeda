@@ -81,6 +81,14 @@ def test_per_cell_type_counts_are_reported(parsed_flow: Yosys):
         # a distributed ROM is a LUT holding an INIT value: logic, as Vivado reports it
         ({"ROM16X1": 1, "ROM32X1": 1, "ROM64X1": 1, "ROM128X1": 1, "ROM256X1": 1}, (9, 9, 0, 0)),
         ({"ROM256X1": 2, "RAM64X1S": 1, "LUT4": 1}, (10, 9, 1, 0)),
+        # an INV is a LUT1, whether the design instantiates it or abc9 makes it of an inversion
+        ({"INV": 2, "LUT2": 1}, (3, 3, 0, 0)),
+        # the cells of `tests/test_openxc7_real.py`'s `prims` design as the real yosys maps it
+        # (the real-tool layer pins the same four numbers against the installed toolchain)
+        (
+            {"LUT6_2": 1, "INV": 1, "RAM32X1D": 1, "SRL16E": 1, "CARRY4": 1, "FDRE": 4},
+            (6, 3, 2, 1),
+        ),
         ({}, (0, 0, 0, 0)),
     ],
 )
