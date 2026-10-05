@@ -40,13 +40,10 @@ def board_database_format(path: Union[str, os.PathLike]) -> str:
     if fmt is not None:
         return fmt
     accepted = ", ".join(repr(known) for known in BOARD_DATABASE_FORMATS)
+    what = f"unsupported file suffix {suffix!r}" if suffix else "no file suffix"
     if suffix.lower() in BOARD_DATABASE_FORMATS:
-        reason = (
-            f"file suffix {suffix!r}: suffixes are case-sensitive, did you mean {suffix.lower()!r}?"
-        )
-    else:
-        what = f"unsupported file suffix {suffix!r}" if suffix else "no file suffix"
-        reason = f"{what}; a board database is TOML or YAML ({accepted})"
+        what += f" (suffixes are case-sensitive: did you mean {suffix.lower()!r}?)"
+    reason = f"{what}; a board database is TOML or YAML ({accepted})"
     raise ValueError(f'Cannot load board database "{path}": {reason}')
 
 
