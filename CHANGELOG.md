@@ -99,7 +99,7 @@ All notable changes to this project will be documented in this file.
   `nobram`, `widemux`, `synth_flags`, ...) applies either way; a setting that would add a step
   before or after the pass (`prep`, `pre_synth_opt`, `post_synth_opt`, `splitnets`,
   `post_synth_rename`, `black_box`, `keep_hierarchy`, `set_attribute`, `set_mod_attribute`,
-  `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`) is refused at launch, naming both, rather
+  `clockgate_map`, `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`) is refused at launch, naming both, rather
   than ignored. `flow3` is now unset by default, meaning the same thing it did before: xeda's own
   recipe maps with ABC9's `flow3` script, while `synth_pass_only` leaves ABC9 the script the pass
   gives it.

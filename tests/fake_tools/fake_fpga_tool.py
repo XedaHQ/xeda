@@ -396,8 +396,19 @@ def yosys(tool, args):
     return 0
 
 
+def yosys_config(args):
+    """`yosys-config --datdir`: the directory yosys' `+/` stands for, which the fake yosys reads
+    its libraries from (`<prefix>/share/yosys`)."""
+    if args != ["--datdir"]:
+        raise ValueError(f"fake yosys-config answers --datdir only, not {args}")
+    print(Path(sys.argv[0]).resolve().parent.parent / "share/yosys")
+    return 0
+
+
 def main():
     tool, args = Path(sys.argv[0]).name, sys.argv[1:]
+    if tool == "yosys-config":
+        return yosys_config(args)
     probe_args = [arg for arg in args if arg not in ("-T", "-Q")]
     if tool == "openFPGALoader":
         if probe_args in (["-V"], ["--Version"]):

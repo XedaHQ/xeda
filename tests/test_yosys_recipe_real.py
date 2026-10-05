@@ -25,7 +25,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import YosysFpga
 
-from .tool_utils import require_yosys
+from .tool_utils import require_yosys, require_yosys_config
 
 PART = "xc7a100tcsg324-1"
 
@@ -154,6 +154,26 @@ pytestmark = pytest.mark.usefixtures("_yosys")
 def test_synth_pass_only_writes_the_netlist_the_pass_writes_on_its_own(tmp_path):
     mode = _launch(tmp_path, "pass-only", synth_pass_only=True)
     assert _netlist(mode) == _reference(tmp_path, _synth_line(mode))
+
+
+def test_a_library_the_pass_reads_is_not_read_again_when_verilog_lib_spells_it_as_a_path(tmp_path):
+    """`+/xilinx/cells_sim.v` and the file it names under yosys' data directory are one library.
+
+    The data directory is what the installed yosys reports (`yosys-config --datdir`), the
+    directory its own `+/` stands for. One more read of that library, by whatever spelling,
+    moves the netlist (`test_an_extra_primitive_library_read_alone_changes_the_netlist`).
+    """
+    require_yosys_config()
+    datdir = Path(
+        subprocess.run(
+            ["yosys-config", "--datdir"], capture_output=True, text=True, check=True, timeout=60
+        ).stdout.strip()
+    )
+    library = datdir / "xilinx" / "cells_sim.v"
+    assert library.is_file(), f"`+/` does not stand for {datdir}"
+    mode = _launch(tmp_path, "pass-only", synth_pass_only=True)
+    spelled = _launch(tmp_path, "as-path", synth_pass_only=True, verilog_lib=[str(library)])
+    assert _netlist(spelled) == _netlist(mode) == _reference(tmp_path, _synth_line(mode))
 
 
 def test_the_default_recipe_writes_a_different_netlist_on_the_same_design(tmp_path):

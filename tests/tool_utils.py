@@ -687,6 +687,7 @@ def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
     binary.mkdir(parents=True, exist_ok=True)
     for name in (
         "yosys",
+        "yosys-config",
         "nextpnr-himbaechel",
         "nextpnr-ecp5",
         "nextpnr-ice40",

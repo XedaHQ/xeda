@@ -65,11 +65,11 @@ read_liberty -lib {{lib|read_path}}
 {% endfor -%}
 {% endif -%}
 
-{#- A `verilog_lib` entry naming a library the target's pass reads itself is skipped:
-    `skip_libraries` lists them whatever the recipe reads, so `synth_pass_only`, which
-    reads none of them here, cannot let one back in through this list -- every
-    `read_verilog` advances yosys's `autoidx` and so moves the design's cell names. #}
-{% for src in settings.verilog_lib if src|string not in skip_libraries|default([]) -%}
+{#- `yosys_fpga` passes `verilog_libs`: `verilog_lib` without the entries that are a library the
+    target's pass reads itself, which it decides by the file each one is
+    (`YosysFpga.verilog_libraries_to_read`), whatever this script reads. Every other flow
+    reads its `verilog_lib` as given. #}
+{% for src in verilog_libs|default(settings.verilog_lib) -%}
 read_verilog -lib {{src|read_path}}
 {% endfor -%}
 

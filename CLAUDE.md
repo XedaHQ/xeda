@@ -1291,8 +1291,8 @@ dependency must also share `custom_boards_file`.
   fakes). It is **one** setting, not a switch per deviation: every flag of the pass itself
   (`synth_command`) applies either way, while every setting that would add a step before or after
   the pass (`prep`, `pre_synth_opt`, `post_synth_opt`, `splitnets`, `post_synth_rename`,
-  `black_box`, `keep_hierarchy`, `set_attribute`, `set_mod_attribute`, `stop_after`, `rtl_json`,
-  `rtl_verilog`, `rtl_graph`) is refused with one `FlowSettingsError` naming both -- from
+  `black_box`, `keep_hierarchy`, `set_attribute`, `set_mod_attribute`, `clockgate_map`,
+  `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`) is refused with one `FlowSettingsError` naming both -- from
   `Settings.synth_pass_only_conflicts()`, checked in `check_settings_supported` (so at planning
   and under `--dry-run`) *and* in `run()`, since `init()` folds `design.rtl.attributes` into
   `set_attribute` and `keep_hierarchy` into `set_mod_attribute` after the class-level check. A
@@ -1309,7 +1309,18 @@ dependency must also share `custom_boards_file`.
   alone changes the netlist by a cell (measured), which is why the mode omits xeda's early read
   and why a small cell-count difference between two flows is no evidence about either one.
   `primitive_libraries()` still reports what the pass reads either way: its oracle compares it
-  with the installed yosys's own `begin` step.
+  with the installed yosys's own `begin` step. **So a file-valued setting is either refused under
+  the mode or a reviewed read**: `verilog_lib` is the one reviewed read (the user's own library,
+  read after the sources), and `clockgate_map` -- which only ever added a `read_verilog` no pass of
+  the target consumes -- is refused. `tests/test_yosys_recipe.py`'s sweep over every file-valued
+  setting of `yosys_fpga` fails for a new one until it is classified. A `verilog_lib` entry naming
+  a library the target's pass reads is skipped by **which file it is**
+  (`YosysFpga.verilog_libraries_to_read`, `common.same_file`): `+/...` is compared as yosys
+  spells it, an ordinary path against the file `+/` stands for under the installed yosys's own
+  data directory, `common.yosys_data_dir` (`yosys-config --datdir`, asked only when such an entry
+  and a library to compare it with both exist), so a symbolic or hard link, a roundabout spelling
+  or another letter case of the same file is not read a second time. If that directory cannot be
+  learned the run fails naming the entry, never guessing.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers).
   (`fpga_pack` refuses a family it has no packer for there). Undeclared flows validate in

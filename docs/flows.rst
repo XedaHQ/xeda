@@ -461,10 +461,18 @@ yours: ``yosys <file>.sv`` uses Yosys' built-in SystemVerilog reader, so to matc
 SystemVerilog sources read them the same way with ``systemverilog = default``. A run that reads
 them through the ``slang`` or Surelog/UHDM plugin instead says so in its log. A setting that would add a step before or after the pass -- ``prep``,
 ``pre_synth_opt``, ``post_synth_opt``, ``splitnets``, ``post_synth_rename``, ``black_box``,
-``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``stop_after``, ``rtl_json``,
-``rtl_verilog``, ``rtl_graph`` -- is refused at launch, naming both settings, rather than
+``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``clockgate_map``, ``stop_after``,
+``rtl_json``, ``rtl_verilog``, ``rtl_graph`` -- is refused at launch, naming both settings, rather than
 ignored. A constrained clock is not refused: it is simply not passed on to ABC9, which is what
 the tool's own flow does.
+
+The mode reads the design's sources and the libraries you name in ``verilog_lib``, and nothing
+else: no setting adds another read, because each extra ``read_verilog`` changes the netlist (see
+below). A ``verilog_lib`` entry that names a library the target's pass reads itself, such as
+``+/xilinx/cells_sim.v``, is skipped however it is spelled -- as a path under Yosys' data
+directory, through a link, or in another letter case -- so it cannot add that read back. To tell
+which file an ordinary path is, Xeda asks the installed Yosys for its data directory with
+``yosys-config --datdir``.
 
 Comparing cell counts between the two needs care. Every ``read_verilog`` advances Yosys' shared
 generated-name counter, the design's cell names move with it, and ABC9 maps by those names -- so

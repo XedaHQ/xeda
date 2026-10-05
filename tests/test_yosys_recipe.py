@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
+from xeda.dataclass import written_role
 from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import YosysFpga
@@ -132,8 +133,6 @@ def test_synth_pass_only_renders_the_pass_and_nothing_but_the_pass(
         synth,  # the pass, which elaborates, flattens, optimizes and maps on its own
         "tee",  # `check`: read-only
         "tee",  # `stat`: read-only
-        "setattr",  # drop `src` before writing (attributes only, never a cell)
-        "setattr",
         "write_json",
         "write_verilog",
     ]
@@ -154,27 +153,134 @@ def test_the_default_recipe_still_runs_every_step_xeda_adds(
     assert reads == (1 if target == "gowin" else 1 + len(_libraries(PARTS[target])))
 
 
+def _share(tmp_path: Path) -> Path:
+    """The fake yosys's data directory, which its `+/` and `yosys-config --datdir` name."""
+    return tmp_path / "toolchain" / "share" / "yosys"
+
+
+def _spellings(tmp_path: Path, library: str) -> dict[str, str]:
+    """One installed library, named every way a `verilog_lib` entry could name it."""
+    relative = library.removeprefix("+/")
+    folder, name = relative.rsplit("/", 1)
+    installed = _share(tmp_path) / relative
+    other = tmp_path / "elsewhere" / folder
+    other.mkdir(parents=True, exist_ok=True)
+    link = other / f"linked_{name}"
+    link.symlink_to(installed)
+    hard = other / f"hard_{name}"
+    hard.hardlink_to(installed)
+    return {
+        "yosys": library,
+        "yosys-roundabout": f"+/{folder}/../{folder}/{name}",
+        "absolute": str(installed),
+        "absolute-roundabout": str(installed.parent / ".." / folder.split("/")[-1] / name),
+        "symbolic-link": str(link),
+        "hard-link": str(hard),
+    }
+
+
+SPELLINGS = [
+    "yosys",
+    "yosys-roundabout",
+    "absolute",
+    "absolute-roundabout",
+    "symbolic-link",
+    "hard-link",
+]
+
+
 @BY_TARGET
 @BY_FORMAT
-def test_a_verilog_lib_naming_the_passs_own_library_adds_no_read_under_the_mode(
-    tmp_path, toolchain, target, script_format
+@pytest.mark.parametrize("spelling", SPELLINGS)
+@pytest.mark.parametrize("mode", [True, False], ids=["mode", "default"])
+def test_a_verilog_lib_naming_the_passs_own_library_adds_no_read_however_it_is_spelled(
+    tmp_path, toolchain, target, script_format, spelling, mode
 ):
-    """`verilog_lib` must not let the early library read back in by another name.
+    """`verilog_lib` must not let a library the pass reads itself back in by another name.
 
-    The entry is skipped in either recipe, by the library names the target's pass reads
-    (`skip_libraries`), never by what this script happens to read -- otherwise a configuration
-    carrying `verilog_lib: ["+/xilinx/cells_sim.v"]` would read it once more under the mode, and
-    one read is enough to move every generated cell name.
+    The entry is skipped in either recipe, by *which file it is* (`verilog_libraries_to_read`):
+    `+/xilinx/cells_sim.v`, the same file by its absolute path, through a symbolic or a hard
+    link, or spelled round about, is one library -- otherwise a configuration carrying it would
+    read the library once more, and one read is enough to move every generated cell name.
     """
-    libraries = _libraries(PARTS[target]) or [None]
+    libraries = [library for library in _libraries(PARTS[target])]
+    if not libraries:
+        pytest.skip("synth_gowin reads no library, so no entry can name one")
     run_path = _launch(
         tmp_path,
         PARTS[target],
+        synth_pass_only=mode,
+        script_format=script_format,
+        verilog_lib=[_spellings(tmp_path, library.path)[spelling] for library in libraries],
+    )
+    reads = _commands(run_path, script_format).count("read_verilog")
+    # the design's own source; the default recipe also reads the pass's libraries itself
+    assert reads == (1 if mode else 1 + len(libraries))
+
+
+@BY_FORMAT
+def test_a_verilog_lib_that_is_not_the_passs_library_is_still_read(
+    tmp_path, toolchain, script_format
+):
+    """The teeth: the filter is by file identity, so another file of the same content or name
+    is the user's own library and stays read, after the sources."""
+    share = _share(tmp_path)
+    copy = tmp_path / "copy" / "cells_sim.v"
+    copy.parent.mkdir()
+    copy.write_text((share / "xilinx" / "cells_sim.v").read_text())
+    own = tmp_path / "own.v"
+    own.write_text("module own(); endmodule\n")
+    run_path = _launch(
+        tmp_path,
+        PARTS["xilinx"],
         synth_pass_only=True,
         script_format=script_format,
-        verilog_lib=[library.path for library in libraries if library is not None],
+        verilog_lib=[str(copy), str(own)],
     )
-    assert _commands(run_path, script_format).count("read_verilog") == 1
+    assert _commands(run_path, script_format).count("read_verilog") == 3
+
+
+def test_no_data_directory_is_asked_for_unless_an_entry_needs_one(tmp_path, toolchain, monkeypatch):
+    """`yosys-config` runs only to compare an ordinary path with the pass's libraries: a
+    `+/` entry is yosys' own spelling, and Gowin's pass reads no library to compare with."""
+
+    def asked(*_):
+        raise AssertionError("yosys' data directory was asked for")
+
+    monkeypatch.setattr("xeda.flows.yosys.yosys_fpga.yosys_data_dir", asked)
+    own = tmp_path / "own.v"
+    own.write_text("module own(); endmodule\n")
+    _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True, verilog_lib=["+/xilinx/cells_sim.v"])
+    _launch(tmp_path, PARTS["gowin"], synth_pass_only=True, verilog_lib=[str(own)])
+
+
+@pytest.mark.parametrize("failure", ["missing", "blank"])
+def test_an_unknown_data_directory_is_an_error_naming_the_entry_not_a_guess(
+    tmp_path, toolchain, monkeypatch, failure
+):
+    from xeda.tool import Tool
+    from xeda.utils import ExecutableNotFound
+
+    def missing(*_):
+        raise ExecutableNotFound("yosys-config", "Tool", "", "not found")
+
+    if failure == "missing":
+        monkeypatch.setattr("xeda.flows.yosys.yosys_fpga.yosys_data_dir", missing)
+    else:  # the real helper, over a `yosys-config` that prints nothing
+        monkeypatch.setattr(Tool, "probe_stdout", lambda *_, **__: "\n")
+    library = _share(tmp_path) / "xilinx" / "cells_sim.v"
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    with pytest.raises(Exception, match=r"Cannot tell whether `verilog_lib` entry .*cells_sim\.v"):
+        runner.run(
+            YosysFpga,
+            _design(tmp_path),
+            flow_settings={
+                "fpga": PARTS["xilinx"],
+                "clock": {"period": 5.0},
+                "synth_pass_only": True,
+                "verilog_lib": [str(library)],
+            },
+        )
 
 
 def _libraries(part: "str | dict[str, str]") -> list:
@@ -254,6 +360,7 @@ CONFLICTS = {
     "keep_hierarchy": ["leaf"],
     "set_attribute": {"keep": {"top": "true"}},
     "set_mod_attribute": {"keep_hierarchy": {"leaf": 1}},
+    "clockgate_map": "clock_gates.v",
     "stop_after": "rtl",
     "rtl_json": "rtl.json",
     "rtl_verilog": "rtl.v",
@@ -344,6 +451,54 @@ def test_a_nested_producer_section_reaches_the_mode_and_its_refusals(tmp_path, t
         )
     assert "`synth_pass_only`" in str(raised.value)
     assert ": flow3 " in str(raised.value)
+
+
+#: the file-valued settings whose files the mode reads on purpose, each beside the reason: it is
+#: an input of the design, read after the sources as `read_verilog -lib <file>` would be
+REVIEWED_READS = {"verilog_lib"}
+
+#: file-valued settings that are no read of this script: `lib_paths` are the directories GHDL
+#: searches for its libraries, and only the ghdl front end that reads the design's VHDL uses them
+NOT_A_READ = {"lib_paths"}
+
+
+def _read_settings() -> list[str]:
+    """Every setting of `yosys_fpga` that names a file it may read: a `Path` (or a list of them)
+    that is neither a working location nor a delivered output (`dataclass.written_role`)."""
+    return sorted(
+        name
+        for name, field in YosysFpga.Settings.model_fields.items()
+        if "Path" in str(field.annotation)
+        and written_role(YosysFpga.Settings, name) is None
+        and name not in NOT_A_READ
+    )
+
+
+@pytest.mark.parametrize("setting", _read_settings())
+def test_no_setting_makes_the_mode_read_a_file_the_reference_invocation_does_not(
+    tmp_path, toolchain, setting
+):
+    """The class `clockgate_map` was an instance of: a setting that adds a `read_verilog`.
+
+    Every `read_verilog` advances yosys's `autoidx`, so a file the mode reads beyond the sources
+    is a netlist `yosys -p 'synth_<target> ...' <sources>` does not write. Each setting that
+    names a file is therefore either refused under the mode, or one of the reviewed reads: a new
+    one fails here until it is classified.
+    """
+    file = tmp_path / f"setting_{setting}.v"
+    file.write_text("module " + file.stem + "(); endmodule\n")
+    value: "str | list[str]" = (
+        [str(file)]
+        if "List" in str(YosysFpga.Settings.model_fields[setting].annotation)
+        else str(file)
+    )
+    try:
+        run_path = _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True, **{setting: value})
+    except FlowSettingsError as refused:
+        assert f": {setting} " in str(refused)
+        return
+    script = (run_path / "yosys_fpga_synth.ys").read_text()
+    assert (file.name in script) == (setting in REVIEWED_READS), script
 
 
 # ------------------------------------------------------------- what the mode deliberately keeps
