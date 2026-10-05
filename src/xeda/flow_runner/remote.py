@@ -889,6 +889,10 @@ class RemoteRunner(FlowLauncher):
         design_allow_extra: bool = False,
     ):
         """Execute a design flow remotely and return its results."""
+        # A chain is a local request. Refused first, on the flow name alone: loading the design
+        # may clone a git dependency into the run root, or fail on a design file that is missing.
+        if "+" in flow_name:
+            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
         # the design file given, when `design` names one: never an output's destination
         given_file = Path(design) if isinstance(design, (str, Path)) else None
         project_flow_settings: Mapping[str, Any] | None = None
@@ -941,8 +945,6 @@ class RemoteRunner(FlowLauncher):
                     project_flow_settings = project.flows
         # where a project's settings come from, named in messages even when there is none
         project_label = project_path or Path(PROJECT_FILE_NAMES[0])
-        if "+" in flow_name:
-            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
         flow_class = get_flow_class(flow_name)
         flow_name = flow_class.name
 
