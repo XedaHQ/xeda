@@ -245,9 +245,10 @@ output maps to an ordered list of those records. ``path`` is absolute, inside th
 directory; ``sha`` is its 32-character content digest, not a timestamp. Recording checks readable
 files, containment and current-run writes. Hand-over checks record schema, cardinality,
 containment and content under a verified producer read lease, whether the producer ran or was
-reused. Output-record validation failures use ``MissingOutput`` and the normal failure identity.
-Flow-specific checks can fail earlier: ``nextpnr`` raises ``FlowFatalError`` naming an enabled
-configuration setting/path that its tool did not write. Disabled outputs are omitted.
+reused. A failure to record an output uses ``MissingOutput`` and the normal failure identity; a
+consumer's failed hand-over check is a ``FlowDependencyFailure``. Flow-specific checks can fail
+earlier: ``nextpnr`` raises ``FlowFatalError`` naming an enabled configuration setting/path that
+its tool did not write. Disabled outputs are omitted.
 ``outputs`` is bookkeeping, like ``artifacts``, rather than a ``list-results`` metric; it is
 omitted from the printed result table.
 
@@ -273,9 +274,13 @@ unknown flow or setting):
 ``error.type`` names the exception class, which is stable enough to branch on:
 ``FlowSettingsError`` (a bad setting), ``FlowNotFoundError`` (a bad flow name),
 ``ExecutableNotFound`` (the tool is not installed), ``NonZeroExitCode`` (the tool failed),
-``DesignValidationError`` (a bad design file), ``FlowFailed`` (the verdict: the requested flow did not succeed, whatever the cause),
-``NoSuccessfulRun`` (a DSE search found no successful candidate), ``FlowFatalError``, and
-``FlowException``. Four more come from run-directory and delivery isolation (D21):
+``DesignValidationError`` (a bad design file), ``NoSuccessfulRun`` (a DSE search found no
+successful candidate), ``FlowDependencyFailure`` (a producer the requested flow needs failed, or
+its completed output could not be verified), ``FlowFatalError``, and ``FlowException``. The one name that is
+not an exception class is ``FlowFailed``, the run's verdict: the requested flow
+itself ran to its end without raising and did not succeed (its own cause is in its
+``results.json``, below). A flow that raises is named by its exception class, never by
+``FlowFailed``. Four more come from run-directory and delivery isolation (D21):
 
 * ``RunRootError`` -- the run root (``--run-root``/``XEDA_RUN_ROOT``) cannot be used: it holds
   files and carries no marker Xeda created, or it lies where Xeda cannot write. Names the
@@ -291,15 +296,26 @@ unknown flow or setting):
 
 Every node's own ``results.json`` is a failure document too, and its ``error.type`` is more
 specific than the top-level document's: the top-level ``FlowFailed`` is the run's verdict (the
-requested flow did not succeed, whatever the cause), while a node names the cause.
-``ReportedFailure`` -- ``"`<flow>` reported failure: its
-reports or checks did not pass"`` -- is what a flow leaves when it failed with no exception and no
-tool exit status (its tool exited 0 and the reports or checks it reads say otherwise, or an
-expected output was never written); the flows downstream of it say
-``FlowDependencyFailure`` and quote it (``dependency yosys_fpga failed: ...``), and so does the
-top-level ``error`` of a chain whose last flow was never reached. A chain that is malformed
-or does not fit (an empty element, an unknown or repeated flow, a flow with no declared I/O, a
-programmer before the end, a pair with no compatible output) is a ``UsageError`` with exit status 2
+requested flow itself ran and did not succeed), while a node names the cause. A producer's failure
+is never ``FlowFailed``: the producer's own ``results.json`` names its cause, and the flows
+downstream of it say ``FlowDependencyFailure`` and quote it (``dependency yosys_fpga failed:
+...``), as does the top-level ``error`` of a chain whose last flow was never reached. A flow that
+raises names its exception class (``NonZeroExitCode``, ``FlowFatalError``, ...). Two causes belong
+to a flow that finished without raising, and the top-level document of such a flow says
+``FlowFailed``:
+
+* ``ReportedFailure`` -- ``"`<flow>` reported failure: its reports or checks did not pass"`` --
+  a failure that a non-throwing ``parse_reports()`` or ``check_results()`` reported: the tool
+  exited 0 and the reports or checks the flow reads say otherwise.
+* ``MissingOutput`` -- the flow passed its own checks, but an enabled declared output is absent,
+  unreadable, outside the run directory or not written by this run (see ``outputs`` above).
+
+A missing enabled output can also be caught earlier, by the flow itself: ``nextpnr`` raises
+``FlowFatalError`` naming the configuration setting/path its tool did not write, which is a raised
+error and not a ``MissingOutput``.
+
+A chain that is malformed or does not fit (an empty element, an unknown or repeated flow, a flow
+with no declared I/O, a programmer before the end, a pair with no compatible output) is a ``UsageError`` with exit status 2
 and no ``request``; a binding that cannot be applied (an unknown input or producer, a binding for
 a flow that declares no inputs, a chain and a command-line or API binding of the same input) is a
 settings error naming the input and where the binding was written.
