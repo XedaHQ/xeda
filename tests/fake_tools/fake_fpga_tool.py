@@ -345,8 +345,12 @@ def yosys(tool, args):
     paths = [script]
     for words in lines:
         if words[0] in ("read_verilog", "read_vhdl"):
-            for word in words[1:]:
-                if word.startswith("+/"):
+            operands = iter(words[1:])
+            for word in operands:
+                # `-D ICE40_HX`: the macro is the option's, not a file
+                if word in ("-D", "-I", "-U"):
+                    next(operands, None)
+                elif word.startswith("+/"):
                     prefix = Path(sys.argv[0]).resolve().parent.parent
                     paths.append(prefix / "share/yosys" / word[2:])
                 elif not word.startswith("-"):
