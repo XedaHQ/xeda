@@ -1292,10 +1292,12 @@ dependency must also share `custom_boards_file`.
   (`synth_command`) applies either way, while every setting that would add a step before or after
   the pass (`prep`, `pre_synth_opt`, `post_synth_opt`, `splitnets`, `post_synth_rename`,
   `black_box`, `keep_hierarchy`, `set_attribute`, `set_mod_attribute`, `clockgate_map`,
-  `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`) is refused with one `FlowSettingsError` naming both -- from
+  `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`, `sta`, `ltp`) is refused with one `FlowSettingsError` naming both -- from
   `Settings.synth_pass_only_conflicts()`, checked in `check_settings_supported` (so at planning
   and under `--dry-run`) *and* in `run()`, since `init()` folds `design.rtl.attributes` into
-  `set_attribute` and `keep_hierarchy` into `set_mod_attribute` after the class-level check. A
+  `set_attribute` and `keep_hierarchy` into `set_mod_attribute` after the class-level check. The list
+  is of what the user *gives*: a setting xeda's own code writes escapes it, so `sta`/`ltp` (which
+  make `Yosys.init` set `flatten`, adding `-flatten` to the pass) are on it themselves. A
   constrained clock is not refused, only not passed on to ABC9, and neither is a *reading* choice
   (`read_verilog_flags`, `systemverilog`): which front end reads the sources stays the user's, so
   matching the tool on SystemVerilog sources also needs `systemverilog = default`, and a run that
