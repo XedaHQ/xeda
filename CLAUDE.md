@@ -694,7 +694,11 @@ hash, so a `touch`, `chmod`, `cp -p` or a branch round-trip costs a hash, not a 
 edit given back its old mtime is still caught (its ctime moved). A check reads the file-system clock
 only before it first reads a file's content, and refreshes the trace (`Freshness.refreshed`) when a
 record it read changed or has settled since (`FileRecord.settled_before`), so a racy file is not
-hashed at every later check; in a read-only run directory it checks without refreshing. A dependency
+hashed at every later check; in a read-only run directory it checks without refreshing.
+A fresh launch may therefore rewrite `trace.json`: a test that claims a reuse left a run directory
+alone compares `tool_utils.run_outputs_state` (every entry but the reserved names), never a listing
+of the whole directory, and forces the refresh with `tool_utils.check_after_the_racy_window`
+rather than hoping the machine is slow enough. A dependency
 that ran again always makes its depender stale too, even if nothing it declared as an input actually
 changed -- there is no cross-edge cutoff until declared inputs/outputs (plan 2). What is not tracked
 (each can make a stale result look fresh; `--rebuild-all` is the escape): what a symbolic link in a

@@ -528,8 +528,11 @@ def test_every_shorter_head_and_the_bare_action_are_one_executable_graph(
     assert all(graph == graphs[0] for graph in graphs) and len(graphs[0]) == 4
 
 
+@pytest.mark.parametrize("late_check", [False, True], ids=["same moment", "after the racy window"])
 @BY_BOARD
-def test_a_build_only_chain_run_twice_reuses_every_stage(tmp_path, toolchain, board):
+def test_a_build_only_chain_run_twice_reuses_every_stage(
+    tmp_path, toolchain, board, late_check, monkeypatch
+):
     design = _stage(tmp_path, board)
     build = "yosys_fpga+nextpnr+fpga_pack"
     result, first = _xeda("run", build, design)
@@ -537,13 +540,19 @@ def test_a_build_only_chain_run_twice_reuses_every_stage(tmp_path, toolchain, bo
     assert _states(first) == dict.fromkeys(STAGES[:3], "ran")
     bitstream = tmp_path / "xeda_run" / board.design / "fpga_pack" / board.bitstream
     assert bitstream.read_bytes() == BITSTREAM
-    state = {path: path.stat().st_mtime_ns for path in bitstream.parent.parent.rglob("*.*")}
+    run_dirs = [tmp_path / "xeda_run" / board.design / stage for stage in STAGES[:3]]
+    state = tool_utils.run_outputs_state(*run_dirs)
+    traces = {path: path.stat().st_mtime_ns for path in (d / "trace.json" for d in run_dirs)}
+    if late_check:
+        tool_utils.check_after_the_racy_window(monkeypatch)
     result, again = _xeda("run", build, design)
     assert result.exit_code == 0 and _states(again) == dict.fromkeys(STAGES[:3], "fresh")
     assert again["results"]["success"] and again["flow"] == "fpga_pack"
     for stage in STAGES[:3]:
         assert len(_calls(tmp_path, board.design, stage)) == 1, f"{stage} ran again"
-    assert {path: path.stat().st_mtime_ns for path in state} == state
+    assert tool_utils.run_outputs_state(*run_dirs) == state
+    if late_check:  # the scenario the check makes: the traces were refreshed, no output was
+        assert {path: path.stat().st_mtime_ns for path in traces} != traces
     # a build that programs nothing started no programmer, however it was reached
     assert not (tmp_path / "xeda_run" / board.design / "openfpgaloader").exists()
     assert all(record.parent.name != "openfpgaloader" for record in _every_call(tmp_path))
