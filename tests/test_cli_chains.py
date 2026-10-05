@@ -9,6 +9,7 @@ import yaml
 from click.testing import CliRunner
 
 from xeda import Design
+from xeda.design import DesignFileParseError
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException, registered_flows
 from xeda.flow_runner import remote as remote_module
@@ -277,6 +278,65 @@ def test_a_chain_given_to_dse_clones_no_git_dependency(tmp_path, monkeypatch):
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
         _dse_runner(tmp_path).run("__input_maker+__taker", design)
     assert not cloned and not (tmp_path / "mirror").exists()
+
+
+_MADE = "__input_maker.made"
+#: how a binding of the requested node reaches a launcher: `-s`, `-s flows.<node>.`, the API
+_BINDING_SPELLINGS = {
+    "bare -s": {"flow_settings": ["inputs.made=" + _MADE]},
+    "flow-qualified -s": {"flow_settings": ["flows.__taker.inputs.made=" + _MADE]},
+    "api": {"flow_overrides": {"inputs": {"made": _MADE}}},
+}
+
+
+@pytest.mark.parametrize("spelling", sorted(_BINDING_SPELLINGS))
+def test_a_binding_of_the_requested_node_given_to_dse_clones_no_git_dependency(
+    tmp_path, monkeypatch, spelling
+):
+    """The requested node is always reached, so its explicit binding is refused with no design
+    loaded at all: nothing is cloned and no run root is made."""
+    import git.repo
+
+    cloned = []
+    monkeypatch.setattr(
+        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
+    )
+    design = _git_dependency_design(tmp_path)
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
+        _dse_runner(tmp_path).run("__taker", design, **_BINDING_SPELLINGS[spelling])
+    assert not cloned and not (tmp_path / "mirror").exists()
+
+
+def test_a_project_binding_of_the_requested_node_given_to_dse_clones_no_git_dependency(
+    tmp_path, monkeypatch
+):
+    import git.repo
+
+    cloned = []
+    monkeypatch.setattr(
+        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
+    )
+    (tmp_path / "xedaproject.yaml").write_text(
+        yaml.safe_dump({"flows": {"__taker": {"inputs": {"made": _MADE}}}})
+    )
+    design = _git_dependency_design(tmp_path)
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
+        _dse_runner(tmp_path).run("__taker", design)
+    assert not cloned and not (tmp_path / "mirror").exists()
+
+
+def test_a_saved_binding_of_another_node_is_not_refused_before_the_design_loads(tmp_path):
+    """Only the requested node is reached by construction; whether any other node is depends on
+    the resolved graph, so a binding saved for one is left to the check that has the plan."""
+    (tmp_path / "xedaproject.yaml").write_text(
+        yaml.safe_dump({"flows": {"__input_maker": {"inputs": {"made": _MADE}}}})
+    )
+    with pytest.raises(DesignFileParseError):
+        _dse_runner(tmp_path).run(
+            "__taker",
+            tmp_path / "missing.yaml",
+            flow_settings=["flows.__input_maker.inputs.made=" + _MADE],
+        )
 
 
 def test_a_chain_given_to_dse_is_refused_even_for_a_missing_design(tmp_path):

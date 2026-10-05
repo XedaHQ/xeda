@@ -85,6 +85,7 @@ from .bindings import (
     effective_bindings,
     input_origins,
     node_identity,
+    require_no_bindings,
     split_bindings,
 )
 from .chains import ChainElement, FlowRequest, parse_request
@@ -1764,6 +1765,65 @@ class FlowLauncher:
             )
         return selected
 
+    def _refuse_unaccepted_request(
+        self,
+        flow: Union[Type[Flow], str, FlowRequest],
+        flow_settings: Any,
+        flow_overrides: Any,
+        xedaproject: Optional[str],
+    ) -> None:
+        """Refuse a chain, or an input binding of the requested node given on the command line,
+        by the API or in the project file, before anything is loaded (`LOCAL_REQUESTS_ONLY`)."""
+        if isinstance(flow, FlowRequest):
+            if len(flow.elements) > 1:
+                raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
+            requested = flow.requested
+        elif isinstance(flow, str):
+            if "+" in flow:
+                raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
+            requested = parse_request(flow).requested
+        else:
+            requested = flow
+        from .resolver import _explicit
+
+        # the layers a request reads bindings from, taken out as `_request` takes them
+        explicit = (
+            _explicit(flow_settings)
+            if isinstance(flow_settings, Flow.Settings)
+            else settings_to_dict(flow_settings)
+        )
+        cli_sections, cli_own = split_flow_sections(
+            explicit, requested.name, flow_class_for=_get_flow_class_if_known
+        )
+        cli_sections = merge_flow_sections(
+            cli_sections, {requested.name: cli_own}, flow_class_for=_get_flow_class_if_known
+        )
+        layers = [
+            split_bindings(cli_sections, location="the command line", kind="cli")[1],
+            split_bindings(
+                {
+                    requested.name: (
+                        flow_overrides
+                        if isinstance(flow_overrides, dict)
+                        else settings_to_dict(flow_overrides)
+                    )
+                },
+                location="the API",
+                kind="api",
+            )[1],
+        ]
+        project_path = resolve_project_file(xedaproject)
+        if project_path is not None:
+            try:
+                project = XedaProject.from_file(project_path, skip_designs=True)
+            except (OSError, ValueError, yaml.YAMLError):
+                project = None  # `_request` reports it, before it loads any design
+            if project is not None:
+                layers.append(
+                    split_bindings(project.flows, location=f'the project file "{project_path}"')[1]
+                )
+        require_no_bindings(layers, [NodeKey(requested.name)])
+
     def run(
         self,
         flow: Union[Type[Flow], str],
@@ -1786,16 +1846,15 @@ class FlowLauncher:
         design_remove_fields: List[str] = [],
     ) -> Optional[Flow]:
         """Load and compose a request, then execute its resolved declared graph."""
-        # A chain is refused first, on the flow name alone, where requests are not taken
-        # (`Dse`): loading the design may clone a git dependency into the run root, or fail on
-        # a design file that is missing. A reached binding needs the design, so it is refused
-        # below, once the request is resolved.
-        if not self.accepts_bindings and (
-            len(flow.elements) > 1
-            if isinstance(flow, FlowRequest)
-            else isinstance(flow, str) and "+" in flow
-        ):
-            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
+        # Where requests are not taken (`Dse`), what can be refused without a loaded design is
+        # refused first: loading a design may clone a git dependency into the run root, or fail
+        # on a design file that is missing. That is a chain (the flow name alone) and an input
+        # binding of the requested node, which every request reaches (its command-line, API and
+        # project-file spellings are all in hand). A binding saved in the design file, and one of
+        # any other node, depend on the design or on the resolved graph (a node is bound only
+        # if the request reaches it): those are refused below, once the request is resolved.
+        if not self.accepts_bindings:
+            self._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject)
         request = self._request(
             flow,
             design,
