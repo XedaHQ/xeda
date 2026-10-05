@@ -2,6 +2,7 @@
 XEDA's utility functions and classes
 """
 
+import errno
 import hashlib
 import importlib
 import json
@@ -9,6 +10,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -210,6 +212,123 @@ def replacing_file(
             Path(temporary).unlink(missing_ok=True)  # the temporary file, never committed
 
 
+#: The largest byte count one `copy_file_range` or `sendfile` call is asked for (the kernel
+#: clamps it anyway: `sendfile` to 0x7ffff000).
+_FAST_COPY_CHUNK = 1 << 30
+#: The read/write loop's buffer.
+_LOOP_CHUNK = 1 << 20
+#: `COPYFILE_DATA` of macOS's <copyfile.h> (`posix._COPYFILE_DATA` in CPython): the data fork only.
+_COPYFILE_DATA = 1 << 3
+
+
+def _copy_with_copy_file_range(src_fd: int, dst_fd: int, size: int) -> None:
+    """Linux: `os.copy_file_range` at explicit offsets until `size` bytes are copied. It may copy
+    fewer bytes than asked, so it is looped; a return of 0 before `size` is a file shorter than
+    it was said to be (or a filesystem that does not support the call), and raises."""
+    copied = 0
+    while copied < size:
+        n = os.copy_file_range(  # type: ignore[attr-defined,unused-ignore]
+            src_fd, dst_fd, min(size - copied, _FAST_COPY_CHUNK), copied, copied
+        )
+        if n == 0:
+            raise OSError(errno.EIO, "copy_file_range copied nothing before the end of the file")
+        copied += n
+
+
+def _copy_with_sendfile(src_fd: int, dst_fd: int, size: int) -> None:
+    """Linux: `os.sendfile` at an explicit offset until `size` bytes are copied (looped, as
+    above)."""
+    copied = 0
+    while copied < size:
+        n = os.sendfile(dst_fd, src_fd, copied, min(size - copied, _FAST_COPY_CHUNK))
+        if n == 0:
+            raise OSError(errno.EIO, "sendfile copied nothing before the end of the file")
+        copied += n
+
+
+def _copy_with_fcopyfile(src_fd: int, dst_fd: int, size: int) -> None:
+    """macOS: `fcopyfile(3)` with `COPYFILE_DATA` on the two descriptors, from their current
+    offsets (the caller has rewound both). A plain data copy: on descriptors it never clones. It
+    returns 0 or -1 and has no partial result, but the destination's size is checked all the
+    same. Called through `ctypes`, so no private CPython API is needed."""
+    try:
+        import ctypes
+
+        fcopyfile = ctypes.CDLL(None, use_errno=True).fcopyfile
+    except (ImportError, AttributeError) as e:  # no ctypes, or no such function: not available
+        raise OSError(errno.ENOSYS, f"fcopyfile is not available: {e}") from e
+    fcopyfile.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+    fcopyfile.restype = ctypes.c_int
+    if fcopyfile(src_fd, dst_fd, None, _COPYFILE_DATA) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
+    if os.fstat(dst_fd).st_size != size:
+        raise OSError(errno.EIO, "fcopyfile copied fewer bytes than the file holds")
+
+
+def _fast_copies(platform: str = sys.platform) -> List[Callable[[int, int, int], None]]:
+    """The kernel copy primitives `platform` has, best first. Decided by what the interpreter
+    reports (never by importing anything that could fail): `os.copy_file_range` then `os.sendfile`
+    on Linux, `fcopyfile` on macOS, none elsewhere (a plain loop does the work)."""
+    if platform.startswith("linux"):
+        fast: List[Callable[[int, int, int], None]] = []
+        if hasattr(os, "copy_file_range"):
+            fast.append(_copy_with_copy_file_range)
+        if hasattr(os, "sendfile"):
+            fast.append(_copy_with_sendfile)
+        return fast
+    if platform == "darwin":
+        return [_copy_with_fcopyfile]
+    return []
+
+
+def _rewind(src_fd: int, dst_fd: int, *, source_is_file: bool) -> None:
+    """Both descriptors at offset 0 and `dst_fd` empty: the state every attempt starts from, so
+    what an earlier attempt wrote before it failed can never be part of the result."""
+    if source_is_file:
+        os.lseek(src_fd, 0, os.SEEK_SET)
+    os.lseek(dst_fd, 0, os.SEEK_SET)
+    if os.fstat(dst_fd).st_size:
+        os.ftruncate(dst_fd, 0)
+
+
+def copy_fd(src_fd: int, dst_fd: int) -> None:
+    """Copy the whole content of the open file `src_fd` into the open, writable file `dst_fd`,
+    replacing what `dst_fd` holds: `shutil.copyfileobj` between two descriptors, through the
+    copy primitive the platform has (`os.copy_file_range`, then `os.sendfile`, on Linux;
+    `fcopyfile` on macOS). Nothing is cloned or linked: the bytes are copied. Permission bits are
+    not copied.
+
+    A source that is a regular file is read from its start whatever its offset is. Every attempt
+    starts from a rewound source and an emptied destination (`_rewind`), and any `OSError` from
+    a kernel primitive -- it is not there (`ENOSYS`, `EINVAL`, `EBADF`, `EOPNOTSUPP`, a sandbox's
+    `EPERM`), refuses the pair (`EXDEV` across file systems), or fails after copying some bytes --
+    makes the next primitive, and last the plain loop, start again from scratch. A primitive
+    that stops short, or copies nothing before the end of a file that is not empty, counts as
+    a failure the same way. An error that is real (`ENOSPC`, `EIO`) then happens again in the
+    loop, which raises it. An empty file needs no primitive. Pipes and other sources that
+    cannot be rewound go straight to the loop. The result is complete or an exception, and
+    the destination's offset afterwards is not defined."""
+    st = os.fstat(src_fd)
+    source_is_file = stat.S_ISREG(st.st_mode)
+    if source_is_file and st.st_size > 0:
+        for fast in _fast_copies():
+            _rewind(src_fd, dst_fd, source_is_file=True)
+            try:
+                fast(src_fd, dst_fd, st.st_size)
+                return
+            except OSError as e:
+                log.debug("%s failed (%s): trying the next way to copy", fast.__name__, e)
+    _rewind(src_fd, dst_fd, source_is_file=source_is_file)
+    while True:
+        chunk = os.read(src_fd, _LOOP_CHUNK)
+        if not chunk:
+            return
+        view = memoryview(chunk)
+        while view:
+            view = view[os.write(dst_fd, view) :]
+
+
 def replacing_copy(src: Union[str, os.PathLike], dst: Union[str, os.PathLike]) -> Path:
     """`shutil.copy(src, dst)` -- the content and the permission bits, into `dst` if it is a
     directory -- except that a file or link at the destination is replaced, never written
@@ -218,7 +337,7 @@ def replacing_copy(src: Union[str, os.PathLike], dst: Union[str, os.PathLike]) -
     if target.is_dir() and not target.is_symlink():
         target = target / Path(src).name
     with open(src, "rb") as source, replacing_file(target, "wb", copy_mode_from=src) as f:
-        shutil.copyfileobj(source, f)
+        copy_fd(source.fileno(), f.fileno())
     return target
 
 
