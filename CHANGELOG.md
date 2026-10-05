@@ -50,6 +50,22 @@ All notable changes to this project will be documented in this file.
   does; a dependent used to quote an empty error (`dependency yosys_fpga failed: ;`). The name is
   a cause, kept apart from `FlowFailed`, the verdict at the top of the `xeda run --json` document.
 
+- **A delivered output is no longer read again at every launch when nothing about it changed.**
+  Xeda held a verified record of the file it had delivered and still read the whole file twice on
+  every later launch -- once in the check before the run, once in the copy that then copied
+  nothing -- because the record was anchored at the file's own change time, before which a file is
+  never settled, so it could never vouch by metadata. A check that does have to read a destination
+  now reads the clock of that destination's own file system first
+  (`digest.filesystem_time_ns`) and anchors the record it then took to that time, so a later check
+  recognizes an unchanged file by its size, mtime, inode change time and inode -- the same R38
+  trust rule every other file Xeda tracks follows -- and reads nothing. An unchanged re-delivery
+  reads the delivered file once instead of three times, and the destination not at all. Nothing is
+  trusted that was not verified against a clock read at that moment: a delivery just copied is
+  still read once by the next launch, and a destination whose directory takes no marker, or that
+  moved file systems, is read at every launch as before. Every mutation check is unchanged -- an
+  edit given back its old mtime, and a different file put in the destination's place, are still
+  refused.
+
 ### Added
 - `custom_boards_file` accepts a YAML board database (`.yaml` or `.yml`) as well as TOML, by the
   file's suffix; YAML is read by the same strict YAML 1.2 loader as every other YAML file, so a

@@ -789,10 +789,22 @@ directory's lock); the copies themselves are made in `_finish_launch`, before th
 clean-ups, once every flow of the graph has registered its reads -- a dependency's output could
 otherwise replace a file a later sibling or its own depender reads before that depender's `init()`
 has even run. An existing file at a destination is replaced without asking only when it is xeda's
-own earlier delivery there, unchanged: inode and content digest are what decide (never mtime
-alone, which the R38 trust rule never lets vouch for a delivery on its own) -- a same-inode file
-holding exactly the delivered bytes is xeda's copy whatever touched it since, while another inode,
-or different bytes, fails closed and asks. See `docs/run-directories.rst`'s "Outputs where you
+own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode
+file holding exactly the delivered bytes is xeda's copy whatever touched it since, while another
+inode, or different bytes, fails closed and asks. **Whether the content must be read is decided by
+the R38 trust rule, like every other record's** (`deliver._destination_record`): a check that
+reads a destination first reads the clock of that destination's own file system
+(`deliver._destination_clock`, a marker made and removed in the directory delivery writes its
+temporary in, `digest.filesystem_time_ns` -- never the process clock) and anchors the record it
+takes to that time (`anchor_ns`, with the `anchor_device` it was read on, beside the fail-closed
+`recorded_ns` an older xeda reads); the next check of an unchanged delivery recognizes it by its
+metadata and reads nothing, so an unchanged re-delivery of a huge output costs no pass over it.
+The anchor is never arithmetic on the record already held: a record is anchored only to a clock
+read at a moment that very content was verified, and only when it is really settled before it
+(`FileRecord.settled_before`) -- so the delivery xeda just copied, racy by construction, is read
+once by the next check and anchored then. No clock to read (a read-only directory, a file system
+that refuses), or a destination that moved file systems: no anchor, and every check reads the
+content, exactly as before. See `docs/run-directories.rst`'s "Outputs where you
 name them" for the user-facing rules (never onto an input nor into a read directory, never a
 directory, never into a run root, `--overwrite-outputs`, the delivery record beside the run
 directory).
