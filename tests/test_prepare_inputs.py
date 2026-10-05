@@ -13,6 +13,7 @@ from xeda.dataclass import Field
 from xeda.proc_utils import run_process
 from xeda.flows import xilinx
 
+from . import tool_utils
 from .io_flows import _Taker, _Wrapper
 from .test_read_locks import _probe
 from .test_xilinx_chipdb import _binary, generation as chipdb_generation, prefix  # noqa: F401
@@ -71,15 +72,12 @@ def test_cache_preparation_is_snapshotted_and_second_launch_is_fresh(
     first = _launch_cache(tmp_path, generation)
     # A freshness check can refresh trace metadata once input timestamps settle.
     # Preparation must leave the actual outputs and result/settings documents alone.
-    before = {
-        p: (p.read_bytes(), p.stat().st_mtime_ns)
-        for p in first.run_path.rglob("*")
-        if p.is_file() and p.name != "trace.json"
-    }
+    before = tool_utils.run_outputs_state(first.run_path)
+    tool_utils.check_after_the_racy_window(monkeypatch)  # the check refreshes the trace
     again = _launch_cache(tmp_path, generation)
     assert again.reused
     assert len(snapshots) == 1
-    assert before == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}
+    assert tool_utils.run_outputs_state(first.run_path) == before
     other = _launch_cache(tmp_path, generation, name="other")
     assert other.results["chipdb"] == first.results["chipdb"]
     assert len(generation[3].read_text().splitlines()) == 1
@@ -292,13 +290,12 @@ def test_preparation_sees_handed_over_inputs_before_freshness(tmp_path, monkeypa
     monkeypatch.setattr(default_runner, "expectation", expectation)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     first = runner.launch_flow(consumer, design, {})
-    before = {
-        p: (p.read_bytes(), p.stat().st_mtime_ns) for p in first.run_path.rglob("*") if p.is_file()
-    }
+    before = tool_utils.run_outputs_state(first.run_path)
+    tool_utils.check_after_the_racy_window(monkeypatch)  # the check refreshes the trace
     again = runner.launch_flow(consumer, design, {})
     assert again.reused
     assert seen == ["prepare", "expectation", "prepare", "expectation"]
-    assert before == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}
+    assert tool_utils.run_outputs_state(first.run_path) == before
 
 
 def test_preparation_failure_invalidates_success_and_releases_lease(tmp_path, monkeypatch):

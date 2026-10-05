@@ -11,10 +11,12 @@ backend (e.g. a ghdl whose LLVM shared library is missing) reports a version hap
 fails on the first real invocation.
 """
 
+import hashlib
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -51,6 +53,8 @@ __all__ = [
     "require_docker",
     "require_docker_image",
     "require_modelsim",
+    "check_after_the_racy_window",
+    "run_outputs_state",
 ]
 
 REQUIRE_TOOLS = os.environ.get("XEDA_TESTS_REQUIRE_TOOLS", "").lower() in ("1", "true", "yes", "on")
@@ -937,3 +941,42 @@ def launch_until_fresh(runner: Any, launch: Any) -> Any:
     flow = launch()
     assert flow.reused, flow.stale_reason
     return flow
+
+
+def check_after_the_racy_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the next freshness check see every file as one that changed long before it was
+    recorded, and the check as happening long after: a record that was racy when it was taken
+    is read by content, found unchanged, and -- having settled since -- the trace is refreshed
+    (`trace.check_trace`, `Freshness.refreshed`). What a slow machine does by itself, between two
+    runs more than `digest.RACY_NS` apart, without the wait or the luck."""
+    from xeda import digest
+    from xeda.flow_runner import trace
+
+    window = 10**12
+    monkeypatch.setattr(digest, "RACY_NS", window)
+    real = trace.filesystem_time_ns
+    monkeypatch.setattr(trace, "filesystem_time_ns", lambda directory: real(directory) + 3 * window)
+
+
+def run_outputs_state(*run_dirs: Path) -> dict[Path, tuple[Any, ...]]:
+    """What each run directory holds that a run's tools and flow left there: every entry but the
+    names xeda reserves for itself (`trace.RESERVED_FILES`, the clock markers), a file by its
+    size, modification time, inode and content, a link by its target, a directory by being one.
+    Two states are equal when a launch left every output alone. A launch that found the
+    directory fresh may still rewrite the trace (it refreshes the records of a file that settled,
+    `trace.check_trace`), so a test that says "nothing was rewritten" compares this, never a
+    listing of the whole directory."""
+    from xeda.flow_runner.trace import run_directory_files
+
+    state: dict[Path, tuple[Any, ...]] = {}
+    for run_dir in run_dirs:
+        for entry in run_directory_files(run_dir):
+            status = entry.lstat()
+            if stat.S_ISLNK(status.st_mode):
+                state[entry] = ("link", os.readlink(entry))
+            elif stat.S_ISDIR(status.st_mode):
+                state[entry] = ("directory",)
+            else:
+                content = hashlib.sha256(entry.read_bytes()).hexdigest()
+                state[entry] = ("file", status.st_size, status.st_mtime_ns, status.st_ino, content)
+    return state
