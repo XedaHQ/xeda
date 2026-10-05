@@ -350,7 +350,8 @@ installed Python package its ``packages`` names -- identifies an entry holding t
 every source its last generation left, so the generator runs again only when one of them changed.
 A generation happens while the design is *loaded*, before any flow or run directory exists, which
 is why its record lives in the run root rather than beside the design, and why a design loaded
-with no run root in sight generates every time. See :ref:`generators`.
+with no run root in sight generates every time. ``--rebuild-all`` and ``--clean`` regenerate as
+they re-run every flow. See :ref:`generators`.
 
 What is not tracked
 ---------------------
@@ -362,7 +363,8 @@ declared:
   packages such as cocotb imported by a simulator: only the programs Xeda starts itself are
   recorded.
 - **Environment variables.** A flow that reads one without declaring it as a setting can change
-  behavior invisibly to the trace.
+  behavior invisibly to the trace, and so can a design generator: a generator's environment is
+  deliberately not part of its identity, so that one record is reusable from another shell.
 - **Files a tool finds on its own without reporting them** -- a Vivado IP repository, tool data
   outside any setting, anything not named by a setting and not listed in a depfile.
 - **What a symbolic link in a run directory points to, when that is a directory** -- the link is

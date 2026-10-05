@@ -551,3 +551,55 @@ def test_a_launcher_generates_once_across_two_launches(tmp_path, monkeypatch):
         assert flow is not None and flow.succeeded
     assert world.runs == 1
     assert len(world.records()) == 1
+
+
+def test_a_dangling_link_in_a_directory_source_is_a_file_like_any_other(tmp_path):
+    """An editor's lock file (`.#Top.scala`) is a link to nothing, and it is there exactly while
+    the file is open: a design must still load. An entry of a directory is recorded as itself,
+    as the trace records a listing, so a link is its target text and never followed."""
+    world = World(tmp_path, sources=["spec.txt", "gen.py", "templates"])
+    templates = world.root / "templates"
+    templates.mkdir()
+    (templates / "top.v.in").write_text("// a template\n")
+    (templates / ".#top.v.in").symlink_to("nowhere/at/all")
+    world.load()
+    assert world.runs == 1
+    world.load()
+    assert world.runs == 1
+    (templates / ".#top.v.in").unlink()
+    (templates / ".#top.v.in").symlink_to("somewhere/else")
+    world.load()
+    assert world.runs == 2, "the link names something else, which is a change like any other"
+
+
+def test_rebuild_all_runs_the_generator_and_records_what_it_leaves(tmp_path, monkeypatch):
+    """`--rebuild-all` (and `--clean`, which implies it) is what forces everything to run again,
+    a generation included -- there is no `touch` to fall back on any more. The record is still
+    written, so the next ordinary launch is up to date."""
+    from xeda.flow_runner import DefaultRunner
+
+    from .tool_utils import use_fake_tools
+
+    use_fake_tools(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    world = World(tmp_path)
+    world.design_file.write_text(
+        world.design_file.read_text().replace("  top: top\n", "  top: top\n  clock: {port: clk}\n")
+    )
+    settings = {"fpga": {"part": "xc7a35ticsg324-1L"}, "clock_period": 10.0}
+
+    def launch(**launcher) -> None:
+        runner = DefaultRunner(world.run_root, display_results=False, **launcher)
+        flow = runner.run("vivado_synth", world.design_file, flow_settings=settings)
+        assert flow is not None and flow.succeeded
+
+    launch()
+    assert world.runs == 1
+    launch()
+    assert world.runs == 1
+    launch(rebuild_all=True)
+    assert world.runs == 2
+    launch(clean=True)
+    assert world.runs == 3
+    launch()
+    assert world.runs == 3, "the record of the last generation is there again"

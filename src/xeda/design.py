@@ -15,6 +15,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
+from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 from glob import escape as glob_escape
@@ -1443,15 +1444,24 @@ class TbDep(XedaBaseModel):
 #: Where a Git dependency without a `clone_dir` is cloned, under the run root.
 DEPENDENCY_CLONES = ".dependencies"
 
-#: How a design load reaches xeda's own space: a provider of the run root, set by the launcher
-#: around loading its designs (`loading_in_run_root`) and unset elsewhere. `provider(True)` creates
-#: and marks the run root, `provider(False)` gives one that is already there, or None -- a design
-#: that fails to load, and a pure plan, must create none. What a load keeps there: the directory a
-#: Git dependency without a `clone_dir` is cloned into (`.dependencies`) and the record of a
-#: generator's last generation (`generation.CACHE_DIRECTORY`).
-load_run_root: ContextVar[Optional[Callable[[bool], Optional[Path]]]] = ContextVar(
-    "load_run_root", default=None
-)
+
+@dataclass(frozen=True)
+class LoadContext:
+    """What a launcher lends the designs it loads: xeda's own space, and what the launch asked
+    for. `run_root(True)` creates and marks the run root, `run_root(False)` gives one that is
+    already there, or None -- a design that fails to load, and a pure plan, must create none.
+    What a load keeps there: the directory a Git dependency without a `clone_dir` is cloned into
+    (`DEPENDENCY_CLONES`) and the record of a generator's last generation
+    (`generation.CACHE_DIRECTORY`)."""
+
+    run_root: Callable[[bool], Optional[Path]]
+    #: `--rebuild-all` (which `--clean` implies): a generator runs whatever its record says
+    rebuild_all: bool = False
+
+
+#: How a design load reaches xeda's own space, set by the launcher around loading its designs
+#: (`loading_in_run_root`) and unset elsewhere.
+load_context: ContextVar[Optional[LoadContext]] = ContextVar("load_context", default=None)
 
 _planning_load: ContextVar[bool] = ContextVar("planning_load", default=False)
 
@@ -1467,15 +1477,18 @@ def refusing_load_side_effects() -> Iterator[None]:
 
 
 @contextmanager
-def loading_in_run_root(provider: Callable[[bool], Optional[Path]]) -> Iterator[None]:
+def loading_in_run_root(
+    provider: Callable[[bool], Optional[Path]], rebuild_all: bool = False
+) -> Iterator[None]:
     """Let the designs loaded meanwhile keep what a load keeps in a run root -- a Git
     dependency's clone, a generator's record -- in the run root `provider` names, asking it only
-    when something is kept there, and for one it may create only then."""
-    token = load_run_root.set(provider)
+    when something is kept there, and for one it may create only then. With `rebuild_all`, a
+    generator runs whatever its record says, as every flow of the launch does."""
+    token = load_context.set(LoadContext(provider, rebuild_all))
     try:
         yield
     finally:
-        load_run_root.reset(token)
+        load_context.reset(token)
 
 
 class DesignReference(XedaBaseModel):
@@ -1628,8 +1641,8 @@ class GitReference(DesignReference):
             raise ValueError("Cannot plan a design that needs a Git dependency fetch")
         clone_dir = self.clone_dir
         if clone_dir is None:
-            provider = load_run_root.get()
-            run_root = provider(True) if provider is not None else None
+            context = load_context.get()
+            run_root = context.run_root(True) if context is not None else None
             cache = self.local_cache or (run_root / DEPENDENCY_CLONES if run_root else None)
             if cache is None:
                 raise ValueError(
@@ -1837,12 +1850,14 @@ class Design(XedaBaseModel):
                         return _source_paths_as_given(declared, design_root)
 
                     planning = _planning_load.get()
+                    context = load_context.get()
                     with judging_generation(
                         generator,
                         design_root,
                         generated,
-                        run_root=load_run_root.get(),
+                        run_root=context.run_root if context else None,
                         planning=planning,
+                        rebuild_all=bool(context and context.rebuild_all),
                     ) as generation:
                         if generation.reason is None:
                             log.info(

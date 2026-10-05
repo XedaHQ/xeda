@@ -1984,10 +1984,13 @@ class FlowLauncher:
                 # with it, rather than a project reporting a design of that name missing
                 design_not_in_project = True
                 design = Path(design)
-        # A git dependency without a directory of its own is cloned into the run root, which
-        # is asked for only then: a design that fails to load leaves no run root behind.
+        # A git dependency without a directory of its own is cloned into the run root, and a
+        # generator's record is kept there; both ask for it only then, so a design that fails to
+        # load leaves no run root behind. `--rebuild-all`/`--clean` regenerates too.
         with (
-            loading_in_run_root(self.load_run_root),
+            loading_in_run_root(
+                self.load_run_root, self.settings.rebuild_all or self.settings.clean
+            ),
             refusing_load_side_effects() if _planning else nullcontext(),
         ):
             if Path(xedaproject).exists():

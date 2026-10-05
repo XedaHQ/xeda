@@ -60,6 +60,7 @@ NOTHING_TO_JUDGE_BY = (
 )
 NOTHING_PRODUCED = "the sources it generates cannot be told apart from what it would produce"
 NO_RECORD = "nothing records an earlier generation of these sources"
+REBUILD_ALL = "this launch rebuilds everything"
 
 
 def _named(path: Path, root: Path) -> str:
@@ -72,13 +73,16 @@ def _digests(paths: Sequence[Path], root: Path) -> Tuple[Tuple[str, str], ...]:
     """Each path's name and the digest of its content, sorted by name. A directory is expanded
     entry by entry (`listing.directory_files`, links followed, version-control metadata left
     out), exactly as the trace treats a directory a setting names: its own digest is a constant,
-    so a file edited or added inside one would otherwise be invisible."""
+    so a file edited or added inside one would otherwise be invisible. Each entry is recorded as
+    itself (`follow_symlinks=False`), as the trace records a listing: a link by its target and,
+    for a link to a file, that file's content -- so an editor's dangling lock file
+    (`.#Top.scala`) is a file like any other rather than an error."""
     entries = []
     for path in paths:
         entries.append((_named(path, root), record_file(path).sha))
         if path.is_dir():
             entries.extend(
-                (_named(child, root), record_file(child).sha)
+                (_named(child, root), record_file(child, follow_symlinks=False).sha)
                 for child in directory_files(path, skip=VCS_METADATA, follow_links=True)
             )
     return tuple(sorted(entries))
@@ -264,6 +268,7 @@ def judging_generation(
     outputs: Callable[[], Optional[List[Path]]],
     run_root: Optional[Callable[[bool], Optional[Path]]] = None,
     planning: bool = False,
+    rebuild_all: bool = False,
 ) -> Iterator[Generation]:
     """Judge `generator` and, where there is a record to judge it by, keep that entry locked for
     the block, so that two loads of one design neither generate into the same tree at once nor
@@ -273,7 +278,8 @@ def judging_generation(
     called again after a generation, because a pattern is exactly what one was waiting for.
     `run_root` is asked for a run root that is already there; one is made only to write a record
     (`Generation.produced`), so a design that fails to load creates none, and with `planning`
-    nothing is created, locked or written at all.
+    nothing is created, locked or written at all. With `rebuild_all` (`--rebuild-all`, which
+    `--clean` implies) the generator runs whatever the record says, and records what it leaves.
     """
     reason = _unjudgeable(generator)
     if reason is not None:
@@ -282,19 +288,23 @@ def judging_generation(
     if run_root is None:  # a `Design` built or loaded outside a launcher
         yield Generation(NO_RUN_ROOT)
         return
+    if rebuild_all and not planning:
+        # `--rebuild-all`/`--clean` is what forces everything to run again, generation included;
+        # the record is still written, so the next ordinary launch is up to date.
+        reason = REBUILD_ALL
     # The configuration as the design states it, before `process_generation` completes the
     # generator with a working directory and this shell's environment: what the identity is of,
     # and what the recheck after the run compares, so that only its *inputs* can change meanwhile.
     stated = generator.model_copy(deep=True)
     identity = generation_identity(stated, design_root)
 
-    def judged(reason: Optional[str], root: Optional[Path] = None) -> Generation:
+    def judged(why: Optional[str], root: Optional[Path] = None) -> Generation:
         """The judgement, with what it takes to record the generation afterwards -- nothing when
         planning, which writes no record and creates no run root."""
         if planning:
-            return Generation(reason)
+            return Generation(why)
         return Generation(
-            reason,
+            why,
             run_root=run_root,
             root=root,
             identity=identity,
@@ -305,9 +315,11 @@ def judging_generation(
 
     root = run_root(False)
     if root is None:
+        if reason is None:
+            reason = NO_RECORD
         # There is no run root yet, and finding out whether one holds a record must not make one:
         # nothing can have been recorded, so this generates, and records afterwards.
-        yield judged(NO_RECORD)
+        yield judged(reason)
         return
     owner = RunDirectory(root, root)
     cache = owner.unlinked(root / CACHE_DIRECTORY)
@@ -327,7 +339,7 @@ def judging_generation(
         # The names are checked again after the wait: another process may have replaced one.
         owner.unlinked(entry)
         owner.unlinked(_entry_lock(entry))
-        yield judged(_stale(entry, identity, design_root, outputs), root)
+        yield judged(reason or _stale(entry, identity, design_root, outputs), root)
 
 
 def _entry_lock(entry: Path) -> Path:

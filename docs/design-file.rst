@@ -329,8 +329,16 @@ A generator given as a shell command (``generator: "python soc.py"``) or as a li
 declares nothing it reads, so it runs on every load. Write it as a table with ``sources`` to have
 it judged.
 
-The generator writes the design's own sources, at the paths the design names; that is what it is
-for. Everything else outside a run root is left exactly as it was.
+``--rebuild-all`` (and ``--clean``, which implies it) runs the generator whatever its record says,
+as it runs every flow of the launch, and records what that generation leaves: that -- not a
+``touch`` -- is what forces a regeneration when something xeda cannot see has changed. An
+environment variable the generator reads is such a thing; so is anything its ``sources`` and
+``packages`` do not name.
+
+Writing the design's tree is what a generator is *for*, so what it writes there is its own
+business -- a litex build directory, for instance. Xeda itself writes nothing outside its run root
+while a design loads: the record of the generation is the only thing it keeps, and it keeps it
+there.
 
 .. _language:
 

@@ -64,7 +64,9 @@ All notable changes to this project will be documented in this file.
   own durable lock beside the Xilinx chip databases -- never beside the design, whose tree holds
   nothing of xeda's. A load with no run root in sight, or one whose run root cannot be written,
   generates every time: the direction xeda takes wherever it cannot prove something is up to
-  date. `xeda run --dry-run` still creates and writes nothing.
+  date. `--rebuild-all` (and `--clean`) regenerates too, which is the escape where something xeda
+  cannot see changed; `xeda run --dry-run` still creates and writes nothing, and a generator that
+  fails leaves no run root behind.
 - `custom_boards_file` accepts a YAML board database (`.yaml` or `.yml`) as well as TOML, by the
   file's suffix; YAML is read by the same strict YAML 1.2 loader as every other YAML file, so a
   duplicate key or a non-string key names the file and line. Any other suffix is an error naming

@@ -743,11 +743,15 @@ nothing -- it reads an existing record, and still refuses to plan a design that 
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
 symbolic link on the way, not even one that stays inside), shared by the chip databases and the
 generator records. `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
-A design load changes nothing outside the run root **but the sources its generator writes** --
-that is what a generator is for, and the design's tree is the design's; everything xeda keeps
-about the generation is the record under the run root
-(`tests/test_isolation.py::test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates`,
-`tests/test_generator_staleness.py`).
+**`--rebuild-all`/`--clean` regenerates**, carried to the load by `LoadContext.rebuild_all`, and
+records what that generation leaves: that is the escape where something xeda cannot see changed
+(a generator's environment is deliberately untracked), since a `touch` no longer forces anything.
+**Xeda writes nothing outside its run root while a design loads**: the record is the only thing it
+keeps, and it keeps it there. What the *generator* writes in the design's tree is its own business
+-- that is what it is for -- so the oracle admits exactly the sources the design declares it
+generates and nothing else
+(`tests/test_isolation.py::test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates`:
+O3 records no violation of xeda's own, O1 sees only those sources; `tests/test_generator_staleness.py`).
 
 Dependencies are brought up to date first, then the depending flow is judged. Within one launch, a
 run directory is entered at most once: two configurations of one flow resolving to the same

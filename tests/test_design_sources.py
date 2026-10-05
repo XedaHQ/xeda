@@ -328,19 +328,26 @@ def test_a_generator_is_skipped_by_what_its_sources_name_not_how_they_are_writte
 
 
 @pytest.mark.parametrize("source", ["$DESIGN_ROOT/out.vhd", "o*.vhd"])
-def test_a_generator_runs_when_its_output_is_missing(generated, source):
-    """A generator runs when its output is missing."""
+def test_a_generator_runs_when_its_output_is_missing(generated, in_a_run_root, source):
+    """A generator runs when its output is missing -- however that output is spelled, and even
+    with the record of a generation that left it there."""
+
+    def load() -> None:
+        Design(
+            name="d",
+            design_root=generated,
+            rtl={
+                "sources": [source],
+                "top": "out_",
+                "generator": {"command": f"{sys.executable} gen.py", "sources": ["gen.py"]},
+            },
+        )
+
+    load()  # records this generation, so a second load would generate nothing
+    (generated / "RAN").unlink()
     (generated / "out.vhd").unlink()
 
-    Design(
-        name="d",
-        design_root=generated,
-        rtl={
-            "sources": [source],
-            "top": "out_",
-            "generator": {"command": f"{sys.executable} gen.py", "sources": ["gen.py"]},
-        },
-    )
+    load()
 
     assert (generated / "RAN").exists(), "the generator did not run for a missing output"
 
