@@ -1,0 +1,845 @@
+{
+ "nodes": {
+  "mac/openroad": {
+   "calls": [
+    [
+     "klayout",
+     "-zz",
+     "-rd",
+     "design_name=mac",
+     "-rd",
+     "in_def=results/12_finalize.def",
+     "-rd",
+     "in_files=<PLATFORMS>/nangate45/gds/NangateOpenCellLibrary.gds",
+     "-rd",
+     "config_file=",
+     "-rd",
+     "seal_file=",
+     "-rd",
+     "out_file=results/final.gds",
+     "-rd",
+     "tech_file=FreePDK45.lyt",
+     "-rd",
+     "layer_map=",
+     "-rm",
+     "<XEDA>/flows/openroad/openroad_scripts/utils/def2stream.py"
+    ],
+    [
+     "openroad",
+     "-no_splash",
+     "-no_init",
+     "-threads",
+     "max",
+     "-exit",
+     "-metrics",
+     "metrics.json",
+     "-log",
+     "openroad_0_11.log",
+     "orflow_0_11.tcl"
+    ],
+    [
+     "openroad",
+     "-no_splash",
+     "-no_init",
+     "-threads",
+     "max",
+     "-exit",
+     "-metrics",
+     "metrics.json",
+     "-log",
+     "openroad_12_12.log",
+     "orflow_12_12.tcl"
+    ]
+   ],
+   "effective_flow_settings": {
+    "abc_driver_cell": null,
+    "abc_load_in_ff": null,
+    "blocks": [],
+    "cdl_masters_file": null,
+    "checkpoints_dir": "checkpoints",
+    "clocks": {
+     "main_clock": {
+      "duty_cycle": 0.5,
+      "name": "main_clock",
+      "period": 2.0,
+      "port": "clk",
+      "rise": 0.0,
+      "skew": null,
+      "uncertainty": null
+     }
+    },
+    "congestion_iterations": 100,
+    "console_colors": true,
+    "copy_platform_files": false,
+    "core_area": [],
+    "core_aspect_ratio": 1.0,
+    "core_margin": 2.0,
+    "core_utilization": 40.0,
+    "corner": null,
+    "cts_buf_distance": null,
+    "cts_cluster_diameter": 100,
+    "cts_cluster_size": 30,
+    "db_process_node": null,
+    "debug": false,
+    "density_fill": false,
+    "detailed_route_additional_args": [],
+    "detailed_route_or_k": null,
+    "detailed_route_or_seed": null,
+    "die_area": [],
+    "disable_via_gen": false,
+    "docker": null,
+    "dockerized": false,
+    "dont_use_cells": [
+     "TAPCELL_X1",
+     "FILLCELL_X1",
+     "AOI211_X1",
+     "OAI211_X1"
+    ],
+    "exit": true,
+    "extra_liberty_files": [],
+    "final_irdrop_analysis": true,
+    "floorplan_def": null,
+    "floorplan_tcl": null,
+    "footprint": null,
+    "footprint_def": null,
+    "footprint_tcl": null,
+    "gds_seal_file": null,
+    "generate_gds": true,
+    "global_placement_args": [],
+    "global_routing_layer_adjustment": 0.5,
+    "gpl_routability_driven": true,
+    "gpl_timing_driven": true,
+    "gui": false,
+    "hold_slack_margin": null,
+    "input_delay": null,
+    "input_delay_frac": 0.2,
+    "io_constraints": null,
+    "io_place_random": false,
+    "lib_paths": [],
+    "macro_placement_file": null,
+    "macro_wrappers": null,
+    "make_tracks_tcl": null,
+    "max_phi_coef": null,
+    "min_phi_coef": null,
+    "multi_corner": false,
+    "no_console": false,
+    "nthreads": null,
+    "optimize": "area",
+    "output_delay": null,
+    "output_delay_frac": 0.2,
+    "outputs_dir": "outputs",
+    "place_density": null,
+    "place_density_lb_addon": null,
+    "place_pins_args": [],
+    "platform": {
+     "abc_driver_cell": "BUF_X1",
+     "abc_load_in_ff": 3.898,
+     "adder_map_file": "<PLATFORMS>/nangate45/cells_adders.v",
+     "additional_lef_files": [],
+     "cdl_file": "<PLATFORMS>/nangate45/cdl/NangateOpenCellLibrary.cdl",
+     "cell_pad_in_sites": null,
+     "cell_pad_in_sites_detail_placement": 0,
+     "cell_pad_in_sites_global_placement": 0,
+     "clkgate_map_file": "<PLATFORMS>/nangate45/cells_clkgate.v",
+     "corner": {
+      "tt": {
+       "db_files": [],
+       "dff_lib_file": null,
+       "lib_files": [
+        "<PLATFORMS>/nangate45/lib/NangateOpenCellLibrary_typical.lib.gz"
+       ],
+       "rcx_rules": "<PLATFORMS>/nangate45/rcx_patterns.rules",
+       "temperature": null,
+       "voltage": null
+      }
+     },
+     "cts_buf_cell": "BUF_X4",
+     "cts_buf_distance": null,
+     "default_corner": "tt",
+     "derate_tcl": null,
+     "description": null,
+     "dont_use_cells": [
+      "TAPCELL_X1",
+      "FILLCELL_X1",
+      "AOI211_X1",
+      "OAI211_X1"
+     ],
+     "fastroute_tcl": "<PLATFORMS>/nangate45/fastroute.tcl",
+     "fill_cells": [
+      "FILLCELL_X1",
+      "FILLCELL_X2",
+      "FILLCELL_X4",
+      "FILLCELL_X8",
+      "FILLCELL_X16",
+      "FILLCELL_X32"
+     ],
+     "fill_config": null,
+     "gds_allow_empty": [],
+     "gds_files": [
+      "<PLATFORMS>/nangate45/gds/NangateOpenCellLibrary.gds"
+     ],
+     "gds_layer_map": null,
+     "gnd_nets_voltages": {
+      "VSS": 0.0
+     },
+     "io_placer_h": "metal5",
+     "io_placer_v": "metal6",
+     "ir_drop_layer": "metal1",
+     "klayout_drc_file": "<PLATFORMS>/nangate45/drc/FreePDK45.lydrc",
+     "klayout_layer_prop_file": null,
+     "klayout_lvs_file": "<PLATFORMS>/nangate45/lvs/FreePDK45.lylvs",
+     "klayout_tech_file": "<PLATFORMS>/nangate45/FreePDK45.lyt",
+     "latch_map_file": "<PLATFORMS>/nangate45/cells_latch.v",
+     "macro_place_channel": [
+      18.8,
+      19.95
+     ],
+     "macro_place_halo": [
+      22.4,
+      15.12
+     ],
+     "make_tracks_tcl": null,
+     "max_routing_layer": "metal10",
+     "max_ungroup_size": 100000,
+     "min_buf_cell": "BUF_X1",
+     "min_buf_cell_and_ports": [
+      "BUF_X1",
+      "A",
+      "Z"
+     ],
+     "min_buf_ports": [
+      "A",
+      "Z"
+     ],
+     "min_routing_layer": "metal2",
+     "name": "nangate45",
+     "pdn_tcl": "<PLATFORMS>/nangate45/grid_strategy-M1-M4-M7.tcl",
+     "place_density": 0.3,
+     "place_site": "FreePDK45_38x28_10R_NP_162NW_34O",
+     "process": 45.0,
+     "pwr_nets_voltages": {
+      "VDD": 1.1
+     },
+     "rcx_rc_corner": null,
+     "root_dir": "<PLATFORMS>/nangate45",
+     "setrc_tcl": null,
+     "stackup": null,
+     "std_cell_lef": "<PLATFORMS>/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef",
+     "tapcell_name": null,
+     "tapcell_tcl": "<PLATFORMS>/nangate45/tapcell.tcl",
+     "tech_lef": "<PLATFORMS>/nangate45/lef/NangateOpenCellLibrary.tech.lef",
+     "template_pga_cfg": "<PLATFORMS>/nangate45/template_pga.cfg",
+     "tiehi_cell": "LOGIC1_X1",
+     "tiehi_cell_and_port": [
+      "LOGIC1_X1",
+      "Z"
+     ],
+     "tiehi_port": "Z",
+     "tielo_cell": "LOGIC0_X1",
+     "tielo_cell_and_port": [
+      "LOGIC0_X1",
+      "Z"
+     ],
+     "tielo_port": "Z",
+     "time_unit": "1ns",
+     "version": null,
+     "via_in_pin_max_layer": null,
+     "via_in_pin_min_layer": null,
+     "voltage_expressions_": {}
+    },
+    "post_detailed_route_tcl": null,
+    "post_pdn_tcl": null,
+    "print_commands": true,
+    "quiet": false,
+    "redirect_stdout": false,
+    "repair_antennas": false,
+    "repair_pdn_via_layer": null,
+    "reports_dir": "reports",
+    "results_dir": "results",
+    "resynth_for_area": false,
+    "resynth_for_timing": false,
+    "rtlmp_config_file": null,
+    "rtlmp_flow": false,
+    "save_images": true,
+    "sdc_files": [
+     "clocks.sdc"
+    ],
+    "setup_slack_margin": null,
+    "sig_map_file": null,
+    "tie_separation": 0,
+    "timeout_seconds": 7200,
+    "update_sdc_margin": 0.05,
+    "verbose": 0,
+    "write_cdl": false,
+    "write_metrics": "metrics.json"
+   },
+   "files": {
+    "<PLATFORMS>/nangate45/fastroute.tcl": "51393681c57142a2582015d49b6d24d7a364611d66badc4f28b0c261f3b6507f",
+    "<PLATFORMS>/nangate45/gds/NangateOpenCellLibrary.gds": "7fdbd7f4e46283fdd9b9a369e1cae1a7f6f742c8e75cfe943c17f451626fe8e8",
+    "<PLATFORMS>/nangate45/grid_strategy-M1-M4-M7.tcl": "419230a98992c710b01a1a51ef8d529b63b077e4bdf13e6cc4ef139e6feaf1de",
+    "<PLATFORMS>/nangate45/lef/NangateOpenCellLibrary.macro.mod.lef": "a43aea339f12a57a63497783e508ba16f3da2dc056d3247dec7d99707c2dedef",
+    "<PLATFORMS>/nangate45/lef/NangateOpenCellLibrary.tech.lef": "834a79295054cd4209178d1bade67c353863c47bb4b3c22ee38b862b7cec37f2",
+    "<PLATFORMS>/nangate45/lib/NangateOpenCellLibrary_typical.lib.gz": "df2acad9d80ff77a1384682c9678fa030aecd4028cd59a2c31f0e9bc80b565ac",
+    "<PLATFORMS>/nangate45/rcx_patterns.rules": "2f65fafbe2c704b378563c53a680b93cef080c2799997019d43df7d1e5a563e9",
+    "<PLATFORMS>/nangate45/tapcell.tcl": "d4acaaf13d360b8a056745e5575f22260c517d7ad2ee43b1cc3dfa5f764e70c3",
+    "<RUN>/mac/openroad/FreePDK45.lyt": "6992c2b734e8df30841c99d7a28c2aecff67e225aca5831f7e3284090e815a15",
+    "<RUN>/mac/openroad/clocks.sdc": "783c0d12d636cca60ec1f2333f8bd56a86ef4e5d3aa67c9dd66f234275cbed55",
+    "<RUN>/mac/openroad/openroad_0_11.log": "9d74700e78d7a05dd1d51a15fa440a9149a5141df66d1f0a2e1b4ab09c00c1fb",
+    "<RUN>/mac/openroad/openroad_12_12.log": "ec4b642e4a20f7d980301b9f3f91370eb5bb7670b21ce41e981e75232f43f5d9",
+    "<RUN>/mac/openroad/orflow_0_11.tcl": "92e3954a7a4c7a7fa5d2978dede6392409ece83a55cc059e909ce3fb0be97341",
+    "<RUN>/mac/openroad/orflow_12_12.tcl": "beb74f8cc14a99d3b7c42adb9ef9ba9aa0113044203e99c604465d7b9bce51d0",
+    "<RUN>/mac/openroad/results/1_synth.v": "50c4b13a1219ae4c1887fb87e56c824de6580c85654210058dd32b54813d5c53",
+    "<RUN>/mac/openroad/results/final.gds": "08318195f3df78b811c0ec2a396367a6815709a445b5021df7a362e6296c530a",
+    "<XEDA>/flows/openroad/openroad_scripts/utils/def2stream.py": "390d46d2e1fba39daa14f1075534541045993376b53adb1069cb498abdf4f26f"
+   },
+   "results": {
+    "Fmax": 625.0,
+    "artifacts": {
+     "gds": "results/final.gds",
+     "logs": [
+      "openroad_0_11.log",
+      "openroad_12_12.log"
+     ]
+    },
+    "design": "mac",
+    "design_area": 679,
+    "design_area_unit": "u^2",
+    "flow": "openroad",
+    "hold_violations": 0,
+    "run_path": "<RUN>/mac/openroad",
+    "setup_violations": 0,
+    "success": true,
+    "tns": 0.0,
+    "tools": [
+     "openroad"
+    ],
+    "utilization": 0.57,
+    "wns": 0.0,
+    "worst_slack": 0.4
+   }
+  },
+  "mac/yosys": {
+   "calls": [
+    [
+     "yosys",
+     "-T",
+     "-Q",
+     "-s",
+     "yosys_synth.ys",
+     "-L",
+     "yosys.log",
+     "-E",
+     "<RUN>/mac/yosys/yosys.d"
+    ],
+    [
+     "logger",
+     "-notime"
+    ],
+    [
+     "log",
+     "-stdout",
+     "**",
+     "Reading",
+     "<DESIGN>/mac.v",
+     "**"
+    ],
+    [
+     "read_verilog",
+     "-defer",
+     "-noautowire",
+     "-sv",
+     "<DESIGN>/mac.v"
+    ],
+    [
+     "read_liberty",
+     "-lib",
+     "<RUN>/mac/openroad/merged.lib"
+    ],
+    [
+     "read_verilog",
+     "-defer",
+     "<PLATFORMS>/nangate45/cells_clkgate.v"
+    ],
+    [
+     "hierarchy",
+     "-check",
+     "-top",
+     "mac"
+    ],
+    [
+     "check",
+     "-initdrv"
+    ],
+    [
+     "proc"
+    ],
+    [
+     "flatten"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Running",
+     "synthesis"
+    ],
+    [
+     "synth",
+     "-flatten",
+     "-top",
+     "mac"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Post-synth",
+     "optimization"
+    ],
+    [
+     "opt",
+     "-full",
+     "-purge",
+     "-sat"
+    ],
+    [
+     "extract_fa"
+    ],
+    [
+     "techmap",
+     "-map",
+     "<PLATFORMS>/nangate45/cells_adders.v"
+    ],
+    [
+     "techmap"
+    ],
+    [
+     "opt",
+     "-purge"
+    ],
+    [
+     "techmap",
+     "-map",
+     "<PLATFORMS>/nangate45/cells_latch.v"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Prepare",
+     "mapping",
+     "FFs",
+     "to",
+     "technology"
+    ],
+    [
+     "dfflibmap",
+     "-prepare",
+     "-liberty",
+     "<RUN>/mac/openroad/merged.lib"
+    ],
+    [
+     "opt",
+     "-purge"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Running",
+     "ABC"
+    ],
+    [
+     "abc",
+     "-dff",
+     "-D",
+     "2000.000",
+     "-script",
+     "+strash;dch;map,-B,0.9;topo;stime,-c;buffer,-c;upsize,-c;dnsize,-c",
+     "-liberty",
+     "<RUN>/mac/openroad/merged.lib",
+     "-constr",
+     "abc.constr"
+    ],
+    [
+     "opt",
+     "-purge"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Mapping",
+     "FFs",
+     "to",
+     "technology"
+    ],
+    [
+     "dfflibmap",
+     "-liberty",
+     "<RUN>/mac/openroad/merged.lib"
+    ],
+    [
+     "opt",
+     "-purge"
+    ],
+    [
+     "setundef",
+     "-zero"
+    ],
+    [
+     "opt",
+     "-full",
+     "-purge"
+    ],
+    [
+     "opt_clean",
+     "-purge"
+    ],
+    [
+     "hilomap",
+     "-singleton",
+     "-hicell",
+     "LOGIC1_X1",
+     "Z",
+     "-locell",
+     "LOGIC0_X1",
+     "Z"
+    ],
+    [
+     "insbuf",
+     "-buf",
+     "BUF_X1",
+     "A",
+     "Z"
+    ],
+    [
+     "opt",
+     "-full",
+     "-purge"
+    ],
+    [
+     "clean",
+     "-purge"
+    ],
+    [
+     "check",
+     "-assert",
+     "-mapped"
+    ],
+    [
+     "tee",
+     "-o",
+     "final_check.log",
+     "check",
+     "-assert"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Writing",
+     "stat",
+     "to",
+     "reports/utilization.json"
+    ],
+    [
+     "tee",
+     "-q",
+     "-o",
+     "reports/utilization.json",
+     "stat",
+     "-json",
+     "-liberty",
+     "<RUN>/mac/openroad/merged.lib"
+    ],
+    [
+     "setattr",
+     "-unset",
+     "src",
+     "=*"
+    ],
+    [
+     "setattr",
+     "-mod",
+     "-unset",
+     "src",
+     "=*"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Writing",
+     "netlist",
+     "netlist.json"
+    ],
+    [
+     "write_json",
+     "netlist.json"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Writing",
+     "netlist",
+     "netlist.v"
+    ],
+    [
+     "write_verilog",
+     "-nodec",
+     "-nohex",
+     "-noexpr",
+     "-noattr",
+     "netlist.v"
+    ],
+    [
+     "log",
+     "-stdout",
+     "*****",
+     "Synthesis",
+     "Completed",
+     "*****"
+    ]
+   ],
+   "effective_flow_settings": {
+    "abc_constr": [
+     "set_driving_cell BUF_X1",
+     "set_load 3.898"
+    ],
+    "abc_dff": true,
+    "abc_flags": [
+     "-dff"
+    ],
+    "abc_script": "+strash;dch;map,-B,0.9;topo;stime,-c;buffer,-c;upsize,-c;dnsize,-c",
+    "adder_map": "<PLATFORMS>/nangate45/cells_adders.v",
+    "black_box": [],
+    "check_assert": true,
+    "checkpoints_dir": "checkpoints",
+    "clockgate_map": "<PLATFORMS>/nangate45/cells_clkgate.v",
+    "clocks": {
+     "main_clock": {
+      "duty_cycle": 0.5,
+      "name": "main_clock",
+      "period": 2.0,
+      "port": "clk",
+      "rise": 0.0,
+      "skew": null,
+      "uncertainty": null
+     }
+    },
+    "console_colors": true,
+    "debug": false,
+    "defines": {},
+    "dff_liberty": null,
+    "docker": null,
+    "dockerized": false,
+    "dont_use_cells": [],
+    "flatten": true,
+    "gates": null,
+    "ghdl": {
+     "additional_warn_flags": [],
+     "analysis_flags": [],
+     "assembler_flags": [],
+     "assert_assumes": false,
+     "assume_asserts": false,
+     "checkpoints_dir": "checkpoints",
+     "clean_before_analyze": true,
+     "clocks": {},
+     "compiler_flags": [],
+     "console_colors": true,
+     "debug": false,
+     "diagnostics": true,
+     "docker": null,
+     "dockerized": false,
+     "elab_flags": [],
+     "elab_werror": false,
+     "expect_failure": false,
+     "lib_paths": [],
+     "linker_flags": [],
+     "no_assert_cover": false,
+     "no_console": false,
+     "no_formal": true,
+     "nthreads": null,
+     "outputs_dir": "outputs",
+     "print_commands": true,
+     "psl_in_comments": false,
+     "quiet": false,
+     "redirect_stdout": false,
+     "relaxed": true,
+     "reports_dir": "reports",
+     "syn_bindings": true,
+     "synopsys": false,
+     "timeout_seconds": 7200,
+     "vendor_library": null,
+     "verbose": 0,
+     "verilog_output": null,
+     "warn_flags": [
+      "--warn-binding",
+      "--warn-default-binding",
+      "--warn-reserved",
+      "--warn-library",
+      "--warn-vital-generic",
+      "--warn-shared",
+      "--warn-runtime-error",
+      "--warn-body",
+      "--warn-specs",
+      "--warn-no-hide",
+      "--warn-parenthesis",
+      "--warn-port",
+      "--warn-static",
+      "--warn-port-bounds",
+      "--warn-universal"
+     ],
+     "werror": false,
+     "work": null
+    },
+    "hilomap": {
+     "hi": [
+      "LOGIC1_X1",
+      "Z"
+     ],
+     "lo": [
+      "LOGIC0_X1",
+      "Z"
+     ],
+     "singleton": true
+    },
+    "insbuf": [
+     "BUF_X1",
+     "A",
+     "Z"
+    ],
+    "keep_hierarchy": [],
+    "lib_paths": [],
+    "liberty": [
+     "<RUN>/mac/openroad/merged.lib"
+    ],
+    "log_file": "yosys.log",
+    "ltp": false,
+    "lut": null,
+    "merge_libs_to": null,
+    "netlist_attrs": false,
+    "netlist_blackboxes": false,
+    "netlist_dec": false,
+    "netlist_expr": false,
+    "netlist_graph": null,
+    "netlist_graph_flags": [
+     "-stretch",
+     "-enum",
+     "-width",
+     "-href",
+     "-color maroon3 t:*dff"
+    ],
+    "netlist_hex": false,
+    "netlist_json": "netlist.json",
+    "netlist_simple_lhs": false,
+    "netlist_src_attrs": false,
+    "netlist_unset_attributes": [],
+    "netlist_verilog": "netlist.v",
+    "netlist_verilog_extmem": [],
+    "netlist_verilog_flags": [],
+    "no_console": false,
+    "noabc": false,
+    "nosynth": false,
+    "nthreads": null,
+    "other_maps": [
+     "<PLATFORMS>/nangate45/cells_latch.v"
+    ],
+    "outputs_dir": "outputs",
+    "platform": null,
+    "plugins": [],
+    "post_synth_opt": true,
+    "post_synth_rename": [],
+    "prep": null,
+    "print_commands": true,
+    "quiet": false,
+    "read_systemverilog_flags": [],
+    "read_verilog_flags": [
+     "-noautowire",
+     "-sv"
+    ],
+    "redirect_stdout": false,
+    "reports_dir": "reports",
+    "retime": false,
+    "rmports": false,
+    "rtl_graph": null,
+    "rtl_graph_flags": [
+     "-notitle",
+     "-stretch",
+     "-width",
+     "-enum",
+     "-href",
+     "-color maroon3 t:*dff"
+    ],
+    "rtl_json": null,
+    "rtl_verilog": null,
+    "script_format": "ys",
+    "set_attribute": {},
+    "set_mod_attribute": {},
+    "splitnets": false,
+    "splitnets_driver": false,
+    "splitnets_ports": false,
+    "sta": false,
+    "stop_after": null,
+    "synth_flags": [
+     "-flatten"
+    ],
+    "systemverilog": "slang",
+    "timeout_seconds": 7200,
+    "top_is_vhdl": null,
+    "use_slang_plugin": true,
+    "verbose": 0,
+    "verilog_lib": [],
+    "write_blif": null
+   },
+   "files": {
+    "<DESIGN>/mac.v": "3f7c994407a99d774ed19d5fd2ba3ccc5c41bced70316cc66698f63c2a77d513",
+    "<PLATFORMS>/nangate45/cells_adders.v": "952b214f36f4a608cc6fdacbefcb2f169cc87917fe158a47326bbe6db10867bf",
+    "<PLATFORMS>/nangate45/cells_clkgate.v": "5ea0a6fb7aee5e17c11c00ad751fd5c1cc9f8e4791426643fc96ecc19ffbf8f7",
+    "<PLATFORMS>/nangate45/cells_latch.v": "7e2330df874405c28f92d37f17be088b371b9f378a913e7ca3dbda25ca4c7802",
+    "<RUN>/mac/openroad/merged.lib": "741b7d579cca874c76f27c97f003c4c436ca70ecea752bad96b210a887e2724e",
+    "<RUN>/mac/yosys/abc.constr": "51bf1a4f73a383e038c95dc3eba81fdd33811736285d77e7aaeabf9bd83c69a1",
+    "<RUN>/mac/yosys/final_check.log": "97737857e8750e1c62fbff4ac0dc514b7d5125a0bba4f81d3b277a27e9d9fb5a",
+    "<RUN>/mac/yosys/netlist.json": "19c1b802fbfa2ea5413fc3cf7f51301762c4655af2ec5c21500c51ae1e5595e8",
+    "<RUN>/mac/yosys/netlist.v": "50c4b13a1219ae4c1887fb87e56c824de6580c85654210058dd32b54813d5c53",
+    "<RUN>/mac/yosys/reports/utilization.json": "eec161abdd0bb613d9dc117febdde2e08a3401f7e2920fb27630f59cc5ceb845",
+    "<RUN>/mac/yosys/yosys.d": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "<RUN>/mac/yosys/yosys.log": "d864432e4647eba111f36adebdd3484b9281e1d1713009ff2c36f78901d4a1fe",
+    "<RUN>/mac/yosys/yosys_synth.ys": "70809ba93cd722483df83007f0869c31b17046cf29f031d41787feb15f2563cf"
+   },
+   "results": {
+    "_utilization": {
+     "area": 106.5,
+     "num_cells": 71,
+     "num_cells_by_type": {
+      "fake_cell": 71
+     }
+    },
+    "area": 106.5,
+    "artifacts": {
+     "netlist_json": "netlist.json",
+     "netlist_verilog": "netlist.v",
+     "timing_report": "reports/timing.rpt",
+     "utilization_report": "reports/utilization.json"
+    },
+    "cells": 71,
+    "design": "mac",
+    "fake_cell": 71,
+    "flow": "yosys",
+    "run_path": "<RUN>/mac/yosys",
+    "success": true,
+    "tools": [
+     "yosys"
+    ]
+   },
+   "scripts": {
+    "<RUN>/mac/yosys/yosys_synth.ys": "logger -notime\n\nlog -stdout ** Reading <DESIGN>/mac.v **\nread_verilog -defer -noautowire -sv   <DESIGN>/mac.v\n\nread_liberty -lib <RUN>/mac/openroad/merged.lib\n\nread_verilog -defer <PLATFORMS>/nangate45/cells_clkgate.v\nhierarchy -check -top mac \ncheck -initdrv\n\n\nproc\nflatten\n\n\nlog -stdout Running synthesis\nsynth -flatten  -top mac\nlog -stdout Post-synth optimization\nopt -full -purge -sat\nextract_fa\ntechmap -map <PLATFORMS>/nangate45/cells_adders.v\ntechmap\nopt -purge\ntechmap -map <PLATFORMS>/nangate45/cells_latch.v\nlog -stdout Prepare mapping FFs to technology\ndfflibmap -prepare -liberty <RUN>/mac/openroad/merged.lib\nopt -purge\nlog -stdout Running ABC\nabc -dff -D 2000.000  -script +strash;dch;map,-B,0.9;topo;stime,-c;buffer,-c;upsize,-c;dnsize,-c -liberty <RUN>/mac/openroad/merged.lib -constr abc.constr\nopt -purge\nlog -stdout Mapping FFs to technology\ndfflibmap -liberty <RUN>/mac/openroad/merged.lib\nopt -purge\n\n# replace undefined values with 0\nsetundef -zero\nopt -full -purge\n\nopt_clean -purge\nhilomap  -singleton  -hicell LOGIC1_X1 Z -locell LOGIC0_X1 Z\n\ninsbuf -buf BUF_X1 A Z\n\nopt -full -purge\nclean -purge\ncheck -assert -mapped\ntee -o final_check.log check  -assert \n\nlog -stdout Writing stat to reports/utilization.json\ntee -q -o reports/utilization.json stat  -json    -liberty <RUN>/mac/openroad/merged.lib  \nsetattr -unset src =*\nsetattr -mod -unset src =*\nlog -stdout Writing netlist netlist.json\nwrite_json netlist.json\nlog -stdout Writing netlist netlist.v\nwrite_verilog -nodec -nohex -noexpr -noattr netlist.v\n\n\nlog -stdout ***** Synthesis Completed *****"
+   }
+  }
+ },
+ "request": {
+  "flow": "openroad",
+  "settings": [
+   "platform=nangate45",
+   "clock.period=2.0"
+  ]
+ },
+ "run_directories": [
+  "mac/openroad",
+  "mac/yosys"
+ ]
+}

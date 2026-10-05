@@ -1,0 +1,2620 @@
+{
+ "nodes": {
+  "sim/vivado_postsynth_sim": {
+   "calls": [
+    [
+     "set_param",
+     "tclapp.enableGitAccess",
+     "0"
+    ],
+    [
+     "load_feature",
+     "simulator"
+    ],
+    [
+     "exec",
+     "xvlog",
+     "-work",
+     "work",
+     "-relax",
+     "<RUN>/sim/vivado_synth/outputs/route_design/funcsim.v"
+    ],
+    [
+     "exec",
+     "xvlog",
+     "-work",
+     "work",
+     "-relax",
+     "-sv",
+     "<DESIGN>/tb.sv"
+    ],
+    [
+     "exec",
+     "xelab",
+     "-s",
+     "snapshot",
+     "-L",
+     "work",
+     "-L",
+     "unisims_ver",
+     "-L",
+     "simprims_ver",
+     "-relax",
+     "-maxdelay",
+     "-transport_int_delays",
+     "-pulse_r",
+     "0",
+     "-pulse_int_r",
+     "0",
+     "-pulse_e",
+     "0",
+     "-pulse_int_e",
+     "0",
+     "-debug",
+     "typical",
+     "-O3",
+     "-log",
+     "xeda_xelab.log",
+     "tb",
+     "glbl"
+    ],
+    [
+     "xsim",
+     "snapshot",
+     "-onfinish",
+     "stop",
+     "-onerror",
+     "stop"
+    ],
+    [
+     "run",
+     "all"
+    ],
+    [
+     "current_time"
+    ],
+    [
+     "get_property",
+     "PRECISION",
+     "simulation_1"
+    ]
+   ],
+   "effective_flow_settings": {
+    "analyze_flags": [
+     "-relax"
+    ],
+    "checkpoints_dir": "checkpoints",
+    "cocotb": {
+     "coverage": false,
+     "gpi_extra": [],
+     "random_seed": 1,
+     "reduced_log_fmt": true,
+     "resolve_x": "VALUE_ERROR",
+     "results_xml": "results.xml",
+     "testcase": []
+    },
+    "console_colors": true,
+    "debug": false,
+    "debug_traces": false,
+    "docker": null,
+    "dockerized": false,
+    "elab_debug": null,
+    "elab_flags": [
+     "-relax",
+     "-maxdelay",
+     "-transport_int_delays",
+     "-pulse_r 0",
+     "-pulse_int_r 0",
+     "-pulse_e 0",
+     "-pulse_int_e 0",
+     "-debug typical"
+    ],
+    "fail_severity": "error",
+    "initialize_zeros": false,
+    "lib_paths": [
+     [
+      "unisims_ver",
+      null
+     ],
+     [
+      "simprims_ver",
+      null
+     ]
+    ],
+    "no_console": false,
+    "no_log": false,
+    "nthreads": null,
+    "optimization_flags": [
+     "-O3"
+    ],
+    "outputs_dir": "outputs",
+    "prerun_time": null,
+    "print_commands": true,
+    "quiet": false,
+    "read_oneshot": false,
+    "redirect_stdout": false,
+    "reports_dir": "reports",
+    "saif": null,
+    "sdf": {
+     "max": null,
+     "min": null,
+     "root": null,
+     "typ": null
+    },
+    "sim_flags": [],
+    "stop_time": null,
+    "suppress_msgs": [
+     "Vivado 12-7122"
+    ],
+    "synth": {
+     "bitstream": null,
+     "checkpoints_dir": "checkpoints",
+     "clocks": {
+      "main_clock": {
+       "duty_cycle": 0.5,
+       "name": "main_clock",
+       "period": 5.0,
+       "port": null,
+       "rise": 0.0,
+       "skew": null,
+       "uncertainty": null
+      }
+     },
+     "console_colors": true,
+     "debug": false,
+     "default_max_input_delay": null,
+     "default_max_output_delay": null,
+     "default_min_input_delay": null,
+     "default_min_output_delay": null,
+     "docker": null,
+     "dockerized": false,
+     "extra_reports": false,
+     "fail_critical_warning": false,
+     "fail_timing": true,
+     "flatten_hierarchy": "rebuilt",
+     "fpga": {
+      "capacity": "12K",
+      "device": "xc7a12t",
+      "family": "artix-7",
+      "generation": "7",
+      "grade": null,
+      "package": "csg",
+      "part": "xc7a12tcsg325-1",
+      "pins": 325,
+      "speed": "-1",
+      "type": null,
+      "vendor": "xilinx"
+     },
+     "impl": {
+      "steps": {
+       "PHYS_OPT_DESIGN": {},
+       "PLACE_DESIGN": {},
+       "POST_PLACE_POWER_OPT_DESIGN": {},
+       "ROUTE_DESIGN": {},
+       "WRITE_BITSTREAM": {}
+      },
+      "strategy": ""
+     },
+     "lib_paths": [],
+     "no_console": false,
+     "no_log": false,
+     "nthreads": null,
+     "num_critical_paths": 100,
+     "out_of_context": false,
+     "outputs_dir": "outputs",
+     "print_commands": true,
+     "qor_suggestions": false,
+     "quiet": false,
+     "redirect_stdout": false,
+     "report_power": false,
+     "reports_dir": "reports",
+     "set_impl_properties": {},
+     "set_synth_properties": {},
+     "show_available_strategies": false,
+     "suppress_msgs": [
+      "Synth 8-7080",
+      "Vivado 12-7122"
+     ],
+     "synth": {
+      "steps": {
+       "OPT_DESIGN": {},
+       "POWER_OPT_DESIGN": {},
+       "SYNTH_DESIGN": {}
+      },
+      "strategy": ""
+     },
+     "tcl_files": [],
+     "tcl_shell": false,
+     "timeout_seconds": 7200,
+     "verbose": 0,
+     "write_checkpoint": false,
+     "write_netlist": false,
+     "xdc_files": []
+    },
+    "tcl_shell": false,
+    "timeout": null,
+    "timeout_seconds": 7200,
+    "timing_sim": false,
+    "vcd": null,
+    "vcd_level": 0,
+    "vcd_scope": "",
+    "verbose": 0,
+    "work_lib": "work",
+    "xelab_log": "xeda_xelab.log"
+   },
+   "files": {
+    "<DESIGN>/tb.sv": "0def67cebaeaeea013326f33b33040a57477158cb27f7d27226589587999d824",
+    "<RUN>/sim/vivado_synth/outputs/route_design/funcsim.v": "7879cae7175306499287eaa63fc7a1db00f16a37bdeaf44ee24796cac2be7b47"
+   },
+   "results": {
+    "artifacts": {},
+    "design": "sim",
+    "flow": "vivado_postsynth_sim",
+    "run_path": "<RUN>/sim/vivado_postsynth_sim",
+    "sim.ended_by": "finish",
+    "sim.errors": 0,
+    "sim.evidence": {
+     "cycles": null,
+     "ended_by": "finish",
+     "events": [
+      {
+       "kind": "finish",
+       "location": "tb.sv:1",
+       "message": "$finish called at time : 5 ns : File \"tb.sv\" Line 1",
+       "time": 5000
+      }
+     ],
+     "exit_code": null,
+     "time": 5000,
+     "time_unit": "1000fs"
+    },
+    "sim.time": 5000,
+    "sim.time_unit": "1000fs",
+    "sim.warnings": 0,
+    "success": true,
+    "tools": [
+     "vivado"
+    ]
+   }
+  },
+  "sim/vivado_synth": {
+   "calls": [
+    [
+     "set_param",
+     "tclapp.enableGitAccess",
+     "0"
+    ],
+    [
+     "create_project",
+     "-part",
+     "xc7a12tcsg325-1",
+     "-force",
+     "-verbose",
+     "sim"
+    ],
+    [
+     "set_msg_config",
+     "-id",
+     "[Synth 8-7080]",
+     "-suppress"
+    ],
+    [
+     "set_msg_config",
+     "-id",
+     "[Vivado 12-7122]",
+     "-suppress"
+    ],
+    [
+     "read_verilog",
+     "<DESIGN>/top.v"
+    ],
+    [
+     "get_fileset",
+     "sources_1"
+    ],
+    [
+     "set_property",
+     "top",
+     "top",
+     "1"
+    ],
+    [
+     "add_files",
+     "-fileset",
+     "utils_1",
+     "-norecurse",
+     "<RUN>/sim/vivado_synth/post_synth_design_hook.tcl"
+    ],
+    [
+     "add_files",
+     "-fileset",
+     "utils_1",
+     "-norecurse",
+     "<RUN>/sim/vivado_synth/post_place_design_hook.tcl"
+    ],
+    [
+     "add_files",
+     "-fileset",
+     "utils_1",
+     "-norecurse",
+     "<RUN>/sim/vivado_synth/post_phys_opt_design_hook.tcl"
+    ],
+    [
+     "add_files",
+     "-fileset",
+     "utils_1",
+     "-norecurse",
+     "<RUN>/sim/vivado_synth/post_route_design_hook.tcl"
+    ],
+    [
+     "add_files",
+     "-fileset",
+     "constrs_1",
+     "-norecurse",
+     "clock.xdc"
+    ],
+    [
+     "get_runs",
+     "synth_1"
+    ],
+    [
+     "set_property",
+     "-name",
+     "STEPS.SYNTH_DESIGN.TCL.POST",
+     "-value",
+     "<RUN>/sim/vivado_synth/post_synth_design_hook.tcl",
+     "-objects",
+     "synth_1"
+    ],
+    [
+     "get_runs",
+     "synth_1"
+    ],
+    [
+     "set_property",
+     "-name",
+     "STEPS.SYNTH_DESIGN.flatten_hierarchy",
+     "-value",
+     "rebuilt",
+     "-objects",
+     "synth_1"
+    ],
+    [
+     "get_runs",
+     "impl_1"
+    ],
+    [
+     "set_property",
+     "-name",
+     "STEPS.PLACE_DESIGN.TCL.POST",
+     "-value",
+     "<RUN>/sim/vivado_synth/post_place_design_hook.tcl",
+     "-objects",
+     "impl_1"
+    ],
+    [
+     "get_runs",
+     "impl_1"
+    ],
+    [
+     "set_property",
+     "-name",
+     "STEPS.PHYS_OPT_DESIGN.TCL.POST",
+     "-value",
+     "<RUN>/sim/vivado_synth/post_phys_opt_design_hook.tcl",
+     "-objects",
+     "impl_1"
+    ],
+    [
+     "get_runs",
+     "impl_1"
+    ],
+    [
+     "set_property",
+     "-name",
+     "STEPS.ROUTE_DESIGN.TCL.POST",
+     "-value",
+     "<RUN>/sim/vivado_synth/post_route_design_hook.tcl",
+     "-objects",
+     "impl_1"
+    ],
+    [
+     "reset_run",
+     "synth_1"
+    ],
+    [
+     "reset_run",
+     "synth_1"
+    ],
+    [
+     "launch_runs",
+     "synth_1"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "ERROR",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "CRITICAL WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "WARNING",
+     "-count"
+    ],
+    [
+     "report_timing_summary",
+     "-no_header",
+     "-delay_type",
+     "max",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/synth_design/timing_summary.rpt"
+    ],
+    [
+     "report_timing",
+     "-no_header",
+     "-delay_type",
+     "max",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/synth_design/timing.rpt"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/synth_design/utilization.xml",
+     "-format",
+     "xml"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/synth_design/hierarchical_utilization.xml",
+     "-format",
+     "xml",
+     "-hierarchical"
+    ],
+    [
+     "get_timing_paths",
+     "-delay_type",
+     "max",
+     "-max_paths",
+     "100",
+     "-nworst",
+     "1",
+     "-sort_by",
+     "slack"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "GROUP",
+     "1"
+    ],
+    [
+     "get_property",
+     "REQUIREMENT",
+     "1"
+    ],
+    [
+     "get_property",
+     "SLACK",
+     "1"
+    ],
+    [
+     "get_property",
+     "LOGIC_LEVELS",
+     "1"
+    ],
+    [
+     "get_property",
+     "MAX_FANOUT",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_LOGIC_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_NET_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "SKEW",
+     "1"
+    ],
+    [
+     "get_property",
+     "UNCERTAINTY",
+     "1"
+    ],
+    [
+     "get_timing_paths",
+     "-delay_type",
+     "max",
+     "-max_paths",
+     "1000",
+     "-nworst",
+     "1",
+     "-sort_by",
+     "slack"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "GROUP",
+     "1"
+    ],
+    [
+     "get_property",
+     "REQUIREMENT",
+     "1"
+    ],
+    [
+     "get_property",
+     "SLACK",
+     "1"
+    ],
+    [
+     "get_property",
+     "LOGIC_LEVELS",
+     "1"
+    ],
+    [
+     "get_property",
+     "MAX_FANOUT",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_LOGIC_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_NET_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "SKEW",
+     "1"
+    ],
+    [
+     "get_property",
+     "UNCERTAINTY",
+     "1"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "ERROR",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "CRITICAL WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "WARNING",
+     "-count"
+    ],
+    [
+     "wait_on_run",
+     "synth_1"
+    ],
+    [
+     "get_runs",
+     "synth_1"
+    ],
+    [
+     "get_property",
+     "STATUS",
+     "synth_1"
+    ],
+    [
+     "get_runs",
+     "synth_1"
+    ],
+    [
+     "get_property",
+     "PROGRESS",
+     "synth_1"
+    ],
+    [
+     "reset_run",
+     "impl_1"
+    ],
+    [
+     "launch_runs",
+     "impl_1",
+     "-to_step",
+     "route_design"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "ERROR",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "CRITICAL WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "WARNING",
+     "-count"
+    ],
+    [
+     "report_timing_summary",
+     "-no_header",
+     "-delay_type",
+     "max",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/place_design/timing_summary.rpt"
+    ],
+    [
+     "report_timing",
+     "-no_header",
+     "-delay_type",
+     "max",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/place_design/timing.rpt"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/place_design/utilization.xml",
+     "-format",
+     "xml"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/place_design/hierarchical_utilization.xml",
+     "-format",
+     "xml",
+     "-hierarchical"
+    ],
+    [
+     "get_timing_paths",
+     "-delay_type",
+     "max",
+     "-max_paths",
+     "100",
+     "-nworst",
+     "1",
+     "-sort_by",
+     "slack"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "GROUP",
+     "1"
+    ],
+    [
+     "get_property",
+     "REQUIREMENT",
+     "1"
+    ],
+    [
+     "get_property",
+     "SLACK",
+     "1"
+    ],
+    [
+     "get_property",
+     "LOGIC_LEVELS",
+     "1"
+    ],
+    [
+     "get_property",
+     "MAX_FANOUT",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_LOGIC_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_NET_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "SKEW",
+     "1"
+    ],
+    [
+     "get_property",
+     "UNCERTAINTY",
+     "1"
+    ],
+    [
+     "get_timing_paths",
+     "-delay_type",
+     "max",
+     "-max_paths",
+     "1000",
+     "-nworst",
+     "1",
+     "-sort_by",
+     "slack"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "GROUP",
+     "1"
+    ],
+    [
+     "get_property",
+     "REQUIREMENT",
+     "1"
+    ],
+    [
+     "get_property",
+     "SLACK",
+     "1"
+    ],
+    [
+     "get_property",
+     "LOGIC_LEVELS",
+     "1"
+    ],
+    [
+     "get_property",
+     "MAX_FANOUT",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_LOGIC_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_NET_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "SKEW",
+     "1"
+    ],
+    [
+     "get_property",
+     "UNCERTAINTY",
+     "1"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "ERROR",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "CRITICAL WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "ERROR",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "CRITICAL WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "WARNING",
+     "-count"
+    ],
+    [
+     "report_timing_summary",
+     "-no_header",
+     "-delay_type",
+     "max",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/phys_opt_design/timing_summary.rpt"
+    ],
+    [
+     "report_timing",
+     "-no_header",
+     "-delay_type",
+     "max",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/phys_opt_design/timing.rpt"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/phys_opt_design/utilization.xml",
+     "-format",
+     "xml"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/phys_opt_design/hierarchical_utilization.xml",
+     "-format",
+     "xml",
+     "-hierarchical"
+    ],
+    [
+     "get_timing_paths",
+     "-delay_type",
+     "max",
+     "-max_paths",
+     "100",
+     "-nworst",
+     "1",
+     "-sort_by",
+     "slack"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "GROUP",
+     "1"
+    ],
+    [
+     "get_property",
+     "REQUIREMENT",
+     "1"
+    ],
+    [
+     "get_property",
+     "SLACK",
+     "1"
+    ],
+    [
+     "get_property",
+     "LOGIC_LEVELS",
+     "1"
+    ],
+    [
+     "get_property",
+     "MAX_FANOUT",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_LOGIC_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_NET_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "SKEW",
+     "1"
+    ],
+    [
+     "get_property",
+     "UNCERTAINTY",
+     "1"
+    ],
+    [
+     "get_timing_paths",
+     "-delay_type",
+     "max",
+     "-max_paths",
+     "1000",
+     "-nworst",
+     "1",
+     "-sort_by",
+     "slack"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "GROUP",
+     "1"
+    ],
+    [
+     "get_property",
+     "REQUIREMENT",
+     "1"
+    ],
+    [
+     "get_property",
+     "SLACK",
+     "1"
+    ],
+    [
+     "get_property",
+     "LOGIC_LEVELS",
+     "1"
+    ],
+    [
+     "get_property",
+     "MAX_FANOUT",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_LOGIC_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_NET_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "SKEW",
+     "1"
+    ],
+    [
+     "get_property",
+     "UNCERTAINTY",
+     "1"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "ERROR",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "CRITICAL WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "ERROR",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "CRITICAL WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "WARNING",
+     "-count"
+    ],
+    [
+     "report_timing_summary",
+     "-check_timing_verbose",
+     "-warn_on_violation",
+     "-no_header",
+     "-report_unconstrained",
+     "-path_type",
+     "full",
+     "-input_pins",
+     "-max_paths",
+     "10",
+     "-delay_type",
+     "min_max",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/timing_summary.rpt"
+    ],
+    [
+     "report_timing",
+     "-warn_on_violation",
+     "-no_header",
+     "-input_pins",
+     "-unique_pins",
+     "-max_paths",
+     "128",
+     "-nworst",
+     "4",
+     "-path_type",
+     "full",
+     "-delay_type",
+     "min_max",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/timing.rpt"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/utilization.xml",
+     "-format",
+     "xml"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/hierarchical_utilization.xml",
+     "-format",
+     "xml",
+     "-hierarchical"
+    ],
+    [
+     "get_timing_paths",
+     "-delay_type",
+     "max",
+     "-max_paths",
+     "100",
+     "-nworst",
+     "1",
+     "-sort_by",
+     "slack"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "GROUP",
+     "1"
+    ],
+    [
+     "get_property",
+     "REQUIREMENT",
+     "1"
+    ],
+    [
+     "get_property",
+     "SLACK",
+     "1"
+    ],
+    [
+     "get_property",
+     "LOGIC_LEVELS",
+     "1"
+    ],
+    [
+     "get_property",
+     "MAX_FANOUT",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_LOGIC_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_NET_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "SKEW",
+     "1"
+    ],
+    [
+     "get_property",
+     "UNCERTAINTY",
+     "1"
+    ],
+    [
+     "get_timing_paths",
+     "-delay_type",
+     "max",
+     "-max_paths",
+     "1000",
+     "-nworst",
+     "1",
+     "-sort_by",
+     "slack"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "STARTPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_PIN",
+     "1"
+    ],
+    [
+     "get_property",
+     "ENDPOINT_CLOCK",
+     "1"
+    ],
+    [
+     "get_property",
+     "GROUP",
+     "1"
+    ],
+    [
+     "get_property",
+     "REQUIREMENT",
+     "1"
+    ],
+    [
+     "get_property",
+     "SLACK",
+     "1"
+    ],
+    [
+     "get_property",
+     "LOGIC_LEVELS",
+     "1"
+    ],
+    [
+     "get_property",
+     "MAX_FANOUT",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_LOGIC_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_NET_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "DATAPATH_DELAY",
+     "1"
+    ],
+    [
+     "get_property",
+     "SKEW",
+     "1"
+    ],
+    [
+     "get_property",
+     "UNCERTAINTY",
+     "1"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "ERROR",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "CRITICAL WARNING",
+     "-count"
+    ],
+    [
+     "get_msg_config",
+     "-severity",
+     "WARNING",
+     "-count"
+    ],
+    [
+     "report_drc",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/drc.rpt"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/utilization.rpt"
+    ],
+    [
+     "report_utilization",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/hierarchical_utilization.rpt",
+     "-hierarchical_percentages",
+     "-hierarchical"
+    ],
+    [
+     "report_route_status",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/route_status.rpt"
+    ],
+    [
+     "report_datasheet",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/datasheet.rpt"
+    ],
+    [
+     "report_design_analysis",
+     "-complexity",
+     "-congestion",
+     "-timing",
+     "-show_all",
+     "-max_paths",
+     "4",
+     "-file",
+     "<RUN>/sim/vivado_synth/reports/route_design/design_analysis.rpt"
+    ],
+    [
+     "report_design_analysis",
+     "-complexity",
+     "-logic_level_distribution",
+     "-qor_summary",
+     "-json",
+     "<RUN>/sim/vivado_synth/reports/route_design/design_analysis.json"
+    ],
+    [
+     "get_timing_paths",
+     "-max_paths",
+     "1",
+     "-nworst",
+     "1",
+     "-setup"
+    ],
+    [
+     "get_property",
+     "SLACK",
+     "1"
+    ],
+    [
+     "write_verilog",
+     "-mode",
+     "funcsim",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/outputs/route_design/funcsim.v"
+    ],
+    [
+     "write_verilog",
+     "-mode",
+     "timesim",
+     "-sdf_anno",
+     "false",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/outputs/route_design/timesim.v"
+    ],
+    [
+     "write_sdf",
+     "-mode",
+     "timesim",
+     "-process_corner",
+     "fast",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/outputs/route_design/timesim.min.sdf"
+    ],
+    [
+     "write_sdf",
+     "-mode",
+     "timesim",
+     "-process_corner",
+     "slow",
+     "-force",
+     "-file",
+     "<RUN>/sim/vivado_synth/outputs/route_design/timesim.max.sdf"
+    ],
+    [
+     "write_xdc",
+     "-no_fixed_only",
+     "-force",
+     "<RUN>/sim/vivado_synth/outputs/route_design/impl.xdc"
+    ],
+    [
+     "wait_on_run",
+     "impl_1"
+    ],
+    [
+     "get_runs",
+     "impl_1"
+    ],
+    [
+     "get_property",
+     "STATUS",
+     "impl_1"
+    ],
+    [
+     "get_runs",
+     "impl_1"
+    ],
+    [
+     "get_property",
+     "PROGRESS",
+     "impl_1"
+    ]
+   ],
+   "effective_flow_settings": {
+    "bitstream": null,
+    "checkpoints_dir": "checkpoints",
+    "clocks": {
+     "main_clock": {
+      "duty_cycle": 0.5,
+      "name": "main_clock",
+      "period": 5.0,
+      "port": "a",
+      "rise": 0.0,
+      "skew": null,
+      "uncertainty": null
+     }
+    },
+    "console_colors": true,
+    "debug": false,
+    "default_max_input_delay": null,
+    "default_max_output_delay": null,
+    "default_min_input_delay": null,
+    "default_min_output_delay": null,
+    "docker": null,
+    "dockerized": false,
+    "extra_reports": false,
+    "fail_critical_warning": false,
+    "fail_timing": true,
+    "flatten_hierarchy": "rebuilt",
+    "fpga": {
+     "capacity": "12K",
+     "device": "xc7a12t",
+     "family": "artix-7",
+     "generation": "7",
+     "grade": null,
+     "package": "csg",
+     "part": "xc7a12tcsg325-1",
+     "pins": 325,
+     "speed": "-1",
+     "type": null,
+     "vendor": "xilinx"
+    },
+    "impl": {
+     "steps": {
+      "PHYS_OPT_DESIGN": {
+       "ARGS": {},
+       "TCL": {
+        "POST": "<RUN>/sim/vivado_synth/post_phys_opt_design_hook.tcl"
+       }
+      },
+      "PLACE_DESIGN": {
+       "ARGS": {},
+       "TCL": {
+        "POST": "<RUN>/sim/vivado_synth/post_place_design_hook.tcl"
+       }
+      },
+      "POST_PLACE_POWER_OPT_DESIGN": {
+       "ARGS": {},
+       "TCL": {}
+      },
+      "ROUTE_DESIGN": {
+       "ARGS": {},
+       "TCL": {
+        "POST": "<RUN>/sim/vivado_synth/post_route_design_hook.tcl"
+       }
+      },
+      "WRITE_BITSTREAM": {
+       "ARGS": {},
+       "TCL": {}
+      }
+     },
+     "strategy": ""
+    },
+    "lib_paths": [],
+    "no_console": false,
+    "no_log": false,
+    "nthreads": null,
+    "num_critical_paths": 100,
+    "out_of_context": false,
+    "outputs_dir": "outputs",
+    "print_commands": true,
+    "qor_suggestions": false,
+    "quiet": false,
+    "redirect_stdout": false,
+    "report_power": false,
+    "reports_dir": "reports",
+    "set_impl_properties": {},
+    "set_synth_properties": {},
+    "show_available_strategies": false,
+    "suppress_msgs": [
+     "Synth 8-7080",
+     "Vivado 12-7122"
+    ],
+    "synth": {
+     "steps": {
+      "OPT_DESIGN": {
+       "ARGS": {},
+       "TCL": {}
+      },
+      "POWER_OPT_DESIGN": {
+       "ARGS": {},
+       "TCL": {}
+      },
+      "SYNTH_DESIGN": {
+       "ARGS": {},
+       "TCL": {
+        "POST": "<RUN>/sim/vivado_synth/post_synth_design_hook.tcl"
+       },
+       "flatten_hierarchy": "rebuilt"
+      }
+     },
+     "strategy": ""
+    },
+    "tcl_files": [],
+    "tcl_shell": false,
+    "timeout_seconds": 7200,
+    "verbose": 0,
+    "write_checkpoint": false,
+    "write_netlist": true,
+    "xdc_files": []
+   },
+   "files": {
+    "<DESIGN>/top.v": "a5e46b2173998fe9e3422d6de5fdadeeddbc988e45af72b81a863b7188d73a3b",
+    "<RUN>/sim/vivado_synth/clock.xdc": "720ed8657efad7648e5b43e173c5beaa368258c93d9d77dca7184e2373614b35",
+    "<RUN>/sim/vivado_synth/outputs/route_design/funcsim.v": "7879cae7175306499287eaa63fc7a1db00f16a37bdeaf44ee24796cac2be7b47",
+    "<RUN>/sim/vivado_synth/outputs/route_design/impl.xdc": "c75cb72966af98e4c9a7a3d51c05936acd69fed271a9688accf8c18ccaf7e1ff",
+    "<RUN>/sim/vivado_synth/outputs/route_design/timesim.max.sdf": "024667883a49d14293b2f3f0826086d7e1f2f1b17af0b1c385eb64d0a31dd950",
+    "<RUN>/sim/vivado_synth/outputs/route_design/timesim.min.sdf": "93930c8d518bebc204e417eafddbe5ecd0c23a6d4b6d590383c5d30dccf76938",
+    "<RUN>/sim/vivado_synth/outputs/route_design/timesim.v": "decb0f5acd6bb800b4786eb9fc559229849ba2c8f244a8cfc16624f5a281735d",
+    "<RUN>/sim/vivado_synth/post_phys_opt_design_hook.tcl": "2b69a080bba3bffd7fe45a7dbea54992f4016be789409530c3194488863212eb",
+    "<RUN>/sim/vivado_synth/post_place_design_hook.tcl": "59ecfca8d5504ef60323e7884d32966300497c94977d34205d596269727e4c1e",
+    "<RUN>/sim/vivado_synth/post_route_design_hook.tcl": "9f05b79271599c342b642f3bb96ad9e35a09c280ac65aa755b80d0027f884f51",
+    "<RUN>/sim/vivado_synth/post_synth_design_hook.tcl": "51ddd2abe6e39ba3770f93c003919a7b8a41ec9089d482a2485b57be7aea0923",
+    "<RUN>/sim/vivado_synth/reports/route_design/hierarchical_utilization.xml": "e37abfb44736d155911dc95896b54037ae2224c878371d625d09b5ff904ae1ab",
+    "<RUN>/sim/vivado_synth/reports/route_design/route_status.rpt": "6f87cf973771d660b4418d1924c95cc55ea28b3475adbcd008a38c0d0d99d7a1",
+    "<RUN>/sim/vivado_synth/reports/route_design/timing.rpt": "1ca0dd11c93195c041fb85462ab52a548f6cae29083dd2f30dd0884503eefd3c",
+    "<RUN>/sim/vivado_synth/reports/route_design/timing_summary.rpt": "5a6c5a029da74624b8510d1e6b1cb49413cde49acb7e026b649704afe2fe4a63",
+    "<RUN>/sim/vivado_synth/reports/route_design/utilization.xml": "e1ce8bb3ad3ea1f0078d17572d206ac8a655482d335a69a97d26f3c5383e241a"
+   },
+   "results": {
+    "Fmax": 459.5588235294117,
+    "_hierarchical_utilization": {
+     "PVMU": {
+      "@children": {
+       "(PVMU)": {
+        "FFs": 40,
+        "Module": "(top)",
+        "RAMB18": 1,
+        "Total LUTs": 57
+       },
+       "Ram1R1W": {
+        "FFs": 48,
+        "LUTRAMs": 112,
+        "Module": "Ram1R1W",
+        "Total LUTs": 176
+       },
+       "Ram1R1W_1": {
+        "FFs": 48,
+        "LUTRAMs": 112,
+        "Module": "Ram1R1W_0",
+        "Total LUTs": 166
+       },
+       "Ram1R1W_2": {
+        "FFs": 48,
+        "LUTRAMs": 112,
+        "Module": "Ram1R1W_1",
+        "Total LUTs": 200
+       },
+       "Ram1R1W_3": {
+        "FFs": 48,
+        "LUTRAMs": 112,
+        "Module": "Ram1R1W_2",
+        "Total LUTs": 172
+       },
+       "WidthConverter": {
+        "@children": {
+         "WNSingleWidthConverter": {
+          "FFs": 51,
+          "Module": "WNSingleWidthConverter_36",
+          "Total LUTs": 34
+         }
+        },
+        "FFs": 51,
+        "Module": "WidthConverter",
+        "Total LUTs": 34
+       },
+       "WidthConverter_1": {
+        "@children": {
+         "WNSingleWidthConverter": {
+          "FFs": 51,
+          "Module": "WNSingleWidthConverter_35",
+          "Total LUTs": 29
+         }
+        },
+        "FFs": 51,
+        "Module": "WidthConverter_3",
+        "Total LUTs": 29
+       },
+       "WidthConverter_2": {
+        "@children": {
+         "WNSingleWidthConverter": {
+          "FFs": 51,
+          "Module": "WNSingleWidthConverter_34",
+          "Total LUTs": 30
+         }
+        },
+        "FFs": 51,
+        "Module": "WidthConverter_4",
+        "Total LUTs": 30
+       },
+       "WidthConverter_3": {
+        "@children": {
+         "WNSingleWidthConverter": {
+          "FFs": 51,
+          "Module": "WNSingleWidthConverter",
+          "Total LUTs": 29
+         }
+        },
+        "FFs": 51,
+        "Module": "WidthConverter_5",
+        "Total LUTs": 29
+       },
+       "bfSeq_0": {
+        "@children": {
+         "(bfSeq_0)": {
+          "FFs": 50,
+          "Module": "DoubleButterfly",
+          "Total LUTs": 49
+         },
+         "barretts_0": {
+          "FFs": 67,
+          "Module": "Barrett",
+          "Total LUTs": 75
+         },
+         "barretts_1": {
+          "FFs": 66,
+          "Module": "Barrett_1",
+          "Total LUTs": 73
+         },
+         "headReorder": {
+          "FFs": 91,
+          "Module": "HeadReorder_25",
+          "Total LUTs": 130
+         },
+         "pStage7": {
+          "FFs": 123,
+          "Module": "DoubleButterfly_Anon_26"
+         },
+         "stage10": {
+          "FFs": 88,
+          "Module": "StageX_3_27",
+          "Total LUTs": 31
+         },
+         "stage2": {
+          "FFs": 89,
+          "Module": "DecoupledStage_28",
+          "Total LUTs": 117
+         },
+         "stage3": {
+          "FFs": 41,
+          "Module": "StageX_29",
+          "Total LUTs": 56
+         },
+         "stage4": {
+          "DSP Blocks": 2,
+          "FFs": 41,
+          "Module": "StageX_1_30",
+          "Total LUTs": 35
+         },
+         "stage8": {
+          "FFs": 77,
+          "Module": "StageX_2_31",
+          "Total LUTs": 102
+         },
+         "stage9": {
+          "FFs": 88,
+          "Module": "StageX_3_32",
+          "Total LUTs": 13
+         },
+         "tailReorder": {
+          "FFs": 53,
+          "Module": "TailReorder_33",
+          "Total LUTs": 54
+         }
+        },
+        "DSP Blocks": 2,
+        "FFs": 874,
+        "Module": "DoubleButterfly",
+        "Total LUTs": 732
+       },
+       "bfSeq_1": {
+        "@children": {
+         "(bfSeq_1)": {
+          "FFs": 49,
+          "Module": "DoubleButterfly_1",
+          "Total LUTs": 16
+         },
+         "barretts_0": {
+          "FFs": 67,
+          "Module": "Barrett_2",
+          "Total LUTs": 73
+         },
+         "barretts_1": {
+          "FFs": 66,
+          "Module": "Barrett_3",
+          "Total LUTs": 73
+         },
+         "headReorder": {
+          "FFs": 91,
+          "Module": "HeadReorder_16",
+          "Total LUTs": 111
+         },
+         "pStage7": {
+          "FFs": 123,
+          "Module": "DoubleButterfly_Anon_17"
+         },
+         "stage10": {
+          "FFs": 88,
+          "Module": "StageX_3_18",
+          "Total LUTs": 31
+         },
+         "stage2": {
+          "FFs": 113,
+          "Module": "DecoupledStage_19",
+          "Total LUTs": 118
+         },
+         "stage3": {
+          "FFs": 41,
+          "Module": "StageX_20",
+          "Total LUTs": 54
+         },
+         "stage4": {
+          "DSP Blocks": 2,
+          "FFs": 41,
+          "Module": "StageX_1_21",
+          "Total LUTs": 35
+         },
+         "stage8": {
+          "FFs": 77,
+          "Module": "StageX_2_22",
+          "Total LUTs": 99
+         },
+         "stage9": {
+          "FFs": 88,
+          "Module": "StageX_3_23",
+          "Total LUTs": 10
+         },
+         "tailReorder": {
+          "FFs": 53,
+          "Module": "TailReorder_24",
+          "Total LUTs": 54
+         }
+        },
+        "DSP Blocks": 2,
+        "FFs": 897,
+        "Module": "DoubleButterfly_1",
+        "Total LUTs": 669
+       },
+       "bfSeq_2": {
+        "@children": {
+         "(bfSeq_2)": {
+          "FFs": 49,
+          "Module": "DoubleButterfly_2",
+          "Total LUTs": 28
+         },
+         "barretts_0": {
+          "FFs": 67,
+          "Module": "Barrett_4",
+          "Total LUTs": 73
+         },
+         "barretts_1": {
+          "FFs": 66,
+          "Module": "Barrett_5",
+          "Total LUTs": 73
+         },
+         "headReorder": {
+          "FFs": 91,
+          "Module": "HeadReorder_7",
+          "Total LUTs": 112
+         },
+         "pStage7": {
+          "FFs": 123,
+          "Module": "DoubleButterfly_Anon_8"
+         },
+         "stage10": {
+          "FFs": 88,
+          "Module": "StageX_3_9",
+          "Total LUTs": 32
+         },
+         "stage2": {
+          "FFs": 113,
+          "Module": "DecoupledStage_10",
+          "Total LUTs": 118
+         },
+         "stage3": {
+          "FFs": 41,
+          "Module": "StageX_11",
+          "Total LUTs": 54
+         },
+         "stage4": {
+          "DSP Blocks": 2,
+          "FFs": 41,
+          "Module": "StageX_1_12",
+          "Total LUTs": 35
+         },
+         "stage8": {
+          "FFs": 77,
+          "Module": "StageX_2_13",
+          "Total LUTs": 99
+         },
+         "stage9": {
+          "FFs": 88,
+          "Module": "StageX_3_14",
+          "Total LUTs": 10
+         },
+         "tailReorder": {
+          "FFs": 53,
+          "Module": "TailReorder_15",
+          "Total LUTs": 53
+         }
+        },
+        "DSP Blocks": 2,
+        "FFs": 897,
+        "Module": "DoubleButterfly_2",
+        "Total LUTs": 681
+       },
+       "bfSeq_3": {
+        "@children": {
+         "(bfSeq_3)": {
+          "FFs": 49,
+          "Module": "DoubleButterfly_3",
+          "Total LUTs": 141
+         },
+         "barretts_0": {
+          "FFs": 67,
+          "Module": "Barrett_6",
+          "Total LUTs": 72
+         },
+         "barretts_1": {
+          "FFs": 66,
+          "Module": "Barrett_7",
+          "Total LUTs": 72
+         },
+         "headReorder": {
+          "FFs": 91,
+          "Module": "HeadReorder",
+          "Total LUTs": 112
+         },
+         "pStage7": {
+          "FFs": 123,
+          "Module": "DoubleButterfly_Anon"
+         },
+         "stage10": {
+          "FFs": 88,
+          "Module": "StageX_3",
+          "Total LUTs": 31
+         },
+         "stage2": {
+          "FFs": 113,
+          "Module": "DecoupledStage",
+          "Total LUTs": 118
+         },
+         "stage3": {
+          "FFs": 41,
+          "Module": "StageX",
+          "Total LUTs": 54
+         },
+         "stage4": {
+          "DSP Blocks": 2,
+          "FFs": 41,
+          "Module": "StageX_1",
+          "Total LUTs": 34
+         },
+         "stage8": {
+          "FFs": 77,
+          "Module": "StageX_2",
+          "Total LUTs": 99
+         },
+         "stage9": {
+          "FFs": 88,
+          "Module": "StageX_3_6",
+          "Total LUTs": 10
+         },
+         "tailReorder": {
+          "FFs": 53,
+          "Module": "TailReorder",
+          "Total LUTs": 54
+         }
+        },
+        "DSP Blocks": 2,
+        "FFs": 897,
+        "Module": "DoubleButterfly_3",
+        "Total LUTs": 790
+       },
+       "kAdder": {
+        "@children": {
+         "outStage": {
+          "FFs": 49,
+          "Module": "DecoupledStage_29",
+          "Total LUTs": 339
+         }
+        },
+        "FFs": 49,
+        "Module": "VecAdder",
+        "Total LUTs": 339
+       },
+       "writeAddressQueue": {
+        "FFs": 13,
+        "LUTRAMs": 8,
+        "Module": "Queue",
+        "Total LUTs": 35
+       }
+      },
+      "DSP Blocks": 8,
+      "FFs": 4063,
+      "LUTRAMs": 456,
+      "Module": "(top)",
+      "RAMB18": 1,
+      "Total LUTs": 4123
+     }
+    },
+    "_ths": 0.0,
+    "_ths_total_endpoints": 12068,
+    "_tns_total_endpoints": 12068,
+    "_utilization": {
+     "ADVANCED": {
+      "GTHE4_CHANNEL": {
+       "Available": "20",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "GTHE4_COMMON": {
+       "Available": "5",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "OBUFDS_GTE4": {
+       "Available": "10",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "OBUFDS_GTE4_ADV": {
+       "Available": "10",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "PCIE40E4": {
+       "Available": "2",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "PS8": {
+       "Available": "1",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "SYSMONE4": {
+       "Available": "1",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "VCU": {
+       "Available": "1",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      }
+     },
+     "ARITHMETIC": {
+      "DSP48E2 only": {
+       "Used": "8"
+      },
+      "DSPs": {
+       "Available": "1728",
+       "Fixed": "0",
+       "Used": "8",
+       "Util%": "0.46"
+      }
+     },
+     "BLOCKRAM": {
+      "Block RAM Tile": {
+       "Available": "312",
+       "Fixed": "0",
+       "Used": "0.5",
+       "Util%": "0.16"
+      },
+      "RAMB18": {
+       "Available": "624",
+       "Fixed": "0",
+       "Used": "1",
+       "Util%": "0.16"
+      },
+      "RAMB18E2 only": {
+       "Used": "1"
+      },
+      "RAMB36/FIFO*": {
+       "Available": "312",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "URAM": {
+       "Available": "96",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      }
+     },
+     "CLB Logic": {
+      "CARRY8": {
+       "Available": "28800",
+       "Fixed": "0",
+       "Used": "184",
+       "Util%": "0.64"
+      },
+      "CLB LUTs": {
+       "Available": "230400",
+       "Fixed": "0",
+       "Used": "4123",
+       "Util%": "1.79"
+      },
+      "CLB Registers": {
+       "Available": "460800",
+       "Fixed": "0",
+       "Used": "4063",
+       "Util%": "0.88"
+      },
+      "F7 Muxes": {
+       "Available": "115200",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "F8 Muxes": {
+       "Available": "57600",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "F9 Muxes": {
+       "Available": "28800",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "LUT as Distributed RAM": {
+       "Fixed": "0",
+       "Used": "456"
+      },
+      "LUT as Logic": {
+       "Available": "230400",
+       "Fixed": "0",
+       "Used": "3667",
+       "Util%": "1.59"
+      },
+      "LUT as Memory": {
+       "Available": "101760",
+       "Fixed": "0",
+       "Used": "456",
+       "Util%": "0.45"
+      },
+      "LUT as Shift Register": {
+       "Fixed": "0",
+       "Used": "0"
+      },
+      "Register as Flip Flop": {
+       "Available": "460800",
+       "Fixed": "0",
+       "Used": "4063",
+       "Util%": "0.88"
+      },
+      "Register as Latch": {
+       "Available": "460800",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      }
+     },
+     "CLB Logic Distribution": {
+      "CLB": {
+       "Available": "28800",
+       "Fixed": "0",
+       "Used": "877",
+       "Util%": "3.05"
+      },
+      "CLB Registers": {
+       "Available": "460800",
+       "Fixed": "0",
+       "Used": "4063",
+       "Util%": "0.88"
+      },
+      "CLBL": {
+       "Fixed": "0",
+       "Used": "425"
+      },
+      "CLBM": {
+       "Fixed": "0",
+       "Used": "452"
+      },
+      "LUT as Distributed RAM": {
+       "Fixed": "0",
+       "Used": "456"
+      },
+      "LUT as Logic": {
+       "Available": "230400",
+       "Fixed": "0",
+       "Used": "3667",
+       "Util%": "1.59"
+      },
+      "LUT as Memory": {
+       "Available": "101760",
+       "Fixed": "0",
+       "Used": "456",
+       "Util%": "0.45"
+      },
+      "LUT as Shift Register": {
+       "Fixed": "0",
+       "Used": "0"
+      },
+      "LUT in front of the register is unused": {
+       "Used": "1404"
+      },
+      "LUT in front of the register is used": {
+       "Used": "750"
+      },
+      "Register driven from outside the CLB": {
+       "Used": "2154"
+      },
+      "Register driven from within the CLB": {
+       "Used": "1909"
+      },
+      "Unique Control Sets": {
+       "Available": "57600",
+       "Used": "99",
+       "Util%": "0.17"
+      },
+      "using O5 and O6": {
+       "Used": "8"
+      },
+      "using O5 output only": {
+       "Used": "0"
+      },
+      "using O6 output only": {
+       "Used": "448"
+      }
+     },
+     "CLOCK": {
+      "BUFGCE": {
+       "Available": "208",
+       "Fixed": "0",
+       "Used": "1",
+       "Util%": "0.48"
+      },
+      "BUFGCE_DIV": {
+       "Available": "32",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "BUFGCTRL*": {
+       "Available": "64",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "BUFG_GT": {
+       "Available": "144",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "BUFG_PS": {
+       "Available": "96",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "GLOBAL CLOCK BUFFERs": {
+       "Available": "544",
+       "Fixed": "0",
+       "Used": "1",
+       "Util%": "0.18"
+      },
+      "MMCM": {
+       "Available": "8",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "PLL": {
+       "Available": "16",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      }
+     },
+     "CONFIGURATION": {
+      "BSCANE2": {
+       "Available": "4",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "DNA_PORTE2": {
+       "Available": "1",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "EFUSE_USR": {
+       "Available": "1",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "FRAME_ECCE4": {
+       "Available": "1",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "ICAPE3": {
+       "Available": "2",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "MASTER_JTAG": {
+       "Available": "1",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "STARTUPE3": {
+       "Available": "1",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      }
+     },
+     "I/O": {
+      "BIDIR": {
+       "Used": "0"
+      },
+      "BITSLICE_CONTROL": {
+       "Available": "64",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "BITSLICE_RX_TX": {
+       "Available": "416",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "BITSLICE_TX": {
+       "Available": "64",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "Bonded IOB": {
+       "Available": "360",
+       "Fixed": "0",
+       "Used": "257",
+       "Util%": "71.39"
+      },
+      "HDIOBDIFFINBUF": {
+       "Available": "48",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "HDIOB_M": {
+       "Available": "24",
+       "Fixed": "0",
+       "Used": "24",
+       "Util%": "100.00"
+      },
+      "HDIOB_S": {
+       "Available": "24",
+       "Fixed": "0",
+       "Used": "24",
+       "Util%": "100.00"
+      },
+      "HPIOBDIFFINBUF": {
+       "Available": "192",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "HPIOBDIFFOUTBUF": {
+       "Available": "192",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      },
+      "HPIOB_M": {
+       "Available": "144",
+       "Fixed": "0",
+       "Used": "102",
+       "Util%": "70.83"
+      },
+      "HPIOB_S": {
+       "Available": "144",
+       "Fixed": "0",
+       "Used": "102",
+       "Util%": "70.83"
+      },
+      "HPIOB_SNGL": {
+       "Available": "24",
+       "Fixed": "0",
+       "Used": "5",
+       "Util%": "20.83"
+      },
+      "INPUT": {
+       "Used": "1"
+      },
+      "OUTPUT": {
+       "Used": "4"
+      },
+      "RIU_OR": {
+       "Available": "32",
+       "Fixed": "0",
+       "Used": "0",
+       "Util%": "0.00"
+      }
+     },
+     "Primitives": {
+      "BUFGCE": {
+       "Functional Category": "Clock",
+       "Used": "1"
+      },
+      "CARRY8": {
+       "Functional Category": "CLB",
+       "Used": "184"
+      },
+      "DSP48E2": {
+       "Functional Category": "Arithmetic",
+       "Used": "8"
+      },
+      "FDRE": {
+       "Functional Category": "Register",
+       "Used": "4053"
+      },
+      "FDSE": {
+       "Functional Category": "Register",
+       "Used": "10"
+      },
+      "IBUFCTRL": {
+       "Functional Category": "Others",
+       "Used": "205"
+      },
+      "INBUF": {
+       "Functional Category": "I/O",
+       "Used": "205"
+      },
+      "LUT1": {
+       "Functional Category": "CLB",
+       "Used": "146"
+      },
+      "LUT2": {
+       "Functional Category": "CLB",
+       "Used": "930"
+      },
+      "LUT3": {
+       "Functional Category": "CLB",
+       "Used": "680"
+      },
+      "LUT4": {
+       "Functional Category": "CLB",
+       "Used": "487"
+      },
+      "LUT5": {
+       "Functional Category": "CLB",
+       "Used": "647"
+      },
+      "LUT6": {
+       "Functional Category": "CLB",
+       "Used": "1153"
+      },
+      "OBUF": {
+       "Functional Category": "I/O",
+       "Used": "52"
+      },
+      "RAMB18E2": {
+       "Functional Category": "BLOCKRAM",
+       "Used": "1"
+      },
+      "RAMD32": {
+       "Functional Category": "CLB",
+       "Used": "14"
+      },
+      "RAMD64E": {
+       "Functional Category": "CLB",
+       "Used": "448"
+      },
+      "RAMS32": {
+       "Functional Category": "CLB",
+       "Used": "2"
+      }
+     }
+    },
+    "artifacts": {
+     "netlist": "outputs/route_design/funcsim.v",
+     "netlist_timing": "outputs/route_design/timesim.v",
+     "reports/phys_opt_design/critical_paths.csv": "reports/phys_opt_design/critical_paths.csv",
+     "reports/phys_opt_design/critical_paths_by_delay.csv": "reports/phys_opt_design/critical_paths_by_delay.csv",
+     "reports/place_design/critical_paths.csv": "reports/place_design/critical_paths.csv",
+     "reports/place_design/critical_paths_by_delay.csv": "reports/place_design/critical_paths_by_delay.csv",
+     "reports/route_design/critical_paths.csv": "reports/route_design/critical_paths.csv",
+     "reports/route_design/critical_paths_by_delay.csv": "reports/route_design/critical_paths_by_delay.csv",
+     "reports/route_design/hierarchical_utilization.xml": "reports/route_design/hierarchical_utilization.xml",
+     "reports/route_design/route_status.rpt": "reports/route_design/route_status.rpt",
+     "reports/route_design/timing.rpt": "reports/route_design/timing.rpt",
+     "reports/route_design/timing_summary.rpt": "reports/route_design/timing_summary.rpt",
+     "reports/route_design/utilization.xml": "reports/route_design/utilization.xml",
+     "reports/synth_design/critical_paths.csv": "reports/synth_design/critical_paths.csv",
+     "reports/synth_design/critical_paths_by_delay.csv": "reports/synth_design/critical_paths_by_delay.csv",
+     "sdf_max": "outputs/route_design/timesim.max.sdf",
+     "sdf_min": "outputs/route_design/timesim.min.sdf",
+     "sim.runs/runme.log": "sim.runs/runme.log",
+     "xdc_exported": "outputs/route_design/impl.xdc"
+    },
+    "bram_RAMB18": 1,
+    "bram_tile": "0.5",
+    "clock_frequency": 450.045,
+    "clock_period": 2.222,
+    "design": "sim",
+    "dsp": 8,
+    "ff": 4063,
+    "flow": "vivado_synth",
+    "hold_violations": 0,
+    "lut": 4123,
+    "lut_logic": 3667,
+    "lut_mem": 456,
+    "run_path": "<RUN>/sim/vivado_synth",
+    "setup_violations": 0,
+    "slice": 877,
+    "status": "route_design Complete!",
+    "success": true,
+    "tns": 0.0,
+    "tools": [
+     "vivado"
+    ],
+    "whs": 0.006,
+    "wns": 0.046
+   }
+  }
+ },
+ "request": {
+  "flow": "vivado_postsynth_sim",
+  "settings": [
+   "flows.vivado_synth.fpga=xc7a12tcsg325-1",
+   "flows.vivado_synth.clock.period=5.0"
+  ]
+ },
+ "run_directories": [
+  "sim/vivado_postsynth_sim",
+  "sim/vivado_synth"
+ ]
+}

@@ -479,14 +479,111 @@ TCL_TOOL_PROCS = {
         file mkdir xsim.dir/work
         if {[lindex $args 0] eq "xvhdl"} {set ::__xsim_vhdl_file [lindex $args end]}
         if {[lindex $args 0] eq "xelab"} {set ::__xsim_debug [expr {[__option $args -debug] ni {"" off}}]}
+        # what the simulation is of, for the activity file it writes: the sources analyzed (what
+        # each says it is) and the SDF files back-annotated, by name
+        if {[lindex $args 0] in {xvlog xvhdl}} { lappend ::__xsim_analyzed [__head [lindex $args end] 2] }
+        if {[lindex $args 0] eq "xelab"} {
+            set ::__xsim_annotated {}
+            for {set i 0} {$i < [llength $args]} {incr i} {
+                set word [lindex $args $i]
+                if {[regexp {^-sdf(min|typ|max)$} $word -> corner]} {
+                    set file [lindex [split [lindex $args [incr i]] =] end]
+                    lappend ::__xsim_annotated "$corner [__head $file 3]"
+                }
+            }
+        }
         set f [open xsim.dir/work/[lindex $args 0].log a]; puts $f $args; close $f
     }
     return ""
 }
+set __xsim_analyzed {}
+set __xsim_annotated {}
+# the first `count` lines of a file, joined (empty if there is no such file)
+proc __head {path count} {
+    if {![file isfile $path]} { return "" }
+    set f [open $path r]
+    set lines {}
+    while {[llength $lines] < $count && [gets $f line] >= 0} { lappend lines [string trim $line] }
+    close $f
+    return [join $lines " | "]
+}
+# A file of what the real command writes, without what depends on where or when: it says which
+# command wrote it, in which mode and for which corner or step, and for which top. None of it names
+# a path, so what a flow is handed does not change with the directory it runs in; a flow that
+# is handed the wrong one of two of them hands its tool different text.
+proc __vivado_text {path text} {
+    if {$::__no_output} { return }
+    file mkdir [file dirname $path]
+    set f [open $path w]; puts -nonewline $f $text; close $f
+}
+proc __vivado_top_name {} { expr {[info exists ::__vivado_top] && $::__vivado_top ne "" ? $::__vivado_top : "top"} }
+# `write_verilog [-mode funcsim|timesim] [-sdf_anno false] [-force] [-file] <file>`
+proc write_verilog {args} {
+    set result [__call write_verilog {*}$args]
+    set file [expr {"-file" in $args ? [__option $args -file] : [lindex $args end]}]
+    set mode [__option $args -mode]
+    __vivado_text $file "// fake Vivado netlist\n// write_verilog -mode $mode -sdf_anno [__option $args -sdf_anno]\nmodule [__vivado_top_name] ();\nendmodule\n"
+    return $result
+}
+# `write_sdf [-mode timesim] [-process_corner fast|slow] [-force] [-file] <file>`
+proc write_sdf {args} {
+    set result [__call write_sdf {*}$args]
+    set file [expr {"-file" in $args ? [__option $args -file] : [lindex $args end]}]
+    __vivado_text $file "(DELAYFILE\n// fake Vivado SDF, write_sdf -mode [__option $args -mode] -process_corner [__option $args -process_corner]\n(DESIGN \"[__vivado_top_name]\")\n)\n"
+    return $result
+}
+# `write_checkpoint [-force] <name>`: Vivado adds `.dcp` to a name without it. The checkpoint
+# says which one it is by its own name (`post_synth`, `post_route`).
+proc write_checkpoint {args} {
+    set result [__call write_checkpoint {*}$args]
+    set file [lindex $args end]
+    if {[file extension $file] eq ""} { append file .dcp }
+    __vivado_text $file "fake Vivado checkpoint [file rootname [file tail $file]]\ntop [__vivado_top_name]\n"
+    return $result
+}
+proc write_xdc {args} {
+    set result [__call write_xdc {*}$args]
+    __vivado_text [lindex $args end] "# fake Vivado constraints exported from [__vivado_top_name]\n"
+    return $result
+}
+# What a power estimate was made of: the checkpoint opened and the activity read, as they say
+# they are (`__head`).
+set __vivado_checkpoint {}
+set __vivado_activity {}
+proc open_checkpoint {args} {
+    set result [__call open_checkpoint {*}$args]
+    set ::__vivado_checkpoint [__head [lindex $args end] 2]
+    return $result
+}
+proc read_saif {args} {
+    set result [__call read_saif {*}$args]
+    set ::__vivado_activity [__head [lindex $args end] 4]
+    return $result
+}
+proc __xml_attribute {text} { string map [list & {&amp;} \" {&quot;} < {&lt;} > {&gt;}] $text }
+# `report_power ... -format xml -file <file>` writes the Vivado's XML summary rows that
+# `vivado_power` parses, unless `XEDA_FAKE_POWER_NO_OUTPUT` is set: a fixed estimate, with the
+# checkpoint and activity it was made from. Other formats record only.
+proc report_power {args} {
+    set result [__call report_power {*}$args]
+    if {[__option $args -format] ne "xml" || [info exists ::env(XEDA_FAKE_POWER_NO_OUTPUT)]} { return $result }
+    set rows [list {Total On-Chip Power (W)} 0.5 {Fake: checkpoint} $::__vivado_checkpoint {Fake: activity} $::__vivado_activity]
+    set xml "<report><section title=\"Summary\"><table>"
+    foreach {key value} $rows {
+        append xml "<tablerow><tablecell contents=\"[__xml_attribute $key]\"/><tablecell contents=\"[__xml_attribute $value]\"/></tablerow>"
+    }
+    append xml "</table></section></report>\n"
+    __vivado_text [__option $args -file] $xml
+    return $result
+}
 proc open_saif {path} {
     __record open_saif $path
     if {[file exists $path]} { error "open_saif: $path already exists" }
-    set f [open $path w]; puts $f "(SAIFILE)"; close $f
+    set f [open $path w]
+    puts $f "(SAIFILE)"
+    puts $f "// fake Vivado activity of: [join $::__xsim_analyzed { ; }]"
+    puts $f "// back-annotated with: [join $::__xsim_annotated { ; }]"
+    close $f
     return 1
 }
 # Synthetic xsim states using native Vivado 2024.2 forms measured in Task 8.
