@@ -462,7 +462,7 @@ SystemVerilog sources read them the same way with ``systemverilog = default``. A
 them through the ``slang`` or Surelog/UHDM plugin instead says so in its log. A setting that would add a step before or after the pass -- ``prep``,
 ``pre_synth_opt``, ``post_synth_opt``, ``splitnets``, ``post_synth_rename``, ``black_box``,
 ``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``clockgate_map``, ``stop_after``,
-``rtl_json``, ``rtl_verilog``, ``rtl_graph`` -- is refused at launch, naming both settings, rather than
+``rtl_json``, ``rtl_verilog``, ``rtl_graph``, ``sta``, ``ltp`` -- is refused at launch, naming both settings, rather than
 ignored. A constrained clock is not refused: it is simply not passed on to ABC9, which is what
 the tool's own flow does.
 

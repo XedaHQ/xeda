@@ -365,6 +365,9 @@ CONFLICTS = {
     "rtl_json": "rtl.json",
     "rtl_verilog": "rtl.v",
     "rtl_graph": "rtl.dot",
+    # `Yosys.init` turns `flatten` on for these, which would add `-flatten` to the pass
+    "sta": True,
+    "ltp": True,
 }
 
 

@@ -518,6 +518,21 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                         "`read_verilog` renumbers the cells the pass names",
                     )
                 )
+            # `sta` and `ltp` also make `Yosys.init` set `flatten`, which would add `-flatten` to
+            # the pass: a setting xeda's own code writes escapes this list by construction, so
+            # the user's own request for either is what is refused here.
+            for name, report in (
+                ("sta", "run static timing analysis"),
+                ("ltp", "report the longest path"),
+            ):
+                if getattr(self, name):
+                    conflicts.append(
+                        (
+                            name,
+                            runs_a_pass + f"{report} (`{name}`) after it, and `{name}` would turn "
+                            "on `flatten`, which changes the command line of the pass itself",
+                        )
+                    )
             if self.stop_after is not None:
                 conflicts.append(("stop_after", no_rtl_stage + f"stop after {self.stop_after!r}"))
             for name in ("rtl_json", "rtl_verilog", "rtl_graph"):
