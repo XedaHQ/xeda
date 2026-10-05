@@ -365,7 +365,7 @@ an older protocol, before shipping, with an upgrade error.
 
 ## When something fails
 
-`error.type` in the `--json` output names the exception class:
+`error.type` in the `--json` output names the failure type, usually an exception class:
 
 | `error.type` | Meaning | What to do |
 | --- | --- | --- |

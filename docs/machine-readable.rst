@@ -271,7 +271,8 @@ unknown flow or setting):
       "nodes": []
     }
 
-``error.type`` names the exception class, which is stable enough to branch on:
+``error.type`` names the failure type -- usually an exception class, and stable enough to
+branch on either way:
 ``FlowSettingsError`` (a bad setting), ``FlowNotFoundError`` (a bad flow name),
 ``ExecutableNotFound`` (the tool is not installed), ``NonZeroExitCode`` (the tool failed),
 ``DesignValidationError`` (a bad design file), ``NoSuccessfulRun`` (a DSE search found no
