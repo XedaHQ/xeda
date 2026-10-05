@@ -158,11 +158,12 @@ def test_every_lut_based_primitive_of_the_installed_yosys_has_a_footprint():
     import re
     import subprocess
 
-    from .tool_utils import require_yosys
+    from .tool_utils import require_yosys, require_yosys_config
 
     from xeda.flows.yosys.yosys_fpga import xilinx_lut_footprint
 
     require_yosys()
+    require_yosys_config()
     datdir = subprocess.run(
         ["yosys-config", "--datdir"], capture_output=True, text=True, check=True, timeout=30
     ).stdout.strip()

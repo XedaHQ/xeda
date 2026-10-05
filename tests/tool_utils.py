@@ -43,6 +43,7 @@ __all__ = [
     "require_verilator",
     "require_vivado",
     "require_yosys",
+    "require_yosys_config",
     "require_yosys_ghdl_plugin",
     "use_fake_tools",
     "yosys_json_attribute_holders",
@@ -334,6 +335,16 @@ def require_verilator() -> None:
 
 def require_yosys() -> None:
     _require_command("yosys", ["yosys", "-V"])
+
+
+def require_yosys_config() -> None:
+    """The `yosys-config` executable, which a yosys install need not ship.
+
+    It is a separate program beside `yosys` (`CxxRtl` asks it for its include directory, and the
+    LUT-footprint sweep for the cell library's location), so it is a probe of its own rather than
+    part of `require_yosys()`: a test that needs only `yosys` must not skip for want of it.
+    """
+    _require_command("yosys-config", ["yosys-config", "--datdir"])
 
 
 @lru_cache(maxsize=None)
