@@ -345,10 +345,10 @@ All notable changes to this project will be documented in this file.
   re-run, and a file restored with a stale mtime is still caught. `openfpgaloader` and `open_xc7`
   (`Flow.is_action`) always run and keep no trace, since programming a device changes the outside
   world.
-- `--hashed-run-dirs` (API `hashed_run_dirs=True`) gives each settings variant of a flow its own
-  directory (`<design>/<flow>_<16-char settings hash>/`, hashed from the flow's input settings
-  alone, so editing the design never moves it); the default is one directory per flow
-  (`<design>/<flow>/`). A dependency's run directory is always a sibling of the flow that launched
+- `--hashed-run-dirs` (API `hashed_run_dirs=True`) gives each variant of a flow its own directory
+  (`<design>/<flow>_<16-char run hash>/`, the first 16 characters of `flowrun_hash`: the flow's
+  input settings and where its declared inputs come from, so editing a source file never moves
+  it); the default is one directory per flow (`<design>/<flow>/`). A dependency's run directory is always a sibling of the flow that launched
   it, in the same layout, never nested under it -- so two dependencies of one flow, or the same
   flow run for two different dependers, each get their own directory. Within one launch, a run
   directory is entered at most once: two different configurations of one flow resolving to the

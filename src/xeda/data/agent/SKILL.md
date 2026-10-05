@@ -303,7 +303,8 @@ The first time xeda uses a run root it creates and marks it (`.xeda-run-root`, `
 `CACHEDIR.TAG`); **everything under a marked run root is xeda's -- never keep files of your own in
 `xeda_run/`.** A directory named as the run root that already holds files and carries no marker is
 refused before anything runs, naming it and the fix. `--hashed-run-dirs` instead appends
-the settings hash, `<flow>_<hash>`, so settings variants coexist. A dependency gets its own
+the run hash, `<flow>_<hash>` (the flow's settings and where its declared inputs come from), so
+variants coexist. A dependency gets its own
 directory, a sibling of the flow that launched it. The directory holds the generated tool
 scripts, the tool logs, `reports/`, `outputs/`, `checkpoints/`, plus:
 

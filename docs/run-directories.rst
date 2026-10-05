@@ -44,13 +44,18 @@ Within the run root, the layout depends on ``--hashed-run-dirs``:
    * - *(default)*
      - ``<design>/<flow>/``
    * - ``--hashed-run-dirs``
-     - ``<design>/<flow>_<16-char settings hash>/``
+     - ``<design>/<flow>_<16-char run hash>/``
 
 A dependency gets its own directory, a **sibling** of the flow that launched it, in the same
-layout -- never nested under it. ``--hashed-run-dirs`` names each by its own
-settings, so two settings variants of one flow (a design's own run and a dependency's, or two DSE
-candidates) coexist instead of overwriting each other; the hash is of the flow's *input settings*
-only, so editing the design never moves a dependency's directory. There used to be a third layer,
+layout -- never nested under it. ``--hashed-run-dirs`` names each by its run hash (the first 16
+characters of its ``flowrun_hash``), so two variants of one flow (a design's own run and a
+dependency's, or two DSE candidates) coexist instead of overwriting each other. The run hash
+covers the flow's input settings and, for a flow that declares inputs, where each of them comes
+from: the producing flow's own run hash and output, or the design's sources. So a consumer whose
+settings did not change gets another directory when its producer's settings do, or when another
+producer or output feeds it. Editing a source file never moves a directory: the run hash reads no
+file, and a source counts only as the origin of an input (the trace, not the directory name,
+notices a changed file). There used to be a third layer,
 ``<design>_<design_hash>/``, dropped when ``--incremental`` was off; it is gone (delete any such
 directories by hand -- Xeda no longer looks for them).
 

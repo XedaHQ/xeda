@@ -601,8 +601,8 @@ def _print_plan(plan: Plan) -> None:
     "--hashed-run-dirs",
     is_flag=True,
     default=False,
-    help="Give each settings variant of a flow its own run directory, "
-    "<design>/<flow>_<settings hash>, instead of one per flow, <design>/<flow>.",
+    help="Give each variant of a flow (its settings and where its inputs come from) its own "
+    "run directory, <design>/<flow>_<run hash>, instead of one per flow, <design>/<flow>.",
 )
 @click.option(
     "--cached-dependencies/--no-cached-dependencies",
