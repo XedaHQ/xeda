@@ -665,8 +665,10 @@ def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
     monkeypatch.delenv("XEDA_FAKE_FPGA_MODE")
     result, good = _xeda("run", CHAIN, design)
     assert result.exit_code == 0, result.output
-    assert [states[name] for name in STAGES[:2]] == ["ran", "ran"]
-    assert _states(good) == {"yosys_fpga": "fresh", "nextpnr": "fresh", **_states(good)}
+    # the control's own states: the two stages the failing run completed are reused as they
+    # are, the packer that failed runs again and the programmer, never entered before, runs
+    assert _states(good) == dict(zip(STAGES, ["fresh", "fresh", "ran", "ran"]))
+    assert published.is_file() and published.read_bytes() == BITSTREAM
     _programmed(tmp_path, toolchain, board.design, published)
 
 
