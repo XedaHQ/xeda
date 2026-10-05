@@ -213,7 +213,14 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
                 board_data = get_board_data(board_name, custom)
             except OSError as e:
                 raise ValueError(f"Cannot read {database}: {e}") from e
-            if board_data is not None and not isinstance(board_data, dict):
+            # `get_board_data` gives None only for a selected board whose entry has no value
+            # (`MY_BOARD:` in YAML; TOML cannot write one): no board at all never reaches here.
+            if board_data is None:
+                raise ValueError(
+                    f"Board {board_name!r} has no value in {database}: give it a table of its "
+                    "settings (`{}` for a board with none)"
+                )
+            if not isinstance(board_data, dict):
                 raise ValueError(f"Board {board_name!r} must be a table in {database}")
             if fpga:
                 return values

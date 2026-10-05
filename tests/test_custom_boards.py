@@ -526,3 +526,51 @@ def test_the_bundled_database_is_still_toml_and_loads():
 def test_the_custom_boards_file_setting_says_both_formats_are_accepted():
     description = Nextpnr.Settings.model_fields["custom_boards_file"].description
     assert "TOML or YAML" in description
+
+
+@pytest.mark.parametrize("entry", ["MY_BOARD:\n", "MY_BOARD: null\n", "MY_BOARD: ~\n"])
+@pytest.mark.parametrize("fpga", [{}, {"fpga": {"part": "LFE5U-25F-6BG381C"}}])
+def test_a_yaml_board_with_no_value_is_an_error_naming_board_and_database(tmp_path, entry, fpga):
+    """`MY_BOARD:` is a null entry, only writable in YAML: neither no board nor a table. It is
+    refused with or without an explicit `fpga`, never taken as a board with no data."""
+    message = database_error(tmp_path, "boards.yaml", entry, **fpga)
+    assert f"Board 'MY_BOARD' has no value in custom boards file {tmp_path / 'boards.yaml'}" in (
+        message
+    )
+    assert "`{}` for a board with none" in message
+
+
+@pytest.mark.parametrize("content", ["MY_BOARD: [a]\n", "MY_BOARD: text\n", "MY_BOARD: 3\n"])
+def test_a_yaml_board_that_is_no_table_is_an_error(tmp_path, content):
+    assert "Board 'MY_BOARD' must be a table" in database_error(tmp_path, "boards.yaml", content)
+
+
+@pytest.mark.parametrize(
+    "filename, content", [("boards.yaml", "MY_BOARD: {}\n"), ("boards.toml", "[MY_BOARD]\n")]
+)
+def test_a_board_with_an_empty_table_is_a_board_with_no_data_in_either_format(
+    tmp_path, filename, content
+):
+    path = tmp_path / filename
+    path.write_text(content)
+    settings = Nextpnr.Settings.from_input(
+        {
+            "board": "MY_BOARD",
+            "custom_boards_file": str(path),
+            "fpga": {"part": "LFE5U-25F-6BG381C"},
+        },
+        design_root=tmp_path,
+    )
+    assert settings.board_data() == {}
+
+
+def test_assigning_a_board_with_no_value_is_refused_and_changes_nothing(tmp_path):
+    path = tmp_path / "boards.yaml"
+    path.write_text("MY_BOARD:\n  fpga: LFE5U-25F-6BG381C\nEMPTY:\n")
+    settings = Nextpnr.Settings.from_input(
+        {"board": "MY_BOARD", "custom_boards_file": str(path)}, design_root=tmp_path
+    )
+    with pytest.raises(ValidationError, match="Board 'EMPTY' has no value"):
+        settings.board = "EMPTY"
+    assert settings.board == "MY_BOARD"
+    assert settings.fpga.part == "LFE5U-25F-6BG381C"
