@@ -1,33 +1,107 @@
 import logging
 import os
+import tomllib
 from contextlib import AbstractContextManager, nullcontext
 from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
+import yaml
 from importlib_resources import as_file, files
 
 from .dataclass import Field, model_validator
+from .design import _yaml_error_position
 from .flow import FPGA, FpgaSynthFlow
 from .utils import expand_env_vars, toml_load, toml_loads
+from .yaml_loader import load_yaml
 
 __all__ = [
+    "BOARD_DATABASE_FORMATS",
     "WithFpgaBoardSettings",
+    "board_database_format",
     "get_board_data",
+    "read_board_database",
 ]
 
 log = logging.getLogger(__name__)
 
+#: The formats a custom board database (`custom_boards_file`) may be written in, by file suffix.
+#: The databases xeda bundles stay TOML.
+BOARD_DATABASE_FORMATS: Dict[str, str] = {".toml": "toml", ".yaml": "yaml", ".yml": "yaml"}
+
+
+def board_database_format(path: Union[str, os.PathLike]) -> str:
+    """The format (`toml` or `yaml`) custom board database `path` is read in, by its suffix.
+
+    Suffixes are case-sensitive, like every name xeda reads. Any other suffix is a `ValueError`
+    naming the file and the suffixes accepted, never a guess.
+    """
+    suffix = Path(path).suffix
+    fmt = BOARD_DATABASE_FORMATS.get(suffix)
+    if fmt is not None:
+        return fmt
+    accepted = ", ".join(repr(known) for known in BOARD_DATABASE_FORMATS)
+    if suffix.lower() in BOARD_DATABASE_FORMATS:
+        reason = (
+            f"file suffix {suffix!r}: suffixes are case-sensitive, did you mean {suffix.lower()!r}?"
+        )
+    else:
+        what = f"unsupported file suffix {suffix!r}" if suffix else "no file suffix"
+        reason = f"{what}; a board database is TOML or YAML ({accepted})"
+    raise ValueError(f'Cannot load board database "{path}": {reason}')
+
+
+def read_board_database(path: Union[str, os.PathLike]) -> Dict[str, Any]:
+    """The table of boards in custom board database `path`, TOML or YAML by its suffix.
+
+    YAML goes through xeda's one strict reader (`xeda.yaml_loader`): YAML 1.2 core scalars,
+    string keys only, duplicate keys an error. Every way the content can be wrong is a
+    `ValueError` naming the file (and the line, where the parser knows it); a file that cannot be
+    opened is the `OSError`.
+    """
+    fmt = board_database_format(path)
+    try:
+        if fmt == "toml":
+            data = toml_load(path)
+        else:
+            data = load_yaml(Path(path))
+    except UnicodeDecodeError as e:
+        raise ValueError(
+            f'Cannot load board database "{path}": not UTF-8 text: {e.reason} at byte {e.start}'
+        ) from None
+    except yaml.reader.ReaderError as e:
+        raise ValueError(
+            f'Cannot load board database "{path}": not UTF-8 text: {e.reason} at byte {e.position}'
+        ) from None
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f'Cannot load board database "{path}": {e}') from None
+    except yaml.MarkedYAMLError as e:
+        reason, line, column = _yaml_error_position(e)
+        where = f", line {line}, column {column}" if line is not None else ""
+        raise ValueError(f'Cannot load board database "{path}"{where}: {reason}') from None
+    except yaml.YAMLError as e:
+        raise ValueError(f'Cannot load board database "{path}": {e}') from None
+    if data is None:  # an empty YAML document, as an empty TOML file is an empty table
+        data = {}
+    if not isinstance(data, dict):
+        raise ValueError(
+            f'Cannot load board database "{path}": a board database is a table (mapping) of '
+            f"boards by name, not a {type(data).__name__}"
+        )
+    return data
+
 
 def get_board_data(
-    board: Optional[str], custom_toml_file: Union[None, str, os.PathLike] = None
+    board: Optional[str], custom_boards_file: Union[None, str, os.PathLike] = None
 ) -> Optional[Dict[str, Any]]:
+    """The entry for `board`: from `custom_boards_file` (TOML or YAML), else from the bundled
+    (TOML) database."""
     if not board:
         return None
     boards_data = {}
-    if custom_toml_file:
-        log.debug("Retrieving board data for %s from %s", board, custom_toml_file)
-        boards_data = toml_load(custom_toml_file)
+    if custom_boards_file:
+        log.debug("Retrieving board data for %s from %s", board, custom_boards_file)
+        boards_data = read_board_database(custom_boards_file)
     else:
         res = files("xeda.data").joinpath("boards.toml")
         boards_data = toml_loads(res.read_text())
@@ -41,8 +115,8 @@ def get_board_data(
         #     )
     if board not in boards_data:
         database = (
-            str(custom_toml_file)
-            if custom_toml_file
+            str(custom_boards_file)
+            if custom_boards_file
             else "the bundled board database xeda/data/boards.toml"
         )
         suggestions = get_close_matches(board, boards_data)
@@ -67,8 +141,9 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
     )
     custom_boards_file: Path | None = Field(
         None,
-        description="Path to a TOML board database, used instead of the bundled database. "
-        "Relative paths are resolved against the design directory.",
+        description="Path to a board database, in TOML or YAML (by the file's suffix: `.toml`, "
+        "`.yaml` or `.yml`), used instead of the bundled database. Relative paths are resolved "
+        "against the design directory; a board's local `lpf` resolves relative to this file.",
     )
 
     def board_data(self) -> dict[str, Any] | None:
@@ -131,6 +206,8 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
         custom = cls._resolve_boards_path(values.get("custom_boards_file"), context)
         if custom is not None:
             values["custom_boards_file"] = custom
+            if custom and isinstance(custom, (str, os.PathLike)):
+                board_database_format(custom)  # a suffix xeda does not read, even with no board
         if board_name:
             database = f"custom boards file {custom}" if custom else "the bundled board database"
             try:
