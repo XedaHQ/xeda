@@ -955,6 +955,7 @@ class Nextpnr(FpgaSynthFlow):
             raise FlowFatalError(f"netlist json file {netlist_json} does not exist!")
 
         pin_file, sdc_file, frequency = self._merged_constraints()
+        placement: Path | None = None  # the Xilinx placement dump, which only that backend writes
         if xilinx:
             if not hasattr(self, "_chipdb"):
                 raise FlowFatalError(
@@ -1050,7 +1051,7 @@ class Nextpnr(FpgaSynthFlow):
                 path = path if path.is_absolute() else self.run_path / path
                 if path.is_file() and self.wrote_output(path):  # never an earlier run's
                     self.artifacts[name] = path
-        if xilinx and self.wrote_output(self.run_path / placement):
+        if placement is not None and self.wrote_output(self.run_path / placement):
             self.artifacts["placement"] = self.run_path / placement
 
     # ------------------------------------------------------------------ report parsing
