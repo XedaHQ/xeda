@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+from dataclasses import replace
 from pathlib import Path, PurePath
 from types import SimpleNamespace
 from typing import Callable, ClassVar, Dict, List, Optional, Tuple
@@ -13,6 +14,8 @@ from typing import Callable, ClassVar, Dict, List, Optional, Tuple
 import pytest
 from click.testing import CliRunner
 
+import xeda.deliver as deliver
+import xeda.digest as digest
 from xeda import Design
 from xeda.cli import cli
 from xeda.dataclass import Field, deliverable
@@ -23,6 +26,7 @@ from xeda.deliver import (
     OutputExistsError,
     delivery_record,
 )
+from xeda.digest import RACY_NS
 from xeda.flow import Flow, FlowSettingsError, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
@@ -236,6 +240,238 @@ def test_the_delivery_record_lies_beside_the_run_directory_and_survives_clean(wo
     cleaning = DefaultRunner(world.root, display_results=False, clean=True)
     _launch(world, cleaning, netlist="$PWD/net.v", text="b\n")
     assert (world.user / "net.v").read_text() == "b\n", "still xeda's own copy after --clean"
+
+
+@pytest.fixture
+def hashed(monkeypatch):
+    """Every file whose content was read to digest it, in order: delivery's own reads and those
+    of the records it takes (`digest.record_file`), both patched -- `deliver` imported the name,
+    so patching one module catches only half the calls."""
+    seen: List[Path] = []
+    for module in (deliver, digest):
+        original = module.content_digest
+
+        def counted(path, _original=original):
+            seen.append(Path(path))
+            return _original(path)
+
+        monkeypatch.setattr(module, "content_digest", counted)
+    return seen
+
+
+@pytest.fixture
+def later_clock(monkeypatch):
+    """The destination's file-system clock as a launch made more than the racy window after the
+    delivery reads it. The marker is really made in the destination's own directory and its
+    device really checked; only the time it reports is the one a later launch would see. Nothing
+    is done to the record or to the file: an anchor is only ever a clock read at a moment the
+    content was verified, never arithmetic on a record already held."""
+    original = deliver._destination_clock
+
+    def later(destination):
+        reading = original(destination)
+        return None if reading is None else replace(reading, ns=reading.ns + RACY_NS + 1)
+
+    monkeypatch.setattr(deliver, "_destination_clock", later)
+
+
+@pytest.fixture
+def early_clock(monkeypatch):
+    """The destination's file-system clock as a launch made while the delivery is still inside the
+    racy window reads it: the real reading, never advanced, but clamped down to the latest time at
+    which a record of a file changed that recently is still not settled -- `settled_before(t)` is
+    `max(mtime, ctime) + RACY_NS < t`, so that boundary is false either way. The marker is really
+    made and its device really checked. This makes a test assert the behavior at a chosen moment
+    instead of racing a real clock, which on a shared runner under `-n auto` it would lose."""
+    original = deliver._destination_clock
+
+    def early(destination):
+        reading = original(destination)
+        if reading is None:
+            return None
+        st = os.lstat(destination)
+        boundary = max(st.st_mtime_ns, st.st_ctime_ns) + RACY_NS
+        return replace(reading, ns=min(reading.ns, boundary))
+
+    monkeypatch.setattr(deliver, "_destination_clock", early)
+
+
+def _reads(hashed, destination) -> int:
+    """How many times the destination's content was read since the count was last cleared."""
+    return sum(1 for path in hashed if path == destination)
+
+
+def test_an_unchanged_delivery_reads_the_destination_once_not_at_every_launch(
+    world, hashed, later_clock
+):
+    """A check that reads a destination anchors the record it takes to that file system's own
+    clock, read just before: the next check recognizes the unchanged file by its metadata (R38)
+    and reads nothing, and the delivery copies nothing either."""
+    destination = world.user / "net.v"
+    first = _launch(world, netlist="$PWD/net.v")
+    assert _reads(hashed, destination) == 0, "nothing was there to read"
+    record = json.loads(delivery_record(first.run_path).read_text())["files"]
+    assert "anchor_ns" not in record[str(destination)], "just written: racy, fail-closed"
+
+    hashed.clear()
+    second = _launch(world, netlist="$PWD/net.v")
+    assert [d.state for d in second.deliveries] == ["unchanged"]
+    assert _reads(hashed, destination) == 1, "read once, to anchor its record"
+    entry = json.loads(delivery_record(second.run_path).read_text())["files"][str(destination)]
+    assert entry["anchor_ns"] > entry["recorded_ns"], "anchored by a clock, not by its own times"
+
+    for _ in range(2):
+        hashed.clear()
+        again = _launch(world, netlist="$PWD/net.v")
+        assert [d.state for d in again.deliveries] == ["unchanged"]
+        assert _reads(hashed, destination) == 0, "its metadata vouches for it"
+    assert destination.read_text() == "net\n"
+
+
+def test_the_anchor_is_the_clock_of_the_destination_read_before_its_content(world, monkeypatch):
+    """What anchors a record is a time the destination's own file system reported, read just
+    before that content was, and nothing else. Arithmetic on the record already held -- its own
+    change time plus the racy window -- would make every record look settled the moment it was
+    first read, which is precisely the guarantee the window exists for: on a file system whose
+    timestamps are coarse, a write during the read falls in the same tick, and the destination
+    would then be trusted for ever to hold bytes it does not. So this pins the mechanism: the
+    stored anchor is the clock's own answer, and the clock is read before the content."""
+    destination = world.user / "net.v"
+    events: List[str] = []
+    answers: List[int] = []
+    real_clock = deliver._destination_clock
+    #: unmistakably that clock's answer: no sum of the file's own times lands on it
+    far = 10**15
+
+    def clock(path):
+        reading = real_clock(path)
+        if reading is None:
+            return None
+        events.append("clock")
+        answers.append(reading.ns + far)
+        return replace(reading, ns=answers[-1])
+
+    original = digest.content_digest
+
+    def counted(path):
+        if Path(path) == destination:
+            events.append("read")
+        return original(path)
+
+    monkeypatch.setattr(deliver, "_destination_clock", clock)
+    monkeypatch.setattr(digest, "content_digest", counted)
+    _launch(world, netlist="$PWD/net.v")
+    events.clear()
+    flow = _launch(world, netlist="$PWD/net.v")
+
+    assert events == ["clock", "read"], "the clock is read before the content, never after"
+    entry = json.loads(delivery_record(flow.run_path).read_text())["files"][str(destination)]
+    assert entry["anchor_ns"] == answers[-1], "the anchor is what that clock reported"
+    st = os.lstat(destination)
+    assert entry["anchor_ns"] != max(st.st_mtime_ns, st.st_ctime_ns) + RACY_NS + 1
+
+
+def test_a_delivery_still_inside_the_racy_window_is_read_at_every_launch(
+    world, hashed, early_clock
+):
+    """While the window has not passed, the record of a file written a moment ago is settled
+    before no clock that can be read, so nothing anchors it and every check reads it: an anchor
+    is never manufactured from the record already held. `early_clock` pins the reading at the
+    boundary, so this holds however long the launches really take."""
+    destination = world.user / "net.v"
+    _launch(world, netlist="$PWD/net.v")
+    for _ in range(2):
+        hashed.clear()
+        assert [d.state for d in _launch(world, netlist="$PWD/net.v").deliveries] == ["unchanged"]
+        assert _reads(hashed, destination) == 2, "the check's read, and the copy's"
+
+
+def test_an_edit_with_its_mtime_restored_is_found_even_after_the_record_was_anchored(
+    world, later_clock
+):
+    """The inode change time is what no one can set: an edit given its old mtime back still
+    moves it, so the anchored record stops vouching and the content is read -- and refused."""
+    destination = world.user / "net.v"
+    _launch(world, netlist="$PWD/net.v")
+    _launch(world, netlist="$PWD/net.v")  # reads it once, and anchors its record
+    mtime = destination.stat().st_mtime_ns
+    destination.write_text("theirs\n")
+    os.utime(destination, ns=(destination.stat().st_atime_ns, mtime))
+    assert destination.stat().st_mtime_ns == mtime
+
+    with pytest.raises(OutputExistsError, match="changed since xeda wrote it"):
+        _launch(world, netlist="$PWD/net.v")
+    assert destination.read_text() == "theirs\n"
+
+
+def test_another_file_of_the_same_bytes_and_mtime_in_its_place_is_refused_when_anchored(
+    world, later_clock
+):
+    """A file put in the destination's place is another inode, which is part of what a record is
+    trusted by: its metadata can never vouch, and the inode decides once the content is read."""
+    destination = world.user / "net.v"
+    _launch(world, netlist="$PWD/net.v")
+    _launch(world, netlist="$PWD/net.v")  # anchors its record
+    recorded = destination.stat()
+    impostor = world.user / "theirs.v"
+    impostor.write_text(destination.read_text())  # the very bytes xeda delivered
+    destination.unlink()
+    impostor.rename(destination)
+    os.utime(destination, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
+    assert destination.stat().st_size == recorded.st_size
+    assert destination.stat().st_ino != recorded.st_ino
+
+    with pytest.raises(OutputExistsError, match="changed since xeda wrote it"):
+        _launch(world, netlist="$PWD/net.v")
+
+
+def test_a_destination_whose_file_system_clock_cannot_be_read_is_read_at_every_launch(
+    world, hashed, later_clock, monkeypatch
+):
+    """A marker that cannot be made where the output goes (a directory that is read only, a file
+    system that refuses) anchors nothing: the check reads the content, as it always did, and
+    delivery is otherwise exactly the same."""
+
+    def refuse(directory):
+        raise OSError("no marker here")
+
+    monkeypatch.setattr(deliver, "filesystem_time_ns", refuse)
+    destination = world.user / "net.v"
+    _launch(world, netlist="$PWD/net.v")
+    for _ in range(2):
+        hashed.clear()
+        assert [d.state for d in _launch(world, netlist="$PWD/net.v").deliveries] == ["unchanged"]
+        assert _reads(hashed, destination) == 2
+    assert destination.read_text() == "net\n"
+
+
+def test_an_anchor_read_on_another_file_system_is_not_used(world, hashed, later_clock):
+    """An anchor is a time on one file system's clock: a destination that moved to another is
+    read again rather than judged by times that mean nothing there."""
+    destination = world.user / "net.v"
+    _launch(world, netlist="$PWD/net.v")
+    flow = _launch(world, netlist="$PWD/net.v")  # anchors its record
+    record_path = delivery_record(flow.run_path)
+    record = json.loads(record_path.read_text())
+    entry = record["files"][str(destination)]
+    assert entry["anchor_device"] == os.lstat(destination).st_dev
+    entry["anchor_device"] += 1  # as if it had been read where the file no longer is
+    record_path.write_text(json.dumps(record))
+
+    hashed.clear()
+    again = _launch(world, netlist="$PWD/net.v")
+    assert [d.state for d in again.deliveries] == ["unchanged"]
+    assert _reads(hashed, destination) == 1, "read once, and anchored afresh"
+    assert destination.read_text() == "net\n"
+
+
+def test_an_anchored_destination_is_still_replaced_when_the_output_changes(world, later_clock):
+    """Metadata trust says what the destination holds, never that it need not be replaced."""
+    _launch(world, netlist="$PWD/net.v", text="a\n")
+    _launch(world, netlist="$PWD/net.v", text="a\n")  # anchors its record
+    flow = _launch(world, netlist="$PWD/net.v", text="b\n")
+    assert not flow.reused and (world.user / "net.v").read_text() == "b\n"
+    assert [d.state for d in flow.deliveries] == ["delivered"]
 
 
 @pytest.mark.parametrize("theirs", ["edited", "foreign", "a link"])
