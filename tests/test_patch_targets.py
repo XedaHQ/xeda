@@ -153,11 +153,17 @@ def _module_names(tree: ast.AST, package: str | None = None) -> dict[str, str]:
 
 
 def _split_module(dotted: str) -> tuple[str, str] | None:
-    """Split `"xeda.a.b.name"` into its longest module prefix and the next component."""
+    """Split `"xeda.a.b.name"` into a module and the one name patched on it, or None.
+
+    Only a path with exactly one component after the module is a module-attribute patch.
+    `"xeda.tool.Tool.version_gte"` and `"xeda.flow_runner.default_runner.console.input"` reach
+    *through* the module to patch an attribute of a class or an object, which is out of scope
+    (see the module docstring): the name on the module is not what is replaced.
+    """
     parts = dotted.split(".")
     for end in range(len(parts) - 1, 0, -1):
         if _is_module(".".join(parts[:end])):
-            return ".".join(parts[:end]), parts[end]
+            return (".".join(parts[:end]), parts[end]) if end == len(parts) - 1 else None
     return None
 
 
@@ -177,7 +183,11 @@ def _patched(source: str, where: str) -> Iterator[PatchTarget]:
         line = 0  # taken from the matched node, which always carries one
         if isinstance(node, ast.Call):
             func = node.func
-            if isinstance(func, ast.Attribute) and func.attr == "setattr" and len(node.args) >= 2:
+            # `monkeypatch.setattr(...)` (or any receiver's), and the builtin `setattr(...)`
+            setter = (isinstance(func, ast.Attribute) and func.attr == "setattr") or (
+                isinstance(func, ast.Name) and func.id == "setattr"
+            )
+            if setter and len(node.args) >= 2:
                 first, second = node.args[0], node.args[1]
                 line = node.lineno
                 if isinstance(first, ast.Name) and isinstance(second, ast.Constant):
@@ -213,20 +223,112 @@ _SCOPES = (
 )
 
 
+def _scope_body(scope: ast.AST) -> list[ast.AST]:
+    """The nodes whose names belong to `scope`'s own namespace.
+
+    A function's decorators, default arguments and annotations are left out: they are evaluated
+    in the *enclosing* scope, so a module-level `@helper` is an import-time read of `helper`, not
+    a read by the function it decorates. (One inside another function is then attributed to
+    neither, which can only make this check stricter, never looser.)
+    """
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return list(scope.body)
+    if isinstance(scope, ast.Lambda):
+        return [scope.body]
+    if isinstance(scope, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+        return [scope.elt, *scope.generators]
+    if isinstance(scope, ast.DictComp):
+        return [scope.key, scope.value, *scope.generators]
+    return list(ast.iter_child_nodes(scope))
+
+
+def _own_nodes(scope: ast.AST) -> Iterator[ast.AST]:
+    """Every node of `scope`'s own namespace, stopping at the scopes nested in it.
+
+    A nested function has its own namespace, so neither its reads nor its bindings belong to the
+    enclosing one; the nested definition node itself is yielded, since it binds a name here.
+    """
+    stack: list[ast.AST] = list(_scope_body(scope))
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, _SCOPES):
+            continue  # its interior is its own namespace
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _nested_scopes(scope: ast.AST) -> Iterator[ast.AST]:
+    """The scopes defined directly in `scope`'s own namespace."""
+    for node in _own_nodes(scope):
+        if isinstance(node, _SCOPES):
+            yield node
+
+
+def _binds_locally(scope: ast.AST, name: str) -> bool:
+    """Whether `scope` binds `name` itself, so a read of it is not the module's global.
+
+    Parameters, assignments, loop and `with`/`except` targets, imports and nested definitions
+    all bind locally; an explicit `global name` gives the module's binding back. Without this a
+    function with a parameter called `expectation` would make the check pass while patching the
+    module's `expectation` reached nothing.
+    """
+    bound: set[str] = set()
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        args = scope.args
+        bound.update(a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs))
+        for extra in (args.vararg, args.kwarg):
+            if extra is not None:
+                bound.add(extra.arg)
+    for inner in _own_nodes(scope):
+        if isinstance(inner, ast.Global) and name in inner.names:
+            return False  # the module's binding, explicitly
+        if isinstance(inner, ast.Name) and isinstance(inner.ctx, (ast.Store, ast.Del)):
+            bound.add(inner.id)
+        elif isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(inner.name)
+        elif isinstance(inner, (ast.Import, ast.ImportFrom)):
+            bound.update((alias.asname or alias.name.split(".")[0]) for alias in inner.names)
+        elif isinstance(inner, ast.ExceptHandler) and inner.name:
+            bound.add(inner.name)
+    return name in bound
+
+
+def _reads_global_in(tree: ast.AST, name: str) -> bool:
+    """Some function scope in `tree` reads `name` from the enclosing module's namespace.
+
+    Walked scope by scope, carrying whether an enclosing function already binds the name: an
+    inner function reading a name its outer function owns is reading a closure variable, which
+    patching the module's attribute could never reach. A read at module level does not count
+    either -- it happened at import time.
+    """
+
+    def visit(scope: ast.AST, shadowed: bool) -> bool:
+        # the module's own binding of the name is the very thing a patch replaces, so it never
+        # shadows; only an enclosing *function* scope's binding does
+        hidden = shadowed or (scope is not tree and _binds_locally(scope, name))
+        if not hidden and scope is not tree:
+            for inner in _own_nodes(scope):
+                if (
+                    isinstance(inner, ast.Name)
+                    and inner.id == name
+                    and isinstance(inner.ctx, ast.Load)
+                ):
+                    return True
+        return any(visit(nested, hidden) for nested in _nested_scopes(scope))
+
+    return visit(tree, False)
+
+
 def _reads_its_own_global(module: str, name: str) -> bool:
     """A function defined in `module` reads `name` from the module's own namespace.
 
     A name used only at import time (a decorator, a module-level expression) does not count:
-    patching it afterwards would change nothing.
+    patching it afterwards would change nothing. Neither does a read of a *local* of that name
+    (`_binds_locally`), which the patch could never reach.
     """
     tree = _parsed(inspect.getsource(importlib.import_module(module)))
     assert tree is not None
-    for scope in (node for node in ast.walk(tree) if isinstance(node, _SCOPES)):
-        for inner in ast.walk(scope):
-            if isinstance(inner, ast.Name) and inner.id == name:
-                if isinstance(inner.ctx, ast.Load):
-                    return True
-    return False
+    return _reads_global_in(tree, name)
 
 
 @cache
@@ -356,6 +458,47 @@ def test_the_scan_finds_the_suites_patch_targets():
         "the launcher's patch targets are what the stage split must not strand; missing: "
         f"{sorted(LAUNCHER_TARGETS - launcher)}"
     )
+
+
+#: (source, whether a function in it reads the module's own `helper`) -- the oracle's own
+#: scope analysis, which decides whether a patch of `helper` could reach anything.
+_SCOPE_CASES = [
+    ("def f():\n    return helper()\n", True, "a plain global read"),
+    ("def f(helper):\n    return helper()\n", False, "a parameter of that name"),
+    ("def f():\n    helper = 1\n    return helper\n", False, "a local of that name"),
+    ("def f():\n    from x import helper\n    return helper()\n", False, "a local import"),
+    ("def f():\n    for helper in y:\n        return helper\n", False, "a loop target"),
+    ("def f():\n    global helper\n    helper = 1\n    return helper\n", True, "`global`"),
+    ("helper = 1\n", False, "a module-level binding, read by nothing"),
+    ("@helper\ndef f():\n    pass\n", False, "read only at import time"),
+    (
+        "def outer(helper):\n    def inner():\n        return helper\n    return inner\n",
+        False,
+        "an inner read of the outer's parameter, not of the module's name",
+    ),
+    (
+        "def outer():\n    helper = 1\n\n    def inner():\n        return helper\n    return inner\n",
+        False,
+        "an inner read of the outer's local",
+    ),
+    (
+        "def outer(x):\n    def inner(helper):\n        return helper\n    return helper()\n",
+        True,
+        "the outer reads the module's name although the inner shadows it",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("source", "reads", "why"), _SCOPE_CASES, ids=[case[2] for case in _SCOPE_CASES]
+)
+def test_the_oracle_tells_a_global_read_from_a_local_one(source: str, reads: bool, why: str):
+    """Its own soundness: a read of a local that happens to share the name is not a global read.
+
+    Without this the check would pass for a function with a parameter called `expectation` and
+    claim a patch was live when it reached nothing.
+    """
+    assert _reads_global_in(ast.parse(source), "helper") is reads, why
 
 
 def test_the_scan_reads_patches_inside_embedded_scripts():
