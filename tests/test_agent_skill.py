@@ -152,14 +152,14 @@ def test_the_packaged_skill_and_the_documentation_state_requirements_not_review_
     after a merge, "install this branch" tells an agent to do something impossible."""
     with skill_source_dir() as source:
         files = [source / "SKILL.md", *sorted((source / "references").glob("*.md"))]
-    files += sorted((REPO_ROOT / "docs").glob("*.rst"))
-    assert len(files) > 3
-    found = [
-        f"{path.relative_to(source if path.is_relative_to(source) else REPO_ROOT)}:{number}: {line}"
-        for path in files
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
-        if REVIEW_TIME_WORDING.search(line)
-    ]
+        files += sorted((REPO_ROOT / "docs").glob("*.rst"))
+        assert len(files) > 3
+        found = [
+            f"{path.relative_to(source if path.is_relative_to(source) else REPO_ROOT)}:{number}: {line}"
+            for path in files
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+            if REVIEW_TIME_WORDING.search(line)
+        ]
     assert not found, "wording that only makes sense while a change is open:\n" + "\n".join(found)
 
 
