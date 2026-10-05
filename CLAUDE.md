@@ -27,6 +27,7 @@ tox                                  # CI matrix: py311-py314 + mypy + black + r
 tox -e mypy                          # mypy --install-types --non-interactive src - currently clean
 tox -e black                         # black --check --diff src tests (line-length 100) - clean
 ruff check src tests                 # .ruff.toml, line-length 120
+tox -e docs                          # Sphinx docs, warnings are errors (-W -n); also a CI job
 ```
 
 **The suite is safe to run in parallel** (`pytest-xdist`, in the `dev` group; tox and CI use
@@ -167,6 +168,13 @@ Flow names are resolved by `FlowChoice.convert` through `get_flow_class`, so eve
 resolver accepts works on the command line (canonical, CamelCase class name, aliases, dashes) and
 an unknown name gets close-match suggestions. It returns the *canonical* name, so downstream code
 never re-normalizes.
+
+The documentation (`docs/`, Sphinx, `sphinx_book_theme`) enables no Sphinx extension: the pages are
+hand-written reStructuredText. `docs/requirements.txt` lists only what the build uses; add an
+extension only together with a page that uses it. `tox -e docs`, the CI `docs` job and Read the Docs
+(`.readthedocs.yaml`, `fail_on_warning: true`) all build with warnings as errors, so a broken
+`:ref:`/`:doc:` target or malformed markup fails the pull request. `conf.py` reads xeda's version
+from the installed distribution, so every one of them installs the package too.
 
 Note: the repository working tree accumulates untracked scratch output (`xeda_run/`, `sky130*/`,
 `asap7/`, netlists, notebooks). Don't treat those as part of the source.
