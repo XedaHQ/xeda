@@ -905,11 +905,12 @@ the design root. It is TOML or YAML, chosen by its suffix (`board.read_board_dat
 `board_database_format`: `.toml`, `.yaml`, `.yml`, case-sensitive; any other suffix is a
 `ValueError` naming the file and the accepted suffixes, checked whenever the setting is given, even
 with no `board`). YAML goes through the shared strict loader (`yaml_loader.load_yaml`), and a
-parse failure is a `ValueError` naming the file and line; the bundled database is
-still TOML (`toml_loads` of the packaged `boards.toml`). A board's local `lpf` resolves relative to its database file, bundled
-or custom, whatever its format (`WithFpgaBoardSettings.board_file`, a context manager: a bundled
-file may exist on disk only while it is open). A flow sharing
-`board` with a board-aware dependency must also share `custom_boards_file`.
+parse failure is a `ValueError` naming the file and line; the bundled database is still TOML
+(`toml_loads` of the packaged `boards.toml`). A board's local `lpf` resolves relative to its
+database file, bundled or custom, whatever its format (`WithFpgaBoardSettings.board_file`, a
+context manager: a bundled file may exist on disk only while it is open; nextpnr's board
+fallback does the same in `_prepare_board_inputs`). A flow sharing `board` with a board-aware
+dependency must also share `custom_boards_file`.
 
 ## Conventions and gotchas
 

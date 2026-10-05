@@ -414,6 +414,46 @@ def test_a_board_given_for_any_stage_is_the_whole_graph_s(tmp_path, fake_loader,
     assert ("--board" in argv) == (where != "yosys_fpga")
 
 
+@pytest.mark.parametrize("suffix", [".toml", ".yaml", ".yml"])
+@pytest.mark.parametrize("where", ["openfpgaloader", "nextpnr"])
+def test_a_custom_board_database_in_any_format_serves_the_whole_declared_graph(
+    tmp_path, fake_loader, suffix, where
+):
+    """The database is read for every board-aware node of the graph, TOML or YAML alike: the
+    device, the programmer's board name, and the pins beside the database, which nextpnr reads."""
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "pins.lpf").write_text('LOCATE COMP "clk" SITE "P3";\n')
+    database = root / f"boards{suffix}"
+    if suffix == ".toml":
+        database.write_text(
+            f'[MY_BOARD]\nname = "programmer_board"\nfpga.part = "{ECP5}"\nlpf = "pins.lpf"\n'
+        )
+    else:
+        database.write_text(
+            f"MY_BOARD:\n  name: programmer_board\n  fpga:\n    part: {ECP5}\n  lpf: pins.lpf\n"
+        )
+    section = {"board": "MY_BOARD", "custom_boards_file": database.name}
+    design = _design(tmp_path, flows={where: section})
+    plan = _runner(tmp_path).plan(Openfpgaloader, design)
+    assert [n.name for n in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"]
+    for node in plan.nodes:
+        assert node.settings.fpga.part == ECP5, node.name
+        if node.name != "yosys_fpga":
+            assert node.settings.board == "MY_BOARD", node.name
+            assert node.settings.custom_boards_file == database, node.name
+    flow = _program(tmp_path, design)
+    assert flow.succeeded
+    argv = _calls(tmp_path, "openfpgaloader")[0]["argv"]
+    assert argv[2:6] == ["--board", "programmer_board", "--fpga-part", ECP5]
+    (placed,) = _calls(tmp_path, "nextpnr")
+    (lpf,) = [a for a in placed["argv"] if a.startswith("--lpf=")]
+    assert Path(lpf.removeprefix("--lpf=")).parent == tmp_path / "run/top/nextpnr"
+    assert (tmp_path / "run/top/nextpnr/constraints.lpf").read_text() == (
+        root / "pins.lpf"
+    ).read_text()
+
+
 def test_devices_that_differ_between_the_loader_and_a_build_stage_are_an_error(
     tmp_path, fake_loader
 ):
