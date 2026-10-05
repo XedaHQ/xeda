@@ -20,8 +20,9 @@ once per process (`digest.installed_package_digest`), as the installed xeda pack
 
 Where the run root comes from at load time: the launcher puts it there
 (`design.loading_in_run_root`), as it does the directory a Git dependency is cloned into. It is
-made only to write a record, after a generation that succeeded, never to look one up, so a design
-that fails to load -- or a generator that fails -- leaves no run root behind. With none at all --
+made only to write a record, after a generation that succeeded, never to look one up, so a
+generator that fails -- like a design that never reaches one -- leaves no run root behind; a
+record of a generation that did happen outlives a design that fails after it. With none at all --
 a `Design` built directly, a run root whose cache cannot be written -- nothing can record a
 generation, so the generator runs: the direction xeda takes everywhere when it cannot prove
 something is up to date, and `Flow.always_runs()`'s vocabulary for a step that cannot be judged.
@@ -155,11 +156,11 @@ class Generation:
 
     def produced(self) -> None:
         """Record the sources this generation left, with their content, under the identity its
-        inputs had -- asking for the run root only now, so that a generator that failed, or a
-        design that fails to load, creates none. Nothing is recorded when there is nowhere to
-        keep it, when the generator produced none of the sources the design declares, or when
-        its inputs changed while it ran: the next load then judges it out of date again, which
-        is the safe answer."""
+        inputs had -- asking for the run root only now, so that a generator that fails, like a
+        design that never reaches one, leaves none behind. Nothing is recorded when there is
+        nowhere to keep it, when the generator produced none of the sources the design declares,
+        or when its inputs changed while it ran: the next load then judges it out of date again,
+        which is the safe answer."""
         if self._run_root is None or self._outputs is None:
             return
         assert self._generator is not None and self._design_root is not None

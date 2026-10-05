@@ -1449,10 +1449,12 @@ DEPENDENCY_CLONES = ".dependencies"
 class LoadContext:
     """What a launcher lends the designs it loads: xeda's own space, and what the launch asked
     for. `run_root(True)` creates and marks the run root, `run_root(False)` gives one that is
-    already there, or None -- a design that fails to load, and a pure plan, must create none.
+    already there, or None: it is asked to create one only to keep something there -- never to
+    look for it -- so a load that keeps nothing creates nothing, and a pure plan never asks.
     What a load keeps there: the directory a Git dependency without a `clone_dir` is cloned into
     (`DEPENDENCY_CLONES`) and the record of a generator's last generation
-    (`generation.CACHE_DIRECTORY`)."""
+    (`generation.CACHE_DIRECTORY`). Both outlive a design that fails *after* them, as they
+    should: the work they record was really done."""
 
     run_root: Callable[[bool], Optional[Path]]
     #: `--rebuild-all` (which `--clean` implies): a generator runs whatever its record says

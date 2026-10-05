@@ -66,7 +66,9 @@ All notable changes to this project will be documented in this file.
   generates every time: the direction xeda takes wherever it cannot prove something is up to
   date. `--rebuild-all` (and `--clean`) regenerates too, which is the escape where something xeda
   cannot see changed; `xeda run --dry-run` still creates and writes nothing, and a generator that
-  fails leaves no run root behind.
+  fails leaves no run root behind. On upgrading, nothing records the generations an earlier xeda
+  ran, so every generated design generates once more on its next load -- and `--dry-run` refuses
+  to plan it until one real run has recorded that.
 - `custom_boards_file` accepts a YAML board database (`.yaml` or `.yml`) as well as TOML, by the
   file's suffix; YAML is read by the same strict YAML 1.2 loader as every other YAML file, so a
   duplicate key or a non-string key names the file and line. Any other suffix is an error naming
