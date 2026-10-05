@@ -1,13 +1,15 @@
 import logging
+import posixpath
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, List, Literal, NamedTuple, Optional, Tuple
+from typing import List, Literal, NamedTuple, Optional, Tuple
 
 from ...dataclass import Field, field_validator
 from ...design import SourceType
 from ...flow import (
     Flow,
+    FlowFatalError,
     FlowSettingsError,
     FlowSettingsException,
     FpgaSynthFlow,
@@ -15,8 +17,16 @@ from ...flow import (
     describe_results,
 )
 from ...flows.ghdl import GhdlSynth
-from ...utils import replacing_file
-from .common import MINIMUM_YOSYS, YosysBase, YosysRelease, process_parameters, yosys_release
+from ...utils import ToolException, replacing_file
+from .common import (
+    MINIMUM_YOSYS,
+    YosysBase,
+    YosysRelease,
+    process_parameters,
+    same_file,
+    yosys_data_dir,
+    yosys_release,
+)
 
 log = logging.getLogger(__name__)
 
@@ -423,8 +433,9 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             """Every setting that `synth_pass_only` cannot honor, as (setting, why) pairs.
 
             The mode runs the target's synthesis pass and nothing else, so a setting that would
-            add a pass before or after it, or that needs the elaborated hierarchy the mode never
-            builds, is refused rather than silently ignored. Pure, so the launcher can report it
+            add a pass before or after it, that needs the elaborated hierarchy the mode never
+            builds, or that makes it read a file the reference invocation does not, is refused
+            rather than silently ignored. Pure, so the launcher can report it
             at planning time (`check_settings_supported`) and `run()` can report it again once
             `init()` has folded the design's own attributes in. Empty whenever the mode is off.
 
@@ -497,6 +508,16 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                             "`rtl.attributes` are merged into `set_attribute`)",
                         )
                     )
+            if self.clockgate_map:
+                conflicts.append(
+                    (
+                        "clockgate_map",
+                        "`synth_pass_only` reads the design's sources and the libraries named "
+                        "in `verilog_lib`, so it cannot also read the clock-gating map "
+                        "`clockgate_map`: no pass of the target reads one, and every extra "
+                        "`read_verilog` renumbers the cells the pass names",
+                    )
+                )
             if self.stop_after is not None:
                 conflicts.append(("stop_after", no_rtl_stage + f"stop after {self.stop_after!r}"))
             for name in ("rtl_json", "rtl_verilog", "rtl_graph"):
@@ -657,6 +678,41 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 ss.systemverilog,
             )
 
+    def verilog_libraries_to_read(self, libraries: list[PrimitiveLibrary]) -> list[Path]:
+        """The `verilog_lib` entries the script reads: all but a library the target's pass reads.
+
+        An entry naming one of `libraries` is skipped in either recipe, by *which file it is*,
+        never by how it is spelled: `+/xilinx/cells_sim.v` (yosys' own spelling, taken lexically)
+        and the same file by its absolute path, through a link or in another letter case (taken
+        against the installed yosys's data directory, which `+/` stands for) are one library.
+        The skip does not depend on what the script happens to read itself, which is nothing of
+        the kind under `synth_pass_only`: one more `read_verilog` renumbers the design's cells.
+        """
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        passes = [library.path for library in libraries]
+        data_dir: Optional[Path] = None
+
+        def is_pass_library(entry: Path) -> bool:
+            nonlocal data_dir
+            text = entry.as_posix()
+            if text.startswith("+/"):
+                return any(posixpath.normpath(text) == posixpath.normpath(p) for p in passes)
+            if not passes:
+                return False
+            if data_dir is None:
+                try:
+                    data_dir = yosys_data_dir(self.yosys)
+                except ToolException as error:
+                    raise FlowFatalError(
+                        f"Cannot tell whether `verilog_lib` entry {text} is a library the "
+                        f"{ss.synthesis_target()} pass reads itself: yosys' data "
+                        f"directory is unknown ({error}). Name it as `+/...` or remove it."
+                    ) from error
+            return any(same_file(entry, data_dir / p.removeprefix("+/")) for p in passes)
+
+        return [entry for entry in ss.verilog_lib if not is_pass_library(entry)]
+
     def run(self) -> None:
         """Synthesize the design for the selected FPGA target."""
         assert isinstance(self.settings, self.Settings)
@@ -699,7 +755,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             # alone changes the netlist. The method is unchanged; only the script omits the read.
             primitive_libraries=([] if ss.synth_pass_only else libraries),
             # ... but a `verilog_lib` entry naming one of them is skipped in either recipe
-            skip_libraries=[library.path for library in libraries],
+            verilog_libs=self.verilog_libraries_to_read(libraries),
             synth_pass_only=ss.synth_pass_only,
         )
         log.info("Yosys script: %s", script_path.absolute())
