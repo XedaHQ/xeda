@@ -91,7 +91,7 @@ def test_xilinx_lut_resource_footprint(counts, expected, tmp_path):
 
     report = tmp_path / "utilization.json"
     report.write_text(json.dumps({"design": {"num_cells_by_type": counts}, "modules": {}}))
-    design = Design.from_toml(RESOURCES_DIR / "design0" / "design0.toml")
+    design = Design.from_file(RESOURCES_DIR / "design0" / "design0.toml")
     flow = YosysFpga(YosysFpga.Settings(fpga=FPGA(part="xc7a35tcpg236-1")), design, tmp_path)
     flow.init()
     flow.artifacts.utilization_report = report
@@ -141,7 +141,7 @@ def test_xilinx_lut_footprint_uses_design_totals_once_with_hierarchy(tmp_path):
             }
         )
     )
-    design = Design.from_toml(RESOURCES_DIR / "design0" / "design0.toml")
+    design = Design.from_file(RESOURCES_DIR / "design0" / "design0.toml")
     flow = YosysFpga(YosysFpga.Settings(fpga=FPGA(part="xc7a35tcpg236-1")), design, tmp_path)
     flow.init()
     flow.artifacts.utilization_report = report
