@@ -2,11 +2,18 @@ import logging
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import List, Literal, NamedTuple, Optional
+from typing import Any, List, Literal, NamedTuple, Optional, Tuple
 
 from ...dataclass import Field, field_validator
 from ...design import SourceType
-from ...flow import FlowSettingsException, FpgaSynthFlow, Out, describe_results
+from ...flow import (
+    Flow,
+    FlowSettingsError,
+    FlowSettingsException,
+    FpgaSynthFlow,
+    Out,
+    describe_results,
+)
 from ...flows.ghdl import GhdlSynth
 from ...utils import replacing_file
 from .common import MINIMUM_YOSYS, YosysBase, YosysRelease, process_parameters, yosys_release
@@ -148,6 +155,20 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             "(JSON, Verilog and BLIF). On by default: nextpnr's reports cite them as source "
             "locations when it places this netlist.",
         )
+        synth_pass_only: bool = Field(
+            False,
+            description="Run nothing but the target's own `synth_<target>` pass, as "
+            "`yosys -p 'synth_<target> ...' <sources>` does: the sources are read and the pass "
+            "does its own `hierarchy`, `proc`, flattening, cleanup and ABC9 mapping. Set it to "
+            "reproduce the tool's default result -- to compare against it, or to tell a xeda "
+            "problem from a yosys one. Left false, xeda elaborates and optimizes around the pass "
+            "and tells ABC9 the clock period, which usually gives smaller and faster logic. "
+            "Every flag of the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, "
+            "`synth_flags`, ...) applies either way; a setting that would add a step before or "
+            "after the pass is refused rather than ignored. Which front end reads the sources "
+            "stays your choice: to match the tool on SystemVerilog sources, read them as it "
+            "does with `systemverilog = default`.",
+        )
         read_verilog_flags: list[str] = Field(
             ["-sv"],
             description="Flags passed to yosys' `read_verilog` for each Verilog source. Add "
@@ -159,8 +180,12 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             "`-abc9` where ABC9 is opt-in); yosys 0.69 and newer require ABC9 unless iCE40 "
             "uses the separate `noabc` setting for built-in LUT mapping.",
         )
-        flow3: bool = Field(
-            True, description="Use flow3, which runs the mapping several times, if abc9 is set"
+        flow3: Optional[bool] = Field(
+            None,
+            description="Map with ABC9's `flow3` script, which runs the mapping several times, "
+            "instead of its default one. Unset means xeda's own recipe uses `flow3` while "
+            "`synth_pass_only` leaves ABC9 the script the pass gives it; `false` uses ABC9's own "
+            "script in either recipe. Has no effect unless ABC9 maps the LUTs.",
         )
         retime: bool = Field(
             False,
@@ -374,6 +399,111 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 )
             return command + list(self.synth_flags)
 
+        def abc9_scratchpad(self) -> List[str]:
+            """The `scratchpad` commands that tune ABC9 before the synthesis pass runs.
+
+            Computed where the script is written, like `synth_command`, because it depends on
+            several settings at once: ABC9 has to be mapping at all, `flow3` selects its script
+            (unset means xeda's own recipe uses `flow3`), and the clock period becomes ABC9's
+            target delay, reduced to leave room for interconnect delay. `synth_pass_only` leaves
+            ABC9 exactly what the pass gives it, so it yields no commands -- which is where the
+            default recipe earns most of its area and timing advantage over the tool's own.
+            """
+            if self.synth_pass_only or not self.abc9 or self.noabc:
+                return []
+            commands: List[str] = []
+            if self.flow3 is not False:
+                commands.append("scratchpad -copy abc9.script.flow3 abc9.script")
+            clock = self.main_clock
+            if clock and clock.period_ps:
+                commands.append(f"scratchpad -set abc9.D {clock.period_ps / 1.5}")
+            return commands
+
+        def synth_pass_only_conflicts(self) -> List[Tuple[str, str]]:
+            """Every setting that `synth_pass_only` cannot honor, as (setting, why) pairs.
+
+            The mode runs the target's synthesis pass and nothing else, so a setting that would
+            add a pass before or after it, or that needs the elaborated hierarchy the mode never
+            builds, is refused rather than silently ignored. Pure, so the launcher can report it
+            at planning time (`check_settings_supported`) and `run()` can report it again once
+            `init()` has folded the design's own attributes in. Empty whenever the mode is off.
+
+            A pass *flag* is never a conflict: `synth_command` renders those into the pass's own
+            command line, and they mean the same in either recipe. Neither is a constrained
+            clock, which the mode simply does not pass on to ABC9.
+            """
+            if not self.synth_pass_only:
+                return []
+            runs_a_pass = "`synth_pass_only` runs no pass but the target's own, so it cannot "
+            needs_hierarchy = (
+                "`synth_pass_only` lets the synthesis pass elaborate the design, so there is no "
+                "elaborated hierarchy before it for "
+            )
+            no_rtl_stage = (
+                "`synth_pass_only` has no pre-synthesis stage -- the pass elaborates the design "
+                "itself -- so it cannot "
+            )
+            conflicts: List[Tuple[str, str]] = []
+            if self.prep is not None:
+                conflicts.append(
+                    ("prep", runs_a_pass + "elaborate with `prep`; the pass does that itself")
+                )
+            if self.flow3:
+                conflicts.append(
+                    (
+                        "flow3",
+                        "`synth_pass_only` leaves ABC9 the mapping script the synthesis pass "
+                        "gives it, so it cannot also run `flow3`; leave `flow3` unset",
+                    )
+                )
+            if self.pre_synth_opt:
+                conflicts.append(
+                    ("pre_synth_opt", runs_a_pass + "optimize before it with `pre_synth_opt`")
+                )
+            if self.post_synth_opt:
+                conflicts.append(
+                    ("post_synth_opt", runs_a_pass + "optimize after it with `post_synth_opt`")
+                )
+            if self.splitnets:
+                conflicts.append(
+                    ("splitnets", runs_a_pass + "split the nets of the netlist it produced")
+                )
+            if self.post_synth_rename:
+                conflicts.append(
+                    (
+                        "post_synth_rename",
+                        runs_a_pass + "rename the objects of the netlist it produced",
+                    )
+                )
+            if self.black_box:
+                conflicts.append(
+                    ("black_box", needs_hierarchy + "`blackbox` to take a module out of")
+                )
+            if self.keep_hierarchy:
+                conflicts.append(
+                    (
+                        "keep_hierarchy",
+                        needs_hierarchy + "`setattr -mod` to mark a module in; write "
+                        "`(* keep_hierarchy *)` on the module in the HDL instead, which the pass "
+                        "reads as it elaborates",
+                    )
+                )
+            for name in ("set_attribute", "set_mod_attribute"):
+                if getattr(self, name):
+                    conflicts.append(
+                        (
+                            name,
+                            needs_hierarchy + f"`setattr` to apply `{name}` to (the design's own "
+                            "`rtl.attributes` are merged into `set_attribute`)",
+                        )
+                    )
+            if self.stop_after is not None:
+                conflicts.append(("stop_after", no_rtl_stage + f"stop after {self.stop_after!r}"))
+            for name in ("rtl_json", "rtl_verilog", "rtl_graph"):
+                if getattr(self, name):
+                    conflicts.append((name, no_rtl_stage + f"write `{name}`"))
+            return conflicts
+
         def _ice40_device(self) -> str:
             """`hx`, `lp` or `u`: `ice40_device`, else the one `fpga` names."""
             assert self.fpga is not None
@@ -482,10 +612,57 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             description="The synthesized JSON netlist, written at `netlist_json`, for nextpnr.",
         )
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Reject a `synth_pass_only` run that asks for a step the mode does not run.
+
+        Class-level and pure, so the refusal arrives at planning time -- before any producer
+        runs, and under `xeda run --dry-run`. `run()` checks again once `init()` has merged the
+        design's own attributes in, which this cannot see.
+        """
+        assert isinstance(settings, cls.Settings)
+        cls._refuse_synth_pass_only_conflicts(settings)
+
+    @classmethod
+    def _refuse_synth_pass_only_conflicts(cls, settings: "YosysFpga.Settings") -> None:
+        """Raise one error listing every setting `synth_pass_only` cannot honor, naming both."""
+        conflicts = settings.synth_pass_only_conflicts()
+        if conflicts:
+            raise FlowSettingsError(
+                [(key, message, None, "value_error") for key, message in conflicts],
+                cls.Settings,
+            )
+
+    def _warn_if_a_plugin_reads_the_sources(self) -> None:
+        """Say so when `synth_pass_only` reads SystemVerilog through a plugin front end.
+
+        The mode makes the *recipe* the pass's own; which front end reads the sources stays the
+        user's choice (`systemverilog`, `read_verilog_flags`). But `yosys <file>.sv` reads with
+        the built-in reader, so with the default `slang` the netlist is the pass's own result on
+        a differently elaborated design -- not a silent mismatch anyone should discover by
+        comparing numbers.
+        """
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        if not ss.synth_pass_only or ss.systemverilog == "default":
+            return
+        sources = list(self.design.sources_of_type("SystemVerilog", rtl=True))
+        if sources:
+            log.warning(
+                "synth_pass_only reads %d SystemVerilog source(s) with the %s front end, which "
+                "`yosys <sources>` does not use, so the netlist is the pass's own result on a "
+                "differently elaborated design. Set systemverilog=default to read them as yosys "
+                "itself would.",
+                len(sources),
+                ss.systemverilog,
+            )
+
     def run(self) -> None:
         """Synthesize the design for the selected FPGA target."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        self._refuse_synth_pass_only_conflicts(ss)
+        self._warn_if_a_plugin_reads_the_sources()
         self.prepare_output_parents()
         declared = self.outputs
         assert isinstance(declared, self.Outputs)
@@ -494,7 +671,9 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         assert ss.fpga is not None, "checked at launch (`required_settings`)"
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt" if ss.sta else None
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
-        synth_command = ss.synth_command(yosys_release(self.yosys))
+        release = yosys_release(self.yosys)
+        synth_command = ss.synth_command(release)
+        libraries = ss.primitive_libraries(release)
 
         abc_constr_file = None
         if ss.abc_constr:
@@ -513,7 +692,15 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
             synth_command=synth_command,
-            primitive_libraries=ss.primitive_libraries(yosys_release(self.yosys)),
+            # `primitive_libraries` says what the target's pass reads in its `begin` step, which
+            # `synth_pass_only` lets the pass do itself. Reading them early would not only be
+            # redundant: every `read_verilog` advances yosys's `autoidx`, which renumbers the
+            # design's generated cell names, and ABC9 maps by those names -- so an extra read
+            # alone changes the netlist. The method is unchanged; only the script omits the read.
+            primitive_libraries=([] if ss.synth_pass_only else libraries),
+            # ... but a `verilog_lib` entry naming one of them is skipped in either recipe
+            skip_libraries=[library.path for library in libraries],
+            synth_pass_only=ss.synth_pass_only,
         )
         log.info("Yosys script: %s", script_path.absolute())
         args = [self.script_flag, script_path]

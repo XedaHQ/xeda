@@ -65,7 +65,11 @@ read_liberty -lib {{lib|read_path}}
 {% endfor -%}
 {% endif -%}
 
-{% for src in settings.verilog_lib if src|string not in primitive_libraries|default([])|map(attribute="path")|list -%}
+{#- A `verilog_lib` entry naming a library the target's pass reads itself is skipped:
+    `skip_libraries` lists them whatever the recipe reads, so `synth_pass_only`, which
+    reads none of them here, cannot let one back in through this list -- every
+    `read_verilog` advances yosys's `autoidx` and so moves the design's cell names. #}
+{% for src in settings.verilog_lib if src|string not in skip_libraries|default([]) -%}
 read_verilog -lib {{src|read_path}}
 {% endfor -%}
 
@@ -83,7 +87,12 @@ read_verilog -defer {{settings.clockgate_map|read_path}}
 {% if uhdm_plugin -%}
 read_systemverilog -link
 {% endif -%}
+{#- `synth_pass_only` (yosys_fpga) leaves the hierarchy and the checks to the synthesis pass,
+    which runs `hierarchy -check` in its own `begin` step. Every other flow including this
+    template passes nothing, so `default(false)` keeps their scripts as they are. #}
+{% if not synth_pass_only|default(false) -%}
 hierarchy -check {% if top -%} -top {{top}} {% else %} -auto-top {%- endif %}
+{% endif -%}
 {% for mod in settings.black_box -%}
 log -stdout Converting module {{mod}} into blackbox
 blackbox {{mod}}
@@ -104,4 +113,6 @@ setattr -mod -set {{attr}} {{v|esc}} {{path}}
 {% endfor -%}
 {% endfor -%}
 
+{% if not synth_pass_only|default(false) -%}
 check -initdrv
+{% endif -%}
