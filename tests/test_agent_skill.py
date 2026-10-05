@@ -139,23 +139,57 @@ REVIEW_TIME_WORDING = re.compile(
 )
 
 
-#: Names of the plans and decisions a change was built under (`P4`, `PC`, `D21`, `plan 2`,
-#: `Task 7`): a reader of a release cannot look them up, so the prose says what they stand for.
+#: Names of the plans and decisions a change was built under: a reader of a release cannot look
+#: them up, so the prose says what they stand for. A bare `P4` or `D12` is no evidence -- a pin, a
+#: diode, a connector -- so only the project's own vocabulary counts: a phase name no part carries
+#: (`P1b`, `P2a`, `P2b`, `P3a`, `P3b`), a code after the word that introduces it ("phase P4",
+#: "decision D21", "issue C6", "ruling R43"), `plan 2` / `Task 7`, and a list that has to be
+#: phases because it holds `PC`, `PE` or `PT` ("requires PC, P4 and P5"). Do not widen it to a shape.
+_PHASE = r"P[1-7][ab]?|PC|PE|PT"
+_ID = rf"{_PHASE}|D-?[0-9]{{1,3}}|ST[0-9]+|[SCXYTBMR][0-9]+[a-f]?"
+_LETTERED = r"PC|PE|PT"
 INTERNAL_PLAN_CODES = re.compile(
-    r"\bP[0-9][ab]?\b|\bPC\b|\bD-?[0-9]{1,3}\b|\b(?:[Pp]lan|[Tt]ask) [0-9]+\b"
+    "|".join(
+        (
+            r"\bP(?:1b|2[ab]|3[ab])\b",
+            rf"\b(?i:phase|plan|ruling|decision|issue|roadmap|milestone|finding)s? (?:{_ID})\b",
+            r"\b(?i:plan|task) [0-9]+\b",
+            rf"\b(?:{_LETTERED})(?:,| and| or) (?:{_PHASE})\b",
+            rf"\b(?:{_PHASE})(?:,| and| or) (?:{_LETTERED})\b",
+        )
+    )
 )
 
 
 def test_the_internal_plan_code_check_sees_the_codes_it_was_written_for():
     for text in (
-        "needs PC, P4 and P5",
+        "# requires PC, P4 and P5",
+        "the remaining flows (P4 and PC)",
         "the P1b rule",
-        "isolation (D21)",
+        "Protocol 3 adds P1b's remote simulation evidence rule",
         "plan 2's convention",
-        "Task 7",
+        "D21's Task 7",
+        "see phase P4",
+        "decision D21",
+        "issue C6, ruling R43",
+        "a plan P3b follow-up",
     ):
         assert INTERNAL_PLAN_CODES.search(text), text
-    assert not INTERNAL_PLAN_CODES.search("a 2D plot, protocol 6, the pc register, tasks 7 and 8")
+
+
+def test_the_internal_plan_code_check_leaves_what_a_design_or_a_board_says_alone():
+    for text in (
+        "pin P4 of the header, pins P4 and P5, P4, P5 and P6",
+        "the diode D12 (D12), D21 and D-9 on the schematic, a D-sub 9 connector",
+        "package P4-QFN, an STM32 pin PC13, a PT100 sensor, the PE bit",
+        "part xc7a35tcsg324-1 with a -1 speed grade on an A7-100T",
+        "set_property IOSTANDARD LVCMOS33 [get_ports clk]",
+        "a 2D plot, protocol 6, the pc register, tasks 7 and 8, the pc, p4 and pe bits",
+        "run it on a PC with 16 GB, or a personal computer (PC)",
+        "plan the build, issue the command, the phase-locked loop, a decision tree",
+        "phase 2 of the clock, step 4 of 7, the second issue of the series",
+    ):
+        assert not INTERNAL_PLAN_CODES.search(text), text
 
 
 def test_the_review_time_wording_check_sees_the_sentence_it_was_written_for():
