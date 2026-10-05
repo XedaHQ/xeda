@@ -339,6 +339,92 @@ def test_a_saved_binding_of_another_node_is_not_refused_before_the_design_loads(
         )
 
 
+#: `run_remote` takes the command line's settings only (no `flow_overrides`): as `-s` items, as
+#: the API's mapping of them
+_REMOTE_BINDING_SPELLINGS = {
+    "bare -s": ["inputs.made=" + _MADE],
+    "flow-qualified -s": ["flows.__taker.inputs.made=" + _MADE],
+    "mapping": {"inputs": {"made": _MADE}},
+    "flow-qualified mapping": {"flows": {"__taker": {"inputs": {"made": _MADE}}}},
+}
+
+
+@pytest.mark.parametrize("spelling", sorted(_REMOTE_BINDING_SPELLINGS))
+def test_a_binding_of_the_requested_node_given_to_a_remote_runner_clones_no_git_dependency(
+    tmp_path, monkeypatch, spelling
+):
+    """As for dse: the requested node is always reached, so its explicit binding is refused with
+    no design loaded: nothing is cloned and no mirror is made."""
+    import git.repo
+
+    cloned = []
+    monkeypatch.setattr(
+        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
+    )
+    design = _git_dependency_design(tmp_path)
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
+        RemoteRunner(tmp_path / "mirror").run_remote(
+            design, "__taker", "host", flow_settings=_REMOTE_BINDING_SPELLINGS[spelling]
+        )
+    assert not cloned and not (tmp_path / "mirror").exists()
+
+
+def test_a_project_binding_of_the_requested_node_given_to_a_remote_runner_clones_nothing(
+    tmp_path, monkeypatch
+):
+    import git.repo
+
+    cloned = []
+    monkeypatch.setattr(
+        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
+    )
+    (tmp_path / "xedaproject.yaml").write_text(
+        yaml.safe_dump({"flows": {"__taker": {"inputs": {"made": _MADE}}}})
+    )
+    design = _git_dependency_design(tmp_path)
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
+        RemoteRunner(tmp_path / "mirror").run_remote(design, "__taker", "host")
+    assert not cloned and not (tmp_path / "mirror").exists()
+
+
+def test_a_saved_binding_of_another_node_is_not_refused_by_a_remote_runner_before_the_design(
+    tmp_path,
+):
+    (tmp_path / "xedaproject.yaml").write_text(
+        yaml.safe_dump({"flows": {"__input_maker": {"inputs": {"made": _MADE}}}})
+    )
+    with pytest.raises(DesignFileParseError):
+        RemoteRunner(tmp_path / "mirror").run_remote(
+            tmp_path / "missing.yaml",
+            "__taker",
+            "host",
+            flow_settings=["flows.__input_maker.inputs.made=" + _MADE],
+        )
+
+
+@pytest.mark.parametrize(
+    "request_text, settings",
+    [
+        ("__input_maker+__taker", None),
+        ("__taker", ["inputs.made=" + _MADE]),
+        ("__taker", {"flows": {"__taker": {"inputs": {"made": _MADE}}}}),
+    ],
+)
+def test_dse_and_a_remote_runner_refuse_a_request_with_the_same_error(
+    tmp_path, request_text, settings
+):
+    """One rule, one refusal: the same type and the same message from both entry points."""
+    design = tmp_path / "missing.yaml"
+    with pytest.raises(FlowSettingsException) as dse_error:
+        _dse_runner(tmp_path).run(request_text, design, flow_settings=settings or [])
+    with pytest.raises(FlowSettingsException) as remote_error:
+        RemoteRunner(tmp_path / "mirror").run_remote(
+            design, request_text, "host", flow_settings=settings
+        )
+    assert type(dse_error.value) is type(remote_error.value)
+    assert str(dse_error.value) == str(remote_error.value)
+
+
 def test_a_chain_given_to_dse_is_refused_even_for_a_missing_design(tmp_path):
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
         _dse_runner(tmp_path).run("__input_maker+__taker", tmp_path / "missing.yaml")
