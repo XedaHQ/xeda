@@ -195,8 +195,10 @@ so another Xeda process that would rebuild, clean or scrub that directory waits.
 one requested (`flow`, `results`, `--help-settings` and the exit status are its); each flow before
 it supplies the next one's compatible **required** inputs. A chain is a path, not waypoints: `+`
 is the only separator, each flow appears once, `FLOW.OUTPUT` picks one output of a producer
-(`nextpnr.config+fpga_pack`), and nothing searches for a missing stage. A refused chain suggests
-the valid one (`nextpnr+openfpgaloader` -> `nextpnr+fpga_pack+openfpgaloader`). A flow that
+(`nextpnr.config+fpga_pack`), and nothing searches for a missing stage. A refused chain suggests a
+valid one only when another output of the producer, or the flows that the required default
+producers name between the pair, fix it (`nextpnr+openfpgaloader` ->
+`nextpnr+fpga_pack+openfpgaloader`); otherwise the refusal carries no suggestion. A flow that
 programs a device (`openfpgaloader`) can only end a chain, and only flows with declared I/O chain
 (`xeda list-flows --json`: `declared`, `can_follow`, `can_precede`); `bsc`, `bsc_sim` and the
 Vivado flows run alone, and a chain through one fails naming it. A chain is local: `--remote` and

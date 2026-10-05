@@ -200,8 +200,10 @@ checks each neighboring pair and never searches for a missing stage.
   has several: ``nextpnr.config+fpga_pack``.
 * A flow supplies **every compatible required input** of the next one; optional inputs are not
   bound. An output that fits no input of the next flow, or two outputs that fit, is an error that
-  names the choices. A refused chain suggests the valid one, built only from declared default
-  routes: ``nextpnr+openfpgaloader`` suggests ``nextpnr+fpga_pack+openfpgaloader``.
+  names the choices. A refused chain suggests a valid one only when another output of the
+  producer, or the flows that the required declared default producers name between the pair,
+  fix it: ``nextpnr+openfpgaloader`` suggests ``nextpnr+fpga_pack+openfpgaloader``. Nothing
+  searches all flows, so a refusal with no such route carries no suggestion.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their file inputs and outputs (``declared`` in ``xeda list-flows
   --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack`` and ``openfpgaloader``
