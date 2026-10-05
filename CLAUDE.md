@@ -88,7 +88,7 @@ API `run_root`); a **run directory** is one flow's. The exact layout depends on 
 | options | path |
 | --- | --- |
 | *(default)* | `<design>/<flow>/` |
-| `--hashed-run-dirs` | `<design>/<flow>_<16-char settings hash>/` |
+| `--hashed-run-dirs` | `<design>/<flow>_<16-char run hash>/` |
 
 A dependency's run directory is a **sibling** of the flow that launched it, in the same layout,
 never nested under it. `--hashed-run-dirs` names a directory by the flow's *input settings* only,
@@ -605,7 +605,7 @@ of the hash. Local and remote runs share `flowrun_hash`.
 **Runs are make-like by default.** A flow re-runs only when something it consumed or produced
 changed since its last successful run; `--rebuild-all` (API `rebuild_all=True`) runs every flow.
 By default there is one directory per flow; `--hashed-run-dirs` (`hashed_run_dirs=True`) gives
-one per settings variant (`<flow>_<flowrun_hash>`) -- dependencies are always siblings in the same
+one per run hash (`<flow>_<flowrun_hash>`: settings and input origins) -- dependencies are always siblings in the same
 layout, never nested. A flow that runs logs why (`log.info("Running %s: %s", flow.name,
 flow.stale_reason)`); a fresh one logs that it is up to date and its recorded results are shown as
 if it had just run.
