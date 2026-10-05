@@ -158,7 +158,8 @@ both do; a new one that does not will corrupt `--json` output.
 Every failure path must still emit a JSON document. That includes argument errors:
 `XedaHelpGroup.main` runs click with `standalone_mode=False` when the invocation asked for
 machine-readable output, so a `UsageError` becomes `{"success": false, "error": {...}}` on stdout
-instead of a bare exit 2. Error documents carry `error.type` (the exception class name) and
+instead of a bare exit 2. Error documents carry `error.type` (a failure type, usually the
+exception class name) and
 `error.message`.
 
 Flow names are resolved by `FlowChoice.convert` through `get_flow_class`, so every name the
