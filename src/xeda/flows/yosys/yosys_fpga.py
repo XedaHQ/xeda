@@ -19,10 +19,9 @@ GOWIN_FAMILIES = ("gw1n", "gw2a", "gw5a")
 class PrimitiveLibrary(NamedTuple):
     """A primitive library file, and the `read_verilog` flags the target's own pass reads it with.
 
-    A pass's `begin` step reads its library with `-specify`, the cells' timing that abc9 maps by.
-    xeda reads the library first, to check the hierarchy: read any other way, the pass is handed a
-    library without the timing, and maps to a different netlist than `yosys synth_<target>` does
-    on the same sources."""
+    xeda reads the library first, to check the hierarchy, and the pass reads it again in its
+    `begin` step (`-lib -specify`; a later read replaces an earlier blackbox module). Reading it
+    here with the pass's flags makes the two reads agree."""
 
     path: str
     flags: tuple[str, ...] = ("-lib", "-specify")

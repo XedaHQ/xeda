@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
-- `yosys_fpga` reads each target's primitive library (Xilinx, ECP5, Nexus, iCE40) with the flags
-  the synthesis pass itself uses, including `-specify`, so abc9 maps by the cells' timing and the
-  netlist matches `yosys synth_<target>` on the same sources.
+- `yosys_fpga` reads each target's primitive library (Xilinx, ECP5, Nexus, iCE40) before the
+  design with the flags the synthesis pass itself reads it with (`-lib -specify`, plus the
+  device define for iCE40), so the early read and the pass's own agree. (A netlist can differ
+  slightly from earlier releases: yosys numbers generated names from a shared counter, and the
+  library read advances it.)
 - `yosys_fpga`'s mapped Xilinx `LUT` count includes every distributed RAM primitive
   (`RAM32X1D`, `RAM64X1D`, `RAM64M`, ...), not `RAM32M` alone.
 - `nextpnr` lists an SDF, routed netlist, SVG or placement dump as an artifact only when this
