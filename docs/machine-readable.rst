@@ -197,13 +197,26 @@ run finished:
       "results_json": "/path/to/xeda_run/blinky/nextpnr/results.json",
       "settings_json": "/path/to/xeda_run/blinky/nextpnr/settings.json",
       "nodes": [
-        {"flow": "yosys_fpga", "run_path": "/path/to/xeda_run/blinky/yosys_fpga",
-         "state": "fresh", "reason": "", "deliveries": []},
-        {"flow": "nextpnr", "run_path": "/path/to/xeda_run/blinky/nextpnr",
+        {"node": "yosys_fpga", "flow": "yosys_fpga",
+         "run_path": "/path/to/xeda_run/blinky/yosys_fpga",
+         "state": "fresh", "reason": "", "deliveries": [], "inputs": []},
+        {"node": "nextpnr", "flow": "nextpnr", "run_path": "/path/to/xeda_run/blinky/nextpnr",
          "state": "ran", "reason": "settings changed: seed",
          "deliveries": [
            {"setting": "textcfg", "from": "/path/to/xeda_run/blinky/nextpnr/config.txt",
             "to": "/home/user/blinky_config.txt", "state": "delivered"}
+         ],
+         "inputs": [
+           {"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
+            "output": "netlist", "sources": [],
+            "references": [{"node": "yosys_fpga", "output": "netlist"}],
+            "binding_origin": null, "binding_location": null, "overridden": []},
+           {"name": "constraints", "origin": "none", "producer": null,
+            "output": null, "sources": [], "references": [],
+            "binding_origin": null, "binding_location": null, "overridden": []},
+           {"name": "sdc", "origin": "none", "producer": null,
+            "output": null, "sources": [], "references": [],
+            "binding_origin": null, "binding_location": null, "overridden": []}
          ]}
       ]
     }
@@ -213,9 +226,9 @@ last flow is the requested one (``flow``, ``results``, ``run_path`` and the exit
 that flow's), and each preceding flow supplies the next one's compatible required inputs. The
 document's ``request`` lists the elements as given, canonically -- ``{"node", "flow",
 "output"}`` each, ``output`` being the ``FLOW.OUTPUT`` qualifier or ``null`` -- one element for
-a single flow. Each ``nodes`` entry carries its ``node`` name and, for a declared flow, its
-resolved ``inputs`` in the representation of the plan below ("Planning a run" below
-has the fields). When a producer fails, the planned nodes that were never entered are listed
+a single flow. Each ``nodes`` entry carries its ``node`` name and its resolved ``inputs`` (empty
+for a flow that declares none) in the representation of the plan (the fields are under "Planning
+a run" below). When a producer fails, the planned nodes that were never entered are listed
 after the others with ``"state": "not run"``. A malformed chain (an empty element, an unknown
 flow or output, a repeated flow, an edge that does not fit) is a usage error: one error
 document, exit status 2, no ``request``, ``plan`` or ``nodes``. Chains are local requests:
