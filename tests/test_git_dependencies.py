@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import DesignValidationError, cloning_dependencies_into
+from xeda.design import DesignValidationError, loading_in_run_root
 from xeda.flow_runner import DefaultRunner
 
 URI = "https://example.com/u/lib.git#lib.toml"
@@ -41,7 +41,7 @@ def _design_file(root: Path) -> Path:
 def test_a_launcher_clones_into_its_run_root(tmp_path, monkeypatch, clones):
     monkeypatch.chdir(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with cloning_dependencies_into(lambda: runner.run_root / ".dependencies"):
+    with loading_in_run_root(runner.load_run_root):
         design = Design.from_file(_design_file(tmp_path))
     assert clones == [tmp_path / "xeda_run" / ".dependencies" / "example.com" / "u/lib.git"]
     assert not (tmp_path / ".xeda_dependencies").exists()
@@ -53,7 +53,7 @@ def test_a_design_without_git_dependencies_makes_no_run_root(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with cloning_dependencies_into(lambda: runner.run_root / ".dependencies"):
+    with loading_in_run_root(runner.load_run_root):
         Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     assert clones == [] and not (tmp_path / "xeda_run").exists()
 

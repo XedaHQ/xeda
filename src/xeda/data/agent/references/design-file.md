@@ -51,7 +51,7 @@ required when this flat form is used.
 | `clock_port` | no | Compatibility shorthand for a single-clock design; prefer `clock`. |
 | `clocks` | no | A list of clocks, for multi-clock designs. |
 | `attributes` | no | HDL attributes, as `attribute -> (object -> value)`. |
-| `generator` | no | Command or generator class producing the sources before the flow runs. |
+| `generator` | no | Command or generator class producing the sources before the flow runs. It runs again only when the content of what it reads (`sources`, and the installed Python packages `packages` names) or of the sources it produced changed; `generated_sources` names the ones it writes when it writes only some, and `always_runs` says its inputs cannot be judged. The record lives under `<run root>/.cache/generators/`, so a design loaded outside `xeda run` generates on every load. |
 
 ## `tb` - the testbench
 

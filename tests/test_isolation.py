@@ -34,6 +34,7 @@ import xeda
 from xeda import Design
 from xeda.cli import cli
 from xeda.flow import SimFlow
+from xeda.design import loading_in_run_root
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 
@@ -552,6 +553,57 @@ def test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree(tmp_path, mo
     finally:
         _thaw(world.parent)
     assert flow.succeeded and (flow.run_path / "gcd.vcd").is_file()
+
+
+#: A design generator: it writes the sources the design declares, and counts its runs in the one
+#: place the oracle ignores, the run root. Its job is to write the design's own tree, so O1 admits
+#: exactly the sources it generates -- and nothing else, xeda's own record of the generation
+#: included, which lies under the run root (`xeda.generation`).
+GENERATOR = """\
+import os, sys
+from pathlib import Path
+
+root = Path(os.environ["DESIGN_ROOT"])
+(root / "gen").mkdir(exist_ok=True)
+(root / "gen" / "top.v").write_text("// generated\\n")
+with open(sys.argv[1], "a") as counter:
+    counter.write("ran\\n")
+"""
+
+
+def test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates(tmp_path):
+    """O1 and O3 for a generator: a load changes nothing outside the run root but the sources the
+    design declares its generator produces. The generator writes the design's tree because that
+    is what it is for; everything xeda keeps about it goes under the run root, and a second load
+    of the unchanged design generates nothing at all."""
+    world = _world(tmp_path)
+    ensure_run_root(world.root)
+    counter = world.root / "runs.log"
+    (world.work / "gen.py").write_text(GENERATOR)
+    (world.work / "spec.txt").write_text("one\n")
+    design_file = world.work / "generated.yaml"
+    design_file.write_text(
+        "name: generated\n"
+        "rtl:\n"
+        "  sources: [gen/top.v]\n"
+        "  top: top\n"
+        "  generator:\n"
+        f"    executable: {sys.executable!r}\n"
+        f"    args: ['gen.py', {str(counter)!r}]\n"
+        "    sources: ['spec.txt', 'gen.py']\n"
+    )
+    before = _state(world.parent, [world.root])
+    with watching(world) as violations, loading_in_run_root(lambda create: world.root):
+        design = Design.from_file(design_file)
+        Design.from_file(design_file)
+    assert [src.file.name for src in design.rtl.sources] == ["top.v"]
+    assert counter.read_text() == "ran\n", "the second load generated again"
+    assert violations == []
+    after = _state(world.parent, [world.root])
+    changed = {name for name in set(before) | set(after) if before.get(name) != after.get(name)}
+    assert changed == {"work/gen", "work/gen/top.v"}
+    records = sorted(p.name for p in (world.root / ".cache" / "generators").iterdir())
+    assert len(records) == 2 and records[1] == records[0] + ".lock"
 
 
 @pytest.mark.parametrize("flow, require", [("ghdl_sim", require_ghdl), ("nvc", require_nvc)])

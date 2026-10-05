@@ -10,9 +10,9 @@ from pydantic import Field
 
 from xeda import Design
 from xeda.flow import Flow, registered_flows
+from xeda.digest import package_files
 from xeda.flow_runner.trace_inputs import (
     XEDA_PACKAGE,
-    _package_files,
     artifact_files,
     design_files,
     flow_code_digest,
@@ -192,7 +192,7 @@ def test_the_flow_code_digest_is_stable_and_names_the_flow(hooked):
 def test_the_xeda_code_digest_covers_helpers_templates_and_data():
     """An editable install keeps its version string across edits: a helper flows use (template
     filters in utils.py, cocotb.py, tool.py) or bundled board data must count as xeda's code."""
-    files = {p.relative_to(XEDA_PACKAGE).as_posix() for p in _package_files(XEDA_PACKAGE)}
+    files = {p.relative_to(XEDA_PACKAGE).as_posix() for p in package_files(XEDA_PACKAGE)}
     assert {"utils.py", "cocotb.py", "tool.py", "data/boards.toml"} <= files
     assert "flows/yosys/templates/yosys_synth.ys" in files
     assert not any("__pycache__" in f or f.endswith(".pyc") for f in files)

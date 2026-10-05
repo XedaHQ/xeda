@@ -43,7 +43,7 @@ from ..deliver import (
 from ..design import (
     DESIGN_NAME,
     Design,
-    cloning_dependencies_into,
+    loading_in_run_root,
     names_a_design_file,
     refusing_load_side_effects,
 )
@@ -552,6 +552,16 @@ class FlowLauncher:
             assert root is not None  # created when absent
             self._run_root, self._run_root_ready = root, True
         return self._run_root
+
+    def load_run_root(self, create: bool = True) -> Optional[Path]:
+        """The run root a design load keeps its own things in (`design.loading_in_run_root`):
+        with `create`, made and marked as `run_root` does; without it -- a pure plan, a lookup
+        that must create nothing -- only one that is already marked, else None."""
+        if create:
+            return self.run_root
+        if self._run_root_ready:
+            return self._run_root
+        return ensure_run_root(self._run_root, start=self._start, create=False)
 
     @property
     def xeda_run_dir(self) -> Path:
@@ -1977,7 +1987,7 @@ class FlowLauncher:
         # A git dependency without a directory of its own is cloned into the run root, which
         # is asked for only then: a design that fails to load leaves no run root behind.
         with (
-            cloning_dependencies_into(lambda: self.run_root / ".dependencies"),
+            loading_in_run_root(self.load_run_root),
             refusing_load_side_effects() if _planning else nullcontext(),
         ):
             if Path(xedaproject).exists():

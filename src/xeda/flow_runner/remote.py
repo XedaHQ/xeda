@@ -37,7 +37,7 @@ from ..design import (
     DesignSource,
     DVSettings,
     FileResource,
-    cloning_dependencies_into,
+    loading_in_run_root,
     names_a_design_file,
 )
 from ..flow import Flow, FlowSettingsError
@@ -902,7 +902,7 @@ class RemoteRunner(FlowLauncher):
 
         # As a local launch does: a git dependency without a directory of its own is cloned
         # into the run root, which is asked for only then.
-        with cloning_dependencies_into(lambda: self.run_root / ".dependencies"):
+        with loading_in_run_root(self.load_run_root):
             if isinstance(design, (str, Path)):
                 design_path = Path(design)
                 # The local runner's rule: a design-file suffix means a file, which then loads or

@@ -187,7 +187,8 @@ Four orthogonal abstractions, deliberately decoupled:
   `rtl` (`RtlSettings`) and `tb` (`TbSettings`) sections, both subclasses of `DVSettings`. Sources become
   `DesignSource`/`FileResource` objects that carry a content hash; `design.rtl_hash` / `design.tb_hash`
   feed the run-directory hashing. Designs can also be fetched from a `GitReference` or produced by a
-  `Generator` (e.g. `ChiselGenerator`).
+  `Generator` (e.g. `ChiselGenerator`), whose re-run decision is `generation.py`'s (see "A
+  generator's re-run decision" below).
 - **`Flow`** (`flow/flow.py`) - *how* to build. Abstract; concrete flows live in `flows/<tool>/`.
 - **`Tool`** (`tool.py`) - an executable, runnable natively, in Docker (`Docker` model), or remotely.
 - **`FlowLauncher`/`FlowRunner`** (`flow_runner/default_runner.py`) - orchestrates instantiation,
@@ -715,6 +716,38 @@ cocotb); environment variables; files a tool finds on its own without reporting 
 any file a dependency's run left, or a file added there, makes the dependency stale, and its
 dependers follow through its new `run_id`.
 Pin constraints fetched from a URL are not verifiable either, so a flow using them always runs.
+
+**A generator's re-run decision is content-based too** (`xeda/generation.py`), although it is
+made at *design-load* time, before any flow, run directory or trace exists. `process_generation`
+asks `judging_generation`, which hashes the generator's configuration **as the design states it**
+(never the working directory and whole environment the loader completes it with: a record must be
+reusable from another shell, and xeda tracks no environment variable), the content of every file
+of `generator.sources`, and the digest of every installed Python package `generator.packages`
+names (`digest.installed_package_digest` over `package_locations`/`package_files`/`digest_files`,
+the helpers `trace_inputs.xeda_code_digest` shares -- once per process; a package nothing provides
+is an error naming it). That identity names an entry under `<run root>/.cache/generators/`
+holding the digest of every source the last generation left (`generated_sources` when the
+generator writes only some of `rtl.sources`, else every one of them), written with
+`replacing_file` under the entry's own `run_dir_lock`, exactly as `xilinx.prepare_chipdb` keeps a
+chip database. Metadata is trusted nowhere here: `FileRecord.trusted` needs the time a record was
+taken from the file's own file system (`digest.filesystem_time_ns` writes a marker in the
+directory it reads), and neither the design's tree nor an installed package is xeda's to write
+in -- so every input is hashed, a `touch`/`chmod`/`cp -p` costs a hash rather than a re-run, and
+an edit given back its old mtime is caught. **Where the run root comes from at load time**: the
+launcher puts it there, `design.loading_in_run_root(provider)` (one `ContextVar`, which replaced
+`cloning_dependencies_into`; `provider(False)` gives only a root that is already marked), and
+`FlowLauncher.load_run_root` is that provider. What cannot be judged runs: `always_runs`, a
+generator declaring neither `sources` nor `packages`, no run root in sight (a `Design` built
+directly), or a run root whose cache cannot be written. A planning load creates, locks and writes
+nothing -- it reads an existing record, and still refuses to plan a design that must generate.
+`RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
+symbolic link on the way, not even one that stays inside), shared by the chip databases and the
+generator records. `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
+A design load changes nothing outside the run root **but the sources its generator writes** --
+that is what a generator is for, and the design's tree is the design's; everything xeda keeps
+about the generation is the record under the run root
+(`tests/test_isolation.py::test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates`,
+`tests/test_generator_staleness.py`).
 
 Dependencies are brought up to date first, then the depending flow is judged. Within one launch, a
 run directory is entered at most once: two configurations of one flow resolving to the same

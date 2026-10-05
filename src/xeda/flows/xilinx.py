@@ -24,7 +24,7 @@ from ..flow import FPGA, FlowFatalError
 from ..flow_runner.run_lock import lock_file, run_dir_lock
 from ..listing import directory_files
 from ..proc_utils import ProcessTimeout, run_process
-from ..run_dir import RunDirectory, RunDirectoryError
+from ..run_dir import RunDirectory
 from ..run_root import is_run_root
 from ..utils import NonZeroExitCode, replacing_file, semantic_hash
 
@@ -401,16 +401,9 @@ def _cache_path(owner: RunDirectory, path: Path) -> Path:
 
     Cache entries and durable locks never use links, including links within the root:
     replacing a lock's name would split process coordination between different inodes.
+    `RunDirectory.unlinked` is that one rule, shared with every other cache under a run root.
     """
-    located = owner.inside(path)
-    current = owner.path
-    for part in path.relative_to(owner.path).parts:
-        current = current / part
-        if current.is_symlink():
-            raise RunDirectoryError(
-                f"Linked Xilinx cache path {current}; remove the link and rerun."
-            )
-    return located
+    return owner.unlinked(path)
 
 
 def _cached_chipdb(

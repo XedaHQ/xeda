@@ -196,6 +196,26 @@ class RunDirectory:
             raise RunDirectoryError(f"{path} is not inside the run directory {self.path}: {why}")
         return parent / lexical.name
 
+    def unlinked(self, path: str | os.PathLike) -> Path:
+        """`path` inside the run directory (`inside`), reached through no symbolic link at all,
+        not even one that stays inside: what xeda's own caches under a run root are named by
+        (the Xilinx chip databases, a design generator's records). Replacing such a name with a
+        link would split a durable lock, or an immutable entry, between two inodes."""
+        located = self.inside(path)
+        given = Path(path)
+        lexical = Path(os.path.abspath(given if given.is_absolute() else self.path / given))
+        if not lexical.is_relative_to(self.path):  # pragma: no cover - `inside` refused it
+            raise RunDirectoryError(f"{path} is not inside the run directory {self.path}")
+        current = self.path
+        for part in lexical.relative_to(self.path).parts:
+            current = current / part
+            if current.is_symlink():
+                raise RunDirectoryError(
+                    f"{current} is a symbolic link where xeda keeps a cache of its own; "
+                    "remove the link and rerun."
+                )
+        return located
+
     def _link_out(self, directory: Path) -> Path | None:
         """The first symbolic link on the way from the run directory down to `directory` (a
         lexical path under it) that leads out of the run directory, if any."""

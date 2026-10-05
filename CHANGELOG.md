@@ -51,6 +51,20 @@ All notable changes to this project will be documented in this file.
   a cause, kept apart from `FlowFailed`, the verdict at the top of the `xeda run --json` document.
 
 ### Added
+- **A design generator is judged by content, and can declare an input no design can list.**
+  `rtl.generator` runs again only when something it reads or produced changed: the digest of
+  every file of its `sources`, of every installed Python package its new `packages` names
+  (`litex`, `litex_boards`, `migen` -- a SoC description's real inputs, which are not files of
+  the design), and of every source its last generation left. A `touch`, a `chmod`, a `cp -p` or
+  a branch round-trip costs a hash rather than a re-run, while an edit given back its old
+  modification time is caught. `generated_sources` names which of `rtl.sources` the generator
+  writes, when it writes only some of them; `always_runs` says its inputs cannot be judged at
+  all, and a generator declaring neither `sources` nor `packages` runs on every load anyway.
+  The record of a generation is an entry under `<run root>/.cache/generators/`, written under its
+  own durable lock beside the Xilinx chip databases -- never beside the design, whose tree holds
+  nothing of xeda's. A load with no run root in sight, or one whose run root cannot be written,
+  generates every time: the direction xeda takes wherever it cannot prove something is up to
+  date. `xeda run --dry-run` still creates and writes nothing.
 - `custom_boards_file` accepts a YAML board database (`.yaml` or `.yml`) as well as TOML, by the
   file's suffix; YAML is read by the same strict YAML 1.2 loader as every other YAML file, so a
   duplicate key or a non-string key names the file and line. Any other suffix is an error naming
@@ -289,6 +303,9 @@ All notable changes to this project will be documented in this file.
   before anything ships, with an error asking to upgrade the remote xeda.
 
 ### Removed
+- **`rtl.generator.run_only_if_sources_modified`**: use `always_runs`. A generator's re-run
+  decision is its inputs' and outputs' content, never a modification time, so the old switch had
+  nothing left to mean; `run_only_if_sources_modified = false` is `always_runs = true`.
 - **The `open_xc7` flow**: use `fpga_pack` to build and `openfpgaloader` to program. Its name in
   any spelling, and a `[flows.open_xc7]` section in a design or project file (or
   `-s flows.open_xc7.*`), fail with that message; `xeda scrub open_xc7 <design>` still removes

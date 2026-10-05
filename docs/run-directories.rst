@@ -344,6 +344,14 @@ generator, executables and device data, never a version string. One lock per ide
 keeps two launches from generating it twice; an interrupted generation leaves only scratch, which
 the next one removes. ``--clean``, post-cleanup and ``xeda scrub`` leave the cache alone.
 
+A design whose sources a generator writes (``rtl.generator``) keeps its record there too, in
+``.cache/generators/``: the content of what the generator reads -- its ``sources`` and every
+installed Python package its ``packages`` names -- identifies an entry holding the digest of
+every source its last generation left, so the generator runs again only when one of them changed.
+A generation happens while the design is *loaded*, before any flow or run directory exists, which
+is why its record lives in the run root rather than beside the design, and why a design loaded
+with no run root in sight generates every time. See :ref:`generators`.
+
 What is not tracked
 ---------------------
 

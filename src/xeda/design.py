@@ -49,6 +49,7 @@ from .dataclass import (
     validation_errors,
 )
 from .digest import content_digest
+from .generation import judging_generation
 from .proc_utils import tool_output_redirect
 from .utils import (
     NonZeroExitCode,
@@ -1053,18 +1054,44 @@ class Generator(XedaBaseModel):
     env: Optional[Dict[str, str]] = None
     # sweepable parameters used in command
     parameters: dict = {}
-    sources: List[Union[str, Path]] = Field(
+    sources: List[Path] = Field(
         default_factory=list,
-        description="The sources this generator produces or reads, as a design's `sources` "
-        "name them: a path relative to the design root, or a pattern where `*` is the only "
-        "pattern character.",
+        description="The sources this generator reads, as a design's `sources` name them: a path "
+        "relative to the design root, or a pattern where `*` is the only pattern character. Each "
+        "one's content is what decides whether the generator runs again, so each has to exist.",
     )
-    run_only_if_sources_modified: bool = Field(
-        default=True,
-        description="If True, the generator will run only if either not all rtl.sources exist or one of the sources has a newer modification time than all the rtl.sources",
+    packages: List[str] = Field(
+        default_factory=list,
+        description="Installed Python packages (import names) the generator reads, whose files "
+        "no design can list as sources: every file of each one is digested, so installing, "
+        "upgrading or editing one runs the generator again (`litex`, `litex_boards`, `migen`).",
     )
-    # for xeda to know dependencies, clean previous artifacts, check after generation:
-    generated_sources: List[str] = []
+    always_runs: bool = Field(
+        default=False,
+        description="Run this generator on every design load: what it reads cannot be judged "
+        "(it is not files, or they cannot be listed), so xeda keeps no record of it. A "
+        "generator that declares neither `sources` nor `packages` runs on every load anyway.",
+    )
+    generated_sources: List[str] = Field(
+        default_factory=list,
+        description="The sources this generator produces, as a design's `sources` name them, "
+        "when it produces only some of `rtl.sources`: what is judged against the record of its "
+        "last generation. Empty, every one of `rtl.sources` is judged, so editing a source the "
+        "generator does not write runs it again.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _removed_generator_fields(cls, data):
+        """A removed field is named with what replaces it, as every removed setting is."""
+        removed = {
+            "run_only_if_sources_modified": "`always_runs` (a generator is judged by the content "
+            "of what it reads and produces now, never by a modification time)",
+        }
+        for name, replacement in removed.items():
+            if name in data:
+                raise ValueError(f"`{name}` was removed: use {replacement}")
+        return data
 
     @field_validator("sources", mode="before")
     @classmethod
@@ -1091,7 +1118,8 @@ class Generator(XedaBaseModel):
                 raise ValueError(f"Invalid source type: {type(src)} for source '{src}'")
         # remove duplicates, but keep order
         sources = unique(sources)
-        # The generator's inputs: whether to rerun it is decided by their modification times.
+        # The generator's inputs: whether to run it again is decided by their content
+        # (`generation.generation_identity`), so each one has to be there to be read.
         missing = [str(src) for src in sources if not src.exists()]
         if missing:
             raise ValueError(f"generator source file does not exist: {', '.join(missing)}")
@@ -1113,15 +1141,18 @@ class Generator(XedaBaseModel):
             # document. `tool_output_redirect()` is None unless output has been redirected, so
             # normal runs keep inheriting as before.
             stdout = tool_output_redirect()
+        # Checked here, never by `subprocess.run`: a generator that fails names itself as the
+        # other two spellings of one do (`NonZeroExitCode`), not as a raw `CalledProcessError`.
+        wanted = self.check if check is None else check
         p = subprocess.run(
             cmd,
             cwd=self.cwd,
-            check=check if check is not None else self.check,
+            check=False,
             stdout=stdout,
             stderr=stderr,
             env=self.env,
         )
-        if self.check and p.returncode:
+        if wanted and p.returncode:
             raise NonZeroExitCode(cmd, p.returncode)
         return p
 
@@ -1409,12 +1440,17 @@ class TbDep(XedaBaseModel):
     pos: int = 0
 
 
-#: Where a git dependency without a `clone_dir` is cloned: a provider of the run root's
-#: `.dependencies`, set by the launcher around loading its designs (`cloning_dependencies_into`);
-#: unset elsewhere. A provider, called only when a dependency is cloned: the launcher's run root
-#: is created on first use, which a design that fails to load must not cause.
-dependency_cache: ContextVar[Optional[Callable[[], Path]]] = ContextVar(
-    "dependency_cache", default=None
+#: Where a Git dependency without a `clone_dir` is cloned, under the run root.
+DEPENDENCY_CLONES = ".dependencies"
+
+#: How a design load reaches xeda's own space: a provider of the run root, set by the launcher
+#: around loading its designs (`loading_in_run_root`) and unset elsewhere. `provider(True)` creates
+#: and marks the run root, `provider(False)` gives one that is already there, or None -- a design
+#: that fails to load, and a pure plan, must create none. What a load keeps there: the directory a
+#: Git dependency without a `clone_dir` is cloned into (`.dependencies`) and the record of a
+#: generator's last generation (`generation.CACHE_DIRECTORY`).
+load_run_root: ContextVar[Optional[Callable[[bool], Optional[Path]]]] = ContextVar(
+    "load_run_root", default=None
 )
 
 _planning_load: ContextVar[bool] = ContextVar("planning_load", default=False)
@@ -1431,14 +1467,15 @@ def refusing_load_side_effects() -> Iterator[None]:
 
 
 @contextmanager
-def cloning_dependencies_into(provider: Callable[[], Path]) -> Iterator[None]:
-    """Clone the git dependencies of designs loaded meanwhile into the directory `provider`
-    names (in a run root), asking it only when one is cloned."""
-    token = dependency_cache.set(provider)
+def loading_in_run_root(provider: Callable[[bool], Optional[Path]]) -> Iterator[None]:
+    """Let the designs loaded meanwhile keep what a load keeps in a run root -- a Git
+    dependency's clone, a generator's record -- in the run root `provider` names, asking it only
+    when something is kept there, and for one it may create only then."""
+    token = load_run_root.set(provider)
     try:
         yield
     finally:
-        dependency_cache.reset(token)
+        load_run_root.reset(token)
 
 
 class DesignReference(XedaBaseModel):
@@ -1446,7 +1483,7 @@ class DesignReference(XedaBaseModel):
     rtl: RtlDep = RtlDep()
     tb: TbDep = TbDep()
     #: where a git dependency is cloned (`<local_cache>/<host>/<path>`) when it names no
-    #: `clone_dir`; unset, a launcher clones into its run root (`cloning_dependencies_into`).
+    #: `clone_dir`; unset, a launcher clones into its run root (`loading_in_run_root`).
     #: A directory the user configures here is theirs to direct: xeda clones and pulls there.
     local_cache: Optional[Path] = None
 
@@ -1591,8 +1628,9 @@ class GitReference(DesignReference):
             raise ValueError("Cannot plan a design that needs a Git dependency fetch")
         clone_dir = self.clone_dir
         if clone_dir is None:
-            provider = dependency_cache.get()
-            cache = self.local_cache or (provider() if provider is not None else None)
+            provider = load_run_root.get()
+            run_root = provider(True) if provider is not None else None
+            cache = self.local_cache or (run_root / DEPENDENCY_CLONES if run_root else None)
             if cache is None:
                 raise ValueError(
                     f"{self.repo_url} needs a directory to be cloned into: give its `clone_dir` "
@@ -1791,47 +1829,43 @@ class Design(XedaBaseModel):
                                 raise Exception(f"unknown generator class: {clazz}")
                         else:
                             generator = Generator(**generator)
-                    if generator.cwd is None:
-                        generator.cwd = str(design_root)
-                    if generator.env is None:
-                        generator.env = dict(env)
-                    else:
-                        # An `env` the design states is the generator's whole environment, and
-                        # a `DESIGN_ROOT` in it is the design's own word.
-                        generator.env.setdefault("DESIGN_ROOT", str(design_root))
-                    skip_run = False
-                    rtl_sources = _source_paths_as_given(rtl.get("sources", []), design_root)
-                    if generator.run_only_if_sources_modified and generator.sources and rtl_sources:
-                        log.debug("Generator sources: %s", generator.sources)
-                        # check if rtl.sources exist and if they are newer than the generator sources
-                        if all(src.exists() for src in rtl_sources):
-                            generator_sources_last_modified = max(
-                                Path(gen_src).stat().st_mtime for gen_src in generator.sources
-                            )
-                            if all(
-                                src.stat().st_mtime >= generator_sources_last_modified
-                                for src in rtl_sources
-                            ):
-                                skip_run = True
-                                log.info(
-                                    "Skipping generator '%s' run, as all rtl.sources are newer than the generator sources",
-                                    generator.name,
-                                )
-                            else:
-                                log.info(
-                                    "Running generator '%s' as some rtl.sources are older than the generator sources",
-                                    generator.name,
-                                )
-                        else:
+
+                    # Judged before the defaults below complete it: its identity is the
+                    # configuration the design states, never this shell's environment.
+                    def generated() -> Optional[List[Path]]:
+                        declared = generator.generated_sources or rtl.get("sources", [])
+                        return _source_paths_as_given(declared, design_root)
+
+                    planning = _planning_load.get()
+                    with judging_generation(
+                        generator,
+                        design_root,
+                        generated,
+                        run_root=load_run_root.get(),
+                        planning=planning,
+                    ) as generation:
+                        if generation.reason is None:
                             log.info(
-                                "Running generator '%s' as not all rtl.sources exist",
+                                "Not running generator '%s': its generated sources are what its "
+                                "last generation left",
                                 generator.name,
                             )
-                    if not skip_run:
-                        if _planning_load.get():
-                            raise ValueError("Cannot plan a design that needs a generator")
-                        log.info("Running generator: %s", generator.name)
-                        generator.run()
+                        else:
+                            if planning:
+                                raise ValueError("Cannot plan a design that needs a generator")
+                            if generator.cwd is None:
+                                generator.cwd = str(design_root)
+                            if generator.env is None:
+                                generator.env = dict(env)
+                            else:
+                                # An `env` the design states is the generator's whole
+                                # environment, and a `DESIGN_ROOT` in it is the design's own word.
+                                generator.env.setdefault("DESIGN_ROOT", str(design_root))
+                            log.info(
+                                "Running generator '%s': %s", generator.name, generation.reason
+                            )
+                            generator.run()
+                            generation.produced()
                 else:
                     if _planning_load.get():
                         raise ValueError("Cannot plan a design that needs a generator")

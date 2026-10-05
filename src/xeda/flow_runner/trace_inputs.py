@@ -21,7 +21,6 @@ trusts their metadata (`digest.FileRecord.trusted`) as it does an input's.
 
 from __future__ import annotations
 
-import hashlib
 import inspect
 import logging
 import os
@@ -42,8 +41,9 @@ from ..digest import (
     MODIFIED_DURING_RUN,
     UNRECORDED_BEFORE_RUN,
     FileRecord,
-    content_digest,
+    digest_files,
     filesystem_time_ns,
+    package_files,
     record_file,
     unknown_record,
     written_since,
@@ -469,29 +469,6 @@ def _resolved(path: Path, run_path: Path) -> Path:
     return (path if path.is_absolute() else run_path / path).resolve()
 
 
-def _package_files(directory: Path) -> List[Path]:
-    """The files that make up a Python package directory (`listing.directory_files`, resolved):
-    everything under it but compiled bytecode (`__pycache__`, `.pyc`) and hidden files, which
-    Python and editors create."""
-    top = directory.resolve()
-    return sorted(
-        p
-        for p in directory_files(top, skip=frozenset({"__pycache__"}))
-        if p.is_file()
-        and p.suffix not in (".pyc", ".pyo")
-        and not any(part.startswith(".") for part in p.relative_to(top).parts)
-    )
-
-
-def _digest_files(files: Sequence[Path], base: Path) -> str:
-    h = hashlib.sha3_256()
-    for file in files:
-        name = file.relative_to(base) if file.is_relative_to(base) else file
-        h.update(name.as_posix().encode() + b"\0")
-        h.update(content_digest(file).encode())
-    return h.hexdigest()[:32]
-
-
 #: the installed xeda package directory
 XEDA_PACKAGE = Path(__file__).resolve().parent.parent
 
@@ -501,7 +478,7 @@ def xeda_code_digest() -> str:
     """A digest of every file of the installed xeda package -- code, templates, bundled data --
     computed once per process. An editable install keeps one version string across edits, so
     this, not the version, is what notices a change to a helper a flow uses."""
-    return _digest_files(_package_files(XEDA_PACKAGE), XEDA_PACKAGE)
+    return digest_files(package_files(XEDA_PACKAGE), XEDA_PACKAGE)
 
 
 @lru_cache(maxsize=None)
@@ -525,7 +502,7 @@ def flow_code_digest(flow_class: Type[Flow]) -> str:
             files.update(p.resolve() for p in directory_files(templates) if p.is_file())
     if not files:
         return ""
-    return _digest_files(sorted(files), Path("/"))
+    return digest_files(sorted(files), Path("/"))
 
 
 def candidate_inputs(

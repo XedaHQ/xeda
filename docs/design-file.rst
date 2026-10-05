@@ -114,7 +114,8 @@ Top level
    * - ``generator``
      - no
      - Command or generator class that produces the sources (e.g. Chisel elaboration) before the
-       flow runs.
+       flow runs. It runs again only when what it reads or produced changed; see
+       :ref:`generators`.
 
 Clocks here are *logical*: they name the design's clock ports. The *physical* period or frequency
 is a flow setting, because it is a constraint on a particular build rather than a property of the
@@ -268,6 +269,68 @@ verified end to end with yosys, and with Vivado's ``read_verilog``, ``read_vhdl`
 ``read_xdc``. Vivado's ``add_files`` -- which ``vivado_project`` uses for every file, and
 ``vivado_synth`` for memory files, ``xdc_files`` and ``tcl_files`` --
 refuses a name containing ``[``, ``]`` or ``$``: rename such a file for Vivado.
+
+.. _generators:
+
+``generator`` - sources xeda builds first
+=========================================
+
+A design can have its sources produced before any flow runs: ``rtl.generator`` is a shell
+command, a list of arguments, or a table configuring one::
+
+    name: generated
+    rtl:
+      sources: ["gen/top.v"]
+      top: top
+      generator:
+        executable: python3
+        args: ["soc.py", "--build-dir", "gen"]
+        sources: ["soc.py"]
+        packages: ["litex", "litex_boards", "migen"]
+
+The generator runs while the design is loaded, and runs **again only when something it reads or
+produced changed**, judged by content, never by a modification time:
+
+``sources``
+    the files it reads, as a design's own ``sources`` name them (patterns included). Each one has
+    to exist, since its content is read. A ``touch``, a ``chmod`` or a branch round-trip of one
+    is not a change; an edit given back its old timestamp is. A source naming a *directory* (a
+    Chisel ``src/main/scala``, a directory of templates) counts as every file in it, so a file
+    edited inside one, or added to one, runs the generator again.
+
+``packages``
+    installed Python packages, by import name, that it reads and that no design could list as
+    files -- a SoC description reading ``litex``, ``litex_boards`` and ``migen`` from the virtual
+    environment. Every file of each one is digested (its bytecode left out), so installing,
+    upgrading or editing one runs the generator again. A package nothing provides is an error
+    naming it. Each package is digested once per ``xeda`` invocation, so a package changed
+    *during* one invocation is noticed by the next.
+
+``generated_sources``
+    which of ``rtl.sources`` the generator writes, when it does not write them all. Left out,
+    every declared source is judged, so editing a hand-written one runs the generator too.
+
+``always_runs``
+    run it on every load. For a generator whose inputs cannot be judged at all -- they are not
+    files, or they cannot be listed. A generator that declares neither ``sources`` nor
+    ``packages`` runs on every load anyway, since nothing says when it is out of date.
+
+What xeda keeps about a generation -- the digest of every source it left -- is a record under
+``<run root>/.cache/generators/``, beside the chip databases and everything else of xeda's: the
+design's own tree holds nothing of xeda's. So a design loaded with no run root in sight (a
+``Design`` built by hand, outside ``xeda run``) has nowhere to keep that record, and its
+generator runs on every load -- the direction xeda takes wherever it cannot prove something is up
+to date. The run root is made to *write* that record, after a generation that succeeded, never to
+look one up, so a generator that fails leaves no run root behind; ``xeda run --dry-run`` creates
+nothing at all, reads an existing record, and refuses to plan a design that would have to
+generate.
+
+A generator given as a shell command (``generator: "python soc.py"``) or as a list of arguments
+declares nothing it reads, so it runs on every load. Write it as a table with ``sources`` to have
+it judged.
+
+The generator writes the design's own sources, at the paths the design names; that is what it is
+for. Everything else outside a run root is left exactly as it was.
 
 .. _language:
 
