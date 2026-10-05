@@ -223,6 +223,39 @@ def test_a_chain_is_refused_with_remote_before_anything_is_shipped(tmp_path, mon
     assert not connected and not (tmp_path / "mirror").exists()
 
 
+def test_a_chain_given_to_a_remote_runner_clones_no_git_dependency(tmp_path, monkeypatch):
+    """The refusal needs only the flow name, so it comes before the design is loaded: a design
+    with a git dependency would otherwise be cloned into the run root first."""
+    import git.repo
+
+    cloned = []
+    monkeypatch.setattr(
+        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
+    )
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    design = tmp_path / "d.yaml"
+    design.write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "dependencies": ["git+https://example.com/u/lib.git#lib.yaml"],
+                "rtl": {"sources": ["top.v"], "top": "top"},
+            }
+        )
+    )
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
+        RemoteRunner(tmp_path / "mirror").run_remote(design, "__input_maker+__taker", "host")
+    assert not cloned and not (tmp_path / "mirror").exists()
+
+
+def test_a_chain_given_to_a_remote_runner_is_refused_even_for_a_missing_design(tmp_path):
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
+        RemoteRunner(tmp_path / "mirror").run_remote(
+            tmp_path / "missing.yaml", "__input_maker+__taker", "host"
+        )
+    assert not (tmp_path / "mirror").exists()
+
+
 @pytest.mark.parametrize(
     "command",
     [
