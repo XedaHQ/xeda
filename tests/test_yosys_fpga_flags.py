@@ -392,9 +392,8 @@ def _begin_reads(pass_name: str) -> list[tuple[frozenset[str], str]]:
 
 @pytest.mark.parametrize("target", ["xilinx", "ecp5", "ice40-hx", "crosslink-nx", "certus-nx"])
 def test_primitive_libraries_are_read_the_way_the_installed_pass_reads_them(target):
-    """A pass reads its library with `-specify`, the cells' timing abc9 maps by, and xeda reads
-    the library first (to check the hierarchy): read without it, the pass is handed a library
-    with no timing, and `yosys_fpga` maps to another netlist than `yosys synth_<target>`."""
+    """xeda reads each primitive library before the pass does, to check the hierarchy: with the
+    flags the pass reads it with (`-lib -specify`), so the two reads agree."""
     require_yosys()
     version = subprocess.run(["yosys", "-V"], capture_output=True, text=True, check=True).stdout
     match = re.search(r"Yosys (\d+)\.(\d+)", version)
