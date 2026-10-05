@@ -333,15 +333,29 @@ def assemble(tool, args):
 
 
 def yosys(tool, args):
-    """The .ys subset used by the isolation graph, without simulating synthesis."""
-    if "-s" not in args:
-        raise ValueError("fake yosys supports -s scripts only")
-    script = Path(args[args.index("-s") + 1])
-    lines = [
-        shlex.split(line)
-        for line in script.read_text().splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
+    """The .ys subset used by the isolation graph, without simulating synthesis.
+
+    `-c` reads the same subset out of a `.tcl` script, as a yosys built with TCL support does:
+    every command there is one `yosys <command ...>` line, so the prefix is dropped and TCL's own
+    lines (`yosys -import`, `puts`) are ignored. `tee -o` is already a bare word in both formats.
+    """
+    flag = next((f for f in ("-s", "-c") if f in args), None)
+    if flag is None:
+        raise ValueError("fake yosys supports -s and -c scripts only")
+    script = Path(args[args.index(flag) + 1])
+    lines = []
+    for line in script.read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        words = shlex.split(line)
+        if flag == "-c":
+            if words[0] == "puts":  # a TCL message, not a yosys command
+                continue
+            if words[0] == "yosys":
+                words = words[1:]
+            if not words or words[0] == "-import":  # `yosys -import`
+                continue
+        lines.append(words)
     paths = [script]
     for words in lines:
         if words[0] in ("read_verilog", "read_vhdl"):
