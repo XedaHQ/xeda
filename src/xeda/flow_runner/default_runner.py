@@ -1770,10 +1770,20 @@ class FlowLauncher:
         flow: Union[Type[Flow], str, FlowRequest],
         flow_settings: Any,
         flow_overrides: Any,
-        xedaproject: Optional[str],
+        xedaproject: str | Path | None,
     ) -> None:
-        """Refuse a chain, or an input binding of the requested node given on the command line,
-        by the API or in the project file, before anything is loaded (`LOCAL_REQUESTS_ONLY`)."""
+        """Refuse, before anything is loaded, what a launcher that takes no requests (`Dse`,
+        `RemoteRunner.run_remote`) refuses and that needs no design: a chain, and an input
+        binding of the requested node given on the command line, through the API or in the
+        project file (`LOCAL_REQUESTS_ONLY`). Loading a design may clone a git dependency into
+        the run root, so a refusal that came after it would leave the clone behind.
+
+        What does need the loaded design, and is refused later with the same error: a binding of
+        the requested node saved in the design file, and a binding of any other node (whether the
+        request reaches that node depends on its resolved graph, so an unrelated saved binding is
+        no refusal). The requested node itself is reached by every request.
+        `plan` and `run_flow` do not call this: `plan` refuses side-effecting loading outright
+        (`refusing_load_side_effects`) and `run_flow` takes a design that is already built."""
         if isinstance(flow, FlowRequest):
             if len(flow.elements) > 1:
                 raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
@@ -1846,13 +1856,8 @@ class FlowLauncher:
         design_remove_fields: List[str] = [],
     ) -> Optional[Flow]:
         """Load and compose a request, then execute its resolved declared graph."""
-        # Where requests are not taken (`Dse`), what can be refused without a loaded design is
-        # refused first: loading a design may clone a git dependency into the run root, or fail
-        # on a design file that is missing. That is a chain (the flow name alone) and an input
-        # binding of the requested node, which every request reaches (its command-line, API and
-        # project-file spellings are all in hand). A binding saved in the design file, and one of
-        # any other node, depend on the design or on the resolved graph (a node is bound only
-        # if the request reaches it): those are refused below, once the request is resolved.
+        # Where requests are not taken (`Dse`), refuse before loading what needs no design.
+        # What does need it is listed there, and refused below, once the request is resolved.
         if not self.accepts_bindings:
             self._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject)
         request = self._request(

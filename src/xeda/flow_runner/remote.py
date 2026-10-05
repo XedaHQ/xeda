@@ -40,7 +40,7 @@ from ..design import (
     cloning_dependencies_into,
     names_a_design_file,
 )
-from ..flow import Flow, FlowSettingsError, FlowSettingsException
+from ..flow import Flow, FlowSettingsError
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import written_path_problems
 from ..flow.flow import map_keyed_path_leaves
@@ -58,7 +58,6 @@ from ..utils import (
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, XedaProject, resolve_project_file
 from .bindings import (
-    LOCAL_REQUESTS_ONLY,
     NodeKey,
     node_identity,
     require_no_bindings,
@@ -889,10 +888,10 @@ class RemoteRunner(FlowLauncher):
         design_allow_extra: bool = False,
     ):
         """Execute a design flow remotely and return its results."""
-        # A chain is a local request. Refused first, on the flow name alone: loading the design
-        # may clone a git dependency into the run root, or fail on a design file that is missing.
-        if "+" in flow_name:
-            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
+        # A chain, and an input binding of the requested node, are local requests: refused first,
+        # as `dse` refuses them, before the design is loaded, which may clone a git dependency
+        # into the run root or fail on a design file that is missing.
+        self._refuse_unaccepted_request(flow_name, flow_settings or [], {}, xedaproject)
         # the design file given, when `design` names one: never an output's destination
         given_file = Path(design) if isinstance(design, (str, Path)) else None
         project_flow_settings: Mapping[str, Any] | None = None
