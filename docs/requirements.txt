@@ -1,11 +1,5 @@
-sphinx
-docutils
-sphinx-tabs
-sphinx-jinja
-sphinxcontrib.bibtex
-sphinx_panels
-sphinxcontrib.mermaid
-sphinxext.opengraph
-autodoc_pydantic >= 2.2.0   # >= 2.0 requires pydantic v2; <= 1.9 requires pydantic v1
-sphinx_book_theme
-myst-parser
+# The packages the documentation build needs (conf.py enables no extension; the theme is the only
+# one). Used by `tox -e docs`, the CI docs job and Read the Docs. xeda itself is installed
+# alongside (conf.py reads its version from the installed distribution).
+sphinx >= 7
+sphinx_book_theme >= 1.1

@@ -29,21 +29,10 @@ language = "en"
 
 # -- General configuration ---------------------------------------------------
 
-# Add any Sphinx extension module names here, as strings. They can be
-# extensions coming with Sphinx (named "sphinx.ext.*") or your custom
-# ones.
-extensions = [
-    # "sphinxcontrib.bibtex",
-    "myst_parser",
-    "sphinx.ext.autodoc",
-    "sphinx.ext.intersphinx",
-    "sphinx.ext.viewcode",
-    "sphinx_panels",
-    "sphinxcontrib.mermaid",
-    "sphinxext.opengraph",
-    "sphinxcontrib.autodoc_pydantic",
-    "sphinx.ext.autosummary",
-]
+# The pages are hand-written reStructuredText that uses only core Sphinx and the theme, so no
+# extension is enabled. Enable one only together with a page that uses it (and its entry in
+# docs/requirements.txt): an extension nothing uses is one more thing that can stop the build.
+extensions: list[str] = []
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -67,7 +56,7 @@ html_theme_options = {
     "github_url": "https://github.com/XedaHQ/xeda",
     "repository_url": "https://github.com/XedaHQ/xeda",
     "use_edit_page_button": True,
-    "repository_branch": "dev",
+    "repository_branch": "main",
     "path_to_docs": "docs",
 }
 
@@ -75,12 +64,3 @@ html_theme_options = {
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = []
-
-intersphinx_mapping = {
-    "python": ("https://docs.python.org/3.11", None),
-    "pydantic": ("https://www.sphinx-doc.org/en/master", None),
-}
-
-
-autosummary_generate = True
-# autodoc_member_order = "bysource"
