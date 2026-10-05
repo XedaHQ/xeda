@@ -256,6 +256,84 @@ def test_a_chain_given_to_a_remote_runner_is_refused_even_for_a_missing_design(t
     assert not (tmp_path / "mirror").exists()
 
 
+def _dse_runner(tmp_path):
+    from xeda.flow_runner.dse import Dse
+
+    from .test_dse_run import _DeclaredOptimizer
+
+    return Dse(_DeclaredOptimizer, run_root=tmp_path / "mirror", variations={}, max_workers=1)
+
+
+def test_a_chain_given_to_dse_clones_no_git_dependency(tmp_path, monkeypatch):
+    """As for a remote runner: the refusal needs only the flow name, so it comes before the
+    design is loaded, which would clone a git dependency into the run root first."""
+    import git.repo
+
+    cloned = []
+    monkeypatch.setattr(
+        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
+    )
+    design = _git_dependency_design(tmp_path)
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
+        _dse_runner(tmp_path).run("__input_maker+__taker", design)
+    assert not cloned and not (tmp_path / "mirror").exists()
+
+
+def test_a_chain_given_to_dse_is_refused_even_for_a_missing_design(tmp_path):
+    with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
+        _dse_runner(tmp_path).run("__input_maker+__taker", tmp_path / "missing.yaml")
+    assert not (tmp_path / "mirror").exists()
+
+
+def _git_dependency_design(tmp_path):
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    design = tmp_path / "d.yaml"
+    design.write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "dependencies": ["git+https://example.com/u/lib.git#lib.yaml"],
+                "rtl": {"sources": ["top.v"], "top": "top"},
+            }
+        )
+    )
+    return design
+
+
+@pytest.mark.parametrize(
+    "request_text, error",
+    [
+        ("__input_maker+__input_maker", "appears more than once"),
+        ("__input_maker+", "is empty"),
+        ("no_such_flow", "no_such_flow"),
+    ],
+)
+def test_a_malformed_request_is_refused_before_a_git_dependency_is_cloned(
+    tmp_path, monkeypatch, request_text, error
+):
+    """A request that cannot be parsed is refused on the flow text alone, as the command line
+    does, not after the design's git dependency was cloned into the run root."""
+    import git.repo
+
+    from xeda.flow_runner.default_runner import FlowLauncher
+
+    cloned = []
+    monkeypatch.setattr(
+        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
+    )
+    with pytest.raises(Exception, match=error):
+        FlowLauncher(tmp_path / "run").run(request_text, _git_dependency_design(tmp_path))
+    assert not cloned and not (tmp_path / "run").exists()
+
+
+def test_a_malformed_request_is_refused_even_for_a_missing_design(tmp_path):
+    from xeda.flow_runner.default_runner import FlowLauncher
+
+    with pytest.raises(FlowSettingsException, match="appears more than once"):
+        FlowLauncher(tmp_path / "run").run("__input_maker+__input_maker", tmp_path / "missing.yaml")
+    assert not (tmp_path / "run").exists()
+
+
 @pytest.mark.parametrize(
     "command",
     [

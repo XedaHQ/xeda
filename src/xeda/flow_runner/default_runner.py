@@ -1786,6 +1786,16 @@ class FlowLauncher:
         design_remove_fields: List[str] = [],
     ) -> Optional[Flow]:
         """Load and compose a request, then execute its resolved declared graph."""
+        # A chain is refused first, on the flow name alone, where requests are not taken
+        # (`Dse`): loading the design may clone a git dependency into the run root, or fail on
+        # a design file that is missing. A reached binding needs the design, so it is refused
+        # below, once the request is resolved.
+        if not self.accepts_bindings and (
+            len(flow.elements) > 1
+            if isinstance(flow, FlowRequest)
+            else isinstance(flow, str) and "+" in flow
+        ):
+            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
         request = self._request(
             flow,
             design,
@@ -1862,6 +1872,19 @@ class FlowLauncher:
         """
         Flexible API for launching flows.
         """
+        # The request is read from the flow alone, before anything is loaded: a design with a git
+        # dependency is cloned into the run root as it loads, and the command line parses the
+        # request first too.
+        if isinstance(flow, FlowRequest):
+            flow_request = flow
+            flow_class = flow.requested
+        elif isinstance(flow, str):
+            # one flow name, or a chain `a+b.out+c`: the same parser as the command line's
+            flow_request = parse_request(flow)
+            flow_class = flow_request.requested
+        else:
+            flow_class = flow
+            flow_request = FlowRequest((ChainElement(flow_class),))
         # get default flow configs from xedaproject even if a design-file is specified
         xeda_project = None
         flows_settings: Dict[str, Any] = {}
@@ -1951,17 +1974,6 @@ class FlowLauncher:
         assert isinstance(
             flow_overrides, dict
         ), f"flow_overrides should be a dict at this stage, but was {type(flow_overrides)}"
-        if isinstance(flow, FlowRequest):
-            flow_request = flow
-            flow_class = flow.requested
-        elif isinstance(flow, str):
-            # one flow name, or a chain `a+b.out+c`: the same parser as the command line's
-            flow_request = parse_request(flow)
-            flow_class = flow_request.requested
-        else:
-            flow_class = flow
-            flow_request = FlowRequest((ChainElement(flow_class),))
-
         if not design or not flow_class:
             log.critical("Failed to parse design and/or flow")
             raise ValueError(f"design={design} flow_class={flow_class}")
