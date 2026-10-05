@@ -702,8 +702,12 @@ class Deliveries:
         the same configuration asked for twice, maybe for other destinations (a location is no
         part of a configuration): one delivery, to every destination either names, under one
         record. An entry `other` anchored (its check read that destination, in this very launch)
-        is taken over an unanchored one of the same destination: both read the one record beside
-        the run directory, so the anchored one is the same entry, verified since."""
+        is taken over an unanchored one of the same destination, whole: both started from the one
+        record beside the run directory and `other` was checked later, so its entry is the later
+        look at the same file -- its record may differ from this one's by times the file was
+        touched since (never what makes it xeda's: `_why_not_ours` refreshes an entry only after
+        the inode and content matched), and keeping the older entry would only read the file
+        again."""
         known = {dest for _delivery, _src, dest, _sha in self.pending}
         self.pending += [item for item in other.pending if item[2] not in known]
         for destination, state in other.checked.items():
