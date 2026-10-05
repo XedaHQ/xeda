@@ -332,8 +332,8 @@ class Dse(FlowLauncher):
             settings_cls=flow_class.Settings,
         )
 
+        request = self._request_context
         if is_declared(flow_class):
-            request = self._request_context
             # Base agreement happens before Logs, best records or the process pool exist.
             base_plan = self.resolve(
                 flow_class,

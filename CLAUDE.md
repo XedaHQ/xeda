@@ -47,7 +47,7 @@ checkout guard still fires (per worker, at its teardown, on whichever test ran l
 `jsonschema` is a test-only dependency (in the `dev` group and in tox), used to check that the
 published design schema agrees with the loader.
 
-`mypy src`, `black --check src tests` and the Pyflakes rules (`ruff check --select F src tests`, the
+`mypy src` (with `possibly-undefined` on: a local bound under a condition is not read under a copy of it), `black --check src tests` and the Pyflakes rules (`ruff check --select F src tests`, the
 `tox -e ruff` env) all pass; keep them that way. The full `ruff check` ruleset reports many
 pre-existing findings (mostly `UP006`/`UP007` PEP-585/604 annotations and `RUF012`) and is not
 enforced. Don't mass-fix those; keep new code clean.
