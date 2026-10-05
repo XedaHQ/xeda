@@ -1,10 +1,28 @@
+# Read the Docs build configuration (https://docs.readthedocs.com/platform/stable/config-file/v2.html)
 version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    # Any version xeda supports (requires-python >= 3.11) that docs/requirements.txt supports.
+    python: "3.13"
+  jobs:
+    post_checkout:
+      # The version xeda reports is derived from git tags (setuptools_scm), which a shallow
+      # clone may lack.
+      - git fetch --unshallow --tags || git fetch --tags
 
 sphinx:
   configuration: docs/conf.py
-  fail_on_warning: false
+  # The same switch `tox -e docs` and the CI docs job use: a warning fails the build.
+  fail_on_warning: true
+
+formats:
+  - htmlzip
 
 python:
-  version: "3.8"
   install:
+    # conf.py reads the installed distribution's version.
+    - method: pip
+      path: .
     - requirements: docs/requirements.txt
