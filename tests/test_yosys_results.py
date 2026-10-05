@@ -157,10 +157,12 @@ def test_xilinx_lut_footprint_uses_design_totals_once_with_hierarchy(tmp_path):
 #: `XILINX_LUT_FOOTPRINT`, so a LUT-based family nobody thought of fails the sweep instead of
 #: being silently counted as no LUT at all.
 #:
-#: Pinned to one library: yosys 0.69 (OSS CAD Suite), 97 Xilinx primitives in
-#: `$(yosys-config --datdir)/xilinx/cells_sim.v`, 49 of them with a LUT footprint and the 48 here.
-#: A newer yosys that ships a new primitive fails the sweep, which says what to do; one that drops
-#: a primitive does not, and its entry here may simply be deleted. Each entry is a claim about a
+#: Reviewed against yosys 0.69 (OSS CAD Suite) and its
+#: `$(yosys-config --datdir)/xilinx/cells_sim.v`. Every primitive the library declares is in
+#: `XILINX_LUT_FOOTPRINT` or here, and none is in both; the sweep below checks exactly that, so
+#: no tally of either table is kept in this comment to go stale. A newer yosys that ships a new
+#: primitive fails the sweep, which says what to do; one that drops a primitive does not, and its
+#: entry here may simply be deleted. Each entry is a claim about a
 #: real Xilinx primitive, read from that primitive's ports, parameters and attributes in the
 #: library and checked against the Xilinx libraries guide (UG953) and the 7-series CLB user guide
 #: (UG474) -- not a transcript of what the classifier happens to reject today.
