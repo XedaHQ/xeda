@@ -499,7 +499,8 @@ def test_an_empty_yaml_database_has_no_boards(tmp_path):
     path = tmp_path / "empty.yaml"
     path.write_text("")
     assert xeda.board.read_board_database(path) == {}
-    assert xeda.board.get_board_data("MY_BOARD", path) is None
+    with pytest.raises(ValueError, match="Unknown board 'MY_BOARD' in .*empty.yaml"):
+        xeda.board.get_board_data("MY_BOARD", path)
 
 
 def test_a_missing_yaml_database_is_named(tmp_path):
