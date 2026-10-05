@@ -468,9 +468,10 @@ def _paragraph(path: Path, start: str) -> str:
 )
 def test_documented_shared_settings_are_the_resolvers(relative, start):
     """The names a declared edge makes agree are `SHARED_SETTINGS`; each document that lists
-    them names exactly those, in that order, and none is added in one place and forgotten in
-    another. Only the names and their order: which flows share each setting is prose this does
-    not read, so a wrong pair of flows in the same paragraph passes."""
+    them opens with those names, in that order, so none is added in one place and forgotten in
+    another. Only the first `len(SHARED_SETTINGS)` names, and only their order: a further name
+    later in the paragraph is not read, and neither is the prose saying which flows share each
+    setting, so a wrong pair of flows in the same paragraph passes."""
     from xeda.flow_runner.resolver import SHARED_SETTINGS
 
     path = README.parent / relative
