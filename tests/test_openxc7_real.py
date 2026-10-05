@@ -250,9 +250,18 @@ def test_a_second_design_reuses_the_chip_database(built, run_root, tmp_path):
     assert routed["timing_met"] is True and (routed["bram"], routed["dsp"]) == (0, 0)
     assert routed["ff"] == 4 and 4 <= routed["lut"] <= routed["SLICE_LUTX"]
     mapped = _results(run_root, design, "yosys_fpga")
-    # LUT6_2 is two, the dual-port RAM32X1D two, the shift register one
-    assert (mapped["LUT:LOGIC"], mapped["LUT:RAM"], mapped["LUT:SRL"]) == (2, 2, 1)
-    assert mapped["lut"] == 5
+    # The mapped netlist holds the three primitives the design instantiates and one cell it does
+    # not: the INV that abc9 makes of the counter's bit-0 complement (`$abc$...$lut$not$...`,
+    # the first sum input of the CARRY4). An INV is a LUT1, and nextpnr places it in a LUT of its
+    # own (B6LUT of SLICE_X89Y103 in the run that set this pin). So the footprint is LUT6_2 two
+    # (logic), the dual-port RAM32X1D two (ram), the shift register one (srl), and that INV one
+    # more logic LUT: (3, 2, 1). `xilinx_lut_footprint` counted no INV before "Count an
+    # instantiated INV as the LUT1 it is", which made this (2, 2, 1), an undercount. The pin moves
+    # again only if abc9 stops (or starts) materializing an inversion for this design.
+    cells = mapped["_utilization"]
+    assert (cells["INV"], cells["LUT6_2"], cells["RAM32X1D"], cells["SRL16E"]) == (1, 1, 1, 1)
+    assert (mapped["LUT:LOGIC"], mapped["LUT:RAM"], mapped["LUT:SRL"]) == (3, 2, 1)
+    assert mapped["lut"] == 6
 
 
 def test_the_build_leaves_the_generator_tree_as_it_was(built):
