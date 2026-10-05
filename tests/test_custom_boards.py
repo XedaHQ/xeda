@@ -514,19 +514,28 @@ def test_a_yaml_database_that_is_broken_names_the_file(tmp_path):
     assert "Board 'MY_BOARD' must be a table" in database_error(
         tmp_path, "scalar.yaml", "MY_BOARD: x\n", fpga={"part": "LFE5U-25F-6BG381C"}
     )
-    (tmp_path / "binary.yaml").write_bytes(b"MY_BOARD: \xff\xfe\n")
-    with pytest.raises(FlowSettingsError, match=r"binary\.yaml.*: not UTF-8 text"):
+    binary = tmp_path / "binary.yaml"
+    binary.write_bytes(b"MY_BOARD: \xff\xfe\n")
+    expected = (
+        f'Cannot load board database "{binary}": not UTF-8 text: invalid start byte at byte 10'
+    )
+    with pytest.raises(ValueError) as direct:
+        xeda.board.read_board_database(binary)
+    assert str(direct.value) == expected
+    with pytest.raises(FlowSettingsError) as raised:
         Nextpnr.Settings.from_input(
             {"board": "MY_BOARD", "custom_boards_file": "binary.yaml"}, design_root=tmp_path
         )
+    assert expected in str(raised.value)
 
 
 def test_an_empty_yaml_database_has_no_boards(tmp_path):
     path = tmp_path / "empty.yaml"
     path.write_text("")
     assert xeda.board.read_board_database(path) == {}
-    with pytest.raises(ValueError, match=r"Unknown board 'MY_BOARD' in .*empty\.yaml"):
+    with pytest.raises(ValueError) as raised:
         xeda.board.get_board_data("MY_BOARD", path)
+    assert str(raised.value) == f"Unknown board 'MY_BOARD' in {path}"
 
 
 def test_a_missing_yaml_database_is_named(tmp_path):
