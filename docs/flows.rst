@@ -23,7 +23,20 @@ Discovering flows and their settings
 
 ``fpga_synthesis``
     Targets an FPGA. Adds an ``fpga`` setting (a part identifier, or a ``board`` name that fills
-    it in) on top of the clock settings.
+    it in) on top of the clock settings. A ``board`` is looked up in the bundled database
+    (``xeda list-boards``) or, with ``custom_boards_file``, in your own: a TOML or YAML file,
+    chosen by its suffix (``.toml``, ``.yaml`` or ``.yml``; any other suffix is an error), mapping
+    each board name to its ``fpga``, programmer ``name`` and local ``lpf``. A relative
+    ``custom_boards_file`` resolves against the design directory, and a board's local ``lpf``
+    against the database file's own directory, in either format. YAML is read as YAML 1.2, like
+    every other YAML file xeda reads::
+
+        # boards.yaml
+        MY_BOARD:
+          name: ulx3s
+          fpga:
+            part: LFE5U-85F-6BG381C
+          lpf: my_board.lpf
 
 ``asic_synthesis``
     Targets a standard-cell process. Adds a ``platform`` setting naming a PDK.

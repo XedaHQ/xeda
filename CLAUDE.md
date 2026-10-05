@@ -457,9 +457,8 @@ exited 0. Known limit: an in-place change of the installed Project X-Ray data al
 `fpga-as` unchanged, is not noticed when packing a prebuilt `Fasm` source.
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
-and platform databases are still TOML, and `custom_boards_file` still reads TOML only
-(`board.py`'s `toml_load`): accepting a YAML custom database by its suffix, through the strict
-loader, is not done yet.
+and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML
+or YAML, chosen by its suffix and read through the strict loader (`board.read_board_database`).
 
 ### Settings
 
@@ -901,10 +900,15 @@ and `test_nvc.py` simulate the examples in place.
   `board.py` + `data/boards.toml` for FPGA boards.
 
 Board-aware settings read their database through `WithFpgaBoardSettings.board_data()`.
-`custom_boards_file` replaces the bundled database and resolves relative to the design root.
-A board's local `lpf` resolves relative to its database file, bundled or custom
-(`WithFpgaBoardSettings.board_file`, a context manager: a bundled file may exist on disk only
-while it is open). A flow sharing
+`custom_boards_file` replaces the bundled database (which stays TOML) and resolves relative to
+the design root. It is TOML or YAML, chosen by its suffix (`board.read_board_database`,
+`board_database_format`: `.toml`, `.yaml`, `.yml`, case-sensitive; any other suffix is a
+`ValueError` naming the file and the accepted suffixes, checked whenever the setting is given, even
+with no `board`). YAML goes through the shared strict loader (`yaml_loader.load_yaml`), and a
+parse failure is a `ValueError` naming the file and line; the bundled database is
+still TOML (`toml_loads` of the packaged `boards.toml`). A board's local `lpf` resolves relative to its database file, bundled
+or custom, whatever its format (`WithFpgaBoardSettings.board_file`, a context manager: a bundled
+file may exist on disk only while it is open). A flow sharing
 `board` with a board-aware dependency must also share `custom_boards_file`.
 
 ## Conventions and gotchas

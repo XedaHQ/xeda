@@ -51,6 +51,12 @@ All notable changes to this project will be documented in this file.
   a cause, kept apart from `FlowFailed`, the verdict at the top of the `xeda run --json` document.
 
 ### Added
+- `custom_boards_file` accepts a YAML board database (`.yaml` or `.yml`) as well as TOML, by the
+  file's suffix; YAML is read by the same strict YAML 1.2 loader as every other YAML file, so a
+  duplicate key or a non-string key names the file and line. Any other suffix is an error naming
+  the file and the accepted suffixes. A relative path still resolves against the design directory
+  and a board's local `lpf` against the database file's directory, in either format. The bundled
+  databases stay TOML.
 - Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or
   `xedaproject.toml`; multiple matches report the conflicting files and ask to keep one.
 - **Flow chains**: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` runs the last flow of a

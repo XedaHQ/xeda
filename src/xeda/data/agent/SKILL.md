@@ -178,6 +178,11 @@ across pin files, SDC files and settings: duplicates name the original files/lin
 clock setting/period. File-only clocks suppress generated frequency hints. A clock port
 without a period is a declaration; it does not supply a physical timing constraint.
 
+`custom_boards_file` is your own board database, used instead of the bundled one (which stays
+TOML): TOML or YAML by suffix (`.toml`, `.yaml`, `.yml`; any other suffix is an error), read as
+YAML 1.2 like every YAML file xeda reads. A relative path resolves against the design directory,
+and a board's local `lpf` against the database file's directory.
+
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`, where
 both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
 naming both origins. An explicit command-line leaf (`-s fpga.part=...` or
