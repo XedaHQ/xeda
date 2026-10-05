@@ -1276,6 +1276,39 @@ dependency must also share `custom_boards_file`.
   `tests/test_yosys_fpga_flags.py`, read from the passes' sources for every supported release
   from 0.63:
   on a new yosys release, add its option changes there and raise `NEWEST_CHECKED_YOSYS`.
+- **xeda's default yosys FPGA recipe is its own, and `synth_pass_only` is how to get the tool's.**
+  xeda's defaults need not produce the tool's bitstream; they must be correct and should give
+  better area and timing for most designs, never worse. `yosys_fpga`'s default therefore
+  elaborates and optimizes around `synth_<target>` (`hierarchy -check`, `check -initdrv`, `proc`,
+  `flatten`, `opt_clean -purge`, the primitive libraries read early, `opt_clean -purge` after) and
+  gives ABC9 `flow3` and the clock period as its target delay. `synth_pass_only = true` runs the
+  pass and nothing else -- the sources are read and `synth_<target>` does its own `hierarchy`,
+  `proc`, flattening, cleanup and mapping, as `yosys -p 'synth_<target> ...' <sources>` does --
+  and xeda then writes the netlist the tool's own flow writes, cell for cell
+  (`tests/test_yosys_recipe_real.py`, on the installed yosys; `tests/test_yosys_recipe.py` pins
+  the rendered script's exact command list for every target and both script formats, under the
+  fakes). It is **one** setting, not a switch per deviation: every flag of the pass itself
+  (`synth_command`) applies either way, while every setting that would add a step before or after
+  the pass (`prep`, `pre_synth_opt`, `post_synth_opt`, `splitnets`, `post_synth_rename`,
+  `black_box`, `keep_hierarchy`, `set_attribute`, `set_mod_attribute`, `stop_after`, `rtl_json`,
+  `rtl_verilog`, `rtl_graph`) is refused with one `FlowSettingsError` naming both -- from
+  `Settings.synth_pass_only_conflicts()`, checked in `check_settings_supported` (so at planning
+  and under `--dry-run`) *and* in `run()`, since `init()` folds `design.rtl.attributes` into
+  `set_attribute` and `keep_hierarchy` into `set_mod_attribute` after the class-level check. A
+  constrained clock is not refused, only not passed on to ABC9, and neither is a *reading* choice
+  (`read_verilog_flags`, `systemverilog`): which front end reads the sources stays the user's, so
+  matching the tool on SystemVerilog sources also needs `systemverilog = default`, and a run that
+  reads them through a plugin front end under the mode logs a warning saying so. `flow3` is `Optional[bool] = None`
+  for this: `None` keeps today's behavior in xeda's recipe and leaves ABC9's own script under the
+  mode, since `model_fields_set` cannot tell a given value from a default (`settings.json` writes
+  every field, and a remote ships them all). The ABC9 tweaks live in one computed
+  `Settings.abc9_scratchpad()`, as `synth_command` does for the pass's flags.
+  **Reads are semantic**: every `read_verilog` advances yosys's `autoidx`, the design's generated
+  cell names move with it, and ABC9 maps by those names -- so one extra primitive-library read
+  alone changes the netlist by a cell (measured), which is why the mode omits xeda's early read
+  and why a small cell-count difference between two flows is no evidence about either one.
+  `primitive_libraries()` still reports what the pass reads either way: its oracle compares it
+  with the installed yosys's own `begin` step.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers).
   (`fpga_pack` refuses a family it has no packer for there). Undeclared flows validate in

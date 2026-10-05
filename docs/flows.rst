@@ -435,6 +435,40 @@ Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
 the selected installed tool must support those switches. Placement and programming are
 different operations: ``openfpgaloader`` is the only flow here that writes hardware.
 
+Reproducing Yosys' own default flow
+-----------------------------------
+
+By default ``yosys_fpga`` elaborates and optimizes around ``synth_<target>`` and gives ABC9 the
+clock period as its target delay. That is deliberate: it usually produces smaller and faster
+logic than the pass on its own. It is also *not* what ``yosys -p 'synth_<target> ...' <sources>``
+produces, because ABC9's mapping depends on what ran before it.
+
+``synth_pass_only = true`` runs the pass by itself. The design's sources are read and
+``synth_<target>`` does its own ``hierarchy``, ``proc``, flattening, cleanup and mapping, so the
+netlist is the one that invocation writes -- cell for cell. Use it to compare a result against
+the tool's own flow, or to tell a xeda problem apart from a Yosys one:
+
+.. code-block:: bash
+
+    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true
+    xeda run fpga_pack blinky.yaml -s flows.yosys_fpga.synth_pass_only=true
+
+Every flag of the pass itself (``flatten``, ``abc9``, ``nobram``, ``widemux``, ``synth_flags``,
+...) applies either way. Which front end *reads* the sources is a separate choice and stays
+yours: ``yosys <file>.sv`` uses Yosys' built-in SystemVerilog reader, so to match the tool on
+SystemVerilog sources read them the same way with ``systemverilog = default``. A run that reads
+them through the ``slang`` or Surelog/UHDM plugin instead says so in its log. A setting that would add a step before or after the pass -- ``prep``,
+``pre_synth_opt``, ``post_synth_opt``, ``splitnets``, ``post_synth_rename``, ``black_box``,
+``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``stop_after``, ``rtl_json``,
+``rtl_verilog``, ``rtl_graph`` -- is refused at launch, naming both settings, rather than
+ignored. A constrained clock is not refused: it is simply not passed on to ABC9, which is what
+the tool's own flow does.
+
+Comparing cell counts between the two needs care. Every ``read_verilog`` advances Yosys' shared
+generated-name counter, the design's cell names move with it, and ABC9 maps by those names -- so
+reading a primitive library one extra time can change the count by a cell on its own. A small
+difference between two flows is not evidence about either one's quality.
+
 Xilinx 7-series with openXC7
 ----------------------------
 

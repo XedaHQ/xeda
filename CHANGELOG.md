@@ -85,6 +85,22 @@ All notable changes to this project will be documented in this file.
   the file and the accepted suffixes. A relative path still resolves against the design directory
   and a board's local `lpf` against the database file's directory, in either format. The bundled
   databases stay TOML.
+- **`yosys_fpga` can run the synthesis pass by itself**, with `synth_pass_only = true`: the
+  design's sources are read and `synth_<target>` does its own `hierarchy`, `proc`, flattening,
+  cleanup and ABC9 mapping, exactly as `yosys -p 'synth_<target> ...' <sources>` does. It writes
+  the netlist that invocation writes -- cells, names and wiring alike -- so a result can be
+  compared against the tool's own flow or a problem told apart from one of xeda's. Which front end reads the sources
+  stays a separate choice: to match the tool on SystemVerilog sources, read them as it does with
+  `systemverilog = default` (the run says so when a plugin front end read them instead). Left off (the default), xeda
+  elaborates and optimizes around the pass and gives ABC9 the clock period as its target delay,
+  which usually gives smaller and faster logic. Every flag of the pass itself (`flatten`, `abc9`,
+  `nobram`, `widemux`, `synth_flags`, ...) applies either way; a setting that would add a step
+  before or after the pass (`prep`, `pre_synth_opt`, `post_synth_opt`, `splitnets`,
+  `post_synth_rename`, `black_box`, `keep_hierarchy`, `set_attribute`, `set_mod_attribute`,
+  `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`) is refused at launch, naming both, rather
+  than ignored. `flow3` is now unset by default, meaning the same thing it did before: xeda's own
+  recipe maps with ABC9's `flow3` script, while `synth_pass_only` leaves ABC9 the script the pass
+  gives it.
 - Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or
   `xedaproject.toml`; multiple matches report the conflicting files and ask to keep one.
 - **Flow chains**: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` runs the last flow of a
