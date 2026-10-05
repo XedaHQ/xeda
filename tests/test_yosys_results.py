@@ -151,10 +151,99 @@ def test_xilinx_lut_footprint_uses_design_totals_once_with_hierarchy(tmp_path):
     assert flow.results["LUT:RAM"] == 4
 
 
+#: Every module of the installed yosys's `xilinx/cells_sim.v` that `xilinx_lut_footprint`
+#: deliberately reports no footprint for, and the resource each one really occupies. The sweep
+#: below enumerates the whole library and requires every cell to be classified either here or in
+#: `XILINX_LUT_FOOTPRINT`, so a LUT-based family nobody thought of fails the sweep instead of
+#: being silently counted as no LUT at all.
+#:
+#: Pinned to one library: yosys 0.69 (OSS CAD Suite), 97 Xilinx primitives in
+#: `$(yosys-config --datdir)/xilinx/cells_sim.v`, 49 of them with a LUT footprint and the 48 here.
+#: A newer yosys that ships a new primitive fails the sweep, which says what to do; one that drops
+#: a primitive does not, and its entry here may simply be deleted. Each entry is a claim about a
+#: real Xilinx primitive, read from that primitive's ports, parameters and attributes in the
+#: library and checked against the Xilinx libraries guide (UG953) and the 7-series CLB user guide
+#: (UG474) -- not a transcript of what the classifier happens to reject today.
+XILINX_NON_LUT_PRIMITIVES = {
+    # Constant drivers: a tie-off, no CLB resource at all.
+    "GND": "tie-off to the global logic-0 net",
+    "VCC": "tie-off to the global logic-1 net",
+    # I/O buffers: they occupy an IOB, not a slice.
+    "IBUF": "input buffer in an IOB",
+    "IBUFG": "clock-capable input buffer in an IOB",
+    "OBUF": "output buffer in an IOB",
+    "OBUFT": "three-state output buffer in an IOB",
+    "IOBUF": "bidirectional buffer in an IOB",
+    # Clock network: dedicated buffers, and the inverter yosys extracts from an inverted pin
+    # (`extractinv -inv INV O:I`, which `synth_xilinx` runs only under `-ise`) rather than a
+    # logic inverter. A data-path `INV` a design instantiates itself does cost a LUT1; move it to
+    # `XILINX_LUT_FOOTPRINT` if a flow is ever found to emit one.
+    "BUFG": "global clock buffer in the clock network",
+    "BUFGCTRL": "global clock multiplexer/buffer in the clock network",
+    "BUFHCE": "horizontal clock buffer in the clock network",
+    "INV": "an inversion extracted onto an invertible pin, absorbed by the pin",
+    # The slice's dedicated arithmetic and wide-function logic, beside its LUTs.
+    "CARRY4": "the slice's dedicated 4-bit carry chain",
+    "CARRY8": "the slice's dedicated 8-bit carry chain",
+    "MUXCY": "one multiplexer of the dedicated carry chain",
+    "XORCY": "the dedicated carry-chain XOR gate",
+    "ORCY": "the dedicated carry-chain OR gate (wide OR on Virtex-4/5)",
+    "MULT_AND": "the slice's dedicated AND gate feeding the carry chain",
+    "MUXF5": "the dedicated F5MUX joining two LUT outputs",
+    "MUXF6": "the dedicated F6MUX joining two MUXF5 outputs",
+    "MUXF7": "the dedicated F7MUX joining two LUT6 outputs",
+    "MUXF8": "the dedicated F8MUX joining two MUXF7 outputs",
+    "MUXF9": "the dedicated F9MUX joining two MUXF8 outputs",
+    # A gate on the register site's set/reset path (ports `DI`/`SRI`, with `IS_SRI_INVERTED`),
+    # which is why these exist: to gate that path without spending a LUT. `synth_xilinx` emits
+    # neither, so the classification only applies to a cell a design instantiates itself.
+    "AND2B1L": "a gate on the slice register's set/reset path",
+    "OR2L": "a gate on the slice register's set/reset path",
+    # Flip-flops: slice registers, counted as `FF` in the same report.
+    "FDCE": "slice flip-flop (clock enable, asynchronous clear)",
+    "FDCE_1": "slice flip-flop (clock enable, asynchronous clear, negative edge)",
+    "FDPE": "slice flip-flop (clock enable, asynchronous preset)",
+    "FDPE_1": "slice flip-flop (clock enable, asynchronous preset, negative edge)",
+    "FDRE": "slice flip-flop (clock enable, synchronous reset)",
+    "FDRE_1": "slice flip-flop (clock enable, synchronous reset, negative edge)",
+    "FDSE": "slice flip-flop (clock enable, synchronous set)",
+    "FDSE_1": "slice flip-flop (clock enable, synchronous set, negative edge)",
+    "FDRSE": "slice flip-flop (clock enable, synchronous reset and set)",
+    "FDRSE_1": "slice flip-flop (clock enable, synchronous reset and set, negative edge)",
+    "FDCPE": "slice flip-flop (asynchronous clear and preset)",
+    "FDCPE_1": "slice flip-flop (asynchronous clear and preset, negative edge)",
+    # Latches: the same storage elements, configured transparent; counted as `LATCH`.
+    "LDCE": "slice storage element as a latch (asynchronous clear)",
+    "LDPE": "slice storage element as a latch (asynchronous preset)",
+    "LDCPE": "slice storage element as a latch (asynchronous clear and preset)",
+    # Block RAM: a dedicated memory block, counted as `RAMB18`/`RAMB36`.
+    "RAMB18E1": "18 Kb block RAM",
+    "RAMB36E1": "36 Kb block RAM",
+    # Dedicated arithmetic blocks, counted as `DSP`.
+    "DSP48": "DSP slice (Virtex-4)",
+    "DSP48A": "DSP slice (Spartan-3A DSP)",
+    "DSP48A1": "DSP slice (Spartan-6)",
+    "DSP48E1": "DSP slice (7 series)",
+    "MULT18X18": "dedicated 18x18 multiplier block",
+    "MULT18X18S": "dedicated 18x18 multiplier block, registered",
+    "MULT18X18SIO": "dedicated 18x18 multiplier block, cascadable",
+}
+
+#: Primitives the sweep's enumeration must find: one of every family the classification covers,
+#: so a pattern that silently stops matching a whole family fails here rather than narrowing the
+#: sweep. The distributed ROMs are among them because they are what the old prefix allowlist had
+#: to be told about by hand, after a reviewer found the gap.
+_LIBRARY_SENTINELS = frozenset(
+    {"LUT6_2", "CFGLUT5", "RAM16X1S", "RAM512X1S", "ROM256X1", "RAMB36E1", "DSP48E1"}
+)
+
+
 def test_every_lut_based_primitive_of_the_installed_yosys_has_a_footprint():
-    """A distributed RAM, ROM or shift register the count does not know is counted as no LUT at all
-    (RAM32X1D was: found on the real openXC7 build of a design instantiating one; the ROM family
-    was missed because this pattern could not match it)."""
+    """A distributed RAM, ROM or shift register the count does not know is counted as no LUT at
+    all (RAM32X1D was: found on the real openXC7 build of a design instantiating one). Every
+    module of the installed library is classified either by `XILINX_LUT_FOOTPRINT` or by
+    `XILINX_NON_LUT_PRIMITIVES`, so a family nobody thought of fails rather than passing: the
+    ROM family was missed while this sweep looked for families it already knew by name."""
     import re
     import subprocess
 
@@ -164,14 +253,55 @@ def test_every_lut_based_primitive_of_the_installed_yosys_has_a_footprint():
 
     require_yosys()
     require_yosys_config()
-    datdir = subprocess.run(
-        ["yosys-config", "--datdir"], capture_output=True, text=True, check=True, timeout=30
+    version = subprocess.run(
+        ["yosys", "-V"], capture_output=True, text=True, check=True, timeout=60
     ).stdout.strip()
-    cells = re.findall(
-        r"^module\s+((?:LUT|RAM\d+[XM]|ROM\d+X|SRL|CFGLUT)\w*)",
-        (Path(datdir) / "xilinx" / "cells_sim.v").read_text(),
-        flags=re.MULTILINE,
+    datdir = subprocess.run(
+        ["yosys-config", "--datdir"], capture_output=True, text=True, check=True, timeout=60
+    ).stdout.strip()
+    library = Path(datdir) / "xilinx" / "cells_sim.v"
+    # The library comments out two superseded declarations, so read the code, not the comments.
+    code = re.sub(r"/\*.*?\*/", "", library.read_text(), flags=re.DOTALL)
+    code = "\n".join(line.split("//")[0] for line in code.splitlines())
+    # Unanchored: today every declaration starts its line, but one indented or prefixed with an
+    # attribute must count too, and the `endmodule` tally is what proves none was missed.
+    declared = re.findall(r"\bmodule\s+(\\?[\w$]+)", code)
+    closed = re.findall(r"\bendmodule\b", code)
+    assert len(declared) == len(closed), (
+        f"{library} did not read as expected: {len(declared)} `module` declarations against "
+        f"{len(closed)} `endmodule`s. Whatever the pattern cannot see, this sweep cannot "
+        "classify, which is the blind spot it exists to close."
     )
-    assert len(cells) > 40
-    assert not [cell for cell in cells if xilinx_lut_footprint(cell) is None]
-    assert xilinx_lut_footprint("RAMB36E1") is None and xilinx_lut_footprint("FDRE") is None
+    # `\$__ABC9_LUT7` and the like are yosys' own internal cells, never a mapped primitive.
+    cells = {name.removeprefix("\\") for name in declared}
+    cells = {name for name in cells if not name.startswith("$")}
+    assert _LIBRARY_SENTINELS <= cells, (
+        f"{library} yielded {len(cells)} primitives but not "
+        f"{sorted(_LIBRARY_SENTINELS - cells)}, which it does declare."
+    )
+    unreviewed = sorted(
+        cell
+        for cell in cells
+        if xilinx_lut_footprint(cell) is None and cell not in XILINX_NON_LUT_PRIMITIVES
+    )
+    assert not unreviewed, (
+        f"{library}\n(installed yosys: {version})\nships {unreviewed}, which "
+        "`xilinx_lut_footprint` reports no footprint for and nobody has reviewed. Decide for "
+        "each one and record the decision:\n"
+        "  - LUT-based (a LUT variant, a distributed RAM or ROM, a shift register): give it a "
+        "footprint in `XILINX_LUT_FOOTPRINT` (src/xeda/flows/yosys/yosys_fpga.py) and a case "
+        "in `test_xilinx_lut_resource_footprint`. Left unclassified it counts as no LUT at "
+        "all, so every design using it under-reports its LUT count.\n"
+        "  - not LUT-based (a flip-flop, carry chain, block RAM, DSP, I/O or clock resource): "
+        "add it to `XILINX_NON_LUT_PRIMITIVES` in this file, with the resource it really "
+        "occupies.\n"
+        "The Xilinx libraries guide (UG953) and the CLB user guide (UG474) say which it is."
+    )
+    claimed_both_ways = sorted(
+        cell for cell in XILINX_NON_LUT_PRIMITIVES if xilinx_lut_footprint(cell) is not None
+    )
+    assert not claimed_both_ways, (
+        f"{claimed_both_ways} are claimed both ways: `XILINX_LUT_FOOTPRINT` gives a LUT "
+        "footprint while `XILINX_NON_LUT_PRIMITIVES` in this file says the primitive occupies "
+        "no LUTs. Remove each from whichever of the two is wrong."
+    )
