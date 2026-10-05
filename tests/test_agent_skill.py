@@ -131,6 +131,38 @@ def test_repo_skill_copy_matches_the_packaged_source(name):
     )
 
 
+#: Words that only make sense while a change is under review: a reader of a release has no
+#: "branch" or "pull request" to install or look at.
+REVIEW_TIME_WORDING = re.compile(
+    r"\b(?:this|the current|our) (?:branch|pull request|PR)\b|\binstall (?:the |this )?branch\b",
+    re.IGNORECASE,
+)
+
+
+def test_the_review_time_wording_check_sees_the_sentence_it_was_written_for():
+    assert REVIEW_TIME_WORDING.search(
+        "Until a protocol-6 release, install this branch on the host."
+    )
+    assert REVIEW_TIME_WORDING.search("available once this PR merges")
+    assert not REVIEW_TIME_WORDING.search("a branch of the design, or a pull-request bot")
+
+
+def test_the_packaged_skill_and_the_documentation_state_requirements_not_review_time_advice():
+    """The skill is installed by `xeda skill install` and read as instructions for that release;
+    after a merge, "install this branch" tells an agent to do something impossible."""
+    with skill_source_dir() as source:
+        files = [source / "SKILL.md", *sorted((source / "references").glob("*.md"))]
+    files += sorted((REPO_ROOT / "docs").glob("*.rst"))
+    assert len(files) > 3
+    found = [
+        f"{path.relative_to(source if path.is_relative_to(source) else REPO_ROOT)}:{number}: {line}"
+        for path in files
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if REVIEW_TIME_WORDING.search(line)
+    ]
+    assert not found, "wording that only makes sense while a change is open:\n" + "\n".join(found)
+
+
 def test_repo_skill_flow_catalog_matches_the_installed_flows():
     """The checked-in catalog is generated, and goes stale whenever a flow's settings or results
     change (it once still listed `openfpgaloader`'s dropped required `clock_period`, and result keys
