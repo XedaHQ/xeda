@@ -32,7 +32,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import stat
 import tempfile
 from collections.abc import Callable, Iterable, Sequence
@@ -47,7 +46,7 @@ from .listing import directory_files
 from .flow import Flow, FlowSettingsError
 from .flow.flow import WrittenLeaf, map_written_leaves, output_name
 from .run_root import is_run_root
-from .utils import XedaException, json_encodable, with_json_keys
+from .utils import XedaException, copy_fd, json_encodable, with_json_keys
 
 log = logging.getLogger(__name__)
 
@@ -805,7 +804,7 @@ class Deliveries:
         temporary = Path(name)
         try:
             with os.fdopen(fd, "wb") as out, open(source, "rb") as data:
-                shutil.copyfileobj(data, out)
+                copy_fd(data.fileno(), out.fileno())
                 if hasattr(os, "fchmod"):  # by the descriptor: its name may lead elsewhere now
                     os.fchmod(out.fileno(), stat.S_IMODE(os.fstat(data.fileno()).st_mode))
             if (

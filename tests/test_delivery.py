@@ -2,10 +2,12 @@
 input, never deleting, never through a link, and never over a file of the user's without their
 say; where an output goes is never part of what the run is."""
 
+import errno
 import json
 import logging
 import os
 import shutil
+import stat
 from dataclasses import replace
 from pathlib import Path, PurePath
 from types import SimpleNamespace
@@ -710,17 +712,17 @@ def test_a_destination_swapped_during_the_copy_is_not_replaced(world, monkeypatc
 
     out = world.user / "out"
     out.mkdir()
-    copy = shutil.copyfileobj
+    copy = xeda.deliver.copy_fd
 
-    def copy_then_swap(source, target, *args):
-        copy(source, target, *args)
+    def copy_then_swap(source, target):
+        copy(source, target)
         if swap == "destination":
             (out / "net.v").write_text("put there meanwhile\n")
         else:
             out.rename(world.user / "moved")
             out.symlink_to(world.design.root_path, target_is_directory=True)
 
-    monkeypatch.setattr(xeda.deliver.shutil, "copyfileobj", copy_then_swap)
+    monkeypatch.setattr(xeda.deliver, "copy_fd", copy_then_swap)
     with pytest.raises(DeliveryError, match="changed while the run went on"):
         _launch(world, netlist="$PWD/out/net.v")
     if swap == "destination":
@@ -738,16 +740,16 @@ def test_an_oserror_mid_delivery_still_records_and_reports_the_copies_already_ma
     (reported in `--json`'s `nodes[].deliveries`) still lists it, before the error is raised."""
     import xeda.deliver
 
-    copy = shutil.copyfileobj
+    copy = xeda.deliver.copy_fd
     made: List[bool] = []
 
-    def copy_then_fail_second(source, target, *args):
-        copy(source, target, *args)
+    def copy_then_fail_second(source, target):
+        copy(source, target)
         made.append(True)
         if len(made) == 2:
             raise OSError("disk full")
 
-    monkeypatch.setattr(xeda.deliver.shutil, "copyfileobj", copy_then_fail_second)
+    monkeypatch.setattr(xeda.deliver, "copy_fd", copy_then_fail_second)
     launcher = DefaultRunner(world.root, display_results=False)
     with pytest.raises(OSError, match="disk full"):
         _launch(world, launcher, netlist="$PWD/a.v", report="$PWD/b.v")
@@ -757,6 +759,53 @@ def test_an_oserror_mid_delivery_still_records_and_reports_the_copies_already_ma
     record = json.loads(delivery_record(flow.run_path).read_text())
     assert str(world.user / "a.v") in record["files"]
     assert str(world.user / "b.v") not in record["files"]
+
+
+@pytest.mark.parametrize("size", [0, 1, (3 << 20) + 12345])
+def test_a_delivered_file_is_byte_identical_with_its_permission_bits(world, size):
+    """Larger than any copy chunk, and of a size no chunk divides, or empty: what is delivered is
+    the run's file, byte for byte, with the mode the descriptor-based copy takes from it."""
+    content = bytes(range(251)) * (size // 251 + 1)
+    content = content[:size]
+
+    def rewrite_output():
+        (written,) = world.root.glob("**/outputs/d.v")
+        written.write_bytes(content)
+        written.chmod(0o751)
+
+    DURING_RUN.append(rewrite_output)
+    flow = _launch(world, netlist="$PWD/out/net.v")
+    delivered = world.user / "out" / "net.v"
+    assert flow.succeeded and delivered.read_bytes() == content
+    assert stat.S_IMODE(delivered.stat().st_mode) == 0o751
+
+
+@pytest.mark.parametrize("written_first", [1, 4096, 1 << 20])
+def test_a_fast_copy_failing_after_writing_falls_back_to_a_complete_copy(
+    world, monkeypatch, written_first
+):
+    """The kernel primitive writes some bytes, then fails: the plain loop must start from an empty
+    destination at offset 0, or the delivery would be the half copy with the whole appended."""
+    import xeda.utils
+
+    content = bytes(range(251)) * 10_000  # 2.5 MB, an odd multiple of nothing here
+    attempts: List[int] = []
+
+    def half_then_fail(src_fd, dst_fd, size):
+        attempts.append(os.write(dst_fd, os.pread(src_fd, written_first, 0)))
+        raise OSError(errno.EIO, "failed after writing some bytes")
+
+    monkeypatch.setattr(xeda.utils, "_fast_copies", lambda *args: [half_then_fail])
+
+    def rewrite_output():
+        (written,) = world.root.glob("**/outputs/d.v")
+        written.write_bytes(content)
+
+    DURING_RUN.append(rewrite_output)
+    flow = _launch(world, netlist="$PWD/out/net.v")
+    assert attempts == [written_first]  # the fast path ran, wrote bytes, and failed
+    assert flow.succeeded and (world.user / "out" / "net.v").read_bytes() == content
+    assert not [p for p in (world.user / "out").iterdir() if p.name != "net.v"]  # no temporary
 
 
 def test_the_same_bytes_in_another_file_are_not_xeda_s_copy(world):

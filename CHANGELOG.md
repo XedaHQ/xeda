@@ -149,6 +149,13 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **Delivery and `replacing_copy` use the platform's copy primitive** instead of a hand-written
+  byte loop: `fcopyfile` on macOS, `copy_file_range` then `sendfile` on Linux, between the two open
+  descriptors the atomic write needs, looped until the whole file is copied. Any failure,
+  including one after some bytes were written, starts over from a rewound source and an emptied
+  destination, last with the plain loop, so a half-copied file is never completed by appending.
+  Nothing is cloned or linked, and the temporary file, digest re-check and rename around the
+  copy are unchanged. The Linux paths have not run on a real kernel yet.
 - **Breaking: YAML is read as YAML 1.2, strictly.** One shared loader reads every YAML design and
   project file. `yes`, `no`, `on`, `off`, `y` and `n` are text, not booleans (write `true` or
   `false`); the octal `010` is gone (`010` is decimal 10; write `0o10` for octal) and the
