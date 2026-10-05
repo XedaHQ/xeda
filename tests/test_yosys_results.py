@@ -192,11 +192,18 @@ XILINX_NON_LUT_PRIMITIVES = {
     "MUXF7": "the dedicated F7MUX joining two LUT6 outputs",
     "MUXF8": "the dedicated F8MUX joining two MUXF7 outputs",
     "MUXF9": "the dedicated F9MUX joining two MUXF8 outputs",
-    # A gate on the register site's set/reset path (ports `DI`/`SRI`, with `IS_SRI_INVERTED`),
-    # which is why these exist: to gate that path without spending a LUT. `synth_xilinx` emits
-    # neither, so the classification only applies to a cell a design instantiates itself.
-    "AND2B1L": "a gate on the slice register's set/reset path",
-    "OR2L": "a gate on the slice register's set/reset path",
+    # The slice's latch used as a gate. UG474 (7 Series CLB User Guide, v1.7, chapter 6, "Using the
+    # Latch Function as Logic"): "Because the latch function is level-sensitive, it can be used as
+    # the equivalent of a logic gate. The primitives to specify this function are AND2B1L ... and
+    # OR2L"; "The AND2B1L and OR2L two-input gates save LUT resources". "Generally, the latch data
+    # input comes from the output of a LUT within the same slice" (that LUT is its own cell); `DI`
+    # is that input and `SRI` the slice's SR input. UG974 (UltraScale) titles them "implemented in place of a
+    # CLB Latch" and files them under its CLB LATCH subgroup. `synth_xilinx` emits neither: this
+    # applies only to a cell a design instantiates itself.
+    # https://www.eng.auburn.edu/~nelson/courses/elec4200/FPGA/ug474_7Series_CLB.pdf (a copy of UG474)
+    # https://docs.amd.com/r/2021.1-English/ug974-vivado-ultrascale-libraries/AND2B1L
+    "AND2B1L": "two-input AND gate in a CLB latch site, not a LUT",
+    "OR2L": "two-input OR gate in a CLB latch site, not a LUT",
     # Flip-flops: slice registers, counted as `FF` in the same report.
     "FDCE": "slice flip-flop (clock enable, asynchronous clear)",
     "FDCE_1": "slice flip-flop (clock enable, asynchronous clear, negative edge)",
