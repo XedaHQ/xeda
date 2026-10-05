@@ -801,10 +801,14 @@ takes to that time (`anchor_ns`, with the `anchor_device` it was read on, beside
 metadata and reads nothing, so an unchanged re-delivery of a huge output costs no pass over it.
 The anchor is never arithmetic on the record already held: a record is anchored only to a clock
 read at a moment that very content was verified, and only when it is really settled before it
-(`FileRecord.settled_before`) -- so the delivery xeda just copied, racy by construction, is read
-once by the next check and anchored then. No clock to read (a read-only directory, a file system
-that refuses), or a destination that moved file systems: no anchor, and every check reads the
-content, exactly as before. See `docs/run-directories.rst`'s "Outputs where you
+(`FileRecord.settled_before`). So the delivery xeda just copied, racy by construction, is read
+once, by the first check after it has settled, whose read anchors it (`_copy` then reads
+nothing), and never again by a check or a copy; a launch still inside the racy window anchors
+nothing, and its check and its copy each read the destination, as every launch did before. No
+clock to read (a read-only directory, a file system that refuses): no anchor, and every check
+reads the content, exactly as before. A destination found on another device than its anchor was
+read on has that anchor discarded (`deliver._recorded_anchor`), is read once, and is anchored
+afresh to the clock of the file system it is on now. See `docs/run-directories.rst`'s "Outputs where you
 name them" for the user-facing rules (never onto an input nor into a read directory, never a
 directory, never into a run root, `--overwrite-outputs`, the delivery record beside the run
 directory).

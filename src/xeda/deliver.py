@@ -21,10 +21,10 @@ the flow runs (`Deliveries.check`). A record is checked by the R38 rule like any
 (`digest.FileRecord`): the content of a destination is read only when its metadata cannot vouch
 for it, and the check that reads it anchors the record it takes to the clock of the destination's
 own file system, read just before (`_destination_clock`), so the next check of an unchanged
-delivery reads nothing (`_destination_record`). What a flow delivers is noted with each file's digest when it
-completes (`Deliveries.collect`) and copied when the launch has finished (`Deliveries.deliver`),
-when every flow of it has read its inputs; a destination that changed after it was checked, or
-an output that changed after its run, is never delivered.
+delivery reads nothing (`_destination_record`). What a flow delivers is noted with each file's
+digest when it completes (`Deliveries.collect`) and copied when the launch has finished
+(`Deliveries.deliver`), when every flow of it has read its inputs; a destination that changed
+after it was checked, or an output that changed after its run, is never delivered.
 """
 
 from __future__ import annotations
@@ -839,13 +839,12 @@ class Deliveries:
         file: failing closed.
 
         `anchored_at` is what a check of this very content established (`_destination_record`):
-        the
-        destination file system's clock, read just before that content was read, so a record of
-        it taken afterwards is conclusive by its metadata from then on. It is kept only when this
-        record -- a fresh `lstat`, taken now -- is really settled before it, so anything that
+        the destination file system's clock, read just before that content was read, so a record
+        of it taken afterwards is conclusive by its metadata from then on. It is kept only when
+        this record -- a fresh `lstat`, taken now -- is really settled before it, so anything that
         touched the file since the check falls back to the fail-closed record. A delivery that
         copied is never anchored: the file was written here a moment ago, which is racy by
-        construction, and the next check anchors it after reading it once."""
+        construction, and the first check after it has settled anchors it after reading it once."""
         st = os.lstat(destination)
         record = FileRecord.of(st, sha)
         entry: dict[str, Any] = {

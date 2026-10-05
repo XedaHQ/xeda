@@ -509,10 +509,14 @@ A check that does read it first reads the clock of the destination's own file sy
 and removing a short-lived marker file (``.xeda-time-...``) in the destination's directory, where
 delivery writes its temporary file anyway, and records that time with the file: a later check of
 an unchanged delivery then recognizes it by its size, mtime, inode change time and inode alone
-and reads nothing. The file Xeda has just delivered is always read once by the next launch, since
-a record taken of a file written moments ago cannot be trusted by its timestamps; and where no
-marker can be made (a destination directory that is read only), or the destination has moved to
-another file system, every check reads the content, as it would without a clock to trust.
+and reads nothing. The record of a file Xeda has just delivered cannot be trusted by its
+timestamps, so the first check after it has settled -- more than two seconds after it was
+written -- reads it once, and that read anchors the record; no later check or copy reads it
+again. A launch still inside those two seconds anchors nothing and reads the destination twice,
+once in the check and once in the copy, as every launch did before. Where no marker can be made
+(a destination directory that is read only), every check reads the content, as it would without
+a clock to trust. A destination found on another device than the one its record's clock was read
+on is read once more, and anchored afresh by the clock of the file system it is on now.
 
 Every **working** location -- a setting naming where a flow keeps its intermediate files, such as
 ``sim_dir``, ``bobj_dir``, ``impl_folder`` or a log path -- is a bare name inside the run

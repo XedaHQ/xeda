@@ -63,11 +63,16 @@ All notable changes to this project will be documented in this file.
   now reads the clock of that destination's own file system first
   (`digest.filesystem_time_ns`) and anchors the record it then took to that time, so a later check
   recognizes an unchanged file by its size, mtime, inode change time and inode -- the same R38
-  trust rule every other file Xeda tracks follows -- and reads nothing. An unchanged re-delivery
-  reads the delivered file once instead of three times, and the destination not at all. Nothing is
-  trusted that was not verified against a clock read at that moment: a delivery just copied is
-  still read once by the next launch, and a destination whose directory takes no marker, or that
-  moved file systems, is read at every launch as before. Every mutation check is unchanged -- an
+  trust rule every other file Xeda tracks follows -- and reads nothing. In steady state an
+  unchanged re-delivery reads the output in the run directory once, to note its digest, and the
+  destination not at all; it used to read the destination twice besides. The destination is read
+  once, by the first check after it has settled (more than two seconds, `digest.RACY_NS`, after its
+  last change), and that read anchors its record; a launch still inside that window anchors
+  nothing and reads it twice, once in the check and once in the copy, as before. Nothing is
+  trusted that was not verified against a clock read at that moment: a destination whose
+  directory takes no marker is read at every launch as before, and one found on another device
+  than its anchor was read on is read once, against the clock of the file system it is on now, and
+  anchored afresh. Every mutation check is unchanged -- an
   edit given back its old mtime, and a different file put in the destination's place, are still
   refused.
 
