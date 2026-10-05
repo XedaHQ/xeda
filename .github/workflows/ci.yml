@@ -80,3 +80,26 @@ jobs:
           XEDA_TESTS_REQUIRE_TOOLS: "1"
           XEDA_TESTS_EXTERNAL: ${{ matrix.python-version == '3.14' && '1' || '' }}
         run: "python -m tox"
+
+  # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
+  # markup or a dead cross-reference fails the pull request. One Python is enough here: it only
+  # needs the documentation toolchain, not the EDA tools the job above installs. Not in
+  # tox-gh-actions' mapping on purpose: the job above would build it once per Python.
+  docs:
+    runs-on: ubuntu-24.04
+    steps:
+      # Full history: xeda's version, which conf.py reads, is derived from the git tags.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: |
+          python -VV
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade tox tox-gh-actions
+      - name: Build the documentation
+        run: "python -m tox -e docs"
