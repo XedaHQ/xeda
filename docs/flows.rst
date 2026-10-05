@@ -351,13 +351,12 @@ tools, and never starts a real programmer.
 
 Chains that start at Bluespec or go through Vivado are **not** available yet, and the commands
 below are refused today (``Flow `bsc` has no declared I/O and can only be run alone``). They
-need three later steps: the conversion of the remaining flows to declared inputs and outputs
-(PC), a design value that ``bsc`` produces and the flows after it read (P4), and the showcase
-designs and targets that use them (P5):
+need the remaining flows to declare their inputs and outputs, a design value that ``bsc``
+produces and the flows after it read, and showcase designs and targets that use them:
 
 .. code-block:: bash
 
-    # requires PC, P4 and P5
+    # not available yet
     xeda run bsc+yosys_fpga+nextpnr+fpga_pack+openfpgaloader knight.yaml
     xeda run vivado_synth+openfpgaloader knight.yaml
 

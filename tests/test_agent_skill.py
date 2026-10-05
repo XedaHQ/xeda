@@ -139,6 +139,25 @@ REVIEW_TIME_WORDING = re.compile(
 )
 
 
+#: Names of the plans and decisions a change was built under (`P4`, `PC`, `D21`, `plan 2`,
+#: `Task 7`): a reader of a release cannot look them up, so the prose says what they stand for.
+INTERNAL_PLAN_CODES = re.compile(
+    r"\bP[0-9][ab]?\b|\bPC\b|\bD-?[0-9]{1,3}\b|\b(?:[Pp]lan|[Tt]ask) [0-9]+\b"
+)
+
+
+def test_the_internal_plan_code_check_sees_the_codes_it_was_written_for():
+    for text in (
+        "needs PC, P4 and P5",
+        "the P1b rule",
+        "isolation (D21)",
+        "plan 2's convention",
+        "Task 7",
+    ):
+        assert INTERNAL_PLAN_CODES.search(text), text
+    assert not INTERNAL_PLAN_CODES.search("a 2D plot, protocol 6, the pc register, tasks 7 and 8")
+
+
 def test_the_review_time_wording_check_sees_the_sentence_it_was_written_for():
     assert REVIEW_TIME_WORDING.search(
         "Until a protocol-6 release, install this branch on the host."
@@ -161,6 +180,20 @@ def test_the_packaged_skill_and_the_documentation_state_requirements_not_review_
             if REVIEW_TIME_WORDING.search(line)
         ]
     assert not found, "wording that only makes sense while a change is open:\n" + "\n".join(found)
+
+
+def test_the_packaged_skill_and_the_documentation_name_no_internal_plan_codes():
+    with skill_source_dir() as source:
+        files = [source / "SKILL.md", *sorted((source / "references").glob("*.md"))]
+        files += sorted((REPO_ROOT / "docs").glob("*.rst"))
+        assert len(files) > 3
+        found = [
+            f"{path.relative_to(source if path.is_relative_to(source) else REPO_ROOT)}:{number}: {line}"
+            for path in files
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+            if INTERNAL_PLAN_CODES.search(line)
+        ]
+    assert not found, "names of plans a reader cannot look up:\n" + "\n".join(found)
 
 
 def test_repo_skill_flow_catalog_matches_the_installed_flows():

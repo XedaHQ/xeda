@@ -274,7 +274,7 @@ before the run (one a depfile names for the first time, a program) and that was 
 run went on is recorded as unknown, which never matches.
 
 Without declared outputs, location is the only safe way to tell a run's file from a user's edit.
-The run directory -- always under the run root now (D21) -- is the run's alone: every entry in it
+The run directory -- always under the run root -- is the run's alone: every entry in it
 is the run's output, whether the run wrote it or not; a file that appears there since the last run
 makes the run stale ("new file in the run directory"). Anywhere else, a file named by a setting, a
 depfile, or the design stays an input; if it was absent before the run or changed during it (its
@@ -386,7 +386,7 @@ these names.
 A remote host must run the 0.4.4 release line of xeda (including development builds) or newer,
 with remote protocol 6 or newer. Protocol 2 added canonical resolved settings, relocated read
 inputs with their original path identities, declared output records and checked hand-over.
-Protocol 3 adds the P1b simulation evidence rule: remote simulations must confirm that the
+Protocol 3 adds the simulation evidence rule: remote simulations must confirm that the
 simulation ended successfully. Protocol 4 adds the FPGA build graph: the ``fpga_pack`` flow and
 the settings of ``nextpnr`` on Xilinx 7-series. Protocol 5 makes ``openfpgaloader`` a
 programming-only flow that consumes ``fpga_pack``'s bitstream. Protocol 6 adds the node identity
@@ -457,10 +457,10 @@ location, or ``--outputs-to``, is copied there (see `Outputs where you name them
 one deliberate exception, and it never deletes anything: a destination is written and, if it was
 already there, replaced only with your say-so. Two further exceptions exist, both something you
 configure explicitly rather than something Xeda decides on its own: a git dependency's configured
-``clone_dir``/``local_cache`` (otherwise its clone goes in the run root's ``.dependencies``, D21's
-Task 7), and a writable entry of ``Docker.mounts`` you add yourself (a container otherwise gets the
-design root and the RTL/testbench source directories mounted read-only; a dependency's run
-directory is not mounted at all today, so a dockerized flow needing one of its files needs a
+``clone_dir``/``local_cache`` (otherwise its clone goes in the run root's ``.dependencies``), and
+a writable entry of ``Docker.mounts`` you add yourself (a container otherwise gets the design
+root and the RTL/testbench source directories mounted read-only; a dependency's run directory is
+not mounted at all today, so a dockerized flow needing one of its files needs a
 ``Docker.mounts`` entry for it -- that is not yet automatic). In both cases Xeda writes there as
 told, and guards nothing about what it finds: that directory is yours to manage, not Xeda's.
 
@@ -468,8 +468,8 @@ Outputs where you name them
 ============================
 
 A flow's tools write only inside its run directory, under a fixed **conventional name** per
-deliverable setting (plan 2's convention is ``outputs/<design>.<ext>``; until then, the setting's
-own default name). Give such a setting a location -- an absolute path, or one anchored with
+deliverable setting (the convention is ``outputs/<design>.<ext>``; a setting without one keeps
+its own default name). Give such a setting a location -- an absolute path, or one anchored with
 ``$PWD``/``$DESIGN_ROOT`` -- and Xeda still writes the run's copy under its conventional name in
 the run directory (what the tools do and what the run is identified by never depend on where you
 asked for the copy); once the whole launch has finished, that file is **delivered**: copied to the

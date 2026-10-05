@@ -46,7 +46,7 @@ DESIGN_FILE_MD = AGENT / "references/design-file.md"
 
 CHAIN = "yosys_fpga+nextpnr+fpga_pack"
 CHAIN_SECTION = ("Flow chains and input bindings\n", "Open-source FPGA flow targets and tuning\n")
-FUTURE_MARKER = "# requires PC, P4 and P5"
+FUTURE_MARKER = "# not available yet"
 
 # ---------------------------------------------------------------------------------- the documents
 
@@ -222,9 +222,9 @@ def test_the_example_of_run_help_is_the_documented_chain_and_plans(tmp_path):
 
 def test_every_command_the_chain_chapter_shows_runs_or_is_refused_as_it_says(tmp_path):
     """Each `xeda run` line of the chapter's bash blocks: a command that is supported plans
-    (dry run) and one under the `requires PC, P4 and P5` marker is refused today, as a usage
-    error before any tool, naming the flow with no declared I/O. When P4 lands, the refused
-    commands must stop being refused and this test makes the documents catch up."""
+    (dry run) and one under the `not available yet` marker is refused today, as a usage
+    error before any tool, naming the flow with no declared I/O. When `bsc` declares its I/O,
+    the refused commands must stop being refused and this test makes the documents catch up."""
     chapter = _section(FLOWS_RST, *CHAIN_SECTION)
     root = _stage(tmp_path, "routed_demo.yaml", "prebuilt_demo.yaml")
     for stem in ("design", "knight"):
@@ -599,7 +599,7 @@ def test_a_chain_that_does_not_fit_suggests_the_valid_one_and_a_programmer_ends_
     assert result.exit_code == 2 and "appears more than once" in document["error"]["message"]
 
 
-# ------------------------------------------------ local only, and the undeclared / P4 boundary
+# ------------------------------------------------ local only, and the undeclared flows boundary
 
 
 def test_chains_and_reached_bindings_are_local_and_refused_before_anything_connects(
@@ -623,7 +623,7 @@ def test_chains_and_reached_bindings_are_local_and_refused_before_anything_conne
 
 
 def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tmp_path):
-    """The P4 boundary the guide states: `bsc` and the Vivado flows are not chainable, and an
+    """The boundary the guide states: `bsc` and the Vivado flows are not chainable, and an
     `inputs.design` binding is refused (no flow declares one), in the file, on the command
     line, and saying why."""
     listed = {
