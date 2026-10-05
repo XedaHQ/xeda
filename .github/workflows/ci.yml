@@ -1,9 +1,9 @@
 name: CI
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "release/*"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "release/*"]
   workflow_dispatch:
 
 # The job only reads: the checkout, and a release lookup the token authenticates.
