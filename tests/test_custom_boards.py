@@ -423,7 +423,12 @@ def test_a_yaml_database_with_a_non_string_key_is_rejected(tmp_path):
 
 def test_a_yaml_database_goes_through_the_strict_loader(tmp_path):
     """Only the shared strict loader (YAML 1.2 core) reads `on` as text and `010` as ten; a
-    YAML 1.1 reader gives `True` and `8`, which fit `pins` and `package` without a word."""
+    YAML 1.1 reader gives `True` and `8`, which fit `pins` and `package` without a word.
+
+    No board field is a boolean, so "`on` is text, not a boolean: write `true`" (which a bool
+    field gives) cannot arise here. `pins` is an integer: there the project's other YAML 1.1
+    message appears, and only for the text `on` the strict loader leaves (PyYAML's own reader
+    would give `True`, which pydantic accepts as the integer 1)."""
     prefix = "MY_BOARD:\n  fpga:\n    part: LFE5U-25F-6BG381C\n"
     # `on` is a YAML 1.1 boolean: here it is text, and no integer.
     message = database_error(tmp_path, "boards.yaml", prefix + "    pins: on\n")
