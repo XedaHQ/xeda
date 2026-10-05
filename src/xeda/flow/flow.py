@@ -789,7 +789,8 @@ class Flow(metaclass=ABCMeta):
         console_colors: bool = Field(True, description="Colorize tool output on the console.")
 
         #: The settings this flow shares with each of its dependencies, keyed by the field that
-        #: holds that dependency's settings: `open_xc7` declares `{"yosys": ("fpga", "clocks")}`.
+        #: holds that dependency's settings: `vivado_power` declares
+        #: `{"postsynthsim": ("timing_sim", "elab_debug", ...)}`.
         #: `resolve_dependency` applies it when the flow launches the dependency.
         dependency_settings: ClassVar[Dict[str, Tuple[str, ...]]] = {}
 
