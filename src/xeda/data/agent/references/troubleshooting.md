@@ -100,15 +100,18 @@ The EDA tool itself failed. The generated script and the tool's log are in the r
 
 ### `FlowFailed`
 
-The verdict at the top of the `--json` document: the requested flow did not succeed, whatever the
-cause (often report parsing found a tool error or a timing violation). The document keeps the
-parsed `results`; inspect them and the reports under `run_path`.
+The verdict at the top of the `--json` document: the requested flow itself ran to its end without
+raising and did not succeed (often report parsing found a tool error or a timing violation). A flow
+that raises is named by its exception class instead, and a failed producer is
+`FlowDependencyFailure`. The document keeps the parsed `results`; inspect them and the reports under
+`run_path`.
 
 ### `ReportedFailure`
 
 The cause, not the verdict: a node's `results.json` says `error.type = "ReportedFailure"` when its
-reports or checks failed without an exception or a tool exit status (a tool that exited 0 and
-wrote no netlist, for instance). The names differ on purpose: `FlowFailed` is the top of the
+own reports or checks failed without an exception or a tool exit status (a tool that exited 0 and
+wrote no netlist, for instance). A declared output that xeda finds missing after the flow's own
+checks passed is `MissingOutput` instead. The names differ on purpose: `FlowFailed` is the top of the
 document, what happened to the request; `ReportedFailure` is inside a node, why it failed. Its
 consumers quote the message ("dependency yosys_fpga failed: ..."), and the
 top-level `--json` document of the request carries `FlowDependencyFailure` (a producer failed) or
@@ -120,7 +123,7 @@ but never entered shows `"state": "not run"`.
 
 `xeda run a+b` fails with exit status 2 before anything runs, and says why:
 
-- `Flow `x` has no declared I/O and can only be run alone`: `bsc`, `bsc_sim` and the Vivado flows
+- ``Flow `x` has no declared I/O and can only be run alone``: `bsc`, `bsc_sim` and the Vivado flows
   cannot be part of a chain yet; run each alone.
 - `no compatible output for a required input`: the pair does not fit. When another output of
   the producer, or the flows between the pair on the required default routes, make it fit, the

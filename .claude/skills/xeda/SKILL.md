@@ -376,8 +376,8 @@ an older protocol, before shipping, with an upgrade error.
 | `DesignValidationError` | The design file is invalid | Validate against `xeda design-schema` |
 | `MissingOutput` | A required or enabled declared output is absent, stale or unreadable | Read `results.json` and the tool log; confirm its output setting |
 | `FlowDependencyFailure` | A producer failed or its completed output could not be verified | Read the named producer's `results.json`; rebuild after correcting the cause |
-| `FlowFailed` | The verdict at the top of the document: the requested flow did not succeed, whatever the cause | Read `results` and the reports under `run_path` |
-| `ReportedFailure` | The cause, in a node's `results.json` (and quoted by its consumers): the flow's reports or checks failed with no tool error | Read the log and reports in that node's run directory |
+| `FlowFailed` | The verdict at the top of the document: the requested flow itself ran without raising and did not succeed (a raised failure names its class, a failed producer is `FlowDependencyFailure`) | Read `results` and the reports under `run_path` |
+| `ReportedFailure` | The cause, in a node's `results.json` (and quoted by its consumers): the flow's own reports or checks failed with no tool error (a missing declared output is `MissingOutput`) | Read the log and reports in that node's run directory |
 | `NoSuccessfulRun` | A DSE search found no successful run | Inspect the attempted runs and relax or correct the search settings |
 | `RunRootError` | The run root holds files but no marker xeda created, or cannot be written | Move it aside, or create `<dir>/.xeda-run-root` to hand it to xeda |
 | `DeliveryError` | A named output could not be delivered: the run did not write it, or the destination is an input, a directory, or inside a run root | Check the setting's value and that it does not point at an input or a run root |
