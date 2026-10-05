@@ -445,8 +445,10 @@ produces, because ABC9's mapping depends on what ran before it.
 
 ``synth_pass_only = true`` runs the pass by itself. The design's sources are read and
 ``synth_<target>`` does its own ``hierarchy``, ``proc``, flattening, cleanup and mapping, so the
-netlist is the one that invocation writes -- cell for cell. Use it to compare a result against
-the tool's own flow, or to tell a xeda problem apart from a Yosys one:
+netlist is the one that invocation writes -- its cells, their names and their wiring. (Yosys
+embeds in a generated name the path the source was named by, so the two agree on those too only
+when both name the source the same way.) Use it to compare a result against the tool's own flow,
+or to tell a xeda problem apart from a Yosys one:
 
 .. code-block:: bash
 

@@ -89,7 +89,9 @@ All notable changes to this project will be documented in this file.
   design's sources are read and `synth_<target>` does its own `hierarchy`, `proc`, flattening,
   cleanup and ABC9 mapping, exactly as `yosys -p 'synth_<target> ...' <sources>` does. It writes
   the netlist that invocation writes -- cells, names and wiring alike -- so a result can be
-  compared against the tool's own flow or a problem told apart from one of xeda's. Which front end reads the sources
+  compared against the tool's own flow or a problem told apart from one of xeda's. (Generated
+  names embed the path each source was named by, so they agree when both sides name it the same
+  way.) Which front end reads the sources
   stays a separate choice: to match the tool on SystemVerilog sources, read them as it does with
   `systemverilog = default` (the run says so when a plugin front end read them instead). Left off (the default), xeda
   elaborates and optimizes around the pass and gives ABC9 the clock period as its target delay,

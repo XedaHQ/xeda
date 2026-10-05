@@ -1284,7 +1284,8 @@ dependency must also share `custom_boards_file`.
   gives ABC9 `flow3` and the clock period as its target delay. `synth_pass_only = true` runs the
   pass and nothing else -- the sources are read and `synth_<target>` does its own `hierarchy`,
   `proc`, flattening, cleanup and mapping, as `yosys -p 'synth_<target> ...' <sources>` does --
-  and xeda then writes the netlist the tool's own flow writes, cell for cell
+  and xeda then writes the netlist the tool's own flow writes -- cells, names and wiring, up to
+  the source path yosys embeds in a generated name
   (`tests/test_yosys_recipe_real.py`, on the installed yosys; `tests/test_yosys_recipe.py` pins
   the rendered script's exact command list for every target and both script formats, under the
   fakes). It is **one** setting, not a switch per deviation: every flag of the pass itself
