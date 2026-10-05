@@ -11,10 +11,10 @@ red one.
 
 So this is the oracle for refactorings that move code between modules -- written before the one
 that needs it, the `flow_runner/default_runner.py` split by launch stage, and useful to every
-later move. It collects every `(module, name)` the suite replaces -- `monkeypatch.setattr`, a
-plain module-attribute assignment, and both of those inside the Python scripts some tests embed
-as string literals and run in a child process -- and requires, for each, that something looks
-the name up through the module.
+later move. It collects every `(module, name)` the suite replaces -- `monkeypatch.setattr`, the
+builtin `setattr`, each target of a module-attribute assignment, and all of those inside the
+Python scripts some tests embed as string literals and run in a child process -- and requires,
+for each, that something looks the name up through the module.
 
 An identity check (`getattr(module, name) is other_module.name`) would prove nothing: a
 re-export *is* the same object. Only "the lookup goes through this module" tells a live patch
@@ -198,9 +198,14 @@ def _patched(source: str, where: str) -> Iterator[PatchTarget]:
                     if split is not None:
                         module, name = split
         elif isinstance(node, ast.Assign):
+            # each target in its own right: `a.x = b.y = v` replaces two names, and a target
+            # that is not a module's attribute must not discard one that is
             for assigned in node.targets:
                 if isinstance(assigned, ast.Attribute) and isinstance(assigned.value, ast.Name):
-                    module, name, line = modules.get(assigned.value.id), assigned.attr, node.lineno
+                    owner = modules.get(assigned.value.id)
+                    if owner and owner.startswith("xeda"):
+                        yield PatchTarget(owner, assigned.attr, f"{where}:{node.lineno}")
+            continue
         if module and isinstance(name, str) and module.startswith("xeda"):
             yield PatchTarget(module, name, f"{where}:{line}")
 
@@ -500,6 +505,21 @@ def test_the_oracle_tells_a_global_read_from_a_local_one(source: str, reads: boo
     claim a patch was live when it reached nothing.
     """
     assert _reads_global_in(ast.parse(source), "helper") is reads, why
+
+
+def test_the_scan_keeps_every_target_of_a_chained_assignment():
+    """`runner.write_trace = os.sep = 1` replaces two names; the xeda one must not be lost.
+
+    Collecting one `(module, name)` per statement dropped it as soon as a target that is not a
+    xeda module's attribute came after one that is.
+    """
+    source = (
+        "import xeda.flow_runner.default_runner as runner\n"
+        "import os\n"
+        "runner.write_trace = os.sep = 1\n"
+    )
+    found = {(target.module, target.name) for target in _patched(source, "a probe")}
+    assert found == {("xeda.flow_runner.default_runner", "write_trace")}
 
 
 def test_the_scan_reads_patches_inside_embedded_scripts():
