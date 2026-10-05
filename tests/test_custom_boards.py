@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import xeda.board
-from xeda import Design
+from xeda import Design, introspect
 from xeda.board import WithFpgaBoardSettings
 from xeda.dataclass import Field, ValidationError
 from xeda.flow import FlowSettingsError
@@ -276,3 +276,247 @@ def test_nextpnr_resolves_bundled_board_lpf_against_bundled_database(tmp_path, m
         Path(lpfs[0].removeprefix("--lpf=")).read_text()
         == (Path(xeda.board.__file__).parent / "data/boards/ulx3s/board.lpf").read_text()
     )
+
+
+# --- A custom database may be TOML or YAML: the same boards, the same behavior ---
+
+BOARD_TOML = (
+    '[MY_BOARD]\nname = "programmer_board"\n'
+    'fpga.part = "LFE5U-25F-6BG381C"\nlpf = "pins.lpf"\n'
+    '[OTHER_BOARD]\nname = "other"\nfpga.part = "LFE5U-45F-6BG381C"\nlpf = "pins.lpf"\n'
+)
+BOARD_YAML = """\
+MY_BOARD:
+  name: programmer_board
+  fpga:
+    part: LFE5U-25F-6BG381C
+  lpf: pins.lpf
+OTHER_BOARD:
+  name: other
+  fpga:
+    part: LFE5U-45F-6BG381C
+  lpf: pins.lpf
+"""
+DATABASES = {"boards.toml": BOARD_TOML, "boards.yaml": BOARD_YAML, "boards.yml": BOARD_YAML}
+SUFFIXES = pytest.mark.parametrize("filename", list(DATABASES))
+
+
+def write_database(directory: Path, filename: str, content: str | None = None) -> Path:
+    """`filename` in `directory`, with a `pins.lpf` beside it."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "pins.lpf").write_text('LOCATE COMP "clk" SITE "P3";\n')
+    path = directory / filename
+    path.write_text(DATABASES[filename] if content is None else content)
+    return path
+
+
+def test_the_same_database_in_toml_and_yaml_is_the_same_board(tmp_path):
+    data = {}
+    for filename in DATABASES:
+        path = write_database(tmp_path / filename.replace(".", "_"), filename)
+        settings = Nextpnr.Settings.from_input(
+            {"board": "MY_BOARD", "custom_boards_file": str(path)}, design_root=tmp_path
+        )
+        data[filename] = (
+            settings.board_data(),
+            settings.fpga,
+            xeda.board.read_board_database(path),
+        )
+    assert data["boards.toml"] == data["boards.yaml"] == data["boards.yml"]
+    assert data["boards.toml"][0] == {
+        "name": "programmer_board",
+        "fpga": {"part": "LFE5U-25F-6BG381C"},
+        "lpf": "pins.lpf",
+    }
+
+
+@SUFFIXES
+def test_a_relative_custom_boards_file_resolves_against_the_design_root(tmp_path, filename):
+    """The design root, not the start directory, whatever the database's format."""
+    path = write_database(tmp_path / "board files", filename)
+    start = tmp_path.parent
+    settings = Nextpnr.Settings.from_input(
+        {"board": "OTHER_BOARD", "custom_boards_file": f"board files/{filename}"},
+        design_root=tmp_path,
+        runner_cwd=start,
+    )
+    assert settings.custom_boards_file == path
+    assert settings.fpga.part == "LFE5U-45F-6BG381C"
+    reloaded = Nextpnr.Settings.from_input(
+        settings.model_dump(mode="json"), design_root=tmp_path, runner_cwd=start
+    )
+    assert reloaded.custom_boards_file == path
+    assert reloaded.board_data() == settings.board_data()
+
+
+@SUFFIXES
+def test_a_board_lpf_resolves_beside_its_database_in_either_format(tmp_path, filename):
+    path = write_database(tmp_path / "board files", filename)
+    # The design root is elsewhere: only the database's own directory can hold pins.lpf.
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    settings = Nextpnr.Settings.from_input(
+        {"board": "MY_BOARD", "custom_boards_file": str(path)}, design_root=design_root
+    )
+    with settings.board_file(settings.board_data()["lpf"]) as lpf:
+        assert lpf == path.parent / "pins.lpf"
+        assert lpf.read_text().startswith("LOCATE")
+
+
+@SUFFIXES
+def test_nextpnr_uses_the_lpf_beside_a_database_in_either_format(tmp_path, monkeypatch, filename):
+    """The pins are the file beside the database: merged into the run's constraints, and
+    recorded as an input, so an edit to it is noticed."""
+    write_database(tmp_path / "board files", filename)
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    settings = Nextpnr.Settings.from_input(
+        {"board": "MY_BOARD", "custom_boards_file": f"board files/{filename}"},
+        design_root=tmp_path,
+    )
+    flow = Nextpnr(settings, design, tmp_path / "nextpnr")
+    flow.prepare_inputs()
+    assert flow.implicit_inputs == [tmp_path / "board files" / "pins.lpf"]
+    args = nextpnr_args(tmp_path, settings, monkeypatch)
+    merged = tmp_path / "nextpnr" / "constraints.lpf"
+    assert f"--lpf={merged}" in args
+    assert merged.read_text() == (tmp_path / "board files" / "pins.lpf").read_text()
+
+
+@SUFFIXES
+def test_a_legacy_dependency_resolution_carries_a_database_in_either_format(tmp_path, filename):
+    """A flow sharing the board with an undeclared dependency shares its database too."""
+    path = write_database(tmp_path, filename)
+    settings = _LegacyParent.from_input(
+        {"board": "MY_BOARD", "custom_boards_file": filename}, design_root=tmp_path
+    )
+    dependency = settings.resolve_dependency("nextpnr")
+    assert dependency.custom_boards_file == path
+    assert dependency.fpga.part == "LFE5U-25F-6BG381C"
+
+
+def database_error(tmp_path: Path, filename: str, content: str, **extra) -> str:
+    """The message of the error a custom database with `content` raises."""
+    path = tmp_path / filename
+    path.write_text(content)
+    data = {"board": "MY_BOARD", "custom_boards_file": str(path), **extra}
+    with pytest.raises(FlowSettingsError) as raised:
+        Nextpnr.Settings.from_input(data, design_root=tmp_path)
+    return str(raised.value)
+
+
+def test_a_yaml_database_with_a_duplicate_key_names_the_file_and_both_lines(tmp_path):
+    message = database_error(
+        tmp_path,
+        "boards.yaml",
+        "MY_BOARD:\n  fpga:\n    part: LFE5U-25F-6BG381C\n  fpga:\n    part: LFE5U-45F-6BG381C\n",
+    )
+    assert f'Cannot load board database "{tmp_path / "boards.yaml"}", line 4, column 3' in message
+    assert "duplicate mapping key 'fpga'" in message
+    assert "first occurrence of key 'fpga' (line 2, column 3)" in message
+
+
+def test_a_yaml_database_with_a_non_string_key_is_rejected(tmp_path):
+    message = database_error(tmp_path, "boards.yaml", "MY_BOARD:\n  1: x\n")
+    assert "mapping keys must be strings; quote this key" in message
+    assert "boards.yaml" in message
+
+
+def test_a_yaml_database_goes_through_the_strict_loader(tmp_path):
+    """Only the shared strict loader (YAML 1.2 core) reads `on` as text and `010` as ten; a
+    YAML 1.1 reader gives `True` and `8`, which fit `pins` and `package` without a word."""
+    prefix = "MY_BOARD:\n  fpga:\n    part: LFE5U-25F-6BG381C\n"
+    # `on` is a YAML 1.1 boolean: here it is text, and no integer.
+    message = database_error(tmp_path, "boards.yaml", prefix + "    pins: on\n")
+    assert "`on` is text in xeda YAML (YAML 1.2): write `true`" in message
+    # `010` is the number ten, not octal eight, and no text.
+    message = database_error(tmp_path, "boards.yaml", prefix + "    package: 010\n")
+    assert '`10` is a number in xeda YAML (YAML 1.2): write `"10"` for text' in message
+    # Where text fits, it stays the text that was written.
+    path = tmp_path / "text.yaml"
+    path.write_text(prefix + "    package: on\n  name: no\n")
+    board = xeda.board.get_board_data("MY_BOARD", path)
+    assert board["name"] == "no"
+    assert board["fpga"]["package"] == "on"
+
+
+def test_the_yaml_reader_is_the_shared_strict_loader(tmp_path, monkeypatch):
+    """No second YAML reader: the database is read by `xeda.yaml_loader.load_yaml`."""
+    path = write_database(tmp_path, "boards.yaml")
+    seen = []
+    load_yaml = xeda.board.load_yaml
+    monkeypatch.setattr(xeda.board, "load_yaml", lambda p: seen.append(p) or load_yaml(p))
+    assert xeda.board.get_board_data("MY_BOARD", path)["name"] == "programmer_board"
+    assert seen == [path]
+
+
+@pytest.mark.parametrize(
+    "filename, hint",
+    [
+        ("boards.json", "unsupported file suffix '.json'"),
+        ("boards.txt", "unsupported file suffix '.txt'"),
+        ("boards", "no file suffix"),
+        ("boards.TOML", "suffixes are case-sensitive, did you mean '.toml'?"),
+        ("boards.Yaml", "suffixes are case-sensitive, did you mean '.yaml'?"),
+    ],
+)
+def test_an_unknown_database_suffix_is_an_error_saying_what_is_accepted(tmp_path, filename, hint):
+    path = tmp_path / filename
+    path.write_text(BOARD_TOML)  # valid TOML: the suffix alone decides, nothing is guessed
+    for data in ({"board": "MY_BOARD"}, {}):  # a database nobody has asked a board of too
+        with pytest.raises(FlowSettingsError) as raised:
+            Nextpnr.Settings.from_input(
+                {**data, "custom_boards_file": str(path)}, design_root=tmp_path
+            )
+        message = str(raised.value)
+        assert f'Cannot load board database "{path}": ' in message
+        assert hint in message
+    if "case-sensitive" not in hint:
+        assert "a board database is TOML or YAML ('.toml', '.yaml', '.yml')" in message
+
+
+def test_a_yaml_database_that_is_broken_names_the_file(tmp_path):
+    path = tmp_path / "boards.yaml"
+    assert f'"{path}", line 3' in database_error(tmp_path, "boards.yaml", "MY_BOARD:\n  a: [\n")
+    assert "a board database is a table (mapping) of boards by name, not a list" in (
+        database_error(tmp_path, "list.yaml", "- MY_BOARD\n")
+    )
+    assert "Board 'MY_BOARD' must be a table" in database_error(
+        tmp_path, "scalar.yaml", "MY_BOARD: x\n", fpga={"part": "LFE5U-25F-6BG381C"}
+    )
+    (tmp_path / "binary.yaml").write_bytes(b"MY_BOARD: \xff\xfe\n")
+    with pytest.raises(FlowSettingsError, match="binary.yaml.*: not UTF-8 text"):
+        Nextpnr.Settings.from_input(
+            {"board": "MY_BOARD", "custom_boards_file": "binary.yaml"}, design_root=tmp_path
+        )
+
+
+def test_an_empty_yaml_database_has_no_boards(tmp_path):
+    path = tmp_path / "empty.yaml"
+    path.write_text("")
+    assert xeda.board.read_board_database(path) == {}
+    assert xeda.board.get_board_data("MY_BOARD", path) is None
+
+
+def test_a_missing_yaml_database_is_named(tmp_path):
+    with pytest.raises(FlowSettingsError, match="Cannot read custom boards file"):
+        Nextpnr.Settings.from_input(
+            {"board": "MY_BOARD", "custom_boards_file": "missing.yaml"}, design_root=tmp_path
+        )
+
+
+def test_the_bundled_database_is_still_toml_and_loads():
+    assert xeda.board.get_board_data("ULX3S_85F")["fpga"] == {"part": "LFE5U-85F-6BG381C"}
+    names = [row["board"] for row in introspect.boards_info()]
+    assert "ULX3S_85F" in names
+    assert names == sorted(names)
+    assert xeda.board.read_board_database(
+        Path(xeda.board.__file__).parent / "data" / "boards.toml"
+    ) == {
+        row["board"]: {k: v for k, v in row.items() if k != "board"}
+        for row in introspect.boards_info()
+    }
+
+
+def test_the_custom_boards_file_setting_says_both_formats_are_accepted():
+    description = Nextpnr.Settings.model_fields["custom_boards_file"].description
+    assert "TOML or YAML" in description
