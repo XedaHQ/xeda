@@ -30,9 +30,16 @@ language = "en"
 # -- General configuration ---------------------------------------------------
 
 # The pages are hand-written reStructuredText that uses only core Sphinx and the theme, so no
-# extension is enabled. Enable one only together with a page that uses it (and its entry in
-# docs/requirements.txt): an extension nothing uses is one more thing that can stop the build.
-extensions: list[str] = []
+# extension that supplies a directive or a role is enabled. Enable one only together with a page
+# that uses it (and its entry in docs/requirements.txt): an extension nothing uses is one more
+# thing that can stop the build. opengraph is the exception the rule has to name: it needs no
+# markup, adding the link-preview metadata (og:title, og:description, og:url) to every page it
+# builds, so dropping it would silently change the published output rather than remove dead weight.
+extensions: list[str] = ["sphinxext.opengraph"]
+
+# What og:url is made relative to. Read the Docs serves the canonical documentation; a build
+# somewhere else (tox -e docs, the CI docs job) renders the same absolute URLs, which no one reads.
+ogp_site_url = "https://xeda.readthedocs.io/en/latest/"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
