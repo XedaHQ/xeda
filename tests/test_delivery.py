@@ -474,6 +474,35 @@ def test_an_anchored_destination_is_still_replaced_when_the_output_changes(world
     assert [d.state for d in flow.deliveries] == ["delivered"]
 
 
+def test_a_run_directory_entered_twice_keeps_the_later_anchored_check_of_a_touched_file(
+    world, hashed, later_clock
+):
+    """One run directory entered twice in a launch is two `Deliveries` that read the one record
+    beside it before either checks anything. The second one's check of `b.v` found it touched
+    since (same inode, same bytes, new times), read it and anchored the record it then took; the
+    first still holds the older, unanchored entry of the record file. That later check is what
+    the merged delivery keeps: the copy then reads nothing more of `b.v`. Keeping the older entry
+    only when the two records are equal would read the file a second time, and never make a
+    foreign file pass -- the entry is replaced whole, and an anchor only vouches for a file whose
+    metadata is exactly that of the record it was taken with."""
+    destination = world.user / "b.v"
+    launch = dict(flow=_Twice, first={"netlist": "$PWD/a.v"}, second={"netlist": "$PWD/b.v"})
+    _launch(world, **launch)
+    os.utime(destination, None)  # touched: same file, same bytes, new mtime and inode change time
+
+    hashed.clear()
+    flow = _launch(world, **launch)
+    assert flow.succeeded and destination.read_text() == "net\n"
+    assert _reads(hashed, destination) == 1, "read once, by the check that anchored its record"
+    record = delivery_record(flow.completed_dependencies[0].run_path)
+    entry = json.loads(record.read_text())["files"][str(destination)]
+    assert "anchor_ns" in entry and entry["anchor_ns"] > entry["recorded_ns"]
+
+    hashed.clear()
+    _launch(world, **launch)
+    assert _reads(hashed, destination) == 0, "its metadata vouches for it"
+
+
 @pytest.mark.parametrize("theirs", ["edited", "foreign", "a link"])
 def test_a_file_that_is_not_xeda_s_unchanged_copy_is_refused_before_the_tool_runs(
     world, tmp_path, theirs
