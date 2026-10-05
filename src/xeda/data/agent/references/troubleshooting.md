@@ -122,9 +122,11 @@ but never entered shows `"state": "not run"`.
 
 - `Flow `x` has no declared I/O and can only be run alone`: `bsc`, `bsc_sim` and the Vivado flows
   cannot be part of a chain yet; run each alone.
-- `no compatible output for a required input`: the pair does not fit. The message ends with
-  `Did you mean ...?`, a whole valid chain (`nextpnr+openfpgaloader` ->
-  `nextpnr+fpga_pack+openfpgaloader`); `xeda list-flows --json` has `can_follow`/`can_precede`.
+- `no compatible output for a required input`: the pair does not fit. When another output of
+  the producer, or the flows between the pair on the required default routes, make it fit, the
+  message ends with `Did you mean ...?`, a whole valid chain (`nextpnr+openfpgaloader` ->
+  `nextpnr+fpga_pack+openfpgaloader`). Otherwise there is no suggestion; `xeda list-flows --json`
+  has `can_follow`/`can_precede` for finding a flow that fits.
 - `programs a device and can only end a chain`: `openfpgaloader` must be last.
 - `appears more than once`: a chain is a path; each flow once.
 - `--remote` and `xeda dse` refuse chains and bindings; run locally.

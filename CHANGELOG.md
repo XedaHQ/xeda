@@ -57,9 +57,10 @@ All notable changes to this project will be documented in this file.
   `+`-joined chain, each preceding flow supplying the next one's compatible required inputs
   (`FLOW.OUTPUT` picks one output of a producer). One parser and one edge predicate serve the
   command line, saved bindings, suggestions, `list-flows` and completion. A chain that does not
-  fit is a usage error that suggests the valid one built from declared default routes
-  (`nextpnr+openfpgaloader` -> `nextpnr+fpga_pack+openfpgaloader`); a flow that programs a device
-  can only end a chain, and a flow with no declared I/O (`bsc`, the Vivado flows) runs alone.
+  fit is a usage error; it suggests a valid chain only when another output of the producer or the
+  flows on the required declared default routes between the pair fix it (`nextpnr+openfpgaloader`
+  -> `nextpnr+fpga_pack+openfpgaloader`), and has no suggestion otherwise; a flow that programs a
+  device can only end a chain, and a flow with no declared I/O (`bsc`, the Vivado flows) runs alone.
   `-s flows.<flow>.key=value` sets any flow of the chain. `--json` adds `request` and per-node
   `node`/`inputs`, lists nodes planned but never entered as `"state": "not run"`, and keeps
   the last flow's `flow`, `results` and exit status. Chains are local: `--remote` and `dse` refuse
