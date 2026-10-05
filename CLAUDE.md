@@ -91,8 +91,9 @@ API `run_root`); a **run directory** is one flow's. The exact layout depends on 
 | `--hashed-run-dirs` | `<design>/<flow>_<16-char run hash>/` |
 
 A dependency's run directory is a **sibling** of the flow that launched it, in the same layout,
-never nested under it. `--hashed-run-dirs` names a directory by the flow's *input settings* only,
-so editing the design never moves it. The old `<design>_<design_hash>/` layer (dropped with
+never nested under it. `--hashed-run-dirs` names a directory by the flow's run hash (`flowrun_hash`:
+its input settings and the ordered origins of its declared inputs, so a consumer moves when its
+producer's settings do), never by a source file's content, so editing a source never moves it. The old `<design>_<design_hash>/` layer (dropped with
 `--no-incremental`) is gone; delete such directories by hand. Xeda always reuses a flow's
 directory across runs unless `--clean` empties it first (see "Caching and run directories"
 below). Each run dir gets `settings.json`, `results.json` and `trace.json`, plus `reports/`,

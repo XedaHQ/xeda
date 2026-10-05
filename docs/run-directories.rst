@@ -144,8 +144,9 @@ failed. Every flow reports:
      - Files the flow produced, by name.
    * - ``design``, ``flow``
      - Names of what was run.
-   * - ``design_hash``, ``flow_hash``
-     - Hashes identifying the design and the effective settings.
+   * - ``design_hash``, ``flow_hash``, ``settings_hash``
+     - Hashes identifying the design, the run (its settings and where its declared inputs come
+       from) and the settings alone.
    * - ``run_path``
      - Absolute path of this directory.
    * - ``timestamp``
