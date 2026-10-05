@@ -174,14 +174,10 @@ XILINX_NON_LUT_PRIMITIVES = {
     "OBUF": "output buffer in an IOB",
     "OBUFT": "three-state output buffer in an IOB",
     "IOBUF": "bidirectional buffer in an IOB",
-    # Clock network: dedicated buffers, and the inverter yosys extracts from an inverted pin
-    # (`extractinv -inv INV O:I`, which `synth_xilinx` runs only under `-ise`) rather than a
-    # logic inverter. A data-path `INV` a design instantiates itself does cost a LUT1; move it to
-    # `XILINX_LUT_FOOTPRINT` if a flow is ever found to emit one.
+    # Clock network: dedicated buffers.
     "BUFG": "global clock buffer in the clock network",
     "BUFGCTRL": "global clock multiplexer/buffer in the clock network",
     "BUFHCE": "horizontal clock buffer in the clock network",
-    "INV": "an inversion extracted onto an invertible pin, absorbed by the pin",
     # The slice's dedicated arithmetic and wide-function logic, beside its LUTs.
     "CARRY4": "the slice's dedicated 4-bit carry chain",
     "CARRY8": "the slice's dedicated 8-bit carry chain",

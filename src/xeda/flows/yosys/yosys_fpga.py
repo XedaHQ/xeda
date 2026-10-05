@@ -53,6 +53,9 @@ XILINX_LUT_FOOTPRINT = {
     **{f"LUT{width}": ("logic", 1) for width in range(1, 7)},
     "LUT6_2": ("logic", 2),
     "CFGLUT5": ("logic", 1),
+    # an inverter is a LUT1 (UG953): yosys only absorbs one into an invertible pin under
+    # `-ise`, so a data-path `INV` a design instantiates costs a LUT on this path
+    "INV": ("logic", 1),
     # the multi-port memories, which do not follow the <depth>X<width><S|D> naming
     "RAM32M": ("ram", 4),
     "RAM64M": ("ram", 4),
