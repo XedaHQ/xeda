@@ -1,8 +1,8 @@
-"""`synth_pass_only` reproduces the synthesis pass's own netlist, on the installed yosys.
+"""Compare pass-only synthesis with native yosys under matching reader and pass choices.
 
 `tests/test_yosys_recipe.py` pins the *shape* of the rendered script under the fakes. This is the
-other half: the netlist xeda writes with `synth_pass_only` is the one
-`yosys -p 'synth_<target> ...' <sources>` writes, cell for cell and name for name.
+other half: with reader flags, source paths and mapping choices matched, the netlist xeda writes
+with `synth_pass_only` is the one the native command writes, cell for cell and name for name.
 
 Name for name matters. Every `read_verilog` advances yosys's shared `autoidx`, which renumbers
 the design's generated cell names, and ABC9 maps by those names -- so reading the target's
@@ -65,7 +65,13 @@ endmodule
 """
 
 #: `flatten` so the pass gets `-flatten`, as openXC7's own Makefile passes it
-SETTINGS: dict[str, Any] = {"fpga": PART, "clock": {"period": 5.0}, "flatten": True}
+SETTINGS: dict[str, Any] = {
+    "fpga": PART,
+    "clock": {"period": 5.0},
+    "flatten": True,
+    # Plain `yosys file.v` uses its Verilog reader without xeda's default `-sv`.
+    "read_verilog_flags": [],
+}
 
 
 def _design(tmp_path: Path) -> Design:
@@ -121,8 +127,8 @@ def _synth_line(flow: Any) -> str:
     return line
 
 
-def _reference(tmp_path: Path, synth: str) -> Any:
-    """`yosys -p "<the pass>; write_json ..." <sources>`: the tool's own default flow.
+def _reference(tmp_path: Path, synth: str, abc9_script: str | None = None) -> Any:
+    """Run the native pass with the same optional mapping script and reader settings.
 
     The real command line, not a deferred-read equivalent of it, so a difference between
     `read_verilog -sv` and the frontend yosys picks for a `.v` file would show up here.
@@ -132,8 +138,9 @@ def _reference(tmp_path: Path, synth: str) -> Any:
     out = work / "reference.json"
     yosys = shutil.which("yosys")
     assert yosys, "require_yosys() passed but yosys is not on PATH"
+    mapping = f"scratchpad -copy abc9.script.{abc9_script} abc9.script; " if abc9_script else ""
     result = subprocess.run(
-        [yosys, "-q", "-p", f"{synth}; write_json {out}", str(tmp_path / "design/hier.v")],
+        [yosys, "-q", "-p", f"{mapping}{synth}; write_json {out}", str(tmp_path / "design/hier.v")],
         cwd=work,
         capture_output=True,
         text=True,
@@ -154,6 +161,14 @@ pytestmark = pytest.mark.usefixtures("_yosys")
 def test_synth_pass_only_writes_the_netlist_the_pass_writes_on_its_own(tmp_path):
     mode = _launch(tmp_path, "pass-only", synth_pass_only=True)
     assert _netlist(mode) == _reference(tmp_path, _synth_line(mode))
+
+
+@pytest.mark.parametrize(
+    "script", ["default", "default.area", "default.fast", "flow", "flow2", "flow3", "flow3mfs"]
+)
+def test_a_selected_abc9_script_matches_the_same_native_mapping_choice(tmp_path, script):
+    mode = _launch(tmp_path, "selected-script", synth_pass_only=True, abc9_script=script)
+    assert _netlist(mode) == _reference(tmp_path, _synth_line(mode), script)
 
 
 def test_a_library_the_pass_reads_is_not_read_again_when_verilog_lib_spells_it_as_a_path(tmp_path):
@@ -179,8 +194,8 @@ def test_a_library_the_pass_reads_is_not_read_again_when_verilog_lib_spells_it_a
 def test_the_default_recipe_writes_a_different_netlist_on_the_same_design(tmp_path):
     """The teeth: without this, a `synth_pass_only` that changed nothing would still pass.
 
-    The default recipe is not worse -- it elaborates, cleans and tells ABC9 the clock period --
-    it is simply not the tool's own result, which is the whole reason the mode exists.
+    The full recipe elaborates, cleans and tells ABC9 the clock period, so its result can differ.
+    This comparison checks that the modes differ; it makes no claim about their area or timing.
     """
     mode = _launch(tmp_path, "pass-only", synth_pass_only=True)
     default = _launch(tmp_path, "default")
