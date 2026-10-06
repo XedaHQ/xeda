@@ -15,6 +15,7 @@ passes `primitive_libraries` itself would never see it.
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -37,6 +38,11 @@ PARTS: dict[str, "str | dict[str, str]"] = {
 }
 BY_TARGET = pytest.mark.parametrize("target", sorted(PARTS), ids=sorted(PARTS))
 BY_FORMAT = pytest.mark.parametrize("script_format", ["ys", "tcl"])
+
+#: What the mode needs written besides `synth_pass_only`: it reads the sources as a bare
+#: `yosys <files>` does, so xeda's own reader choices (`-sv` on a `.v` source, and the slang
+#: plugin for a `.sv` one) are refused and the native ones are written out.
+PASS_ONLY_READER: dict[str, Any] = {"read_verilog_flags": [], "systemverilog": "default"}
 
 #: Commands that only write to the log. They are the only ones that cannot touch the design, so
 #: the shape assertions drop them rather than pin their prose.
@@ -74,6 +80,8 @@ def _design(tmp_path: Path) -> Design:
 def _launch(tmp_path: Path, part: "str | dict[str, str]", **settings) -> Path:
     """Launch `yosys_fpga` on the fakes and return its run directory."""
     runner = DefaultRunner(tmp_path / "run", display_results=False)
+    if settings.get("synth_pass_only"):
+        settings = {**PASS_ONLY_READER, **settings}
     flow = runner.run(
         YosysFpga,
         _design(tmp_path),
@@ -276,6 +284,7 @@ def test_an_unknown_data_directory_is_an_error_naming_the_entry_not_a_guess(
                 "fpga": PARTS["xilinx"],
                 "clock": {"period": 5.0},
                 "synth_pass_only": True,
+                **PASS_ONLY_READER,
                 "verilog_lib": [str(library)],
             },
         )
@@ -362,6 +371,10 @@ CONFLICTS = {
     "rtl_json": "rtl.json",
     "rtl_verilog": "rtl.v",
     "rtl_graph": "rtl.dot",
+    # reader choices `yosys <files>` does not make; the defaults (`-sv`, slang) are two (below)
+    "read_verilog_flags": ["-noautowire"],
+    "systemverilog": "slang",
+    "read_systemverilog_flags": ["-x"],
     # `Yosys.init` turns `flatten` on for these, which would add `-flatten` to the pass
     "sta": True,
     "ltp": True,
@@ -374,8 +387,10 @@ def test_a_setting_synth_pass_only_cannot_honor_is_refused_naming_both(setting):
         fpga=PARTS["xilinx"],  # type: ignore[arg-type]
         clock={"period": 5.0},
         synth_pass_only=True,
-        **{setting: CONFLICTS[setting]},
+        **{**PASS_ONLY_READER, setting: CONFLICTS[setting]},
     )
+    # alone: the reader settings are written out, so nothing but this one is refused
+    assert [key for key, _ in settings.synth_pass_only_conflicts()] == [setting]
     with pytest.raises(FlowSettingsError) as raised:
         YosysFpga.check_settings_supported(settings)
     message = str(raised.value)
@@ -391,11 +406,315 @@ def test_every_conflict_is_reported_at_once_and_none_without_the_mode():
         synth_pass_only=True,
         **asked,
     )
+    assert len(CONFLICTS) == 20  # the mode's whole conflict list; `stop_after` is reported alone
     conflicts = settings.synth_pass_only_conflicts()
     assert sorted(key for key, _ in conflicts) == sorted(asked)
     settings.synth_pass_only = False
     assert settings.synth_pass_only_conflicts() == []
     YosysFpga.check_settings_supported(settings)  # nothing conflicts without the mode
+
+
+def test_the_default_reader_flag_is_refused_and_the_message_says_what_to_write():
+    """The fix itself: xeda's own `-sv` default is a reader flag `yosys <file>` does not pass.
+
+    Judged by value, so an unset `read_verilog_flags` and one written as its default are the
+    same -- and so are the settings a run reloads from its `settings.json`, which writes every
+    field. A refusal that depended on whether the setting was *set* would pass the first run and
+    fail the reload (or the other way round).
+    """
+    settings = YosysFpga.Settings(
+        fpga=PARTS["xilinx"],  # type: ignore[arg-type]
+        clock={"period": 5.0},
+        synth_pass_only=True,
+    )
+    assert settings.read_verilog_flags == ["-sv"]
+    with pytest.raises(FlowSettingsError) as raised:
+        YosysFpga.check_settings_supported(settings)
+    message = str(raised.value)
+    assert ": read_verilog_flags " in message, message
+    assert "write `read_verilog_flags: []`".lower() in message.lower(), message
+    assert "-s read_verilog_flags=" in message, message
+    written = YosysFpga.Settings.model_validate(settings.model_dump(mode="json"))
+    assert written.synth_pass_only_conflicts() == settings.synth_pass_only_conflicts() != []
+    explicit = YosysFpga.Settings(
+        fpga=PARTS["xilinx"],  # type: ignore[arg-type]
+        clock={"period": 5.0},
+        synth_pass_only=True,
+        read_verilog_flags=["-sv"],
+    )
+    assert explicit.synth_pass_only_conflicts() == settings.synth_pass_only_conflicts()
+
+
+@pytest.mark.parametrize("flags", [["-sv"], ["-noautowire", "-sv"], ["-noautowire"], ["-formal"]])
+def test_any_reader_flag_is_refused_under_the_mode_and_none_is_accepted(flags):
+    def conflicts(**settings):
+        return YosysFpga.Settings(
+            fpga=PARTS["xilinx"],  # type: ignore[arg-type]
+            clock={"period": 5.0},
+            **{**PASS_ONLY_READER, "read_verilog_flags": flags},
+            **settings,
+        ).synth_pass_only_conflicts()
+
+    assert [key for key, _ in conflicts(synth_pass_only=True)] == ["read_verilog_flags"]
+    assert conflicts(synth_pass_only=False) == []  # the full recipe keeps its reader flags
+    plain = YosysFpga.Settings(
+        fpga=PARTS["xilinx"],  # type: ignore[arg-type]
+        clock={"period": 5.0},
+        synth_pass_only=True,
+        **PASS_ONLY_READER,
+    )
+    assert plain.synth_pass_only_conflicts() == []
+    YosysFpga.check_settings_supported(plain)
+
+
+def test_the_command_line_spelling_the_message_gives_is_the_empty_list(tmp_path, toolchain):
+    """`-s read_verilog_flags=` is `[]`; `-s read_verilog_flags=[]` is the one flag `[]`."""
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    base = [
+        f"fpga.part={PARTS['xilinx']}",
+        "clock.period=5.0",
+        "synth_pass_only=true",
+        "systemverilog=default",
+    ]
+    runner.plan(YosysFpga, _design(tmp_path), flow_settings=[*base, "read_verilog_flags="])
+    with pytest.raises(FlowSettingsError, match="read_verilog_flags"):
+        runner.plan(YosysFpga, _design(tmp_path), flow_settings=[*base, "read_verilog_flags=[]"])
+
+
+def _settings(**settings: Any) -> "YosysFpga.Settings":
+    return YosysFpga.Settings(
+        fpga=PARTS["xilinx"],  # type: ignore[arg-type]
+        clock={"period": 5.0},
+        **settings,
+    )
+
+
+def test_the_default_front_end_is_refused_and_the_message_says_what_to_write():
+    """`systemverilog` defaults to the slang plugin: `read_slang`, which `yosys <file>.sv` is
+    not. A value, like `read_verilog_flags`: unset, written as the default and reloaded from
+    `settings.json` are one setting."""
+    settings = _settings(synth_pass_only=True, read_verilog_flags=[])
+    assert settings.systemverilog == "slang"
+    ((key, why),) = settings.synth_pass_only_conflicts()
+    assert key == "systemverilog"
+    assert "read_verilog -sv" in why and "read_slang" in why, why
+    assert "systemverilog: default" in why and "-s systemverilog=default" in why, why
+    with pytest.raises(FlowSettingsError) as raised:
+        YosysFpga.check_settings_supported(settings)
+    assert ": systemverilog " in str(raised.value)
+    reloaded = YosysFpga.Settings.model_validate(settings.model_dump(mode="json"))
+    assert reloaded.synth_pass_only_conflicts() == settings.synth_pass_only_conflicts()
+    explicit = _settings(synth_pass_only=True, read_verilog_flags=[], systemverilog="slang")
+    assert explicit.synth_pass_only_conflicts() == settings.synth_pass_only_conflicts()
+
+
+def test_the_unwritten_mode_is_refused_for_both_reader_defaults_at_once():
+    settings = _settings(synth_pass_only=True)
+    assert [key for key, _ in settings.synth_pass_only_conflicts()] == [
+        "read_verilog_flags",
+        "systemverilog",
+    ]
+
+
+@pytest.mark.parametrize("front_end", ["slang", "uhdm"])
+def test_a_front_end_that_is_not_yosys_own_is_refused_under_the_mode_only(front_end):
+    settings = _settings(synth_pass_only=True, read_verilog_flags=[], systemverilog=front_end)
+    assert [key for key, _ in settings.synth_pass_only_conflicts()] == ["systemverilog"]
+    assert front_end in settings.synth_pass_only_conflicts()[0][1] or front_end == "uhdm"
+    off = _settings(
+        read_verilog_flags=["-noautowire"], systemverilog=front_end, read_systemverilog_flags=["-x"]
+    )
+    assert off.synth_pass_only_conflicts() == []  # the full recipe keeps its readers
+    YosysFpga.check_settings_supported(off)
+
+
+def test_read_systemverilog_flags_are_refused_when_nonempty_and_accepted_when_empty():
+    settings = _settings(synth_pass_only=True, **PASS_ONLY_READER, read_systemverilog_flags=["-x"])
+    ((key, why),) = settings.synth_pass_only_conflicts()
+    assert key == "read_systemverilog_flags"
+    assert "read_systemverilog_flags: []" in why and "-s read_systemverilog_flags=" in why, why
+    settings.read_systemverilog_flags = []  # an assignment is judged as a construction is
+    assert settings.synth_pass_only_conflicts() == []
+    settings.systemverilog = "slang"
+    assert [key for key, _ in settings.synth_pass_only_conflicts()] == ["systemverilog"]
+    settings.systemverilog = "default"
+    YosysFpga.check_settings_supported(settings)
+
+
+def test_the_mode_with_the_native_reader_written_out_is_accepted(tmp_path, toolchain):
+    """`systemverilog=default` and `read_verilog_flags=` are all the mode asks, on the command
+    line as in a design file; `slang` or a flag spelled `[]` is not."""
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    base = [f"fpga.part={PARTS['xilinx']}", "clock.period=5.0", "synth_pass_only=true"]
+    runner.plan(
+        YosysFpga,
+        _design(tmp_path),
+        flow_settings=[*base, "read_verilog_flags=", "systemverilog=default"],
+    )
+    runner.plan(
+        YosysFpga,
+        _design(tmp_path),
+        flow_settings=[
+            *base,
+            "read_verilog_flags=",
+            "systemverilog=default",
+            "read_systemverilog_flags=",
+        ],
+    )
+    for rest in (["read_verilog_flags="], ["read_verilog_flags=", "systemverilog=slang"]):
+        with pytest.raises(FlowSettingsError, match="systemverilog"):
+            runner.plan(YosysFpga, _design(tmp_path), flow_settings=[*base, *rest])
+
+
+@BY_FORMAT
+def test_the_full_recipe_renders_its_reader_flags_exactly_as_before(
+    tmp_path, toolchain, script_format
+):
+    """The mode off: `read_verilog_flags` is rendered as it always was, default or given."""
+    for flags, shown in ((None, "-sv"), (["-noautowire", "-sv"], "-noautowire -sv")):
+        settings = {} if flags is None else {"read_verilog_flags": flags}
+        run_path = _launch(tmp_path, PARTS["xilinx"], script_format=script_format, **settings)
+        text = (run_path / f"yosys_fpga_synth.{script_format}").read_text()
+        (line,) = [ln for ln in text.splitlines() if "read_verilog -defer" in ln]
+        assert f"read_verilog -defer {shown} " in " ".join(line.split()), line
+
+
+@BY_FORMAT
+def test_a_systemverilog_source_still_reads_as_read_verilog_sv_under_the_mode(
+    tmp_path, toolchain, script_format
+):
+    """The `-sv` on a `.sv` source is the template's own, not `read_verilog_flags`': an empty
+    list leaves `read_verilog -sv`, which is what yosys's own front end does for a `.sv` file.
+    (Only the built-in front end renders it; the default `slang` renders `read_slang`.)"""
+    root = tmp_path / "design"
+    root.mkdir(exist_ok=True)
+    (root / "top.sv").write_text(
+        "module top(input logic clk, output logic q); assign q = clk; endmodule\n"
+    )
+    design = Design(
+        name="top",
+        design_root=root,
+        rtl={"sources": ["top.sv"], "top": "top", "clock": {"port": "clk"}},
+    )
+    flow = DefaultRunner(tmp_path / "run", display_results=False).run(
+        YosysFpga,
+        design,
+        flow_settings={
+            "fpga": PARTS["xilinx"],
+            "clock": {"period": 5.0},
+            "synth_pass_only": True,
+            "systemverilog": "default",
+            "script_format": script_format,
+            **PASS_ONLY_READER,
+        },
+    )
+    assert flow is not None and flow.succeeded
+    text = (Path(flow.run_path) / f"yosys_fpga_synth.{script_format}").read_text()
+    (line,) = [ln for ln in text.splitlines() if "read_verilog" in ln]
+    words = line.split()
+    after = words[words.index("read_verilog") + 1 :]
+    # exactly the template's own `-sv`, then `-defer` and the source: no second `-sv`, no flag
+    assert after[:2] == ["-sv", "-defer"] and len(after) == 3, line
+    assert after[2].strip('"').endswith("top.sv"), line
+
+
+@BY_FORMAT
+@pytest.mark.parametrize(
+    ("name", "declared", "sv"),
+    [
+        ("top.v", "Verilog", False),
+        ("top.sv", "SystemVerilog", True),
+        ("top.v", "SystemVerilog", True),
+        ("top.sv", "Verilog", False),
+    ],
+)
+def test_the_reader_follows_the_sources_type_not_its_suffix(
+    tmp_path, toolchain, script_format, name, declared, sv
+):
+    """A source's `type` is authoritative (the suffix only infers it), so under the mode a
+    SystemVerilog source is read `-sv` and a Verilog one plain, whatever it is called. That is
+    `yosys <file>`'s own choice when the type is the suffix's, and the documented difference
+    when the design states a contradicting `type` (`docs/flows.rst`, the setting's description)."""
+    root = tmp_path / "design"
+    root.mkdir(exist_ok=True)
+    (root / name).write_text("module top(input clk, output q); assign q = clk; endmodule\n")
+    design = Design(
+        name="top",
+        design_root=root,
+        rtl={"sources": [{"file": name, "type": declared}], "top": "top", "clock": {"port": "clk"}},
+    )
+    flow = DefaultRunner(tmp_path / "run", display_results=False).run(
+        YosysFpga,
+        design,
+        flow_settings={
+            "fpga": PARTS["xilinx"],
+            "clock": {"period": 5.0},
+            "synth_pass_only": True,
+            "systemverilog": "default",
+            "script_format": script_format,
+            **PASS_ONLY_READER,
+        },
+    )
+    assert flow is not None and flow.succeeded
+    text = (Path(flow.run_path) / f"yosys_fpga_synth.{script_format}").read_text()
+    (line,) = [ln for ln in text.splitlines() if "read_verilog" in ln]
+    words = line.split()
+    after = words[words.index("read_verilog") + 1 :]
+    assert after[:-1] == (["-sv", "-defer"] if sv else ["-defer"]), line
+    assert after[-1].strip('"').endswith(name), line
+
+
+#: every `settings.<name>` that `read_files.ys`/`.tcl` renders into a reader command, with the
+#: decision for the mode. "refused": a conflict (and so in `CONFLICTS`); otherwise the reason it
+#: is kept. A new setting in either template fails the sweep until it is decided here.
+READER_SETTINGS = {
+    "read_verilog_flags": "refused",
+    "black_box": "refused",
+    "clockgate_map": "refused",
+    "set_attribute": "refused",
+    "set_mod_attribute": "refused",
+    "verilog_lib": "a design input: `read_verilog -lib` is how the sources reach the pass",
+    "systemverilog": "refused unless `default`: slang and UHDM are not the reader `yosys <file>.sv` uses",
+    "read_systemverilog_flags": "refused when nonempty: no flag of the reference, and only a plugin "
+    "front end reads them",
+    "use_slang_plugin": "no conflict, unreachable under the mode: it only gates `plugin -i slang`, "
+    "which the template renders when `systemverilog == slang`, and that is refused",
+    "plugins": "`plugin -i` the user asked for; reads no file and renames no cell",
+    # template variables `run()` passes, which carry settings the template does not name itself
+    "defines": "design input: a bare `yosys` needs the same `-D` to read the same source",
+    "ghdl_args": "VHDL has no bare `yosys <file>` reader; the plugin is what reads it at all",
+    "liberty": "not a `yosys_fpga` setting (the template's `is defined` guard)",
+    "debug": "`echo on` only",
+    "verbose": "`echo on` only",
+}
+
+
+def test_every_setting_the_reader_script_renders_has_a_decision_for_the_mode():
+    """The class `read_verilog_flags` was an instance of: a reader setting that reaches the
+    mode's `read_verilog`/`read_slang` and so makes it read differently from `yosys <file>`."""
+    import re
+
+    from xeda.flows.yosys import yosys_fpga
+
+    folder = Path(yosys_fpga.__file__).parent / "templates"
+    used = {
+        name
+        for suffix in ("ys", "tcl")
+        for name in re.findall(
+            r"settings\.([a-z_0-9]+)|\b(defines|ghdl_args)\b",
+            (folder / f"read_files.{suffix}").read_text(),
+        )
+        for name in name
+        if name
+    }
+    assert used == set(
+        READER_SETTINGS
+    ), f"decide the mode's behavior for {sorted(used ^ set(READER_SETTINGS))}"
+    for name, decision in READER_SETTINGS.items():
+        if decision.startswith("refused"):
+            assert name in CONFLICTS, name
+        if name == "liberty":
+            assert name not in YosysFpga.Settings.model_fields
 
 
 def test_the_refusal_arrives_at_planning_before_any_tool_runs(tmp_path, toolchain):
@@ -408,10 +727,13 @@ def test_the_refusal_arrives_at_planning_before_any_tool_runs(tmp_path, toolchai
                 "fpga": PARTS["xilinx"],
                 "clock": {"period": 5.0},
                 "synth_pass_only": True,
+                **PASS_ONLY_READER,
                 "pre_synth_opt": True,
             },
         )
     assert "`synth_pass_only`" in str(raised.value)
+    assert ": pre_synth_opt " in str(raised.value)
+    assert ": read_verilog_flags " not in str(raised.value)
     assert not list((tmp_path / "run").glob("**/*.ys"))
 
 
@@ -421,7 +743,12 @@ def test_a_design_whose_own_attributes_reach_setattr_is_refused_too(tmp_path, to
     module and yosys would drop the attributes with a warning."""
     design = _design(tmp_path)
     design.rtl.attributes = {"keep": {"top": "true"}}
-    settings = {"fpga": PARTS["xilinx"], "clock": {"period": 5.0}, "synth_pass_only": True}
+    settings = {
+        "fpga": PARTS["xilinx"],
+        "clock": {"period": 5.0},
+        "synth_pass_only": True,
+        **PASS_ONLY_READER,
+    }
     YosysFpga.check_settings_supported(
         YosysFpga.Settings(**settings)  # type: ignore[arg-type]
     )  # the settings alone carry no attribute
@@ -446,6 +773,7 @@ def test_a_nested_producer_section_reaches_the_mode_and_its_refusals(tmp_path, t
                 f"fpga.part={PARTS['ecp5']}",
                 "clock.period=5.0",
                 "flows.yosys_fpga.synth_pass_only=true",
+                "flows.yosys_fpga.read_verilog_flags=",
                 "flows.yosys_fpga.prep=-flatten",
             ],
         )
@@ -537,6 +865,7 @@ def test_a_designs_parameters_still_reach_yosys_under_the_mode(tmp_path, toolcha
             "fpga": PARTS["xilinx"],
             "clock": {"period": 5.0},
             "synth_pass_only": True,
+            **PASS_ONLY_READER,
             "script_format": script_format,
         },
     )
@@ -545,10 +874,10 @@ def test_a_designs_parameters_still_reach_yosys_under_the_mode(tmp_path, toolcha
     assert "chparam -set W 8 top" in text
 
 
-def test_systemverilog_read_by_a_plugin_under_the_mode_says_so(tmp_path, toolchain, caplog):
-    """Which front end reads the sources is the user's choice, not the recipe's -- but
-    `yosys <file>.sv` reads with the built-in reader, so the default `slang` would otherwise be
-    a mismatch found only by comparing numbers."""
+def test_a_systemverilog_design_under_the_mode_is_refused_before_any_tool_runs(tmp_path, toolchain):
+    """`yosys <file>.sv` reads with the built-in reader, so the default `slang` front end would
+    be a mismatch found only by comparing numbers: refused at planning, whatever the sources,
+    and `use_slang_plugin=false` (which only stops the plugin loading) is no way round it."""
     root = tmp_path / "design"
     root.mkdir(exist_ok=True)
     (root / "top.sv").write_text(
@@ -560,18 +889,18 @@ def test_systemverilog_read_by_a_plugin_under_the_mode_says_so(tmp_path, toolcha
         rtl={"sources": ["top.sv"], "top": "top", "clock": {"port": "clk"}},
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    base = {"fpga": PARTS["xilinx"], "clock": {"period": 5.0}, "synth_pass_only": True}
-    with caplog.at_level("WARNING", logger="xeda.flows.yosys.yosys_fpga"):
-        runner.run(YosysFpga, design, flow_settings={**base, "use_slang_plugin": False})
-    assert "systemverilog=default" in caplog.text
-    caplog.clear()
-    with caplog.at_level("WARNING", logger="xeda.flows.yosys.yosys_fpga"):
-        runner.run(
-            YosysFpga,
-            design,
-            flow_settings={**base, "systemverilog": "default", "netlist_json": "built_in.json"},
-        )
-    assert "systemverilog=default" not in caplog.text
+    base = {
+        "fpga": PARTS["xilinx"],
+        "clock": {"period": 5.0},
+        "synth_pass_only": True,
+        "read_verilog_flags": [],
+    }
+    for extra in ({}, {"use_slang_plugin": False}):
+        with pytest.raises(FlowSettingsError) as raised:
+            runner.plan(YosysFpga, design, flow_settings={**base, **extra})
+        assert ": systemverilog " in str(raised.value)
+    runner.plan(YosysFpga, design, flow_settings={**base, "systemverilog": "default"})
+    assert not list((tmp_path / "run").glob("**/*.ys"))
 
 
 def test_the_deviations_the_plan_enumerates_are_the_ones_the_default_script_renders(
@@ -588,7 +917,9 @@ def test_the_deviations_the_plan_enumerates_are_the_ones_the_default_script_rend
 
 @pytest.mark.parametrize("mapping", [{"abc9": False}, {"noabc": True}])
 def test_pass_only_accepts_flow3_when_abc9_mapping_is_disabled(mapping):
-    settings = YosysFpga.Settings(fpga=PARTS["ice40"], synth_pass_only=True, flow3=True, **mapping)
+    settings = YosysFpga.Settings(
+        fpga=PARTS["ice40"], synth_pass_only=True, flow3=True, **PASS_ONLY_READER, **mapping
+    )
     YosysFpga.check_settings_supported(settings)
     assert settings.abc9_scratchpad() == []
 
