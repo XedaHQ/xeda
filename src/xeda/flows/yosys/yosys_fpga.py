@@ -168,17 +168,16 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         synth_pass_only: bool = Field(
             False,
             description="Omit xeda's preparation and cleanup around the target's "
-            "`synth_<target>` pass, which does its own elaboration and mapping. Reader "
-            "settings, pass flags and explicit ABC9 script choices apply in either mode. "
-            "Reads each Verilog source as `yosys <file>` does, so `read_verilog_flags` must be "
-            "`[]` (a `.sv` source is read with `-sv` regardless, as yosys does). To compare "
-            "with a native yosys invocation, also match source paths and order, and for "
-            "SystemVerilog the front end (`systemverilog: default` is yosys's own). Left false, "
-            "xeda elaborates and optimizes around the pass and gives ABC9 a clock-derived delay. "
-            "Every flag of the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, "
-            "`synth_flags`, ...) applies either way; a setting that would add a step before or "
-            "after the pass, or make it read differently from `yosys <file>`, is refused rather "
-            "than ignored.",
+            "`synth_<target>` pass, which does its own elaboration and mapping. Pass flags and "
+            "explicit ABC9 script choices apply in either mode. Reads the design's sources "
+            "exactly as a bare `yosys <files>` does, so it requires `read_verilog_flags: []`, "
+            "`systemverilog: default` (yosys's built-in reader; a `.sv` source is read with "
+            "`-sv`, as yosys does) and no `read_systemverilog_flags`. To compare with a native "
+            "yosys invocation, also match source paths and order. Left false, xeda elaborates "
+            "and optimizes around the pass and gives ABC9 a clock-derived delay. Every flag of "
+            "the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) "
+            "applies either way; a setting that would add a step before or after the pass, or "
+            "make it read differently from `yosys <files>`, is refused rather than ignored.",
         )
         read_verilog_flags: list[str] = Field(
             ["-sv"],
@@ -469,10 +468,11 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             `read_verilog_flags` must be empty, judged by its value and never by whether it was
             written -- `settings.json` writes every field, so a reload would otherwise differ
             from the first run. That includes the default, which is why `read_verilog_flags: []`
-            has to be written with the mode. The front end (`systemverilog`) and
-            `read_systemverilog_flags`, which only that front end's plugin reads, are not
-            settings-only conflicts: they need the design's sources to matter, and a warning in
-            `run()` (`_warn_if_a_plugin_reads_the_sources`) says so.
+            has to be written with the mode. So is a front end that is not yosys's own
+            (`systemverilog`, whose default is the slang plugin) and the flags only that front
+            end's plugin reads (`read_systemverilog_flags`). All three are settings values, so
+            the check stays pure and class-level whatever sources the design has: the rule is
+            that the mode reads the sources exactly as a bare `yosys <files>` does.
             """
             if not self.synth_pass_only:
                 return []
@@ -540,6 +540,28 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                         "flags change how a `.v` source parses and what it accepts (a `.sv` "
                         "source is read with `-sv` regardless, as yosys does). Write "
                         "`read_verilog_flags: []` (`-s read_verilog_flags=` on the command line)",
+                    )
+                )
+            if self.systemverilog != "default":
+                front_end = {"slang": "`read_slang`", "uhdm": "Surelog/UHDM"}[self.systemverilog]
+                conflicts.append(
+                    (
+                        "systemverilog",
+                        "`synth_pass_only` reads SystemVerilog as `yosys <file>.sv` does, with "
+                        f"the built-in `read_verilog -sv`, not {front_end} "
+                        f"(`systemverilog: {self.systemverilog}`), which reads and elaborates "
+                        "differently before the pass starts. Write `systemverilog: default` "
+                        "(`-s systemverilog=default` on the command line)",
+                    )
+                )
+            if self.read_systemverilog_flags:
+                conflicts.append(
+                    (
+                        "read_systemverilog_flags",
+                        "`synth_pass_only` reads SystemVerilog as `yosys <file>.sv` does, which "
+                        "passes no flag of its own to a plugin front end, so it cannot also pass "
+                        f"{self.read_systemverilog_flags!r}. Write `read_systemverilog_flags: []` "
+                        "(`-s read_systemverilog_flags=` on the command line)",
                     )
                 )
             if self.clockgate_map:
@@ -710,28 +732,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 cls.Settings,
             )
 
-    def _warn_if_a_plugin_reads_the_sources(self) -> None:
-        """Say so when `synth_pass_only` reads SystemVerilog through a plugin front end.
-
-        Reader settings remain the user's choice. A native `yosys <file>.sv` invocation uses
-        the built-in reader, so comparing against a plugin reader may change elaboration before
-        the synthesis pass even starts.
-        """
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        if not ss.synth_pass_only or ss.systemverilog == "default":
-            return
-        sources = list(self.design.sources_of_type("SystemVerilog", rtl=True))
-        if sources:
-            log.warning(
-                "synth_pass_only reads %d SystemVerilog source(s) with the %s front end, which "
-                "`yosys <sources>` does not use. For a native-pass comparison, match reader "
-                "settings too: set systemverilog=default for the built-in reader and match "
-                "its flags.",
-                len(sources),
-                ss.systemverilog,
-            )
-
     def verilog_libraries_to_read(self, libraries: list[PrimitiveLibrary]) -> list[Path]:
         """The `verilog_lib` entries the script reads: all but a library the target's pass reads.
 
@@ -772,7 +772,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         self._refuse_synth_pass_only_conflicts(ss)
-        self._warn_if_a_plugin_reads_the_sources()
         self.prepare_output_parents()
         declared = self.outputs
         assert isinstance(declared, self.Outputs)
