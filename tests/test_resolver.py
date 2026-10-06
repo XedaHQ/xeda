@@ -976,7 +976,10 @@ def _asic_plan(tmp_path, taker, **kwargs):
         runner_cwd=tmp_path,
         run_root=tmp_path / "run",
         hashed_run_dirs=False,
-        run_path=lambda design_name, node, identity: tmp_path / "run" / design_name / node,
+        run_path=lambda design_name, node, identity, target=None: tmp_path
+        / "run"
+        / design_name
+        / node,
         **kwargs,
     )
 
