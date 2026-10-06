@@ -414,8 +414,8 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   `chains._check_chain` judges a request (action last, repeat, edge) and
   `validate_chain` appends `Did you mean ...` with whole corrected requests that pass the same
   check: another output of the producer, or stages inserted along required default-producer edges
-  (`_default_routes`, bounded and breadth-first; never a search over all flows, never an
-  never a construction of a flow). `edges`/`followers`/`predecessors` are the
+  (`_default_routes`, bounded and breadth-first; never a search over all flows, never a
+  construction of a flow). `edges`/`followers`/`predecessors` are the
   same relation for `list-flows` (`can_follow`/`can_precede`/`target_dependent`, and the
   `required`/`optional` of each input) and for shell completion (`chains.complete_request`,
   `ChainChoice.shell_complete`: the prefix returned as typed, nothing offered after an action,
