@@ -14,6 +14,7 @@ whole connected component. No flow instance or execution state is needed to make
 from __future__ import annotations
 
 import logging
+from functools import cache
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -21,8 +22,10 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
+from pydantic import create_model
+
 from ..board import WithFpgaBoardSettings
-from ..dataclass import BaseModel
+from ..dataclass import BaseModel, Field
 from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from ..flow.flow import written_path_problems
@@ -479,7 +482,7 @@ def _normalized_leaves(
     if shared == "clocks":
         clocks = request.raw.values.get("clocks", {})
         if not isinstance(clocks, Mapping):
-            settings_in_context(request.cls, {"clocks": clocks}, **context)
+            _syntax_settings(request.cls, {"clocks": clocks}, context)
         for name, raw_clock in clocks.items():
             if not isinstance(raw_clock, Mapping):
                 raise _error(request.cls, f"clocks.{name}", "a clock must be a mapping")
@@ -497,7 +500,7 @@ def _normalized_leaves(
             return result
         loc = max(given, key=lambda location: rank[location.kind])
         try:
-            model = settings_in_context(request.cls, {shared: value}, **context)
+            model = _syntax_settings(request.cls, {shared: value}, context)
             key = _platform_key(getattr(model, shared))
         except (ValueError, FlowSettingsError) as error:
             raise _error(request.cls, shared, f"{error} at {loc.label}") from error
@@ -527,7 +530,7 @@ def _normalized_leaves(
                 if value is not None and not isinstance(value, str):
                     raise ValueError("board must be a string or None")
             elif shared in ("prjxray_db", "dont_use_cells"):
-                model = settings_in_context(request.cls, {shared: value}, **context)
+                model = _syntax_settings(request.cls, {shared: value}, context)
                 value = getattr(model, shared)
                 if shared == "prjxray_db" and value is not None:
                     value = (context["design_root"] / value).resolve()
@@ -543,6 +546,29 @@ def _normalized_leaves(
             key = value
         result[target] = (value, key, loc)
     return result
+
+
+@cache
+def _syntax_model(settings_cls: type[Flow.Settings]) -> type[Flow.Settings]:
+    """`settings_cls` with each required field optional and left empty. The resolver validates
+    parts of a flow's settings (one origin's sections, one shared leaf) to check their syntax;
+    what such a part lacks is not an error there. The complete settings are validated, and their
+    required values checked, once every layer is composed."""
+    required = {
+        name: (Any, Field(None, validate_default=False))
+        for name, info in settings_cls.model_fields.items()
+        if info.is_required()
+    }
+    if not required:
+        return settings_cls
+    return create_model(settings_cls.__name__, __base__=settings_cls, **required)  # type: ignore[call-overload,no-any-return]
+
+
+def _syntax_settings(
+    cls: type[Flow], values: Mapping[str, Any], context: Mapping[str, Any]
+) -> Flow.Settings:
+    """Validate `values` as part of `cls`'s settings (`_syntax_model`)."""
+    return _syntax_model(cls.Settings).from_input(values, **context)
 
 
 def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, Any]:
@@ -562,7 +588,7 @@ def _shared_locations(
 ) -> dict[tuple[str, ...], _Leaf]:
     """Compare composed mappings with validated models without inventing API overrides."""
     try:
-        settings_in_context(cls, _nonshared_input(cls, raw.values), **context)
+        _syntax_settings(cls, _nonshared_input(cls, raw.values), context)
     except FlowSettingsError as error:
         suggest_dependency_node(cls, error)
         raise
@@ -943,7 +969,7 @@ def resolve(
             for shared in ("fpga", "board", "custom_boards_file"):
                 if shared in proposal.raw.values:
                     values[shared] = proposal.raw.values[shared]
-            settings = settings_in_context(proposal.cls, values, **context)
+            settings = _syntax_settings(proposal.cls, values, context)
             selected_inputs = []
             for declaration in declared_inputs(request.cls).values():
                 old = next(item for item in request.inputs if item.name == declaration.name)
@@ -985,9 +1011,7 @@ def resolve(
     for unused_name, unused_cls in default_flows.items():
         if unused_name not in active:
             unused = compose_flow_settings(unused_cls, [values for _label, values, _kind in layers])
-            settings_in_context(
-                unused_cls, unused, **context
-            )  # syntax only, no launch requirements
+            _syntax_settings(unused_cls, unused, context)  # syntax only, no launch requirements
     agree_targets(requests)
 
     for request in requests:

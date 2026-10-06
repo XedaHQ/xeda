@@ -31,6 +31,7 @@ from typing import Any
 import pytest
 
 import xeda
+from xeda.dataclass import Field
 from xeda.design import TYPE_ONLY, SourceType
 from xeda.flow import Flow, FlowSettingsError
 from xeda.flow.io import (
@@ -373,3 +374,57 @@ def test_the_text_scan_finds_a_name_left_in_a_file(tmp_path) -> None:
     (tmp_path / "flow.py").write_text("self.add_dependency(X)\n")
     (tmp_path / "doc.md").write_text("see copy_resources\n")
     assert names_left(tmp_path) == {"add_dependency": ["flow.py"], "copy_resources": ["doc.md"]}
+
+
+# ------------------------------------------------------------- a required model field
+
+
+class _RequiredLeaf(Flow):
+    """Declares nothing, and its settings model requires one field."""
+
+    results_description: dict[str, str] = {}
+
+    class Settings(Flow.Settings):
+        foo: str = Field(description="A setting the model requires.")
+
+    def run(self) -> None:
+        self.results["foo"] = self.settings.foo
+
+
+@pytest.fixture
+def required_leaf_design(tmp_path, monkeypatch):
+    from xeda import Design
+
+    monkeypatch.chdir(tmp_path)
+    return Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+
+
+@pytest.mark.parametrize("how", ["dict", "instance", "run_flow", "section"])
+def test_a_flow_whose_model_requires_a_setting_launches_when_it_is_given(
+    how, tmp_path, required_leaf_design
+):
+    from xeda.flow_runner import DefaultRunner
+
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    design = required_leaf_design
+    if how == "dict":
+        flow = runner.launch_flow(_RequiredLeaf, design, {"foo": "x"})
+    elif how == "instance":
+        flow = runner.launch_flow(_RequiredLeaf, design, _RequiredLeaf.Settings(foo="x"))
+    elif how == "run_flow":
+        flow = runner.run_flow(_RequiredLeaf, design, {"foo": "x"})
+    else:
+        flow = runner.launch_flow(
+            _RequiredLeaf, design, {}, all_flows_settings={_RequiredLeaf.name: {"foo": "x"}}
+        )
+    assert flow.succeeded and flow.results["foo"] == "x"
+
+
+def test_a_flow_whose_model_requires_a_setting_still_refuses_a_missing_one(
+    tmp_path, required_leaf_design
+):
+    from xeda.flow_runner import DefaultRunner
+
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(FlowSettingsError, match="foo"):
+        runner.launch_flow(_RequiredLeaf, required_leaf_design, {})
