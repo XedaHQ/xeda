@@ -23,13 +23,12 @@ from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel
-from ..design import Design
+from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException, flowrun_hash
 from ..flow.flow import written_path_problems
 from ..flow.fpga import FPGA
 from ..flow.io import declared_inputs, declared_outputs, is_declared, selected_types
 from ..flow.synth import PhysicalClock
-from ..utils import semantic_hash
 from .bindings import (
     BindingLayer,
     InputBinding,
@@ -1095,7 +1094,7 @@ def resolve(
         flow_cls.name,
         tuple(nodes),
         PlanContext(
-            semantic_hash(dict(rtl_hash=design.rtl_hash, tb_hash=design.tb_hash)),
+            design.parts_hash(DESIGN_PARTS),
             design.root_path,
             runner_cwd,
             run_root,

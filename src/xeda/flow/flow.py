@@ -653,7 +653,16 @@ class Flow(metaclass=ABCMeta):
     #: Types this flow hands its tools directly. None keeps selection in the flow's own code.
     #: Unsupported languages are refused; other unconsumed types belong to another flow.
     reads_sources: ClassVar[frozenset[SourceType] | None] = None
-    reads_source_parts: ClassVar[tuple[str, ...]] = ("rtl",)
+
+    #: The parts of the design this flow reads (`design.DESIGN_PARTS`: `rtl`, `tb`). They are
+    #: what its run is identified by -- `Design.parts_hash`, the `design_hash` of its trace and
+    #: `results.json` -- and the design files its trace records as inputs, so an edit to a part
+    #: it does not read leaves it fresh. Only its own freshness is scoped: a flow whose producer
+    #: reads another part still runs again with its producer. A part wrongly left out is a stale
+    #: reuse of a result built from other sources, one wrongly left in only a run for nothing,
+    #: so a flow that reads `tb` anywhere, in code or in a template, declares it
+    #: (`tests/test_design_parts.py`).
+    design_parts: ClassVar[frozenset[str]] = frozenset({"rtl"})
 
     #: A static explanation for flows that must not appear before the end of a chain, such as a
     #: programmer. Dynamic `always_runs()` remains the launcher's runtime freshness decision.
@@ -712,7 +721,7 @@ class Flow(metaclass=ABCMeta):
             return
         unread = [
             src
-            for part in cls.reads_source_parts
+            for part in sorted(cls.design_parts)
             for src in getattr(design, part).sources
             if src.type in LANGUAGE_TYPES and src.type not in cls.reads_sources
         ]

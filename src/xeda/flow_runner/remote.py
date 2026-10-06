@@ -52,7 +52,6 @@ from ..utils import (
     dump_json,
     json_encodable,
     location_free,
-    semantic_hash,
     settings_to_dict,
 )
 from ..version import __version__
@@ -1053,12 +1052,8 @@ class RemoteRunner(FlowLauncher):
         flowrun_hash = (
             plan.node(flow_name).flowrun_hash if plan is not None else node_identity(settings_hash)
         )
-        design_hash = semantic_hash(
-            dict(
-                rtl_hash=design.rtl_hash,
-                tb_hash=design.tb_hash,
-            )
-        )
+        # as a local run counts the design: by the parts the flow reads
+        design_hash = design.parts_hash(flow_class.design_parts)
         outputs_to = self.settings.outputs_to
         # the local mirror: always `<design>/<flow>_<flowrun_hash>` (`Settings.hashed_run_dirs`),
         # so its delivery record is this settings variant's

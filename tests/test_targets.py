@@ -15,10 +15,9 @@ from click.testing import CliRunner
 
 from xeda import Design
 from xeda.cli import cli
-from xeda.design import DesignValidationError
+from xeda.design import DESIGN_PARTS, DesignValidationError
 from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.default_runner import semantic_hash
 from xeda.flows import VivadoSynth
 from xeda.xedaproject import XedaProject
 
@@ -30,7 +29,7 @@ SINGLE = RESOURCES / "single.yaml"
 
 
 def design_hash(design: Design) -> str:
-    return semantic_hash(dict(rtl_hash=design.rtl_hash, tb_hash=design.tb_hash))
+    return design.parts_hash(DESIGN_PARTS)
 
 
 def write_design(tmp_path: Path, data: dict, name: str = "d.yaml") -> Path:

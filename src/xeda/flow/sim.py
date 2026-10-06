@@ -166,6 +166,9 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     cocotb_sim_name: Optional[str] = None
 
+    #: a simulation runs the testbench
+    design_parts = frozenset({"rtl", "tb"})
+
     class Settings(Flow.Settings):
         timeout: float | None = Field(
             None,

@@ -151,8 +151,8 @@ def test_every_contract_flow_declares_what_it_reads():
     for flow in FLOWS + ["yosys_fpga"]:
         reads = registered_flows[flow][1].reads_sources
         assert reads == frozenset(SourceType[name] for name in EXPECTED_READS[flow].split()), flow
-        parts = registered_flows[flow][1].reads_source_parts
-        assert parts == (("rtl", "tb") if flow == "vivado_project" else ("rtl",)), flow
+        parts = registered_flows[flow][1].design_parts
+        assert parts == (frozenset({"rtl", "tb"}) if flow == "vivado_project" else {"rtl"}), flow
 
 
 @needs_tclsh
