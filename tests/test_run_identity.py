@@ -707,3 +707,44 @@ def test_a_user_s_platform_counts_by_its_own_place(tmp_path, where):
         assert "$DESIGN_ROOT/pdk/" in values and str(place) not in values
     else:
         assert str(place) in values and "$XEDA" not in values
+
+
+@pytest.mark.parametrize("linked", ["installation", "design root"])
+def test_a_root_counts_however_its_path_is_spelled(tmp_path, monkeypatch, linked):
+    """A root reached through a symbolic link is one root: a path under it counts relative to it
+    whether it is spelled through the link or by the physical path. xeda imported through a
+    linked prefix gave `platform=nangate45` `$XEDA/...`, while the resolved path of that very
+    `config.toml` kept the absolute prefix -- another hash for one platform."""
+    import xeda.utils
+    from xeda.flow.flow import identity_values
+
+    physical = tmp_path / "physical"
+    link = tmp_path / "link"
+    if linked == "installation":
+        package = _install_elsewhere(physical)
+        link.symlink_to(physical, target_is_directory=True)
+        linked_package = link / package.relative_to(physical)
+        _as_installed_at(monkeypatch, linked_package)
+        assert xeda.utils.XEDA_PACKAGE_ROOT == linked_package
+        by_name = _yosys_settings(tmp_path, "nangate45")
+        by_path = _yosys_settings(tmp_path, str(package / "platforms/nangate45/config.toml"))
+        assert flowrun_hash("yosys", by_path, "d") == flowrun_hash("yosys", by_name, "d")
+        values = json.dumps(identity_values("yosys", by_path, "d"), default=str)
+        assert str(physical) not in values and "$XEDA/platforms/nangate45/" in values
+    else:
+        physical.mkdir()
+        link.symlink_to(physical, target_is_directory=True)
+        (physical / "c.xdc").write_text("\n")
+        from xeda.flows import VivadoSynth
+
+        def hashed(root: Path, xdc: Path):
+            settings = VivadoSynth.Settings.from_input(
+                {"fpga": "xc7a100tftg256-2L", "xdc_files": [str(xdc)]},
+                design_root=root,
+                runner_cwd=tmp_path / "start",
+            )
+            return json.dumps(identity_values("vivado_synth", settings), default=str)
+
+        for root, xdc in ((link, physical / "c.xdc"), (physical, link / "c.xdc")):
+            values = hashed(root, xdc)
+            assert "$DESIGN_ROOT/c.xdc" in values and str(tmp_path) not in values

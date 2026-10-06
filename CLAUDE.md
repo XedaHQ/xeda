@@ -647,7 +647,10 @@ or a template declares it (`SimFlow`, `bsc`, `vivado_project`); `tests/test_desi
 scans every flow's classes and the templates it renders. `flowrun_hash` writes any path under the design
 root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), and one under xeda's own
 installation relative to that (`$XEDA/platforms/...`, `utils.location_roots`, PCD23: a bundled
-platform's files are the same on every installation), the start directory and design
+platform's files are the same on every installation) -- each root and each path recognized as
+written and as resolved (`location_free`), so a place reached through a symbolic link counts the
+same either way; a shipped file's identity on a remote is keyed by its resolved path
+(`flow.using_path_identities`), since the remote resolves its design root -- the start directory and design
 root are validation *context* rather than settings. A parameter's value is its only record: one given as a file
 (`{ file = ... }` or `{ path = ... }`) becomes the absolute path the tool is handed, and a path
 under the design root counts relative to it (`location_free`, the `flowrun_hash` rule; one outside

@@ -1869,29 +1869,47 @@ def _remote_runner_installed_elsewhere(channel, **kwargs):
     import xeda.utils
     from xeda.flow_runner.remote import remote_runner
 
+    import gzip
+
     package = Path(kwargs["remote_path"]).parent / "elsewhere" / "site-packages" / "xeda"
     if not package.exists():
         shutil.copytree(
             Path(xeda.__file__).parent / "platforms" / "nangate45",
             package / "platforms" / "nangate45",
         )
+        # this installation's own library is no liberty at all: a run that read it, rather
+        # than the copy it is sent, fails
+        for lib in (package / "platforms" / "nangate45" / "lib").glob("*.lib.gz"):
+            with gzip.open(lib, "wt") as f:
+                f.write("not a liberty library\n")
     xeda.utils.XEDA_PACKAGE_ROOT = package
     xeda.platforms.platform.files = {"xeda.platforms": package / "platforms"}.get
     remote_runner(channel, **kwargs)
 
 
-@pytest.mark.parametrize("elsewhere", [False, True], ids=["same install", "another install"])
+@pytest.mark.parametrize("remote", ["same install", "another install", "symlinked remote home"])
 def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
-    tmp_path, remote_host, monkeypatch, elsewhere
+    tmp_path, remote_host, monkeypatch, remote
 ):
     """O-RI1 (b), PCD23: `--remote yosys -s platform=nangate45` is accepted by a remote whose
     xeda is installed under another prefix, as every remote on another machine is: the remote's
     `flow_hash` equals this side's, and the run maps to Nangate45 cells. (It used to be refused
     even from the same installation: the platform's per-corner liberty files reached the remote
-    as unexpanded `$DESIGN_ROOT/...` text, which named no shipped file.)"""
+    as unexpanded `$DESIGN_ROOT/...` text, which named no shipped file.) The other installation's
+    own library is unusable, so the run passes only on the copy it is sent. A remote whose run
+    directory is reached through a symbolic link (a linked HOME; macOS's `/tmp`) resolves its
+    design root to the physical path, which the identities of the shipped files must still
+    find."""
     require_yosys()
-    if elsewhere:
+    if remote == "another install":
         monkeypatch.setattr(remote_module, "remote_runner", _remote_runner_installed_elsewhere)
+    if remote == "symlinked remote home":
+        link = tmp_path / "linked_home"
+        link.symlink_to(remote_host, target_is_directory=True)
+        login_env = remote_module.get_login_env
+        monkeypatch.setattr(
+            remote_module, "get_login_env", lambda conn: {**login_env(conn), "HOME": str(link)}
+        )
     root = tmp_path / "design"
     root.mkdir()
     (root / "mac.v").write_text(
@@ -1914,8 +1932,10 @@ def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     remote_settings = json.loads(
         (_remote_run_dir(remote_host, "yosys") / "settings.json").read_text()
     )
-    assert Path(remote_settings["flow_settings"]["platform"]["root_dir"]).is_relative_to(
-        remote_host
+    assert (
+        Path(remote_settings["flow_settings"]["platform"]["root_dir"])
+        .resolve()
+        .is_relative_to(remote_host.resolve())
     )
     netlist = Path(results["outputs"]["netlist"]["path"]).read_text()
     assert "_X1 " in netlist or "_X2 " in netlist

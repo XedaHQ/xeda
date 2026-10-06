@@ -470,10 +470,17 @@ def identity_settings(
 _path_identities: ContextVar[Mapping[str, str]] = ContextVar("path_identities", default={})
 
 
+def _canonical_path(text: str) -> str:
+    """An absolute path as this file system resolves it: the one spelling a shipped file's
+    identity is keyed by, whether its run directory is reached through a symbolic link or not."""
+    return os.path.realpath(text) if os.path.isabs(text) else text
+
+
 @contextmanager
 def using_path_identities(paths: Mapping[str, str]) -> Iterator[None]:
-    """Keep a shipped read path's original identity while tools use its relocated file."""
-    token = _path_identities.set(dict(paths))
+    """Keep a shipped read path's original identity while tools use its relocated file. The
+    paths are keyed as this file system resolves them (`_canonical_path`), and looked up so."""
+    token = _path_identities.set({_canonical_path(path): value for path, value in paths.items()})
     try:
         yield
     finally:
@@ -486,7 +493,7 @@ def _with_path_identities(value: Any, paths: Mapping[str, str]) -> Any:
     if isinstance(value, (list, tuple)):
         return rebuild_like(value, [_with_path_identities(item, paths) for item in value])
     if isinstance(value, (str, os.PathLike)):
-        return paths.get(os.fspath(value), value)
+        return paths.get(_canonical_path(os.fspath(value)), value)
     return value
 
 

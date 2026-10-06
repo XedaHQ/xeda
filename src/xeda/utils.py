@@ -420,18 +420,31 @@ def location_roots(
     return roots
 
 
+def _spellings(path: PurePath) -> list[PurePath]:
+    """`path` as written, then as the file system resolves it, when that differs: one place
+    reached through a symbolic link (a linked prefix, macOS's `/tmp`) has two spellings."""
+    if not path.is_absolute():
+        return [path]
+    resolved = PurePath(os.path.realpath(path))
+    return [path] if resolved == path else [path, resolved]
+
+
 def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
-    """`value` with every absolute path under one of `roots` rewritten as ``$VAR/relative``."""
+    """`value` with every absolute path under one of `roots` rewritten as ``$VAR/relative``.
+
+    A root and a path are each recognized as written and as resolved, the path as written first:
+    a place reached through a symbolic link counts as the same place however it is spelled."""
     if isinstance(value, dict):
         return {key: location_free(item, roots) for key, item in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):
         return rebuild_like(value, [location_free(item, roots) for item in value])
     if isinstance(value, PurePath) or (isinstance(value, str) and os.path.isabs(value)):
-        path = PurePath(value)
-        for var, root in roots:
-            if path.is_relative_to(root):
-                relative = path.relative_to(root).as_posix()
-                return f"${var}" if relative == "." else f"${var}/{relative}"
+        root_spellings = [(var, spelling) for var, root in roots for spelling in _spellings(root)]
+        for path in _spellings(PurePath(value)):
+            for var, root in root_spellings:
+                if path.is_relative_to(root):
+                    relative = path.relative_to(root).as_posix()
+                    return f"${var}" if relative == "." else f"${var}/{relative}"
     return value
 
 

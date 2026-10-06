@@ -20,6 +20,10 @@ All notable changes to this project will be documented in this file.
 - A platform's per-corner files (`lib_files`, `dff_lib_file`, `rcx_rules`) sent to a `--remote`
   run arrived as unexpanded `$DESIGN_ROOT/...` text, naming no shipped file and giving the remote
   another run identity: the path fields of a mapping or list of nested models are expanded too.
+- A run's identity recognizes a root and a path both as written and as resolved: a design root, a
+  start directory or xeda's own installation reached through a symbolic link counts the same
+  either way, and a `--remote` run whose run directory lies under a linked path (a linked HOME,
+  macOS's `/tmp`) is no longer refused for "a different request identity".
 - `yosys` lists a `timing_report` artifact only when `sta` writes one; a remote run asked for the
   report it never wrote.
 - `yosys_fpga`'s `synth_pass_only` reads the design's sources as a bare `yosys <files>`
