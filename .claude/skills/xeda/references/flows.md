@@ -177,7 +177,7 @@ Reports: `Fmax`, `wns`, `whs`, `lut`, `ff`
 
 ### `vivado_alt_synth`
 
-*can be followed by: `openfpgaloader`*
+*can be followed by: `openfpgaloader`, `vivado_alt_synth.netlist+openroad`, `vivado_alt_synth.netlist_timing+openroad`*
 
 FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode. A generated TCL script reads the design and runs synth_design through route_design on it in memory, each step with the options its `synth`/`impl` strategy and steps give it, and reports utilization and timing. See `vivado_synth` for the same in project mode. The outputs are switched as in `vivado_synth`, but this flow writes one SDF corner (the slow one) and so declares no `sdf_min`: `write_netlist` writes the functional netlist `impl_funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`); `write_timing_netlist` writes the timing netlist `impl_timesim.v` (`netlist_timing`) and `impl_timesim.sdf` (`sdf`); `write_checkpoint` the three checkpoints (`checkpoint_synth`, `checkpoint_place`, `checkpoint_route`); `bitstream` the bitstream.
 
@@ -199,7 +199,7 @@ Reports no results beyond the keys every flow reports.
 
 ### `vivado_synth`
 
-*can be followed by: `openfpgaloader`*
+*can be followed by: `openfpgaloader`, `vivado_synth.netlist+openroad`, `vivado_synth.netlist_timing+openroad`*
 
 FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing; with a `bitstream` requested it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs asked for are registered as artifacts (label in parentheses). `write_checkpoint`: `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in `outputs/route_design/`: the functional Verilog netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist`, in the same directory: the timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast- and slow-corner SDF `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`, recorded as the output `sdf`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`). The flow fails unless each run completes the step it is launched to (Vivado's own status of the run, which the `status` result records), and, with a bitstream asked for, unless the bitstream is where it is registered. Each file has its own switch, and a file is a declared output (recorded in `results.json`'s `outputs` with its digest) where its setting is named here. `write_netlist` writes the functional netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`, a plain artifact). `write_timing_netlist` writes the timing netlist `timesim.v` (`netlist_timing`) and both SDF corners, `timesim.max.sdf` (`sdf`) and `timesim.min.sdf` (`sdf_min`). `write_checkpoint` writes both checkpoints (`checkpoint_synth`, `checkpoint_route`); `bitstream` writes the bitstream (`bitstream`).
 
@@ -235,13 +235,13 @@ Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_vio
 
 ### `openroad`
 
-*runs first: `yosys`*
+*runs first: `yosys` | can follow: `vivado_alt_synth.netlist`, `vivado_alt_synth.netlist_timing`, `vivado_synth.netlist`, `vivado_synth.netlist_timing`, `yosys`*
 
 OpenROAD open-source ASIC synthesis flow
 
 Required settings: `platform`
 
-72 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
+71 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
 
 Reports: `Fmax`, `wns`, `tns`, `worst_slack`, `setup_violations`, `hold_violations`, `design_area`, `design_area_unit`, `utilization_percent`
 
@@ -256,6 +256,8 @@ Convert a VHDL design using 'ghdl --synth' (Please take a look at 'Yosys' flow (
 Reports no results beyond the keys every flow reports.
 
 ### `yosys`
+
+*can be followed by: `openroad`*
 
 Yosys Open SYnthesis Suite: ASICs and generic gate/LUT synthesis
 

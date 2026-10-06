@@ -288,7 +288,9 @@ def test_openroad_s_dependency_reads_flows_yosys_and_nothing_in_openroad_s_direc
     assert str(openroad_dir) not in script
     (liberty,) = _effective(run_dir)["liberty"]
     assert (run_dir / liberty).parent == run_dir
-    assert (run_dir / liberty).read_bytes() == (openroad_dir / "merged.lib").read_bytes()
+    assert (run_dir / liberty).is_file()
+    # A failed producer never starts OpenROAD, so no consumer library is created.
+    assert not (openroad_dir / "merged.lib").exists()
 
 
 # ------------------------------------------------------------------ with the real yosys

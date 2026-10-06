@@ -7,7 +7,7 @@ puts [sta::network_leaf_instance_count]
 print_banner "pin_count"
 puts [sta::network_leaf_pin_count]
 
-set_dont_use {{settings.dont_use_cells|tcl_list}}
+set_dont_use {{dont_use_cells()|tcl_list}}
 
 # Do not buffer chip-level designs
 {% if settings.footprint %}

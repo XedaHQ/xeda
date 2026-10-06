@@ -278,15 +278,19 @@ def test_a_removed_flow_named_on_the_command_line_as_a_section_says_so(tmp_path)
 # ------------------------------------- openroad's settings that configured yosys (R-PC-b)
 
 #: what `openroad` had only to hand to its `yosys` dependency, now yosys's own settings
-MOVED_TO_YOSYS = {"optimize": "speed", "abc_driver_cell": "BUF_X4", "abc_load_in_ff": 2.5}
+MOVED_TO_YOSYS = {
+    "optimize": "speed",
+    "abc_driver_cell": "BUF_X4",
+    "abc_load_in_ff": 2.5,
+    "blocks": "mul8",
+}
 
 
 @pytest.mark.parametrize("origin", ["design", "project", "cli", "flows-cli", "api"])
 @pytest.mark.parametrize("name", MOVED_TO_YOSYS)
 def test_openroad_s_yosys_settings_moved_and_name_where(tmp_path, monkeypatch, name, origin):
-    """`optimize`, `abc_driver_cell` and `abc_load_in_ff` act on yosys's mapping, so they are
-    yosys's settings: given to `openroad` from any origin, each is an error naming
-    `flows.yosys.<name>`."""
+    """The settings used to configure synthesis name their replacements at every origin;
+    `blocks` becomes `flows.yosys.black_box` (PCD16's owner ruling)."""
     from xeda import Design
     from xeda.flow_runner import DefaultRunner
 
@@ -294,15 +298,23 @@ def test_openroad_s_yosys_settings_moved_and_name_where(tmp_path, monkeypatch, n
     (tmp_path / "mac.v").write_text("module mac(input clk); endmodule\n")
     value = MOVED_TO_YOSYS[name]
     sections = {"openroad": {name: value}} if origin == "design" else {}
-    design = Design(
-        name="mac",
-        design_root=tmp_path,
-        rtl={"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
-        flows=sections,
+    import json
+
+    design_file = tmp_path / "mac.json"
+    design_file.write_text(
+        json.dumps(
+            {
+                "name": "mac",
+                "rtl": {"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
+                "flows": sections,
+            }
+        )
     )
+    design = Design.from_file(design_file)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     base = ["platform=nangate45", "clock.period=2.0"]
-    message = f"`{name}` was removed: use `flows.yosys.{name}`"
+    replacement = "black_box" if name == "blocks" else name
+    message = f"`{name}` was removed: use `flows.yosys.{replacement}`"
     with pytest.raises(Exception, match=re.escape(message)):
         if origin == "project":
             project = tmp_path / "project.yaml"
@@ -322,9 +334,7 @@ def test_openroad_s_yosys_settings_moved_and_name_where(tmp_path, monkeypatch, n
 
 def test_a_moved_setting_reaches_openroad_s_synthesis_from_a_file_section(tmp_path, monkeypatch):
     """Where the tombstone sends a user: a design's `flows.yosys` section reaches the yosys run
-    `openroad` launches. (`-s flows.yosys.*` with `xeda run openroad` is refused until openroad
-    declares its input, PC Task 6: its synthesis is not yet a flow of the run the command line
-    can see -- `test_flows_yosys_on_openroad_s_command_line_waits_for_its_declared_input`.)"""
+    `openroad` launches. The command-line parametrization below checks the same flat spelling."""
     import contextlib
 
     from xeda import Design
@@ -350,18 +360,20 @@ def test_a_moved_setting_reaches_openroad_s_synthesis_from_a_file_section(tmp_pa
     assert "&if,-g,-K,6" in script
 
 
-def test_flows_yosys_on_openroad_s_command_line_waits_for_its_declared_input(tmp_path):
-    """Tripwire for PC Task 6: once `openroad` declares its `netlist` input from `yosys`,
-    `-s flows.yosys.optimize=...` is a setting of a flow of the run and this must be inverted."""
+@pytest.mark.parametrize("key,value", MOVED_TO_YOSYS.items())
+def test_flows_yosys_on_openroad_s_command_line_reaches_its_producer(tmp_path, key, value):
+    """The tombstones' advice is a usable command-line setting of the declared producer."""
     from xeda import Design
     from xeda.flow_runner import DefaultRunner
 
     (tmp_path / "mac.v").write_text("module mac(input clk); endmodule\n")
     design = Design(name="mac", design_root=tmp_path, rtl={"sources": ["mac.v"], "top": "mac"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    with pytest.raises(FlowSettingsError, match="names no flow of this run"):
-        runner.plan(
-            "openroad",
-            design,
-            flow_settings=["platform=nangate45", "flows.yosys.optimize=speed"],
-        )
+    replacement = "black_box" if key == "blocks" else key
+    plan = runner.plan(
+        "openroad",
+        design,
+        flow_settings=["platform=nangate45", f"flows.yosys.{replacement}={value}"],
+    )
+    observed = getattr(plan.node("yosys").settings, replacement)
+    assert observed == ([value] if key == "blocks" else value)
