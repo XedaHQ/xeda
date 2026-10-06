@@ -98,7 +98,7 @@ PLATFORMS = Path(xeda.__file__).parent / "platforms"
 #: What a conversion legitimately changes, each entry a path into a golden (`/`-separated, `*`
 #: for any one key; a key that itself holds `/`, such as a file's path, is named whole) and the
 #: reason, per request. It is removed from the golden and from what is observed before they are
-#: compared.
+#: compared. A tuple of keys names each key whole.
 _SYNTH = "nodes/sim/vivado_synth"
 _SYNTH_DELTAS = {
     f"{_SYNTH}/effective_flow_settings/write_timing_netlist": "Task 2 (R-PC-a): a new setting "
@@ -110,7 +110,7 @@ _SYNTH_DELTAS = {
     "route hook writes the netlist, the timing netlist with its SDF and the constraints in "
     "blocks of their own; it writes the same files in the same order",
 }
-REVIEWED_DELTAS: dict[str, dict[str, str]] = {
+REVIEWED_DELTAS: dict[str, dict[tuple[str, ...] | str, str]] = {
     "vivado_postsynth_sim_functional": {
         **_SYNTH_DELTAS,
         "nodes/sim/vivado_postsynth_sim/effective_flow_settings/synth/write_timing_netlist": "Task 2: "
@@ -129,6 +129,69 @@ REVIEWED_DELTAS: dict[str, dict[str, str]] = {
         "the new setting, in the nested synthesis settings (`init` forces it, as `write_netlist`)",
     },
 }
+
+#: Where a conversion moved a file without changing it: in what is observed, each name is
+#: replaced by the one the golden recorded, per request, so the file's digest and every command
+#: that names it are still compared.
+REVIEWED_RENAMES: dict[str, dict[str, str]] = {}
+
+# PC Task 5 (PCD9 step 1, R-PC-b, PCD16): `yosys` is configured by its own `platform`, which
+# `openroad` now hands it with the settings the two share, instead of by `openroad` building its
+# whole configuration. What yosys is handed is otherwise unchanged -- the merged library, the
+# maps, the abc script and constraints, the netlist -- and is compared as before.
+_YOSYS = "mac/yosys"
+_OPENROAD = "mac/openroad"
+_TASK5_DELTAS: dict[tuple[str, ...] | str, str] = {
+    **{
+        ("nodes", _OPENROAD, "effective_flow_settings", key): (
+            "R-PC-b: a setting of the flow that acts on it, `yosys`; `openroad` has it no more"
+        )
+        for key in ("optimize", "abc_driver_cell", "abc_load_in_ff")
+    },
+    **{
+        ("nodes", _YOSYS, "effective_flow_settings", key): (
+            "yosys's own setting now (R-PC-b, PCD16): `optimize` and the abc cell settings moved "
+            "to it; `platform` and `corner` are what `openroad` hands it, the shared leaves it "
+            "derives the rest from"
+        )
+        for key in ("optimize", "abc_driver_cell", "abc_load_in_ff", "platform", "corner")
+    },
+    ("nodes", _YOSYS, "effective_flow_settings", "merge_libs_to"): (
+        "yosys merges the platform's liberty set in its own run directory (PCD16), under its own "
+        "default name; the merged library's content is compared, after REVIEWED_RENAMES"
+    ),
+    ("nodes", _YOSYS, "files", "<RUN>/mac/yosys/yosys_synth.ys"): (
+        "the script names the merged library at its new place; its text is compared, after "
+        "REVIEWED_RENAMES, under `scripts`"
+    ),
+    ("nodes", _YOSYS, "results", "artifacts", "timing_report"): (
+        "yosys lists its timing report only where `sta` writes one, as `yosys_fpga` does; none of "
+        "these runs writes it, and a remote run was asked for the file it never wrote"
+    ),
+    ("nodes", _YOSYS, "results", "outputs"): (
+        "yosys declares its netlist (PC Task 5): the declared output's record is new"
+    ),
+}
+_TASK5_RENAMES = {
+    # longest first: the merged library, by its path and as the script names it
+    "<RUN>/mac/yosys/merged_lib.lib": "<RUN>/mac/openroad/merged.lib",
+    "merged_lib.lib": "<RUN>/mac/openroad/merged.lib",
+}
+for _name in (
+    "openroad",
+    "openroad_blocks",
+    "openroad_dont_use_cells",
+    "openroad_asap7_ss",
+    "openroad_asap7_tt",
+):
+    REVIEWED_DELTAS[_name] = dict(_TASK5_DELTAS)
+    REVIEWED_RENAMES[_name] = dict(_TASK5_RENAMES)
+REVIEWED_DELTAS["openroad_dont_use_cells"][
+    ("nodes", _YOSYS, "effective_flow_settings", "dont_use_cells")
+] = (
+    "a shared leaf (PCD16): `openroad` hands yosys its own `dont_use_cells`, which yosys marks "
+    "in its merge beside the platform's, instead of handing it a library already merged"
+)
 
 #: Fields of `results.json` that name the run rather than what it did.
 IDENTITY_AND_TIMING = {"design_hash", "flow_hash", "settings_hash", "runtime", "timestamp"}
@@ -405,10 +468,10 @@ def launch(request: Request, work: Path, monkeypatch: pytest.MonkeyPatch) -> dic
 # ------------------------------------------------------------------------------ comparison
 
 
-def without(record: Any, deltas: dict[str, str]) -> Any:
-    """`record` without the entries `deltas` names: `/`-separated keys, `*` for any one. A key may
-    itself hold `/` (a node's `sim/vivado_synth`, a file's path): any run of segments that names
-    a key is taken for it."""
+def without(record: Any, deltas: dict[tuple[str, ...] | str, str]) -> Any:
+    """`record` without the entries `deltas` names: a tuple of keys, or `/`-separated keys, `*`
+    for any one. In the `/`-separated form a key may itself hold `/` (a node's
+    `sim/vivado_synth`, a file's path): any run of segments that names a key is taken for it."""
 
     def prune(node: Any, path: list[str]) -> Any:
         if not path or not isinstance(node, dict):
@@ -426,7 +489,7 @@ def without(record: Any, deltas: dict[str, str]) -> Any:
         return pruned
 
     for delta in deltas:
-        record = prune(record, delta.split("/"))
+        record = prune(record, list(delta) if isinstance(delta, tuple) else delta.split("/"))
     return record
 
 
@@ -476,7 +539,10 @@ def test_a_request_hands_its_tools_what_it_did_before_the_conversion(captured, n
     ), f"no golden for {name}: XEDA_PC_EQUIVALENCE_CAPTURE=1 records a missing one"
     deltas = REVIEWED_DELTAS.get(name, {})
     expected = without(json.loads(path.read_text()), deltas)
-    assert without(json.loads(render(observed)), deltas) == expected
+    text = render(observed)
+    for new, old in REVIEWED_RENAMES.get(name, {}).items():
+        text = text.replace(new, old)
+    assert without(json.loads(text), deltas) == expected
 
 
 # ------------------------------------------------------------------------------ teeth
@@ -553,13 +619,14 @@ def test_the_timing_and_functional_simulations_are_handed_different_netlists(cap
 
 
 def merged_library(record: dict[str, Any]) -> str:
-    """The merged liberty library `openroad` makes and `yosys` reads: one content, wherever the
-    flows keep it (today `yosys` reads the file in `openroad`'s run directory)."""
+    """The merged liberty library `yosys` reads: one content, wherever the flows keep it (it
+    read `merged.lib` in `openroad`'s run directory, and since PC Task 5 merges its own,
+    `merged_lib.lib`, from the same platform)."""
     found = {
         digest
         for node in record["nodes"].values()
         for name, digest in node["files"].items()
-        if name.endswith("/merged.lib")
+        if name.endswith(("/merged.lib", "/merged_lib.lib"))
     }
     assert len(found) == 1, found
     return next(iter(found))

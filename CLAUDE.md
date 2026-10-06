@@ -441,7 +441,11 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   names the reason: "netlist now from __synth.netlist (was yosys_fpga.netlist)", or the
   producer that "has other settings or inputs than in the last run".
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`,
-  `clocks` and `prjxray_db` apply where both endpoints declare them. Disjoint leaves combine; conflicting values fail with
+  `clocks`, `prjxray_db`, `platform`, `corner` and `dont_use_cells` apply where both endpoints
+  declare them. Each contribution carries the value it propagates and a key it is compared by
+  (PCD17, `resolver._normalized_leaves`): the same for every leaf but `platform` -- indivisible,
+  propagated exactly as given, compared by a location-free projection of its validated model
+  (`_platform_key`) -- and `corner`, compared by the corner it selects. Disjoint leaves combine; conflicting values fail with
   both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
   `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
   leaves; API contributions remain a separate highest-precedence origin. Undeclared edges keep
@@ -641,7 +645,12 @@ keep the whole design, since they protect the user's files and verify the reques
 left out is a stale reuse, one wrongly left in a run for nothing, so a flow that reads `tb` in code
 or a template declares it (`SimFlow`, `bsc`, `vivado_project`); `tests/test_design_parts.py`
 scans every flow's classes and the templates it renders. `flowrun_hash` writes any path under the design
-root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), the start directory and design
+root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), and one under xeda's own
+installation relative to that (`$XEDA/platforms/...`, `utils.location_roots`, PCD23: a bundled
+platform's files are the same on every installation) -- each root and each path recognized as
+written and as resolved (`location_free`), so a place reached through a symbolic link counts the
+same either way; a shipped file's identity on a remote is keyed by its resolved path
+(`flow.using_path_identities`), since the remote resolves its design root -- the start directory and design
 root are validation *context* rather than settings. A parameter's value is its only record: one given as a file
 (`{ file = ... }` or `{ path = ... }`) becomes the absolute path the tool is handed, and a path
 under the design root counts relative to it (`location_free`, the `flowrun_hash` rule; one outside
@@ -975,19 +984,16 @@ and `test_nvc.py` simulate the examples in place.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
   keys. **Requirement: a remote runs a P3-capable build (this branch or newer)**: release line
   `REMOTE_XEDA_MIN_VERSION = (0, 4, 4)` (including `0.4.4.devN+g...`) and
-  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 7: protocol 2 adds
-  canonical resolved settings, relocated read inputs with their original path identities, declared
-  output records and checked hand-over; protocol 3 requires remote simulations to satisfy P1b's
-  current-run evidence rule; protocol 4 adds P2b's FPGA build graph, the `fpga_pack` flow;
-  protocol 5 the programming-only `openfpgaloader`, which consumes `fpga_pack`'s bitstream;
-  protocol 6 requires the D-9 identity rule: a node's `flow_hash` is its settings plus its ordered
-  resolved input origins, the hash `RemoteRunner` names the mirror by and compares with the
-  remote's reported `flow_hash`, so a protocol-5 remote is refused up front, not accepted and
-  then failed on a hash mismatch it cannot explain; protocol 7: `vivado_synth` and
-  `vivado_alt_synth` declare their outputs and gain `write_timing_netlist`, so a protocol-6
-  remote would refuse the setting and resolve those flows, undeclared, to another identity;
-  `tests/test_remote_streaming.py` and
-  `tests/test_remote_run.py` pin the refusal).
+  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 1, the first released
+  protocol -- no earlier release carried a marker: canonical resolved settings, relocated read
+  inputs with their original path identities, declared output records and checked hand-over,
+  current-run evidence for remote simulations, the FPGA build graph with `fpga_pack` and a
+  programming-only `openfpgaloader`, the D-9 identity rule -- a node's `flow_hash` is its settings
+  plus its ordered resolved input origins, the hash `RemoteRunner` names the mirror by and compares
+  with the remote's -- the declared Vivado outputs, and `yosys`'s declared netlist with its ASIC
+  configuration, a bundled platform counted relative to xeda's installation (PCD23); a remote
+  with no marker or a lower one is refused up front, not failed on a hash mismatch it cannot
+  explain; `tests/test_remote_streaming.py` and `tests/test_remote_run.py` pin the refusal).
   `check_remote_xeda` refuses xeda 0.4.3 and development checkouts without the capability with an
   "upgrade the remote xeda" error before anything ships. Version alone does not prove protocol
   support.
@@ -996,9 +1002,10 @@ and `test_nvc.py` simulate the examples in place.
   remains stdlib-only. execnet starts `python3` from the *non-login* PATH, so a shadowing checkout
   must be upgraded or removed even if another installed distribution is current.
   **On release**, raise `REMOTE_XEDA_MIN_VERSION` to the published P2a-or-newer release tuple and
-  retain its protocol marker. For an incompatible remote archive or launch-contract change,
-  increment the exposed `REMOTE_PROTOCOL_VERSION` and the required `REMOTE_PROTOCOL_MIN_VERSION`
-  together; update `test_remote_run.py`'s `P2A_RTL_KEYS`/`P2A_TB_KEYS`/`P2A_GIT_REFERENCE_KEYS`
+  retain its protocol marker. The exposed `REMOTE_PROTOCOL_VERSION` and the required
+  `REMOTE_PROTOCOL_MIN_VERSION` are raised together once per release cycle, when anything
+  remote-visible changed since the last release; pull requests between releases do not bump them
+  (development builds are not supported remotes). When they are raised, update `test_remote_run.py`'s `P2A_RTL_KEYS`/`P2A_TB_KEYS`/`P2A_GIT_REFERENCE_KEYS`
   and nullable-key pins and verify archive/source round trips plus the popen remote runs. The
   archive and shipped worker may rely on the API guaranteed by that protocol floor; no 0.4.3
   archive projection or compatibility policy is maintained.
@@ -1416,6 +1423,10 @@ dependency must also share `custom_boards_file`.
   nothing, a second design reusing the one chip database (generated once per session, shared
   by xdist workers under their common temporary directory), and the generator tree unchanged.
   It is its own variable, not `XEDA_TESTS_REQUIRE_TOOLS`: CI has no openXC7.
+  `XEDA_TESTS_ASAP7_PLATFORM` names an asap7 `config.toml` whose liberty files are present (the
+  package ships the description only): `tests/test_yosys_asic.py` then checks, with the real
+  yosys, that `yosys` alone and `openroad`'s dependency hand abc identical inputs for
+  `corner=SS` and end alike (an owner exception, 2026-10-06: ABC crashes there on `main` too).
 - **No test programs a device, structurally.** `tests/conftest.py`'s autouse `programmer_guard`
   puts a sentinel `openFPGALoader` first on every test's `PATH` (the fake toolchain goes in front
   of it; child processes and the popen remote worker inherit it) and fails a test that started

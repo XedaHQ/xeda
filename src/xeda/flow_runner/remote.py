@@ -52,6 +52,7 @@ from ..utils import (
     dump_json,
     json_encodable,
     location_free,
+    location_roots,
     settings_to_dict,
 )
 from ..version import __version__
@@ -205,16 +206,18 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
         )
 
 
-#: The P2a release line, including its dev builds. Protocol 3 adds P1b's simulation evidence rule;
-#: protocol 4 P2b's FPGA build graph (the declared `fpga_pack` flow and its settings); protocol 5
-#: the programming-only `openfpgaloader` (its build settings and the `open_xc7` flow are gone);
-#: protocol 6 P3's node identity (D-9): a node's `flow_hash` is its settings plus its ordered
-#: resolved input origins, which is the hash this side names the mirror by and compares with the
-#: remote's report, so a protocol-5 remote's would never match; protocol 7 the declared outputs
-#: of `vivado_synth` and `vivado_alt_synth` and their `write_timing_netlist` setting, which a
-#: protocol-6 remote refuses as unknown and resolves, undeclared, to another identity.
+#: The release line a remote must run, and the remote protocol it must speak. Protocol 1, the first
+#: released one (no earlier release carried a marker), is: canonical resolved settings, relocated
+#: read inputs with their path identities, declared output records with checked hand-over,
+#: current-run evidence for simulations, the FPGA build graph (`fpga_pack`, a programming-only
+#: `openfpgaloader`), the D-9 identity rule (a node's `flow_hash` is its settings plus its ordered
+#: resolved input origins, which this side names the mirror by and compares with the remote's),
+#: the declared Vivado outputs, and `yosys`'s declared netlist with its ASIC configuration, a
+#: bundled platform counted relative to xeda's installation (PCD23). Raised together with
+#: `xeda.REMOTE_PROTOCOL_VERSION` once per release cycle; development builds are not supported
+#: remotes.
 REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
-REMOTE_PROTOCOL_MIN_VERSION = 7
+REMOTE_PROTOCOL_MIN_VERSION = 1
 
 # Runs before shipping anything. Inspect the package this interpreter actually imports: installed
 # distribution metadata alone can describe a different xeda shadowed by a stale checkout. A
@@ -258,11 +261,10 @@ def check_remote_xeda(
     surfaces as whatever the old loader happens to choke on first -- a 0.2 remote reported
     `rtl.sources: unhashable type: 'dict'`.
 
-    P2a requires its release line (`REMOTE_XEDA_MIN_VERSION`, including dev builds), P1b
-    protocol 3 for the remote simulation evidence rule, and P3 protocol 6 for its node identity
-    (D-9; a remote of protocol 5 reports another `flow_hash` for the same request, so it is
-    refused here rather than failing on a hash mismatch after the run). Version alone cannot
-    distinguish development checkouts that predate a contract.
+    The remote needs the release line `REMOTE_XEDA_MIN_VERSION` and protocol
+    `REMOTE_PROTOCOL_MIN_VERSION` (a xeda without a marker reports 0): one that resolves the
+    same request otherwise reports another `flow_hash`, so it is refused here rather than failing
+    on a hash mismatch after the run. Version alone cannot tell a release from a checkout.
     A compatible remote on another release line is warned about settings differences.
     """
     required = ".".join(str(part) for part in REMOTE_XEDA_MIN_VERSION)
@@ -448,8 +450,7 @@ def send_design(
                 digest = hashlib.sha256(str(path).encode()).hexdigest()[:16]
                 relative = Path("_setting_inputs") / digest / local.name
             if path_identities is not None:
-                roots = [("DESIGN_ROOT", design.root_path), ("PWD", Path.cwd())]
-                roots.sort(key=lambda item: len(item[1].parts), reverse=True)
+                roots = location_roots(design.root_path, Path.cwd())
                 path_identities[str(Path(remote_path) / relative)] = str(
                     location_free(value, roots)
                 )

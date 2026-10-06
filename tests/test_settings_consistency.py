@@ -398,3 +398,49 @@ def test_deriving_a_sibling_tool_renames_its_container():
     derived = tool.derive("nvc")
 
     assert derived.docker is not None and derived.docker.name == "nvc"
+
+
+# ---------------------------------------------------------------------------------------------
+# Shared leaves: a setting two connected flows agree on is one setting, of one type.
+# ---------------------------------------------------------------------------------------------
+
+
+def _product_flows():
+    from xeda.flow import registered_flows
+
+    return {
+        cls.name: cls
+        for _, cls in registered_flows.values()
+        if cls.__module__.startswith("xeda.flows.")
+    }
+
+
+def test_every_shared_setting_has_one_type_in_every_flow_that_declares_it():
+    """`resolver.SHARED_SETTINGS` agree along declared edges and are propagated as given, so a
+    value one flow accepts the other must accept too: the same annotation wherever one is
+    declared. (`openroad`'s `platform` was a required `AsicsPlatform` where `yosys`'s and `dc`'s
+    is optional: a setting a flow cannot run without is its `required_settings`, never required
+    on the model.)"""
+    from xeda.flow_runner.resolver import SHARED_SETTINGS
+
+    assert {"platform", "corner", "dont_use_cells"} <= set(SHARED_SETTINGS)
+    flows = _product_flows()
+    retyped = {}
+    for name in SHARED_SETTINGS:
+        annotations = {
+            flow: cls.Settings.model_fields[name].annotation
+            for flow, cls in flows.items()
+            if name in cls.Settings.model_fields
+        }
+        if len(set(map(str, annotations.values()))) > 1:
+            retyped[name] = annotations
+    assert not retyped
+
+
+def test_corner_and_dont_use_cells_are_yosys_s_and_openroad_s_alone():
+    """PCD17's containment: `yosys -> openroad` is the only edge on which `corner` or
+    `dont_use_cells` can agree, because no other product flow declares either."""
+    flows = _product_flows()
+    for name in ("corner", "dont_use_cells"):
+        holders = {flow for flow, cls in flows.items() if name in cls.Settings.model_fields}
+        assert holders == {"yosys", "openroad"}, name
