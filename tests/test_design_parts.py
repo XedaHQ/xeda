@@ -26,6 +26,7 @@ import inspect
 import json
 import re
 import sys
+import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -514,6 +515,53 @@ def _template_names(env, text_of) -> list[str]:
     return sorted(env.loader.list_templates())
 
 
+def shipped_template_suffixes() -> frozenset[str]:
+    """The file suffixes the wheel ships as package data (`pyproject.toml`'s
+    `[tool.setuptools.package-data]`, `*.tcl`, `*.ys`, ...): the suffixes a template can have."""
+    pyproject = Path(__file__).parent.parent / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())["tool"]["setuptools"]["package-data"]
+    return frozenset(
+        Path(pattern).suffix for patterns in data.values() for pattern in patterns if "*" in pattern
+    )
+
+
+def renderable(names: Iterable[str]) -> list[str]:
+    """The names among `names`, as a Jinja loader lists them, that are templates. A loader lists
+    every file under a template directory, and a `templates` package keeps its compiled
+    bytecode there (`templates/__pycache__/__init__.cpython-313.pyc`, which is no text); only a
+    file of a shipped template suffix, outside any cache directory, can be rendered."""
+    suffixes = shipped_template_suffixes()
+    return [
+        name
+        for name in names
+        if Path(name).suffix in suffixes and "__pycache__" not in Path(name).parts
+    ]
+
+
+def test_only_shipped_template_suffixes_are_templates() -> None:
+    """A compiled file in a template directory, which a loader lists and which is no text, is
+    not one -- nor a Python source or a cache directory's file of any name."""
+    listed = [
+        "synth.tcl",
+        "read_files.ys",
+        "macros.tcl.j2",
+        "nvc_end.cpp",
+        "sim_record.h",
+        "__pycache__/__init__.cpython-313.pyc",
+        "__pycache__/synth.tcl",
+        "__init__.py",
+        "stray.pyc",
+        "notes.bin",
+    ]
+    assert renderable(listed) == [
+        "synth.tcl",
+        "read_files.ys",
+        "macros.tcl.j2",
+        "nvc_end.cpp",
+        "sim_record.h",
+    ]
+
+
 def reachable_templates(cls: type[Flow]) -> dict[str, str]:
     """The templates `cls`'s code can render, by name, with their text: the loader's templates
     (`Flow._create_jinja_env`, the one the flow renders with: its module and its bases', so a
@@ -521,7 +569,10 @@ def reachable_templates(cls: type[Flow]) -> dict[str, str]:
     a pattern (`f"constraints.{ext}"`) -- and every template those include, an include of a
     computed name (`{% include step + '.tcl' %}`) being any template that matches its tail."""
     env = cls._create_jinja_env(extra_modules=[cls.__module__])
-    available = {name: env.loader.get_source(env, name)[0] for name in env.loader.list_templates()}
+    available = {
+        name: env.loader.get_source(env, name)[0]
+        for name in renderable(env.loader.list_templates())
+    }
     names: set[str] = set()
     patterns: set[str] = set()
     for node in _flow_nodes(cls):
