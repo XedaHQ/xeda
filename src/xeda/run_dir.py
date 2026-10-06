@@ -199,8 +199,9 @@ class RunDirectory:
     def unlinked(self, path: str | os.PathLike) -> Path:
         """`path` inside the run directory (`inside`), reached through no symbolic link at all,
         not even one that stays inside: what xeda's own caches under a run root are named by
-        (the Xilinx chip databases, a design generator's records). Replacing such a name with a
-        link would split a durable lock, or an immutable entry, between two inodes."""
+        (the Xilinx chip databases, a design generator's records, a Git dependency's clone).
+        Replacing such a name with a link would split a durable lock, or an immutable entry,
+        between two inodes, or send a clone where the run root does not reach."""
         located = self.inside(path)
         given = Path(path)
         lexical = Path(os.path.abspath(given if given.is_absolute() else self.path / given))

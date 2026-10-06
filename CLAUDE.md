@@ -820,8 +820,11 @@ generator declaring no `sources`, no run root in sight (a `Design` built
 directly), or a run root whose cache cannot be written. A planning load creates, locks and writes
 nothing -- it reads an existing record, and still refuses to plan a design that must generate.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
-symbolic link on the way, not even one that stays inside), shared by the chip databases and the
-generator records. `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
+symbolic link on the way, not even one that stays inside), shared by the chip databases, the
+generator records and the Git dependency clones (`<run root>/.dependencies/<host>/<path>`, named by
+`design.clone_location`, which also refuses a host, path, branch or commit with a `.` or `..`
+component or a backslash; a `local_cache` or `clone_dir` is the user's own directory, so only those
+names are checked there). `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
 **`--rebuild-all`/`--clean` regenerates**, carried to the load by `LoadContext.rebuild_all`, and
 records what that generation leaves: that is the escape where something xeda cannot see changed
 (a generator's environment is deliberately untracked), since a `touch` no longer forces anything.

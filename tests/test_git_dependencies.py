@@ -1,12 +1,21 @@
 """Git dependencies are cloned into the run root, never into the start directory."""
 
+import os
+import re
 from pathlib import Path
 
 import pytest
 
 from xeda import Design
-from xeda.design import DesignValidationError, loading_in_run_root
+from xeda.design import (
+    DEPENDENCY_CLONES,
+    DesignValidationError,
+    GitReference,
+    clone_location,
+    loading_in_run_root,
+)
 from xeda.flow_runner import DefaultRunner
+from xeda.run_dir import RunDirectory, RunDirectoryError
 
 URI = "https://example.com/u/lib.git#lib.toml"
 
@@ -108,15 +117,11 @@ def test_a_crafted_git_url_is_refused_before_any_clone(tmp_path, monkeypatch, cl
 def test_the_mapping_form_is_refused_the_same_way(fields):
     from pydantic import ValidationError
 
-    from xeda.design import GitReference
-
     with pytest.raises(ValidationError, match=r"\.\."):
         GitReference(**fields)
 
 
 def test_a_branch_with_a_slash_is_still_cloned_inside_the_cache(tmp_path, clones):
-    from xeda.design import GitReference
-
     ref = GitReference(
         uri="https://h/u/lib.git?branch=release/1.0#lib.toml", local_cache=tmp_path / "cache"
     )
@@ -125,8 +130,6 @@ def test_a_branch_with_a_slash_is_still_cloned_inside_the_cache(tmp_path, clones
 
 def test_a_clone_directory_outside_the_cache_is_refused(tmp_path):
     """Even a reference built without validation cannot clone outside its cache."""
-    from xeda.design import GitReference
-
     ref = GitReference.model_construct(
         uri="https://h/a/../../../x.git#lib.toml",
         repo_url="https://h/a/../../../x.git",
@@ -144,9 +147,76 @@ def test_a_clone_directory_outside_the_cache_is_refused(tmp_path):
 def test_a_clone_that_yields_no_repository_is_an_error(tmp_path, monkeypatch):
     import git.repo
 
-    from xeda.design import GitReference
-
     monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(lambda *a, **k: None))
     ref = GitReference(uri=URI, clone_dir=tmp_path / "clone")
     with pytest.raises(ValueError, match="repo is None"):
         ref.fetch_design()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links need privileges on Windows")
+@pytest.mark.parametrize("leads", ["out of the run root", "elsewhere in the run root"])
+@pytest.mark.parametrize(
+    "link",
+    [
+        ".dependencies",
+        ".dependencies/example.com",
+        ".dependencies/example.com/u",
+        ".dependencies/example.com/u/lib.git",
+    ],
+    ids=["cache", "host", "path-part", "clone-directory"],
+)
+def test_a_clone_is_never_made_through_a_link_in_the_cache(
+    tmp_path, monkeypatch, clones, link, leads
+):
+    """The cache under the run root is named by the rule every cache there follows: no symbolic
+    link on the way, not even one that stays inside the run root."""
+    monkeypatch.chdir(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    run_root = runner.load_run_root()
+    target = tmp_path / "outside" if leads == "out of the run root" else run_root / "elsewhere"
+    target.mkdir()
+    planted = run_root / link
+    planted.parent.mkdir(parents=True, exist_ok=True)
+    planted.symlink_to(target, target_is_directory=True)
+    with (
+        loading_in_run_root(runner.load_run_root),
+        pytest.raises(RunDirectoryError, match=re.escape(f"{planted} is a symbolic link")),
+    ):
+        Design.from_file(_design_file(tmp_path))
+    assert clones == [], "nothing is cloned"
+    assert list(target.iterdir()) == [], "nothing is written where the link leads"
+
+
+def test_a_clone_cache_under_the_run_root_is_named_by_the_unlinked_rule(tmp_path):
+    root = tmp_path.resolve()
+    owner = RunDirectory(root, root)
+    cache = root / DEPENDENCY_CLONES
+    assert (
+        clone_location(cache, "https://h/u/lib.git", None, "dev", owner=owner)
+        == cache / "h" / "u" / "lib.git_dev"
+    )
+    (cache / "h").mkdir(parents=True)
+    (cache / "h" / "u").symlink_to(root)
+    with pytest.raises(RunDirectoryError, match="symbolic link where xeda keeps a cache"):
+        clone_location(cache, "https://h/u/lib.git", None, None, owner=owner)
+
+
+def test_a_cache_the_user_names_is_theirs_to_direct(tmp_path, monkeypatch, clones):
+    """`local_cache` is the user's own directory: xeda clones and pulls there as told, through a
+    link if that is where the user's cache is, and keeps the names it makes inside it."""
+    real = tmp_path / "real"
+    real.mkdir()
+    cache = tmp_path / "cache"
+    cache.symlink_to(real, target_is_directory=True)
+    ref = GitReference(uri=URI, local_cache=cache)
+    assert ref.clone_dir == cache / "example.com" / "u" / "lib.git"
+    ref.fetch_design()
+    assert clones == [cache / "example.com" / "u" / "lib.git"]
+    assert (real / "example.com" / "u" / "lib.git" / "lib.toml").is_file()
+
+
+def test_the_containment_check_of_a_user_cache_stands_on_its_own(tmp_path, monkeypatch):
+    """Whatever names the clone, a directory outside the cache the user named is refused."""
+    monkeypatch.setattr("xeda.design.clone_name_parts", lambda *_: ("h", "../../x.git"))
+    with pytest.raises(ValueError, match="outside the clone cache"):
+        clone_location(tmp_path / "cache", URI, None, None)

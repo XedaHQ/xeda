@@ -56,6 +56,7 @@ from .dataclass import (
 from .digest import content_digest
 from .generation import judging_generation
 from .proc_utils import tool_output_redirect
+from .run_dir import RunDirectory
 from .utils import (
     NonZeroExitCode,
     WorkingDirectory,
@@ -1679,11 +1680,25 @@ def clone_name_parts(
 
 
 def clone_location(
-    cache: Union[str, Path], repo_url: str, commit: Optional[str], branch: Optional[str]
+    cache: Union[str, Path],
+    repo_url: str,
+    commit: Optional[str],
+    branch: Optional[str],
+    *,
+    owner: Optional[RunDirectory] = None,
 ) -> Path:
-    """Where a Git reference is cloned: `<cache>/<host>/<path>`, always strictly inside `cache`."""
+    """Where a Git reference is cloned: `<cache>/<host>/<path>`, inside `cache`.
+
+    A cache under a run root is named through its `owner` (the run root as a `RunDirectory`) by
+    `RunDirectory.unlinked`, the one rule every cache there follows: inside the run root, and
+    reached through no symbolic link. The names themselves (`clone_name_parts`) cannot leave the
+    cache. A cache the user named (`local_cache`) is theirs to direct, so only the names are
+    checked against it.
+    """
     host, path = clone_name_parts(repo_url, commit, branch)
     location = Path(cache) / host / path
+    if owner is not None:
+        return owner.unlinked(location)
     base = os.path.normpath(cache)
     inside = os.path.normpath(location)
     if inside == base or os.path.commonpath([base, inside]) != base:
@@ -1793,16 +1808,21 @@ class GitReference(DesignReference):
             raise ValueError("Cannot plan a design that needs a Git dependency fetch")
         clone_dir = self.clone_dir
         if clone_dir is None:
-            context = load_context.get()
-            run_root = context.run_root(True) if context is not None else None
-            cache = self.local_cache or (run_root / DEPENDENCY_CLONES if run_root else None)
+            cache = self.local_cache
+            owner = None
+            if cache is None:
+                context = load_context.get()
+                run_root = context.run_root(True) if context is not None else None
+                if run_root is not None:
+                    cache = run_root / DEPENDENCY_CLONES
+                    owner = RunDirectory(run_root, run_root)
             if cache is None:
                 raise ValueError(
                     f"{self.repo_url} needs a directory to be cloned into: give its `clone_dir` "
                     "(or `local_cache`), or load the design through xeda run / a launcher, which "
                     "clones into its run root"
                 )
-            clone_dir = clone_location(cache, self.repo_url, self.commit, self.branch)
+            clone_dir = clone_location(cache, self.repo_url, self.commit, self.branch, owner=owner)
         repo = None
         if clone_dir.exists():
             try:

@@ -23,8 +23,11 @@ All notable changes to this project will be documented in this file.
   `../../x`) was cloned outside the clone cache and could leave the run root. The host, the path,
   the branch and the commit now may not have a `.` or `..` component or a backslash, the path may
   not be empty, and the clone directory must lie inside the cache; xeda refuses such a reference
-  when it loads the design, before it clones anything. A clone that returned no repository was
-  built as an error but never raised; it is raised now.
+  when it loads the design, before it clones anything. The clone cache under the run root
+  (`.dependencies`) follows the rule of every other cache there: a symbolic link anywhere on the
+  way to a clone, even one that stays inside the run root, is refused and nothing is cloned through
+  it. A `local_cache` or `clone_dir` you name stays yours to direct. A clone that returned no
+  repository was built as an error but never raised; it is raised now.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root
