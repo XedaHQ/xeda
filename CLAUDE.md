@@ -211,7 +211,7 @@ Four orthogonal abstractions, deliberately decoupled:
   `<run root>/<design>[/<target>]/<flow>[_<hash>]`, the design's own `Design.target` passed as
   the `target=` keyword of `run_path_of`/`get_flow_run_path` (never read from the launcher, which
   may be reused), judged by `design.target_name_problem` at the path boundary and at load (a
-  name, no flow's, and no two of a design's differing only in case), and `_validate_plan` refuses
+  name, no flow's -- a removed flow's included -- and no two of a design's differing only in case), and `_validate_plan` refuses
   a plan for another target even when every hash is equal. The target is still no part of any
   hash: equal targets build separately and stay fresh separately; a pre-target run
   (`<design>/<flow>`) is neither reused nor touched by a target's launch. Not yet: shared leaves (`board`, `fpga`, `custom_boards_file`) at a target's top level
@@ -841,8 +841,12 @@ and `FLOW_<hash>` run directories directly under `<design>` and under each direc
 that could be a target's (a target name, `design.target_name_problem`, holding none of
 `LAUNCH_DOCUMENTS`, so never a run directory) -- one level, found as they are, a target the design
 no longer names included -- and `--target T` only those under `<design>/T`; it lists them,
-confirms once, then removes each under its own lock and judges it again once the lock is held, a
-link out of the run root never followed. `--json` reports `target`, the `scanned` directories
+confirms once, then removes each under its own lock (`run_dir_lock(path, run_root)`: the lock file
+is `lock_file(path)`, beside the run directory with its last component never resolved, and a
+parent reached through a link out of the run root is refused) and finds it again once the lock
+is held (`_unchanged`: name, parent, still a directory in the run root, and the same
+`(st_dev, st_ino)` for the name and for what it leads to), a link out of the run root never
+followed. `--json` reports `target`, the `scanned` directories
 and the `scrubbed` run directories. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
 writing, including legacy dependencies; changed or uncertain completion evidence in the

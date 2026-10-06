@@ -1860,15 +1860,18 @@ def target_name_problem(name: Any) -> str | None:
 
 
 def _names_a_flow(name: str) -> bool:
-    """Whether `name` is a registered flow's name or alias, as the command line would take it
-    (dashes for underscores, any letter case)."""
+    """Whether `name` is a registered flow's name or alias, or a removed flow's
+    (`settings_layers.REMOVED_FLOWS`), as the command line would take it (dashes for
+    underscores, any letter case)."""
     # Imported here, and by name: the flows import this module, and are registered by being
     # imported.
     importlib.import_module("xeda.flows")
     registered_flows = importlib.import_module("xeda.flow").registered_flows
 
     folded = name.replace("-", "_").lower()
-    return any(flow.lower() == folded for flow in registered_flows)
+    # a removed flow's name is a flow's too: its run directories may still be under `<design>/`
+    removed = importlib.import_module("xeda.flow_runner.settings_layers").REMOVED_FLOWS
+    return folded in removed or any(flow.lower() == folded for flow in registered_flows)
 
 
 class Design(XedaBaseModel):

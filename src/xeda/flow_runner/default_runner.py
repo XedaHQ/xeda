@@ -342,7 +342,7 @@ def _run_directories_in(
     `hashed_run_dirs=True`). Matched against the children rather than a `f"{flow_name}_*"` glob,
     so the unhashed directory -- which that glob can never match -- is included too. Each one
     is a directory that lies under `run_root` and, resolved, under `directory`."""
-    regex = re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?$")
+    regex = _name_regex(flow_name)
     if not directory.is_dir():
         return []
     xr = directory.resolve()
@@ -379,29 +379,83 @@ def _target_parents(design_dir: Path, run_root: Path) -> list[Path]:
     ]
 
 
-def _remove_confirmed(candidates: Sequence[Path], run_root: Path) -> list[Path]:
+class _Listed(NamedTuple):
+    """A run directory as listed for removal: what it was (`_listed`), to be found again."""
+
+    path: Path
+    #: the flow's regex, the resolved parent, and the identity of the name itself and of what
+    #: it leads to, as `(st_dev, st_ino)`
+    flow_name: str
+    parent: Path
+    own: tuple[int, int]
+    target: tuple[int, int]
+
+
+def _identity(status: os.stat_result) -> tuple[int, int]:
+    return status.st_dev, status.st_ino
+
+
+def _name_regex(flow_name: str) -> re.Pattern[str]:
+    return re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?$")
+
+
+def _listed(flow_name: str, path: Path) -> _Listed:
+    return _Listed(
+        path,
+        flow_name,
+        Path(os.path.realpath(path.parent)),
+        _identity(os.lstat(path)),
+        _identity(os.stat(path)),
+    )
+
+
+def _unchanged(listed: _Listed, run_root: Path) -> bool:
+    """Whether `listed.path` is still the run directory it was listed as: named for its flow,
+    in the same directory, a directory inside the run root, and the same one (the name and what
+    it leads to have the identity they had: a directory replaced by another, or by a link, is
+    not). Judged under the lock, when nothing else can change it any more."""
+    p = listed.path
+    try:
+        return (
+            _name_regex(listed.flow_name).match(p.name) is not None
+            and Path(os.path.realpath(p.parent)) == listed.parent
+            and p.is_dir()
+            and RunDirectory.lies_under(p, run_root)
+            and listed.parent in p.resolve().parents
+            and _identity(os.lstat(p)) == listed.own
+            and _identity(os.stat(p)) == listed.target
+        )
+    except OSError:
+        return False
+
+
+def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> list[Path]:
     """List `candidates`, ask once, and remove them if confirmed: each as a run directory
     claimed under `run_root`, the real run root, under its own lock (so a producer a consumer
-    holds a read lease on is waited for) and judged again once the lock is held, so none that
-    has since come to lead out of the run root is ever removed. The directories removed."""
+    holds a read lease on is waited for; the lock itself is refused for a directory reached
+    through a link out of the run root) and found again once the lock is held (`_unchanged`):
+    one that is not what was listed -- replaced, renamed, turned into a link -- is not removed,
+    and the scrub fails (`RunDirectoryError`). The directories removed."""
     if not candidates:
         return []
     console.print(
         f"[red]This will remove all of the following {len(candidates)} run directories:[/red]"
     )
-    for p in candidates:
-        console.print(p)
+    for c in candidates:
+        console.print(c.path)
     confirmation = console.input("Type 'yes' if you're sure you want to continue: ")
     if confirmation.lower() != "yes":
         console.print("Not confirmed. No files or folders were removed.")
         return []
-    log.warning("Removing the following directories: %s", " ".join(str(p) for p in candidates))
+    log.warning("Removing the following directories: %s", " ".join(str(c.path) for c in candidates))
     removed = []
-    for p in candidates:
-        with run_dir_lock(p):
-            if not RunDirectory.lies_under(p, run_root):
+    for c in candidates:
+        p = c.path
+        with run_dir_lock(p, run_root):
+            if not _unchanged(c, run_root):
                 raise RunDirectoryError(
-                    f"{p} no longer lies in the run root {run_root}: it was not removed"
+                    f"{p} is no longer the run directory that was listed (it was replaced, or "
+                    f"no longer lies in the run root {run_root}): it was not removed"
                 )
             RunDirectory.claimed(p, run_root).delete()
             if p.is_symlink():  # a run directory reached through a link in the run root
@@ -424,7 +478,8 @@ def scrub_runs(
     parent), the real run root, so none that leads out of it is ever removed."""
     if run_root is None:
         run_root = dir.parent
-    return bool(_remove_confirmed(_run_directories_in(flow_name, dir, exclude, run_root), run_root))
+    listed = [_listed(flow_name, p) for p in _run_directories_in(flow_name, dir, exclude, run_root)]
+    return bool(_remove_confirmed(listed, run_root))
 
 
 def scrub_design(
@@ -456,7 +511,8 @@ def scrub_design(
     candidates = _distinct(
         [p for parent in parents for p in _run_directories_in(flow_name, parent, (), run_root)]
     )
-    return ScrubResult(parents, _remove_confirmed(candidates, run_root))
+    listed = [_listed(flow_name, p) for p in candidates]
+    return ScrubResult(parents, _remove_confirmed(listed, run_root))
 
 
 def _refuse_inputs_inside(run_path: Path, flow_name: str, files: Iterable[Path]) -> None:
@@ -980,7 +1036,7 @@ class FlowLauncher:
         first_error: Optional[Exception] = None
         for flow, delivery in deliveries if deliver else []:
             try:
-                with run_dir_lock(flow.run_path):
+                with run_dir_lock(flow.run_path, self.run_root):
                     flow.deliveries = delivery.deliver()
             except Exception as e:  # noqa: BLE001 - every delivery gets its turn
                 # `deliver()` records, and reports through `delivery.delivered`, whatever it
@@ -992,7 +1048,7 @@ class FlowLauncher:
         pending, self._pending_clean_ups = self._pending_clean_ups, []
         for flow, settings_json, results_json, policy in pending:
             try:
-                with run_dir_lock(flow.run_path):
+                with run_dir_lock(flow.run_path, self.run_root):
                     self._clean_up(flow, settings_json, results_json, policy)
             except Exception as e:  # noqa: BLE001 - every clean-up gets its turn
                 log.error("Cleaning up %s failed: %s", flow.run_path, e, exc_info=True)
@@ -1136,7 +1192,7 @@ class FlowLauncher:
         # each hold their directory while waiting to delete the other one.
         if policy.scrub_old_runs:
             scrub_runs(flow_name, run_path.parent, [run_path], run_root=self.run_root)
-        with run_dir_lock(run_path), ExitStack() as read_leases:
+        with run_dir_lock(run_path, self.run_root), ExitStack() as read_leases:
             run_path.mkdir(parents=True, exist_ok=True)
             run_directory = RunDirectory.claimed(run_path, self.run_root)
             # the deliveries, checked before `--clean` and before any tool of this flow runs
@@ -1510,7 +1566,7 @@ class FlowLauncher:
         """Verify the completed generation under SH before any consumer can read its files."""
         with ExitStack() as lease:
             try:
-                lease.enter_context(run_dir_read_lock(producer.run_path))
+                lease.enter_context(run_dir_read_lock(producer.run_path, self.run_root))
             except (OSError, RunDirectoryError) as error:
                 raise FlowDependencyFailure(
                     f"Cannot acquire shared read lock for producer {producer.name} "

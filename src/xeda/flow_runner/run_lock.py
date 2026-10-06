@@ -57,16 +57,33 @@ if sys.platform != "win32":
 
 
 def lock_file(run_path: Path) -> Path:
-    """The durable lock beside the resolved directory, shared by ordinary in-root aliases."""
-    run_path = run_path.resolve()
-    return run_path.parent / f"{run_path.name}.lock"
+    """The durable lock beside the run directory: `<run dir>.lock` in its parent, which is
+    resolved (so ordinary in-root aliases of the parent share one lock), while the last component
+    never is -- a link is itself, as `RunDirectory.inside` has it -- so a run directory that has
+    become a link cannot send the lock file to wherever the link leads."""
+    run_path = Path(os.path.abspath(run_path))
+    return Path(os.path.realpath(run_path.parent)) / f"{run_path.name}.lock"
+
+
+def _check_inside(run_path: Path, run_root: Path) -> None:
+    """Refuse a run directory whose parent is reached through a link leading out of `run_root`:
+    nothing, the lock file included, is created there."""
+    parent = Path(os.path.realpath(Path(os.path.abspath(run_path)).parent))
+    root = Path(os.path.realpath(run_root))
+    if parent != root and not parent.is_relative_to(root):
+        raise RunDirectoryError(
+            f"{run_path} is reached through a link that leads out of the run root {run_root}: "
+            "it is not locked"
+        )
 
 
 @contextlib.contextmanager
-def _lock(run_path: Path, exclusive: bool) -> Iterator[None]:
+def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iterator[None]:
     if sys.platform == "win32":
         yield
         return
+    if run_root is not None:
+        _check_inside(run_path, run_root)
     path = lock_file(run_path)
     key = (os.getpid(), threading.get_ident(), path)
     hold = _held.get(key)
@@ -96,14 +113,20 @@ def _lock(run_path: Path, exclusive: bool) -> Iterator[None]:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
-def run_dir_lock(run_path: Path) -> contextlib.AbstractContextManager[None]:
-    """Wait for an exclusive writer lock. Reenter only within the owning writer execution."""
-    return _lock(run_path, exclusive=True)
+def run_dir_lock(
+    run_path: Path, run_root: Path | None = None
+) -> contextlib.AbstractContextManager[None]:
+    """Wait for an exclusive writer lock. Reenter only within the owning writer execution.
+    With `run_root`, a run directory whose parent leads out of it is refused (`RunDirectoryError`)
+    before anything is created."""
+    return _lock(run_path, exclusive=True, run_root=run_root)
 
 
-def run_dir_read_lock(run_path: Path) -> contextlib.AbstractContextManager[None]:
+def run_dir_read_lock(
+    run_path: Path, run_root: Path | None = None
+) -> contextlib.AbstractContextManager[None]:
     """Hold a shared producer lease; an enclosing writer retains its exclusive OS lock."""
-    return _lock(run_path, exclusive=False)
+    return _lock(run_path, exclusive=False, run_root=run_root)
 
 
 @contextlib.contextmanager

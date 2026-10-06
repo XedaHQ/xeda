@@ -1179,7 +1179,7 @@ class RemoteRunner(FlowLauncher):
             # From the first write to the mirror to its delivery, the mirror is this run's
             # alone: a local `--hashed-run-dirs` launch of the same settings, or another remote
             # run, takes the same lock (`run_dir_lock`), so no two of them mix their files.
-            connected.enter_context(run_dir_lock(run_path))
+            connected.enter_context(run_dir_lock(run_path, self.run_root))
             run_path.mkdir(parents=True, exist_ok=True)
             # The local mirror holds the remote run's records, never a local run's: no trace left
             # there by a local run may vouch for them.

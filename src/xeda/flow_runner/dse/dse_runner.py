@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 
 def _purge_run(run_path: Path, run_root: Path) -> None:
     """Delete a non-improved worker outcome only after readers finish, checking ownership."""
-    with run_dir_lock(run_path):
+    with run_dir_lock(run_path, run_root):
         RunDirectory.claimed(run_path, run_root).delete()
 
 

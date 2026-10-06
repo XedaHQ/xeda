@@ -501,3 +501,19 @@ def test_the_local_mirror_of_a_remote_run_lies_in_the_designs_target(tmp_path, m
     assert seen["a"][:2] == seen["b"][:2] == ("d", "__taker")
     assert seen["a"][2] == seen["b"][2], "one identity: the target is no part of it"
     assert (seen["a"][3], seen["b"][3]) == ("a", "b")
+
+
+# --------------------------------------------------------- a removed flow's name is no target's
+
+REMOVED = ["open_xc7", "openxc7", "open-xc7", "OpenXc7", "OpenXC7", "OPEN_XC7"]
+
+
+@pytest.mark.parametrize("name", REMOVED)
+def test_a_removed_flow_s_name_is_refused_as_a_target_name(tmp_path, name):
+    """`<design>/open_xc7` may be a legacy run directory: a target may not take its place."""
+    from xeda.design import DesignValidationError
+
+    with pytest.raises(DesignValidationError, match="name of a flow"):
+        Design.from_file(write_design(tmp_path, {name: {}}))
+    with pytest.raises(RunDirectoryError, match="name of a flow"):
+        runner(tmp_path).run_path_of("d", "nextpnr", target=name)
