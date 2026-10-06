@@ -175,7 +175,7 @@ def test_three_alternative_bindings_run_only_the_alternative_and_relaunch_nothin
     assert [f.name for f in runner.launched] == ["vivado_alt_synth", "vivado_postsynth_sim"]
     assert flow.inputs.netlist_timing.name == "impl_timesim.v"
     assert flow.inputs.sdf.name == "impl_timesim.sdf"
-    assert set(flow.results["outputs"]) == {"saif", "timing_saif"}
+    assert set(flow.results["outputs"]) == {"timing_saif"}
     launch_until_fresh(runner, launch_flow)
     before = {f.name: fake_calls(f.run_path) for f in runner.launched}
     entered = len(runner.launched)
