@@ -883,11 +883,16 @@ confirms once, then removes each under its own lock (`run_dir_lock(path, run_roo
 is `lock_file(path, run_root)`, beside the run directory -- beside what a last component that is a
 link inside the run root leads to, so both names share one lock; without a run root the last
 component is never resolved -- and a parent, or a link, leading out of the run root or nowhere is
-refused before anything is created) and finds it again once the lock
-is held (`_unchanged`: name, parent, still a directory in the run root, and the same
-`(st_dev, st_ino)` for the name and for what it leads to), a link out of the run root never
-followed. `--json` reports `target`, the `scanned` directories
-and the `scrubbed` run directories. Consumers hold verified
+refused before anything is created) and judges it again once the lock
+is held (`_still_a_run_directory`, by `_is_run_directory`, the one rule that listed it: named for
+the flow, in the same resolved parent, a directory in the run root and, resolved, under that parent).
+**It judges what is at the path then, never whether it is the directory that was listed**: an
+inode number or an inode change time says nothing about a run directory, since every file a launch
+adds or removes moves it, and a launch that writes in its directory while scrub waits for the
+lock, or a newer run of the flow in its place, is removed as scrub is asked to; one that is gone,
+no directory, or a link now leading out of the parent or the run root is refused with a
+`RunDirectoryError`. A link out of the run root is never followed. `--json` reports `target`, the
+`scanned` directories and the `scrubbed` run directories. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
 writing, including legacy dependencies; changed or uncertain completion evidence in the
 exclusive-to-shared acquisition gap refuses hand-over. Same-mode and exclusive-to-shared reentry

@@ -365,8 +365,11 @@ All notable changes to this project will be documented in this file.
   and under every target, as found on disk (no design file is read; run directories of other
   flows are never searched). The directories are listed and confirmed once. `--json` gains
   `target`, and `scrubbed` now lists the run directories removed (it listed the design's directory).
-  A directory that is no longer what was listed once scrub holds its lock (replaced, renamed,
-  turned into a link, or out of the run root) is refused rather than removed.
+  Scrub removes each directory under its own lock, so a launch running in it finishes first, and
+  judges it again then by what is at the path: a run directory of the flow in the same place is
+  removed, whether a launch wrote in it while scrub waited or a newer run took its place. One
+  that is gone, no longer a directory, or now leads out of the directory it was listed in or out
+  of the run root is refused (`RunDirectoryError`) and left alone.
 - **A run directory's lock file is `<run dir>.lock` beside the run directory, whatever it has
   become**: the parent is resolved, and the last component only when it is a link staying inside the
   run root (a launch through the link's name and one through the real name share one lock), so a

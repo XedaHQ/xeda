@@ -10,7 +10,8 @@ never goes into a run directory. The oracles:
 - a target's scrub leaves the pre-target runs and every other target alone, and an unqualified
   one takes them all, a target no design file names included;
 - a refused name touches nothing, and so does a link that leads out of the run root;
-- a held read lease blocks the scrub until released, and ownership is judged again after it;
+- a held read lease blocks the scrub until released, and what is at each path is judged again
+  after it, by what it is then and not by whether it is the directory that was listed;
 - the `--scrub` of a launch cannot reach another target.
 """
 
@@ -31,7 +32,7 @@ from xeda.console import console
 from xeda.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner import default_runner
-from xeda.flow_runner.run_lock import run_dir_read_lock
+from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
 
@@ -348,11 +349,12 @@ def test_a_directory_replaced_by_a_link_after_it_was_listed_is_not_removed(
     assert sorted(p.name for p in canary.parent.iterdir()) == ["other"], "no lock file outside"
 
 
-def test_a_candidate_replaced_by_another_directory_is_not_removed(
+def test_a_candidate_replaced_by_a_newer_run_of_the_flow_is_removed_under_the_lock(
     tmp_path, confirmations, monkeypatch
 ):
-    """Under the lock the candidate is judged again, down to its identity: a different
-    directory of the same name (another run's, made meanwhile) is not what was listed."""
+    """What is at the path once the lock is held decides, not whether it is the directory that
+    was listed: a run directory of the same flow made meanwhile (a newer run) is what a scrub of
+    the flow removes."""
     tree = Tree(tmp_path)
     victim = tree.a[0]
     real_lock = default_runner.run_dir_lock
@@ -367,9 +369,9 @@ def test_a_candidate_replaced_by_another_directory_is_not_removed(
 
     monkeypatch.setattr(default_runner, "run_dir_lock", swapping)
     result, document = scrub(tmp_path, "--target", "a")
-    assert result.exit_code == 1, result.output
-    assert document["error"]["type"] == "RunDirectoryError"
-    assert (victim / "out.txt").read_text() == "a newer run\n"
+    assert result.exit_code == 0, result.output
+    assert sorted(document["scrubbed"]) == sorted(str(p) for p in tree.a)
+    assert tree.present(tree.a) == [False, False]
 
 
 def test_a_candidate_replaced_by_a_link_to_a_directory_inside_the_root_is_not_removed(
@@ -390,6 +392,160 @@ def test_a_candidate_replaced_by_a_link_to_a_directory_inside_the_root_is_not_re
     assert result.exit_code == 1, result.output
     assert document["error"]["type"] == "RunDirectoryError"
     assert (other / "out.txt").exists() and victim.is_symlink()
+
+
+def launch_writes_into(directory: Path) -> None:
+    """What a launch does in its own run directory while it holds the lock: files come and go in
+    it, so its inode change time moves. Repeated until it has moved, since a file system with a
+    coarse clock may show no change after the first file."""
+    before = directory.stat().st_ctime_ns
+    for attempt in range(500):
+        (directory / f"launch-{attempt}.txt").write_text("a file the launch wrote\n")
+        if directory.stat().st_ctime_ns != before:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"the inode change time of {directory} did not move")
+
+
+def test_a_launch_writing_into_a_candidate_while_scrub_waits_for_its_lock_does_not_stop_the_scrub(
+    tmp_path, monkeypatch
+):
+    """What the `--scrub` of one launch meets: it lists the run directory of another variant, which
+    is being launched, and waits for its lock; the launch writes in it until it is done. The
+    directory is the same one with more files in it, and still a run directory of the flow: it is
+    removed, and the writes do not fail the scrub."""
+    tree = Tree(tmp_path)
+    held = tree.a[0]
+    listed = threading.Event()
+    outcome: dict = {}
+
+    def ask(prompt="", *args, **kwargs):
+        listed.set()  # the candidates are listed: scrub asks, then waits for each lock
+        return "yes"
+
+    def scrubbing():
+        try:
+            outcome["result"] = default_runner.scrub_design(
+                FLOW, tree.design, run_root=tree.root, target="a"
+            )
+        except BaseException as error:  # noqa: BLE001 - reported by the test thread, below
+            outcome["error"] = error
+
+    monkeypatch.setattr(console, "input", ask)
+    with run_dir_lock(held, tree.root):
+        thread = threading.Thread(target=scrubbing)
+        thread.start()
+        assert listed.wait(timeout=30), "scrub did not list the run directories"
+        launch_writes_into(held)
+    thread.join(timeout=30)
+    assert not thread.is_alive()
+    assert "error" not in outcome, repr(outcome.get("error"))
+    assert sorted(outcome["result"].removed) == sorted(tree.a)
+    assert tree.present(tree.a) == [False, False]
+
+
+def newer_run(path: Path, tree: Tree, outside: Path) -> None:
+    run_dir(path)
+    (path / "out.txt").write_text("a newer run\n")
+
+
+def link_to_a_directory_beside_it(path: Path, tree: Tree, outside: Path) -> None:
+    path.symlink_to(run_dir(path.parent / "store"), target_is_directory=True)
+
+
+def link_out_of_the_run_root(path: Path, tree: Tree, outside: Path) -> None:
+    path.symlink_to(run_dir(outside / "other"), target_is_directory=True)
+
+
+def link_to_another_targets_run_directory(path: Path, tree: Tree, outside: Path) -> None:
+    path.symlink_to(tree.b[0], target_is_directory=True)
+
+
+def a_file(path: Path, tree: Tree, outside: Path) -> None:
+    path.write_text("no directory\n")
+
+
+def renamed_away(path: Path, tree: Tree, outside: Path) -> None:
+    """Nothing is at the path any more."""
+
+
+def entries_but_lock_files(base: Path) -> list[tuple[str, str]]:
+    """Every entry under `base` but a lock file, with what it is: a directory, a link (and where
+    it leads) or a file (and its size)."""
+    found = []
+    for directory, names, files in os.walk(base, followlinks=False):
+        for name in (*names, *files):
+            entry = Path(directory) / name
+            if name.endswith(".lock"):
+                continue
+            if entry.is_symlink():
+                what = f"link to {os.readlink(entry)}"
+            elif entry.is_dir():
+                what = "directory"
+            else:
+                what = f"file of {entry.stat().st_size} bytes"
+            found.append((str(entry.relative_to(base)), what))
+    return sorted(found)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        newer_run,
+        link_to_a_directory_beside_it,
+        link_out_of_the_run_root,
+        link_to_another_targets_run_directory,
+        a_file,
+        renamed_away,
+    ],
+    ids=lambda replacement: replacement.__name__,
+)
+def test_a_candidate_is_removed_under_its_lock_exactly_when_it_would_have_been_listed(
+    tmp_path, confirmations, monkeypatch, replacement
+):
+    """One rule for what scrub removes, judged twice: when it lists a directory and again when it
+    holds the directory's lock. Whatever is at the first candidate's path -- put there before the
+    listing, or only after it -- is removed if it would have been listed, and if not, refused with
+    nothing else removed."""
+
+    def tree_with_the_first_candidate_replaced(base: Path, *, at_once: bool):
+        base.mkdir()
+        outside = base / "outside"
+        outside.mkdir()
+        tree = Tree(base)
+        victim = tree.a[0]
+
+        def replace() -> None:
+            default_runner.RunDirectory.claimed(victim, tree.root).delete()
+            replacement(victim, tree, outside)
+
+        if at_once:
+            replace()
+        return tree, victim, replace
+
+    tree, victim, _ = tree_with_the_first_candidate_replaced(tmp_path / "listed", at_once=True)
+    result = default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
+    listed = victim in result.removed
+
+    later = tmp_path / "later"
+    tree, victim, replace = tree_with_the_first_candidate_replaced(later, at_once=False)
+    real_lock = default_runner.run_dir_lock
+    after_the_swap: list[list[tuple[str, str]]] = []
+
+    def swapping(path, *args, **kwargs):
+        if Path(path) == victim and not after_the_swap:
+            replace()
+            after_the_swap.append(entries_but_lock_files(later))
+        return real_lock(path, *args, **kwargs)
+
+    monkeypatch.setattr(default_runner, "run_dir_lock", swapping)
+    if listed:
+        result = default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
+        assert victim in result.removed and not os.path.lexists(victim)
+    else:
+        with pytest.raises(RunDirectoryError):
+            default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
+        assert entries_but_lock_files(later) == after_the_swap[0], "something was removed"
 
 
 def test_a_link_to_a_directory_in_the_run_root_and_the_directory_share_one_lock(tmp_path):
