@@ -24,7 +24,7 @@ from typing import Any, Literal
 from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel
 from ..design import DESIGN_PARTS, Design
-from ..flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException, flowrun_hash
+from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from ..flow.flow import written_path_problems
 from ..flow.fpga import FPGA
 from ..flow.io import declared_inputs, declared_outputs, selected_types
@@ -40,7 +40,6 @@ from .bindings import (
 )
 from .chains import FlowRequest, fitting_outputs
 from .settings_layers import (
-    _flow_of,
     _nested_model,
     carry_diagnostics,
     check_run_flows,
@@ -274,18 +273,6 @@ class _Located:
     locations: dict[tuple[str, ...], _Location] = field(default_factory=dict)
     clock_inputs: dict[tuple[str, ...], dict[str, Any]] = field(default_factory=dict)
 
-    def child(self, key: str) -> _Located:
-        values = self.values.get(key, {})
-        return _Located(
-            deepcopy(dict(values)) if isinstance(values, Mapping) else {},
-            {path[1:]: loc for path, loc in self.locations.items() if path[0] == key},
-            {
-                path[1:]: value
-                for path, value in self.clock_inputs.items()
-                if path and path[0] == key
-            },
-        )
-
 
 def _at(values: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
     for key in path:
@@ -385,23 +372,13 @@ def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> 
 
 
 def _compose(cls: type[Flow], sections: Mapping[str, Any], origin: str, kind: str) -> _Located:
-    result = _Located()
-    for key in cls.Settings.dependency_settings:
-        dependency = _flow_of(cls.Settings._dependency_settings_class(key))
-        if dependency is not None:
-            child = _compose(dependency, sections, origin, kind)
-            result.values[key] = child.values
-            result.locations.update({(key, *path): loc for path, loc in child.locations.items()})
-            result.clock_inputs.update(
-                {(key, *path): value for path, value in child.clock_inputs.items()}
-            )
     own = _located(sections.get(cls.name, {}), cls, f"[flows.{cls.name}] in {origin}", kind)
-    # Attach the original nested location to each leaf, before composition loses that route.
+    # Attach the original location to each leaf, before composition loses that route.
     own.locations = {
         path: _Location(f"{loc.label} ({'.'.join(path)})", loc.kind)
         for path, loc in own.locations.items()
     }
-    located = _overlay(result, own, cls)
+    located = _overlay(_Located(), own, cls)
     # `settings_layers` owns ordinary precedence and aliases; this traversal carries the parallel locations.
     composed = compose_flow_settings(cls, [sections])
     located.values = _located(composed, cls, origin, kind).values
@@ -577,10 +554,6 @@ def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, An
     if "clocks" in cls.Settings.model_fields:
         ordinary.pop("clock", None)
         ordinary.pop("clock_period", None)
-    for key in cls.Settings.dependency_settings:
-        dependency = _flow_of(cls.Settings._dependency_settings_class(key))
-        if dependency and isinstance(ordinary.get(key), Mapping):
-            ordinary[key] = _nonshared_input(dependency, ordinary[key])
     return ordinary
 
 
@@ -598,15 +571,6 @@ def _shared_locations(
     for shared in SHARED_SETTINGS:
         if shared in cls.Settings.model_fields:
             result.update(_normalized_leaves(request, shared, context))
-    for key in cls.Settings.dependency_settings:
-        dependency = _flow_of(cls.Settings._dependency_settings_class(key))
-        if dependency:
-            result.update(
-                {
-                    (key, *path): leaf
-                    for path, leaf in _shared_locations(raw.child(key), dependency, context).items()
-                }
-            )
     return result
 
 
@@ -876,19 +840,6 @@ def resolve(
             if producer is None:
                 raise FlowSettingsException(
                     f"{where} names unknown producer {declaration.producer!r}"
-                )
-            nested = next(
-                (
-                    name
-                    for name in cls.Settings.dependency_settings
-                    if cls.Settings._dependency_settings_class(name) is producer.Settings
-                ),
-                None,
-            )
-            if nested is not None:
-                raise FlowFatalError(
-                    f"{cls.name} declares {producer.name} as a producer and may not nest its "
-                    f"settings (`{nested}`): they are written under flows.{producer.name}"
                 )
             outputs = declared_outputs(producer)
             matching = [out for out in outputs.values() if set(out.types) & set(declaration.types)]
