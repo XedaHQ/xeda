@@ -14,18 +14,18 @@ whole connected component. No flow instance or execution state is needed to make
 from __future__ import annotations
 
 import logging
-from functools import cache
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from pydantic import create_model
+from pydantic_core import SchemaValidator
 
 from ..board import WithFpgaBoardSettings
-from ..dataclass import BaseModel, Field
+from ..dataclass import BaseModel, input_names
 from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from ..flow.flow import written_path_problems
@@ -500,8 +500,7 @@ def _normalized_leaves(
             return result
         loc = max(given, key=lambda location: rank[location.kind])
         try:
-            model = _syntax_settings(request.cls, {shared: value}, context)
-            key = _platform_key(getattr(model, shared))
+            key = _platform_key(_leaf_value(request.cls, shared, value, context))
         except (ValueError, FlowSettingsError) as error:
             raise _error(request.cls, shared, f"{error} at {loc.label}") from error
         result[(shared,)] = (value, key, loc)
@@ -530,8 +529,7 @@ def _normalized_leaves(
                 if value is not None and not isinstance(value, str):
                     raise ValueError("board must be a string or None")
             elif shared in ("prjxray_db", "dont_use_cells"):
-                model = _syntax_settings(request.cls, {shared: value}, context)
-                value = getattr(model, shared)
+                value = _leaf_value(request.cls, shared, value, context)
                 if shared == "prjxray_db" and value is not None:
                     value = (context["design_root"] / value).resolve()
             elif shared == "custom_boards_file":
@@ -548,27 +546,56 @@ def _normalized_leaves(
     return result
 
 
-@cache
-def _syntax_model(settings_cls: type[Flow.Settings]) -> type[Flow.Settings]:
-    """`settings_cls` with each required field optional and left empty. The resolver validates
-    parts of a flow's settings (one origin's sections, one shared leaf) to check their syntax;
-    what such a part lacks is not an error there. The complete settings are validated, and their
-    required values checked, once every layer is composed."""
-    required = {
-        name: (Any, Field(None, validate_default=False))
-        for name, info in settings_cls.model_fields.items()
-        if info.is_required()
-    }
-    if not required:
-        return settings_cls
-    return create_model(settings_cls.__name__, __base__=settings_cls, **required)  # type: ignore[call-overload,no-any-return]
-
-
 def _syntax_settings(
     cls: type[Flow], values: Mapping[str, Any], context: Mapping[str, Any]
-) -> Flow.Settings:
-    """Validate `values` as part of `cls`'s settings (`_syntax_model`)."""
-    return _syntax_model(cls.Settings).from_input(values, **context)
+) -> Flow.Settings | None:
+    """Validate `values` as part of `cls`'s settings, with the flow's own model: the settings
+    they make, or None when they lack a setting the model requires.
+
+    The resolver checks parts of a flow's settings -- one origin's sections, one shared leaf --
+    before every layer is composed, so a part may lack a required setting. That is no error here:
+    the settings are validated whole, and their required values checked, once composed. Every
+    other problem in the part is one, and a model validator that reads a required setting is not
+    run, as it never is on settings that fail validation.
+    """
+    try:
+        return settings_in_context(cls, values, **context)
+    except FlowSettingsError as error:
+        error.errors = [problem for problem in error.errors if problem[3] != "missing"]
+        if error.errors:
+            raise
+        return None
+
+
+@cache
+def _field_validator(settings_cls: type[Flow.Settings], name: str) -> SchemaValidator:
+    """A validator of the one field `name` of `settings_cls`, built from the model's own schema,
+    so that the validators of that field run as they do in the model."""
+    schema: Any = settings_cls.__pydantic_core_schema__
+    definitions = schema["definitions"] if schema["type"] == "definitions" else []
+    while schema["type"] != "model-fields":
+        schema = schema["schema"]
+    return SchemaValidator(
+        {
+            "type": "definitions",
+            "schema": schema["fields"][name]["schema"],
+            "definitions": definitions,
+        }
+    )
+
+
+def _leaf_value(cls: type[Flow], shared: str, value: Any, context: Mapping[str, Any]) -> Any:
+    """`value` as the setting `shared` of `cls` holds it, validated by the flow's own model. A
+    model that requires other settings cannot be built from one leaf; the leaf is then validated
+    by its own field alone, after the conveniences every flow setting has (`$DESIGN_ROOT`,
+    comma-separated lists)."""
+    model = _syntax_settings(cls, {shared: value}, context)
+    if model is not None:
+        return getattr(model, shared)
+    settings_cls = cls.Settings
+    name = input_names(settings_cls).get(shared, shared)
+    value = settings_cls._normalize_flow_setting(name, value, settings_cls._path_roots(context))
+    return _field_validator(settings_cls, name).validate_python(value, context=dict(context))
 
 
 def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, Any]:
@@ -969,7 +996,7 @@ def resolve(
             for shared in ("fpga", "board", "custom_boards_file"):
                 if shared in proposal.raw.values:
                     values[shared] = proposal.raw.values[shared]
-            settings = _syntax_settings(proposal.cls, values, context)
+            settings = settings_in_context(proposal.cls, values, **context)
             selected_inputs = []
             for declaration in declared_inputs(request.cls).values():
                 old = next(item for item in request.inputs if item.name == declaration.name)

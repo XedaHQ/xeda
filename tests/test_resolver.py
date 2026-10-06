@@ -915,10 +915,11 @@ def test_api_can_clear_a_nullable_clock_leaf_across_the_edge(tmp_path):
 # ------------------------------------------------------------ the ASIC shared leaves
 
 
-def _asic_taker():
+def _asic_taker(requires_foo: bool = False):
     """A declared consumer of `yosys`'s netlist that shares its ASIC configuration -- `platform`,
     `corner` and `dont_use_cells` with yosys's own types -- as `openroad` will once it declares
-    its input. Today it is the only declared edge on which the three can agree."""
+    its input. Today it is the only declared edge on which the three can agree. With
+    `requires_foo`, its settings model requires a setting besides."""
     from typing import List, Optional, Union
 
     from xeda.dataclass import Field, field_validator
@@ -947,6 +948,11 @@ def _asic_taker():
             @classmethod
             def _platform(cls, value):
                 return AsicsPlatform.from_setting(value)
+
+        if requires_foo:
+
+            class Settings(Settings):  # type: ignore[no-redef]
+                foo: str = Field(description="A setting the model requires.")
 
         class Inputs(Flow.Inputs):
             netlist: Path = In(
@@ -1111,3 +1117,57 @@ def test_one_corner_spelled_as_a_list_agrees_and_two_corners_conflict(tmp_path):
     files["yosys"]["corner"] = "FF"
     with pytest.raises(FlowSettingsError, match="corner"):
         _asic_plan(tmp_path / "conflict", taker, origins=[("project.yaml", files)])
+
+
+@pytest.fixture
+def leaf_fields(monkeypatch):
+    """The fields the resolver validated a shared leaf by alone, in order."""
+    from xeda.flow_runner import resolver
+
+    seen: list[str] = []
+    field_validator = resolver._field_validator
+
+    def watching(settings_cls, name):
+        seen.append(name)
+        return field_validator(settings_cls, name)
+
+    monkeypatch.setattr(resolver, "_field_validator", watching)
+    return seen
+
+
+def test_a_flow_whose_model_requires_a_setting_agrees_its_shared_leaves(tmp_path, leaf_fields):
+    """A model that requires `foo` cannot be built from one leaf, so each leaf of this node is
+    validated by its own field -- its validators run, and `$DESIGN_ROOT` and comma-separated
+    text are read as they are in the model -- and two spellings still agree."""
+    from xeda.platforms import AsicsPlatform
+
+    taker = _asic_taker(requires_foo=True)
+    files = {
+        taker.name: {"foo": "x", "platform": "nangate45", "dont_use_cells": "A,B"},
+        "yosys": {"platform": str(BUNDLED_NANGATE45), "dont_use_cells": ["A", "B"]},
+    }
+    plan = _asic_plan(tmp_path, taker, origins=[("project.yaml", files)])
+    expected = AsicsPlatform.from_resource("nangate45").model_dump()
+    for node in plan.nodes:
+        assert node.settings.platform.model_dump() == expected, node.name
+        assert node.settings.dont_use_cells == ["A", "B"], node.name
+    assert plan.node(taker.name).settings.foo == "x"
+    assert {"platform", "dont_use_cells"} <= set(leaf_fields), "the leaves were not tested alone"
+
+
+def test_a_flow_whose_model_requires_a_setting_still_has_its_leaves_compared(tmp_path):
+    taker = _asic_taker(requires_foo=True)
+    files = {
+        taker.name: {"foo": "x", "dont_use_cells": "A,B"},
+        "yosys": {"dont_use_cells": ["A"]},
+    }
+    with pytest.raises(FlowSettingsError, match="dont_use_cells") as raised:
+        _asic_plan(tmp_path, taker, origins=[("project.yaml", files)])
+    assert taker.name in str(raised.value) and "yosys" in str(raised.value)
+
+
+def test_a_platform_of_a_flow_whose_model_requires_a_setting_is_checked_with_its_name(tmp_path):
+    taker = _asic_taker(requires_foo=True)
+    files = {taker.name: {"foo": "x", "platform": "asap8"}}
+    with pytest.raises(FlowSettingsError, match="Unknown platform 'asap8'"):
+        _asic_plan(tmp_path, taker, origins=[("project.yaml", files)])
