@@ -40,6 +40,20 @@ def _is_environ(node: ast.AST) -> bool:
     )
 
 
+def _writes_target(target: ast.AST) -> bool:
+    """Whether assigning to (or deleting) `target` writes `os.environ`: the mapping itself
+    (`os.environ = {}`, `os.environ |= ...`), one of its items, or either inside an unpacking."""
+    if _is_environ(target):
+        return True
+    if isinstance(target, ast.Subscript):
+        return _is_environ(target.value)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return any(_writes_target(element) for element in target.elts)
+    if isinstance(target, ast.Starred):
+        return _writes_target(target.value)
+    return False
+
+
 def writes(tree: ast.AST) -> list[ast.AST]:
     """Every node of `tree` that writes `os.environ`."""
     found: list[ast.AST] = []
@@ -50,7 +64,7 @@ def writes(tree: ast.AST) -> list[ast.AST]:
                 if isinstance(node, (ast.Assign, ast.Delete))
                 else [node.target]  # type: ignore[union-attr]
             )
-            if any(isinstance(t, ast.Subscript) and _is_environ(t.value) for t in targets):
+            if any(_writes_target(t) for t in targets):
                 found.append(node)
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if _is_environ(node.func.value) and node.func.attr in WRITING_METHODS:
@@ -93,6 +107,12 @@ def test_no_test_writes_the_environment_directly() -> None:
         'os.environ["PATH"] = "x"',
         'os.environ["PATH"] += ":x"',
         'del os.environ["PATH"]',
+        "os.environ = {}",
+        'os.environ |= {"A": "b"}',
+        "del os.environ",
+        'os.environ["PATH"], other = values',
+        'other, *os.environ["PATH"] = values',
+        '[os.environ["PATH"]] = values',
         'os.environ.update({"A": "b"})',
         'os.environ.setdefault("A", "b")',
         'os.environ.pop("A", None)',
