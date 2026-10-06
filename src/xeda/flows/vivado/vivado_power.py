@@ -51,6 +51,7 @@ class VivadoPower(Vivado, FpgaSynthFlow):
 
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         removed_settings = {
+            **Vivado.Settings.removed_settings,
             "postsynthsim": "`flows.vivado_postsynth_sim.<key>`",
             **{
                 key: f"`flows.vivado_postsynth_sim.{key}`"

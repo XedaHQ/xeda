@@ -19,7 +19,10 @@ class VivadoPostsynthSim(VivadoSim):
     """
 
     class Settings(VivadoSim.Settings, FpgaSynthFlow.Settings):
-        removed_settings = {"synth": "`flows.vivado_synth.<key>`"}
+        removed_settings = {
+            **VivadoSim.Settings.removed_settings,
+            "synth": "`flows.vivado_synth.<key>`",
+        }
         timing_sim: bool = Field(
             False,
             description="Simulate the routed timing netlist annotated with its slow-corner SDF, "
