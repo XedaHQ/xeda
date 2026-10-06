@@ -758,6 +758,10 @@ the driver exits with status 0 and nothing reported reaches ``fail_severity``. W
 cocotb's results decide the run. The model's output is also copied to ``sim.log`` in ``sim_dir``,
 except under cocotb, whose output goes straight to the terminal.
 
+A report that ends the run is one event, and ``sim.ended_by`` names its cause: ``error`` for
+``$error``, a failed assertion and ``$stop``, ``fatal`` for ``$fatal`` and for Verilator's own
+fatal errors.
+
 The simulated top (``--top-module``) is the testbench's ``tb.top``, or else ``rtl.top``; with
 cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. ``rtl.parameters``
 apply only when the RTL top is the simulated top; ``tb.parameters`` always do.

@@ -12,11 +12,13 @@
 // Times are in ticks of the model's time precision (`time_unit`). `$error`, a failed assertion
 // and `$stop` reach `vl_stop_maybe` with `maybe` true, `$fatal` with `maybe` false: they are
 // recorded as `stop_maybe` events with `maybe`, and the reader classifies them (error, fatal).
-// A report that ends the simulation from `vl_stop_maybe` (through `vl_stop` and `vl_fatal`) is
-// recorded once. xeda's driver writes the record at the end; `vl_fatal` writes it before the
-// process exits; otherwise, when the process exits with no record written (a design's own
-// driver returns), it is written at exit with `ended_by` "exit" and no time: the driver's exit
-// status is known only to whoever started it.
+// A report that ends the simulation (through `vl_stop_maybe`, `vl_stop` and `vl_fatal`) is
+// recorded once, and the record's `ended_by` names its cause: "error" for `$error`, a failed
+// assertion and `$stop`, "fatal" for `$fatal` and for Verilator's own fatal errors.
+// xeda's driver writes the record at the end; `vl_fatal` writes it before the process exits;
+// otherwise, when the process exits with no record written (a design's own driver returns), it
+// is written at exit with `ended_by` "exit" and no time: the driver's exit status is known only
+// to whoever started it.
 //
 // The record is written complete to `<record>.tmp`, opened without following a symbolic link,
 // and then renamed over `<record>`: a rename replaces whatever is at that name, a link as
@@ -70,8 +72,10 @@ uint64_t g_stop_ticks = 0;
 bool g_clock_read = false;
 uint64_t g_time = 0;
 std::string g_time_unit;
-// Set while `vl_stop_maybe` hands a report it recorded on to `vl_stop`/`vl_fatal`.
+// Set while a report that ends the simulation, already recorded as an event, is handed on from
+// `vl_stop_maybe` to `vl_stop` and `vl_fatal`; `g_cause` is the `ended_by` the end record gets.
 bool g_reported = false;
+const char* g_cause = "fatal";
 
 void read_clock() {
     const VerilatedContext* const contextp = Verilated::threadContextp();
@@ -241,6 +245,7 @@ void vl_warn(const char* filename, int linenum, const char* hier, const char* ms
 void vl_fatal(const char* filename, int linenum, const char* hier, const char* msg) {
     (void)hier;
     VerilatedContext* const contextp = Verilated::threadContextp();
+    const char* const ended_by = g_cause;
     if (!g_reported) note_event("fatal", -1, filename, linenum, msg);
     contextp->gotError(true);
     contextp->gotFinish(true);
@@ -248,7 +253,7 @@ void vl_fatal(const char* filename, int linenum, const char* hier, const char* m
     Verilated::runFlushCallbacks();
     VL_PRINTF("Aborting...\n");
     Verilated::runFlushCallbacks();
-    xeda_write_record("fatal");  // exit() below skips the driver's own end
+    xeda_write_record(ended_by);  // exit() below skips the driver's own end
     Verilated::runExitCallbacks();
     // as recent Verilator releases do (older ones always abort)
     if (Verilated::debug()) {
@@ -264,7 +269,13 @@ void vl_stop(const char* filename, int linenum, const char* hier) {  // $stop an
     if (contextp->gotFinish() && !contextp->executingFinal()) return;
 #endif
     const char* const msg = "Verilog $stop";
-    if (!g_reported) note_event("stop", -1, filename, linenum, msg);
+    // a `$stop` that reaches here directly is recorded here, once, and is an error
+    const bool direct = !g_reported;
+    if (direct) {
+        note_event("stop", -1, filename, linenum, msg);
+        g_reported = true;
+        g_cause = "error";
+    }
     contextp->gotError(true);
     contextp->gotFinish(true);
     if (contextp->fatalOnError()) {
@@ -272,6 +283,10 @@ void vl_stop(const char* filename, int linenum, const char* hier) {  // $stop an
     } else {
         print_message("%Error", filename, linenum, msg);
         Verilated::runFlushCallbacks();
+    }
+    if (direct) {
+        g_reported = false;
+        g_cause = "fatal";
     }
 }
 
@@ -286,7 +301,9 @@ void vl_stop_maybe(const char* filename, int linenum, const char* hier, bool may
         }
     } else {
         g_reported = true;
+        g_cause = maybe ? "error" : "fatal";
         vl_stop(filename, linenum, hier);
         g_reported = false;
+        g_cause = "fatal";
     }
 }

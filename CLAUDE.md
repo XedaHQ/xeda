@@ -1320,6 +1320,9 @@ dependency must also share `custom_boards_file`.
   (`warning`/`error`/`failure`/`fatal`, default `error`), `random_init` (default false),
   `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied only when the RTL top is the simulated
   top, and `stop_time` (rejected with cocotb or a design's own driver); minimum Verilator 5.024.
+  A report that ends a run is one event, and `ended_by` names its cause: `error` for `$error`, a
+  failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
+  `fatal` for `$fatal` and Verilator's own fatal errors.
   Every `SimFlow` shares `timeout` (per subprocess invocation containing simulation) and
   `fail_severity` (`warning`/`error`/`failure`/`fatal`, default `error`; `failure` and `fatal`
   share a rank). GHDL, nvc, ModelSim, VCS, Vivado simulation/power, CXXRTL and every accepted

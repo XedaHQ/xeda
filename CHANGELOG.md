@@ -110,6 +110,10 @@ All notable changes to this project will be documented in this file.
   anchored afresh. Every mutation check is unchanged -- an
   edit given back its old mtime, and a different file put in the destination's place, are still
   refused.
+- `verilator` records the cause of the end of a run correctly. `$error`, a failed assertion and
+  `$stop` end a run as `sim.ended_by: error` (it was `fatal`, and the log said "a fatal error ended
+  it"), and `$fatal` as `fatal`. A report that ends a run is one event: a `$stop` that reached
+  Xeda's hooks directly recorded a `stop` and a `fatal` event.
 
 ### Added
 - **A design generator is judged by content, not by a modification time.**

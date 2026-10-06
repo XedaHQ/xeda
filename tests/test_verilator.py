@@ -107,7 +107,8 @@ def _launch(
             "stop_time",
             True,
         ),
-        ('initial begin #5 $error("e"); #5 $finish; end', {"timing": True}, "fatal", False),
+        ('initial begin #5 $error("e"); #5 $finish; end', {"timing": True}, "error", False),
+        ("initial begin #5 $stop; end", {"timing": True}, "error", False),
         pytest.param(
             'initial begin #5 $error("e"); #5 $finish; end',
             {"timing": True, "fail_severity": "failure"},
@@ -133,6 +134,50 @@ def test_verilator_passes_only_on_evidence(tmp_path, body, settings, ended_by, s
     flow = _launch(tmp_path, body, settings)
     assert flow.results["sim.ended_by"] == ended_by
     assert flow.succeeded is success
+
+
+@pytest.mark.parametrize(
+    ("body", "ended_by", "kind"),
+    [
+        ('initial begin #5 $error("e"); #5 $finish; end', "error", "error"),
+        ("initial begin #5 $stop; end", "error", "error"),
+        ('initial begin #5 $fatal(1, "f"); end', "fatal", "fatal"),
+    ],
+    ids=["error", "stop", "fatal"],
+)
+def test_verilator_records_one_event_for_the_report_that_ended_it(tmp_path, body, ended_by, kind):
+    """`$error`, `$stop` and `$fatal` each end the run with the cause they have, and
+    record the report once: not as a fatal error, and not as a stop followed by a fatal error."""
+    require_verilator()
+    flow = _launch(tmp_path, body, {"timing": True})
+    assert flow.results["sim.ended_by"] == ended_by
+    events = flow.results["sim.evidence"]["events"]
+    assert [event["kind"] for event in events] == [kind]
+    assert flow.results["sim.errors"] == 1
+    assert not flow.succeeded
+
+
+DIRECT_STOP_DRIVER = """#include "verilated.h"
+int main(int, char**) {
+    vl_stop("direct.v", 3, "top");  // a `$stop` that does not come through `vl_stop_maybe`
+    return 0;
+}
+"""
+
+
+def test_a_stop_reaching_the_hooks_directly_is_recorded_once_as_an_error(tmp_path):
+    """Verilator calls `vl_stop` itself for some stops. It is one event, `stop`, and the run
+    ended by an error: not a stop followed by a fatal error."""
+    require_verilator()
+    flow = _launch(
+        tmp_path,
+        "initial begin #5 $finish; end",
+        {"timing": True},
+        extra_sources={"main.cpp": DIRECT_STOP_DRIVER},
+    )
+    assert flow.results["sim.ended_by"] == "error"
+    assert [e["kind"] for e in flow.results["sim.evidence"]["events"]] == ["stop"]
+    assert not flow.succeeded
 
 
 def test_verilator_simulates_the_designs_testbench_top(tmp_path):
