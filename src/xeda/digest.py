@@ -28,21 +28,17 @@ could block.
 
 A whole tree is digested by its files' names and content (`digest_files` over `package_files`),
 with no metadata and no record to trust: that is how the installed xeda package
-(`trace_inputs.xeda_code_digest`) and an installed Python package a design's generator reads
-(`installed_package_digest`) are identified.
+(`trace_inputs.xeda_code_digest`) is identified.
 """
 
 from __future__ import annotations
 
 import errno
 import hashlib
-from importlib.machinery import ModuleSpec, PathFinder
 import os
 import stat
-import sys
 import tempfile
 from collections.abc import Callable, Sequence
-from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
@@ -261,79 +257,4 @@ def digest_files(files: Sequence[Path], base: Path) -> str:
         name = file.relative_to(base) if file.is_relative_to(base) else file
         h.update(name.as_posix().encode() + b"\0")
         h.update(content_digest(file).encode())
-    return h.hexdigest()[:32]
-
-
-def package_locations(name: str) -> List[Path]:
-    """Where the installed Python package or module `name` lies in this interpreter: the search
-    locations of a package (several for a namespace package), or the one file of a single-file
-    module. A name nothing provides, and one with no files of its own (a built-in or an extension
-    module), are errors naming it: a generator that reads it cannot be judged by silence.
-
-    Dotted names are resolved one component at a time through the interpreter's meta-path
-    finders, so editable installs work and parent packages' `__init__.py` files are not executed."""
-    components = name.split(".")
-    if any(not component.isidentifier() for component in components):
-        raise ValueError(
-            f"cannot look up the installed Python package `{name}`: invalid import name"
-        )
-    spec: Optional[ModuleSpec] = None
-    search_path: Sequence[str] | None = None
-    try:
-        for index, component in enumerate(components):
-            qualified = ".".join(components[: index + 1])
-            spec = None
-            for finder in sys.meta_path:
-                find_spec = getattr(finder, "find_spec", None)
-                if find_spec is None:
-                    continue
-                if finder is PathFinder:
-                    # Pass each package path explicitly. A qualified PathFinder lookup can build
-                    # a dynamic namespace path that consults sys.modules for its parents.
-                    spec = PathFinder.find_spec(component, search_path)
-                else:
-                    spec = find_spec(qualified, search_path, None)
-                if spec is not None:
-                    break
-            if spec is None:
-                break
-            search_path = tuple(spec.submodule_search_locations or ())
-            if index < len(components) - 1 and not search_path:
-                spec = None
-                break
-    except (ImportError, AttributeError, ValueError, TypeError) as error:
-        raise ValueError(
-            f"cannot look up the installed Python package `{name}`: {error}"
-        ) from error
-    if spec is None:
-        raise ValueError(
-            f"no installed Python package `{name}` in this interpreter ({sys.executable})"
-        )
-    locations = sorted(
-        {Path(location).resolve() for location in spec.submodule_search_locations or ()}
-    )
-    if locations:
-        return locations
-    if spec.origin and spec.has_location:
-        return [Path(spec.origin).resolve()]
-    raise ValueError(
-        f"the installed Python package `{name}` has no files to read "
-        f"({spec.origin or 'no location'}): it cannot identify what reads it"
-    )
-
-
-@lru_cache(maxsize=None)
-def installed_package_digest(name: str) -> str:
-    """A digest of every file of the installed Python package `name` (`package_locations`),
-    computed once per process: what notices an upgrade, or an edit, of a package that a design's
-    generator reads and whose files no design can list."""
-    parts = []
-    for location in package_locations(name):
-        if location.is_dir():
-            parts.append(digest_files(package_files(location), location))
-        else:
-            parts.append(content_digest(location))
-    h = hashlib.sha3_256()
-    for part in parts:
-        h.update(part.encode() + b"\0")
     return h.hexdigest()[:32]

@@ -345,10 +345,10 @@ keeps two launches from generating it twice; an interrupted generation leaves on
 the next one removes. ``--clean``, post-cleanup and ``xeda scrub`` leave the cache alone.
 
 A design whose sources a generator writes (``rtl.generator``) keeps its record there too, in
-``.cache/generators/``: the content of what the generator reads -- its ``sources``, selected
-direct executable and every installed Python package its ``packages`` names -- identifies an
-entry holding the digest of every source its last generation left, so the generator runs again
-only when one of them changed. Indirect tools and dependencies remain outside that identity. A
+``.cache/generators/``: the content of what the generator reads -- its ``sources``, which may be
+directories outside the design, and its selected direct executable -- identifies an entry holding
+the digest of every source its last generation left, so the generator runs again only when one of
+them changed. Indirect tools and dependencies remain outside that identity. A
 POSIX lock on the existing design-root directory serializes generations for the same tree,
 including bootstrap and differing identities, without creating a marker beside the design or
 making the run root early. Separate design roots that write to one external destination are not

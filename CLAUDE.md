@@ -747,11 +747,13 @@ made at *design-load* time, before any flow, run directory or trace exists. `pro
 asks `judging_generation`, which hashes the generator's configuration **as the design states it**
 (never the working directory and whole environment the loader completes it with: a record must be
 reusable from another shell, and xeda tracks no environment variable), the content of every file
-of `generator.sources`, the selected direct executable, and the digest of every installed Python
-package `generator.packages` names (`digest.installed_package_digest` over
-`package_locations`/`package_files`/`digest_files`, the helpers `trace_inputs.xeda_code_digest`
-shares -- once per process; a package nothing provides is an error naming it). That identity
-names an entry under `<run root>/.cache/generators/`
+of `generator.sources` (a directory counts as every file in it, outside the design root too: a
+library tree, an editable clone) and the selected direct executable. **A generator is an external
+tool, resolved through `PATH`: xeda assumes nothing about its language or environment**, so there
+is no `packages` field and no interpreter lookup -- what it reads is what `sources` names, and
+what xeda cannot see (a package upgrade) needs `--rebuild-all` or `always_runs`; a generator that
+writes into a directory it reads (`__pycache__`) keeps no record on its first generation (its
+inputs changed while it ran) and records on its second. That identity names an entry under `<run root>/.cache/generators/`
 holding the digest of every source the last generation left (`generated_sources` when the
 generator writes only some of `rtl.sources`, else every one of them), written with
 `replacing_file` under the entry's own `run_dir_lock`, exactly as `xilinx.prepare_chipdb` keeps a
@@ -761,13 +763,13 @@ root. It does not coordinate separate roots that write to a shared external outp
 follows the existing no-interprocess-lock policy. Indirect tools and dependencies remain outside
 the executable identity. Metadata is trusted nowhere here: `FileRecord.trusted` needs the time a
 record was taken from the file's own file system (`digest.filesystem_time_ns` writes a marker in the
-directory it reads), and neither the design's tree nor an installed package is xeda's to write
-in -- so every input is hashed, a `touch`/`chmod`/`cp -p` costs a hash rather than a re-run, and
+directory it reads), and neither the design's tree nor anything else a generator reads is
+xeda's to write in -- so every input is hashed, a `touch`/`chmod`/`cp -p` costs a hash rather than a re-run, and
 an edit given back its old mtime is caught. **Where the run root comes from at load time**: the
 launcher puts it there, `design.loading_in_run_root(provider)` (one `ContextVar`, which replaced
 `cloning_dependencies_into`; `provider(False)` gives only a root that is already marked), and
 `FlowLauncher.load_run_root` is that provider. What cannot be judged runs: `always_runs`, a
-generator declaring neither `sources` nor `packages`, no run root in sight (a `Design` built
+generator declaring no `sources`, no run root in sight (a `Design` built
 directly), or a run root whose cache cannot be written. A planning load creates, locks and writes
 nothing -- it reads an existing record, and still refuses to plan a design that must generate.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no

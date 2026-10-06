@@ -285,8 +285,7 @@ command, a list of arguments, or a table configuring one::
       generator:
         executable: python3
         args: ["soc.py", "--build-dir", "gen"]
-        sources: ["soc.py"]
-        packages: ["litex", "litex_boards", "migen"]
+        sources: ["soc.py", "../litex/litex", "../migen/migen"]
 
 The generator runs while the design is loaded, and runs **again only when something it reads or
 produced changed**, judged by content, never by a modification time:
@@ -296,18 +295,17 @@ produced changed**, judged by content, never by a modification time:
     to exist, since its content is read. A ``touch``, a ``chmod`` or a branch round-trip of one
     is not a change; an edit given back its old timestamp is. A source naming a *directory* (a
     Chisel ``src/main/scala``, a directory of templates) counts as every file in it, so a file
-    edited inside one, or added to one, runs the generator again.
+    edited inside one, or added to one, runs the generator again. A path may lie outside the
+    design root: the example names the library trees of editable ``litex`` and ``migen`` clones
+    next to the design.
 
-``packages``
-    installed Python packages, by import name, that it reads and that no design could list as
-    files -- a SoC description reading ``litex``, ``litex_boards`` and ``migen`` from the virtual
-    environment. Every file of each one is digested -- its bytecode and its hidden files (names
-    beginning with a dot) left out -- following package directory links with cycle detection, so
-    installing, upgrading or editing one runs the generator again. A package is looked up in the
-    interpreter that runs ``xeda``, not in the one the generator's ``executable`` selects, so
-    name a package that interpreter provides; one nothing provides is an error naming it. Each
-    package is digested once per ``xeda`` invocation, so a package changed
-    *during* one invocation is noticed by the next.
+A generator is an external tool: xeda assumes nothing about its language or its environment.
+Name what it reads as ``sources``, including directories outside the design such as an editable
+LiteX clone; anything xeda cannot see (a package upgrade in a virtual environment) needs
+``--rebuild-all`` or ``always_runs``. A directory is digested as it is on disk, so whatever the
+generator writes there while it runs (Python's ``__pycache__``, for one) changes what it read:
+the first generation then keeps no record, and the next one, which finds the directory as that
+run left it, does.
 
 The selected direct executable is also identified by its content, including the selected
 ``mill`` or ``bloop`` command for a Chisel generator. Xeda resolves it without running it, and the
@@ -327,8 +325,8 @@ bytes on another run. Declare those inputs where possible or use ``always_runs``
 
 ``always_runs``
     run it on every load. For a generator whose inputs cannot be judged at all -- they are not
-    files, or they cannot be listed. A generator that declares neither ``sources`` nor
-    ``packages`` runs on every load anyway, since nothing says when it is out of date.
+    files, or they cannot be listed. A generator that declares no ``sources`` runs on every
+    load anyway, since nothing says when it is out of date.
 
 What xeda keeps about a generation -- the digest of every source it left -- is a record under
 ``<run root>/.cache/generators/``, beside the chip databases and everything else of xeda's: the
@@ -351,8 +349,8 @@ it judged.
 ``--rebuild-all`` (and ``--clean``, which implies it) runs the generator whatever its record says,
 as it runs every flow of the launch, and records what that generation leaves: that -- not a
 ``touch`` -- is what forces a regeneration when something xeda cannot see has changed. An
-environment variable the generator reads is such a thing; so is anything its ``sources`` and
-``packages`` do not name.
+environment variable the generator reads is such a thing; so is anything its ``sources`` do not
+name.
 
 With ``--remote``, the remote flow still runs fresh. ``--rebuild-all`` forces local generator
 loading before Xeda ships the generated design; the remote runner's default ``clean`` does not

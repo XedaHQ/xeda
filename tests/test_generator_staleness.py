@@ -27,26 +27,32 @@ import pytest
 
 from xeda import Design
 from xeda.design import DesignValidationError, loading_in_run_root, refusing_load_side_effects
-from xeda.digest import installed_package_digest
 from xeda.generation import CACHE_DIRECTORY
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
 from xeda.utils import NonZeroExitCode
 
 #: Writes `gen/top.v` from `spec.txt`, and appends a line to the file named by its first argument
-#: (a run counter, outside the design tree). With `site/` beside the design it imports the package
-#: there first, as litex's SoC script imports litex: its own content does not depend on it.
+#: (a run counter, outside the design tree). A second argument, when not empty, is a directory it
+#: puts first on `sys.path` before importing `generated_from` from it, as litex's SoC script
+#: imports litex (without one, `PYTHONPATH` in its environment does the same): the package's
+#: version goes into the output. It writes no bytecode unless a third argument says `bytecode`.
 GENERATOR = """\
 import os, sys
 from pathlib import Path
 
 root = Path(os.environ["DESIGN_ROOT"])
-site = root / "site"
-if site.is_dir():
-    sys.path.insert(0, str(site))
-    import generated_from  # noqa: F401
+sys.dont_write_bytecode = "bytecode" not in sys.argv[3:]
+lib = sys.argv[2] if len(sys.argv) > 2 else ""
+if lib:
+    sys.path.insert(0, lib)
+text = "// " + (root / "spec.txt").read_text()
+if lib or os.environ.get("PYTHONPATH"):
+    import generated_from
+
+    text += "// version %s\\n" % generated_from.VERSION
 (root / "gen").mkdir(exist_ok=True)
-(root / "gen" / "top.v").write_text("// " + (root / "spec.txt").read_text())
+(root / "gen" / "top.v").write_text(text)
 if len(sys.argv) > 1:
     with open(sys.argv[1], "a") as counter:
         counter.write("ran\\n")
@@ -108,15 +114,6 @@ class World:
     def records(self) -> list[Path]:
         cache = self.run_root / CACHE_DIRECTORY
         return sorted(cache.glob("*.yaml")) if cache.is_dir() else []
-
-
-@pytest.fixture(autouse=True)
-def _a_fresh_process():
-    """Every test is a separate `xeda` invocation: a package digest is cached per process, by its
-    name, so one test's package must not answer for another's."""
-    installed_package_digest.cache_clear()
-    yield
-    installed_package_digest.cache_clear()
 
 
 def _restore_times(path: Path, times: os.stat_result) -> None:
@@ -484,153 +481,118 @@ def test_the_environment_the_generator_inherits_is_not_part_of_the_record(tmp_pa
     assert world.runs == 1
 
 
-# --- an input that cannot be listed as files: an installed Python package -------------------
+# --- an input outside the design: a library tree named in `sources` ----------------------------
 
 
-def _installed_package(tmp_path: Path, monkeypatch, body: str = "VERSION = 1\n") -> Path:
-    """A package installed where this interpreter finds it, as litex is in a virtual environment,
-    and where the generator's own `sys.path` finds it too (`site/` beside the design)."""
-    site = tmp_path / "design" / "site"
-    package = site / "generated_from"
+def _library(tmp_path: Path, body: str = "VERSION = 1\n") -> Path:
+    """A Python package in a directory beside the design (an editable clone of litex, say), which
+    the generator imports and the design names in `sources`."""
+    package = tmp_path / "lib" / "generated_from"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text(body)
-    monkeypatch.syspath_prepend(str(site))
-    import importlib
-
-    importlib.invalidate_caches()
     return package
 
 
-def _another_process() -> None:
-    """A package is digested once per process (`installed_package_digest`, as the installed xeda
-    package is): what a second `xeda` invocation would see, this clears."""
-    installed_package_digest.cache_clear()
+def _world_reading(tmp_path: Path, *extra: str) -> World:
+    """A design whose generator imports the library beside it and names it in `sources`."""
+    library = tmp_path / "lib"
+    return World(
+        tmp_path,
+        args=["gen.py", str(tmp_path / "runs.log"), str(library), *extra],
+        sources=["spec.txt", "gen.py", "../lib"],
+    )
 
 
-def test_a_change_to_an_installed_package_the_generator_reads_runs_it_again(tmp_path, monkeypatch):
-    package = _installed_package(tmp_path, monkeypatch)
-    world = World(tmp_path, packages=["generated_from"])
+def test_a_change_to_a_library_the_generator_reads_runs_it_again(tmp_path):
+    package = _library(tmp_path)
+    world = _world_reading(tmp_path)
     world.load()
     assert world.runs == 1
-    _another_process()
     world.load()
-    assert world.runs == 1, "an unchanged package is not a change"
-    (package / "__init__.py").write_text("VERSION = 1  # the upgrade changed only this comment\n")
-    _another_process()
+    assert world.runs == 1, "an unchanged library is not a change"
+    (package / "__init__.py").write_text("VERSION = 2\n")
     world.load()
-    assert world.runs == 2, "a package the generator reads changed, and it generated the same file"
-    assert world.generated.read_text() == "// one\n"
+    assert world.runs == 2, "a library the generator reads changed"
+    assert world.generated.read_text() == "// one\n// version 2\n"
 
 
-def test_a_symlinked_directory_in_an_installed_package_is_digested(tmp_path, monkeypatch):
-    package = _installed_package(tmp_path, monkeypatch)
+def test_a_symlinked_directory_in_a_library_is_followed(tmp_path):
+    package = _library(tmp_path)
     external = tmp_path / "external_models"
     external.mkdir()
     model = external / "model.py"
     model.write_text("VALUE = 1\n")
     (package / "models").symlink_to(external, target_is_directory=True)
-    world = World(tmp_path, packages=["generated_from"])
+    world = _world_reading(tmp_path)
     world.load()
     model.write_text("VALUE = 2\n")
-    _another_process()
     world.load()
     assert world.runs == 2
 
 
-def test_a_dotted_package_lookup_does_not_execute_parent_initializers(tmp_path, monkeypatch):
-    site = tmp_path / "site"
-    parent = site / "review_parent"
-    child = parent / "child"
-    child.mkdir(parents=True)
-    marker = tmp_path / "parent-ran"
-    (parent / "__init__.py").write_text(
-        "from pathlib import Path\nPath(%r).write_text('ran')\n" % str(marker)
-    )
-    (child / "__init__.py").write_text("VALUE = 1\n")
-    monkeypatch.syspath_prepend(str(site))
-    world = World(tmp_path, packages=["review_parent.child"])
-    with pytest.raises(DesignValidationError, match="Cannot plan a design that needs a generator"):
-        world.load(planning=True)
-    assert not marker.exists()
-
-
-def test_a_dotted_editable_package_is_resolved_through_meta_path_without_import(
-    tmp_path, monkeypatch
-):
-    from importlib.machinery import ModuleSpec
-
-    from xeda.digest import package_locations
-
-    package_root = tmp_path / "mapped-package"
-    child = package_root / "child"
-    child.mkdir(parents=True)
-    marker = tmp_path / "editable-parent-ran"
-    (package_root / "__init__.py").write_text(
-        "from pathlib import Path\nPath(%r).write_text('ran')\n" % str(marker)
-    )
-    (child / "__init__.py").write_text("VALUE = 1\n")
-
-    class EditableFinder:
-        def find_spec(self, fullname, path=None, target=None):
-            if fullname == "editable_example":
-                spec = ModuleSpec(fullname, loader=None, is_package=True)
-                spec.submodule_search_locations = [str(package_root)]
-                return spec
-            return None
-
-    monkeypatch.setattr(sys, "meta_path", [EditableFinder(), *sys.meta_path])
-    assert package_locations("editable_example.child") == [child.resolve()]
-    assert not marker.exists()
-
-
-def test_a_dotted_namespace_package_is_resolved_without_importing_parents(tmp_path, monkeypatch):
-    from xeda.digest import package_locations
-
-    site = tmp_path / "site"
-    leaf = site / "review_namespace" / "child" / "leaf"
-    leaf.mkdir(parents=True)
-    (leaf / "__init__.py").write_text("VALUE = 1\n")
-    monkeypatch.syspath_prepend(str(site))
-    assert package_locations("review_namespace.child.leaf") == [leaf.resolve()]
-    assert "review_namespace" not in sys.modules
-
-
-def test_a_file_added_to_an_installed_package_runs_the_generator_again(tmp_path, monkeypatch):
-    package = _installed_package(tmp_path, monkeypatch)
-    world = World(tmp_path, packages=["generated_from"])
+def test_a_file_added_to_a_library_runs_the_generator_again(tmp_path):
+    package = _library(tmp_path)
+    world = _world_reading(tmp_path)
     world.load()
     (package / "platforms.py").write_text("BOARDS = ['arty']\n")
-    _another_process()
     world.load()
     assert world.runs == 2
 
 
-def test_touching_an_installed_package_does_not_run_the_generator_again(tmp_path, monkeypatch):
-    package = _installed_package(tmp_path, monkeypatch)
-    world = World(tmp_path, packages=["generated_from"])
+def test_touching_a_library_does_not_run_the_generator_again(tmp_path):
+    package = _library(tmp_path)
+    world = _world_reading(tmp_path)
     world.load()
     _newest(package / "__init__.py")
-    _another_process()
     world.load()
     assert world.runs == 1
 
 
-def test_bytecode_of_an_installed_package_is_not_part_of_the_decision(tmp_path, monkeypatch):
-    """Python writes `__pycache__` wherever it imports from; it is not the package's content."""
-    package = _installed_package(tmp_path, monkeypatch)
-    world = World(tmp_path, packages=["generated_from"])
-    world.load()
-    cache = package / "__pycache__"
-    cache.mkdir(exist_ok=True)
-    (cache / "whatever.cpython-313.pyc").write_bytes(b"\x00bytecode")
-    _another_process()
+def test_a_generator_writing_bytecode_into_a_source_directory_records_on_its_second_run(tmp_path):
+    """Whatever a generator writes into a directory it reads is part of what it read, and no
+    language is special: Python's `__pycache__` changes the directory during the first run, so
+    that run's inputs are not the ones it started with and keeps no record; the second finds the
+    directory as the first left it, generates and records; the third is up to date."""
+    package = _library(tmp_path)
+    world = _world_reading(tmp_path, "bytecode")
     world.load()
     assert world.runs == 1
+    assert (package / "__pycache__").is_dir(), "the generator was to leave bytecode there"
+    assert world.records() == [], "the inputs changed while it ran: a record would be of other ones"
+    world.load()
+    assert world.runs == 2
+    assert len(world.records()) == 1
+    world.load()
+    assert world.runs == 2
 
 
-def test_a_package_nothing_provides_is_named_as_the_error_it_is(tmp_path):
-    world = World(tmp_path, packages=["no_such_package_anywhere"])
-    with pytest.raises(DesignValidationError, match="no_such_package_anywhere"):
+def test_a_library_an_environment_selects_is_what_sources_names_not_what_xeda_imports(tmp_path):
+    """The generator runs in the environment the design gives it, not xeda's interpreter: a
+    package it imports from there is judged by naming that tree in `sources`, and an edit to it
+    regenerates, with the new version in the output."""
+    package = tmp_path / "site_B" / "generated_from"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("VERSION = 1\n")
+    world = World(
+        tmp_path,
+        args=["gen.py", str(tmp_path / "runs.log")],
+        sources=["spec.txt", "gen.py", "../site_B/generated_from"],
+        env={"PYTHONPATH": str(tmp_path / "site_B"), "PATH": os.environ["PATH"]},
+    )
+    world.load()
+    assert world.generated.read_text() == "// one\n// version 1\n"
+    world.load()
+    assert world.runs == 1
+    (package / "__init__.py").write_text("VERSION = 2\n")
+    world.load()
+    assert world.runs == 2, "an edit to the tree the generator imports from reused stale output"
+    assert world.generated.read_text() == "// one\n// version 2\n"
+
+
+def test_packages_is_not_a_generator_field(tmp_path):
+    """A generator is an external tool: xeda looks up no installed package for it."""
+    world = World(tmp_path, packages=["litex"])
+    with pytest.raises(DesignValidationError, match="packages"):
         world.load()
     assert world.runs == 0
 

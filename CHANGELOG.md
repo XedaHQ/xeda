@@ -88,16 +88,18 @@ All notable changes to this project will be documented in this file.
   refused.
 
 ### Added
-- **A design generator is judged by content, and can declare an input no design can list.**
+- **A design generator is judged by content, not by a modification time.**
   `rtl.generator` runs again only when something it reads or produced changed: the digest of
-  every file of its `sources`, of every installed Python package its new `packages` names
-  (`litex`, `litex_boards`, `migen` -- a SoC description's real inputs, which are not files of
-  the design), and of every source its last generation left. A `touch`, a `chmod`, a `cp -p` or
-  a branch round-trip costs a hash rather than a re-run, while an edit given back its old
+  every file of its `sources` (a directory counts as every file in it, outside the design root
+  too: a library tree, an editable clone), of its selected executable, and of every source its
+  last generation left. A generator is an external tool and xeda assumes nothing about its
+  language or environment, so what it reads is what `sources` names; a package upgrade xeda
+  cannot see needs `--rebuild-all` or `always_runs`. A `touch`, a `chmod`, a `cp -p` or a
+  branch round-trip costs a hash rather than a re-run, while an edit given back its old
   modification time is caught. `generated_sources` names which of `rtl.sources` the generator
   writes, when it writes only some of them (an entry that is none of `rtl.sources` is an
-  error); `always_runs` says its inputs cannot be judged at all, and a generator declaring
-  neither `sources` nor `packages` runs on every load anyway.
+  error); `always_runs` says its inputs cannot be judged at all, and a generator declaring no
+  `sources` runs on every load anyway.
   The record of a generation is an entry under `<run root>/.cache/generators/`, written under its
   own durable lock beside the Xilinx chip databases -- never beside the design, whose tree holds
   nothing of xeda's. A load with no run root in sight, or one whose run root cannot be written,

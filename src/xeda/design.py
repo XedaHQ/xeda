@@ -1061,21 +1061,16 @@ class Generator(XedaBaseModel):
         default_factory=list,
         description="The sources this generator reads, as a design's `sources` name them: a path "
         "relative to the design root, or a pattern where `*` is the only pattern character. Each "
-        "one's content is what decides whether the generator runs again, so each has to exist.",
-    )
-    packages: List[str] = Field(
-        default_factory=list,
-        description="Installed Python packages (import names) the generator reads, whose files "
-        "no design can list as sources: every file of each one but its bytecode and hidden "
-        "files is digested, so installing, upgrading or editing one runs the generator again "
-        "(`litex`, `litex_boards`, `migen`). Looked up in the interpreter running xeda, not "
-        "in the one the generator's `executable` selects.",
+        "one's content is what decides whether the generator runs again, so each has to exist. "
+        "A directory counts as every file in it, so name what the generator reads from outside "
+        "the design too (a library tree, an editable clone); xeda assumes nothing about the "
+        "generator's language or environment.",
     )
     always_runs: bool = Field(
         default=False,
         description="Run this generator on every design load: what it reads cannot be judged "
         "(it is not files, or they cannot be listed), so xeda keeps no record of it. A "
-        "generator that declares neither `sources` nor `packages` runs on every load anyway.",
+        "generator that declares no `sources` runs on every load anyway.",
     )
     generated_sources: List[str] = Field(
         default_factory=list,

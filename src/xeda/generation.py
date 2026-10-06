@@ -11,14 +11,18 @@ same design-root directory across the first generation and different input ident
 sidecar or eager run-root creation.
 
 The decision is **content-based**, as every other change xeda judges is: the generator's own
-sources, selected executable, and the installed packages it declares are hashed into the identity,
-and the sources it produced are compared with the digests the record holds. A modification time never decides, so a
-`touch`, a `cp -p` or a branch round-trip costs a hash rather than a wrong answer, and an edit
-given back its old mtime is caught. Metadata is trusted nowhere here (`digest.FileRecord.trusted`):
+sources and selected executable are hashed into the identity, and the sources it produced are
+compared with the digests the record holds. A modification time never decides, so a `touch`, a
+`cp -p` or a branch round-trip costs a hash rather than a wrong answer, and an edit given back
+its old mtime is caught. Metadata is trusted nowhere here (`digest.FileRecord.trusted`):
 that rule needs the time the record was taken, read from the file's own file system
 (`digest.filesystem_time_ns`), which writes a marker in the directory it reads -- and neither the
-design's tree nor an installed package is xeda's to write in. Each installed package is hashed
-once per process (`digest.installed_package_digest`), as the installed xeda package is.
+design's tree nor anything else a generator reads is xeda's to write in.
+
+A generator is an external tool: xeda assumes nothing about its language or its environment, so
+what it reads is what the design names in `sources` (a directory counts as every file in it,
+outside the design root too -- a library tree, an editable clone). What xeda cannot see, such as
+an upgraded package, needs `--rebuild-all` or `always_runs`.
 
 Where the run root comes from at load time: the launcher puts it there
 (`design.loading_in_run_root`), as it does the directory a Git dependency is cloned into. It is
@@ -39,7 +43,7 @@ from typing import TYPE_CHECKING, Callable, Iterator, List, Optional, Sequence, 
 
 import yaml
 
-from .digest import content_digest, installed_package_digest, record_file
+from .digest import content_digest, record_file
 from .listing import VCS_METADATA, directory_files
 from .run_dir import RunDirectory
 from .utils import replacing_file, semantic_hash
@@ -58,9 +62,7 @@ RECORD_FORMAT = 1
 #: Why a generator cannot be judged at all, so that it runs on every load.
 NO_RUN_ROOT = "there is no run root to keep a record of its last generation in"
 ALWAYS_RUNS = "it declares `always_runs`"
-NOTHING_TO_JUDGE_BY = (
-    "it declares neither `sources` nor `packages`, so nothing says when it is out of date"
-)
+NOTHING_TO_JUDGE_BY = "it declares no `sources`, so nothing says when it is out of date"
 NOTHING_PRODUCED = "the sources it generates cannot be told apart from what it would produce"
 NO_RECORD = "nothing records an earlier generation of these sources"
 REBUILD_ALL = "this launch rebuilds everything"
@@ -103,11 +105,7 @@ def generation_identity(generator: Generator, design_root: Path) -> str:
     """What the generator would produce, hashed: its configuration **as the design states it**
     (never the working directory and environment `process_generation` completes it with -- a
     record must be reusable from another shell, and xeda tracks no environment variable), the
-    content of every source it declares, and the digest of every installed package it declares.
-
-    A package nothing provides is a `ValueError` naming it: a generator that reads one cannot be
-    judged by silence.
-    """
+    content of every source it declares, and the selected executable."""
     executable = generator.execution_executable_path(design_root)
     command = generator.execution_command(design_root)
     recipe = {
@@ -119,9 +117,6 @@ def generation_identity(generator: Generator, design_root: Path) -> str:
         "cwd": generator.cwd,
         "env": generator.env,
         "sources": _source_digests(generator, design_root),
-        "packages": tuple(
-            (name, installed_package_digest(name)) for name in sorted(set(generator.packages))
-        ),
         "executable": (command[0], content_digest(executable)),
     }
     return semantic_hash(recipe)
@@ -221,7 +216,7 @@ def _unjudgeable(generator: Generator) -> Optional[str]:
     """Why this generator can never be judged out of date by its inputs, if it cannot."""
     if generator.always_runs:
         return ALWAYS_RUNS
-    if not generator.sources and not generator.packages:
+    if not generator.sources:
         return NOTHING_TO_JUDGE_BY
     return None
 
