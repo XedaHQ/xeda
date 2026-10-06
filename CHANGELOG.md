@@ -537,9 +537,12 @@ All notable changes to this project will be documented in this file.
   Declare what the flow reads as `Flow.Inputs` and what a producer makes as `Flow.Outputs`: the
   launcher then runs the producers, hands over their files, and records them in the trace. A
   producer's settings go under its own `flows.<flow>` section. No built-in flow used the
-  mechanism any more. `FlowLauncher.launch_flow`, `run_flow` and `Dse.run_flow` lose their
-  `copy_resources` parameter, and `xeda list-flows --json` lists `dependencies` from the declared
-  inputs only.
+  mechanism any more. `Flow.dependencies` is gone too, and so are `xeda.flow.io.is_declared` and
+  `PlanNode.declared` (every flow is planned the same way). `FlowLauncher.launch_flow`,
+  `run_flow` and `Dse.run_flow` lose their `copy_resources` parameter, and everything after
+  `flow_settings` (`depender`, `all_flows_settings`, `plan`) is keyword-only now, so an old
+  positional call fails with a `TypeError` instead of passing a list of resources as sections.
+  `xeda list-flows --json` lists `dependencies` from the declared inputs only.
 - **`rtl.generator.run_only_if_sources_modified`**: use `always_runs`. A generator's re-run
   decision is its inputs' and outputs' content, never a modification time, so the old switch had
   nothing left to mean; `run_only_if_sources_modified = false` is `always_runs = true`.

@@ -755,3 +755,18 @@ def test_a_change_to_xeda_s_code_reruns_every_flow(tmp_path, toys, design, monke
     flow, ran = _run(tmp_path, consumer, design)
     assert ran == ["toy_producer", "toy_consumer"]
     assert flow.producers[0].stale_reason == "xeda's code changed"
+
+
+def test_what_follows_the_settings_of_a_launch_is_keyword_only():
+    """An older positional call, which put a list of resources where the sections now go, fails
+    loudly instead of being read as sections."""
+    import inspect
+
+    from xeda.flow_runner.dse.dse_runner import Dse
+
+    for method in (DefaultRunner.launch_flow, DefaultRunner.run_flow, Dse.run_flow):
+        parameters = list(inspect.signature(method).parameters.values())
+        names = [p.name for p in parameters]
+        first_keyword_only = next(p for p in parameters if p.kind is inspect.Parameter.KEYWORD_ONLY)
+        assert names.index(first_keyword_only.name) == names.index("flow_settings") + 1, method
+        assert "depender" in {p.name for p in parameters if p.kind is p.KEYWORD_ONLY}, method

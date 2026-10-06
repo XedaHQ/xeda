@@ -263,9 +263,9 @@ class Dse(FlowLauncher):
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
+        *,
         depender: Optional[Flow] = None,
         all_flows_settings: Optional[Dict[str, Any]] = None,
-        *,
         plan: Plan | None = None,
     ):
         """Explore flow setting variations and return the best run."""

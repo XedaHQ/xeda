@@ -920,9 +920,9 @@ class FlowLauncher:
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[Dict[str, Any], Flow.Settings, None],
+        *,
         depender: Optional[Flow] = None,
         all_flows_settings: Union[Dict, None] = None,
-        *,
         plan: Plan | None = None,
         plan_node: NodeKey | None = None,
     ) -> Flow:
@@ -1747,9 +1747,9 @@ class FlowLauncher:
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[Dict[str, Any], Flow.Settings, None] = None,
+        *,
         depender: Optional[Flow] = None,
         all_flows_settings: Union[Dict, None] = None,
-        *,
         plan: Plan | None = None,
     ) -> Optional[Flow]:
         """Launch `flow_class` on `design`. `all_flows_settings` (`flows` sections) are composed
