@@ -20,6 +20,8 @@ Each check is a function returning its problems, so the test that proves it has 
 a broken world and see it find them.
 """
 
+import ast
+import inspect
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -35,7 +37,7 @@ from xeda.flow.io import (
 )
 from xeda.flow_runner import get_flow_class
 from xeda.flow_runner.chains import fitting_outputs
-from xeda.flows import VivadoSynth
+from xeda.flows import Openroad, VivadoSynth
 
 from .settings_samples import PROBES, flow_classes, minimal_settings
 
@@ -184,3 +186,22 @@ def test_a_bitstream_switch_without_its_override_is_found(monkeypatch) -> None:
         "bitstream" in p and "give `bitstream` a value" in p and "minimal settings" in p
         for p in problems
     ), problems
+
+# ------------------------------------------------------------------------------------- OpenROAD
+
+
+def test_openroad_passes_no_synthesis_resources():
+    """PCD9 step (a): synthesis derives its files in its own run directory."""
+    tree = ast.parse(inspect.getsource(inspect.getmodule(Openroad)))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add_dependency"
+    ]
+    for call in calls:
+        assert len(call.args) == 2
+        assert not call.keywords
+    assert "copy_resources" not in inspect.getsource(Openroad)
+    assert "yosys_settings.liberty" not in inspect.getsource(Openroad)
