@@ -293,6 +293,10 @@ def test_targets_are_published_in_the_input_schema_only():
     assert "target" not in schema["properties"]
     model = design_schema(input_syntax=False)
     assert "targets" not in model["properties"] and "target" in model["properties"]
+    validator = jsonschema.Draft202012Validator(schema)
+    valid_design = {"name": "d", "rtl": {"sources": []}}
+    assert validator.is_valid({**valid_design, "targets": {}})
+    assert not validator.is_valid({**valid_design, "targets": None})
 
 
 @pytest.mark.parametrize("path", TARGET_DESIGNS, ids=lambda p: p.name)

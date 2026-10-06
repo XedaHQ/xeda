@@ -263,10 +263,11 @@ targets:
 - **A target overrides the design**, key by key: where both write a key, the target's value
   wins (a target's `flows.nextpnr.board` replaces the design's, with no error); keys the target
   does not write stay the design's. Order, lowest first: flow defaults, project file, design
-  file, target, `-s`, API. This is not the agreement rule between two flows of one run (which
+  file, target, `-s`, API for design settings. The loader records the selected target name;
+  a design file or override cannot set or change it. This is not the agreement rule between two flows of one run (which
   errors when `yosys_fpga` and `nextpnr` disagree on a shared setting).
 - A target name is a name (`[A-Za-z][A-Za-z0-9_-]*`) and not a flow's name or alias. A design
-  file has no `target` key.
+  file has no `target` key; the loader records it and overrides cannot change it.
 - The selected target yields an ordinary design, identical to the file written flat. `--json`
   documents report `target` (`null` without one).
 - Not there yet: targets share the design's run directories (`<design>/<flow>`), so alternate

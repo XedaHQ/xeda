@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Target loading applies design overrides to dictionary inputs, rejects `targets: null`, and
+  keeps the loader-selected target name authoritative over design and project overrides.
 - `yosys_fpga` reads each target's primitive library (Xilinx, ECP5, Nexus, iCE40) before the
   design with the flags the synthesis pass itself reads it with (`-lib -specify`, plus the
   device define for iCE40), so the early read and the pass's own agree. (A netlist can differ

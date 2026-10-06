@@ -151,6 +151,19 @@ def test_design_overrides_win_over_the_target(tmp_path):
     assert design.rtl.defines == {"A": 2, "B": 1}
 
 
+@pytest.mark.parametrize("reported_target", ["another", None])
+def test_design_overrides_cannot_change_or_hide_the_selected_target(tmp_path, reported_target):
+    path = write_design(tmp_path, {**BASE, "targets": {"t": {"top": "from_target"}}})
+    with pytest.raises(DesignValidationError, match="cannot be overridden"):
+        Design.from_file(path, overrides={"target": reported_target})
+
+
+def test_project_design_overrides_cannot_forge_the_selected_target(tmp_path):
+    project = XedaProject.from_file(project_file(tmp_path), design_overrides={"target": "another"})
+    with pytest.raises(DesignValidationError, match="`target` is not a key of a design"):
+        project.get_design("knight", target="ulx3s")
+
+
 # ------------------------------------------------------------------------------ selection
 
 
@@ -181,6 +194,20 @@ def test_an_unknown_target_lists_them_with_a_close_match():
 def test_a_target_for_a_design_without_targets_is_an_error(tmp_path):
     message = error_of(tmp_path, BASE, target="arty")
     assert "'arty'" in message and "no `targets`" in message
+
+
+def test_a_null_targets_table_is_an_error(tmp_path):
+    message = error_of(tmp_path, {**BASE, "targets": None})
+    assert "targets:" in message and "must be a table" in message
+
+
+@pytest.mark.parametrize("targets", [None, {}])
+def test_a_written_target_is_rejected_without_a_target_table(tmp_path, targets):
+    data = {**BASE, "target": "phantom"}
+    if targets is not None:
+        data["targets"] = targets
+    message = error_of(tmp_path, data)
+    assert "target:" in message and "`targets.<name>`" in message
 
 
 def test_a_design_without_targets_is_what_it_was(tmp_path):
@@ -316,6 +343,25 @@ def test_the_launcher_plans_the_selected_target(tmp_path):
     assert plan.context.design_hash == flat.context.design_hash
     assert [n.flowrun_hash for n in plan.nodes] == [n.flowrun_hash for n in flat.nodes]
     assert plan.node("vivado_synth").settings == flat.node("vivado_synth").settings
+
+
+def test_the_launcher_applies_overrides_to_a_dictionary_design(tmp_path):
+    launcher = DefaultRunner(tmp_path / "xeda_run")
+    request = launcher._request(
+        "vivado_synth",
+        design={"name": "d", "targets": {"t": {"top": "from_target"}}},
+        target="t",
+        design_overrides={"top": "from_api"},
+    )
+    assert request.design.target == "t"
+    assert request.design.rtl.top == "from_api"
+
+
+def test_the_launcher_rejects_a_written_target_without_a_target_table(tmp_path):
+    with pytest.raises(DesignValidationError, match="`targets.<name>`"):
+        DefaultRunner(tmp_path / "xeda_run")._request(
+            "vivado_synth", design={"name": "d", "target": "phantom"}
+        )
 
 
 def test_a_built_design_takes_no_target(tmp_path):
