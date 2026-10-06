@@ -384,15 +384,16 @@ class _Listed(NamedTuple):
 
     path: Path
     #: the flow's regex, the resolved parent, and the identity of the name itself and of what
-    #: it leads to, as `(st_dev, st_ino)`
+    #: it leads to, as `(st_dev, st_ino, st_ctime_ns)`: an inode number alone is no identity,
+    #: since a file system may give a removed directory's number to the next one made
     flow_name: str
     parent: Path
-    own: tuple[int, int]
-    target: tuple[int, int]
+    own: tuple[int, int, int]
+    target: tuple[int, int, int]
 
 
-def _identity(status: os.stat_result) -> tuple[int, int]:
-    return status.st_dev, status.st_ino
+def _identity(status: os.stat_result) -> tuple[int, int, int]:
+    return status.st_dev, status.st_ino, status.st_ctime_ns
 
 
 def _name_regex(flow_name: str) -> re.Pattern[str]:
