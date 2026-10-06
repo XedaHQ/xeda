@@ -194,6 +194,32 @@ def test_verilator_simulates_the_designs_testbench_top(tmp_path):
     assert flow.succeeded
 
 
+def test_a_design_with_its_own_driver_and_hdl_sources_needs_no_testbench_top(tmp_path):
+    """HDL among the testbench's sources (a checker bound into the design) does not make a design
+    with a C++ driver of its own ask for `tb.top`: the driver runs the RTL top."""
+    require_verilator()
+    (tmp_path / "dut.sv").write_text(
+        "`timescale 1ns/1ps\nmodule dut(input logic clk);\n"
+        "  logic [3:0] cnt = 0;\n  initial begin #50 $finish; end\nendmodule\n"
+    )
+    (tmp_path / "chk.sv").write_text(
+        "module chk(input logic clk, input logic [3:0] cnt);\nendmodule\n"
+        "bind dut chk c(.clk(clk), .cnt(cnt));\n"
+    )
+    (tmp_path / "main.cpp").write_text(OWN_DRIVER.replace("STATUS", "0"))
+    design = Design(
+        name="dut",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.sv"], "top": "dut"},
+        tb={"sources": ["chk.sv", "main.cpp"]},
+    )
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        Verilator, design, {"timing": True}
+    )
+    assert flow is not None and flow.succeeded
+    assert flow.results["sim.ended_by"] == "exit"
+
+
 @pytest.mark.parametrize("timescale", ["1ns/1ns", "1ns/1ps", "1ns/1fs", "1us/100ps"])
 def test_verilator_stops_at_stop_time_in_the_models_precision(tmp_path, timescale):
     """The driver converts `stop_time` into ticks of the model's time precision, coarser or

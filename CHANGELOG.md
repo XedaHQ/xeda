@@ -114,6 +114,13 @@ All notable changes to this project will be documented in this file.
   `$stop` end a run as `sim.ended_by: error` (it was `fatal`, and the log said "a fatal error ended
   it"), and `$fatal` as `fatal`. A report that ends a run is one event: a `$stop` that reached
   Xeda's hooks directly recorded a `stop` and a `fatal` event.
+- A simulation whose testbench is written in a hardware description language (Verilog,
+  SystemVerilog, VHDL, Bluespec or Chisel) needs `tb.top`. Without it, Verilator ran `rtl.top`,
+  which has no stimulus, and the run failed as drained, and NVC failed on `nvc -e` with no top.
+  Every simulation flow now refuses the design when it is planned, and the message names `tb.top`.
+  Not affected: a cocotb testbench, a design with no testbench, `ghdl_sim` with a VHDL testbench
+  (it finds the top with `ghdl find-top`), and a design with a C++ driver of its own for
+  `verilator` and `yosys_sim`, whatever HDL its testbench also holds.
 
 ### Added
 - **A design generator is judged by content, not by a modification time.**

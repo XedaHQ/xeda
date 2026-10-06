@@ -10,7 +10,7 @@ from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Unio
 
 from ...cocotb import cocotb_toplevel
 from ...dataclass import WORKING, Field, deliverable
-from ...design import SourceType
+from ...design import Design, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvent, SimEvidence
 from ...tool import NonZeroExitCode, Tool
@@ -100,8 +100,9 @@ class Verilator(SimFlow):
     makes it the fastest open-source simulator for large designs. Supports cocotb testbenches,
     plain C++/SystemC harnesses, and VCD/FST waveform tracing.
 
-    The simulated top is the testbench's `tb.top`, or else the design's `rtl.top`; with cocotb,
-    the module cocotb drives: `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are
+    The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (a design with
+    HDL testbench sources needs `tb.top`, unless it has a C++ driver of its own); with cocotb, the
+    module cocotb drives: `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are
     `rtl.parameters` updated by `tb.parameters` when the simulated top is the RTL top, and
     `tb.parameters` alone otherwise. Without cocotb, a run passes only on evidence of how the
     simulation ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in
@@ -296,6 +297,12 @@ class Verilator(SimFlow):
         if not top:
             raise FlowSettingsException("no simulation top: set tb.top or rtl.top")
         return top
+
+    @classmethod
+    def runs_without_testbench_top(cls, design: Design) -> bool:
+        """A design with a C++ driver of its own runs the model, whatever HDL its testbench
+        sources hold (a bound checker, a model): the driver does not need a testbench top."""
+        return bool(design.sim_sources_of_type(SourceType.Cpp))
 
     def own_driver(self) -> bool:
         """Whether the design brings its own C++ driver (`Cpp` sources), which runs the model in

@@ -145,7 +145,13 @@ The aliases ``test`` and ``tests`` are also accepted. The section takes the same
      - Meaning
    * - ``top``
      - Toplevel testbench module. Up to two may be given, as a list, when a secondary toplevel is
-       needed (e.g. a VHDL configuration alongside an entity).
+       needed (e.g. a VHDL configuration alongside an entity). A simulation flow needs it when
+       ``tb.sources`` holds a source in a hardware description language (Verilog, SystemVerilog,
+       VHDL, Bluespec or Chisel) and the testbench is not cocotb: without it the simulator would
+       run ``rtl.top``, which has no stimulus, so the flow refuses the design and names
+       ``tb.top``. A simulator that knows what to run without it is not refused: ``ghdl_sim`` finds
+       the top of a VHDL testbench itself, and ``verilator`` and ``yosys_sim`` run a C++ driver
+       of the design's own, whatever HDL the testbench also holds.
    * - ``uut``
      - Instance name of the unit under test inside the testbench. Some flows need it to locate
        signals for waveform dumping or activity capture.

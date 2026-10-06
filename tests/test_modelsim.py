@@ -12,6 +12,7 @@ import pytest
 import xeda.tool
 from xeda import Design
 from xeda.design import DesignValidationError
+from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Modelsim
 from xeda.flows.modelsim import ModelsimTool
@@ -95,10 +96,24 @@ def test_outputs_to_warns_when_a_simulation_delivers_no_waveform(tmp_path, monke
     assert "modelsim" in caplog.text and "vcd" in caplog.text and "delivered nothing" in caplog.text
 
 
-def test_a_design_without_a_simulation_top_is_rejected(tmp_path, monkeypatch) -> None:
-    """With no `tb.top`, vsim was started with no design unit, simulated nothing, and passed."""
+def test_an_hdl_testbench_without_a_top_is_rejected_when_planned(tmp_path, monkeypatch) -> None:
+    """With no `tb.top`, vsim was started with no design unit, simulated nothing, and passed. A
+    testbench in Verilog is refused before anything is set up, as it is for every simulator."""
     use_fake_tools(monkeypatch)
     design = _design(tmp_path / "design", tb_top=None)
+    with pytest.raises(FlowSettingsException, match=r"tb\.top"):
+        DefaultRunner(tmp_path / "run").run_flow(Modelsim, design, {})
+    assert not (tmp_path / "run").exists()
+
+
+def test_a_design_without_a_testbench_has_no_simulation_top(tmp_path, monkeypatch) -> None:
+    """With no testbench at all there is no `tb.top` either: the flow itself refuses to start vsim
+    with no design unit."""
+    use_fake_tools(monkeypatch)
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "uut.vhd").write_text("entity uut is end;\narchitecture a of uut is begin end;\n")
+    design = Design(name="d", design_root=root, rtl={"sources": ["uut.vhd"], "top": "uut"})
     with pytest.raises(DesignValidationError, match=r"tb\.top"):
         DefaultRunner(tmp_path / "run").run_flow(Modelsim, design, {})
 
