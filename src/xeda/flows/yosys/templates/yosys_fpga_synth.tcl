@@ -28,7 +28,8 @@ yosys opt -undriven -purge -keepdc -noff
 yosys opt_clean -purge
 {% endif -%}
 
-{#- ABC9's script and target delay: computed in one place, and empty under `synth_pass_only` #}
+{#- ABC9 choices are computed in one place; pass-only may render an explicit script but omits
+    inferred flow3 and the clock-derived delay. #}
 {% for command in settings.abc9_scratchpad() -%}
 yosys {{command}}
 {% endfor -%}

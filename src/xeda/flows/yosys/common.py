@@ -50,7 +50,9 @@ def yosys_data_dir(yosys: Tool) -> Path:
     it: the share directory is found by asking the tool, never from an environment variable or
     a guess at its layout. In a container it is the container's path.
     """
-    reported = yosys.derive("yosys-config", sibling=True).probe_stdout("--datdir")
+    reported = yosys.derive("yosys-config", sibling=True, source_name="yosys").probe_stdout(
+        "--datdir"
+    )
     if not reported or not reported.strip():
         raise ToolException("`yosys-config --datdir` reported no data directory.")
     return Path(reported.strip())
