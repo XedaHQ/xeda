@@ -1,6 +1,6 @@
 # The packages the documentation build needs: Sphinx, the theme, and the one extension conf.py
 # enables. Used by `tox -e docs`, the CI docs job and Read the Docs. xeda itself is installed
 # alongside (conf.py reads its version from the installed distribution).
-sphinx >= 7
+sphinx >= 9.0.4
 sphinx_book_theme >= 1.1
-sphinxext-opengraph >= 0.9
+sphinxext-opengraph >= 0.13.0

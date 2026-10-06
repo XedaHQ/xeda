@@ -290,8 +290,7 @@ removed before the run, so an earlier success never stands for a run that died
   were removed, and power's simulation controls with them. Each fails with its replacement:
   `vivado_postsynth_sim.synth` names `flows.vivado_synth.<key>`, `vivado_power.postsynthsim` and
   power's former simulation controls name `flows.vivado_postsynth_sim.<key>`, and
-  `vivado_power.timing_sim` has none (power switches it on itself). Only `openroad` is still on `add_dependency` (it builds its yosys settings itself and has no
-  nested settings field). `-s flows.<flow>.key=value` sets any flow of the run (the
+  `vivado_power.timing_sim` has none (power switches it on itself). No built-in flow is on `add_dependency` any more. `-s flows.<flow>.key=value` sets any flow of the run (the
   requested flow or one of its declared dependencies; an unknown flow is an error with
   suggestions); `-s key` and `-s flows.<requested>.key` are one setting (two values for it are an
   error); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
@@ -311,7 +310,10 @@ removed before the run, so an earlier success never stands for a run that died
 - An undeclared flow registers dependencies in `init()` (not `__init__`) via
   `self.add_dependency(DepFlowClass, dep_settings, copy_resources=[...])`. Deps run in sibling run dirs
   and completed instances are available as `self.completed_dependencies` / `self.pop_dependency(Cls)`.
-  Example: `Openroad` depends on `Yosys`. Declared producers are launched by the
+  No built-in flow does any more: OpenROAD declares its `netlist`
+  input from `yosys.netlist` and reads only `self.inputs.netlist` in `run()`; its platform copies
+  and its own `merged.lib` are written in `run()`, so a fresh launch writes no flow output.
+  Declared producers are launched by the
   launcher, not registered by `init()`.
 - `run()` generates scripts and invokes tools. `parse_reports()` populates `self.results`;
   `self.results.success` decides pass/fail. Helpers: `parse_report_regex()`, `parse_regex()`,

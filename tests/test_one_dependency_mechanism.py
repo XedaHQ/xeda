@@ -1,5 +1,5 @@
 """The oracles of PC's one dependency mechanism (`41-plan-pc` section 6), as the tasks that need
-them build them. So far: O-ND3.
+them build them. So far: O-ND3, and for OpenROAD O-ND1 and O-ND2.
 
 **O-ND3: every declared edge names something that exists, and every switch can be thrown.**
 Over every registered flow and every combination of its target-narrowing settings reachable from
@@ -20,6 +20,8 @@ Each check is a function returning its problems, so the test that proves it has 
 a broken world and see it find them.
 """
 
+import ast
+import inspect
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -35,7 +37,7 @@ from xeda.flow.io import (
 )
 from xeda.flow_runner import get_flow_class
 from xeda.flow_runner.chains import fitting_outputs
-from xeda.flows import VivadoSynth
+from xeda.flows import Openroad, VivadoSynth
 
 from .settings_samples import PROBES, flow_classes, minimal_settings
 
@@ -184,3 +186,50 @@ def test_a_bitstream_switch_without_its_override_is_found(monkeypatch) -> None:
         "bitstream" in p and "give `bitstream` a value" in p and "minimal settings" in p
         for p in problems
     ), problems
+
+
+# ------------------------------------------------------------------------------------- OpenROAD
+
+
+def test_openroad_passes_no_synthesis_resources():
+    """PCD9 step (a): synthesis derives its files in its own run directory."""
+    tree = ast.parse(inspect.getsource(inspect.getmodule(Openroad)))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add_dependency"
+    ]
+    for call in calls:
+        assert len(call.args) == 2
+        assert not call.keywords
+    assert "copy_resources" not in inspect.getsource(Openroad)
+    assert "yosys_settings.liberty" not in inspect.getsource(Openroad)
+
+
+def test_openroad_registers_no_undeclared_dependency():
+    """O-ND1: the resolver alone supplies OpenROAD's synthesis prerequisite."""
+    assert Openroad.Settings.dependency_settings == {}
+    for field in Openroad.Settings.model_fields.values():
+        annotation = field.annotation
+        assert not (isinstance(annotation, type) and issubclass(annotation, Flow.Settings))
+    assert "add_dependency" not in inspect.getsource(Openroad.init)
+    inputs = declared_inputs(Openroad)
+    assert inputs["netlist"].producer == "yosys"
+    assert inputs["netlist"].output == "netlist"
+
+
+def test_openroad_reads_no_producer_state():
+    """O-ND2: a producer's file is reached through self.inputs alone."""
+    tree = ast.parse(inspect.getsource(inspect.getmodule(Openroad)))
+    state = {"settings", "run_path", "artifacts", "results", "outputs", "inputs"}
+    other = [
+        ast.unparse(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr in state
+        and not (isinstance(node.value, ast.Name) and node.value.id == "self")
+    ]
+    assert not other
+    assert "pop_dependency" not in inspect.getsource(Openroad)

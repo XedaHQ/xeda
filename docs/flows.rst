@@ -77,11 +77,10 @@ places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, n
 ``vivado_power``'s former ``postsynthsim`` section and simulation controls (``elab_debug``,
 ``saif``, ``stop_time``, ``prerun_time``, ``timeout``, ``fail_severity``) name
 ``flows.vivado_postsynth_sim.<key>``. ``vivado_power`` asks that flow for timing activity, which
-switches its ``timing_sim`` on, so ``timing_sim`` is no setting of power. Only ``openroad`` still
-launches its dependency itself. Its synthesis is configured in the design's or project's ``flows.yosys``
-section (``optimize``, ``abc_driver_cell``, ...): ``yosys`` derives everything else from the
-``platform`` the two share. Until ``openroad`` declares its input, ``-s flows.yosys.*`` is not
-accepted with ``xeda run openroad``.
+switches its ``timing_sim`` on, so ``timing_sim`` is no setting of power. ``openroad`` takes its
+netlist from ``yosys`` the same way, so its synthesis is configured in ``flows.yosys``
+(``optimize``, ``abc_driver_cell``, ...; ``-s flows.yosys.optimize=speed`` with ``xeda run
+openroad``), and ``yosys`` derives everything else from the ``platform`` the two share.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are the same setting
@@ -175,7 +174,7 @@ files and sections. A command-line leaf (``-s fpga.part=...`` or
 API overrides retain their separate highest-precedence origin. Normal origin-first precedence
 still applies within each node.
 
-Undeclared edges (``openroad``'s) keep the
+Undeclared edges (a flow that still calls ``add_dependency``; no built-in flow does) keep the
 legacy rule: the depending flow's nonempty value, else its dependency's nested value.
 Undeclared flows may launch declared ones.
 

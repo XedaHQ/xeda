@@ -56,11 +56,12 @@ and none can be derived from `platform` alone), checked in `test_each_openroad_v
   a copy of its shipped description under the design's directory, with a tiny liberty file per
   corner written there (`stage_asap7`, deterministic: the compressed ones carry no time stamp).
   `-s platform=asap7` itself cannot run on a checkout.
-* `blocks`: **the liberty and the merged library are identical to the default's.** `blocks` only
-  becomes the `black_box` of `yosys`, which renders it as a `blackbox <module>` command in the
-  script; nothing about a library follows from it. The variant is distinct through the script
-  `yosys` is handed (and the netlist that follows from it), and that is what is recorded and
-  asserted. A conversion that dropped it would still hand yosys the same libraries.
+* `black_box` (the golden `openroad_blocks`, from `openroad`'s removed `blocks`): **the liberty
+  and the merged library are identical to the default's.** It only becomes the `black_box` of
+  `yosys`, which renders it as a `blackbox <module>` command in the script; nothing about a
+  library follows from it. The variant is distinct through the script `yosys` is handed (and the
+  netlist that follows from it), and that is what is recorded and asserted. A conversion that
+  dropped it would still hand yosys the same libraries.
 
 The goldens are `tests/resources/pc_equivalence/*.json`. Setting `XEDA_PC_EQUIVALENCE_CAPTURE=1`
 writes a golden that does not exist yet and never replaces one: a golden is not regenerated, a
@@ -238,6 +239,21 @@ REVIEWED_DELTAS["openroad_dont_use_cells"][
     "in its merge beside the platform's, instead of handing it a library already merged"
 )
 
+# Task 6 (c): the platform-plus-setting union is a template global rather than a
+# stored setting. All four set_dont_use commands and merged-lib bytes still compare.
+for _name in REVIEWED_RENAMES:
+    REVIEWED_DELTAS[_name][
+        ("nodes", _OPENROAD, "effective_flow_settings", "dont_use_cells")
+    ] = "PCD16: keep the user's setting; compute the platform union where the merge and Tcl use it"
+
+# Task 6 (d), PCD16: refuse the removed vehicle; the flat setting still hands
+# yosys the identical blackbox command. The golden's original request remains unchanged.
+for _name in REVIEWED_RENAMES:
+    REVIEWED_DELTAS[_name][
+        ("nodes", _OPENROAD, "effective_flow_settings", "blocks")
+    ] = "PCD16 owner ruling: blocks was removed; configure flows.yosys.black_box instead"
+REVIEWED_RENAMES["openroad_blocks"]["flows.yosys.black_box=mul8"] = "blocks=mul8"
+
 
 def activity_recording_delta(record: dict, name: str, *, baseline: bool = False) -> dict:
     """Only a direct timing request gains activity calls. Require their exact sequence and
@@ -306,7 +322,9 @@ REQUESTS: dict[str, Request] = {
     ),
     "vivado_power": Request("vivado_power", VIVADO_SETTINGS, "vivado"),
     "openroad": Request("openroad", OPENROAD_SETTINGS, "asic"),
-    "openroad_blocks": Request("openroad", (*OPENROAD_SETTINGS, "blocks=mul8"), "asic"),
+    "openroad_blocks": Request(
+        "openroad", (*OPENROAD_SETTINGS, "flows.yosys.black_box=mul8"), "asic"
+    ),
     "openroad_dont_use_cells": Request(
         "openroad", (*OPENROAD_SETTINGS, "dont_use_cells=AND2_X2"), "asic"
     ),
@@ -495,7 +513,7 @@ def record_node(run_dir: Path, marks: Placeholders) -> dict[str, Any]:
         "results": marks.value(results_without_identity(results)),
     }
     # a script is read where it is not a digest: what it asks the tool for is what a reviewer
-    # compares, and `blocks` shows nowhere else
+    # compares, and `black_box` shows nowhere else
     scripts = {
         marks.text(str(path)): marks.text(path.read_text())
         for path in files
@@ -540,6 +558,17 @@ def launch(request: Request, work: Path, monkeypatch: pytest.MonkeyPatch) -> dic
     assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document
     marks = Placeholders(work)
     run_dirs = sorted(path.parent for path in run_root.rglob("settings.json"))
+    if request.design == "asic":
+        from .tool_utils import run_outputs_state
+
+        before = run_outputs_state(*run_dirs)
+        again = subprocess.run(
+            command, cwd=design, env=dict(os.environ), capture_output=True, text=True, timeout=600
+        )
+        fresh = json.loads(again.stdout)
+        assert again.returncode == 0 and fresh["success"], again.stderr[-3000:] or fresh
+        assert {node["state"] for node in fresh["nodes"]} == {"fresh"}
+        assert run_outputs_state(*run_dirs) == before
     record = {
         "request": {"flow": request.flow, "settings": marks.value(items)},
         "run_directories": [str(path.relative_to(run_root)) for path in run_dirs],
@@ -732,7 +761,7 @@ def yosys_netlist(record: dict[str, Any]) -> str:
 
 def test_each_openroad_variant_hands_yosys_what_the_default_does_not(captured) -> None:
     """Each nondefault configuration differs from the one it is compared with in what the
-    golden records, or it would pass vacuously. `blocks` differs in the script, not the library
+    golden records, or it would pass vacuously. `black_box` differs in the script, not the library
     (the module docstring says why); `corner` is compared with the same platform's default."""
     default = captured("openroad")
     dont_use = captured("openroad_dont_use_cells")
@@ -742,7 +771,7 @@ def test_each_openroad_variant_hands_yosys_what_the_default_does_not(captured) -
     assert merged_library(dont_use) != merged_library(default)
     assert merged_library(ss) != merged_library(tt)
 
-    # `blocks` changes no library, and changes the script (and so the netlist) yosys is handed
+    # `black_box` changes no library, and changes the script (and so the netlist) yosys is handed
     assert merged_library(blocks) == merged_library(default)
     assert yosys_script(blocks) != yosys_script(default)
     assert yosys_netlist(blocks) != yosys_netlist(default)

@@ -223,39 +223,38 @@ def test_real_yosys_maps_with_the_selected_script(optimize, tmp_path):
 
 
 @pytest.mark.parametrize("copy_platform_files", [False, True])
-def test_a_second_launch_of_openroad_is_fresh(tmp_path, copy_platform_files):
-    """`Openroad.init` writes into its run directory -- the platform's liberty files, copied,
-    their merge, and with `copy_platform_files` the platform's files too -- before the launcher
-    checks the last run. Every file there is an output of that run, so what `init()` writes must
-    come out byte-identical at every launch, or no launch would ever be fresh (ruling R45).
-    OpenROAD itself is not needed: only its synthesis dependency runs."""
+def test_a_second_launch_of_openroad_is_fresh(tmp_path, copy_platform_files, monkeypatch):
+    """O-OR1 replaces R45: real yosys synthesis, stand-in OpenROAD/KLayout, and an
+    unchanged relaunch starts no tools and rewrites no run output, even byte-identically."""
+    from .tool_utils import run_outputs_state, use_fake_asic_tools
+
+    real_init = Openroad.init
+
+    def read_only_init(self):
+        before = run_outputs_state(self.run_path)
+        real_init(self)
+        assert run_outputs_state(self.run_path) == before
+
+    monkeypatch.setattr(Openroad, "init", read_only_init)
     require_yosys()
-
-    class OpenroadSynthesisOnly(Openroad):
-        """OpenROAD's flow up to synthesis: no place and route."""
-
-        def run(self) -> None:
-            self.pop_dependency(Yosys)
-
-        def parse_reports(self) -> bool:
-            return True
-
+    binary = use_fake_asic_tools(monkeypatch, tmp_path / "bin")
+    (binary / "yosys").unlink()  # synthesis still uses the real installed yosys
     settings = {
         "platform": "nangate45",
         "clock": {"period": 2.0},
         "copy_platform_files": copy_platform_files,
     }
-    try:
-        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-        first = runner.launch_flow(OpenroadSynthesisOnly, _mac_design(tmp_path), settings)
-        assert first.succeeded and not first.reused
-        again = launch_until_fresh(
-            runner,
-            lambda: runner.launch_flow(OpenroadSynthesisOnly, _mac_design(tmp_path), settings),
-        )
-        assert again.completed_dependencies[0].reused
-    finally:
-        from xeda.flow import registered_flows
-
-        for name in (OpenroadSynthesisOnly.name, OpenroadSynthesisOnly.__name__):
-            registered_flows.pop(name, None)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    design = _mac_design(tmp_path)
+    first = runner.launch_flow(Openroad, design, settings)
+    assert first.succeeded and not first.reused
+    again = launch_until_fresh(runner, lambda: runner.launch_flow(Openroad, design, settings))
+    assert next(flow for flow in runner.launched if flow.name == "yosys").succeeded
+    assert (again.run_path / "merged.lib").read_bytes() == (
+        again.run_path.parent / "yosys" / "merged_lib.lib"
+    ).read_bytes()
+    before = run_outputs_state(again.run_path, again.run_path.parent / "yosys")
+    last = len(runner.launched)
+    fresh = runner.launch_flow(Openroad, design, settings)
+    assert fresh.reused and all(flow.reused for flow in runner.launched[last:])
+    assert run_outputs_state(again.run_path, again.run_path.parent / "yosys") == before

@@ -230,6 +230,13 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **`openroad` consumes a declared netlist from `yosys`.** The resolver supplies `yosys.netlist`,
+  or a typed `VerilogNetlist` source skips synthesis, and `-s flows.yosys.*` with
+  `xeda run openroad` now reaches that producer. Platform copies and `openroad`'s own merged
+  library are written only in `run()`, so a fresh relaunch runs no tools and rewrites no flow
+  outputs. Its merge and all four `set_dont_use` passes keep the platform's plus the user's cell
+  restrictions through one template global. **Breaking: `openroad.blocks` was removed**: it fails
+  with `` `blocks` was removed: use `flows.yosys.black_box` ``.
 - **Breaking: `--remote` needs a remote of remote protocol 1** (`xeda.REMOTE_PROTOCOL_VERSION`), the
   first released protocol: canonical resolved settings, relocated read inputs with their path
   identities, declared output records with checked hand-over, current-run evidence for remote
@@ -253,10 +260,8 @@ All notable changes to this project will be documented in this file.
   explicitly given setting is never replaced. `xeda run yosys -s platform=nangate45` produces the
   netlist `openroad`'s synthesis produced, byte for byte. `yosys` declares its gate-level netlist
   (`netlist`, switched on by `netlist_verilog`) and gains `corner`. `openroad` hands its
-  synthesis only the settings the two share (`platform`, `corner`, `dont_use_cells`, `clocks`) and
-  `blocks`; `yosys`'s own settings reach it from a design's or project's `flows.yosys` section
-  (`-s flows.yosys.*` with `xeda run openroad` is not accepted until `openroad` declares its
-  input, so `-s optimize=...` on the command line has no replacement there yet).
+  synthesis only the settings the two share (`platform`, `corner`, `dont_use_cells`, `clocks`);
+  `yosys`'s own settings reach it from a design's or project's `flows.yosys` section.
 - **Breaking: `optimize`, `abc_driver_cell` and `abc_load_in_ff` moved from `openroad` to
   `yosys`.** Given to `openroad` they fail with `` `optimize` was removed: use
   `flows.yosys.optimize` `` (and likewise); `abc_driver_cell` is a cell name (text), no longer an
