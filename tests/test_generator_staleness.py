@@ -1042,3 +1042,51 @@ def test_digests_have_one_entry_per_name_whatever_order_the_paths_come_in(tmp_pa
     assert names == sorted(set(names)) == ["gen", "gen/ln.v", "gen/loop"]
     assert dict(forward)["gen/ln.v"] == as_declared
     assert _digests([root / "gen", root / "gen"], root) == _digests([root / "gen"], root)
+
+
+# --- `args` is one stored value, whichever way the design spells it ---------------------------
+
+
+def test_generator_args_written_as_text_are_words_and_as_a_list_stay_as_given():
+    """A string `args` is split on whitespace exactly as `command` is, so the argv is the same
+    whichever spelling a design used; a list is the words already. Both generator kinds read the
+    one stored list."""
+    from xeda.design import ChiselGenerator, Generator
+
+    text = Generator(executable="python3", args="gen.py  out.log")
+    words = Generator(executable="python3", args=["gen.py", "out.log"])
+    assert text.args == words.args == ["gen.py", "out.log"]
+    assert text.execution_command() == words.execution_command() == ["python3", "gen.py", "out.log"]
+    assert Generator(executable="python3", args=["a b", "c"]).args == ["a b", "c"]
+    assert Generator(executable="python3").execution_command() == ["python3"]
+    assert Generator(executable="python3", args="").args == []
+
+    mill = ChiselGenerator(build_system="mill", project="hw", args="--width  8")
+    assert mill.execution_command(Path("."))[-2:] == ["--width", "8"]
+    bloop = ChiselGenerator(build_system="bloop", project="hw", args=["--width", "8"])
+    assert bloop.execution_command(Path("."))[-3:] == ["--", "--width", "8"]
+
+
+def test_generator_args_survive_assignment_and_reload():
+    """Validators run again on assignment and on every reload: the list a string became is the
+    list it stays."""
+    from xeda.design import Generator
+
+    generator = Generator(executable="python3", args="gen.py out.log")
+    generator.args = generator.args
+    assert generator.args == ["gen.py", "out.log"]
+    generator.args = "other.py x"
+    assert generator.args == ["other.py", "x"]
+    reloaded = Generator.model_validate(generator.model_dump(mode="json"))
+    assert reloaded.args == generator.args
+
+
+def test_a_generator_with_text_args_runs_its_words(tmp_path):
+    """End to end, with the spelling a design file would use: the generator that ran is the one
+    asked for, and a second load reuses its record."""
+    world = World(tmp_path, args=f"gen.py {tmp_path / 'runs.log'}")
+    world.load()
+    assert world.runs == 1
+    assert world.generated.is_file()
+    world.load()
+    assert world.runs == 1

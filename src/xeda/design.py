@@ -360,12 +360,7 @@ def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
 def _describe_generator(generator: Any) -> str:
     """How to name a generator in an error, whichever of its three input forms the design used."""
     if isinstance(generator, Generator):
-        args = generator.args
-        return (
-            generator.command
-            or (args if isinstance(args, str) else " ".join(str(part) for part in args))
-            or generator.name
-        )
+        return generator.command or " ".join(generator.args) or generator.name
     if isinstance(generator, (list, tuple)):
         return " ".join(str(part) for part in generator)
     return str(generator)
@@ -1052,7 +1047,11 @@ class Generator(XedaBaseModel):
     cwd: Optional[str] = None
     executable: Optional[str] = None
     class_: Optional[str] = Field(None, alias="class")
-    args: Union[str, List[str]] = []
+    args: List[str] = Field(
+        default_factory=list,
+        description="The arguments the executable is run with: a list, or one string split on "
+        "whitespace (as `command` is).",
+    )
     command: Optional[str] = None
     check: bool = True
     env: Optional[Dict[str, str]] = None
@@ -1096,6 +1095,14 @@ class Generator(XedaBaseModel):
             if name in data:
                 raise ValueError(f"`{name}` was removed: use {replacement}")
         return data
+
+    @field_validator("args", mode="before")
+    @classmethod
+    def _args_to_words(cls, value):
+        """Store the arguments as words whichever way they were written: a string is split on
+        whitespace, exactly as `command` is, and a list is the words already, so every reader
+        (`execution_command`, the freshness identity) sees a list."""
+        return value.split() if isinstance(value, str) else value
 
     @field_validator("sources", mode="before")
     @classmethod
@@ -1248,7 +1255,7 @@ class ChiselGenerator(Generator):
             if not self.project:
                 raise ValueError("`project` must be specified for Chisel generator")
             cmd += [f"{self.project}.runMain", self.main] if self.main else [f"{self.project}.run"]
-            return [*cmd, *(self.args.split() if isinstance(self.args, str) else self.args)]
+            return [*cmd, *self.args]
         if self.build_system == "bloop":
             if not self.project:
                 # `run_bloop` discovers the project by invoking `bloop projects`; the executable
@@ -1258,9 +1265,8 @@ class ChiselGenerator(Generator):
             cmd = ["bloop", "run", self.project]
             if self.main:
                 cmd += ["--main", self.main]
-            args = self.args.split() if isinstance(self.args, str) else self.args
-            if args:
-                cmd += ["--", *args]
+            if self.args:
+                cmd += ["--", *self.args]
             return cmd
         raise ValueError(f"Unsupported build system: {self.build_system}")
 
