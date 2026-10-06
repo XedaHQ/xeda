@@ -812,7 +812,8 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
 #
 # Bluespec and most Vivado flows declare no inputs or outputs yet (P4 derives a design from `bsc`;
 # P5 chains Bluespec to simulation and synthesis; `vivado_synth` and `vivado_alt_synth` declare
-# their outputs). Until then a chain through one is refused, and a binding for one is refused for
+# their outputs. Postsynth declares optional inputs, so adjacency still cannot reach it.
+# Until P5 a chain through Bluespec is refused, and a binding for one is refused for
 # the missing declaration -- before any tool runs.
 
 UNDECLARED = ["bsc", "bsc_sim", "vivado_project"]
@@ -967,3 +968,13 @@ def test_the_arty_chain_ending_at_the_packer_builds_a_bitstream_with_openxc7(
     base = tmp_path_factory.getbasetemp()
     common = base.parent if os.environ.get("PYTEST_XDIST_WORKER") else base
     _real_build(common / "openxc7-run-root", _stage(tmp_path, BOARDS["arty"]), BOARDS["arty"])
+
+
+@pytest.mark.parametrize("producer", ["vivado_synth", "vivado_alt_synth"])
+def test_optional_postsynth_inputs_are_never_bound_by_chain_adjacency(producer):
+    from xeda.flow import FlowSettingsException
+    from xeda.flow_runner.chains import parse_request
+
+    with pytest.raises(FlowSettingsException) as exc:
+        parse_request(f"{producer}+vivado_postsynth_sim")
+    assert "no declared I/O" not in str(exc.value)

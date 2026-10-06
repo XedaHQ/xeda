@@ -1,11 +1,11 @@
 import logging
+from pathlib import Path
 
 from ...dataclass import Field
-from ...design import DesignSource, RtlSettings
-from ...flow import FlowFatalError
+from ...design import DesignSource, RtlSettings, SourceType
+from ...flow import Flow, FlowFatalError, FpgaSynthFlow, In, Out
 from ...utils import SDF
 from .vivado_sim import VivadoSim
-from .vivado_synth import NETLIST, NETLIST_TIMING, SDF_MAX, VivadoSynth, artifact_path
 
 log = logging.getLogger(__name__)
 
@@ -18,37 +18,68 @@ class VivadoPostsynthSim(VivadoSim):
     annotated with its slow-corner SDF (`sdf_max`).
     """
 
-    class Settings(VivadoSim.Settings):
-        synth: VivadoSynth.Settings = Field(
-            description="Settings for the `vivado_synth` dependency that produces the netlist. "
-            "`write_netlist` and `write_timing_netlist` are forced on."
-        )
-        dependency_settings = {"synth": ()}  # nothing to propagate; `init` forces the netlists
+    class Settings(VivadoSim.Settings, FpgaSynthFlow.Settings):
+        removed_settings = {"synth": "`flows.vivado_synth.<key>`"}
         timing_sim: bool = Field(
             False,
             description="Simulate the routed timing netlist annotated with its slow-corner SDF, "
             "instead of the routed functional netlist.",
         )
 
-    def init(self) -> None:
-        super().init()
-        ss = self.settings
-        assert isinstance(ss, self.Settings)
+    class Inputs(VivadoSim.Inputs):
+        netlist: Path | None = In(
+            SourceType.VerilogNetlist,
+            producer="vivado_synth",
+            output="netlist",
+            description="The routed functional Verilog netlist.",
+        )
+        netlist_timing: Path | None = In(
+            SourceType.VerilogNetlist,
+            producer="vivado_synth",
+            output="netlist_timing",
+            description="The routed timing Verilog netlist, annotated with `sdf`.",
+        )
+        sdf: Path | None = In(
+            SourceType.Sdf,
+            producer="vivado_synth",
+            output="sdf",
+            description="The routed timing netlist's slow-corner SDF annotation.",
+        )
 
-        synth = ss.resolve_dependency("synth")
-        synth.write_netlist = True
-        synth.write_timing_netlist = True
-        self.add_dependency(VivadoSynth, synth)
+    class Outputs(VivadoSim.Outputs):
+        saif: Path | None = Out(
+            SourceType.Saif,
+            enabled_by="saif",
+            description="Switching activity from the selected simulation.",
+        )
+        timing_saif: Path | None = Out(
+            SourceType.Saif,
+            enabled_by="timing_sim",
+            description="Switching activity from a timing-annotated simulation.",
+        )
+
+    @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str) -> None:
+        """An activity demand supplies the fixed filename; timing activity also enables timing."""
+        if name not in ("saif", "timing_saif"):
+            return super().enable_output(settings, name)
+        assert isinstance(settings, cls.Settings)
+        if settings.saif is None:
+            settings.saif = Path("activity.saif")
+        if name == "timing_saif":
+            super().enable_output(settings, name)
 
     def run(self) -> None:
-        synth_flow = self.completed_dependencies[0]
-        assert isinstance(synth_flow, VivadoSynth)
         ss = self.settings
         assert isinstance(ss, self.Settings)
-
-        synth_netlist_path = artifact_path(synth_flow, NETLIST_TIMING if ss.timing_sim else NETLIST)
-        if not synth_netlist_path.exists():
+        assert isinstance(self.inputs, self.Inputs)
+        assert isinstance(self.outputs, self.Outputs)
+        synth_netlist_path = self.inputs.netlist_timing if ss.timing_sim else self.inputs.netlist
+        if synth_netlist_path is None or not synth_netlist_path.is_file():
             raise FlowFatalError(f"Netlist {synth_netlist_path} does not exist!")
+        if ss.timing_sim and ss.saif is None:
+            # A direct timing request enables timing_saif too, without a consumer demand.
+            ss.saif = Path("activity.saif")
         postsynth_sources = [DesignSource(synth_netlist_path)]
         log.info("Setting post-synthesis sources to: %s", postsynth_sources)
         # also removing top-level generics and everything else
@@ -65,7 +96,9 @@ class VivadoPostsynthSim(VivadoSim):
 
         if ss.timing_sim:
             if not ss.sdf.delay_items():
-                ss.sdf = SDF(max=artifact_path(synth_flow, SDF_MAX))
+                if self.inputs.sdf is None:
+                    raise FlowFatalError("Timing simulation requires the declared sdf input")
+                ss.sdf = SDF(max=self.inputs.sdf)
             if not ss.sdf.root:
                 ss.sdf.root = self.design.tb.uut
             log.info("Timing simulation using SDF %s", ss.sdf)
@@ -82,3 +115,7 @@ class VivadoPostsynthSim(VivadoSim):
         )
         # run VivadoSim
         super().run()
+        if ss.saif:
+            self.outputs.saif = self.run_path / ss.saif
+            if ss.timing_sim:
+                self.outputs.timing_saif = self.outputs.saif

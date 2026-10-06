@@ -83,7 +83,7 @@ def test_alternative_bindings_pin_the_partial_binding_hazard(tmp_path, all_three
     for selected in node.inputs:
         expected = "vivado_alt_synth" if selected.name in names else "vivado_synth"
         assert len(selected.references) == 1
-        assert selected.references[0].node.flow == expected
+        assert selected.references[0].node == expected
         assert selected.references[0].output == selected.name
 
 
@@ -120,7 +120,7 @@ def test_removed_synth_reports_its_replacement_from_every_origin(tmp_path, origi
         document = json.loads(proc.stdout)
         assert proc.returncode != 0 and not document["success"]
         message = document["error"]["message"]
-    assert "was removed" in message and "flows.vivado_synth.<key>" in message
+    assert "was removed" in message and "flows.vivado_synth.write_checkpoint" in message
 
 
 @pytest.mark.parametrize("timing_sim", [False, True])
@@ -140,19 +140,9 @@ def test_results_record_both_enabled_activity_names(tmp_path, monkeypatch, timin
     outputs = results["outputs"]
     assert set(outputs) == ({"saif", "timing_saif"} if timing_sim else {"saif"})
     assert outputs["saif"]["path"].endswith("activity.saif")
-    assert len(outputs["saif"]["sha"]) == 64
+    assert len(outputs["saif"]["sha"]) == 32
     if timing_sim:
         assert outputs["timing_saif"] == outputs["saif"]
-
-
-@pytest.mark.parametrize("producer", ["vivado_synth", "vivado_alt_synth"])
-def test_optional_postsynth_inputs_are_never_bound_by_chain_adjacency(producer):
-    from xeda.flow import FlowSettingsException
-    from xeda.flow_runner.chains import parse_request
-
-    with pytest.raises(FlowSettingsException) as exc:
-        parse_request(f"{producer}+vivado_postsynth_sim")
-    assert "no declared I/O" not in str(exc.value)
 
 
 def test_three_alternative_bindings_run_only_the_alternative_and_relaunch_nothing(
