@@ -449,7 +449,7 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
             design, flow_name, host="somewhere", flow_settings=flow_settings
         )
     assert version in str(raised.value)
-    assert "P3" in str(raised.value)
+    assert "upgrade the remote xeda" in str(raised.value)
     assert f"remote protocol {protocol or 0}" in str(raised.value)
     assert "remote protocol 1 or newer" in str(raised.value)
     assert not shipped
@@ -459,7 +459,7 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
 #: The archive accepted by a protocol-1 remote.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
-FLOOR_RTL_KEYS = {
+ARCHIVE_RTL_KEYS = {
     "attributes",
     "clocks",
     "defines",
@@ -469,7 +469,7 @@ FLOOR_RTL_KEYS = {
     "sources",
     "top",
 }
-FLOOR_TB_KEYS = {"cocotb", "defines", "generics", "parameters", "sources", "top", "uut"}
+ARCHIVE_TB_KEYS = {"cocotb", "defines", "generics", "parameters", "sources", "top", "uut"}
 
 EXAMPLE_DESIGNS = sorted(
     p
@@ -493,8 +493,8 @@ def test_the_design_archive_is_readable_at_the_protocol_floor(design_file, tmp_p
     with zipfile.ZipFile(remote_dir / zip_name) as archive:
         shipped = json.loads(archive.read(design_name))
 
-    assert set(shipped["rtl"]) <= FLOOR_RTL_KEYS
-    assert set(shipped["tb"]) <= FLOOR_TB_KEYS
+    assert set(shipped["rtl"]) <= ARCHIVE_RTL_KEYS
+    assert set(shipped["tb"]) <= ARCHIVE_TB_KEYS
 
 
 TARGETS = TESTS_DIR / "resources" / "targets"
@@ -535,7 +535,7 @@ def test_a_remote_run_takes_a_target(tmp_path, remote_host):
 
 #: A design dependency at the protocol floor (`GitReference`) and the keys it accepts as `null`.
 #: Unlike the old floor, this one accepts an unset local_cache directly.
-FLOOR_GIT_REFERENCE_KEYS = {
+ARCHIVE_GIT_REFERENCE_KEYS = {
     "uri",
     "rtl",
     "tb",
@@ -546,7 +546,7 @@ FLOOR_GIT_REFERENCE_KEYS = {
     "branch",
     "clone_dir",
 }
-FLOOR_NULLABLE_GIT_REFERENCE_KEYS = {"commit", "branch", "clone_dir", "local_cache"}
+ARCHIVE_NULLABLE_GIT_REFERENCE_KEYS = {"commit", "branch", "clone_dir", "local_cache"}
 
 
 @pytest.mark.parametrize("local_cache", [None, "deps"])
@@ -569,8 +569,8 @@ def test_a_git_dependency_is_archived_as_the_protocol_floor_reads_it(
     with zipfile.ZipFile(remote_dir / zip_name) as archive:
         (shipped,) = json.loads(archive.read(design_name))["dependencies"]
 
-    assert set(shipped) <= FLOOR_GIT_REFERENCE_KEYS
-    assert {k for k, v in shipped.items() if v is None} <= FLOOR_NULLABLE_GIT_REFERENCE_KEYS
+    assert set(shipped) <= ARCHIVE_GIT_REFERENCE_KEYS
+    assert {k for k, v in shipped.items() if v is None} <= ARCHIVE_NULLABLE_GIT_REFERENCE_KEYS
     assert shipped.get("local_cache") == reference.get("local_cache")
     assert shipped["repo_url"] == "https://example.com/org/repo.git"
 
@@ -628,8 +628,8 @@ def test_plain_testbench_parameters_do_not_need_a_newer_remote(tmp_path, monkeyp
         shipped = json.loads(archive.read(design_name))
 
     assert shipped["tb"]["parameters"] == {"G_N": 8}
-    assert set(shipped["rtl"]) <= FLOOR_RTL_KEYS
-    assert set(shipped["tb"]) <= FLOOR_TB_KEYS
+    assert set(shipped["rtl"]) <= ARCHIVE_RTL_KEYS
+    assert set(shipped["tb"]) <= ARCHIVE_TB_KEYS
 
 
 def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remote_host):

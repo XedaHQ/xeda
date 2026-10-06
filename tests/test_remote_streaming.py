@@ -63,7 +63,12 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
         check_remote_xeda(
             "0.2.13.dev1+g13970c24c", "/home/u/src/xeda/src/xeda/__init__.py", "/usr/bin/python3"
         )
-    for part in ("0.2.13.dev1", "/home/u/src/xeda/src/xeda", "/usr/bin/python3", "P3"):
+    for part in (
+        "0.2.13.dev1",
+        "/home/u/src/xeda/src/xeda",
+        "/usr/bin/python3",
+        "upgrade the remote xeda",
+    ):
         assert part in str(old.value)
 
     with pytest.raises(RemoteIncompatible, match="/usr/bin/python3.*no xeda"):
