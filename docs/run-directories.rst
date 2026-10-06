@@ -98,8 +98,8 @@ content hash, type, ``standard`` and ``variant``, and its position in the source
 behavior-affecting RTL/testbench metadata. Every source also counts by its path relative to the
 design root -- outside the root too, as ``../lib/defs.vh`` -- since a tool can resolve other files
 by the source's location. The design hash counts the parts of the design the flow reads: its RTL, and
-the testbench for a flow that runs one (a simulation), so a synthesis flow stays up to date when
-only a testbench changes, and its trace records no testbench file as an input. (A flow that
+the testbench for a flow that reads one (a simulation, and ``bsc`` and ``vivado_project``, which read
+the testbench's sources too), so a synthesis flow stays up to date when only a testbench changes, and its trace records no testbench file as an input. (A flow that
 consumes another flow's outputs still runs again when that flow does.) A parameter whose value is a path
 under the design root, such as one given as a file relative to it, counts relative to it; one
 outside the root counts as the location it names, and a parameter file's content is not hashed.

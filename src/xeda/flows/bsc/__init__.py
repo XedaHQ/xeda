@@ -235,8 +235,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
     #: The setting naming the output directory, which `cleanup_bobjs` removes modules from
     output_dir_setting: ClassVar[str]
 
-    #: `_path_flags` puts the testbench's Verilog directories on `-vsearch` for every backend, so
-    #: `bsc`, a compilation, reads `tb` as `bsc_sim` does, until that read is narrowed (PCD3)
+    #: With the Verilog backend, `_path_flags` puts the testbench's Verilog directories on
+    #: `-vsearch`, so `bsc`, a compilation, reads `tb` as `bsc_sim` does; the Bluesim backend reads
+    #: no Verilog, and `tb` stays declared there as a safe over-approximation (PCD3)
     design_parts = frozenset({"rtl", "tb"})
 
     class Settings(Flow.Settings):
