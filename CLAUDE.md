@@ -293,19 +293,20 @@ removed before the run, so an earlier success never stands for a run that died
   on which consumer asked**: there are no consumer-given producer defaults, so `yosys_fpga`
   requested alone and as `nextpnr`'s producer is one configuration, one identity and one run
   (`yosys_fpga` keeps `src` attributes by its own default, since nextpnr's reports cite them).
-  Only flows still on `add_dependency` (`vivado_postsynth_sim.synth`,
-  `vivado_power.postsynthsim`) keep a nested field until PC; there, nesting
-  applies only within one origin, so a design's `[flows.vivado_synth] fail_timing` beats a
-  project's `[flows.vivado_postsynth_sim] synth.fail_timing`. `-s flows.<flow>.key=value` sets any flow of the run (the
+  `vivado_postsynth_sim` and `vivado_power` are declared too: `synth` and `postsynthsim`
+  were removed, and power's simulation controls with them. Each fails with its replacement:
+  `vivado_postsynth_sim.synth` names `flows.vivado_synth.<key>`, `vivado_power.postsynthsim` and
+  power's former simulation controls name `flows.vivado_postsynth_sim.<key>`, and
+  `vivado_power.timing_sim` has none (power switches it on itself). No built-in flow is on `add_dependency` any more. `-s flows.<flow>.key=value` sets any flow of the run (the
   requested flow or one of its declared dependencies; an unknown flow is an error with
   suggestions); `-s key` and `-s flows.<requested>.key` are one setting (two values for it are an
   error); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
   rules. `-s` takes space-separated KEY=VALUE items and ends at the next option or the first
   token that is not KEY=VALUE (its key must look like a setting name), so it never swallows the
   design file; `--` ends the options. Local runs, remote runs and dependencies all use
-  `merge_layers`. Under the field holding an undeclared
-  dependency's settings (`vivado_postsynth_sim.synth`), that dependency's own sections
-  (`[flows.vivado_synth]`) are the base (`settings_layers.flow_settings_from_sections`, used by the launcher and the
+  `merge_layers`. Under a field holding an undeclared
+  dependency's settings (no built-in flow has one now), that dependency's own sections
+  (`[flows.<dependency>]`) are the base (`settings_layers.flow_settings_from_sections`, used by the launcher and the
   remote runner alike). Declared edges agree shared leaves in the resolver; undeclared edges
   resolve them in `init()` before launching dependencies.
 - A dependency's launch settings are composed in `default_runner.dependency_settings`: the
@@ -316,7 +317,7 @@ removed before the run, so an earlier success never stands for a run that died
 - An undeclared flow registers dependencies in `init()` (not `__init__`) via
   `self.add_dependency(DepFlowClass, dep_settings, copy_resources=[...])`. Deps run in sibling run dirs
   and completed instances are available as `self.completed_dependencies` / `self.pop_dependency(Cls)`.
-  Example: `VivadoPostsynthSim` depends on `VivadoSynth`. OpenROAD declares its `netlist`
+  No built-in flow does any more: OpenROAD declares its `netlist`
   input from `yosys.netlist` and reads only `self.inputs.netlist` in `run()`; its platform copies
   and its own `merged.lib` are written in `run()`, so a fresh launch writes no flow output.
   Declared producers are launched by the

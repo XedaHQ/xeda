@@ -942,21 +942,19 @@ def test_a_remote_run_checks_its_output_names_before_connecting(world, monkeypat
 
 
 def test_a_remote_run_protects_every_read_input_it_can_name(world):
-    """gpt-6-sol's final (c), remote: the files the nested dependency's settings and every flow
-    section sent with the design name are inputs, as the design's own are."""
+    """Remote delivery protects requested flow settings and every producer's own section,
+    as well as the design's source files."""
     from xeda.flow_runner.remote import remote_read_inputs
     from xeda.flows import VivadoPostsynthSim
 
-    for name in ("nested.xdc", "section.xdc", "nested_lib/a.v", "section_lib/b.v"):
+    for name in ("nested.sdf", "section.xdc", "nested_lib/a.v", "section_lib/b.v"):
         (world.user / name).parent.mkdir(exist_ok=True)
         (world.user / name).write_text("")
     settings = VivadoPostsynthSim.Settings.from_input(
         {
-            "synth": {
-                "fpga": {"part": "xc7a12tcsg325-1"},
-                "xdc_files": ["$PWD/nested.xdc"],
-                "lib_paths": [["work", "$PWD/nested_lib"]],
-            }
+            "fpga": {"part": "xc7a12tcsg325-1"},
+            "sdf": {"max": "$PWD/nested.sdf"},
+            "lib_paths": [["work", "$PWD/nested_lib"]],
         },
         design_root=world.design.root_path,
         runner_cwd=world.user,
@@ -978,13 +976,13 @@ def test_a_remote_run_protects_every_read_input_it_can_name(world):
         run_path=root / "d" / "f",
         run_root=root,
     )
-    named = [world.user / "nested.xdc", world.user / "section.xdc"]
+    named = [world.user / "nested.sdf", world.user / "section.xdc"]
     listed = [world.user / "nested_lib" / "a.v", world.user / "section_lib" / "b.v"]
     for path in [*named, *listed, world.design.root_path / "top.v"]:
         assert inputs.find(path) is not None, path
     # and every destination inside a directory they name, a file there or not
     assert inputs.directory_of(world.user / "nested_lib" / "new.v") == (
-        "synth.lib_paths[0][1]",
+        "lib_paths[0][1]",
         (world.user / "nested_lib").resolve(),
     )
     assert inputs.directory_of(world.user / "section_lib" / "new.v") == (

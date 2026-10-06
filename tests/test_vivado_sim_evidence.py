@@ -28,17 +28,26 @@ def design_at(root: Path, vhdl=False) -> Design:
     )
 
 
-def launch(tmp_path, monkeypatch, state="silent", settings=None, flow_class=VivadoSim):
+def launch(
+    tmp_path, monkeypatch, state="silent", settings=None, flow_class=VivadoSim, producers=None
+):
+    """Launch `flow_class`. A declared flow's producers have their own sections: the synthesis
+    node's FPGA is given in `flows.vivado_synth`, and for `vivado_power`, whose simulation
+    controls were removed (R-PC-c), `producers` names the `flows.vivado_postsynth_sim` ones."""
     use_fake_tools(monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", state)
     if flow_class is not VivadoSim:
         materialize_builds(monkeypatch)
-    if flow_class is VivadoPostsynthSim:
-        settings = {"synth": {"fpga": "xc7a12tcsg325-1"}, **(settings or {})}
-    if flow_class is VivadoPower:
-        settings = {"postsynthsim": {"synth": {"fpga": "xc7a12tcsg325-1"}}, **(settings or {})}
+    sections = None
+    if flow_class is not VivadoSim:
+        sections = {"vivado_synth": {"fpga": "xc7a12tcsg325-1"}}
+    if producers:
+        sections["vivado_postsynth_sim"] = dict(producers)
     return DefaultRunner(tmp_path / "run", rebuild_all=True).run_flow(
-        flow_class, design_at(tmp_path / "design", vhdl=state.startswith("vhdl")), settings or {}
+        flow_class,
+        design_at(tmp_path / "design", vhdl=state.startswith("vhdl")),
+        settings or {},
+        all_flows_settings=sections,
     )
 
 
@@ -142,6 +151,8 @@ def test_vivado_timeout_is_applied_to_combined_process(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("state", ["silent", "error", "fatal"])
 def test_vivado_power_activity_failure_prevents_power_report(tmp_path, monkeypatch, state):
+    """PCD6: the verdict is made where the simulation runs; a failed producer is never handed
+    over, so power's reporter never starts."""
     from xeda.flow import FlowDependencyFailure
 
     with pytest.raises(FlowDependencyFailure):
@@ -162,32 +173,44 @@ def test_vivado_power_activity_failure_prevents_power_report(tmp_path, monkeypat
         ("clock", {"prerun_time": "10ns", "stop_time": "20ns"}),
     ],
 )
-def test_vivado_power_delegates_fresh_and_reused_evidence(tmp_path, monkeypatch, state, settings):
-    flow = launch(tmp_path, monkeypatch, state, {"timeout": 10.0, **settings}, VivadoPower)
+def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
+    tmp_path, monkeypatch, state, settings
+):
+    """The simulation controls live in `flows.vivado_postsynth_sim` (R-PC-c) and the evidence
+    stays on that node (PCD6): power reports only its own metrics, here after the producer ran
+    and again while the producer is trace-reused."""
+    producers = {"timeout": 10.0, **settings}
+    flow = launch(tmp_path, monkeypatch, state, producers=producers, flow_class=VivadoPower)
     assert flow.succeeded
-    evidence = flow.results["sim.evidence"]
     assert flow.results["Total On-Chip Power (W)"] == "0.5"
+    assert not any(key.startswith("sim.") for key in flow.results)
     assert not (flow.run_path / "xsim_runtime.log").exists()
     simulation = flow.run_path.parent / "vivado_postsynth_sim"
 
     recorded = json.loads((simulation / "results.json").read_text())
-    assert recorded["sim.evidence"] == evidence
+    assert recorded["success"]
+    assert recorded["sim.evidence"]
     effective = json.loads((simulation / "settings.json").read_text())["effective_flow_settings"]
     assert effective["timeout"] == 10.0
     assert effective["fail_severity"] == settings.get("fail_severity", "error")
     if "stop_time" in settings:
-        assert flow.results["sim.time"] == 20000
+        assert recorded["sim.time"] == 20000
     before = (simulation / "fake_vivado.calls").read_text()
     # Change only the reporter's settings: it runs while its activity dependency is trace-reused.
-    configured = {
-        "timeout": 10.0,
-        "power_report_xml": "second.xml",
-        **settings,
-        "postsynthsim": {"synth": {"fpga": "xc7a12tcsg325-1"}},
-    }
-    rerun = DefaultRunner(tmp_path / "run").run_flow(VivadoPower, flow.design, configured)
+    rerun = DefaultRunner(tmp_path / "run").run_flow(
+        VivadoPower,
+        flow.design,
+        {"power_report_xml": "second.xml"},
+        all_flows_settings={
+            "vivado_synth": {"fpga": "xc7a12tcsg325-1"},
+            "vivado_postsynth_sim": producers,
+        },
+    )
     assert rerun.succeeded
-    assert rerun.results["sim.evidence"] == evidence
+    assert not any(key.startswith("sim.") for key in rerun.results)
+    assert json.loads((simulation / "results.json").read_text())["sim.evidence"] == (
+        recorded["sim.evidence"]
+    )
     assert (simulation / "fake_vivado.calls").read_text() == before
 
 
@@ -264,7 +287,11 @@ def test_vivado_power_requires_its_own_current_power_xml(tmp_path, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_POWER_NO_OUTPUT", "1")
     rerun = launch(tmp_path, monkeypatch, "finish5", flow_class=VivadoPower)
     assert not rerun.succeeded
-    assert rerun.results["sim.ended_by"] == "finish"
+    # PCD6: the simulation succeeded on its own node; power's failure is its own report's
+    simulation = json.loads(
+        (rerun.run_path.parent / "vivado_postsynth_sim" / "results.json").read_text()
+    )
+    assert simulation["success"] and simulation["sim.ended_by"] == "finish"
 
 
 @pytest.mark.parametrize(
@@ -276,7 +303,7 @@ def test_vivado_power_propagates_failing_simulation_controls(
     from xeda.flow import FlowDependencyFailure
 
     with pytest.raises(FlowDependencyFailure):
-        launch(tmp_path, monkeypatch, state, settings, VivadoPower)
+        launch(tmp_path, monkeypatch, state, producers=settings, flow_class=VivadoPower)
     simulation = tmp_path / "run" / "sim" / "vivado_postsynth_sim"
     result = json.loads((simulation / "results.json").read_text())
     if state == "warning":

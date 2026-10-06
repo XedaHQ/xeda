@@ -293,8 +293,8 @@ def test_xsim_native_vhdl_evidence(work_dir, body, passes, ending, errors, warni
     assert flow.results["sim.warnings"] == warnings
 
 
-def test_xsim_native_power_delegates_netlist_evidence(work_dir):
-    """A real routed netlist supplies activity and the same verdict to the power reporter."""
+def test_xsim_native_power_uses_successful_declared_activity(work_dir):
+    """A real routed netlist supplies checked activity; only its producer reports a verdict."""
     from xeda.flows import VivadoPower
 
     root = work_dir / "design"
@@ -310,26 +310,27 @@ def test_xsim_native_power_delegates_netlist_evidence(work_dir):
         rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clock_port": "clk"},
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )
-    settings = {
-        "timing_sim": False,
-        "timeout": 240.0,
-        "prerun_time": "10ns",
-        "stop_time": "20ns",
-        "postsynthsim": {"synth": {"fpga": PART, "clock_period": 10.0, "ncpus": 2}},
+    design.flow = {
+        "vivado_synth": {"fpga": PART, "clock_period": 10.0, "ncpus": 2},
+        "vivado_postsynth_sim": {"timeout": 240.0, "prerun_time": "10ns", "stop_time": "20ns"},
     }
-    flow = DefaultRunner(work_dir / "run").run_flow(VivadoPower, design, settings)
+    runner = DefaultRunner(work_dir / "run")
+    launch = lambda: runner.run_flow(VivadoPower, design, {})
+    flow = launch()
     assert flow.succeeded
-    assert flow.results["sim.ended_by"] == "stop_time"
-    assert flow.results["sim.time"] == 20000
+    assert not any(key.startswith("sim.") for key in flow.results)
     assert "Total On-Chip Power (W)" in flow.results
     assert not (flow.run_path / "xsim_runtime.log").exists()
-    simulation = flow.run_path.parent / "vivado_postsynth_sim"
-    import json
+    simulation = next(f for f in runner.launched if f.name == "vivado_postsynth_sim")
+    assert simulation.results["sim.ended_by"] == "stop_time"
+    assert simulation.results["sim.time"] == 20000
+    assert flow.inputs.activity == simulation.outputs.timing_saif
+    from .tool_utils import launch_until_fresh
 
-    assert (
-        json.loads((simulation / "results.json").read_text())["sim.evidence"]
-        == flow.results["sim.evidence"]
-    )
+    launch_until_fresh(runner, launch)
+    entered = len(runner.launched)
+    assert launch().reused
+    assert all(f.reused for f in runner.launched[entered:])
 
 
 def test_xsim_native_partial_line_diagnostic(work_dir):

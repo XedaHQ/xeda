@@ -68,36 +68,25 @@ def test_merging_leaves_every_layer_unchanged():
 
 def test_a_design_section_refines_the_projects_section_for_the_same_flow():
     project = {
-        "vivado_postsynth_sim": {"vcd_level": 1, "synth": {"fail_timing": True}},
-        "vivado_synth": {"out_of_context": True},
+        "vivado_postsynth_sim": {"vcd_level": 1},
+        "vivado_synth": {"fail_timing": True, "out_of_context": True},
     }
-    design = {
-        "vivado_postsynth_sim": {"synth": {"fpga": {"part": "xc7a100t"}, "out_of_context": False}}
-    }
-
+    design = {"vivado_synth": {"fpga": {"part": "xc7a100t"}, "out_of_context": False}}
     assert merge_flow_sections(project, design) == {
-        "vivado_postsynth_sim": {
-            "vcd_level": 1,
-            "synth": {
-                "fail_timing": True,
-                "out_of_context": False,
-                "fpga": {"part": "xc7a100t"},
-            },
+        "vivado_postsynth_sim": {"vcd_level": 1},
+        "vivado_synth": {
+            "fail_timing": True,
+            "out_of_context": False,
+            "fpga": {"part": "xc7a100t"},
         },
-        "vivado_synth": {"out_of_context": True},
     }
 
 
 def test_setting_aliases_are_one_key_across_precedence_layers():
-    merged = merge_layers(
-        {"ncpus": 1, "synth": {"ncpus": 2}},
-        {"nthreads": 3, "synth": {"nthreads": 4}},
-        settings_cls=VivadoPostsynthSim.Settings,
-    )
-
-    assert merged["nthreads"] == 3
-    assert merged["synth"]["nthreads"] == 4
-    assert "ncpus" not in merged and "ncpus" not in merged["synth"]
+    merged = merge_layers({"ncpus": 1}, {"nthreads": 3}, settings_cls=VivadoPostsynthSim.Settings)
+    assert merged == {"nthreads": 3}
+    producer = merge_layers({"ncpus": 2}, {"nthreads": 4}, settings_cls=VivadoSynth.Settings)
+    assert producer == {"nthreads": 4}
 
 
 def test_two_names_for_one_setting_in_one_layer_are_still_an_error():
@@ -196,17 +185,16 @@ def test_higher_clock_timing_replaces_alternate_spelling_and_preserves_other_att
     assert settings.main_clock.duty_cycle == pytest.approx(0.4)
 
 
-def test_clock_spelling_precedence_is_applied_recursively_to_dependency_settings():
+def test_clock_spelling_precedence_is_applied_to_the_producers_own_settings():
     merged = merge_layers(
-        {"synth": {"clock_period": 10.0}},
-        {"synth": {"clock": {"freq": 200.0, "port": "clk_i"}}},
-        settings_cls=VivadoPostsynthSim.Settings,
+        {"clock_period": 10.0},
+        {"clock": {"freq": 200.0, "port": "clk_i"}},
+        settings_cls=VivadoSynth.Settings,
     )
-    settings = VivadoPostsynthSim.Settings.from_input(merged)
-
-    assert settings.synth.main_clock is not None
-    assert settings.synth.main_clock.period == pytest.approx(5.0)
-    assert settings.synth.main_clock.port == "clk_i"
+    settings = VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged})
+    assert settings.main_clock is not None
+    assert settings.main_clock.period == pytest.approx(5.0)
+    assert settings.main_clock.port == "clk_i"
 
 
 def test_mixed_clock_spellings_in_one_layer_are_still_an_error():
@@ -296,45 +284,33 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
         tmp_path / PROJECT_FILE,
         """
         flows:
-          vivado_postsynth_sim:
-            vcd_level: 1
-            ncpus: 1
-            synth: {fail_timing: true, ncpus: 2}
-          vivado_synth:
-            out_of_context: true
-        """,
+          vivado_postsynth_sim: {vcd_level: 1, ncpus: 1}
+          vivado_synth: {fail_timing: true, ncpus: 2, out_of_context: true}
+    """,
     )
     design = _write(
-        tmp_path / "d.toml",
+        tmp_path / "d.yaml",
         """
-        name = "d"
-        [rtl]
-        sources = ["top.v"]
-        top = "top"
-        [flows.vivado_postsynth_sim]
-        synth.fpga.part = "xc7a100t"
-        nthreads = 3
-        synth.out_of_context = false
-        synth.nthreads = 4
-        """,
+        name: d
+        rtl: {sources: ["top.v"], top: top}
+        flows:
+          vivado_postsynth_sim: {nthreads: 3}
+          vivado_synth: {fpga: {part: xc7a100t}, out_of_context: false, nthreads: 4}
+    """,
     )
-
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
-            "vivado_postsynth_sim", design, flow_settings=["ncpus=5", "synth.fail_timing=false"]
+            "vivado_postsynth_sim",
+            design,
+            flow_settings=["ncpus=5", "flows.vivado_synth.fail_timing=false"],
         )
-
-    assert launched["settings"] == {
-        "vcd_level": 1,
-        "nthreads": "5",
-        "synth": {
-            "fail_timing": "false",
-            "nthreads": 4,
-            "out_of_context": False,
-            "fpga": {"part": "xc7a100t"},
-        },
+    assert launched["settings"] == {"vcd_level": 1, "nthreads": "5"}
+    assert launched["all_flows"]["vivado_synth"] == {
+        "fail_timing": "false",
+        "nthreads": 4,
+        "out_of_context": False,
+        "fpga": {"part": "xc7a100t"},
     }
-    assert launched["all_flows"]["vivado_synth"] == {"out_of_context": True}
 
 
 @pytest.mark.parametrize(
@@ -378,14 +354,14 @@ def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monk
         flows:
           vivado_postsynth_sim:
             vcd_level: 1
-            synth: {fail_timing: true}
+          vivado_synth: {fail_timing: true}
         design:
           - name: d
             rtl: {sources: [top.v], top: top}
             flows:
               vivado_postsynth_sim:
-                synth: {fpga: {part: xc7a100t}, out_of_context: false}
                 vcd_level: 2
+              vivado_synth: {fpga: {part: xc7a100t}, out_of_context: false}
         """,
     )
     elsewhere = tmp_path / "elsewhere"
@@ -395,9 +371,11 @@ def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monk
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run("vivado_postsynth_sim", "d", xedaproject=str(project))
 
-    assert launched["settings"] == {
-        "vcd_level": 2,
-        "synth": {"fail_timing": True, "out_of_context": False, "fpga": {"part": "xc7a100t"}},
+    assert launched["settings"] == {"vcd_level": 2}
+    assert launched["all_flows"]["vivado_synth"] == {
+        "fail_timing": True,
+        "out_of_context": False,
+        "fpga": {"part": "xc7a100t"},
     }
 
 
@@ -455,10 +433,10 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, m
         [rtl]
         sources = ["top.v"]
         top = "top"
-        [flows.vivado_postsynth_sim]
-        synth.fpga.part = "xc7a100t"
-        synth.fail_timing = true
-        synth.out_of_context = false
+        [flows.vivado_synth]
+        fpga.part = "xc7a100t"
+        fail_timing = true
+        out_of_context = false
         """,
     )
     composed = {}
@@ -470,10 +448,10 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, m
     monkeypatch.setattr(remote, "flow_run_hash", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
-            design, "vivado_postsynth_sim", "host", flow_settings=["synth.out_of_context=true"]
+            design, "vivado_synth", "host", flow_settings=["out_of_context=true"]
         )
 
-    assert (composed["settings"].synth.fail_timing, composed["settings"].synth.out_of_context) == (
+    assert (composed["settings"].fail_timing, composed["settings"].out_of_context) == (
         True,
         True,
     )
@@ -518,16 +496,17 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
         tmp_path / PROJECT_FILE,
         """
         flows:
-          vivado_postsynth_sim:
-            synth: {fpga: {part: xc7a100t}, fail_timing: true}
-            vcd_level: 1
+          vivado_synth:
+            fpga: {part: xc7a100t}
+            fail_timing: true
+            ncpus: 1
         design:
           - name: d
             rtl: {sources: [top.v], top: top}
             flows:
-              vivado_postsynth_sim:
-                vcd_level: 2
-                synth: {out_of_context: false}
+              vivado_synth:
+                ncpus: 2
+                out_of_context: false
         """,
     )
     captured = {}
@@ -540,17 +519,17 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             "d",
-            "vivado_postsynth_sim",
+            "vivado_synth",
             "host",
             xedaproject=project,
-            flow_settings=["synth.fail_timing=false"],
+            flow_settings=["fail_timing=false"],
         )
 
     settings = captured["settings"]
-    assert captured["flow_name"] == "vivado_postsynth_sim"
-    assert settings.vcd_level == 2
-    assert settings.synth.fail_timing is False
-    assert settings.synth.out_of_context is False
+    assert captured["flow_name"] == "vivado_synth"
+    assert settings.nthreads == 2
+    assert settings.fail_timing is False
+    assert settings.out_of_context is False
 
 
 def test_a_dependency_refines_the_design_section_for_its_flow():
@@ -803,7 +782,7 @@ def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypa
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             design, "vivado_postsynth_sim", "host"
         )
-    assert composed["settings"].synth.fpga.part == "xc7a100t"
+    assert composed["settings"].fpga.part == "xc7a100t"
 
 
 def _one_design(tmp_path, flows_toml: str):
@@ -820,44 +799,34 @@ def _one_design(tmp_path, flows_toml: str):
     )
 
 
-def test_a_design_files_own_section_beats_a_project_files_nested_value(
-    tmp_path, monkeypatch, launched
-):
-    """C1: origin decides first; nesting only breaks ties within one origin."""
+def test_a_design_files_own_producer_section_beats_the_project(tmp_path, monkeypatch, launched):
     monkeypatch.chdir(tmp_path)
-    _write(
-        tmp_path / PROJECT_FILE,
-        "flows:\n  vivado_postsynth_sim:\n    synth: {out_of_context: true}\n",
-    )
+    _write(tmp_path / PROJECT_FILE, "flows:\n  vivado_synth: {out_of_context: true}\n")
     design = _one_design(
-        tmp_path,
-        '[flows.vivado_postsynth_sim]\nsynth.fpga.part = "xc7a100t"\n[flows.vivado_synth]\nout_of_context = false\n',
+        tmp_path, '[flows.vivado_synth]\nfpga.part = "xc7a100t"\nout_of_context = false\n'
     )
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run("vivado_postsynth_sim", design)
-    assert launched["settings"]["synth"]["out_of_context"] is False
+    assert launched["all_flows"]["vivado_synth"]["out_of_context"] is False
+    assert "synth" not in launched["settings"]
 
 
-def test_within_one_origin_the_nested_value_beats_the_dependencys_own_section(
-    tmp_path, monkeypatch, launched
-):
-    monkeypatch.chdir(tmp_path)
+def test_removed_nesting_cannot_override_the_producers_own_section(tmp_path):
     design = _one_design(
         tmp_path,
-        '[flows.vivado_postsynth_sim]\nsynth.fpga.part = "xc7a100t"\nsynth.out_of_context = true\n'
-        "[flows.vivado_synth]\nout_of_context = false\n",
+        "[flows.vivado_postsynth_sim]\nsynth.out_of_context = true\n"
+        '[flows.vivado_synth]\nfpga.part = "xc7a100t"\nout_of_context = false\n',
     )
-    with pytest.raises(_Launched):
-        DefaultRunner(tmp_path / "run").run("vivado_postsynth_sim", design)
-    assert launched["settings"]["synth"]["out_of_context"] is True
+    with pytest.raises(FlowSettingsError, match="was removed"):
+        DefaultRunner(tmp_path / "run").plan("vivado_postsynth_sim", design)
 
 
 def test_run_flow_composes_the_sections_it_is_given(tmp_path, monkeypatch):
-    """C2: the API entry `run_flow(..., all_flows_settings=...)` composes like `run()`."""
+    """The API keeps the consumer's settings and producer's section separate."""
     seen = {}
 
     def launch_flow(self, flow_class, design, flow_settings, **kwargs):
-        seen["settings"] = flow_settings
+        seen.update(settings=flow_settings, sections=kwargs["all_flows_settings"])
         raise _Launched
 
     monkeypatch.setattr(DefaultRunner, "launch_flow", launch_flow)
@@ -867,11 +836,11 @@ def test_run_flow_composes_the_sections_it_is_given(tmp_path, monkeypatch):
         DefaultRunner(tmp_path / "run").run_flow(
             VivadoPostsynthSim,
             design,
-            {"synth": {"fpga": {"part": "xc7a100t"}}},
-            all_flows_settings={"vivado_synth": {"out_of_context": True}},
+            {"vcd_level": 2},
+            all_flows_settings={"vivado_synth": {"fpga": "xc7a100t", "out_of_context": True}},
         )
-    assert seen["settings"]["synth"]["out_of_context"] is True
-    assert seen["settings"]["synth"]["fpga"] == {"part": "xc7a100t"}
+    assert seen["settings"] == {"vcd_level": 2}
+    assert seen["sections"]["vivado_synth"]["out_of_context"] is True
 
 
 def test_composing_twice_changes_nothing(tmp_path):
@@ -889,7 +858,7 @@ def test_dash_s_flows_node_key_sets_a_dependencys_setting(tmp_path, monkeypatch,
     monkeypatch.chdir(tmp_path)
     design = _one_design(
         tmp_path,
-        '[flows.vivado_postsynth_sim]\nsynth.fpga.part = "xc7a100t"\nsynth.out_of_context = true\n',
+        '[flows.vivado_synth]\nfpga.part = "xc7a100t"\nout_of_context = true\n',
     )
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
@@ -898,7 +867,7 @@ def test_dash_s_flows_node_key_sets_a_dependencys_setting(tmp_path, monkeypatch,
             flow_settings=["flows.vivado_synth.out_of_context=false", "vcd_level=3"],
         )
     assert (
-        launched["settings"]["synth"]["out_of_context"] == "false"
+        launched["all_flows"]["vivado_synth"]["out_of_context"] == "false"
     )  # command line beats the design file
     assert launched["settings"]["vcd_level"] == "3"
     assert launched["all_flows"]["vivado_synth"]["out_of_context"] == "false"
@@ -937,19 +906,19 @@ def test_dash_s_flows_must_name_a_flow_of_the_run(tmp_path, monkeypatch):
         )
 
 
-def test_a_command_line_dependency_setting_beats_a_files_nested_value(
+def test_a_command_line_dependency_setting_beats_the_producers_file_value(
     tmp_path, monkeypatch, launched
 ):
     monkeypatch.chdir(tmp_path)
     design = _one_design(
         tmp_path,
-        '[flows.vivado_postsynth_sim]\nsynth.fpga.part = "xc7a100t"\nsynth.fail_timing = true\n',
+        '[flows.vivado_synth]\nfpga.part = "xc7a100t"\nfail_timing = true\n',
     )
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
             "vivado_postsynth_sim", design, flow_settings=["flows.vivado_synth.fail_timing=false"]
         )
-    assert launched["settings"]["synth"]["fail_timing"] == "false"
+    assert launched["all_flows"]["vivado_synth"]["fail_timing"] == "false"
 
 
 def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeypatch):

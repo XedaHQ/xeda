@@ -32,11 +32,9 @@ NOT_INPUTS = {
     "modelsim.sdf.root": "an instance path in the design hierarchy",
     "vivado_sim.sdf.root": "an instance path in the design hierarchy",
     "vivado_postsynth_sim.sdf.root": "an instance path in the design hierarchy",
-    "vivado_power.sdf.root": "an instance path in the design hierarchy",
     "vivado_project.sdf.root": "an instance path in the design hierarchy",
     "vivado_sim.work_lib": "a library name",
     "vivado_postsynth_sim.work_lib": "a library name",
-    "vivado_power.work_lib": "a library name",
     "vivado_project.work_lib": "a library name",
 }
 

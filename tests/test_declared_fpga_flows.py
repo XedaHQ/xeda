@@ -106,6 +106,8 @@ def test_the_declared_flows():
         "openroad",
         "vivado_alt_synth",
         "vivado_synth",
+        "vivado_postsynth_sim",
+        "vivado_power",
         "yosys",
         "yosys_fpga",
     }

@@ -69,27 +69,13 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 ### `vivado_postsynth_sim`
 
-*runs first: `vivado_synth`*
+*runs first: `vivado_synth` | can be followed by: `vivado_power`*
 
 Simulate the testbench on the routed netlist `vivado_synth` writes. Runs `vivado_synth` with `write_netlist` and `write_timing_netlist`, then simulates its functional netlist (`netlist`), or with `timing_sim` its timing netlist (`netlist_timing`) annotated with its slow-corner SDF (`sdf_max`).
 
-Required settings: `synth`
-
-25 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
+28 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
 
 Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `sim.evidence`
-
-### `vivado_power`
-
-*runs first: `vivado_postsynth_sim`*
-
-Estimate post-implementation power from real switching activity. Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity file from a timing-annotated netlist simulation of the testbench, then reports power against the routed checkpoint. Unlike a vectorless estimate, the result reflects the actual testvectors, so a representative testbench matters.
-
-Required settings: `postsynthsim`
-
-26 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
-
-Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `sim.evidence`, `Total On-Chip Power (W)`, `Dynamic (W)`, `Device Static (W)`, `Effective TJA (C/W)`, `Junction Temperature (C)`, `Thermal Margin (C)`, `Confidence Level`, `Component Power: <component>`
 
 ### `vivado_sim`
 
@@ -177,7 +163,7 @@ Reports: `Fmax`, `wns`, `whs`, `lut`, `ff`
 
 ### `vivado_alt_synth`
 
-*can be followed by: `openfpgaloader`, `vivado_alt_synth.netlist+openroad`, `vivado_alt_synth.netlist_timing+openroad`*
+*can be followed by: `openfpgaloader`, `vivado_alt_synth.netlist+openroad`, `vivado_alt_synth.netlist_timing+openroad`, `vivado_alt_synth.checkpoint_synth+vivado_power`, `vivado_alt_synth.checkpoint_route+vivado_power`*
 
 FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode. A generated TCL script reads the design and runs synth_design through route_design on it in memory, each step with the options its `synth`/`impl` strategy and steps give it, and reports utilization and timing. See `vivado_synth` for the same in project mode. The outputs are switched as in `vivado_synth`, but this flow writes one SDF corner (the slow one) and so declares no `sdf_min`: `write_netlist` writes the functional netlist `impl_funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`); `write_timing_netlist` writes the timing netlist `impl_timesim.v` (`netlist_timing`) and `impl_timesim.sdf` (`sdf`); `write_checkpoint` the three checkpoints (`checkpoint_synth`, `checkpoint_place`, `checkpoint_route`); `bitstream` the bitstream.
 
@@ -186,6 +172,18 @@ Required settings: `fpga`
 30 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
+
+### `vivado_power`
+
+*runs first: `vivado_postsynth_sim` -> `vivado_synth` | can follow: `vivado_alt_synth.checkpoint_synth`, `vivado_alt_synth.checkpoint_route`, `vivado_postsynth_sim`, `vivado_synth`*
+
+Estimate post-implementation power from real switching activity. Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity file from a timing-annotated netlist simulation of the testbench, then reports power against the routed checkpoint. Unlike a vectorless estimate, the result reflects the actual testvectors, so a representative testbench matters.
+
+Required settings: `fpga`
+
+8 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
+
+Reports: `Total On-Chip Power (W)`, `Dynamic (W)`, `Device Static (W)`, `Effective TJA (C/W)`, `Junction Temperature (C)`, `Thermal Margin (C)`, `Confidence Level`, `Component Power: <component>`
 
 ### `vivado_project`
 
@@ -199,7 +197,7 @@ Reports no results beyond the keys every flow reports.
 
 ### `vivado_synth`
 
-*can be followed by: `openfpgaloader`, `vivado_synth.netlist+openroad`, `vivado_synth.netlist_timing+openroad`*
+*can be followed by: `openfpgaloader`, `vivado_synth.netlist+openroad`, `vivado_synth.netlist_timing+openroad`, `vivado_power`*
 
 FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing; with a `bitstream` requested it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs asked for are registered as artifacts (label in parentheses). `write_checkpoint`: `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in `outputs/route_design/`: the functional Verilog netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist`, in the same directory: the timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast- and slow-corner SDF `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`, recorded as the output `sdf`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`). The flow fails unless each run completes the step it is launched to (Vivado's own status of the run, which the `status` result records), and, with a bitstream asked for, unless the bitstream is where it is registered. Each file has its own switch, and a file is a declared output (recorded in `results.json`'s `outputs` with its digest) where its setting is named here. `write_netlist` writes the functional netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`, a plain artifact). `write_timing_netlist` writes the timing netlist `timesim.v` (`netlist_timing`) and both SDF corners, `timesim.max.sdf` (`sdf`) and `timesim.min.sdf` (`sdf_min`). `write_checkpoint` writes both checkpoints (`checkpoint_synth`, `checkpoint_route`); `bitstream` writes the bitstream (`bitstream`).
 

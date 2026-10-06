@@ -109,7 +109,7 @@ Precedence, lowest to highest: flow defaults -> `xedaproject.yaml`'s `flows.<flo
 design file's `flows.<flow>` section -> the selected `--target`'s `flows.<flow>` (it overrides the
 design, key by key) -> command-line `-s` -> the API. Layers merge key by key, so
 `-s clock.freq=100MHz` refines a nested section instead of replacing it. A flow's settings are
-written under its own `flows.<flow>`, never nested in another flow's (`nextpnr.yosys` was removed). `-s flows.<flow>.key=value` sets a setting of any flow in the run (the
+written under its own `flows.<flow>`, never nested in another flow's (`nextpnr.yosys`, `vivado_postsynth_sim.synth` and `vivado_power.postsynthsim` were removed, each naming its replacement). `-s flows.<flow>.key=value` sets a setting of any flow in the run (the
 requested flow or a declared dependency; a typo is an error with suggestions), and `-s key` and
 `-s flows.<requested>.key` are one setting. `-s` takes space-separated KEY=VALUE items and stops
 at the next option or the first token that is not KEY=VALUE, so put the design before it or end
@@ -197,8 +197,9 @@ Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clock
 `platform`, `corner`, `dont_use_cells`, where both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
 naming both origins. An explicit command-line leaf (`-s fpga.part=...` or
 `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group, preserving other leaves.
-API overrides remain the highest-precedence origin. Undeclared edges (Vivado
-simulation/power) still use the depending flow's nonempty value, else its nested dependency's.
+API overrides remain the highest-precedence origin. An undeclared edge (a flow that still calls
+`add_dependency`; no built-in flow does) uses the depending flow's nonempty value, else its
+nested dependency's.
 A consumer holds each completed dependency for reading until its launch ends (POSIX only),
 so another Xeda process that would rebuild, clean or scrub that directory waits.
 
@@ -215,8 +216,8 @@ valid one only when another output of the producer, or the flows that the requir
 producers name between the pair, fix it (`nextpnr+openfpgaloader` ->
 `nextpnr+fpga_pack+openfpgaloader`); otherwise the refusal carries no suggestion. A flow that
 programs a device (`openfpgaloader`) can only end a chain, and only flows with declared I/O chain
-(`xeda list-flows --json`: `declared`, `can_follow`, `can_precede`); `bsc`, `bsc_sim`, `vivado_project` and the
-Vivado simulation and power flows run alone, and a chain through one fails naming it. A chain is local: `--remote` and
+(`xeda list-flows --json`: `declared`, `can_follow`, `can_precede`); `bsc`, `bsc_sim`, `vivado_project` and
+`vivado_sim` run alone, and a chain through one fails naming it. A chain is local: `--remote` and
 `xeda dse` refuse it.
 
 `-s` sets the last flow; `-s flows.<flow>.key=value` sets any other flow of the chain. With

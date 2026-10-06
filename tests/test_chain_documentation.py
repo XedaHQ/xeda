@@ -623,10 +623,10 @@ def test_chains_and_reached_bindings_are_local_and_refused_before_anything_conne
 
 
 def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tmp_path):
-    """The boundary the guide states: `bsc`, `vivado_project` and the Vivado simulation and power
-    flows are not chainable, and an `inputs.design` binding is refused (no flow declares one),
-    in the file, on the command line, and saying why. `vivado_synth` declares its outputs, so
-    it precedes the loader and, by the type of each of its two netlists, `openroad`."""
+    """The boundary the guide states: `bsc` and `vivado_project` are not chainable, and an
+    `inputs.design` binding is refused (no flow declares one), in the file, on the command line,
+    and saying why. `vivado_synth` declares its outputs, so it precedes the loader, `openroad` by
+    the type of each of its two netlists, and `vivado_power` by its routed checkpoint."""
     listed = {
         f["name"]: f for f in json.loads(CliRunner().invoke(cli, ["list-flows", "--json"]).stdout)
     }
@@ -634,6 +634,7 @@ def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tm
         "openfpgaloader",
         "openroad",  # by `netlist`
         "openroad",  # by `netlist_timing`
+        "vivado_power",
     ]
     for flow in ("bsc", "bsc_sim", "vivado_project"):
         info = listed[flow]

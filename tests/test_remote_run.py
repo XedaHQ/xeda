@@ -1857,6 +1857,33 @@ def test_the_mirror_of_a_declared_flow_is_named_by_its_plan_identity(tmp_path, m
     assert seen[0] != seen[1]
 
 
+@pytest.mark.parametrize("flow_name", ["vivado_postsynth_sim", "vivado_power"])
+def test_remote_vivado_composite_resolves_the_same_declared_graph(
+    tmp_path, remote_host, monkeypatch, flow_name
+):
+    """Declared hand-over survives archive relocation and the remote identity check."""
+    from .test_pc_equivalence import VIVADO_SETTINGS, write_vivado_design
+
+    root = tmp_path / "design"
+    root.mkdir()
+    write_vivado_design(root)
+    monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    expected = runner.plan(flow_name, root / "design.yaml", flow_settings=VIVADO_SETTINGS)
+    results = runner.run_remote(
+        root / "design.yaml", flow_name, host="somewhere", flow_settings=VIVADO_SETTINGS
+    )
+    assert results and results["success"]
+    remote = _remote_run_dir(remote_host, flow_name)
+    saved = json.loads((remote / "results.json").read_text())
+    assert saved["flow_hash"] == results["flow_hash"] == expected.node(flow_name).flowrun_hash
+    trace = json.loads((remote / "trace.json").read_text())
+    assert len(trace["declared_inputs"]) == (3 if flow_name == "vivado_postsynth_sim" else 2)
+    if flow_name == "vivado_power":
+        assert "Total On-Chip Power (W)" in results
+        assert not any(key.startswith("sim.") for key in results)
+
+
 # ------------------------------------------- O-RI1 (b): a bundled platform on another install
 
 
