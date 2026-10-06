@@ -10,6 +10,7 @@ import logging
 import os
 import pprint
 import re
+import shlex
 import shutil
 import subprocess
 import tomllib
@@ -360,7 +361,7 @@ def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
 def _describe_generator(generator: Any) -> str:
     """How to name a generator in an error, whichever of its three input forms the design used."""
     if isinstance(generator, Generator):
-        return generator.command or " ".join(generator.args) or generator.name
+        return generator.command_text()
     if isinstance(generator, (list, tuple)):
         return " ".join(str(part) for part in generator)
     return str(generator)
@@ -1231,7 +1232,24 @@ class Generator(XedaBaseModel):
 
     @property
     def name(self) -> str:
+        """The kind of generator (its class), never which one: not for display, see `describe`."""
         return str(self.__class__.__qualname__ or "generator")
+
+    def describe(
+        self, design_name: Optional[str] = None, design_root: Optional[Path] = None
+    ) -> str:
+        """Which generator this is, for a message: the design it belongs to and what it runs,
+        `the generator of design 'hdmi_demo' (python3 hdmi_demo.py --build)`. A command that
+        cannot be built yet (no executable, no Chisel project) leaves the kind of generator."""
+        owner = f" of design '{design_name}'" if design_name else ""
+        return f"the generator{owner} ({self.command_text(design_root)})"
+
+    def command_text(self, design_root: Optional[Path] = None) -> str:
+        """What this generator runs, for a message; its kind when that cannot be built yet."""
+        try:
+            return shlex.join(self.execution_command(design_root))
+        except ValueError:
+            return self.name
 
 
 class ChiselGenerator(Generator):
@@ -2128,19 +2146,24 @@ class Design(XedaBaseModel):
 
                     planning = _planning_load.get()
                     context = load_context.get()
+                    design_name = data.get("name")
+                    description = generator.describe(
+                        design_name if isinstance(design_name, str) else None, design_root
+                    )
                     with judging_generation(
                         generator,
                         design_root,
                         generated,
+                        description=description,
                         run_root=context.run_root if context else None,
                         planning=planning,
                         rebuild_all=bool(context and context.rebuild_all),
                     ) as generation:
                         if generation.reason is None:
                             log.info(
-                                "Not running generator '%s': its generated sources are what its "
+                                "Not running %s: its generated sources are what its "
                                 "last generation left",
-                                generator.name,
+                                description,
                             )
                         else:
                             if planning:
@@ -2153,9 +2176,7 @@ class Design(XedaBaseModel):
                                 # An `env` the design states is the generator's whole
                                 # environment, and a `DESIGN_ROOT` in it is the design's own word.
                                 generator.env.setdefault("DESIGN_ROOT", str(design_root))
-                            log.info(
-                                "Running generator '%s': %s", generator.name, generation.reason
-                            )
+                            log.info("Running %s: %s", description, generation.reason)
                             generator.run()
                             generation.produced()
                 else:
