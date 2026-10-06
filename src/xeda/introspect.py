@@ -178,42 +178,6 @@ def _category(cls: Type[Flow]) -> str:
 # --------------------------------------------------------------------------------------------
 
 
-def _declared_dependencies(cls: Type[Flow]) -> List[str]:
-    """Flow names passed to `self.add_dependency(...)` in any `init()` along the MRO.
-
-    Statically detected: dependencies are registered at run time and may be conditional, so
-    this is a reliable *superset* hint rather than a guarantee.
-    """
-    found: List[str] = []
-    for klass in cls.__mro__:
-        init = klass.__dict__.get("init")
-        if init is None:
-            continue
-        try:
-            tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
-        except (OSError, TypeError, SyntaxError):  # pragma: no cover - source not available
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or not node.args:
-                continue
-            func = node.func
-            if not (isinstance(func, ast.Attribute) and func.attr == "add_dependency"):
-                continue
-            target = node.args[0]
-            name = (
-                target.id
-                if isinstance(target, ast.Name)
-                else target.attr if isinstance(target, ast.Attribute) else None
-            )
-            if not name:
-                continue
-            try:
-                found.append(get_flow_class(name).name)
-            except Exception:  # noqa: BLE001 - a non-flow argument is simply not a dependency
-                log.debug("add_dependency argument %s in %s is not a known flow", name, cls.name)
-    return unique(found)
-
-
 def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
     """One follow relation as plain data, seen from the other end: `other` is the flow it
     names, `output` the producer output a request qualifies when the unqualified one is
@@ -248,8 +212,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         "category": _category(cls),
         "supports_cocotb": bool(getattr(cls, "cocotb_sim_name", None)),
         "dependencies": unique(
-            _declared_dependencies(cls)
-            + [d.producer for d in declared_inputs(cls).values() if d.producer is not None]
+            [d.producer for d in declared_inputs(cls).values() if d.producer is not None]
         ),
         "action_reason": cls.action_reason,
         "inputs": [
