@@ -17,10 +17,14 @@ destination's directory, renamed into place). An existing file is replaced only 
 own earlier delivery, unchanged, as its record says (`delivery_record`: beside the run directory,
 in the run root); anything else needs the user's confirmation -- `overwrite_outputs`, or a yes
 from the launcher's `confirm_overwrite` (the command line's prompt) -- asked before any tool of
-the flow runs (`Deliveries.check`). What a flow delivers is noted with each file's digest when it
-completes (`Deliveries.collect`) and copied when the launch has finished (`Deliveries.deliver`),
-when every flow of it has read its inputs; a destination that changed after it was checked, or
-an output that changed after its run, is never delivered.
+the flow runs (`Deliveries.check`). A record is checked by the R38 rule like any other
+(`digest.FileRecord`): the content of a destination is read only when its metadata cannot vouch
+for it, and the check that reads it anchors the record it takes to the clock of the destination's
+own file system, read just before (`_destination_clock`), so the next check of an unchanged
+delivery reads nothing (`_destination_record`). What a flow delivers is noted with each file's
+digest when it completes (`Deliveries.collect`) and copied when the launch has finished
+(`Deliveries.deliver`), when every flow of it has read its inputs; a destination that changed
+after it was checked, or an output that changed after its run, is never delivered.
 """
 
 from __future__ import annotations
@@ -28,7 +32,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import stat
 import tempfile
 from collections.abc import Callable, Iterable, Sequence
@@ -38,12 +41,12 @@ from typing import Any, Dict, Optional
 
 from .artifacts import iter_artifact_paths
 from .dataclass import DELIVERABLE_ROLE, written_role
-from .digest import FileRecord, content_digest, record_file
+from .digest import FileRecord, content_digest, filesystem_time_ns, record_file
 from .listing import directory_files
 from .flow import Flow, FlowSettingsError
 from .flow.flow import WrittenLeaf, map_written_leaves, output_name
 from .run_root import is_run_root
-from .utils import XedaException, json_encodable, with_json_keys
+from .utils import XedaException, copy_fd, json_encodable, with_json_keys
 
 log = logging.getLogger(__name__)
 
@@ -338,6 +341,49 @@ def _state(path: Path) -> _State:
     return (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino)
 
 
+@dataclass(frozen=True)
+class _ClockReading:
+    """A time read from a file system's own clock, and the file system (`st_dev`) it was read on:
+    a record taken at `ns` or later is conclusive by its metadata from `ns` on
+    (`digest.FileRecord.trusted`) -- for the file that is still on `device`, since the times a
+    record holds mean nothing against another file system's clock."""
+
+    ns: int
+    device: int
+
+
+def _destination_clock(destination: Path) -> Optional[_ClockReading]:
+    """The clock of the file system `destination` lies on, read by a marker file made and removed
+    in its own directory (`digest.filesystem_time_ns`, as a freshness check reads a run
+    directory's) -- where delivery writes its temporary file anyway. None when there is no such
+    clock to read: no marker can be made (a directory that is read only, a file system that
+    refuses) or the directory is not on the file system the destination itself is on (a file
+    mounted from elsewhere), and then nothing anchors a record of it and every later check reads
+    its content. Never the process clock: the times a record holds are that file system's own."""
+    try:
+        directory = destination.parent
+        device = os.lstat(destination).st_dev
+        if directory.stat().st_dev != device:
+            return None
+        return _ClockReading(filesystem_time_ns(directory), device)
+    except OSError:
+        return None
+
+
+def _recorded_anchor(entry: dict[str, Any], destination: Path) -> Optional[_ClockReading]:
+    """What `entry` says anchors its record of `destination`, if the file is still on the file
+    system that clock was read on; None otherwise -- an entry xeda wrote before it anchored
+    records, or a destination that moved file systems -- and then the record is never trusted by
+    its metadata, as it never was."""
+    anchored, device = entry.get("anchor_ns"), entry.get("anchor_device")
+    try:
+        if anchored is None or device != os.lstat(destination).st_dev:
+            return None
+    except OSError:
+        return None
+    return _ClockReading(int(anchored), int(device))
+
+
 def _located(path: Path) -> Path:
     """`path` with its parent resolved and its last component as named: never followed."""
     return Path(os.path.realpath(path.parent)) / path.name
@@ -462,35 +508,120 @@ class Deliveries:
             return "a directory: name the file the output is copied to"
         return None
 
+    def _entry(self, destination: Path) -> Optional[dict[str, Any]]:
+        """What this run directory's record says it delivered to `destination`; None if it says
+        nothing (another settings variant's delivery -- a hashed run directory, a remote mirror
+        -- is not in it) or the entry is not a mapping."""
+        entry = self.record["files"].get(str(destination))
+        return entry if isinstance(entry, dict) else None
+
+    def _destination_record(
+        self, destination: Path, entry: dict[str, Any]
+    ) -> tuple[FileRecord, FileRecord, Optional[_ClockReading]]:
+        """What `entry` recorded of `destination`, what the file is now, and the time from which
+        that second record is conclusive by its metadata alone (None: nothing anchors it).
+
+        The file's content is read only when the recorded metadata cannot vouch for it
+        (`FileRecord.trusted`, the R38 rule), and the clock of its own file system is read just
+        **before** it is (`record_file`'s `before_reading`, as `trace.check_trace` reads a run
+        directory's). A record of content read after that time `T`, whose metadata says the file
+        last changed more than `RACY_NS` before `T`, is conclusive from `T` on: a change after it
+        moves the mtime or the inode change time, which no one can set back, so the next check
+        recognizes the file without reading it. The anchor is therefore never arithmetic on the
+        record already held -- it is a clock read at a moment this very content was verified.
+
+        `entry`'s own anchor is used only when the file is still on the file system that clock was
+        read on (`anchor_device`): times from another file system's clock say nothing about this
+        one's. Without one -- an entry xeda wrote before it anchored records, or a destination
+        that moved -- the fall-back is `recorded_ns`, the file's own change time, before which it
+        is never settled: the content is read, as it always was. Raises as `record_file` does."""
+        record = FileRecord.model_validate(entry["record"])
+        stored = _recorded_anchor(entry, destination)
+        trusted_before_ns = stored.ns if stored is not None else int(entry["recorded_ns"])
+        #: the destination file system's clock, read before the first read of its content
+        clock: list[Optional[_ClockReading]] = []
+
+        def before_reading() -> None:
+            if not clock:
+                clock.append(_destination_clock(destination))
+
+        now = record_file(destination, record, trusted_before_ns, False, before_reading)
+        if not clock:  # its metadata vouched for it: what anchored that record still does
+            return record, now, stored
+        reading = clock[0]
+        if reading is None or not now.settled_before(reading.ns):
+            # no clock to anchor it to, or the file changed within the racy window of the read:
+            # the record stays fail-closed, and the next check reads the content again
+            return record, now, None
+        return record, now, reading
+
+    def _held(self, destination: Path) -> tuple[FileRecord, Optional[_ClockReading]]:
+        """What `destination` (a regular file, not a link) holds now, and the time from which
+        that record is conclusive by its metadata alone (None: nothing anchors it). Read without
+        hashing the file when this run directory's delivery record vouches for it
+        (`_destination_record`); otherwise -- nothing recorded for it, or an unreadable entry --
+        by reading the content, which nothing anchors."""
+        entry = self._entry(destination)
+        if entry is not None:
+            try:
+                _recorded, now, reading = self._destination_record(destination, entry)
+                return now, reading
+            except (KeyError, TypeError, ValueError):
+                pass  # its record is unreadable: read the file
+        return FileRecord.of(os.lstat(destination), content_digest(destination)), None
+
     def _why_not_ours(self, destination: Path) -> Optional[str]:
         """Why replacing what is at `destination` needs a yes; None if nothing is there, it is a
         directory (a directory output's: its files are checked one by one), or it is xeda's own
         earlier delivery from this run directory, unchanged: its `FileRecord` under the R38 rule
-        (`record_file`), the same inode and the same content. The inode and the content decide,
-        not the timestamps (gpt-6-sol's final (b), not taken): a file of that inode holding
-        exactly the bytes xeda delivered is xeda's copy whatever touched it -- rewritten with the
-        same bytes, or `touch`ed -- and replacing it cannot lose anything of the user's; the
-        timestamps only decide whether the content must be read. Another inode (a file put in its
-        place) or other bytes is not xeda's: fail closed."""
+        (`_destination_record`), the same inode and the same content. The inode and the content
+        decide, not the timestamps (gpt-6-sol's final (b), not taken): a file of that inode
+        holding exactly the bytes xeda delivered is xeda's copy whatever touched it -- rewritten
+        with the same bytes, or `touch`ed -- and replacing it cannot lose anything of the user's;
+        the timestamps only decide whether the content must be read. Another inode (a file put in
+        its place) or other bytes is not xeda's: fail closed.
+
+        Having read the content, it anchors the record it took (`_refresh_entry`), so a later
+        check of an unchanged delivery recognizes it by its metadata and reads nothing."""
         if not os.path.lexists(destination):
             return None
         if destination.is_symlink():
             return "a symbolic link xeda did not make"
         if destination.is_dir():
             return None
-        entry = self.record["files"].get(str(destination))
-        if not isinstance(entry, dict):
+        entry = self._entry(destination)
+        if entry is None:
             # the record is this run directory's: another settings variant's delivery (a hashed
             # run directory, a remote mirror) is not in it
             return f"not recorded as delivered from {self.run_path.name}: yours, or another run's"
         try:
-            record = FileRecord.model_validate(entry["record"])
-            now = record_file(destination, record, int(entry["recorded_ns"]), follow_symlinks=False)
+            record, now, reading = self._destination_record(destination, entry)
         except (KeyError, TypeError, ValueError, OSError):
             return "not known to be xeda's (its record is unreadable)"
         if now.inode != record.inode or now.sha != record.sha:
             return "changed since xeda wrote it"
+        self._refresh_entry(entry, now, reading)
         return None
+
+    @staticmethod
+    def _refresh_entry(
+        entry: dict[str, Any], now: FileRecord, reading: Optional[_ClockReading]
+    ) -> None:
+        """Keep in `entry` the record of a destination found to be xeda's own, unchanged, with
+        the time from which it is conclusive by its metadata alone -- or with no anchor at all
+        when nothing established one, which is the fail-closed record xeda always kept
+        (`recorded_ns`, the file's own change time, is written either way, so an xeda that knows
+        no anchor reads this record's content as it always did). Held in memory for the rest of
+        this node's launch (`_copy` reads it back) and written out when it delivers
+        (`_write_record`)."""
+        entry["record"] = now.model_dump(mode="json")
+        entry["recorded_ns"] = max(now.mtime_ns, now.ctime_ns)
+        if reading is not None and now.settled_before(reading.ns):
+            entry["anchor_ns"] = reading.ns
+            entry["anchor_device"] = reading.device
+        else:
+            entry.pop("anchor_ns", None)
+            entry.pop("anchor_device", None)
 
     def _confirmed(self, conflicts: Sequence[Conflict]) -> bool:
         return self.overwrite or (self.confirm is not None and bool(self.confirm(conflicts)))
@@ -569,11 +700,26 @@ class Deliveries:
         """Take on what `other` noted for the same run directory -- entered again in the launch,
         the same configuration asked for twice, maybe for other destinations (a location is no
         part of a configuration): one delivery, to every destination either names, under one
-        record."""
+        record. An entry `other` anchored (its check read that destination, in this very launch)
+        is taken over an unanchored one of the same destination, whole: both started from the one
+        record beside the run directory and `other` was checked later, so its entry is the later
+        look at the same file -- its record may differ from this one's by times the file was
+        touched since (never what makes it xeda's: `_why_not_ours` refreshes an entry only after
+        the inode and content matched), and keeping the older entry would only read the file
+        again."""
         known = {dest for _delivery, _src, dest, _sha in self.pending}
         self.pending += [item for item in other.pending if item[2] not in known]
         for destination, state in other.checked.items():
             self.checked.setdefault(destination, state)
+        for name, entry in other.record["files"].items():
+            mine = self.record["files"].get(name)
+            if (
+                isinstance(entry, dict)
+                and "anchor_ns" in entry
+                and isinstance(mine, dict)
+                and "anchor_ns" not in mine
+            ):
+                self.record["files"][name] = entry
 
     def deliver(self) -> list[Delivered]:
         """Copy each file `collect` noted to where it was named. A destination that is an input
@@ -640,11 +786,16 @@ class Deliveries:
         input, what is there still `expected` (else None, and nothing replaced), and the copy
         what the run left (`sha`, noted by `collect`; else a `DeliveryError`: another launch ran
         in its run directory meanwhile). The place is re-checked first: the temporary file is
-        read back by its path, which must still be where it was made."""
+        read back by its path, which must still be where it was made.
+
+        A destination that already holds the output is not copied at all, and what it holds is
+        read only when its record's metadata cannot vouch for it (`_held`): an unchanged delivery
+        costs no pass over the destination once a check has anchored its record."""
         if destination.is_file() and not destination.is_symlink():
             try:
-                if content_digest(destination) == sha and _state(destination) == expected:
-                    self._remember(delivery, source, destination, sha)
+                now, reading = self._held(destination)
+                if now.sha == sha and _state(destination) == expected:
+                    self._remember(delivery, source, destination, sha, reading)
                     return Delivered(delivery.key, source, destination, "unchanged")
             except OSError:
                 pass
@@ -653,7 +804,7 @@ class Deliveries:
         temporary = Path(name)
         try:
             with os.fdopen(fd, "wb") as out, open(source, "rb") as data:
-                shutil.copyfileobj(data, out)
+                copy_fd(data.fileno(), out.fileno())
                 if hasattr(os, "fchmod"):  # by the descriptor: its name may lead elsewhere now
                     os.fchmod(out.fileno(), stat.S_IMODE(os.fstat(data.fileno()).st_mode))
             if (
@@ -676,19 +827,43 @@ class Deliveries:
         log.info("Delivered %s to %s", source, destination)
         return Delivered(delivery.key, source, destination, "delivered")
 
-    def _remember(self, delivery: Delivery, source: Path, destination: Path, sha: str) -> None:
+    def _remember(
+        self,
+        delivery: Delivery,
+        source: Path,
+        destination: Path,
+        sha: str,
+        anchored_at: Optional[_ClockReading] = None,
+    ) -> None:
         """Record the file just delivered as xeda's: a `digest.FileRecord` (size, mtime, inode
-        change time, inode, digest) with `recorded_ns`, the file's own change time. xeda reads no
-        clock where it delivers, so the record never vouches by metadata alone (R38: it is
-        never settled before its own change time): a later check reads the content, and a file
-        of another inode is another file -- failing closed."""
-        record = FileRecord.of(os.lstat(destination), sha)
-        self.record["files"][str(destination)] = {
+        change time, inode, digest) with `recorded_ns`, the file's own change time, before which
+        it is never settled -- so a record with nothing else to it never vouches by metadata
+        alone (R38) and a later check reads the content, a file of another inode being another
+        file: failing closed.
+
+        `anchored_at` is what a check of this very content established (`_destination_record`):
+        the destination file system's clock, read just before that content was read, so a record
+        of it taken afterwards is conclusive by its metadata from then on. It is kept only when
+        this record -- a fresh `lstat`, taken now -- is really settled before it, so anything that
+        touched the file since the check falls back to the fail-closed record. A delivery that
+        copied is never anchored: the file was written here a moment ago, which is racy by
+        construction, and the first check after it has settled anchors it after reading it once."""
+        st = os.lstat(destination)
+        record = FileRecord.of(st, sha)
+        entry: dict[str, Any] = {
             "record": record.model_dump(mode="json"),
             "recorded_ns": max(record.mtime_ns, record.ctime_ns),
             "setting": delivery.key,
             "source": str(source),
         }
+        if (
+            anchored_at is not None
+            and anchored_at.device == st.st_dev
+            and record.settled_before(anchored_at.ns)
+        ):
+            entry["anchor_ns"] = anchored_at.ns
+            entry["anchor_device"] = anchored_at.device
+        self.record["files"][str(destination)] = entry
 
     def _write_record(self) -> None:
         """Atomically, beside the run directory (the run directory's lock serializes it)."""

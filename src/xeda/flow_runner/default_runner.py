@@ -539,6 +539,8 @@ class FlowLauncher:
         #: the deliveries of the current launch's flows, made when it has finished
         self._pending_deliveries: List[Tuple[Flow, Deliveries]] = []
         self._request_context: _Request | None = None
+        #: the selected target of the design last loaded for a request, for documents to report
+        self.target: str | None = None
         self._plans: dict[int, tuple[Plan, Any, Any]] = {}
         self._planned_completed: dict[tuple[int, NodeKey], Flow] = {}
         self.last_plan: Plan | None = None
@@ -1740,6 +1742,7 @@ class FlowLauncher:
         xedaproject: str,
         name: Any,
         select_design_in_project=None,
+        target: str | None = None,
     ) -> Design:
         """The design called `name` in the project, or its only design (or the one the user
         selects) when no name is given. A `DesignNotFoundError` saying why there is none."""
@@ -1758,16 +1761,16 @@ class FlowLauncher:
         log.info("Available designs in xedaproject: %s", ", ".join(names))
         selected: Design | None = None
         if name:
-            selected = xeda_project.get_design(str(name))
+            selected = xeda_project.get_design(str(name), target)
             if selected is None:
                 raise DesignNotFoundError(
                     f"Design '{name}' is not in the project file \"{xedaproject}\". "
                     f"Its designs are: {', '.join(names)}."
                 )
         elif len(xeda_project.designs) == 1:
-            selected = xeda_project.get_design()
+            selected = xeda_project.get_design(target=target)
         elif select_design_in_project:
-            selected = select_design_in_project(xeda_project, name)
+            selected = select_design_in_project(xeda_project, name, target)
         if selected is None:
             raise DesignNotFoundError(
                 f'No design was given or selected among those of "{xedaproject}": '
@@ -1864,8 +1867,10 @@ class FlowLauncher:
         design_overrides: Union[Iterable[str], Dict[str, Any], None] = None,
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
+        target: str | None = None,
     ) -> Optional[Flow]:
-        """Load and compose a request, then execute its resolved declared graph."""
+        """Load and compose a request, then execute its resolved declared graph. `target`
+        selects one of the design's `targets`, as `Design.from_file` does."""
         # Where requests are not taken (`Dse`), refuse before loading what needs no design.
         # What does need it is listed there, and refused below, once the request is resolved.
         if not self.accepts_bindings:
@@ -1880,6 +1885,7 @@ class FlowLauncher:
             design_overrides,
             design_allow_extra,
             design_remove_fields,
+            target=target,
         )
         plan = self._resolve_request(request) if is_declared(request.flow_class) else None
         if not self.accepts_bindings and (
@@ -1912,6 +1918,7 @@ class FlowLauncher:
         design_overrides: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
+        target: str | None = None,
     ) -> Plan:
         """Plan what run() would execute, refusing side-effecting design loading (R2)."""
         return self._resolve_request(
@@ -1925,6 +1932,7 @@ class FlowLauncher:
                 design_overrides,
                 design_allow_extra,
                 design_remove_fields,
+                target=target,
                 _planning=True,
             )
         )
@@ -1941,6 +1949,7 @@ class FlowLauncher:
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
         *,
+        target: str | None = None,
         _planning: bool = False,
     ) -> _Request:
         """
@@ -2018,22 +2027,30 @@ class FlowLauncher:
                         overrides=design_overrides,
                         allow_extra=design_allow_extra,
                         remove_extra=design_remove_fields,
+                        target=target,
                     )
 
                 elif isinstance(design, dict):
-                    design = dict(design)
+                    design = Design.target_selected(design, target, design_overrides)
                     if "design_root" not in design:
                         design["design_root"] = Path.cwd()
                     design = Design(**design)
+                elif target is not None:
+                    raise ValueError(
+                        f"target {target!r} was asked for, but the design is already built: "
+                        "select the target where the design is loaded (`Design.from_file(..., "
+                        "target=...)`)"
+                    )
             else:
                 design = self._design_from_project(
-                    xeda_project, xedaproject, design, select_design_in_project
+                    xeda_project, xedaproject, design, select_design_in_project, target
                 )
         # Recover supplied contributions without treating model-created nested defaults as
         # explicit producer settings. Actual nested edits still count.
         from .resolver import _explicit
 
         settings_instance = isinstance(flow_settings, Flow.Settings)
+        self.target = design.target if isinstance(design, Design) else None
         if isinstance(flow_settings, Flow.Settings):
             explicit_flow_settings = _explicit(flow_settings)
             flow_settings = flow_settings.model_dump()

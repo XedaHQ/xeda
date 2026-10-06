@@ -426,6 +426,82 @@ The same section in a project file has the same meaning, below the design's. ``x
 a+b+c`` chains and bindings are described in :ref:`flow-chains`, and a chain given on the command
 line replaces a saved binding of the same input.
 
+.. _targets:
+
+Targets
+========
+
+One design file can describe the design for several boards. Each entry of ``targets`` is an
+*overlay* on the design: it takes the design file's own keys, merged over them, and
+``--target NAME`` selects one.
+
+.. code-block:: yaml
+
+    name: knight
+    rtl:
+      top: mkKnight
+      sources: [Knight.bsv, por_sync.v]
+      clock: {port: CLK}
+    targets:
+      arty:
+        sources: [arty.xdc]
+        defines: {CLK_HZ: 100000000}
+        flows:
+          nextpnr: {board: ARTY_A7_100T}
+      ulx3s:
+        sources: [ulx3s.lpf]
+        defines: {CLK_HZ: 25000000}
+        flows:
+          nextpnr: {board: ULX3S_85F}
+
+.. code-block:: bash
+
+    xeda run nextpnr knight.yaml --target ulx3s
+
+- **Keys.** A target takes ``rtl``, ``tb``, ``flows`` and every other key of a design file,
+  including the flat forms (``sources``, ``defines``, ``top``, ``clock``, ...), which mean in a
+  target exactly what they mean at the top of the file. ``name`` and ``targets`` are the
+  design's alone. An unknown key is an error, as it is in the design.
+- **Merging.** Mappings merge key by key, at every depth (``defines``, ``parameters``, each
+  ``flows.<flow>`` section). ``sources`` (``rtl`` and ``tb``) are appended after the design's, in
+  order. Any other list replaces the design's.
+- **A target overrides the design.** A target is the design author saying "for this board, these
+  values", so where the design and the target write the same key, the target's value wins, key by
+  key: a target's ``flows.nextpnr.board`` replaces the design's ``flows.nextpnr.board`` without an
+  error, and a ``seed`` the target does not write stays the design's. The full order of the
+  places a setting can come from, lowest first, is: the flow's defaults, the project file, the
+  design file, the target, the command line (``-s``), the API. So ``-s seed=9`` and an API
+  override still win over a target for design settings. The selected target name is recorded by
+  the loader and cannot be set or changed by a design override. This is a different matter from two *flows* of one run that
+  disagree about a setting they share (``yosys_fpga`` and ``nextpnr`` naming different boards),
+  which is an error: a target is one author's overlay on one design, not a second opinion.
+- **Paths** in a target resolve against the design root, like the design's own.
+- **Selection.** A design with one target needs no ``--target``. With several, ``--target`` is
+  required, and the error lists them. ``--target`` on a design without ``targets`` is an error.
+  From Python: ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` apply over the
+  selected target.
+- **Names.** A target name starts with a letter and holds letters, digits, ``_`` and ``-``, and
+  is not the name or alias of a flow. There is one spelling, ``targets.<name>``: a design file
+  has no ``target`` key; the loader records the selected name, which overrides cannot change.
+- **Identity.** Selecting a target yields an ordinary design: the same design, hash and results
+  as the file written out flat with the target's keys applied by hand. The target's name is
+  reported (``target`` in the ``--json`` documents, ``null`` without one) but is no part of the
+  design's identity.
+
+``xeda run`` and ``xeda dse`` take ``--target``; designs in a project file take targets the same
+way.
+
+Not there yet:
+
+- Two targets of one design share its run directories (``<design>/<flow>``), so building one
+  after the other re-runs the flows they have in common. Give each a run root of its own
+  (``--run-root``) or use ``--hashed-run-dirs`` until targets get directories of their own.
+- ``xeda scrub`` has no ``--target``.
+- ``board``, ``fpga`` and ``custom_boards_file`` cannot be written once at a target's top level
+  (they are refused, naming where to write them): they are settings of each flow, under the
+  target's ``flows.<flow>``. A clock constraint goes there too, as ``flows.<flow>.clock``.
+- A target cannot inherit from another target.
+
 Environment variables in paths
 ==============================
 

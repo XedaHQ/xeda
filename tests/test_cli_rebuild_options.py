@@ -136,6 +136,7 @@ class _RecordingRemoteRunner:
     """Stands in for `RemoteRunner`: records the launcher settings instead of connecting."""
 
     settings_seen: list = []
+    target = None  # what `RemoteRunner` records of the design it loaded
 
     def __init__(self, run_root, **settings):
         self.settings_seen.append(settings)

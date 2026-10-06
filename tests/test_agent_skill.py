@@ -139,23 +139,97 @@ REVIEW_TIME_WORDING = re.compile(
 )
 
 
-#: Names of the plans and decisions a change was built under (`P4`, `PC`, `D21`, `plan 2`,
-#: `Task 7`): a reader of a release cannot look them up, so the prose says what they stand for.
+#: Names of the plans and decisions a change was built under: a reader of a release cannot look
+#: them up, so the prose says what they stand for. The cost of a miss is internal vocabulary in a
+#: release; the cost of a false alarm is rewording one line. So the check leans to catching, and
+#: a code counts only when it stands alone, never as part of a longer word or number. The shape of
+#: a code is general (`ID`: one capital letter, an optional hyphen, up to three digits, an
+#: optional lowercase suffix; `ST<n>`; `PC`, `PE`, `PT`), so a family nobody has named yet
+#: (`I1`, `L1`, `F1`) is covered without an edit. A code is internal when it is
+#:   - a lettered phase name (`P1b`, `P2a`);
+#:   - the whole of a parenthetical, or of a list in one: `(PC)`, `(P4)`, `(D21)`, `(P4 and PC)`;
+#:   - the word after an introducing word: "phase P4", "decision D21", "issue I1";
+#:   - `plan 2` or `Task 7`;
+#:   - in a list that has to be phases because it holds `PC`, `PE` or `PT` ("requires PC, P4").
+#: What it leaves alone is a code with anything attached (`PC13`, `PT100`, `D-sub 9`,
+#: `A7-100T`) and one in plain running text ("pin P4 of the header", "the diode D12").
+_ID = r"(?:[A-Z]-?[0-9]{1,3}[a-z]?|ST[0-9]+|PC|PE|PT)"
+_PHASE = r"(?:P[0-9][ab]?|PC|PE|PT)"
+_LETTERED = r"(?:PC|PE|PT)"
+_INTRODUCING = r"(?i:phase|plan|ruling|decision|issue|roadmap|milestone|finding)s?"
 INTERNAL_PLAN_CODES = re.compile(
-    r"\bP[0-9][ab]?\b|\bPC\b|\bD-?[0-9]{1,3}\b|\b(?:[Pp]lan|[Tt]ask) [0-9]+\b"
+    "|".join(
+        (
+            r"\bP[0-9]{1,2}[a-z]\b",
+            rf"\b{_INTRODUCING} {_ID}\b(?!-[0-9])",
+            rf"\({_ID}(?:(?:, | and | or ){_ID})*\)",
+            r"\b(?i:plan|task) [0-9]+\b",
+            rf"\b{_LETTERED}(?:,| and| or) {_PHASE}\b",
+            rf"\b{_PHASE}(?:,| and| or) {_LETTERED}\b",
+        )
+    )
 )
 
+#: One behavior per string, so each pinned case fails for exactly one reason.
+CAUGHT_PLAN_CODES = {
+    "lettered phase": "the P1b rule",
+    "lettered phase, possessive": "Protocol 3 adds P1b's remote simulation evidence rule",
+    "lettered phase, other family": "the P2a rule",
+    "parenthetical letters": "the remaining flows (PC)",
+    "parenthetical phase": "the remaining flows (P4)",
+    "parenthetical decision": "isolation (D21)",
+    "parenthetical lettered phase": "the remote runner (P1b)",
+    "parenthetical list": "isolation (D21, D22)",
+    "parenthetical list of letters": "the remaining flows (P4 and PC)",
+    "bare lettered list": "# requires PC, P4 and P5",
+    "after phase": "see phase P4",
+    "after decision": "decision D21",
+    "after ruling": "ruling R43",
+    "after issue": "issue C6",
+    "after issue, a new family": "issue I1",
+    "after finding, a new family": "finding F1",
+    "after roadmap, a new family": "roadmap L1",
+    "after milestone": "milestone M3",
+    "after plan": "a plan P3b follow-up",
+    "plan number": "plan 2's convention",
+    "task number": "Task 7",
+    "personal computer, a bare parenthetical": "run it on a personal computer (PC)",
+}
+#: Text that merely looks like a code: a pin, a designator, a part, a speed grade, a register.
+IGNORED_PLAN_CODES = {
+    "pins": "pin P4 of the header, pins P4 and P5, P4, P5 and P6",
+    "designators": "the diode D12, D21 and D-9 on the schematic",
+    "connector": "a D-sub 9 connector",
+    "package": "package P4-QFN",
+    "pin with digits": "an STM32 pin PC13",
+    "part number": "a PT100 sensor",
+    "bit": "the PE bit",
+    "part": "part xc7a35tcsg324-1 with a -1 speed grade",
+    "board part": "the A7-100T",
+    "constraint": "set_property IOSTANDARD LVCMOS33 [get_ports clk]",
+    "plot and protocol": "a 2D plot, protocol 6",
+    "lowercase": "the pc register, tasks 7 and 8, the pc, p4 and pe bits",
+    "a PC": "run it on a PC with 16 GB",
+    "plan as a verb": "plan the build",
+    "issue as a verb": "issue the command",
+    "phase-locked": "the phase-locked loop",
+    "decision tree": "a decision tree",
+    "phase of a clock": "phase 2 of the clock",
+    "steps": "step 4 of 7",
+    "the second issue": "the second issue of the series",
+    "parenthetical with more": "the chip (PC13 and PT100)",
+    "parenthetical word": "the primary clock (CLK)",
+}
 
-def test_the_internal_plan_code_check_sees_the_codes_it_was_written_for():
-    for text in (
-        "needs PC, P4 and P5",
-        "the P1b rule",
-        "isolation (D21)",
-        "plan 2's convention",
-        "Task 7",
-    ):
-        assert INTERNAL_PLAN_CODES.search(text), text
-    assert not INTERNAL_PLAN_CODES.search("a 2D plot, protocol 6, the pc register, tasks 7 and 8")
+
+@pytest.mark.parametrize("text", CAUGHT_PLAN_CODES.values(), ids=CAUGHT_PLAN_CODES)
+def test_the_internal_plan_code_check_sees_the_codes_it_was_written_for(text):
+    assert INTERNAL_PLAN_CODES.search(text), text
+
+
+@pytest.mark.parametrize("text", IGNORED_PLAN_CODES.values(), ids=IGNORED_PLAN_CODES)
+def test_the_internal_plan_code_check_leaves_what_a_design_or_a_board_says_alone(text):
+    assert not INTERNAL_PLAN_CODES.search(text), text
 
 
 def test_the_review_time_wording_check_sees_the_sentence_it_was_written_for():

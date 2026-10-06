@@ -191,6 +191,7 @@ run finished:
     {
       "flow": "nextpnr",
       "design": "blinky",
+      "target": null,
       "success": true,
       "results": {"success": true, "Fmax": 212.4, "lut": 45, "...": "..."},
       "run_path": "/path/to/xeda_run/blinky/nextpnr",
@@ -234,6 +235,10 @@ flow or output, a repeated flow, an edge that does not fit) is a usage error: on
 document, exit status 2, no ``request``, ``plan`` or ``nodes``. Chains are local requests:
 ``--remote`` and ``dse`` refuse them.
 
+``target`` is the name of the design's selected target (see :ref:`targets`), or ``null`` for a
+design without targets. Every ``run`` and ``dse`` document carries it, a failure's too, and so
+does the ``plan`` of a dry run.
+
 ``nodes`` lists every run directory the run touched -- the requested flow's and each
 dependency's -- once each, in completion order. Each entry's ``state`` is ``"fresh"`` (the
 recorded run was still valid and was reused, without re-running), ``"ran"`` or ``"failed"``;
@@ -275,6 +280,7 @@ unknown flow or setting):
     {
       "flow": "vivado_synth",
       "design": "sqrt.yaml",
+      "target": null,
       "success": false,
       "results": {},
       "error": {
@@ -354,10 +360,12 @@ consumer switching its producer's optional output on:
 .. code-block:: json
 
     {
-      "flow": "nextpnr", "design": "blinky.yaml", "success": true, "dry_run": true,
+      "flow": "nextpnr", "design": "blinky.yaml", "target": null, "success": true,
+      "dry_run": true,
       "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null}],
       "plan": {
         "requested": "nextpnr",
+        "target": null,
         "nodes": [
           {"name": "yosys_fpga", "flow": "yosys_fpga", "declared": true,
            "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",

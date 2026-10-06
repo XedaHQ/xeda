@@ -513,11 +513,13 @@ def _run_document(
     success: bool,
     nodes: Iterable[Flow] = (),
     plan: Optional[Plan] = None,
+    target: str | None = None,
 ) -> Dict[str, Any]:
     """The machine-readable summary emitted by `xeda run --json`."""
     document: Dict[str, Any] = {
         "flow": flow_name,
         "design": str(design),
+        "target": target,
         "success": success,
         "results": {},
         "run_path": None,
@@ -527,6 +529,7 @@ def _run_document(
         document.update(
             flow=flow_obj.name,
             design=flow_obj.design.name,
+            target=flow_obj.design.target,
             run_path=str(run_path),
             results_json=str(run_path / "results.json"),
             settings_json=str(run_path / "settings.json"),
@@ -543,7 +546,8 @@ def _run_document(
 
 def _print_plan(plan: Plan) -> None:
     """Print each planned flow, its directory, input origins and switched-on outputs."""
-    click.echo(f"Plan for {plan.requested} (a dry run: nothing runs)")
+    target = f", target {plan.context.target}" if plan.context.target else ""
+    click.echo(f"Plan for {plan.requested}{target} (a dry run: nothing runs)")
     for node in plan.nodes:
         click.echo(f"  {node.name}  {node.run_path}")
         if not node.declared:
@@ -685,6 +689,15 @@ def _print_plan(plan: Plan) -> None:
     help="Specify design.name in case multiple designs are available in a xedaproject.",
 )
 @click.option(
+    "--target",
+    metavar="NAME",
+    help="Select one of the design's `targets` (`targets.NAME` in the design file). A design "
+    "with a single target needs no selection; one with several does. The target is the "
+    "design's own say for that build: for each key it writes, its value wins over the design's "
+    "and the project's (defaults < project < design < target < -s < API); `-s` and the API "
+    "still win over it.",
+)
+@click.option(
     "--design-overrides",
     metavar="KEY=VALUE...",
     type=tuple,
@@ -811,6 +824,7 @@ def run(
     xedaproject: Optional[str] = None,
     # design: Optional[str] = None,
     design_name: Optional[str] = None,
+    target: str | None = None,
     design_overrides: Iterable[str] = tuple(),
     design_allow_extra: bool = False,
     log_level: Optional[int] = None,
@@ -864,6 +878,7 @@ def run(
                 {
                     "flow": flow,
                     "design": None,
+                    "target": target,
                     "success": False,
                     "results": {},
                     "error": {"type": "DesignNotSpecified", "message": message},
@@ -911,12 +926,16 @@ def run(
                 xedaproject=xedaproject,
                 design_overrides=design_overrides,
                 design_allow_extra=design_allow_extra,
+                target=target,
             )
         except XedaException as e:
             log.critical("%s", _error_message(e))
             if json_flag:
                 emit_structured(
-                    _remote_document(flow, design, remote, None, False, error=e), "json"
+                    _remote_document(
+                        flow, design, remote, None, False, error=e, target=rl.target or target
+                    ),
+                    "json",
                 )
             if debug:
                 raise e
@@ -925,7 +944,12 @@ def run(
             if not json_flag:
                 raise
             log.critical("%s", _error_message(e))
-            emit_structured(_remote_document(flow, design, remote, None, False, error=e), "json")
+            emit_structured(
+                _remote_document(
+                    flow, design, remote, None, False, error=e, target=rl.target or target
+                ),
+                "json",
+            )
             if debug:
                 raise
             sys.exit(1)
@@ -934,7 +958,10 @@ def run(
         if not success:
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
         if json_flag:
-            emit_structured(_remote_document(flow, design, remote, remote_results, success), "json")
+            emit_structured(
+                _remote_document(flow, design, remote, remote_results, success, target=rl.target),
+                "json",
+            )
         sys.exit(0 if success else 1)
 
     launcher: Optional[DefaultRunner] = None
@@ -948,6 +975,7 @@ def run(
                 {
                     "flow": flow,
                     "design": str(design),
+                    "target": (launcher.target if launcher is not None else None) or target,
                     "success": False,
                     "results": {},
                     "error": {"type": error_type, "message": message},
@@ -975,6 +1003,7 @@ def run(
                 select_design_in_project=select_design_in_project,
                 design_overrides=design_overrides,
                 design_allow_extra=design_allow_extra,
+                target=target,
             )
         except XedaException as e:
             emit_failure(type(e).__name__, _error_message(e), e)
@@ -989,6 +1018,7 @@ def run(
                 {
                     "flow": flow,
                     "design": str(design),
+                    "target": plan.context.target,
                     "success": True,
                     "dry_run": True,
                     "request": request_info(request),
@@ -1023,11 +1053,18 @@ def run(
             select_design_in_project=select_design_in_project,
             design_overrides=design_overrides,
             design_allow_extra=design_allow_extra,
+            target=target,
         )
         success = bool(f and f.results.success)
         if json_flag:
             document = _run_document(
-                flow, design, f, success, launcher.launched, launcher.last_plan
+                flow,
+                design,
+                f,
+                success,
+                launcher.launched,
+                launcher.last_plan,
+                launcher.target,
             )
             document["request"] = request_info(request)
             emit_structured(document, "json")
@@ -1064,11 +1101,13 @@ def _remote_document(
     results: Optional[Dict[str, Any]],
     success: bool,
     error: Optional[BaseException] = None,
+    target: str | None = None,
 ) -> Dict[str, Any]:
     """The machine-readable summary emitted by `xeda run --remote --json`."""
     document: Dict[str, Any] = {
         "flow": flow_name,
         "design": str(design),
+        "target": target,
         "remote": host,
         "success": success,
         "results": json_safe(results or {}),
@@ -1140,6 +1179,15 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     # cls=ClickMutex,
     # mutually_exclusive_with=["design_file"],
     help="Specify design.name in case multiple designs are available in a xedaproject.",
+)
+@click.option(
+    "--target",
+    metavar="NAME",
+    help="Select one of the design's `targets` (`targets.NAME` in the design file). A design "
+    "with a single target needs no selection; one with several does. The target is the "
+    "design's own say for that build: for each key it writes, its value wins over the design's "
+    "and the project's (defaults < project < design < target < -s < API); `-s` and the API "
+    "still win over it.",
 )
 @click.option(
     "--design",
@@ -1250,6 +1298,7 @@ def dse(
     xedaproject: Optional[str] = None,
     design: Optional[str] = None,
     design_name: Optional[str] = None,
+    target: str | None = None,
     design_allow_extra: bool = True,
     log_level: Optional[int] = None,
     detailed_logs: bool = True,
@@ -1263,6 +1312,8 @@ def dse(
         # stdout belongs to the JSON document from here on
         machine_readable_mode()
 
+    dse: Dse | None = None
+
     def dse_failure(error_type: str, message: str, exc: Optional[BaseException] = None) -> None:
         log.critical("%s", message)
         if json_flag:
@@ -1270,6 +1321,7 @@ def dse(
                 {
                     "flow": flow,
                     "design": str(design or design_name),
+                    "target": (dse.target if dse is not None else None) or target,
                     "optimizer": optimizer,
                     "success": False,
                     "best": None,
@@ -1335,6 +1387,7 @@ def dse(
             flow_settings=list(flow_settings),
             select_design_in_project=select_design_in_project,
             design_allow_extra=design_allow_extra,
+            target=target,
         )
     except SystemExit:
         raise
@@ -1345,6 +1398,7 @@ def dse(
         document = {
             "flow": flow,
             "design": str(design or design_name),
+            "target": dse.target,
             "optimizer": optimizer,
             "success": best is not None,
             "best": _dse_best_document(best),

@@ -1,0 +1,26 @@
+# One design, one target per board (see docs/design-file.rst, "Targets").
+name: knight
+rtl:
+  top: knight
+  sources: [knight.v, por_sync.v]
+  clock: {port: CLK}
+  parameters: {WIDTH: 8}
+tb:
+  top: knight_tb
+  sources: [knight_tb.v]
+flows:
+  nextpnr: {seed: 3}
+  vivado_synth: {clock: {period: 10.0}}
+targets:
+  arty:
+    sources: [arty.xdc]
+    defines: {CLK_HZ: 100000000}
+    flows:
+      vivado_synth: {fpga: {part: xc7a100tcsg324-1}}
+  ulx3s:
+    rtl:
+      sources: [ulx3s.lpf]
+      defines: {CLK_HZ: 25000000}
+      parameters: {WIDTH: 4}
+    flows:
+      nextpnr: {board: ULX3S_85F}

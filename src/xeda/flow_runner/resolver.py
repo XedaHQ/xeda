@@ -129,6 +129,8 @@ class PlanContext:
     hashed_run_dirs: bool
     debug: bool
     input_settings: Mapping[str, Any]
+    #: the design's selected target, reported by the plan and no part of any identity
+    target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1100,6 +1102,7 @@ def resolve(
             hashed_run_dirs,
             debug,
             _freeze(as_recorded(root.settings)),
+            design.target,
         ),
         flow_request,
         tuple(binding_layers),

@@ -314,8 +314,10 @@ def send_design(
         # `mode="json"`: the fields kept as they are (`dependencies` and its `local_cache` /
         # `clone_dir`) hold `Path`s, which a python-mode dump leaves as objects for the encoder
         # to stringify by luck rather than by rule.
+        # Not `target`: the remote is sent the design a target yielded, as a design file is
+        # written, and the name of the target is this side's to report.
         new_design: Dict[str, Any] = {
-            **design.model_dump(mode="json"),
+            **design.model_dump(mode="json", exclude={"target"}),
             "design_root": None,
         }
         rtl: Dict[str, Any] = {}
@@ -886,12 +888,20 @@ class RemoteRunner(FlowLauncher):
         xedaproject: str | Path | None = None,
         design_overrides: Iterable[str] | Mapping[str, Any] | None = None,
         design_allow_extra: bool = False,
+        target: str | None = None,
     ):
-        """Execute a design flow remotely and return its results."""
+        """Execute a design flow remotely and return its results. `target` selects one of the
+        design's `targets` here, before anything ships: the remote is sent the design the
+        target yields."""
         # A chain, and an input binding of the requested node, are local requests: refused first,
         # as `dse` refuses them, before the design is loaded, which may clone a git dependency
         # into the run root or fail on a design file that is missing.
         self._refuse_unaccepted_request(flow_name, flow_settings or [], {}, xedaproject)
+        if target is not None and isinstance(design, Design):
+            raise ValueError(
+                f"target {target!r} was asked for, but the design is already built: select "
+                "the target where the design is loaded (`Design.from_file(..., target=...)`)"
+            )
         # the design file given, when `design` names one: never an output's destination
         given_file = Path(design) if isinstance(design, (str, Path)) else None
         project_flow_settings: Mapping[str, Any] | None = None
@@ -927,9 +937,10 @@ class RemoteRunner(FlowLauncher):
                         design_path,
                         overrides=dict(design_overrides),
                         allow_extra=design_allow_extra,
+                        target=target,
                     )
                 elif project is not None:
-                    selected = project.get_design(str(design))
+                    selected = project.get_design(str(design), target)
                     if selected is None:
                         raise ValueError(
                             f"Design {str(design)!r} not found in {project_path}. Available designs: "
@@ -945,6 +956,8 @@ class RemoteRunner(FlowLauncher):
                 if project_path is not None:
                     project = XedaProject.from_file(project_path, skip_designs=True)
                     project_flow_settings = project.flows
+        assert isinstance(design, Design)
+        self.target = design.target
         # where a project's settings come from, named in messages even when there is none
         project_label = project_path or Path(PROJECT_FILE_NAMES[0])
         flow_class = get_flow_class(flow_name)

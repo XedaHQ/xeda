@@ -517,6 +517,23 @@ in between -- a destination that changed since it was first checked is never rep
 or not. A **fresh** run (one the trace found up to date, so no tool ran) delivers its outputs too:
 delivery follows the run's outcome, not whether a tool executed.
 
+Reading a delivered file to confirm it is Xeda's own costs a pass over it, which matters for a
+gigabyte-sized output, so it is read only when its record's metadata cannot vouch for it -- the
+same rule every other file Xeda tracks follows: its size, mtime, inode change time and inode
+against its record, outside the racy window.
+A check that does read it first reads the clock of the destination's own file system, by making
+and removing a short-lived marker file (``.xeda-time-...``) in the destination's directory, where
+delivery writes its temporary file anyway, and records that time with the file: a later check of
+an unchanged delivery then recognizes it by its size, mtime, inode change time and inode alone
+and reads nothing. The record of a file Xeda has just delivered cannot be trusted by its
+timestamps, so the first check after it has settled -- more than two seconds after it was
+written -- reads it once, and that read anchors the record; no later check or copy reads it
+again. A launch still inside those two seconds anchors nothing and reads the destination twice,
+once in the check and once in the copy, as every launch did before. Where no marker can be made
+(a destination directory that is read only), every check reads the content, as it would without
+a clock to trust. A destination found on another device than the one its record's clock was read
+on is read once more, and anchored afresh by the clock of the file system it is on now.
+
 Every **working** location -- a setting naming where a flow keeps its intermediate files, such as
 ``sim_dir``, ``bobj_dir``, ``impl_folder`` or a log path -- is a bare name inside the run
 directory, never a location: what a working-location setting is given is always used as a name

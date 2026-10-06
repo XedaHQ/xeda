@@ -1,0 +1,14 @@
+# knight.yaml with its `arty` target applied by hand: the two must be the same design.
+name: knight
+rtl:
+  top: knight
+  sources: [knight.v, por_sync.v, arty.xdc]
+  clock: {port: CLK}
+  parameters: {WIDTH: 8}
+  defines: {CLK_HZ: 100000000}
+tb:
+  top: knight_tb
+  sources: [knight_tb.v]
+flows:
+  nextpnr: {seed: 3}
+  vivado_synth: {clock: {period: 10.0}, fpga: {part: xc7a100tcsg324-1}}

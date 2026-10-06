@@ -14,6 +14,13 @@ All notable changes to this project will be documented in this file.
 - `xeda run --remote --rebuild-all` forces local generator loading before shipping while the
   remote flow remains fresh; the remote runner's existing fresh-flow policy remains separate from
   local generator freshness.
+- Target loading applies design overrides to dictionary inputs, rejects `targets: null`, and
+  keeps the loader-selected target name authoritative over design and project overrides.
+- `yosys_fpga` reads each target's primitive library (Xilinx, ECP5, Nexus, iCE40) before the
+  design with the flags the synthesis pass itself reads it with (`-lib -specify`, plus the
+  device define for iCE40), so the early read and the pass's own agree. (A netlist can differ
+  slightly from earlier releases: yosys numbers generated names from a shared counter, and the
+  library read advances it.)
 - `yosys_fpga`'s mapped Xilinx `LUT` count includes every distributed RAM primitive
   (`RAM32X1D`, `RAM64X1D`, `RAM64M`, ...), not `RAM32M` alone.
 - `nextpnr` lists an SDF, routed netlist, SVG or placement dump as an artifact only when this
@@ -58,6 +65,27 @@ All notable changes to this project will be documented in this file.
   `error.type = "ReportedFailure"` and a message in its `results.json`, as every failure document
   does; a dependent used to quote an empty error (`dependency yosys_fpga failed: ;`). The name is
   a cause, kept apart from `FlowFailed`, the verdict at the top of the `xeda run --json` document.
+
+- **A delivered output is no longer read again at every launch when nothing about it changed.**
+  Xeda held a verified record of the file it had delivered and still read the whole file twice on
+  every later launch -- once in the check before the run, once in the copy that then copied
+  nothing -- because the record was anchored at the file's own change time, before which a file is
+  never settled, so it could never vouch by metadata. A check that does have to read a destination
+  now reads the clock of that destination's own file system first
+  (`digest.filesystem_time_ns`) and anchors the record it then took to that time, so a later check
+  recognizes an unchanged file by its size, mtime, inode change time and inode -- the same R38
+  trust rule every other file Xeda tracks follows -- and reads nothing. In steady state an
+  unchanged re-delivery reads the output in the run directory once, to note its digest, and the
+  destination not at all; it used to read the destination twice besides. The destination is read
+  once, by the first check after it has settled (more than two seconds, `digest.RACY_NS`, after its
+  last change), and that read anchors its record; a launch still inside that window anchors
+  nothing and reads it twice, once in the check and once in the copy, as before. Nothing is
+  trusted that was not verified against a clock read at that moment: a destination whose
+  directory takes no marker is read at every launch as before, and one found on another device
+  than its anchor was read on is read once, against the clock of the file system it is on now, and
+  anchored afresh. Every mutation check is unchanged -- an
+  edit given back its old mtime, and a different file put in the destination's place, are still
+  refused.
 
 ### Added
 - **A design generator is judged by content, and can declare an input no design can list.**
@@ -150,6 +178,15 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **Delivery and `replacing_copy` use the platform's copy primitive** instead of a hand-written
+  byte loop: `fcopyfile` on macOS, `copy_file_range` then `sendfile` on Linux, between the two open
+  descriptors the atomic write needs, looped until the whole file is copied. Any failure,
+  including one after some bytes were written, starts over from a rewound source and an emptied
+  destination, last with the plain loop, so a half-copied file is never completed by appending.
+  The destination is a separate file with the same logical content. On Linux, `copy_file_range`
+  may use filesystem reflinks (shared copy-on-write extents) or a server-side copy. The temporary
+  file, digest re-check and rename around the copy are unchanged. Ubuntu CI exercises the Linux
+  copy path on a real kernel.
 - **Breaking: YAML is read as YAML 1.2, strictly.** One shared loader reads every YAML design and
   project file. `yes`, `no`, `on`, `off`, `y` and `n` are text, not booleans (write `true` or
   `false`); the octal `010` is gone (`010` is decimal 10; write `0o10` for octal) and the

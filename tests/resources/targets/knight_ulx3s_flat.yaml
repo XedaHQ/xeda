@@ -1,0 +1,14 @@
+# knight.yaml with its `ulx3s` target applied by hand.
+name: knight
+rtl:
+  top: knight
+  sources: [knight.v, por_sync.v, ulx3s.lpf]
+  clock: {port: CLK}
+  parameters: {WIDTH: 4}
+  defines: {CLK_HZ: 25000000}
+tb:
+  top: knight_tb
+  sources: [knight_tb.v]
+flows:
+  nextpnr: {seed: 3, board: ULX3S_85F}
+  vivado_synth: {clock: {period: 10.0}}
