@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
 - `xeda run --remote --rebuild-all` forces local generator loading before shipping while the
   remote flow remains fresh; the remote runner's existing fresh-flow policy remains separate from
   local generator freshness.
+- `yosys` given a `platform` merged its liberty files only when `dont_use_cells` was set, so a
+  platform with an empty dont-use list (`sky130hs`) reached abc as several files, of which abc and
+  `dfflibmap` were handed the first; and it never marked the platform's own dont-use cells,
+  although `dont_use_cells` promised to add to them. Both now hold.
 - `yosys_fpga`'s `synth_pass_only` reads the design's sources as a bare `yosys <files>`
   does (by each source's `type`, which is its suffix's unless the design states another): a nonempty `read_verilog_flags` (Xeda's own `-sv` default included), a `systemverilog`
   front end other than `default` (the default is the slang plugin) and a nonempty
@@ -214,6 +218,28 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **`yosys` owns its ASIC configuration.** Given a `platform`, `yosys` alone derives what
+  `openroad` used to hand its synthesis: the corner's liberty set, merged into one library in its
+  own run directory (named `<platform>_merged`, with the platform's own dont-use cells and
+  `dont_use_cells` marked), the flip-flop library, the platform's mapping files, tie and buffer
+  cells, abc's driver cell and load, flattening, the abc script `optimize` selects with
+  post-synthesis optimization, and a gate-level netlist without attributes or hexadecimal
+  constants (`netlist_attrs`/`netlist_hex` unset: kept unless mapping to a liberty library). An
+  explicitly given setting is never replaced. `xeda run yosys -s platform=nangate45` produces the
+  netlist `openroad`'s synthesis produced, byte for byte. `yosys` declares its gate-level netlist
+  (`netlist`, switched on by `netlist_verilog`) and gains `corner`. `openroad` hands its
+  synthesis only the settings the two share (`platform`, `corner`, `dont_use_cells`, `clocks`) and
+  `blocks`; `yosys`'s own settings reach it from a design's or project's `flows.yosys` section
+  (`-s flows.yosys.*` with `xeda run openroad` is not accepted until `openroad` declares its
+  input, so `-s optimize=...` on the command line has no replacement there yet).
+- **Breaking: `optimize`, `abc_driver_cell` and `abc_load_in_ff` moved from `openroad` to
+  `yosys`.** Given to `openroad` they fail with `` `optimize` was removed: use
+  `flows.yosys.optimize` `` (and likewise); `abc_driver_cell` is a cell name (text), no longer an
+  integer. `abc_driver_cell` and `abc_load_in_ff` given where nothing maps to a liberty library,
+  and `stop_after: rtl` with a `netlist_verilog` (the default), are refused before anything runs.
+- `openroad`'s `platform` is a `required_settings` entry rather than a required model field, so it
+  has the type `yosys`'s and `dc`'s have. The bundled `nangate45` platform names itself, so
+  `-s platform=nangate45` and the path to its `config.toml` are one platform.
 - **Delivery and `replacing_copy` use the platform's copy primitive** instead of a hand-written
   byte loop: `fcopyfile` on macOS, `copy_file_range` then `sendfile` on Linux, between the two open
   descriptors the atomic write needs, looped until the whole file is copied. Any failure,
@@ -301,8 +327,10 @@ All notable changes to this project will be documented in this file.
 - A flow hands its tool only the source types it reads: Quartus no longer writes `XDC_FILE` or
   `MEMORYFILE_FILE` assignments, Vivado, Diamond, ISE and DC no longer add a source of a type
   they cannot use, and a language a flow cannot read is an error naming the source.
-- **Settings connected flows share (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`)
-  must agree wherever both endpoints of a declared edge declare them.** On the FPGA path
+- **Settings connected flows share (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
+  `platform`, `corner`, `dont_use_cells`) must agree wherever both endpoints of a declared edge
+  declare them.** `platform`, `corner` and `dont_use_cells` are `yosys`'s and `openroad`'s; a
+  `platform` is compared by what it describes and handed on whole, never merged key by key. On the FPGA path
   `fpga` and `clocks` are shared by `yosys_fpga`, `nextpnr`, `fpga_pack` and `openfpgaloader`;
   `board` and `custom_boards_file` by the last three (`yosys_fpga` takes neither); `prjxray_db`
   only by `nextpnr` and `fpga_pack`. Different values in two places are an error naming both

@@ -441,7 +441,11 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   names the reason: "netlist now from __synth.netlist (was yosys_fpga.netlist)", or the
   producer that "has other settings or inputs than in the last run".
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`,
-  `clocks` and `prjxray_db` apply where both endpoints declare them. Disjoint leaves combine; conflicting values fail with
+  `clocks`, `prjxray_db`, `platform`, `corner` and `dont_use_cells` apply where both endpoints
+  declare them. Each contribution carries the value it propagates and a key it is compared by
+  (PCD17, `resolver._normalized_leaves`): the same for every leaf but `platform` -- indivisible,
+  propagated exactly as given, compared by a location-free projection of its validated model
+  (`_platform_key`) -- and `corner`, compared by the corner it selects. Disjoint leaves combine; conflicting values fail with
   both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
   `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
   leaves; API contributions remain a separate highest-precedence origin. Undeclared edges keep

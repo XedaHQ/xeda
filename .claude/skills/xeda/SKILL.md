@@ -189,8 +189,8 @@ TOML): TOML or YAML by suffix (`.toml`, `.yaml`, `.yml`; any other suffix is an 
 YAML 1.2 like every YAML file xeda reads. A relative path resolves against the design directory,
 and a board's local `lpf` against the database file's directory.
 
-Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`, where
-both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
+Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
+`platform`, `corner`, `dont_use_cells`, where both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
 naming both origins. An explicit command-line leaf (`-s fpga.part=...` or
 `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group, preserving other leaves.
 API overrides remain the highest-precedence origin. Undeclared edges (Vivado

@@ -73,8 +73,12 @@ A flow's settings are written in one place, its own ``flows.<flow_name>`` sectio
 flow's run needs it: ``-s flows.yosys_fpga.flatten=true`` sets the synthesis that ``nextpnr``
 places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, naming
 ``flows.yosys_fpga.<key>``. The flows that still launch a dependency themselves
-(``vivado_postsynth_sim``'s ``synth``, ``vivado_power``'s ``postsynthsim``, ``openroad``'s
-``synthesis``) keep a nested section for it until they declare their inputs; it refines the dependency's own section only within one origin.
+(``vivado_postsynth_sim``'s ``synth``, ``vivado_power``'s ``postsynthsim``) keep a nested section
+for it until they declare their inputs; it refines the dependency's own section only within one
+origin. ``openroad``'s synthesis is configured in the design's or project's ``flows.yosys``
+section (``optimize``, ``abc_driver_cell``, ...): ``yosys`` derives everything else from the
+``platform`` the two share. Until ``openroad`` declares its input, ``-s flows.yosys.*`` is not
+accepted with ``xeda run openroad``.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are the same setting
@@ -157,7 +161,10 @@ Output paths are set by the flow, verified and recorded with content digests in 
 Consumers get only those checked records, for newly run and reused producers alike.
 
 Along a declared edge, shared settings -- ``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
-``prjxray_db``, where both endpoints declare them -- must agree. Leaves given on one node
+``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, where both endpoints declare them --
+must agree. A ``platform`` is one value, compared by what it describes (a bundled name and the path
+to that platform's ``config.toml`` agree) and handed on whole; a ``corner`` is compared by the
+corner it selects. Leaves given on one node
 apply to both; disjoint leaves combine. Different values for the same leaf, for example ``flows.nextpnr.fpga.part`` in a
 project and ``flows.yosys_fpga.fpga.part`` in a design, fail before anything runs, naming both
 files and sections. A command-line leaf (``-s fpga.part=...`` or
