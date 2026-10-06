@@ -445,15 +445,12 @@ Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 def _node_states(flows: Iterable[Flow], plan: Optional[Plan] = None) -> List[Dict[str, Any]]:
     """One `nodes` entry per run directory the launcher entered, in completion order: what
     `run --json` reports about each node of the run, whether it was reused, ran, or failed. A
-    directory entered again within the launch (the same configuration asked for twice) reuses
-    the first run, which is the one reported. A flow that always runs (`Flow.always_runs`) is
+    flow that always runs (`Flow.always_runs`) is
     never `reused`, so it is reported as "ran"/"failed", never "fresh"."""
     nodes: List[Dict[str, Any]] = []
     seen = set()
     for f in flows:
         run_path = os.path.abspath(f.run_path)
-        if run_path in seen:
-            continue
         seen.add(run_path)
         planned = next(
             (n for n in (plan.nodes if plan else ()) if os.path.abspath(n.run_path) == run_path),

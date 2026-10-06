@@ -694,31 +694,6 @@ class Deliveries:
                 pairs = [(source, delivery.destination)]
             self.pending += [(delivery, src, dest, content_digest(src)) for src, dest in pairs]
 
-    def merge(self, other: Deliveries) -> None:
-        """Take on what `other` noted for the same run directory -- entered again in the launch,
-        the same configuration asked for twice, maybe for other destinations (a location is no
-        part of a configuration): one delivery, to every destination either names, under one
-        record. An entry `other` anchored (its check read that destination, in this very launch)
-        is taken over an unanchored one of the same destination, whole: both started from the one
-        record beside the run directory and `other` was checked later, so its entry is the later
-        look at the same file -- its record may differ from this one's by times the file was
-        touched since (never what makes it xeda's: `_why_not_ours` refreshes an entry only after
-        the inode and content matched), and keeping the older entry would only read the file
-        again."""
-        known = {dest for _delivery, _src, dest, _sha in self.pending}
-        self.pending += [item for item in other.pending if item[2] not in known]
-        for destination, state in other.checked.items():
-            self.checked.setdefault(destination, state)
-        for name, entry in other.record["files"].items():
-            mine = self.record["files"].get(name)
-            if (
-                isinstance(entry, dict)
-                and "anchor_ns" in entry
-                and isinstance(mine, dict)
-                and "anchor_ns" not in mine
-            ):
-                self.record["files"][name] = entry
-
     def deliver(self) -> list[Delivered]:
         """Copy each file `collect` noted to where it was named. A destination that is an input
         -- of any flow of the launch, all known by now -- is refused; one checked before the run

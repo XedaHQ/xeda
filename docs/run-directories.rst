@@ -226,9 +226,7 @@ written by this run", decided by the file itself, never by a clock -- so a tool 
 it writes its reports never passes on the previous run's.
 
 Dependencies are always brought up to date before the flow that depends on them is judged, so a
-stale dependency reruns first. Within one launch, a run directory is entered at most once: two
-different configurations of one flow resolving to the same directory in the same launch is an
-error naming both requesters (use ``--hashed-run-dirs`` to give them separate directories).
+stale dependency reruns first. A launch has one run per flow, so it enters each run directory once.
 
 ``trace.json``
 ---------------

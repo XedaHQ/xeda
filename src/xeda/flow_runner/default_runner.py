@@ -12,8 +12,8 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
-from copy import copy, deepcopy
-from dataclasses import dataclass, replace
+from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from pprint import PrettyPrinter
@@ -110,7 +110,6 @@ from .trace import (
     locate_program,
     previous_trace,
     remove_trace,
-    settings_difference,
     write_trace,
 )
 from .trace_inputs import (
@@ -673,9 +672,8 @@ class FlowLauncher:
         self._launch_depth = 0
         #: post-run clean-ups waiting for the flow the current launch was asked for to complete
         self._pending_clean_ups: List[Tuple[Flow, Path, Path, RunDirPolicy]] = []
-        #: in the current launch, each run directory's configuration: its `flowrun_hash`, which
-        #: flow asked for it, and its input settings `as_recorded`
-        self._claims: Dict[Path, Tuple[str, str, Any]] = {}
+        #: the run directories the current launch has entered
+        self._claims: set[Path] = set()
         #: asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
@@ -979,7 +977,7 @@ class FlowLauncher:
         """
         top_level = self._launch_depth == 0
         if top_level:
-            self._claims = {}
+            self._claims = set()
             self._planned_completed = {}
             self._completed_runs = {}
             # every file a flow of this launch reads, registered as each flow is launched
@@ -1027,7 +1025,7 @@ class FlowLauncher:
         each under its run directory's lock, in completion order; then the deferred clean-ups,
         which may remove a file that is delivered. Each on its own, a failure logged and the next
         going on. The first failure, if any."""
-        self._claims = {}
+        self._claims = set()
         deliveries, self._pending_deliveries = self._pending_deliveries, []
         first_error: Optional[Exception] = None
         for flow, delivery in deliveries if deliver else []:
@@ -1051,36 +1049,13 @@ class FlowLauncher:
                 first_error = first_error or e
         return first_error
 
-    def _claim_run_dir(
-        self,
-        flow_class: Type[Flow],
-        run_path: Path,
-        flowrun_hash: str,
-        input_settings: Flow.Settings,
-        depender: Optional[Flow],
-    ) -> bool:
-        """Record which configuration `run_path` holds in this launch. True if this launch already
-        claimed it with the same settings, whose run is then reused; a `FlowSettingsError` if it
-        claimed it with other settings."""
-        requester = depender.name if depender is not None else "the requested flow"
+    def _claim_run_dir(self, run_path: Path) -> None:
+        """Record that this launch entered `run_path`. The plan has one node per flow, so a
+        directory is entered once; a second entry would run over what the first produced."""
         key = Path(os.path.abspath(run_path))
-        claim = self._claims.get(key)
-        if claim is None:
-            self._claims[key] = (flowrun_hash, requester, as_recorded(input_settings))
-            return False
-        claimed_hash, first, first_settings = claim
-        if claimed_hash == flowrun_hash:
-            return True
-        difference = settings_difference(first_settings, as_recorded(input_settings))
-        message = (
-            f"{flow_class.name} would run twice in {run_path}, with different settings "
-            f"(differing in {difference}): for {first} and for {requester}. The second run would "
-            "overwrite what the first produced; --hashed-run-dirs (API hashed_run_dirs=True) "
-            "gives each its own directory"
-        )
-        raise FlowSettingsError(
-            [(str(run_path), message, None, "run_directory_conflict")], flow_class.Settings
-        )
+        if key in self._claims:
+            raise FlowFatalError(f"{run_path} is entered twice in one launch")
+        self._claims.add(key)
 
     def _launch(
         self,
@@ -1148,40 +1123,7 @@ class FlowLauncher:
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
         policy = self._run_dir_policy()
-        revisit = self._claim_run_dir(flow_class, run_path, flowrun_hash, input_settings, depender)
-        if revisit:
-            completed = self._completed_runs.get(run_path.resolve())
-            if completed is not None:
-                producer, _token = completed
-                if producer.design_hash != design_hash or producer.flow_hash != flowrun_hash:
-                    raise FlowDependencyFailure(f"{flow_name} has a conflicting completed run")
-                with self._producer_read_lease(producer):
-                    reused = copy(producer)
-                    reused.settings = producer.settings.model_copy(deep=True)
-                    reused.design = producer.design.model_copy(deep=True)
-                    reused.results = deepcopy(producer.results)
-                    reused.reused = True
-                    reused.stale_reason = None
-                    outputs_to = self.settings.outputs_to if depender is None else None
-                    delivery = Deliveries(
-                        run_path,
-                        self.run_root,
-                        deliveries,
-                        inputs=self._read_inputs,
-                        overwrite=self.settings.overwrite_outputs,
-                        confirm=self.confirm_overwrite,
-                    )
-                    delivery.check_outputs_to(outputs_to)
-                    delivery.check(
-                        outputs_to_deliveries(
-                            recorded_artifacts(run_path / "results.json"), run_path, outputs_to
-                        )
-                    )
-                    self._defer_delivery(reused, delivery, outputs_to)
-                    self.launched.append(reused)
-                    return reused
-            # already run in this launch, with these settings: reused, not emptied again
-            policy = replace(policy, clean=False, scrub_old_runs=False)
+        self._claim_run_dir(run_path)
         settings_json = run_path / "settings.json"
         results_json = run_path / "results.json"
         # Scrub siblings before taking our own lock: concurrent hashed variants must not
@@ -1269,7 +1211,7 @@ class FlowLauncher:
                 if expected is None:
                     flow.stale_reason = always
                     log.info("Running %s: %s", flow.name, always)
-                elif (not self.settings.rebuild_all or revisit) and not policy.clean:
+                elif not self.settings.rebuild_all and not policy.clean:
                     # A second consumer may be acquiring a lease on this same generation.
                     # Reuse must not change its trace or directory through a clock marker.
                     freshness = check_trace(
@@ -1407,11 +1349,6 @@ class FlowLauncher:
         delivery.collect(flow.run_path, outputs_to_deliveries(artifacts, flow.run_path, outputs_to))
         if not delivery.pending:
             return
-        run_dir = Path(os.path.abspath(flow.run_path))
-        for earlier_flow, earlier in self._pending_deliveries:
-            if Path(os.path.abspath(earlier_flow.run_path)) == run_dir:
-                earlier.merge(delivery)  # the same run directory, entered again in this launch
-                return
         self._pending_deliveries.append((flow, delivery))
 
     def _input_settings(

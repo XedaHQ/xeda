@@ -184,22 +184,6 @@ def _launch(world, launcher=None, flow=_Deliverer, deliverer=None, **settings):
     return flow
 
 
-def _launch_twice(world, first: dict, second: dict, launcher=None):
-    """The deliverer launched with each of two configurations as one launch: a flow entering the
-    run directory it already entered, once for each destination asked for."""
-    runner = launcher or DefaultRunner(world.root, display_results=False)
-    runner._launch_depth = 1  # nothing finishes the launch until both have run
-    try:
-        flow = runner.launch_flow(_Deliverer, world.design, first)
-        runner.launch_flow(_Deliverer, world.design, second)
-    finally:
-        runner._launch_depth = 0
-    error = runner._finish_launch(deliver=True)
-    if error is not None:
-        raise error
-    return flow
-
-
 def test_a_location_is_delivered_and_the_run_writes_the_conventional_name(world):
     flow = _launch(world, netlist="$PWD/out/net.v")
     destination = world.user / "out" / "net.v"
@@ -489,35 +473,6 @@ def test_an_anchored_destination_is_still_replaced_when_the_output_changes(world
     flow = _launch(world, netlist="$PWD/net.v", text="b\n")
     assert not flow.reused and (world.user / "net.v").read_text() == "b\n"
     assert [d.state for d in flow.deliveries] == ["delivered"]
-
-
-def test_a_run_directory_entered_twice_keeps_the_later_anchored_check_of_a_touched_file(
-    world, hashed, later_clock
-):
-    """One run directory entered twice in a launch is two `Deliveries` that read the one record
-    beside it before either checks anything. The second one's check of `b.v` found it touched
-    since (same inode, same bytes, new times), read it and anchored the record it then took; the
-    first still holds the older, unanchored entry of the record file. That later check is what
-    the merged delivery keeps: the copy then reads nothing more of `b.v`. Keeping the older entry
-    only when the two records are equal would read the file a second time, and never make a
-    foreign file pass -- the entry is replaced whole, and an anchor only vouches for a file whose
-    metadata is exactly that of the record it was taken with."""
-    destination = world.user / "b.v"
-    first, second = {"netlist": "$PWD/a.v"}, {"netlist": "$PWD/b.v"}
-    _launch_twice(world, first, second)
-    os.utime(destination, None)  # touched: same file, same bytes, new mtime and inode change time
-
-    hashed.clear()
-    flow = _launch_twice(world, first, second)
-    assert flow.succeeded and destination.read_text() == "net\n"
-    assert _reads(hashed, destination) == 1, "read once, by the check that anchored its record"
-    record = delivery_record(flow.run_path)
-    entry = json.loads(record.read_text())["files"][str(destination)]
-    assert "anchor_ns" in entry and entry["anchor_ns"] > entry["recorded_ns"]
-
-    hashed.clear()
-    _launch_twice(world, first, second)
-    assert _reads(hashed, destination) == 0, "its metadata vouches for it"
 
 
 @pytest.mark.parametrize("theirs", ["edited", "foreign", "a link"])
@@ -895,21 +850,6 @@ def test_a_dependency_s_output_is_delivered_once_the_launch_has_finished(world):
     DURING_WRAPPER.append(lambda wrapper: seen.append((world.user / "net.v").exists()))
     _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
     assert seen == [False] and (world.user / "net.v").read_text() == "net\n"
-
-
-@pytest.mark.parametrize("second", ["$PWD/b.v", "$PWD/a.v"])
-def test_a_run_directory_entered_twice_delivers_once_to_every_destination(world, second):
-    """One configuration asked for twice in a launch (locations are no part of it) runs once, and
-    delivers to each destination either asked for -- one record of both, so neither is a
-    stranger's file at the next launch."""
-    _launch_twice(world, {"netlist": "$PWD/a.v"}, {"netlist": second})
-    assert RUNS == [_Deliverer.name]
-    for name in {"a.v", Path(second).name}:
-        assert (world.user / name).read_text() == "net\n"
-    again = _launch_twice(
-        world, {"netlist": "$PWD/a.v", "text": "b\n"}, {"netlist": second, "text": "b\n"}
-    )
-    assert again.succeeded and (world.user / "a.v").read_text() == "b\n"
 
 
 def test_an_output_changed_after_its_run_is_not_delivered(world):

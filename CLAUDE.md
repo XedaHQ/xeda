@@ -823,9 +823,8 @@ generates and nothing else
 the audit hook records no violation of xeda's own, the canary sweep sees only those sources; `tests/test_generator_staleness.py`).
 
 Dependencies are brought up to date first, then the depending flow is judged. Within one launch, a
-run directory is entered at most once: two configurations of one flow resolving to the same
-directory in one launch is a `FlowSettingsError` naming both requesters
-(`FlowLauncher._claim_run_dir`). A flow whose `Flow.always_runs()` gives a reason always runs,
+run directory is entered at most once: the plan has one node per flow, so a second entry into a
+directory is a `FlowFatalError` (`FlowLauncher._claim_run_dir`, an invariant, not a user error). A flow whose `Flow.always_runs()` gives a reason always runs,
 keeps no trace and reports that reason: `openfpgaloader` ("it
 programs a device"), a flow asked for a fresh random seed ("it draws a new random seed"), nextpnr
 with pin constraints from a URL. Seeds are settings with fixed defaults (verilator and cocotb

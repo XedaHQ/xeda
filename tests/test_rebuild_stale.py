@@ -23,7 +23,6 @@ from xeda.flow import (
     Flow,
     FlowDependencyFailure,
     FlowFatalError,
-    FlowSettingsError,
     In,
     Out,
     registered_flows,
@@ -476,20 +475,13 @@ def test_launched_lists_a_flow_that_raised_and_its_depender(tmp_path, design):
         _unregister(ToyFatal, ToyFatalUser)
 
 
-def test_one_directory_one_configuration_per_launch(tmp_path, toys, design):
-    """A second configuration of a flow asking for a directory the launch already gave to
-    another would overwrite what the first produced: it fails, naming both."""
-    producer, _ = toys
+def test_a_launch_enters_a_run_directory_once(tmp_path, toys, design):
+    """A second entry into a directory would run over what the first produced."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     run_path = tmp_path / "xeda_run" / "toy" / "toy_producer"
-    assert not runner._claim_run_dir(producer, run_path, "a" * 16, producer.Settings(), None)
-    assert runner._claim_run_dir(producer, run_path, "a" * 16, producer.Settings(), None)
-    with pytest.raises(FlowSettingsError) as raised:
-        runner._claim_run_dir(producer, run_path, "b" * 16, producer.Settings(suffix="!"), None)
-    message = str(raised.value)
-    assert str(run_path) in message
-    assert "toy_producer would run twice" in message and "(differing in suffix)" in message
-    assert "for the requested flow and for the requested flow" in message
+    runner._claim_run_dir(run_path)
+    with pytest.raises(FlowFatalError, match="entered twice in one launch"):
+        runner._claim_run_dir(run_path)
 
 
 @pytest.mark.parametrize("launcher", [{}, {"rebuild_all": True}, {"clean": True}], ids=str)
