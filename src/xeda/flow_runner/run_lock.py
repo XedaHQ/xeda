@@ -56,25 +56,41 @@ if sys.platform != "win32":
     os.register_at_fork(after_in_child=_after_fork)
 
 
-def lock_file(run_path: Path) -> Path:
+def lock_file(run_path: Path, run_root: Path | None = None) -> Path:
     """The durable lock beside the run directory: `<run dir>.lock` in its parent, which is
-    resolved (so ordinary in-root aliases of the parent share one lock), while the last component
-    never is -- a link is itself, as `RunDirectory.inside` has it -- so a run directory that has
-    become a link cannot send the lock file to wherever the link leads."""
+    resolved, so ordinary in-root aliases of the parent share one lock.
+
+    The last component is resolved only when a run root is given and it is a link that stays
+    inside it: the lock is then beside what the link leads to, so a launch through the link's
+    name and one through the real name serialize on one lock. A link leading out of the run root
+    or nowhere is a `RunDirectoryError`, before anything is created. Without a run root the last
+    component is never resolved (a link is itself, as `RunDirectory.inside` has it), so a run
+    directory that has become a link cannot send the lock file to wherever the link leads."""
     run_path = Path(os.path.abspath(run_path))
+    if run_root is not None:
+        _check_inside(run_path, run_root)
+        if run_path.is_symlink():
+            run_path = Path(os.path.realpath(run_path))
     return Path(os.path.realpath(run_path.parent)) / f"{run_path.name}.lock"
 
 
 def _check_inside(run_path: Path, run_root: Path) -> None:
-    """Refuse a run directory whose parent is reached through a link leading out of `run_root`:
-    nothing, the lock file included, is created there."""
-    parent = Path(os.path.realpath(Path(os.path.abspath(run_path)).parent))
+    """Refuse a run directory that is not inside `run_root`: reached through a parent that is a
+    link leading out of it, or itself a link that leads out of it or nowhere."""
     root = Path(os.path.realpath(run_root))
+    parent = Path(os.path.realpath(run_path.parent))
     if parent != root and not parent.is_relative_to(root):
         raise RunDirectoryError(
             f"{run_path} is reached through a link that leads out of the run root {run_root}: "
             "it is not locked"
         )
+    if run_path.is_symlink():
+        leads_to = Path(os.path.realpath(run_path))
+        if not leads_to.exists() or leads_to == root or not leads_to.is_relative_to(root):
+            raise RunDirectoryError(
+                f"{run_path} is a link that leads out of the run root {run_root}, or nowhere: "
+                "it is not locked"
+            )
 
 
 @contextlib.contextmanager
@@ -82,9 +98,7 @@ def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iter
     if sys.platform == "win32":
         yield
         return
-    if run_root is not None:
-        _check_inside(run_path, run_root)
-    path = lock_file(run_path)
+    path = lock_file(run_path, run_root)
     key = (os.getpid(), threading.get_ident(), path)
     hold = _held.get(key)
     if hold is not None:
@@ -102,7 +116,7 @@ def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iter
     with open(path, "a") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
         try:
-            if lock_file(run_path) != path:
+            if lock_file(run_path, run_root) != path:
                 raise RunDirectoryError(f"{run_path} changed while acquiring its lock")
             _held[key] = _Hold(f, exclusive, int(not exclusive), int(exclusive))
             try:

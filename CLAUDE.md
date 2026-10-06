@@ -842,8 +842,10 @@ that could be a target's (a target name, `design.target_name_problem`, holding n
 `LAUNCH_DOCUMENTS`, so never a run directory) -- one level, found as they are, a target the design
 no longer names included -- and `--target T` only those under `<design>/T`; it lists them,
 confirms once, then removes each under its own lock (`run_dir_lock(path, run_root)`: the lock file
-is `lock_file(path)`, beside the run directory with its last component never resolved, and a
-parent reached through a link out of the run root is refused) and finds it again once the lock
+is `lock_file(path, run_root)`, beside the run directory -- beside what a last component that is a
+link inside the run root leads to, so both names share one lock; without a run root the last
+component is never resolved -- and a parent, or a link, leading out of the run root or nowhere is
+refused before anything is created) and finds it again once the lock
 is held (`_unchanged`: name, parent, still a directory in the run root, and the same
 `(st_dev, st_ino)` for the name and for what it leads to), a link out of the run root never
 followed. `--json` reports `target`, the `scanned` directories

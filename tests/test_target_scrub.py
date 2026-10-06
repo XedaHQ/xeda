@@ -16,6 +16,7 @@ never goes into a run directory. The oracles (the plan's O-SCRUB, and O-LEGACY's
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -391,20 +392,64 @@ def test_a_candidate_replaced_by_a_link_to_a_directory_inside_the_root_is_not_re
     assert (other / "out.txt").exists() and victim.is_symlink()
 
 
-def test_a_lock_is_made_beside_the_run_directory_never_beside_what_a_link_leads_to(tmp_path):
+def test_a_link_to_a_directory_in_the_run_root_and_the_directory_share_one_lock(tmp_path):
+    """`get_flow_run_path` uses a run directory that is a link resolving inside the run root:
+    a launch through the link's name and one through the real name serialize."""
     from xeda.flow_runner.run_lock import lock_file, run_dir_lock
+
+    tree = Tree(tmp_path)
+    real = tree.a[0]
+    alias = tree.design / "b" / f"{FLOW}_cccccccccccccccc"
+    alias.symlink_to(real, target_is_directory=True)
+    assert lock_file(alias, tree.root) == lock_file(real, tree.root)
+    assert lock_file(alias, tree.root) == tree.design.resolve() / "a" / f"{real.name}.lock"
+    with run_dir_lock(real, tree.root):
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import fcntl, sys;"
+                "f = open(sys.argv[1], 'a');"
+                "fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)",
+                str(lock_file(alias, tree.root)),
+            ],
+            capture_output=True,
+        )
+        assert probe.returncode != 0, "the alias's lock was free while the real name's was held"
+    assert not (tree.design / "b" / f"{alias.name}.lock").exists()
+
+
+def test_without_a_run_root_a_lock_is_beside_the_name_it_is_given(tmp_path):
+    from xeda.flow_runner.run_lock import lock_file
+
+    tree = Tree(tmp_path)
+    outside = tmp_path / "outside"
+    run_dir(outside / "other")
+    link = tree.design / "b" / f"{FLOW}_dddddddddddddddd"
+    link.symlink_to(outside / "other", target_is_directory=True)
+    assert lock_file(link) == tree.design.resolve() / "b" / f"{link.name}.lock"
+
+
+@pytest.mark.parametrize("leads_to", ["outside", "nowhere"])
+def test_a_link_out_of_the_run_root_or_nowhere_is_not_locked(tmp_path, leads_to):
+    from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
 
     tree = Tree(tmp_path)
     outside = tmp_path / "outside"
     run_dir(outside / "other")
     before = sorted(p.name for p in outside.iterdir())
     link = tree.design / "b" / f"{FLOW}_cccccccccccccccc"
-    link.symlink_to(outside / "other", target_is_directory=True)
-    assert lock_file(link) == tree.design.resolve() / "b" / f"{link.name}.lock"
-    with run_dir_lock(link, run_root=tree.root):
-        pass
+    link.symlink_to(
+        outside / "other" if leads_to == "outside" else tree.root / "gone",
+        target_is_directory=True,
+    )
+    listing = sorted(p.name for p in link.parent.iterdir())
+    for lock in (run_dir_lock, run_dir_read_lock):
+        with pytest.raises(RunDirectoryError, match="not locked"):
+            with lock(link, run_root=tree.root):
+                pytest.fail("locked")
     assert sorted(p.name for p in outside.iterdir()) == before
-    assert (tree.design / "b" / f"{link.name}.lock").is_file()
+    assert sorted(p.name for p in link.parent.iterdir()) == listing, "nothing created"
 
 
 def test_a_run_directory_reached_through_a_link_out_of_the_run_root_is_not_locked(tmp_path):
