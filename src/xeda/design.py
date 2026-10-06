@@ -9,10 +9,11 @@ import logging
 import os
 import pprint
 import re
+import shutil
 import subprocess
 import tomllib
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass
@@ -1126,16 +1127,71 @@ class Generator(XedaBaseModel):
             raise ValueError(f"generator source file does not exist: {', '.join(missing)}")
         return sources
 
-    def run(self):
+    def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
+        """The argv this generator runs, shared by execution and freshness identity."""
         if self.command:
-            cmd = self.command.split()
+            return self.command.split()
         elif not self.executable:
             raise ValueError("executable is not set")
         else:
-            cmd = [self.executable, *self.args]
-        self.run_cmd(cmd)
+            return [self.executable, *self.args]
+
+    def execution_executable_path(
+        self, design_root: Optional[Path] = None, command: Optional[Sequence[str]] = None
+    ) -> Path:
+        """Resolve the direct executable as the child process will, without running it."""
+        selected_command = (
+            list(command) if command is not None else self.execution_command(design_root)
+        )
+        if not selected_command:
+            raise ValueError("generator command is empty")
+        executable = selected_command[0]
+        if self.cwd is None:
+            cwd = Path(design_root or Path.cwd()).resolve()
+        else:
+            cwd = Path(self.cwd)
+            if not cwd.is_absolute():
+                cwd = Path(design_root or Path.cwd()).resolve() / cwd
+            cwd = cwd.resolve()
+        env = self.env
+        path = env.get("PATH") if env is not None else os.environ.get("PATH")
+        if path is None:
+            path = os.defpath
+        if (
+            os.path.isabs(executable)
+            or os.sep in executable
+            or (os.altsep and os.altsep in executable)
+        ):
+            candidate = Path(executable)
+            if not candidate.is_absolute():
+                candidate = cwd / candidate
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                # Preserve a selected symlink alias in argv[0]. Identity reads still follow
+                # the link and hash the target's contents.
+                return candidate
+        else:
+            search_path = os.pathsep.join(
+                str((cwd / entry).resolve()) if not Path(entry).is_absolute() else entry
+                for entry in path.split(os.pathsep)
+            )
+            found = shutil.which(executable, path=search_path)
+            if found:
+                return Path(found).absolute()
+        raise ValueError(
+            f"cannot identify generator executable `{executable}` from cwd `{cwd}` and PATH"
+        )
+
+    def run(self):
+        self.run_cmd(self.execution_command())
 
     def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
+        cmd = list(cmd)
+        executable = None
+        if cmd:
+            # Resolve exactly the executable used by freshness identity. This also makes child
+            # cwd and PATH selection consistent on Windows, where Popen ignores both for lookup.
+            # Pass it separately to preserve argv[0] and symlink-alias behavior for wrappers.
+            executable = str(self.execution_executable_path(Path.cwd(), cmd))
         log.info("Running command: '%s'", " ".join(cmd))
         if stdout is None:
             # A generator's subprocess inherits our stdout, which would corrupt a `--json`
@@ -1148,6 +1204,7 @@ class Generator(XedaBaseModel):
         p = subprocess.run(
             cmd,
             cwd=self.cwd,
+            executable=executable,
             check=False,
             stdout=stdout,
             stderr=stderr,
@@ -1176,23 +1233,37 @@ class ChiselGenerator(Generator):
         else:
             raise Exception(f"Unsupported build system: {self.build_system}")
 
-    def run_mill(self):
-        # if file ./mill or ./millw exists, use it, otherwise use mill from PATH
-        mill_exec = "./mill"
-        if not Path(mill_exec).exists():
-            mill_exec = "mill"
-        if not self.project:
-            ValueError("`project` must be specified for Chisel generator")
-        cmd = [mill_exec]
-        if self.main:
-            cmd += [f"{self.project}.runMain", self.main]
+    def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
+        if self.cwd is None:
+            cwd = Path(design_root or Path.cwd()).resolve()
         else:
-            cmd.append(f"{self.project}.run")
-        if self.args:
-            if isinstance(self.args, str):
-                self.args = self.args.split()
-            cmd += self.args
-        return self.run_cmd(cmd)
+            cwd = Path(self.cwd)
+            if not cwd.is_absolute():
+                cwd = Path(design_root or Path.cwd()).resolve() / cwd
+        if self.build_system == "mill":
+            mill_exec = "./mill" if (cwd / "mill").exists() else "mill"
+            cmd = [mill_exec]
+            if not self.project:
+                raise ValueError("`project` must be specified for Chisel generator")
+            cmd += [f"{self.project}.runMain", self.main] if self.main else [f"{self.project}.run"]
+            return [*cmd, *(self.args.split() if isinstance(self.args, str) else self.args)]
+        if self.build_system == "bloop":
+            if not self.project:
+                # `run_bloop` discovers the project by invoking `bloop projects`; the executable
+                # whose content matters is still selected here without that side effect.
+                base = ["bloop", "projects"]
+                return base
+            cmd = ["bloop", "run", self.project]
+            if self.main:
+                cmd += ["--main", self.main]
+            args = self.args.split() if isinstance(self.args, str) else self.args
+            if args:
+                cmd += ["--", *args]
+            return cmd
+        raise ValueError(f"Unsupported build system: {self.build_system}")
+
+    def run_mill(self):
+        return self.run_cmd(self.execution_command())
 
     def run_bloop(self):
         if self.project is None:
@@ -1207,15 +1278,7 @@ class ChiselGenerator(Generator):
                 raise ValueError("No projects found!")
         if not self.project:
             ValueError("`project` must be specified for Chisel generator")
-        cmd = ["bloop", "run", self.project]
-        if self.main:
-            cmd += ["--main", self.main]
-        if self.args:
-            if isinstance(self.args, str):
-                self.args = self.args.split()
-            cmd.append("--")
-            cmd += self.args
-        return self.run_cmd(cmd)
+        return self.run_cmd(self.execution_command())
 
 
 class RtlSettings(DVSettings):
@@ -1810,11 +1873,20 @@ class Design(XedaBaseModel):
             design_root = Path.cwd()
         else:
             design_root = Path(design_root)
+        # Normalize before changing cwd: direct Design constructors accept relative roots too.
+        # Resolving inside the lease after WorkingDirectory would rebase it a second time.
+        design_root = design_root.resolve()
         rtl = data.get("rtl", {})
         assert isinstance(rtl, dict), f"rtl must be a dictionary, but found {type(rtl)}"
         generator = rtl.pop("generator", None)
         if generator:
-            with WorkingDirectory(design_root):
+            if _planning_load.get():
+                generator_lease: AbstractContextManager[None] = nullcontext()
+            else:
+                from .flow_runner.run_lock import generator_design_lock
+
+                generator_lease = generator_design_lock(design_root)
+            with WorkingDirectory(design_root), generator_lease:
                 # A generator is told the design root as `$DESIGN_ROOT` names it in the design's
                 # own paths: replacing whatever the shell exports, which is another directory's.
                 env = {**os.environ, "DESIGN_ROOT": str(design_root)}

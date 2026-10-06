@@ -4,13 +4,15 @@ A generator runs while the design is loaded, before any flow, run directory or t
 the decision cannot use the trace's machinery -- and its record may not be kept beside the design:
 everything outside a run root is the user's (D21). The record is therefore the same object as a
 prepared Xilinx chip database (`flows.xilinx.prepare_chipdb`) with another payload: an entry under
-`<run root>/.cache/generators/`, named by an identity hashed from the generator's inputs, holding
-the digest of every source the last generation left, written atomically under the entry's own
-durable lock.
+`<run root>/.cache/generators/`, named by an identity hashed from the generator's inputs and direct
+executable, holding the digest of every source the last generation left, written atomically under
+the entry's own durable lock. A POSIX directory-descriptor lease also serializes loads for the
+same design-root directory across the first generation and different input identities, without a
+sidecar or eager run-root creation.
 
 The decision is **content-based**, as every other change xeda judges is: the generator's own
-sources and the installed packages it declares are hashed into the identity, and the sources it
-produced are compared with the digests the record holds. A modification time never decides, so a
+sources, selected executable, and the installed packages it declares are hashed into the identity,
+and the sources it produced are compared with the digests the record holds. A modification time never decides, so a
 `touch`, a `cp -p` or a branch round-trip costs a hash rather than a wrong answer, and an edit
 given back its old mtime is caught. Metadata is trusted nowhere here (`digest.FileRecord.trusted`):
 that rule needs the time the record was taken, read from the file's own file system
@@ -37,7 +39,7 @@ from typing import TYPE_CHECKING, Callable, Iterator, List, Optional, Sequence, 
 
 import yaml
 
-from .digest import installed_package_digest, record_file
+from .digest import content_digest, installed_package_digest, record_file
 from .listing import VCS_METADATA, directory_files
 from .run_dir import RunDirectory
 from .utils import replacing_file, semantic_hash
@@ -98,6 +100,8 @@ def generation_identity(generator: Generator, design_root: Path) -> str:
     A package nothing provides is a `ValueError` naming it: a generator that reads one cannot be
     judged by silence.
     """
+    executable = generator.execution_executable_path(design_root)
+    command = generator.execution_command(design_root)
     recipe = {
         "format": RECORD_FORMAT,
         "class": type(generator).__name__,
@@ -110,6 +114,7 @@ def generation_identity(generator: Generator, design_root: Path) -> str:
         "packages": tuple(
             (name, installed_package_digest(name)) for name in sorted(set(generator.packages))
         ),
+        "executable": (command[0], content_digest(executable)),
     }
     return semantic_hash(recipe)
 
@@ -248,11 +253,17 @@ def _stale(
         sorted(
             (name, sha)
             for name, sha in (
-                entry_ for entry_ in recorded if isinstance(entry_, list) and len(entry_) == 2
+                entry_
+                for entry_ in recorded
+                if isinstance(entry_, list)
+                and len(entry_) == 2
+                and all(isinstance(part, str) for part in entry_)
             )
         )
     )
     if len(was) != len(recorded):
+        return f"the record of its last generation ({entry}) is malformed"
+    if len({name for name, _ in was}) != len(was):
         return f"the record of its last generation ({entry}) is malformed"
     if {name for name, _ in now} != {name for name, _ in was}:
         return "the design declares other generated sources than its last generation left"
@@ -271,15 +282,41 @@ def judging_generation(
     planning: bool = False,
     rebuild_all: bool = False,
 ) -> Iterator[Generation]:
-    """Judge `generator` and, where there is a record to judge it by, keep that entry locked for
-    the block, so that two loads of one design neither generate into the same tree at once nor
-    read a record another is writing.
+    """Judge a generator under a lease for its design tree, except during read-only planning."""
+    if planning:
+        with _judging_generation_unlocked(
+            generator, design_root, outputs, run_root, planning, rebuild_all
+        ) as generation:
+            yield generation
+        return
+    from .flow_runner.run_lock import generator_design_lock
+
+    design_root = Path(design_root).resolve()
+    with generator_design_lock(design_root):
+        with _judging_generation_unlocked(
+            generator, design_root, outputs, run_root, planning, rebuild_all
+        ) as generation:
+            yield generation
+
+
+@contextmanager
+def _judging_generation_unlocked(
+    generator: Generator,
+    design_root: Path,
+    outputs: Callable[[], Optional[List[Path]]],
+    run_root: Optional[Callable[[bool], Optional[Path]]] = None,
+    planning: bool = False,
+    rebuild_all: bool = False,
+) -> Iterator[Generation]:
+    """Judge `generator` under a same-design-root lease and a per-identity record lock.
 
     `outputs` resolves the sources the generator produces, as the design declares them now --
     called again after a generation, because a pattern is exactly what one was waiting for.
-    `run_root` is asked for a run root that is already there; one is made only to write a record
-    (`Generation.produced`), so a design that fails to load creates none, and with `planning`
-    nothing is created, locked or written at all. With `rebuild_all` (`--rebuild-all`, which
+    The directory lease serializes first generation and different identities for this design
+    root on POSIX, without writing beside it. `run_root` is asked for a run root that is already
+    there; one is made only to write a record (`Generation.produced`), so a design that fails to
+    load creates none, and with `planning` nothing is created, locked or written at all. With
+    `rebuild_all` (`--rebuild-all`, which
     `--clean` implies) the generator runs whatever the record says, and records what it leaves.
     """
     reason = _unjudgeable(generator)
@@ -324,23 +361,35 @@ def judging_generation(
         return
     owner = RunDirectory(root, root)
     cache = owner.unlinked(root / CACHE_DIRECTORY)
-    entry = owner.unlinked(cache / f"{identity}.yaml")
-    owner.unlinked(_entry_lock(entry))
     if planning:  # read-only: a plan creates nothing, not even the run root's cache directory
+        entry = owner.unlinked(cache / f"{identity}.yaml")
+        owner.unlinked(_entry_lock(entry))
         yield judged(_stale(entry, identity, design_root, outputs))
         return
-    with ExitStack() as stack:
-        try:
-            cache.mkdir(parents=True, exist_ok=True)
-            stack.enter_context(_locked(entry))
-        except OSError as error:  # a read-only run root: nothing can be recorded, so it runs
-            log.debug("Cannot keep a record of a generation in %s: %s", cache, error)
-            yield Generation(NO_RUN_ROOT)
-            return
-        # The names are checked again after the wait: another process may have replaced one.
-        owner.unlinked(entry)
+    while True:
+        entry = owner.unlinked(cache / f"{identity}.yaml")
         owner.unlinked(_entry_lock(entry))
-        yield judged(reason or _stale(entry, identity, design_root, outputs), root)
+        retry = False
+        with ExitStack() as stack:
+            try:
+                cache.mkdir(parents=True, exist_ok=True)
+                stack.enter_context(_locked(entry))
+            except OSError as error:  # a read-only run root: nothing can be recorded, so it runs
+                log.debug("Cannot keep a record of a generation in %s: %s", cache, error)
+                yield Generation(NO_RUN_ROOT)
+                return
+            # Revalidate names and identity after waiting: another load may have changed an input
+            # while this load waited for the identity-specific lock.
+            owner.unlinked(entry)
+            owner.unlinked(_entry_lock(entry))
+            current_identity = generation_identity(stated, design_root)
+            if current_identity != identity:
+                identity = current_identity
+                retry = True
+            else:
+                yield judged(reason or _stale(entry, identity, design_root, outputs), root)
+        if not retry:
+            return
 
 
 def _entry_lock(entry: Path) -> Path:

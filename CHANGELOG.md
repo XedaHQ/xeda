@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Generator freshness now follows symlinked package directories, resolves dotted Python package
+  names without running parent initializers during planning, validates damaged output records as
+  stale, and rechecks its input identity after acquiring the record lock. The selected direct
+  generator executable is part of the content identity. A POSIX lease on the existing design-root
+  directory serializes bootstrap and differing-identity generations for the same tree without
+  creating the run root early; separate roots sharing an external output are outside that lease.
+- `xeda run --remote --rebuild-all` forces local generator loading before shipping while the
+  remote flow remains fresh; the remote runner's existing fresh-flow policy remains separate from
+  local generator freshness.
 - `yosys_fpga`'s mapped Xilinx `LUT` count includes every distributed RAM primitive
   (`RAM32X1D`, `RAM64X1D`, `RAM64M`, ...), not `RAM32M` alone.
 - `nextpnr` lists an SDF, routed netlist, SVG or placement dump as an artifact only when this

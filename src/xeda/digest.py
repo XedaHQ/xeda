@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
-import importlib.util
+from importlib.machinery import ModuleSpec, PathFinder
 import os
 import stat
 import sys
@@ -247,7 +247,7 @@ def package_files(directory: Path) -> List[Path]:
     top = directory.resolve()
     return sorted(
         p
-        for p in directory_files(top, skip=frozenset({"__pycache__"}))
+        for p in directory_files(top, skip=frozenset({"__pycache__"}), follow_links=True)
         if p.is_file()
         and p.suffix not in (".pyc", ".pyo")
         and not any(part.startswith(".") for part in p.relative_to(top).parts)
@@ -270,10 +270,37 @@ def package_locations(name: str) -> List[Path]:
     module. A name nothing provides, and one with no files of its own (a built-in or an extension
     module), are errors naming it: a generator that reads it cannot be judged by silence.
 
-    A dotted name imports its parent packages, as `importlib` does; a top-level name imports
-    nothing."""
+    Dotted names are resolved one component at a time through the interpreter's meta-path
+    finders, so editable installs work and parent packages' `__init__.py` files are not executed."""
+    components = name.split(".")
+    if any(not component.isidentifier() for component in components):
+        raise ValueError(
+            f"cannot look up the installed Python package `{name}`: invalid import name"
+        )
+    spec: Optional[ModuleSpec] = None
+    search_path: Sequence[str] | None = None
     try:
-        spec = importlib.util.find_spec(name)
+        for index, component in enumerate(components):
+            qualified = ".".join(components[: index + 1])
+            spec = None
+            for finder in sys.meta_path:
+                find_spec = getattr(finder, "find_spec", None)
+                if find_spec is None:
+                    continue
+                if finder is PathFinder:
+                    # Pass each package path explicitly. A qualified PathFinder lookup can build
+                    # a dynamic namespace path that consults sys.modules for its parents.
+                    spec = PathFinder.find_spec(component, search_path)
+                else:
+                    spec = find_spec(qualified, search_path, None)
+                if spec is not None:
+                    break
+            if spec is None:
+                break
+            search_path = tuple(spec.submodule_search_locations or ())
+            if index < len(components) - 1 and not search_path:
+                spec = None
+                break
     except (ImportError, AttributeError, ValueError, TypeError) as error:
         raise ValueError(
             f"cannot look up the installed Python package `{name}`: {error}"

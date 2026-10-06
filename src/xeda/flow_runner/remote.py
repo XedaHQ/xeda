@@ -902,7 +902,10 @@ class RemoteRunner(FlowLauncher):
 
         # As a local launch does: a git dependency without a directory of its own is cloned
         # into the run root, which is asked for only then.
-        with loading_in_run_root(self.load_run_root):
+        # A remote flow is always executed fresh remotely (`clean=True`), but the local design
+        # generator is loaded before shipping and follows the caller's explicit rebuild request.
+        # Do not let RemoteRunner's default clean setting force it on every remote invocation.
+        with loading_in_run_root(self.load_run_root, self.settings.rebuild_all):
             if isinstance(design, (str, Path)):
                 design_path = Path(design)
                 # The local runner's rule: a design-file suffix means a file, which then loads or

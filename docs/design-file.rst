@@ -301,10 +301,21 @@ produced changed**, judged by content, never by a modification time:
 ``packages``
     installed Python packages, by import name, that it reads and that no design could list as
     files -- a SoC description reading ``litex``, ``litex_boards`` and ``migen`` from the virtual
-    environment. Every file of each one is digested (its bytecode left out), so installing,
-    upgrading or editing one runs the generator again. A package nothing provides is an error
-    naming it. Each package is digested once per ``xeda`` invocation, so a package changed
+    environment. Every file of each one is digested (its bytecode left out), following package
+    directory links with cycle detection, so installing, upgrading or editing one runs the
+    generator again. A package nothing provides is an error naming it. Each package is digested
+    once per ``xeda`` invocation, so a package changed
     *during* one invocation is noticed by the next.
+
+The selected direct executable is also identified by its content, including the selected
+``mill`` or ``bloop`` command for a Chisel generator. Xeda resolves it without running it, and the
+same command-selection helper builds the argv used to launch it. The generator script itself still
+belongs in ``sources``; indirect tools and dependencies are outside this identity.
+
+After a successful run, Xeda keeps a record only if the declared file inputs and direct executable
+still have the identity used to start it. The output digests say what the generator left; they do
+not prove that an untracked environment, indirect tool or external input would produce the same
+bytes on another run. Declare those inputs where possible or use ``always_runs``/``--rebuild-all``.
 
 ``generated_sources``
     which of ``rtl.sources`` the generator writes, when it does not write them all. Left out,
@@ -323,7 +334,11 @@ generator runs on every load -- the direction xeda takes wherever it cannot prov
 to date. The run root is made to *write* that record, after a generation that succeeded, never to
 look one up, so a generator that fails leaves no run root behind; ``xeda run --dry-run`` creates
 nothing at all, reads an existing record, and refuses to plan a design that would have to
-generate.
+generate. On POSIX, a read-only lock on the resolved design-root directory serializes generators
+for that same directory, including the first run and different input identities; it creates no
+sidecar and does not create the run root early. The per-identity record lock still protects its
+record. This does not coordinate different design roots writing to the same external output, and
+Windows follows the existing no-interprocess-lock policy. Planning takes no lock.
 
 A generator given as a shell command (``generator: "python soc.py"``) or as a list of arguments
 declares nothing it reads, so it runs on every load. Write it as a table with ``sources`` to have
@@ -334,6 +349,10 @@ as it runs every flow of the launch, and records what that generation leaves: th
 ``touch`` -- is what forces a regeneration when something xeda cannot see has changed. An
 environment variable the generator reads is such a thing; so is anything its ``sources`` and
 ``packages`` do not name.
+
+With ``--remote``, the remote flow still runs fresh. ``--rebuild-all`` forces local generator
+loading before Xeda ships the generated design; the remote runner's default ``clean`` does not
+force local generation on ordinary invocations.
 
 Writing the design's tree is what a generator is *for*, so what it writes there is its own
 business -- a litex build directory, for instance. Xeda itself writes nothing outside its run root

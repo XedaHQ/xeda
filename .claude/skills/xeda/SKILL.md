@@ -367,7 +367,9 @@ protocol 6 or newer on the host. Protocol 3 adds the remote simulation evidence 
 4 the FPGA build graph (`fpga_pack`), protocol 5 the programming-only `openfpgaloader`, protocol 6
 the node identity of flow chains (a node's hash counts where its declared inputs come from). Xeda
 probes the package the remote interpreter actually imports and refuses an older build, or one of
-an older protocol, before shipping, with an upgrade error.
+an older protocol, before shipping, with an upgrade error. The remote flow always runs fresh;
+`--rebuild-all` is accepted to force local generator loading before shipping, while `--clean` and
+`--hashed-run-dirs` remain unsupported because remote runs already use a fresh hashed layout.
 
 ## When something fails
 

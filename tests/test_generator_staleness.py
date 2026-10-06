@@ -15,8 +15,10 @@ root, like every other thing of xeda's (D21); `test_isolation.py` holds the orac
 
 import os
 import shutil
+import subprocess
 import sys
 import time
+import yaml
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Optional
@@ -142,6 +144,85 @@ def test_a_generator_runs_once_and_not_again_while_nothing_changed(tmp_path):
     assert world.runs == 1, "a load that need not generate anything generated"
 
 
+def test_first_generation_is_serialized_across_processes_without_eager_run_root(tmp_path):
+    world = World(tmp_path)
+    world.design_file.with_name("gen.py").write_text(
+        "import time\n"
+        + GENERATOR.replace('(root / "gen").mkdir', 'time.sleep(0.3)\n(root / "gen").mkdir')
+    )
+    load = (
+        "from pathlib import Path\n"
+        "from xeda import Design\n"
+        "from xeda.design import loading_in_run_root\n"
+        "from xeda.run_root import ensure_run_root\n"
+        f"design = Path({str(world.design_file)!r})\n"
+        f"root = Path({str(world.run_root)!r})\n"
+        "provider = lambda create: ensure_run_root(root, start=design.parent, create=create)\n"
+        "with loading_in_run_root(provider):\n"
+        "    Design.from_file(design)\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    children = [
+        subprocess.Popen([sys.executable, "-c", load], cwd=world.root, env=env) for _ in range(2)
+    ]
+    codes = [child.wait(timeout=30) for child in children]
+    assert codes == [0, 0]
+    assert world.runs == 1
+    assert world.run_root.is_dir(), "the successful generation must leave its record root"
+
+
+def test_different_generator_identities_serialize_same_design_tree(tmp_path):
+    world = World(tmp_path)
+    events = tmp_path / "events.log"
+    (world.root / "gen.py").write_text(
+        "import os, sys, time\n"
+        "from pathlib import Path\n"
+        "root = Path(os.environ['DESIGN_ROOT'])\n"
+        "with open(sys.argv[1], 'a') as f: f.write('start ' + sys.argv[2] + '\\n')\n"
+        "time.sleep(0.3)\n"
+        "(root / 'gen').mkdir(exist_ok=True)\n"
+        "(root / 'gen' / 'top.v').write_text('// ' + sys.argv[2] + '\\n')\n"
+        "with open(sys.argv[1], 'a') as f: f.write('end ' + sys.argv[2] + '\\n')\n"
+    )
+    design_files = []
+    for tag in ("a", "b"):
+        design = world.root / f"design-{tag}.yaml"
+        design.write_text(
+            "name: generated\n"
+            "rtl:\n"
+            "  sources: [gen/top.v]\n"
+            "  top: top\n"
+            "  generator:\n"
+            f"    executable: {sys.executable!r}\n"
+            f"    args: ['gen.py', {str(events)!r}, {tag!r}]\n"
+            "    sources: [gen.py]\n"
+        )
+        design_files.append(design)
+    load = (
+        "from pathlib import Path\n"
+        "from xeda import Design\n"
+        "from xeda.design import loading_in_run_root\n"
+        "from xeda.run_root import ensure_run_root\n"
+        f"design = Path({str(design_files[0])!r}) if __import__('sys').argv[1] == 'a' else Path({str(design_files[1])!r})\n"
+        f"root = Path({str(world.run_root)!r})\n"
+        "provider = lambda create: ensure_run_root(root, start=design.parent, create=create)\n"
+        "with loading_in_run_root(provider):\n"
+        "    Design.from_file(design)\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    children = [
+        subprocess.Popen([sys.executable, "-c", load, tag], cwd=world.root, env=env)
+        for tag in ("a", "b")
+    ]
+    assert [child.wait(timeout=30) for child in children] == [0, 0]
+    assert events.read_text().splitlines() in (
+        ["start a", "end a", "start b", "end b"],
+        ["start b", "end b", "start a", "end a"],
+    )
+
+
 def test_a_stale_source_copied_over_a_generated_one_runs_the_generator(tmp_path):
     """`cp -p` of a stale output, which keeps its own (newer) modification time: a mtime rule
     sees the newest file of all in the right place and skips the generation it owes."""
@@ -206,6 +287,190 @@ def test_a_changed_generator_configuration_runs_it_again(tmp_path):
     assert len(world.records()) == 2, "another configuration is another record"
 
 
+def test_inputs_are_rechecked_after_waiting_for_the_record_lock(tmp_path, monkeypatch):
+    import xeda.generation as generation
+
+    world = World(tmp_path)
+    world.load()
+    spec = world.root / "spec.txt"
+    spec.write_text("two\n")
+    acquire = generation._locked
+    changed = False
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def change_after_acquire(entry):
+        nonlocal changed
+        with acquire(entry):
+            if not changed:
+                changed = True
+                spec.write_text("three\n")
+            yield
+
+    monkeypatch.setattr(generation, "_locked", change_after_acquire)
+    world.load()
+    assert world.runs == 2
+    assert world.generated.read_text() == "// three\n"
+    world.load()
+    assert world.runs == 2, "the new identity was not recorded after the lock wait"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="directory flock is POSIX-only")
+def test_interrupted_design_root_lock_closes_its_directory_descriptor(tmp_path, monkeypatch):
+    from xeda.flow_runner import run_lock
+
+    opened = []
+    open_directory = os.open
+
+    def capture_open(path, flags):
+        descriptor = open_directory(path, flags)
+        opened.append(descriptor)
+        return descriptor
+
+    def interrupt(*_args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run_lock.os, "open", capture_open)
+    monkeypatch.setattr(run_lock.fcntl, "flock", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        with run_lock.generator_design_lock(tmp_path):
+            pytest.fail("the interrupted lock was acquired")
+    assert len(opened) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened[0])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="directory flock is POSIX-only")
+def test_design_root_lock_is_reentrant_for_nested_loads(tmp_path):
+    from xeda.flow_runner.run_lock import generator_design_lock
+
+    with generator_design_lock(tmp_path):
+        with generator_design_lock(tmp_path):
+            pass
+
+
+@pytest.mark.skipif(os.name == "nt", reason="temporary executable scripts need POSIX execute bits")
+def test_direct_executable_content_is_part_of_the_generator_identity(tmp_path):
+    from xeda.design import Generator
+    from xeda.generation import generation_identity
+
+    root = tmp_path / "design"
+    root.mkdir()
+    source = root / "input.txt"
+    source.write_text("input\n")
+    executable = root / "generator-tool"
+    executable.write_text("#!/bin/sh\nexit 0\n")
+    executable.chmod(0o755)
+    generator = Generator(executable=str(executable), sources=[source])
+    before = generation_identity(generator, root)
+    executable.write_text("#!/bin/sh\n# changed tool\nexit 0\n")
+    executable.chmod(0o755)
+    assert generation_identity(generator, root) != before
+
+
+@pytest.mark.skipif(os.name == "nt", reason="temporary executable scripts need POSIX execute bits")
+def test_execution_uses_the_same_tool_selected_from_generator_cwd_and_path(tmp_path):
+    from xeda.design import Generator
+
+    root = tmp_path / "design"
+    child_cwd = root / "build"
+    bin_dir = tmp_path / "custom-bin"
+    child_cwd.mkdir(parents=True)
+    bin_dir.mkdir()
+    marker = tmp_path / "selected-tool-ran"
+    executable = bin_dir / "generator-tool"
+    executable.write_text('#!/bin/sh\nprintf ran > "$1"\n')
+    executable.chmod(0o755)
+    generator = Generator(
+        executable="generator-tool",
+        args=[str(marker)],
+        cwd=str(child_cwd),
+        env={"PATH": str(bin_dir)},
+    )
+    assert generator.execution_executable_path(root) == executable.resolve()
+    generator.run()
+    assert marker.read_text() == "ran"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="temporary executable scripts need POSIX execute bits")
+def test_generator_execution_preserves_a_symlink_executable_alias_in_argv0(tmp_path):
+    from xeda.design import Generator
+
+    root = tmp_path / "design"
+    root.mkdir()
+    marker = tmp_path / "argv0"
+    target = root / "real-tool"
+    target.write_text('#!/bin/sh\nprintf "%s" "$0" > "$1"\n')
+    target.chmod(0o755)
+    alias = root / "tool-alias"
+    alias.symlink_to(target)
+    generator = Generator(executable=str(alias), args=[str(marker)])
+
+    assert generator.execution_executable_path(root) == alias
+    generator.run()
+    assert marker.read_text() == str(alias)
+
+
+def test_process_generation_resolves_relative_design_root_before_changing_directory(
+    tmp_path, monkeypatch
+):
+    from xeda.design import Design
+
+    (tmp_path / "design").mkdir()
+    monkeypatch.chdir(tmp_path)
+    Design.process_generation({"design_root": Path("design"), "rtl": {"generator": "true"}})
+
+
+@pytest.mark.skipif(os.name == "nt", reason="temporary executable scripts need POSIX execute bits")
+def test_chisel_identity_and_run_share_the_selected_mill_and_bloop_commands(tmp_path, monkeypatch):
+    from xeda.design import ChiselGenerator
+    from xeda.generation import generation_identity
+
+    root = tmp_path / "design"
+    root.mkdir()
+    source = root / "build.sc"
+    source.write_text("// build\n")
+    mill = root / "mill"
+    mill.write_text("#!/bin/sh\nexit 0\n")
+    mill.chmod(0o755)
+    mill_generator = ChiselGenerator(
+        build_system="mill", project="core", cwd=str(root), sources=[source]
+    )
+    mill_command = mill_generator.execution_command(root)
+    assert mill_command == ["./mill", "core.run"]
+    assert mill_generator.execution_executable_path(root) == mill.resolve()
+    ran = []
+    monkeypatch.setattr(
+        ChiselGenerator, "run_cmd", lambda self, command, **_kwargs: ran.append(command)
+    )
+    mill_generator.run_mill()
+    assert ran == [mill_command]
+    old_identity = generation_identity(mill_generator, root)
+    mill.write_text("#!/bin/sh\n# changed\nexit 0\n")
+    mill.chmod(0o755)
+    assert generation_identity(mill_generator, root) != old_identity
+
+    bin_dir = root / "bin"
+    bin_dir.mkdir()
+    bloop = bin_dir / "bloop"
+    bloop.write_text("#!/bin/sh\nexit 0\n")
+    bloop.chmod(0o755)
+    bloop_generator = ChiselGenerator(
+        build_system="bloop",
+        project="core",
+        cwd=str(root),
+        env={"PATH": str(bin_dir)},
+        sources=[source],
+    )
+    bloop_command = bloop_generator.execution_command(root)
+    assert bloop_command == ["bloop", "run", "core"]
+    assert bloop_generator.execution_executable_path(root) == bloop.resolve()
+    ran.clear()
+    bloop_generator.run_bloop()
+    assert ran == [bloop_command]
+
+
 def test_the_environment_the_generator_inherits_is_not_part_of_the_record(tmp_path, monkeypatch):
     """`process_generation` completes a generator with this shell's whole environment before it
     runs it; a record named by that would be reusable from no other shell, and xeda tracks no
@@ -255,6 +520,79 @@ def test_a_change_to_an_installed_package_the_generator_reads_runs_it_again(tmp_
     world.load()
     assert world.runs == 2, "a package the generator reads changed, and it generated the same file"
     assert world.generated.read_text() == "// one\n"
+
+
+def test_a_symlinked_directory_in_an_installed_package_is_digested(tmp_path, monkeypatch):
+    package = _installed_package(tmp_path, monkeypatch)
+    external = tmp_path / "external_models"
+    external.mkdir()
+    model = external / "model.py"
+    model.write_text("VALUE = 1\n")
+    (package / "models").symlink_to(external, target_is_directory=True)
+    world = World(tmp_path, packages=["generated_from"])
+    world.load()
+    model.write_text("VALUE = 2\n")
+    _another_process()
+    world.load()
+    assert world.runs == 2
+
+
+def test_a_dotted_package_lookup_does_not_execute_parent_initializers(tmp_path, monkeypatch):
+    site = tmp_path / "site"
+    parent = site / "review_parent"
+    child = parent / "child"
+    child.mkdir(parents=True)
+    marker = tmp_path / "parent-ran"
+    (parent / "__init__.py").write_text(
+        "from pathlib import Path\nPath(%r).write_text('ran')\n" % str(marker)
+    )
+    (child / "__init__.py").write_text("VALUE = 1\n")
+    monkeypatch.syspath_prepend(str(site))
+    world = World(tmp_path, packages=["review_parent.child"])
+    with pytest.raises(DesignValidationError, match="Cannot plan a design that needs a generator"):
+        world.load(planning=True)
+    assert not marker.exists()
+
+
+def test_a_dotted_editable_package_is_resolved_through_meta_path_without_import(
+    tmp_path, monkeypatch
+):
+    from importlib.machinery import ModuleSpec
+
+    from xeda.digest import package_locations
+
+    package_root = tmp_path / "mapped-package"
+    child = package_root / "child"
+    child.mkdir(parents=True)
+    marker = tmp_path / "editable-parent-ran"
+    (package_root / "__init__.py").write_text(
+        "from pathlib import Path\nPath(%r).write_text('ran')\n" % str(marker)
+    )
+    (child / "__init__.py").write_text("VALUE = 1\n")
+
+    class EditableFinder:
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname == "editable_example":
+                spec = ModuleSpec(fullname, loader=None, is_package=True)
+                spec.submodule_search_locations = [str(package_root)]
+                return spec
+            return None
+
+    monkeypatch.setattr(sys, "meta_path", [EditableFinder(), *sys.meta_path])
+    assert package_locations("editable_example.child") == [child.resolve()]
+    assert not marker.exists()
+
+
+def test_a_dotted_namespace_package_is_resolved_without_importing_parents(tmp_path, monkeypatch):
+    from xeda.digest import package_locations
+
+    site = tmp_path / "site"
+    leaf = site / "review_namespace" / "child" / "leaf"
+    leaf.mkdir(parents=True)
+    (leaf / "__init__.py").write_text("VALUE = 1\n")
+    monkeypatch.syspath_prepend(str(site))
+    assert package_locations("review_namespace.child.leaf") == [leaf.resolve()]
+    assert "review_namespace" not in sys.modules
 
 
 def test_a_file_added_to_an_installed_package_runs_the_generator_again(tmp_path, monkeypatch):
@@ -450,6 +788,22 @@ def test_a_record_of_another_format_or_a_damaged_one_runs_the_generator(tmp_path
     record.write_text(": not yaml :\n[")
     world.load()
     assert world.runs == 3
+
+
+def test_a_record_with_non_string_output_parts_runs_the_generator(tmp_path):
+    world = World(tmp_path)
+    world.load()
+    [record] = world.records()
+    data = yaml.safe_load(record.read_text())
+    data["outputs"] = [[["not-a-name"], "not-a-digest"]]
+    record.write_text(yaml.safe_dump(data))
+    world.load()
+    assert world.runs == 2
+    data = yaml.safe_load(record.read_text())
+    data["outputs"] *= 2
+    record.write_text(yaml.safe_dump(data))
+    world.load()
+    assert world.runs == 3, "duplicate output names are a malformed record"
 
 
 def test_a_record_is_never_reached_through_a_link(tmp_path):

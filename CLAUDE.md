@@ -722,15 +722,20 @@ made at *design-load* time, before any flow, run directory or trace exists. `pro
 asks `judging_generation`, which hashes the generator's configuration **as the design states it**
 (never the working directory and whole environment the loader completes it with: a record must be
 reusable from another shell, and xeda tracks no environment variable), the content of every file
-of `generator.sources`, and the digest of every installed Python package `generator.packages`
-names (`digest.installed_package_digest` over `package_locations`/`package_files`/`digest_files`,
-the helpers `trace_inputs.xeda_code_digest` shares -- once per process; a package nothing provides
-is an error naming it). That identity names an entry under `<run root>/.cache/generators/`
+of `generator.sources`, the selected direct executable, and the digest of every installed Python
+package `generator.packages` names (`digest.installed_package_digest` over
+`package_locations`/`package_files`/`digest_files`, the helpers `trace_inputs.xeda_code_digest`
+shares -- once per process; a package nothing provides is an error naming it). That identity
+names an entry under `<run root>/.cache/generators/`
 holding the digest of every source the last generation left (`generated_sources` when the
 generator writes only some of `rtl.sources`, else every one of them), written with
 `replacing_file` under the entry's own `run_dir_lock`, exactly as `xilinx.prepare_chipdb` keeps a
-chip database. Metadata is trusted nowhere here: `FileRecord.trusted` needs the time a record was
-taken from the file's own file system (`digest.filesystem_time_ns` writes a marker in the
+chip database. On POSIX, a read-only lock on the resolved design-root directory serializes first
+generation and differing input identities for that same tree without a sidecar or an early run
+root. It does not coordinate separate roots that write to a shared external output; Windows
+follows the existing no-interprocess-lock policy. Indirect tools and dependencies remain outside
+the executable identity. Metadata is trusted nowhere here: `FileRecord.trusted` needs the time a
+record was taken from the file's own file system (`digest.filesystem_time_ns` writes a marker in the
 directory it reads), and neither the design's tree nor an installed package is xeda's to write
 in -- so every input is hashed, a `touch`/`chmod`/`cp -p` costs a hash rather than a re-run, and
 an edit given back its old mtime is caught. **Where the run root comes from at load time**: the
@@ -781,8 +786,10 @@ current run lock to avoid cross-variant deadlocks. DSE purge also takes the excl
 `--remote` always mirrors into the hashed layout
 (`<flow>_<flowrun_hash>`, the requested node's identity in the plan this side resolved, which
 the remote's `flow_hash` must equal; `RemoteRunner.Settings.hashed_run_dirs`, `Literal[True]` as `Dse`'s), so
-remote runs of different settings never share a directory, and refuses `--rebuild-all`, `--clean`
-and `--hashed-run-dirs` alike (a remote run always runs fresh); it also refuses a deliverable
+remote runs of different settings never share a directory, and refuses `--clean` and
+`--hashed-run-dirs` (a remote flow always runs fresh). `--rebuild-all` forces local generator
+loading before shipping, while the remote flow remains fresh; the remote runner's default clean
+setting does not force local generation on ordinary invocations. It also refuses a deliverable
 setting given as a location before shipping anything, and delivers `--outputs-to` only after a run
 that succeeded, from the fetched artifacts in its local (always hashed) mirror. From its first write
 to the mirror to that delivery it holds the mirror's `run_dir_lock`, as a local launch of the same

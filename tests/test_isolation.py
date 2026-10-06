@@ -1227,6 +1227,12 @@ REVIEWED_WRITES = [
         "the lock file beside a run directory, in the run root: opened to be locked, not written",
     ),
     (
+        "flow_runner/run_lock.py",
+        "descriptor = os.open(root, os.O_RDONLY)",
+        "a read-only descriptor on the existing design-root directory, used for its POSIX "
+        "generator lease and inode identity check; it creates no file and writes nothing",
+    ),
+    (
         "flow_runner/trace.py",
         "fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)",
         "the trace's temporary, created exclusively (an existing entry is refused)",
