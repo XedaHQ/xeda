@@ -1836,7 +1836,7 @@ def test_the_mirror_of_a_declared_flow_is_named_by_its_plan_identity(tmp_path, m
     class _Named(Exception):
         pass
 
-    def named(self, design_name, flow_name, identity):
+    def named(self, design_name, flow_name, identity, *, target=None):
         raise _Named(identity)
 
     monkeypatch.setattr(RemoteRunner, "get_flow_run_path", named)

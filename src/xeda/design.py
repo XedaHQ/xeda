@@ -1841,6 +1841,24 @@ def _spell_as(base: dict[str, Any], overlay: dict[str, Any], model: type[XedaBas
             overlay[ours] = overlay.pop(key)
 
 
+def target_name_problem(name: Any) -> str | None:
+    """Why `name` cannot name a target, or None. A target's run directories are
+    `<run root>/<design>/<name>/<flow>`, so it is a name (as a design's is) that is no flow's: the
+    flows' own directories lie beside it. The loader and the launcher's path boundary
+    (`DefaultRunner.run_path_of`) judge a name by this one rule."""
+    if not isinstance(name, str) or not DESIGN_NAME.fullmatch(name):
+        return (
+            f"{name!r} is not a target name: it names the target's run directories, so it "
+            "starts with a letter and holds only letters, digits, `_` and `-`"
+        )
+    if _names_a_flow(name):
+        return (
+            f"{name!r} is the name of a flow, and a target's run directories lie beside "
+            "the flows' own: give the target another name"
+        )
+    return None
+
+
 def _names_a_flow(name: str) -> bool:
     """Whether `name` is a registered flow's name or alias, as the command line would take it
     (dashes for underscores, any letter case)."""
@@ -2005,6 +2023,15 @@ class Design(XedaBaseModel):
                 f"`targets` is a table of named targets (`targets.<name>`), got {type(targets).__name__}",
             )
         overlays = {name: cls._target_overlay(name, overlay) for name, overlay in targets.items()}
+        folded: dict[str, str] = {}
+        for name in overlays:
+            other = folded.setdefault(name.casefold(), name)
+            if other != name:
+                raise invalid(
+                    "targets",
+                    f"the targets {other!r} and {name!r} differ only in letter case: their run "
+                    "directories would be one on a file system that ignores it",
+                )
         names = ", ".join(overlays)
         if target is None:
             if len(overlays) > 1:
@@ -2047,18 +2074,9 @@ class Design(XedaBaseModel):
         def invalid(key: str | None, msg: str) -> DesignValidationError:
             return DesignValidationError([(f"{loc}.{key}" if key else loc, msg, "", "value_error")])
 
-        if not isinstance(name, str) or not DESIGN_NAME.fullmatch(name):
-            raise invalid(
-                None,
-                f"{name!r} is not a target name: it names the target's run directories, so it "
-                "starts with a letter and holds only letters, digits, `_` and `-`",
-            )
-        if _names_a_flow(name):
-            raise invalid(
-                None,
-                f"{name!r} is the name of a flow, and a target's run directories lie beside "
-                "the flows' own: give the target another name",
-            )
+        problem = target_name_problem(name)
+        if problem is not None:
+            raise invalid(None, problem)
         if not isinstance(overlay, Mapping):
             raise invalid(
                 None,

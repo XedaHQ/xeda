@@ -38,7 +38,9 @@ def _plan(tmp_path: Path, flow_cls, settings=None, sections=None, sources=(), **
         runner_cwd=tmp_path,
         run_root=tmp_path / "run",
         hashed_run_dirs=False,
-        run_path=lambda design_name, node, identity: tmp_path / "run" / design_name / node,
+        run_path=lambda design_name, node, identity, target=None: (
+            tmp_path / "run" / design_name / node
+        ),
         **kwargs,
     )
 
@@ -322,7 +324,7 @@ def test_deep_plan_protection_and_resolution_purity(tmp_path):
         runner_cwd=tmp_path,
         run_root=tmp_path / "run",
         hashed_run_dirs=True,
-        run_path=lambda d, n, h: tmp_path / "run" / d / f"{n}_{h}",
+        run_path=lambda d, n, h, target=None: tmp_path / "run" / d / f"{n}_{h}",
         origins=[("design.toml", sections)],
         debug=True,
     )

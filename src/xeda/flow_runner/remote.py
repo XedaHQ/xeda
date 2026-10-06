@@ -1056,9 +1056,11 @@ class RemoteRunner(FlowLauncher):
         # as a local run counts the design: by the parts the flow reads
         design_hash = design.parts_hash(flow_class.design_parts)
         outputs_to = self.settings.outputs_to
-        # the local mirror: always `<design>/<flow>_<flowrun_hash>` (`Settings.hashed_run_dirs`),
-        # so its delivery record is this settings variant's
-        run_path = self.get_flow_run_path(design.name, flow_name, flowrun_hash)
+        # the local mirror: always `<design>[/<target>]/<flow>_<flowrun_hash>`
+        # (`Settings.hashed_run_dirs`), so its delivery record is this settings variant's
+        run_path = self.get_flow_run_path(
+            design.name, flow_name, flowrun_hash, target=design.target
+        )
         # every input this side can name, as a local launch has them: never a destination
         launch_inputs = [
             path.resolve()
