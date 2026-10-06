@@ -30,6 +30,11 @@ ruff check src tests                 # .ruff.toml, line-length 120
 tox -e docs                          # Sphinx docs, warnings are errors (-W -n); also a CI job
 ```
 
+CI also runs a `macos` job (`ci.yml`: macOS, Python 3.11, no EDA tool, so the tool-dependent
+tests skip) on the test files whose code differs by operating system: file locks, process
+groups, pseudo-terminals, file copying, file-system clocks, links. Its file list says why each
+file is there; a new test of such code goes into that list.
+
 **The suite is safe to run in parallel** (`pytest-xdist`, in the `dev` group; tox and CI use
 `-n auto`), with outcomes identical to a serial run (checked on the full suite with the real
 tools; about 8000 tests, which `-n auto` runs in about 9 minutes on 10 cores). Each test works under
