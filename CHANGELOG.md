@@ -92,8 +92,9 @@ All notable changes to this project will be documented in this file.
   leaves the script to the synthesis pass and adds no clock-derived delay. `abc9_script` selects
   one of Yosys' installed scripts (`default`, `default.area`, `default.fast`, `flow`, `flow2`,
   `flow3` or `flow3mfs`) in either mode when ABC9 mapping is enabled; the legacy `flow3` setting
-  remains supported, but cannot be combined with `abc9_script`. Settings that add Xeda stages
-  before or after the pass are rejected in pass-only mode. This mode alone does not guarantee the
+  remains supported, but cannot be combined with `abc9_script`. Settings that add Xeda stages or
+  separate post-pass operations, including `rmports`, are rejected in pass-only mode. This mode
+  alone does not guarantee the
   same result as a native Yosys command: comparisons must match the installed Yosys, source paths and order, reader and
   flags, parameters, synthesis-pass flags and ABC9 script. It makes those comparisons useful for
   isolating Xeda's surrounding stages, without making a netlist quality claim.

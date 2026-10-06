@@ -527,6 +527,13 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                         "`read_verilog` renumbers the cells the pass names",
                     )
                 )
+            if self.rmports:
+                conflicts.append(
+                    (
+                        "rmports",
+                        runs_a_pass + "remove ports with the separate `rmports` pass",
+                    )
+                )
             # `sta` and `ltp` also make `Yosys.init` set `flatten`, which would add `-flatten` to
             # the pass: a setting xeda's own code writes escapes this list by construction, so
             # the user's own request for either is what is refused here.

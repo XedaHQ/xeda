@@ -447,7 +447,7 @@ silently ignored:
 
 ``prep``, ``pre_synth_opt``, ``post_synth_opt``, ``splitnets``, ``post_synth_rename``,
 ``black_box``, ``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``clockgate_map``,
-``stop_after``, ``rtl_json``, ``rtl_verilog``, ``rtl_graph``, ``sta`` and ``ltp``.
+``rmports``, ``stop_after``, ``rtl_json``, ``rtl_verilog``, ``rtl_graph``, ``sta`` and ``ltp``.
 
 The default ABC9 behavior depends on the mode. In the full Xeda recipe, an unset ABC9 script
 selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay. In pass-only mode,

@@ -1282,7 +1282,7 @@ dependency must also share `custom_boards_file`.
   settings and flags, design parameters, `synth_flags`, and explicit ABC9 script selection still
   apply in both modes. Settings that add Xeda stages (`prep`, `pre_synth_opt`, `post_synth_opt`,
   `splitnets`, `post_synth_rename`, `black_box`, `keep_hierarchy`, `set_attribute`,
-  `set_mod_attribute`, `clockgate_map`, `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`, `sta`,
+  `set_mod_attribute`, `clockgate_map`, `rmports`, `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`, `sta`,
   `ltp`) remain refused by `Settings.synth_pass_only_conflicts()`, checked during planning and
   again in `run()` after initialization has folded design attributes into settings. Keep reader
   choices separate from those conflicts: `YosysFpga.Settings.read_verilog_flags` defaults to

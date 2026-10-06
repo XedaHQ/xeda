@@ -357,6 +357,7 @@ CONFLICTS = {
     "set_attribute": {"keep": {"top": "true"}},
     "set_mod_attribute": {"keep_hierarchy": {"leaf": 1}},
     "clockgate_map": "clock_gates.v",
+    "rmports": True,
     "stop_after": "rtl",
     "rtl_json": "rtl.json",
     "rtl_verilog": "rtl.v",

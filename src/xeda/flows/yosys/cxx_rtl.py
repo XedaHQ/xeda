@@ -138,7 +138,9 @@ class YosysSim(YosysBase, SimFlow):
         self.results["_tool"] = yosys.info  # TODO where should this go?
         yosys.run(*args)
 
-        yosys_config = yosys.derive("yosys-config", sibling=True, redirect_stdout=None)
+        yosys_config = yosys.derive(
+            "yosys-config", sibling=True, source_name="yosys", redirect_stdout=None
+        )
         yosys_include_dir = yosys_config.probe_stdout("--datdir/include")
         if not yosys_include_dir:
             raise FlowFatalError("yosys-config did not report its include directory.")
