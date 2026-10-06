@@ -193,6 +193,13 @@ REVIEWED_DELTAS["openroad_dont_use_cells"][
     "in its merge beside the platform's, instead of handing it a library already merged"
 )
 
+# Task 6 (c): the platform-plus-setting union is a template global rather than a
+# stored setting. All four set_dont_use commands and merged-lib bytes still compare.
+for _name in REVIEWED_RENAMES:
+    REVIEWED_DELTAS[_name][
+        ("nodes", _OPENROAD, "effective_flow_settings", "dont_use_cells")
+    ] = "PCD16: keep the user's setting; compute the platform union where the merge and Tcl use it"
+
 #: Fields of `results.json` that name the run rather than what it did.
 IDENTITY_AND_TIMING = {"design_hash", "flow_hash", "settings_hash", "runtime", "timestamp"}
 

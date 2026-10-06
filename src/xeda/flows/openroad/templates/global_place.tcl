@@ -1,5 +1,5 @@
 
-set_dont_use {{settings.dont_use_cells|tcl_list}}
+set_dont_use {{dont_use_cells()|tcl_list}}
 
 # set fastroute layer reduction
 {% if platform.fastroute_tcl %}

@@ -9,7 +9,7 @@ place_pins -hor_layer {{platform.io_placer_h}} -ver_layer {{platform.io_placer_v
 
 {% if not settings.macro_placement_file %}
 {{ section("tdms_place") }}
-set_dont_use {{settings.dont_use_cells|tcl_list}}
+set_dont_use {{dont_use_cells()|tcl_list}}
 
 set macros_found [find_macros]
 
