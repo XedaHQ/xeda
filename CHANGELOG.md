@@ -285,8 +285,14 @@ All notable changes to this project will be documented in this file.
   and under every target, as found on disk (no design file is read; run directories of other
   flows are never searched). The directories are listed and confirmed once. `--json` gains
   `target`, and `scrubbed` now lists the run directories removed (it listed the design's directory).
-  A directory that has come to lead out of the run root while scrub waited for its lock is
-  refused rather than removed.
+  A directory that is no longer what was listed once scrub holds its lock (replaced, renamed,
+  turned into a link, or out of the run root) is refused rather than removed.
+- **A run directory's lock file is `<run dir>.lock` beside the run directory, whatever it has
+  become**: the parent is resolved, the last component never is, so a run directory replaced by
+  a link no longer sends the lock file to the link's target. The launcher, remote runner, DSE
+  purge and scrub also refuse to lock a directory reached through a link out of the run root.
+  The names of removed flows (`open_xc7`, `openxc7`, in any spelling) are refused as target
+  names, as flows' are, since their legacy run directories may be under `<design>/`.
 - **Delivery and `replacing_copy` use the platform's copy primitive** instead of a hand-written
   byte loop: `fcopyfile` on macOS, `copy_file_range` then `sendfile` on Linux, between the two open
   descriptors the atomic write needs, looped until the whole file is copied. Any failure,

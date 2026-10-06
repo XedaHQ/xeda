@@ -238,7 +238,20 @@ def test_a_run_directory_holding_no_documents_is_still_no_target(tmp_path, confi
 
 @pytest.mark.parametrize(
     "target",
-    ["../x", "a/b", "", "has space", "1st", "..", ".", FLOW, "VivadoSynth", "vivado-synth"],
+    [
+        "../x",
+        "a/b",
+        "",
+        "has space",
+        "1st",
+        "..",
+        ".",
+        FLOW,
+        "VivadoSynth",
+        "vivado-synth",
+        "open_xc7",
+        "OpenXC7",
+    ],
 )
 def test_a_target_that_is_no_name_is_refused_before_anything_is_looked_at(
     tmp_path, confirmations, target
@@ -318,19 +331,94 @@ def test_a_directory_replaced_by_a_link_after_it_was_listed_is_not_removed(
     victim = tree.a[0]
     real_lock = default_runner.run_dir_lock
 
-    def swapping(path):
+    def swapping(path, *args, **kwargs):
         if Path(path) == victim and not victim.is_symlink():
             for entry in sorted(victim.iterdir()):
                 entry.unlink()
             victim.rmdir()
             victim.symlink_to(canary, target_is_directory=True)
-        return real_lock(path)
+        return real_lock(path, *args, **kwargs)
 
     monkeypatch.setattr(default_runner, "run_dir_lock", swapping)
     result, document = scrub(tmp_path, "--target", "a")
     assert result.exit_code == 1, result.output
     assert document["success"] is False and document["error"]["type"] == "RunDirectoryError"
     assert canary.exists() and (canary / "out.txt").read_text() == "output\n"
+    assert sorted(p.name for p in canary.parent.iterdir()) == ["other"], "no lock file outside"
+
+
+def test_a_candidate_replaced_by_another_directory_is_not_removed(
+    tmp_path, confirmations, monkeypatch
+):
+    """Under the lock the candidate is judged again, down to its identity: a different
+    directory of the same name (another run's, made meanwhile) is not what was listed."""
+    tree = Tree(tmp_path)
+    victim = tree.a[0]
+    real_lock = default_runner.run_dir_lock
+
+    def swapping(path, *args, **kwargs):
+        if Path(path) == victim and not getattr(swapping, "done", False):
+            swapping.done = True
+            default_runner.RunDirectory.claimed(victim, tree.root).delete()
+            run_dir(victim)
+            (victim / "out.txt").write_text("a newer run\n")
+        return real_lock(path, *args, **kwargs)
+
+    monkeypatch.setattr(default_runner, "run_dir_lock", swapping)
+    result, document = scrub(tmp_path, "--target", "a")
+    assert result.exit_code == 1, result.output
+    assert document["error"]["type"] == "RunDirectoryError"
+    assert (victim / "out.txt").read_text() == "a newer run\n"
+
+
+def test_a_candidate_replaced_by_a_link_to_a_directory_inside_the_root_is_not_removed(
+    tmp_path, confirmations, monkeypatch
+):
+    tree = Tree(tmp_path)
+    victim, other = tree.a[0], tree.b[0]
+    real_lock = default_runner.run_dir_lock
+
+    def swapping(path, *args, **kwargs):
+        if Path(path) == victim and not victim.is_symlink():
+            default_runner.RunDirectory.claimed(victim, tree.root).delete()
+            victim.symlink_to(other, target_is_directory=True)
+        return real_lock(path, *args, **kwargs)
+
+    monkeypatch.setattr(default_runner, "run_dir_lock", swapping)
+    result, document = scrub(tmp_path, "--target", "a")
+    assert result.exit_code == 1, result.output
+    assert document["error"]["type"] == "RunDirectoryError"
+    assert (other / "out.txt").exists() and victim.is_symlink()
+
+
+def test_a_lock_is_made_beside_the_run_directory_never_beside_what_a_link_leads_to(tmp_path):
+    from xeda.flow_runner.run_lock import lock_file, run_dir_lock
+
+    tree = Tree(tmp_path)
+    outside = tmp_path / "outside"
+    run_dir(outside / "other")
+    before = sorted(p.name for p in outside.iterdir())
+    link = tree.design / "b" / f"{FLOW}_cccccccccccccccc"
+    link.symlink_to(outside / "other", target_is_directory=True)
+    assert lock_file(link) == tree.design.resolve() / "b" / f"{link.name}.lock"
+    with run_dir_lock(link, run_root=tree.root):
+        pass
+    assert sorted(p.name for p in outside.iterdir()) == before
+    assert (tree.design / "b" / f"{link.name}.lock").is_file()
+
+
+def test_a_run_directory_reached_through_a_link_out_of_the_run_root_is_not_locked(tmp_path):
+    from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
+
+    tree = Tree(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tree.design / "out").symlink_to(outside, target_is_directory=True)
+    for lock in (run_dir_lock, run_dir_read_lock):
+        with pytest.raises(RunDirectoryError, match="run root"):
+            with lock(tree.design / "out" / FLOW, run_root=tree.root):
+                pytest.fail("locked")
+    assert list(outside.iterdir()) == []
 
 
 def test_scrub_waits_for_a_reader_and_judges_the_directory_again_afterwards(
