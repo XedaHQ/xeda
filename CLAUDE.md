@@ -961,7 +961,7 @@ and `test_nvc.py` simulate the examples in place.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
   keys. **Requirement: a remote runs a P3-capable build (this branch or newer)**: release line
   `REMOTE_XEDA_MIN_VERSION = (0, 4, 4)` (including `0.4.4.devN+g...`) and
-  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 6: protocol 2 adds
+  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 7: protocol 2 adds
   canonical resolved settings, relocated read inputs with their original path identities, declared
   output records and checked hand-over; protocol 3 requires remote simulations to satisfy P1b's
   current-run evidence rule; protocol 4 adds P2b's FPGA build graph, the `fpga_pack` flow;
@@ -969,7 +969,10 @@ and `test_nvc.py` simulate the examples in place.
   protocol 6 requires the D-9 identity rule: a node's `flow_hash` is its settings plus its ordered
   resolved input origins, the hash `RemoteRunner` names the mirror by and compares with the
   remote's reported `flow_hash`, so a protocol-5 remote is refused up front, not accepted and
-  then failed on a hash mismatch it cannot explain; `tests/test_remote_streaming.py` and
+  then failed on a hash mismatch it cannot explain; protocol 7: `vivado_synth` and
+  `vivado_alt_synth` declare their outputs and gain `write_timing_netlist`, so a protocol-6
+  remote would refuse the setting and resolve those flows, undeclared, to another identity;
+  `tests/test_remote_streaming.py` and
   `tests/test_remote_run.py` pin the refusal).
   `check_remote_xeda` refuses xeda 0.4.3 and development checkouts without the capability with an
   "upgrade the remote xeda" error before anything ships. Version alone does not prove protocol
